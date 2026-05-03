@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   CrosshairMode,
   createChart,
 } from "lightweight-charts";
 import type {
-  CandlestickData,
   IChartApi,
   IPriceLine,
   ISeriesApi,
@@ -14,13 +13,33 @@ import type {
   UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle, Execution, Order, Position } from "../lib/api";
+import {
+  aggregateBars,
+  bucketTime,
+  buildIndicatorDefinitions,
+  latestIndicatorValue,
+  rsiSeries,
+  toCandles,
+  type ChartDrawing,
+  type ChartIndicatorId,
+  type ChartTimeframe,
+  type DrawingPoint,
+  type DrawingTool,
+} from "../lib/charting";
 import { formatPrice } from "../lib/format";
 
 type Props = {
+  activeIndicators: ChartIndicatorId[];
   bars: Candle[];
+  drawingTool: DrawingTool;
+  drawings: ChartDrawing[];
   executions: Execution[];
+  onAddDrawing: (drawing: ChartDrawing) => void;
   orders: Order[];
   position: Position | null;
+  showOrderOverlays: boolean;
+  smoothCandles: boolean;
+  timeframe: ChartTimeframe;
 };
 
 type TooltipData = {
@@ -29,63 +48,90 @@ type TooltipData = {
   candle: Candle;
 };
 
-export function TradingChart({ bars, executions, orders, position }: Props) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+type DraftDrawing = {
+  tool: Exclude<DrawingTool, "cursor" | "crosshair">;
+  point: DrawingPoint;
+};
+
+const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
+  trendline: "#32d3ee",
+  horizontal: "#f59e0b",
+  rectangle: "#a78bfa",
+  fib: "#22c55e",
+};
+
+export function TradingChart({
+  activeIndicators,
+  bars,
+  drawingTool,
+  drawings,
+  executions,
+  onAddDrawing,
+  orders,
+  position,
+  showOrderOverlays,
+  smoothCandles,
+  timeframe,
+}: Props) {
+  const chartFrameRef = useRef<HTMLDivElement | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const ema20Ref = useRef<ISeriesApi<"Line"> | null>(null);
-  const ema50Ref = useRef<ISeriesApi<"Line"> | null>(null);
+  const indicatorRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Candle[]>([]);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
+  const [plotVersion, setPlotVersion] = useState(0);
   const tooltipStyle = tooltip
-    ? getTooltipStyle(tooltip, containerRef.current)
+    ? getTooltipStyle(tooltip, chartFrameRef.current)
     : undefined;
 
-  const candleData = useMemo<CandlestickData[]>(
-    () =>
-      bars.map((bar) => ({
-        time: bar.time as UTCTimestamp,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-      })),
-    [bars],
+  const displayBars = useMemo(
+    () => aggregateBars(bars, timeframe),
+    [bars, timeframe],
   );
 
-  const ema20 = useMemo<LineData[]>(
-    () =>
-      bars
-        .filter((bar) => bar.ema_20 != null)
-        .map((bar) => ({
-          time: bar.time as UTCTimestamp,
-          value: bar.ema_20 as number,
-        })),
-    [bars],
+  const candleData = useMemo(
+    () => toCandles(displayBars, smoothCandles),
+    [displayBars, smoothCandles],
   );
 
-  const ema50 = useMemo<LineData[]>(
+  const indicatorDefinitions = useMemo(
+    () => buildIndicatorDefinitions(displayBars, activeIndicators),
+    [activeIndicators, displayBars],
+  );
+
+  const rsiData = useMemo(
+    () => (activeIndicators.includes("rsi14") ? rsiSeries(displayBars) : []),
+    [activeIndicators, displayBars],
+  );
+  const activeOverlayIndicators = indicatorDefinitions.filter(
+    (indicator) => indicator.data.length > 0,
+  );
+  const drawingElements = useMemo(
     () =>
-      bars
-        .filter((bar) => bar.ema_50 != null)
-        .map((bar) => ({
-          time: bar.time as UTCTimestamp,
-          value: bar.ema_50 as number,
-        })),
-    [bars],
+      buildDrawingElements({
+        chart: chartRef.current,
+        drawings,
+        draftDrawing,
+        frame: chartFrameRef.current,
+        series: candlesRef.current,
+        version: plotVersion,
+      }),
+    [drawings, draftDrawing, plotVersion],
   );
 
   useEffect(() => {
-    barsRef.current = bars;
-  }, [bars]);
+    barsRef.current = displayBars;
+  }, [displayBars]);
 
   useEffect(() => {
-    if (!containerRef.current) {
+    if (!chartContainerRef.current) {
       return;
     }
 
-    const chart = createChart(containerRef.current, {
+    const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { color: "#0d1117" },
         textColor: "#a8b3c7",
@@ -122,67 +168,84 @@ export function TradingChart({ bars, executions, orders, position }: Props) {
         minMove: 0.00001,
       },
     });
-    const ema20Series = chart.addLineSeries({
-      color: "#32d3ee",
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
-      },
-    });
-    const ema50Series = chart.addLineSeries({
-      color: "#f59e0b",
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
-      },
-    });
+
+    const refreshDrawingLayer = () => {
+      setPlotVersion((value) => value + 1);
+    };
 
     chartRef.current = chart;
     candlesRef.current = candles;
-    ema20Ref.current = ema20Series;
-    ema50Ref.current = ema50Series;
 
     chart.subscribeCrosshairMove((param) => {
       setTooltip(resolveTooltip(param, barsRef.current));
     });
+    chart.timeScale().subscribeVisibleLogicalRangeChange(refreshDrawingLayer);
+    window.addEventListener("resize", refreshDrawingLayer);
 
     return () => {
+      window.removeEventListener("resize", refreshDrawingLayer);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(refreshDrawingLayer);
       chart.remove();
       chartRef.current = null;
       candlesRef.current = null;
-      ema20Ref.current = null;
-      ema50Ref.current = null;
+      indicatorRefs.current = {};
     };
   }, []);
 
   useEffect(() => {
     candlesRef.current?.setData(candleData);
-    ema20Ref.current?.setData(ema20);
-    ema50Ref.current?.setData(ema50);
-    if (bars.length > 0) {
+    if (displayBars.length > 0) {
       chartRef.current?.timeScale().scrollToRealTime();
     }
-  }, [bars.length, candleData, ema20, ema50]);
+    setPlotVersion((value) => value + 1);
+  }, [candleData, displayBars.length]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+
+    const activeIds = new Set(indicatorDefinitions.map((indicator) => indicator.id));
+    Object.entries(indicatorRefs.current).forEach(([id, series]) => {
+      if (!activeIds.has(id)) {
+        chart.removeSeries(series);
+        delete indicatorRefs.current[id];
+      }
+    });
+
+    indicatorDefinitions.forEach((indicator) => {
+      if (!indicatorRefs.current[indicator.id]) {
+        indicatorRefs.current[indicator.id] = chart.addLineSeries({
+          color: indicator.color,
+          lineWidth: indicator.lineWidth ?? 2,
+          lineStyle: indicator.lineStyle ?? 0,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          priceFormat: {
+            type: "price",
+            precision: 5,
+            minMove: 0.00001,
+          },
+        });
+      }
+      indicatorRefs.current[indicator.id].setData(indicator.data);
+    });
+  }, [indicatorDefinitions]);
 
   useEffect(() => {
     candlesRef.current?.setMarkers(
-      executions.map((execution) => ({
-        time: toChartTime(execution.timestamp),
-        position: execution.side === "BUY" ? "belowBar" : "aboveBar",
-        color: execution.side === "BUY" ? "#22c55e" : "#fb7185",
-        shape: execution.side === "BUY" ? "arrowUp" : "arrowDown",
-        text: `${execution.side} ${formatPrice(execution.price)}`,
-      })),
+      showOrderOverlays
+        ? executions.map((execution) => ({
+            time: bucketTime(toUnixTime(execution.timestamp), timeframe) as UTCTimestamp,
+            position: execution.side === "BUY" ? "belowBar" : "aboveBar",
+            color: execution.side === "BUY" ? "#22c55e" : "#fb7185",
+            shape: execution.side === "BUY" ? "arrowUp" : "arrowDown",
+            text: `${execution.side} ${formatPrice(execution.price)}`,
+          }))
+        : [],
     );
-  }, [executions]);
+  }, [executions, showOrderOverlays, timeframe]);
 
   useEffect(() => {
     const series = candlesRef.current;
@@ -191,6 +254,10 @@ export function TradingChart({ bars, executions, orders, position }: Props) {
     }
     priceLinesRef.current.forEach((line) => series.removePriceLine(line));
     priceLinesRef.current = [];
+
+    if (!showOrderOverlays) {
+      return;
+    }
 
     const addLine = (price: number | null | undefined, color: string, title: string) => {
       if (price == null) {
@@ -223,31 +290,87 @@ export function TradingChart({ bars, executions, orders, position }: Props) {
           `${order.side} ${order.order_type}`,
         );
       });
-  }, [orders, position]);
+  }, [orders, position, showOrderOverlays]);
+
+  useEffect(() => {
+    if (drawingTool === "cursor" || drawingTool === "crosshair") {
+      setDraftDrawing(null);
+    }
+  }, [drawingTool]);
+
+  function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
+    if (drawingTool === "cursor" || drawingTool === "crosshair") {
+      return;
+    }
+    const point = pointFromMouseEvent(event, chartRef.current, candlesRef.current);
+    if (!point) {
+      return;
+    }
+
+    if (drawingTool === "horizontal") {
+      onAddDrawing(makeDrawing("horizontal", [point]));
+      return;
+    }
+
+    if (!draftDrawing || draftDrawing.tool !== drawingTool) {
+      setDraftDrawing({ tool: drawingTool, point });
+      return;
+    }
+
+    onAddDrawing(makeDrawing(drawingTool, [draftDrawing.point, point]));
+    setDraftDrawing(null);
+  }
 
   return (
-    <section className="relative min-h-[560px] min-w-0 overflow-hidden rounded-md border border-white/10 bg-ink-900 shadow-panel">
-      <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
+    <section className="relative min-h-[640px] min-w-0 overflow-hidden rounded-md border border-white/10 bg-ink-900 shadow-panel">
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
         <div>
-          <div className="text-sm font-semibold text-white">EURUSD M1</div>
-          <div className="text-xs text-slate-400">EMA 20 / EMA 50 / Replay levels</div>
+          <div className="text-sm font-semibold text-white">EURUSD {timeframe}</div>
+          <div className="text-xs text-slate-400">
+            {smoothCandles ? "Smooth candles" : "Candles"} / Replay levels / Drawings
+          </div>
         </div>
-        <div className="flex items-center gap-4 text-xs text-slate-400">
-          <span className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-sm bg-cyan-300" />
-            EMA 20
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-sm bg-amber-400" />
-            EMA 50
-          </span>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+          {activeOverlayIndicators.map((indicator) => (
+            <span className="flex items-center gap-2" key={indicator.id}>
+              <span
+                className="h-2 w-2 rounded-sm"
+                style={{ backgroundColor: indicator.color }}
+              />
+              {indicator.label}
+            </span>
+          ))}
+          {rsiData.length > 0 && (
+            <span className="rounded-md bg-fuchsia-300/10 px-2 py-1 text-fuchsia-100">
+              RSI {latestIndicatorValue(rsiData)?.toFixed(1)}
+            </span>
+          )}
         </div>
       </div>
-      <div ref={containerRef} className="h-[calc(100%-3rem)] min-h-[508px]" />
+      <div className="relative">
+        <div ref={chartFrameRef} className="relative min-h-[508px]">
+          <div ref={chartContainerRef} className="h-[508px]" />
+          <div
+            className={`absolute inset-0 z-10 ${drawingTool === "cursor" || drawingTool === "crosshair" ? "pointer-events-none" : "cursor-crosshair"}`}
+            onClick={handleDrawingClick}
+          >
+            <svg className="h-full w-full overflow-visible">
+              {drawingElements}
+            </svg>
+          </div>
+        </div>
+        {rsiData.length > 0 && <RsiPanel data={rsiData} />}
+      </div>
+
+      {drawingTool !== "cursor" && drawingTool !== "crosshair" && (
+        <div className="absolute left-4 top-16 z-20 rounded-md border border-cyan-300/20 bg-ink-950/95 px-3 py-2 text-xs text-cyan-100 shadow-panel">
+          {draftDrawing ? "Click the second anchor" : `Click to place ${toolLabel(drawingTool)}`}
+        </div>
+      )}
 
       {tooltip && (
         <div
-          className="pointer-events-none absolute max-w-[240px] rounded-md border border-white/10 bg-ink-950/95 px-3 py-2 text-xs text-slate-200 shadow-panel"
+          className="pointer-events-none absolute z-30 max-w-[240px] rounded-md border border-white/10 bg-ink-950/95 px-3 py-2 text-xs text-slate-200 shadow-panel"
           style={tooltipStyle}
         >
           <div className="mb-1 font-semibold text-white">
@@ -265,6 +388,206 @@ export function TradingChart({ bars, executions, orders, position }: Props) {
       )}
     </section>
   );
+}
+
+function RsiPanel({ data }: { data: LineData[] }) {
+  const visible = data.slice(-160);
+  const path = toRsiPath(visible, 960, 96);
+  const latest = latestIndicatorValue(data);
+
+  return (
+    <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">RSI 14</span>
+        <span className="text-fuchsia-100">{latest == null ? "—" : latest.toFixed(1)}</span>
+      </div>
+      <div className="h-24 overflow-hidden rounded-md bg-black/20">
+        {visible.length > 1 ? (
+          <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
+            <path d="M 0 28.8 L 960 28.8" stroke="rgba(34, 197, 94, 0.26)" strokeWidth="1" />
+            <path d="M 0 67.2 L 960 67.2" stroke="rgba(251, 113, 133, 0.26)" strokeWidth="1" />
+            <path d={path} fill="none" stroke="#f472b6" strokeWidth="2" />
+          </svg>
+        ) : (
+          <div className="grid h-full place-items-center text-xs text-slate-500">
+            Waiting for enough candles
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function buildDrawingElements({
+  chart,
+  drawings,
+  draftDrawing,
+  frame,
+  series,
+}: {
+  chart: IChartApi | null;
+  drawings: ChartDrawing[];
+  draftDrawing: DraftDrawing | null;
+  frame: HTMLDivElement | null;
+  series: ISeriesApi<"Candlestick"> | null;
+  version: number;
+}) {
+  if (!chart || !series || !frame) {
+    return null;
+  }
+
+  const width = frame.clientWidth;
+  const toPixel = (point: DrawingPoint) => {
+    const x = chart.timeScale().timeToCoordinate(point.time as UTCTimestamp);
+    const y = series.priceToCoordinate(point.price);
+    if (x == null || y == null) {
+      return null;
+    }
+    return { x, y };
+  };
+
+  return (
+    <>
+      {drawings.map((drawing) =>
+        renderDrawing(drawing, toPixel, width),
+      )}
+      {draftDrawing && (
+        <circle
+          cx={toPixel(draftDrawing.point)?.x ?? 0}
+          cy={toPixel(draftDrawing.point)?.y ?? 0}
+          fill={DRAWING_COLORS[draftDrawing.tool]}
+          opacity={0.9}
+          r={4}
+        />
+      )}
+    </>
+  );
+}
+
+function renderDrawing(
+  drawing: ChartDrawing,
+  toPixel: (point: DrawingPoint) => { x: number; y: number } | null,
+  width: number,
+) {
+  const color = drawing.color;
+  if (drawing.tool === "horizontal") {
+    const point = toPixel(drawing.points[0]);
+    if (!point) {
+      return null;
+    }
+    return (
+      <g key={drawing.id}>
+        <line
+          stroke={color}
+          strokeDasharray="5 5"
+          strokeWidth="1.5"
+          x1={0}
+          x2={width}
+          y1={point.y}
+          y2={point.y}
+        />
+        <text fill={color} fontSize="11" x={8} y={point.y - 6}>
+          {formatPrice(drawing.points[0].price)}
+        </text>
+      </g>
+    );
+  }
+
+  const first = toPixel(drawing.points[0]);
+  const second = toPixel(drawing.points[1]);
+  if (!first || !second) {
+    return null;
+  }
+
+  if (drawing.tool === "rectangle") {
+    return (
+      <rect
+        fill={`${color}24`}
+        height={Math.abs(second.y - first.y)}
+        key={drawing.id}
+        stroke={color}
+        strokeWidth="1.5"
+        width={Math.abs(second.x - first.x)}
+        x={Math.min(first.x, second.x)}
+        y={Math.min(first.y, second.y)}
+      />
+    );
+  }
+
+  if (drawing.tool === "fib") {
+    const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const top = first.y;
+    const range = second.y - first.y;
+    const left = Math.min(first.x, second.x);
+    const right = Math.max(first.x, second.x);
+    return (
+      <g key={drawing.id}>
+        {levels.map((level) => {
+          const y = top + range * level;
+          return (
+            <g key={level}>
+              <line
+                stroke={color}
+                strokeOpacity={level === 0 || level === 1 ? 0.9 : 0.55}
+                strokeWidth={level === 0 || level === 1 ? "1.5" : "1"}
+                x1={left}
+                x2={right}
+                y1={y}
+                y2={y}
+              />
+              <text fill={color} fontSize="10" x={right + 6} y={y - 3}>
+                {(level * 100).toFixed(1)}%
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
+  return (
+    <line
+      key={drawing.id}
+      stroke={color}
+      strokeWidth="2"
+      x1={first.x}
+      x2={second.x}
+      y1={first.y}
+      y2={second.y}
+    />
+  );
+}
+
+function pointFromMouseEvent(
+  event: MouseEvent<HTMLDivElement>,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+): DrawingPoint | null {
+  if (!chart || !series) {
+    return null;
+  }
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const time = chart.timeScale().coordinateToTime(x);
+  const price = series.coordinateToPrice(y);
+  if (time == null || price == null || typeof time !== "number") {
+    return null;
+  }
+  return { time, price };
+}
+
+function makeDrawing(
+  tool: DraftDrawing["tool"],
+  points: DrawingPoint[],
+): ChartDrawing {
+  return {
+    id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+    tool,
+    color: DRAWING_COLORS[tool],
+    points,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function getTooltipStyle(tooltip: TooltipData, container: HTMLDivElement | null) {
@@ -294,8 +617,37 @@ function resolveTooltip(
   };
 }
 
-function toChartTime(timestamp: string) {
+function toUnixTime(timestamp: string) {
   const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/.test(timestamp);
   const normalized = hasTimezone ? timestamp : `${timestamp}Z`;
-  return Math.floor(new Date(normalized).getTime() / 1000) as UTCTimestamp;
+  return Math.floor(new Date(normalized).getTime() / 1000);
+}
+
+function toolLabel(tool: DrawingTool) {
+  switch (tool) {
+    case "trendline":
+      return "a trendline";
+    case "horizontal":
+      return "a horizontal level";
+    case "rectangle":
+      return "a zone";
+    case "fib":
+      return "fib anchors";
+    default:
+      return "a drawing";
+  }
+}
+
+function toRsiPath(values: LineData[], width: number, height: number) {
+  if (values.length < 2) {
+    return "";
+  }
+  const step = width / (values.length - 1);
+  return values
+    .map((point, index) => {
+      const x = index * step;
+      const y = height - (Number(point.value) / 100) * height;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
 }

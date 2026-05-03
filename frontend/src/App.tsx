@@ -30,7 +30,15 @@ import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { TradeLog } from "./components/TradeLog";
 import { TradingChart } from "./components/TradingChart";
 import type { Position, Trade } from "./lib/api";
+import type {
+  ChartDrawing,
+  ChartIndicatorId,
+  ChartTimeframe,
+  DrawingTool,
+} from "./lib/charting";
 import { useBacktestStore } from "./store/backtestStore";
+
+const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
 
 export default function App() {
   const {
@@ -48,6 +56,28 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [leftPaneOpen, setLeftPaneOpen] = useState(true);
+  const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
+    const saved = loadChartLayout();
+    return saved?.timeframe ?? "1m";
+  });
+  const [activeIndicators, setActiveIndicators] = useState<ChartIndicatorId[]>(() => {
+    const saved = loadChartLayout();
+    return saved?.activeIndicators ?? ["ema20", "ema50"];
+  });
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
+  const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
+    const saved = loadChartLayout();
+    return saved?.drawings ?? [];
+  });
+  const [showOrderOverlays, setShowOrderOverlays] = useState(() => {
+    const saved = loadChartLayout();
+    return saved?.showOrderOverlays ?? true;
+  });
+  const [smoothCandles, setSmoothCandles] = useState(() => {
+    const saved = loadChartLayout();
+    return saved?.smoothCandles ?? false;
+  });
 
   useEffect(() => {
     void loadInitial();
@@ -73,6 +103,33 @@ export default function App() {
   const workspaceGridClass = leftPaneOpen
     ? "grid gap-4 2xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)_minmax(300px,360px)]"
     : "grid gap-4 2xl:grid-cols-[68px_minmax(0,1fr)_minmax(300px,360px)]";
+  const savedLayoutLabel =
+    chartLayoutSavedAt == null
+      ? null
+      : `Saved ${new Date(chartLayoutSavedAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`;
+
+  function toggleIndicator(indicator: ChartIndicatorId) {
+    setActiveIndicators((current) =>
+      current.includes(indicator)
+        ? current.filter((item) => item !== indicator)
+        : [...current, indicator],
+    );
+  }
+
+  function saveChartLayout() {
+    const payload: StoredChartLayout = {
+      activeIndicators,
+      drawings,
+      showOrderOverlays,
+      smoothCandles,
+      timeframe,
+    };
+    window.localStorage.setItem(CHART_LAYOUT_KEY, JSON.stringify(payload));
+    setChartLayoutSavedAt(Date.now());
+  }
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
@@ -194,13 +251,37 @@ export default function App() {
               </div>
               <div className="min-w-0 space-y-4 2xl:order-2">
                 <ReplayController />
-                <ChartToolbar />
+                <ChartToolbar
+                  activeIndicators={activeIndicators}
+                  drawingTool={drawingTool}
+                  drawingsCount={drawings.length}
+                  onClearDrawings={() => setDrawings([])}
+                  onDrawingToolChange={setDrawingTool}
+                  onSaveLayout={saveChartLayout}
+                  onTimeframeChange={setTimeframe}
+                  onToggleIndicator={toggleIndicator}
+                  onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                  onSmoothCandlesChange={setSmoothCandles}
+                  orderOverlaysVisible={showOrderOverlays}
+                  savedLabel={savedLayoutLabel}
+                  smoothCandles={smoothCandles}
+                  timeframe={timeframe}
+                />
                 <CandleInspector candle={current} orders={orders} position={position} />
                 <TradingChart
+                  activeIndicators={activeIndicators}
                   bars={bars}
+                  drawingTool={drawingTool}
+                  drawings={drawings}
                   executions={executions}
+                  onAddDrawing={(drawing) =>
+                    setDrawings((currentDrawings) => [...currentDrawings, drawing])
+                  }
                   orders={orders}
                   position={position}
+                  showOrderOverlays={showOrderOverlays}
+                  smoothCandles={smoothCandles}
+                  timeframe={timeframe}
                 />
               </div>
               <div className="min-w-0 space-y-4 2xl:order-3">
@@ -323,6 +404,29 @@ function CollapsedAction({
       )}
     </div>
   );
+}
+
+type StoredChartLayout = {
+  activeIndicators: ChartIndicatorId[];
+  drawings: ChartDrawing[];
+  showOrderOverlays: boolean;
+  smoothCandles: boolean;
+  timeframe: ChartTimeframe;
+};
+
+function loadChartLayout(): StoredChartLayout | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(CHART_LAYOUT_KEY);
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw) as StoredChartLayout;
+  } catch {
+    return null;
+  }
 }
 
 function HeaderStat({

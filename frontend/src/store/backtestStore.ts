@@ -21,7 +21,7 @@ import {
   postBacktestOrder,
 } from "../lib/api";
 
-const WINDOW_SIZE = 320;
+const WINDOW_SIZE = 1500;
 
 type BacktestStore = {
   bars: Candle[];
