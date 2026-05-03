@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "dev:backend": "node backend/index.js",
+    "dev:python": "PYTHONPATH=backend backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000",
     "dev:frontend": "npm --prefix frontend run dev -- --port 5173",
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",

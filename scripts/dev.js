@@ -1,22 +1,38 @@
 import { spawn } from "node:child_process";
 
-const processes = [
-  {
-    name: "backend",
+const processes = [];
+
+if (!(await isHttpUp("http://127.0.0.1:3001/api/health"))) {
+  processes.push({
+    name: "node-api",
     command: "node",
     args: ["backend/index.js"],
-  },
-  {
-    name: "frontend",
-    command: "npm",
-    args: ["--prefix", "frontend", "run", "dev", "--", "--port", "5173"],
-  },
-];
+  });
+} else {
+  console.log("[node-api] already running on http://127.0.0.1:3001");
+}
 
-const children = processes.map(({ name, command, args }) => {
+if (!(await isHttpUp("http://127.0.0.1:8000/api/health"))) {
+  processes.push({
+    name: "python-api",
+    command: "backend/.venv/bin/uvicorn",
+    args: ["app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+    env: { ...process.env, PYTHONPATH: "backend" },
+  });
+} else {
+  console.log("[python-api] already running on http://127.0.0.1:8000");
+}
+
+processes.push({
+  name: "frontend",
+  command: "npm",
+  args: ["--prefix", "frontend", "run", "dev", "--", "--port", "5173"],
+});
+
+const children = processes.map(({ name, command, args, env = process.env }) => {
   const child = spawn(command, args, {
     cwd: process.cwd(),
-    env: process.env,
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -56,4 +72,13 @@ function prefix(name, chunk) {
       return `[${name}] ${line}`;
     })
     .join("\n");
+}
+
+async function isHttpUp(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
