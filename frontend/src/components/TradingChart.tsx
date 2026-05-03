@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
+  Crosshair,
+  LineChart,
+  Magnet,
+  Minus,
+  MousePointer2,
+  Square,
+  Trash2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
   CrosshairMode,
   createChart,
 } from "lightweight-charts";
@@ -35,6 +45,8 @@ type Props = {
   drawings: ChartDrawing[];
   executions: Execution[];
   onAddDrawing: (drawing: ChartDrawing) => void;
+  onClearDrawings: () => void;
+  onDrawingToolChange: (tool: DrawingTool) => void;
   orders: Order[];
   position: Position | null;
   showOrderOverlays: boolean;
@@ -67,6 +79,8 @@ export function TradingChart({
   drawings,
   executions,
   onAddDrawing,
+  onClearDrawings,
+  onDrawingToolChange,
   orders,
   position,
   showOrderOverlays,
@@ -322,17 +336,24 @@ export function TradingChart({
   }
 
   return (
-    <section className="relative min-h-[640px] min-w-0 overflow-hidden rounded-md border border-white/10 bg-ink-900 shadow-panel">
-      <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
+    <section className="chart-stage">
+      <div className="chart-stage-header">
         <div>
-          <div className="text-sm font-semibold text-white">EURUSD {timeframe}</div>
-          <div className="text-xs text-slate-400">
-            {smoothCandles ? "Smooth candles" : "Candles"} / Replay levels / Drawings
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
+              EU
+            </div>
+            <div>
+              <div className="text-base font-semibold text-white">EURUSD</div>
+              <div className="text-xs text-slate-400">
+                {timeframe} / {smoothCandles ? "Smooth candles" : "Candles"} / Bar replay
+              </div>
+            </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          {activeOverlayIndicators.map((indicator) => (
-            <span className="flex items-center gap-2" key={indicator.id}>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-slate-400">
+          {activeOverlayIndicators.slice(0, 4).map((indicator) => (
+            <span className="chart-legend-pill" key={indicator.id}>
               <span
                 className="h-2 w-2 rounded-sm"
                 style={{ backgroundColor: indicator.color }}
@@ -341,29 +362,39 @@ export function TradingChart({
             </span>
           ))}
           {rsiData.length > 0 && (
-            <span className="rounded-md bg-fuchsia-300/10 px-2 py-1 text-fuchsia-100">
+            <span className="chart-legend-pill text-fuchsia-100">
               RSI {latestIndicatorValue(rsiData)?.toFixed(1)}
             </span>
           )}
         </div>
       </div>
-      <div className="relative">
-        <div ref={chartFrameRef} className="relative min-h-[508px]">
-          <div ref={chartContainerRef} className="h-[508px]" />
-          <div
-            className={`absolute inset-0 z-10 ${drawingTool === "cursor" || drawingTool === "crosshair" ? "pointer-events-none" : "cursor-crosshair"}`}
-            onClick={handleDrawingClick}
-          >
-            <svg className="h-full w-full overflow-visible">
-              {drawingElements}
-            </svg>
+
+      <div className="chart-canvas-grid">
+        <DrawingRail
+          activeTool={drawingTool}
+          drawingsCount={drawings.length}
+          onClearDrawings={onClearDrawings}
+          onToolChange={onDrawingToolChange}
+        />
+
+        <div className="relative min-w-0">
+          <div ref={chartFrameRef} className="chart-frame">
+            <div ref={chartContainerRef} className="h-[568px]" />
+            <div
+              className={`absolute inset-0 z-10 ${drawingTool === "cursor" || drawingTool === "crosshair" ? "pointer-events-none" : "cursor-crosshair"}`}
+              onClick={handleDrawingClick}
+            >
+              <svg className="h-full w-full overflow-visible">
+                {drawingElements}
+              </svg>
+            </div>
           </div>
+          {rsiData.length > 0 && <RsiPanel data={rsiData} />}
         </div>
-        {rsiData.length > 0 && <RsiPanel data={rsiData} />}
       </div>
 
       {drawingTool !== "cursor" && drawingTool !== "crosshair" && (
-        <div className="absolute left-4 top-16 z-20 rounded-md border border-cyan-300/20 bg-ink-950/95 px-3 py-2 text-xs text-cyan-100 shadow-panel">
+        <div className="absolute left-20 top-20 z-20 rounded-md border border-cyan-300/20 bg-ink-950/95 px-3 py-2 text-xs text-cyan-100 shadow-panel">
           {draftDrawing ? "Click the second anchor" : `Click to place ${toolLabel(drawingTool)}`}
         </div>
       )}
@@ -387,6 +418,65 @@ export function TradingChart({
         </div>
       )}
     </section>
+  );
+}
+
+function DrawingRail({
+  activeTool,
+  drawingsCount,
+  onClearDrawings,
+  onToolChange,
+}: {
+  activeTool: DrawingTool;
+  drawingsCount: number;
+  onClearDrawings: () => void;
+  onToolChange: (tool: DrawingTool) => void;
+}) {
+  const tools: Array<{
+    icon: LucideIcon;
+    label: string;
+    tool: DrawingTool;
+  }> = [
+    { icon: MousePointer2, label: "Cursor", tool: "cursor" },
+    { icon: Crosshair, label: "Crosshair", tool: "crosshair" },
+    { icon: LineChart, label: "Trendline", tool: "trendline" },
+    { icon: Minus, label: "Horizontal level", tool: "horizontal" },
+    { icon: Square, label: "Rectangle zone", tool: "rectangle" },
+    { icon: Magnet, label: "Fib retracement", tool: "fib" },
+  ];
+
+  return (
+    <aside className="drawing-rail">
+      {tools.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            className={`drawing-rail-button ${activeTool === item.tool ? "drawing-rail-button-active" : ""}`}
+            key={item.tool}
+            onClick={() => onToolChange(item.tool)}
+            title={item.label}
+            type="button"
+          >
+            <Icon size={17} />
+          </button>
+        );
+      })}
+      <div className="my-1 h-px w-8 bg-white/10" />
+      <button
+        className="drawing-rail-button"
+        disabled={drawingsCount === 0}
+        onClick={onClearDrawings}
+        title="Clear drawings"
+        type="button"
+      >
+        <Trash2 size={16} />
+        {drawingsCount > 0 && (
+          <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-cyan-300 px-1 text-[10px] font-bold text-ink-950">
+            {drawingsCount}
+          </span>
+        )}
+      </button>
+    </aside>
   );
 }
 

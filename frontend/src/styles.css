@@ -110,4 +110,94 @@ button:disabled {
   .chart-tool-active {
     @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100;
   }
+
+  .chart-studio-toolbar {
+    @apply grid min-w-0 gap-3 rounded-md border border-white/10 bg-[#090d12] px-3 py-3 shadow-panel;
+    background-image:
+      linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 46%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
+  }
+
+  .timeframe-strip {
+    @apply flex min-h-10 shrink-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1;
+  }
+
+  .timeframe-button {
+    @apply h-8 min-w-10 rounded px-2 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .timeframe-button-active {
+    @apply bg-white text-ink-950 shadow-sm;
+  }
+
+  .chart-mode-button {
+    @apply inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .chart-mode-active {
+    @apply border-emerald-300/30 bg-emerald-300/10 text-emerald-100;
+  }
+
+  .chart-mode-primary {
+    @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100;
+  }
+
+  .indicator-chip {
+    @apply inline-flex h-8 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .indicator-chip-active {
+    @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100;
+  }
+
+  .chart-studio-layout {
+    @apply grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_280px];
+  }
+
+  .chart-stage {
+    @apply relative min-h-[700px] min-w-0 overflow-hidden rounded-md border border-white/10 bg-[#080c11] shadow-panel;
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 90px),
+      linear-gradient(90deg, rgba(50, 211, 238, 0.035), transparent 36%);
+  }
+
+  .chart-stage-header {
+    @apply flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-3;
+  }
+
+  .chart-legend-pill {
+    @apply inline-flex h-7 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
+  }
+
+  .chart-canvas-grid {
+    @apply grid min-w-0 grid-cols-[56px_minmax(0,1fr)];
+  }
+
+  .drawing-rail {
+    @apply flex min-h-[568px] flex-col items-center gap-2 border-r border-white/10 bg-black/25 px-2 py-3;
+  }
+
+  .drawing-rail-button {
+    @apply relative grid h-10 w-10 place-items-center rounded-md border border-transparent text-slate-400 transition hover:border-white/10 hover:bg-white/10 hover:text-white;
+  }
+
+  .drawing-rail-button-active {
+    @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100 shadow-sm;
+  }
+
+  .chart-frame {
+    @apply relative min-h-[568px] overflow-hidden bg-[#0b1017];
+  }
+
+  .chart-side-panel {
+    @apply min-w-0 overflow-hidden rounded-md border border-white/10 bg-[#090d12] shadow-panel;
+  }
+
+  .chart-object-row {
+    @apply flex min-w-0 items-center gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-400 transition;
+  }
+
+  .chart-object-row-active {
+    @apply border-cyan-300/25 bg-cyan-300/10;
+  }
 }

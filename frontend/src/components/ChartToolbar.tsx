@@ -1,20 +1,13 @@
 import {
   BarChart2,
   CandlestickChart,
-  Crosshair,
   Eye,
   EyeOff,
   Layers,
-  LineChart,
-  Magnet,
-  Minus,
-  MousePointer2,
   Save,
   Settings2,
-  Square,
-  Trash2,
+  SlidersHorizontal,
 } from "lucide-react";
-import type { ReactNode } from "react";
 import {
   INDICATORS,
   TIMEFRAMES,
@@ -57,74 +50,29 @@ export function ChartToolbar({
   timeframe,
 }: Props) {
   return (
-    <section className="terminal-panel mb-2 grid min-w-0 gap-2 px-2 py-2">
-      <div className="flex min-h-11 flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1">
-          <IconButton
-            active={drawingTool === "cursor"}
-            onClick={() => onDrawingToolChange("cursor")}
-            title="Cursor"
-          >
-            <MousePointer2 size={16} />
-          </IconButton>
-          <IconButton
-            active={drawingTool === "crosshair"}
-            onClick={() => onDrawingToolChange("crosshair")}
-            title="Crosshair inspect"
-          >
-            <Crosshair size={16} />
-          </IconButton>
-          <IconButton
-            active={drawingTool === "trendline"}
-            onClick={() => onDrawingToolChange("trendline")}
-            title="Trendline"
-          >
-            <LineChart size={16} />
-          </IconButton>
-          <IconButton
-            active={drawingTool === "horizontal"}
-            onClick={() => onDrawingToolChange("horizontal")}
-            title="Horizontal level"
-          >
-            <Minus size={16} />
-          </IconButton>
-          <IconButton
-            active={drawingTool === "rectangle"}
-            onClick={() => onDrawingToolChange("rectangle")}
-            title="Rectangle zone"
-          >
-            <Square size={16} />
-          </IconButton>
-          <IconButton
-            active={drawingTool === "fib"}
-            onClick={() => onDrawingToolChange("fib")}
-            title="Fibonacci retracement"
-          >
-            <Magnet size={16} />
-          </IconButton>
-          <button
-            className="chart-tool-button px-2 text-xs"
-            disabled={drawingsCount === 0}
-            onClick={onClearDrawings}
-            title="Clear drawings"
-            type="button"
-          >
-            <Trash2 size={15} />
-            <span>{drawingsCount}</span>
-          </button>
-          <div className="mx-1 h-5 w-px bg-white/10" />
-          <IconButton active={!smoothCandles} onClick={() => onSmoothCandlesChange(false)} title="Regular candles">
-            <CandlestickChart size={16} />
-          </IconButton>
-          <IconButton active={smoothCandles} onClick={() => onSmoothCandlesChange(true)} title="Smooth candles">
-            <BarChart2 size={16} />
-          </IconButton>
+    <section className="chart-studio-toolbar">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="grid h-9 w-9 place-items-center rounded-md border border-cyan-300/25 bg-cyan-300/10 text-cyan-100">
+              <SlidersHorizontal size={17} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white">Chart Studio</div>
+              <div className="truncate text-xs text-slate-500">
+                {drawingTool === "cursor" || drawingTool === "crosshair"
+                  ? "Drawing dock ready"
+                  : `Active tool: ${drawingTool}`}{" "}
+                / {drawingsCount} drawings
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="timeframe-strip">
           {TIMEFRAMES.map((interval) => (
             <button
-              className={`chart-tool-button px-2 text-xs ${interval.id === timeframe ? "chart-tool-active" : ""}`}
+              className={`timeframe-button ${interval.id === timeframe ? "timeframe-button-active" : ""}`}
               key={interval.id}
               onClick={() => onTimeframeChange(interval.id)}
               type="button"
@@ -134,33 +82,55 @@ export function ChartToolbar({
           ))}
         </div>
 
-        <div className="flex items-center gap-1">
-          <IconButton
-            active={orderOverlaysVisible}
-            onClick={onToggleOrderOverlays}
-            title={orderOverlaysVisible ? "Hide order overlays" : "Show order overlays"}
-          >
-            {orderOverlaysVisible ? <Eye size={16} /> : <EyeOff size={16} />}
-          </IconButton>
-          <IconButton title="Indicator library">
-            <Layers size={16} />
-          </IconButton>
-          <IconButton title="Chart settings">
-            <Settings2 size={16} />
-          </IconButton>
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            className="chart-tool-button px-2 text-xs"
-            onClick={onSaveLayout}
-            title="Save chart layout"
+            className={`chart-mode-button ${!smoothCandles ? "chart-mode-active" : ""}`}
+            onClick={() => onSmoothCandlesChange(false)}
             type="button"
           >
-            <Save size={16} />
-            <span className="hidden sm:inline">{savedLabel ?? "Save"}</span>
+            <CandlestickChart size={15} />
+            Candle
+          </button>
+          <button
+            className={`chart-mode-button ${smoothCandles ? "chart-mode-active" : ""}`}
+            onClick={() => onSmoothCandlesChange(true)}
+            type="button"
+          >
+            <BarChart2 size={15} />
+            Smooth
+          </button>
+          <button
+            className={`chart-mode-button ${orderOverlaysVisible ? "chart-mode-active" : ""}`}
+            onClick={onToggleOrderOverlays}
+            type="button"
+          >
+            {orderOverlaysVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+            Overlays
+          </button>
+          <button
+            className="chart-mode-button"
+            onClick={onClearDrawings}
+            disabled={drawingsCount === 0}
+            type="button"
+          >
+            Clear {drawingsCount}
+          </button>
+          <button className="chart-mode-button" type="button">
+            <Settings2 size={15} />
+            Settings
+          </button>
+          <button
+            className="chart-mode-button chart-mode-primary"
+            onClick={onSaveLayout}
+            type="button"
+          >
+            <Save size={15} />
+            {savedLabel ?? "Save Layout"}
           </button>
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-white/10 pt-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <div className="flex items-center gap-2 px-1 text-xs uppercase tracking-[0.16em] text-slate-500">
           <Layers size={13} />
           Indicators
@@ -169,10 +139,10 @@ export function ChartToolbar({
           const active = activeIndicators.includes(indicator.id);
           return (
             <button
-              className={`inline-flex h-8 min-w-0 items-center gap-2 rounded-md border px-2 text-xs font-semibold transition ${
+              className={`indicator-chip ${
                 active
-                  ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
-                  : "border-white/10 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                  ? "indicator-chip-active"
+                  : ""
               }`}
               key={indicator.id}
               onClick={() => onToggleIndicator(indicator.id)}
@@ -189,28 +159,5 @@ export function ChartToolbar({
         })}
       </div>
     </section>
-  );
-}
-
-function IconButton({
-  active = false,
-  children,
-  onClick,
-  title,
-}: {
-  active?: boolean;
-  children: ReactNode;
-  onClick?: () => void;
-  title: string;
-}) {
-  return (
-    <button
-      className={`chart-tool-button ${active ? "chart-tool-active" : ""}`}
-      onClick={onClick}
-      title={title}
-      type="button"
-    >
-      {children}
-    </button>
   );
 }

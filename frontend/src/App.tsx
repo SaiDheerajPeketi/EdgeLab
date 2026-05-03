@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { CandleInspector } from "./components/CandleInspector";
+import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { JournalEntryModal } from "./components/JournalEntryModal";
@@ -267,22 +268,37 @@ export default function App() {
                   smoothCandles={smoothCandles}
                   timeframe={timeframe}
                 />
-                <CandleInspector candle={current} orders={orders} position={position} />
-                <TradingChart
-                  activeIndicators={activeIndicators}
-                  bars={bars}
-                  drawingTool={drawingTool}
-                  drawings={drawings}
-                  executions={executions}
-                  onAddDrawing={(drawing) =>
-                    setDrawings((currentDrawings) => [...currentDrawings, drawing])
-                  }
-                  orders={orders}
-                  position={position}
-                  showOrderOverlays={showOrderOverlays}
-                  smoothCandles={smoothCandles}
-                  timeframe={timeframe}
-                />
+                <div className="chart-studio-layout">
+                  <div className="min-w-0 space-y-3">
+                    <CandleInspector candle={current} orders={orders} position={position} />
+                    <TradingChart
+                      activeIndicators={activeIndicators}
+                      bars={bars}
+                      drawingTool={drawingTool}
+                      drawings={drawings}
+                      executions={executions}
+                      onAddDrawing={(drawing) =>
+                        setDrawings((currentDrawings) => [...currentDrawings, drawing])
+                      }
+                      onClearDrawings={() => setDrawings([])}
+                      onDrawingToolChange={setDrawingTool}
+                      orders={orders}
+                      position={position}
+                      showOrderOverlays={showOrderOverlays}
+                      smoothCandles={smoothCandles}
+                      timeframe={timeframe}
+                    />
+                  </div>
+                  <ChartObjectsPanel
+                    activeIndicators={activeIndicators}
+                    drawings={drawings}
+                    onClearDrawings={() => setDrawings([])}
+                    onToggleIndicator={toggleIndicator}
+                    onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                    orderOverlaysVisible={showOrderOverlays}
+                    smoothCandles={smoothCandles}
+                  />
+                </div>
               </div>
               <div className="min-w-0 space-y-4 2xl:order-3">
                 <PendingOrders orders={orders} />
