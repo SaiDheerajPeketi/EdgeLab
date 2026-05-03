@@ -36,7 +36,10 @@ import type {
   ChartIndicatorId,
   ChartTimeframe,
   DrawingTool,
+  IndicatorSettings,
+  IndicatorSettingsMap,
 } from "./lib/charting";
+import { mergeIndicatorSettings } from "./lib/charting";
 import { useBacktestStore } from "./store/backtestStore";
 
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
@@ -57,6 +60,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [leftPaneOpen, setLeftPaneOpen] = useState(true);
+  const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
     const saved = loadChartLayout();
@@ -65,6 +69,10 @@ export default function App() {
   const [activeIndicators, setActiveIndicators] = useState<ChartIndicatorId[]>(() => {
     const saved = loadChartLayout();
     return saved?.activeIndicators ?? ["ema20", "ema50"];
+  });
+  const [indicatorSettings, setIndicatorSettings] = useState<IndicatorSettingsMap>(() => {
+    const saved = loadChartLayout();
+    return mergeIndicatorSettings(saved?.indicatorSettings);
   });
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
   const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
@@ -120,10 +128,24 @@ export default function App() {
     );
   }
 
+  function updateIndicatorSettings(
+    indicator: ChartIndicatorId,
+    settings: Partial<IndicatorSettings>,
+  ) {
+    setIndicatorSettings((current) => ({
+      ...current,
+      [indicator]: {
+        ...current[indicator],
+        ...settings,
+      },
+    }));
+  }
+
   function saveChartLayout() {
     const payload: StoredChartLayout = {
       activeIndicators,
       drawings,
+      indicatorSettings,
       showOrderOverlays,
       smoothCandles,
       timeframe,
@@ -250,18 +272,22 @@ export default function App() {
                   />
                 )}
               </div>
-              <div className="min-w-0 space-y-4 2xl:order-2">
+              <div className={isChartFullscreen ? "chart-fullscreen-shell" : "min-w-0 space-y-4 2xl:order-2"}>
                 <ReplayController />
                 <ChartToolbar
                   activeIndicators={activeIndicators}
                   drawingTool={drawingTool}
                   drawingsCount={drawings.length}
+                  indicatorSettings={indicatorSettings}
+                  isFullscreen={isChartFullscreen}
                   onClearDrawings={() => setDrawings([])}
                   onDrawingToolChange={setDrawingTool}
                   onSaveLayout={saveChartLayout}
+                  onToggleFullscreen={() => setIsChartFullscreen((value) => !value)}
                   onTimeframeChange={setTimeframe}
                   onToggleIndicator={toggleIndicator}
                   onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                  onUpdateIndicatorSettings={updateIndicatorSettings}
                   onSmoothCandlesChange={setSmoothCandles}
                   orderOverlaysVisible={showOrderOverlays}
                   savedLabel={savedLayoutLabel}
@@ -277,6 +303,7 @@ export default function App() {
                       drawingTool={drawingTool}
                       drawings={drawings}
                       executions={executions}
+                      indicatorSettings={indicatorSettings}
                       onAddDrawing={(drawing) =>
                         setDrawings((currentDrawings) => [...currentDrawings, drawing])
                       }
@@ -292,8 +319,10 @@ export default function App() {
                   <ChartObjectsPanel
                     activeIndicators={activeIndicators}
                     drawings={drawings}
+                    indicatorSettings={indicatorSettings}
                     onClearDrawings={() => setDrawings([])}
                     onToggleIndicator={toggleIndicator}
+                    onUpdateIndicatorSettings={updateIndicatorSettings}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                     orderOverlaysVisible={showOrderOverlays}
                     smoothCandles={smoothCandles}
@@ -425,6 +454,7 @@ function CollapsedAction({
 type StoredChartLayout = {
   activeIndicators: ChartIndicatorId[];
   drawings: ChartDrawing[];
+  indicatorSettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>>;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
   timeframe: ChartTimeframe;

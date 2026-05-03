@@ -14,6 +14,13 @@ export const TIMEFRAMES = [
 export type ChartTimeframe = (typeof TIMEFRAMES)[number]["id"];
 export type ChartIndicatorId = "ema20" | "ema50" | "sma200" | "vwap" | "bb20" | "rsi14";
 export type DrawingTool = "cursor" | "crosshair" | "trendline" | "horizontal" | "rectangle" | "fib";
+export type IndicatorSettings = {
+  color: string;
+  period: number;
+  stdDev?: number;
+};
+
+export type IndicatorSettingsMap = Record<ChartIndicatorId, IndicatorSettings>;
 
 export type DrawingPoint = {
   time: number;
@@ -50,6 +57,15 @@ export const INDICATORS: Array<{
   { id: "bb20", label: "Bollinger 20", description: "Volatility envelope", color: "#94a3b8" },
   { id: "rsi14", label: "RSI 14", description: "Momentum pane", color: "#f472b6" },
 ];
+
+export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
+  bb20: { color: "#94a3b8", period: 20, stdDev: 2 },
+  ema20: { color: "#32d3ee", period: 20 },
+  ema50: { color: "#f59e0b", period: 50 },
+  rsi14: { color: "#f472b6", period: 14 },
+  sma200: { color: "#a78bfa", period: 200 },
+  vwap: { color: "#22c55e", period: 1 },
+};
 
 export function getTimeframeSeconds(timeframe: ChartTimeframe) {
   return TIMEFRAMES.find((item) => item.id === timeframe)?.seconds ?? 60;
@@ -117,45 +133,50 @@ export function toCandles(bars: Candle[], smoothCandles: boolean): CandlestickDa
 export function buildIndicatorDefinitions(
   bars: Candle[],
   activeIndicators: ChartIndicatorId[],
+  settings: IndicatorSettingsMap = DEFAULT_INDICATOR_SETTINGS,
 ): IndicatorDefinition[] {
   const definitions: IndicatorDefinition[] = [];
   const has = (id: ChartIndicatorId) => activeIndicators.includes(id);
 
   if (has("ema20")) {
+    const config = settings.ema20;
     definitions.push({
       id: "ema20",
-      label: "EMA 20",
-      color: "#32d3ee",
-      data: emaSeries(bars, 20),
+      label: `EMA ${config.period}`,
+      color: config.color,
+      data: emaSeries(bars, config.period),
       lineWidth: 2,
     });
   }
 
   if (has("ema50")) {
+    const config = settings.ema50;
     definitions.push({
       id: "ema50",
-      label: "EMA 50",
-      color: "#f59e0b",
-      data: emaSeries(bars, 50),
+      label: `EMA ${config.period}`,
+      color: config.color,
+      data: emaSeries(bars, config.period),
       lineWidth: 2,
     });
   }
 
   if (has("sma200")) {
+    const config = settings.sma200;
     definitions.push({
       id: "sma200",
-      label: "SMA 200",
-      color: "#a78bfa",
-      data: smaSeries(bars, 200),
+      label: `SMA ${config.period}`,
+      color: config.color,
+      data: smaSeries(bars, config.period),
       lineWidth: 2,
     });
   }
 
   if (has("vwap")) {
+    const config = settings.vwap;
     definitions.push({
       id: "vwap",
       label: "VWAP",
-      color: "#22c55e",
+      color: config.color,
       data: vwapSeries(bars),
       lineWidth: 2,
       lineStyle: 2,
@@ -163,28 +184,29 @@ export function buildIndicatorDefinitions(
   }
 
   if (has("bb20")) {
-    const bands = bollingerBands(bars, 20, 2);
+    const config = settings.bb20;
+    const bands = bollingerBands(bars, config.period, config.stdDev ?? 2);
     definitions.push(
       {
         id: "bb20-upper",
-        label: "BB Upper",
-        color: "#64748b",
+        label: `BB ${config.period} Upper`,
+        color: config.color,
         data: bands.map((band) => ({ time: band.time, value: band.upper })),
         lineWidth: 1,
         lineStyle: 2,
       },
       {
         id: "bb20-mid",
-        label: "BB Mid",
-        color: "#94a3b8",
+        label: `BB ${config.period} Mid`,
+        color: config.color,
         data: bands.map((band) => ({ time: band.time, value: band.middle })),
         lineWidth: 1,
         lineStyle: 2,
       },
       {
         id: "bb20-lower",
-        label: "BB Lower",
-        color: "#64748b",
+        label: `BB ${config.period} Lower`,
+        color: config.color,
         data: bands.map((band) => ({ time: band.time, value: band.lower })),
         lineWidth: 1,
         lineStyle: 2,
@@ -193,6 +215,19 @@ export function buildIndicatorDefinitions(
   }
 
   return definitions;
+}
+
+export function mergeIndicatorSettings(
+  settings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>> | null,
+): IndicatorSettingsMap {
+  return {
+    bb20: { ...DEFAULT_INDICATOR_SETTINGS.bb20, ...settings?.bb20 },
+    ema20: { ...DEFAULT_INDICATOR_SETTINGS.ema20, ...settings?.ema20 },
+    ema50: { ...DEFAULT_INDICATOR_SETTINGS.ema50, ...settings?.ema50 },
+    rsi14: { ...DEFAULT_INDICATOR_SETTINGS.rsi14, ...settings?.rsi14 },
+    sma200: { ...DEFAULT_INDICATOR_SETTINGS.sma200, ...settings?.sma200 },
+    vwap: { ...DEFAULT_INDICATOR_SETTINGS.vwap, ...settings?.vwap },
+  };
 }
 
 export function rsiSeries(bars: Candle[], period = 14): LineData[] {

@@ -35,6 +35,7 @@ import {
   type ChartTimeframe,
   type DrawingPoint,
   type DrawingTool,
+  type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 
@@ -44,6 +45,7 @@ type Props = {
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
   executions: Execution[];
+  indicatorSettings: IndicatorSettingsMap;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
@@ -78,6 +80,7 @@ export function TradingChart({
   drawingTool,
   drawings,
   executions,
+  indicatorSettings,
   onAddDrawing,
   onClearDrawings,
   onDrawingToolChange,
@@ -112,13 +115,16 @@ export function TradingChart({
   );
 
   const indicatorDefinitions = useMemo(
-    () => buildIndicatorDefinitions(displayBars, activeIndicators),
-    [activeIndicators, displayBars],
+    () => buildIndicatorDefinitions(displayBars, activeIndicators, indicatorSettings),
+    [activeIndicators, displayBars, indicatorSettings],
   );
 
   const rsiData = useMemo(
-    () => (activeIndicators.includes("rsi14") ? rsiSeries(displayBars) : []),
-    [activeIndicators, displayBars],
+    () =>
+      activeIndicators.includes("rsi14")
+        ? rsiSeries(displayBars, indicatorSettings.rsi14.period)
+        : [],
+    [activeIndicators, displayBars, indicatorSettings.rsi14.period],
   );
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
@@ -166,6 +172,9 @@ export function TradingChart({
         borderColor: "rgba(148, 163, 184, 0.16)",
         timeVisible: true,
         secondsVisible: false,
+      },
+      localization: {
+        priceFormatter: (price: number) => formatPrice(price),
       },
       autoSize: true,
     });
@@ -243,6 +252,11 @@ export function TradingChart({
           },
         });
       }
+      indicatorRefs.current[indicator.id].applyOptions({
+        color: indicator.color,
+        lineStyle: indicator.lineStyle ?? 0,
+        lineWidth: indicator.lineWidth ?? 2,
+      });
       indicatorRefs.current[indicator.id].setData(indicator.data);
     });
   }, [indicatorDefinitions]);
@@ -255,7 +269,7 @@ export function TradingChart({
             position: execution.side === "BUY" ? "belowBar" : "aboveBar",
             color: execution.side === "BUY" ? "#22c55e" : "#fb7185",
             shape: execution.side === "BUY" ? "arrowUp" : "arrowDown",
-            text: `${execution.side} ${formatPrice(execution.price)}`,
+            text: execution.side,
           }))
         : [],
     );
@@ -379,7 +393,7 @@ export function TradingChart({
 
         <div className="relative min-w-0">
           <div ref={chartFrameRef} className="chart-frame">
-            <div ref={chartContainerRef} className="h-[568px]" />
+            <div ref={chartContainerRef} className="chart-container-surface" />
             <div
               className={`absolute inset-0 z-10 ${drawingTool === "cursor" || drawingTool === "crosshair" ? "pointer-events-none" : "cursor-crosshair"}`}
               onClick={handleDrawingClick}

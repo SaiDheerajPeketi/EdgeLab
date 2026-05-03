@@ -15,15 +15,22 @@ import {
   INDICATORS,
   type ChartDrawing,
   type ChartIndicatorId,
+  type IndicatorSettings,
+  type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
   drawings: ChartDrawing[];
+  indicatorSettings: IndicatorSettingsMap;
   onClearDrawings: () => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
   onToggleOrderOverlays: () => void;
+  onUpdateIndicatorSettings: (
+    indicator: ChartIndicatorId,
+    settings: Partial<IndicatorSettings>,
+  ) => void;
   orderOverlaysVisible: boolean;
   smoothCandles: boolean;
 };
@@ -38,9 +45,11 @@ const drawingIcons: Record<ChartDrawing["tool"], LucideIcon> = {
 export function ChartObjectsPanel({
   activeIndicators,
   drawings,
+  indicatorSettings,
   onClearDrawings,
   onToggleIndicator,
   onToggleOrderOverlays,
+  onUpdateIndicatorSettings,
   orderOverlaysVisible,
   smoothCandles,
 }: Props) {
@@ -96,18 +105,17 @@ export function ChartObjectsPanel({
           <div className="grid gap-2">
             {INDICATORS.map((indicator) => {
               const active = activeIndicators.includes(indicator.id);
+              const settings = indicatorSettings[indicator.id];
               return (
-                <button
+                <div
                   className={`chart-object-row text-left ${active ? "chart-object-row-active" : ""}`}
                   key={indicator.id}
-                  onClick={() => onToggleIndicator(indicator.id)}
-                  type="button"
                 >
                   <span
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{
                       backgroundColor: active
-                        ? indicator.color
+                        ? settings.color
                         : "rgba(148, 163, 184, 0.38)",
                     }}
                   />
@@ -116,13 +124,32 @@ export function ChartObjectsPanel({
                       {indicator.label}
                     </span>
                     <span className="block truncate text-xs text-slate-500">
-                      {indicator.description}
+                      {indicator.id === "vwap"
+                        ? indicator.description
+                        : `Period ${settings.period}${indicator.id === "bb20" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
                     </span>
                   </span>
-                  <span className={active ? "text-cyan-100" : "text-slate-600"}>
+                  <button
+                    className={active ? "text-cyan-100" : "text-slate-500"}
+                    onClick={() => onToggleIndicator(indicator.id)}
+                    type="button"
+                  >
                     {active ? "On" : "Off"}
-                  </span>
-                </button>
+                  </button>
+                  {active && indicator.id !== "vwap" && (
+                    <input
+                      className="h-8 w-16 rounded-md border border-white/10 bg-ink-950 px-2 text-xs text-slate-100 outline-none"
+                      min={2}
+                      onChange={(event) =>
+                        onUpdateIndicatorSettings(indicator.id, {
+                          period: Math.max(2, Number(event.target.value) || 2),
+                        })
+                      }
+                      type="number"
+                      value={settings.period}
+                    />
+                  )}
+                </div>
               );
             })}
           </div>
