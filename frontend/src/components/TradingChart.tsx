@@ -14,6 +14,7 @@ import {
   createChart,
 } from "lightweight-charts";
 import type {
+  CandlestickData,
   IChartApi,
   IPriceLine,
   ISeriesApi,
@@ -217,7 +218,7 @@ export function TradingChart({
   }, []);
 
   useEffect(() => {
-    candlesRef.current?.setData(candleData);
+    candlesRef.current?.setData(toAscendingSeriesData(candleData));
     if (displayBars.length > 0) {
       chartRef.current?.timeScale().scrollToRealTime();
     }
@@ -258,7 +259,7 @@ export function TradingChart({
         lineStyle: indicator.lineStyle ?? 0,
         lineWidth: indicator.lineWidth ?? 2,
       });
-      indicatorRefs.current[indicator.id].setData(indicator.data);
+      indicatorRefs.current[indicator.id].setData(toAscendingSeriesData(indicator.data));
     });
   }, [indicatorDefinitions]);
 
@@ -494,6 +495,20 @@ function DrawingRail({
         )}
       </button>
     </aside>
+  );
+}
+
+function toAscendingSeriesData<T extends CandlestickData | LineData>(data: T[]): T[] {
+  const byTime = new Map<number, T>();
+  for (const item of data) {
+    const time = Number(item.time);
+    if (!Number.isFinite(time)) {
+      continue;
+    }
+    byTime.set(time, item);
+  }
+  return Array.from(byTime.values()).sort(
+    (left, right) => Number(left.time) - Number(right.time),
   );
 }
 
