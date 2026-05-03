@@ -1,0 +1,14 @@
+.DS_Store
+.pytest_cache/
+EURUSD_M1.csv
+backend/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.db
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+.env
