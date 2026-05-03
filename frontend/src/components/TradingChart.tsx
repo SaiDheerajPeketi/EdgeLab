@@ -265,13 +265,15 @@ export function TradingChart({
   useEffect(() => {
     candlesRef.current?.setMarkers(
       showOrderOverlays
-        ? executions.map((execution) => ({
-            time: bucketTime(toUnixTime(execution.timestamp), timeframe) as UTCTimestamp,
-            position: execution.side === "BUY" ? "belowBar" : "aboveBar",
-            color: execution.side === "BUY" ? "#22c55e" : "#fb7185",
-            shape: execution.side === "BUY" ? "arrowUp" : "arrowDown",
-            text: execution.side,
-          }))
+        ? executions
+            .map((execution) => ({
+              time: bucketTime(toUnixTime(execution.timestamp), timeframe) as UTCTimestamp,
+              position: execution.side === "BUY" ? ("belowBar" as const) : ("aboveBar" as const),
+              color: execution.side === "BUY" ? "#22c55e" : "#fb7185",
+              shape: execution.side === "BUY" ? ("arrowUp" as const) : ("arrowDown" as const),
+              text: execution.side,
+            }))
+            .sort((left, right) => Number(left.time) - Number(right.time))
         : [],
     );
   }, [executions, showOrderOverlays, timeframe]);

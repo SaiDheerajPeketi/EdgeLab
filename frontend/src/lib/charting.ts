@@ -76,15 +76,27 @@ export function bucketTime(time: number, timeframe: ChartTimeframe) {
   return Math.floor(time / seconds) * seconds;
 }
 
+export function normalizeBars(bars: Candle[]): Candle[] {
+  const byTime = new Map<number, Candle>();
+  for (const bar of bars) {
+    if (!Number.isFinite(bar.time)) {
+      continue;
+    }
+    byTime.set(bar.time, bar);
+  }
+  return Array.from(byTime.values()).sort((left, right) => left.time - right.time);
+}
+
 export function aggregateBars(bars: Candle[], timeframe: ChartTimeframe): Candle[] {
+  const sortedBars = normalizeBars(bars);
   if (timeframe === "1m") {
-    return bars;
+    return sortedBars;
   }
 
   const grouped: Candle[] = [];
   let current: Candle | null = null;
 
-  for (const bar of bars) {
+  for (const bar of sortedBars) {
     const bucket = bucketTime(bar.time, timeframe);
     if (!current || current.time !== bucket) {
       if (current) {
