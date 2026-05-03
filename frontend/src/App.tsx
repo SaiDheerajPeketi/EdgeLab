@@ -43,6 +43,15 @@ import { mergeIndicatorSettings } from "./lib/charting";
 import { useBacktestStore } from "./store/backtestStore";
 
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
+const VALID_INDICATORS: ChartIndicatorId[] = [
+  "bb20",
+  "ema20",
+  "ema50",
+  "rsi14",
+  "sma200",
+  "vwap",
+];
+const VALID_TIMEFRAMES: ChartTimeframe[] = ["1m", "5m", "15m", "30m", "1H", "4H", "1D"];
 
 export default function App() {
   const {
@@ -64,11 +73,11 @@ export default function App() {
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
     const saved = loadChartLayout();
-    return saved?.timeframe ?? "1m";
+    return sanitizeTimeframe(saved?.timeframe);
   });
   const [activeIndicators, setActiveIndicators] = useState<ChartIndicatorId[]>(() => {
     const saved = loadChartLayout();
-    return saved?.activeIndicators ?? ["ema20", "ema50"];
+    return sanitizeIndicators(saved?.activeIndicators);
   });
   const [indicatorSettings, setIndicatorSettings] = useState<IndicatorSettingsMap>(() => {
     const saved = loadChartLayout();
@@ -77,7 +86,7 @@ export default function App() {
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
   const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
     const saved = loadChartLayout();
-    return saved?.drawings ?? [];
+    return sanitizeDrawings(saved?.drawings);
   });
   const [showOrderOverlays, setShowOrderOverlays] = useState(() => {
     const saved = loadChartLayout();
@@ -143,8 +152,8 @@ export default function App() {
 
   function saveChartLayout() {
     const payload: StoredChartLayout = {
-      activeIndicators,
-      drawings,
+      activeIndicators: sanitizeIndicators(activeIndicators),
+      drawings: sanitizeDrawings(drawings),
       indicatorSettings,
       showOrderOverlays,
       smoothCandles,
@@ -460,7 +469,7 @@ type StoredChartLayout = {
   timeframe: ChartTimeframe;
 };
 
-function loadChartLayout(): StoredChartLayout | null {
+function loadChartLayout(): Partial<StoredChartLayout> | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -469,10 +478,55 @@ function loadChartLayout(): StoredChartLayout | null {
     if (!raw) {
       return null;
     }
-    return JSON.parse(raw) as StoredChartLayout;
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed != null
+      ? (parsed as Partial<StoredChartLayout>)
+      : null;
   } catch {
     return null;
   }
+}
+
+function sanitizeIndicators(value: unknown): ChartIndicatorId[] {
+  if (!Array.isArray(value)) {
+    return ["ema20", "ema50"];
+  }
+  const clean = value.filter((item): item is ChartIndicatorId =>
+    VALID_INDICATORS.includes(item as ChartIndicatorId),
+  );
+  return Array.from(new Set(clean));
+}
+
+function sanitizeTimeframe(value: unknown): ChartTimeframe {
+  return VALID_TIMEFRAMES.includes(value as ChartTimeframe)
+    ? (value as ChartTimeframe)
+    : "1m";
+}
+
+function sanitizeDrawings(value: unknown): ChartDrawing[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((drawing): drawing is ChartDrawing => {
+    if (typeof drawing !== "object" || drawing == null) {
+      return false;
+    }
+    const candidate = drawing as Partial<ChartDrawing>;
+    return (
+      typeof candidate.id === "string" &&
+      ["fib", "horizontal", "rectangle", "trendline"].includes(candidate.tool ?? "") &&
+      typeof candidate.color === "string" &&
+      typeof candidate.createdAt === "string" &&
+      Array.isArray(candidate.points) &&
+      candidate.points.every(
+        (point) =>
+          typeof point.time === "number" &&
+          typeof point.price === "number" &&
+          Number.isFinite(point.time) &&
+          Number.isFinite(point.price),
+      )
+    );
+  });
 }
 
 function HeaderStat({

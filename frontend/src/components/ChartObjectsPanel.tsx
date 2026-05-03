@@ -42,6 +42,11 @@ const drawingIcons: Record<ChartDrawing["tool"], LucideIcon> = {
   trendline: LineChart,
 };
 
+const FALLBACK_SETTING: IndicatorSettings = {
+  color: "#32d3ee",
+  period: 20,
+};
+
 export function ChartObjectsPanel({
   activeIndicators,
   drawings,
@@ -105,7 +110,7 @@ export function ChartObjectsPanel({
           <div className="grid gap-2">
             {INDICATORS.map((indicator) => {
               const active = activeIndicators.includes(indicator.id);
-              const settings = indicatorSettings[indicator.id];
+              const settings = indicatorSettings[indicator.id] ?? FALLBACK_SETTING;
               return (
                 <div
                   className={`chart-object-row text-left ${active ? "chart-object-row-active" : ""}`}

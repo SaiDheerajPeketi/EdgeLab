@@ -119,12 +119,13 @@ export function TradingChart({
     [activeIndicators, displayBars, indicatorSettings],
   );
 
+  const rsiPeriod = indicatorSettings.rsi14?.period ?? 14;
   const rsiData = useMemo(
     () =>
       activeIndicators.includes("rsi14")
-        ? rsiSeries(displayBars, indicatorSettings.rsi14.period)
+        ? rsiSeries(displayBars, rsiPeriod)
         : [],
-    [activeIndicators, displayBars, indicatorSettings.rsi14.period],
+    [activeIndicators, displayBars, rsiPeriod],
   );
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,

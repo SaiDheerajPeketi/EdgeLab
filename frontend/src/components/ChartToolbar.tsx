@@ -47,6 +47,11 @@ type Props = {
   timeframe: ChartTimeframe;
 };
 
+const FALLBACK_SETTING: IndicatorSettings = {
+  color: "#32d3ee",
+  period: 20,
+};
+
 export function ChartToolbar({
   activeIndicators,
   drawingTool,
@@ -186,6 +191,7 @@ export function ChartToolbar({
             <div className="chart-dropdown-panel left-0 w-72">
               {INDICATORS.map((indicator) => {
                 const active = activeIndicators.includes(indicator.id);
+                const settings = indicatorSettings[indicator.id] ?? FALLBACK_SETTING;
                 return (
                   <button
                     className={`chart-dropdown-row ${active ? "chart-dropdown-row-active" : ""}`}
@@ -195,7 +201,7 @@ export function ChartToolbar({
                   >
                     <span
                       className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: indicatorSettings[indicator.id].color }}
+                      style={{ backgroundColor: settings.color }}
                     />
                     <span className="min-w-0 flex-1 text-left">
                       <span className="block truncate text-sm font-semibold text-slate-100">
@@ -241,7 +247,7 @@ export function ChartToolbar({
                   key={indicator}
                   onRemove={() => onToggleIndicator(indicator)}
                   onUpdate={(settings) => onUpdateIndicatorSettings(indicator, settings)}
-                  settings={indicatorSettings[indicator]}
+                  settings={indicatorSettings[indicator] ?? FALLBACK_SETTING}
                 />
               ))}
             </div>
@@ -251,6 +257,7 @@ export function ChartToolbar({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {activeIndicators.map((indicator) => {
             const definition = INDICATORS.find((item) => item.id === indicator);
+            const settings = indicatorSettings[indicator] ?? FALLBACK_SETTING;
             return (
               <button
                 className="indicator-chip indicator-chip-active"
@@ -260,7 +267,7 @@ export function ChartToolbar({
               >
                 <span
                   className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: indicatorSettings[indicator].color }}
+                  style={{ backgroundColor: settings.color }}
                 />
                 {definition?.label ?? indicator}
                 <X size={12} />
