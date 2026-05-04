@@ -1,4 +1,4 @@
-import { CalendarDays, Database, PlayCircle, RefreshCw, Search } from "lucide-react";
+import { CalendarDays, Database, PlayCircle, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type {
   BacktestCreatePayload,
@@ -32,19 +32,8 @@ export function DatasetSessionPanel({
   const [startingBalance, setStartingBalance] = useState("100000");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [query, setQuery] = useState("");
+  const [setupOpen, setSetupOpen] = useState(false);
 
-  const visibleInstruments = useMemo(
-    () =>
-      instruments.filter((instrument) => {
-        const needle = query.trim().toLowerCase();
-        if (!needle) {
-          return true;
-        }
-        return `${instrument.name} ${instrument.symbol}`.toLowerCase().includes(needle);
-      }),
-    [instruments, query],
-  );
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
     [instrumentId, instruments],
@@ -106,73 +95,74 @@ export function DatasetSessionPanel({
   }
 
   return (
-    <section className="dataset-switcher">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+    <section className="dataset-session-strip">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <div className="min-w-44">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-100">
             <Database size={16} className="text-cyan-200" />
-            Market Launcher
+            Dataset Session
           </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {instruments.length} instruments from {datasets?.root ?? "preprocessed datasets"}
+          <div className="mt-1 max-w-72 truncate text-xs text-slate-500">
+            {datasets?.root ?? "Scanning preprocessed datasets"}
           </div>
         </div>
-        {session && (
-          <div className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 shadow-inner">
-            Active: <strong>{session.symbol}</strong> {session.timeframe ?? ""} · {session.strategy_name ?? "No strategy"}
-          </div>
-        )}
-      </div>
 
-      <div className="mb-3 grid gap-2 xl:grid-cols-[220px_minmax(0,1fr)]">
-        <label className="relative block">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-            size={15}
-          />
-          <input
-            className="input-control h-10 w-full pl-9"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search markets"
-            value={query}
-          />
-        </label>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-        {visibleInstruments.map((instrument) => (
-          <button
-            className={`symbol-chip ${selectedInstrument?.id === instrument.id ? "symbol-chip-active" : ""}`}
-            key={instrument.id}
-            onClick={() => handleInstrumentSelect(instrument)}
-            type="button"
-          >
-            <span className="font-semibold text-white">{instrument.symbol}</span>
-            <span>{instrument.timeframes.length} TF</span>
-          </button>
-        ))}
-        {instruments.length === 0 && (
-          <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-400">
-            No datasets found yet
-          </div>
-        )}
-        </div>
-      </div>
-
-      {selectedInstrument && (
-        <div className="mb-3 flex flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1">
-          {selectedInstrument.timeframes.map((item) => (
+        <div className="instrument-tabs">
+          {instruments.map((instrument) => (
             <button
-              className={`timeframe-button ${selectedTimeframe?.timeframe === item.timeframe ? "timeframe-button-active" : ""}`}
-              key={item.timeframe}
-              onClick={() => setTimeframe(item.timeframe)}
+              className={`instrument-tab ${selectedInstrument?.id === instrument.id ? "instrument-tab-active" : ""}`}
+              key={instrument.id}
+              onClick={() => handleInstrumentSelect(instrument)}
               type="button"
             >
-              {item.timeframe}
+              <span className="font-black text-white">{instrument.symbol}</span>
+              <span>{instrument.timeframes.length} TF</span>
             </button>
           ))}
+          {instruments.length === 0 && (
+            <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-400">
+              No datasets found
+            </div>
+          )}
         </div>
-      )}
 
-      <form className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]" onSubmit={handleSubmit}>
+        {selectedInstrument && (
+          <div className="dataset-timeframes">
+            {selectedInstrument.timeframes.map((item) => (
+              <button
+                className={`timeframe-button ${selectedTimeframe?.timeframe === item.timeframe ? "timeframe-button-active" : ""}`}
+                key={item.timeframe}
+                onClick={() => setTimeframe(item.timeframe)}
+                title={`${item.rows.toLocaleString()} bars`}
+                type="button"
+              >
+                {item.timeframe}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          {session && (
+            <div className="hidden rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 shadow-inner xl:block">
+              Active: <strong>{session.symbol}</strong> {session.timeframe ?? ""} · {session.strategy_name ?? "No strategy"}
+            </div>
+          )}
+          <button
+            className="control-button h-9 border-cyan-300/25 bg-cyan-300/10 px-3 text-xs text-cyan-100"
+            onClick={() => setSetupOpen((value) => !value)}
+            type="button"
+          >
+            <SlidersHorizontal size={14} />
+            Session
+          </button>
+        </div>
+      </div>
+
+      <form
+        className={`dataset-session-form ${setupOpen ? "grid" : "hidden"} gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]`}
+        onSubmit={handleSubmit}
+      >
         <label className="form-field">
           <span>Instrument</span>
           <select

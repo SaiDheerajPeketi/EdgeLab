@@ -271,30 +271,37 @@ export function TradingChart({
         minMove: 0.00001,
       },
     });
-    const line = chart.addLineSeries({
-      color: "#32d3ee",
-      lineWidth: 2,
-      priceLineVisible: false,
-      visible: false,
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
-      },
-    });
-    const area = chart.addAreaSeries({
-      bottomColor: "rgba(50, 211, 238, 0.02)",
-      lineColor: "#32d3ee",
-      lineWidth: 2,
-      priceLineVisible: false,
-      topColor: "rgba(50, 211, 238, 0.28)",
-      visible: false,
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
-      },
-    });
+    let line: ISeriesApi<"Line"> | null = null;
+    let area: ISeriesApi<"Area"> | null = null;
+    try {
+      line = chart.addLineSeries({
+        color: "#32d3ee",
+        lineWidth: 2,
+        priceLineVisible: false,
+        visible: false,
+        priceFormat: {
+          type: "price",
+          precision: 5,
+          minMove: 0.00001,
+        },
+      });
+      area = chart.addAreaSeries({
+        bottomColor: "rgba(50, 211, 238, 0.02)",
+        lineColor: "#32d3ee",
+        lineWidth: 2,
+        priceLineVisible: false,
+        topColor: "rgba(50, 211, 238, 0.28)",
+        visible: false,
+        priceFormat: {
+          type: "price",
+          precision: 5,
+          minMove: 0.00001,
+        },
+      });
+    } catch {
+      line = null;
+      area = null;
+    }
     const volume = chart.addHistogramSeries({
       color: "rgba(148, 163, 184, 0.24)",
       priceFormat: {
@@ -351,11 +358,17 @@ export function TradingChart({
   }, [candleData, closeLineData, displayBars.length, volumeData]);
 
   useEffect(() => {
+    const canShowLine = chartStyle === "line" && lineRef.current != null;
+    const canShowArea = chartStyle === "area" && areaRef.current != null;
     candlesRef.current?.applyOptions({
-      visible: chartStyle === "candles" || chartStyle === "heikinAshi",
+      visible:
+        chartStyle === "candles" ||
+        chartStyle === "heikinAshi" ||
+        (chartStyle === "line" && !canShowLine) ||
+        (chartStyle === "area" && !canShowArea),
     });
-    lineRef.current?.applyOptions({ visible: chartStyle === "line" });
-    areaRef.current?.applyOptions({ visible: chartStyle === "area" });
+    lineRef.current?.applyOptions({ visible: canShowLine });
+    areaRef.current?.applyOptions({ visible: canShowArea });
   }, [chartStyle]);
 
   useEffect(() => {
