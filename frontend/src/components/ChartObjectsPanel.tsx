@@ -7,6 +7,7 @@ import {
   LineChart,
   Magnet,
   Minus,
+  Ruler,
   Square,
   Type,
   Trash2,
@@ -17,6 +18,7 @@ import {
   INDICATORS,
   type ChartDrawing,
   type ChartIndicatorId,
+  type ChartStyle,
   type IndicatorSettings,
   type IndicatorSettingsMap,
 } from "../lib/charting";
@@ -24,6 +26,7 @@ import { formatPrice } from "../lib/format";
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
+  chartStyle: ChartStyle;
   drawings: ChartDrawing[];
   indicatorSettings: IndicatorSettingsMap;
   onClearDrawings: () => void;
@@ -43,7 +46,10 @@ type Props = {
 const drawingIcons: Record<ChartDrawing["tool"], LucideIcon> = {
   fib: Magnet,
   horizontal: Minus,
+  longPosition: LineChart,
+  measure: Ruler,
   rectangle: Square,
+  shortPosition: LineChart,
   text: Type,
   trendline: LineChart,
 };
@@ -55,6 +61,7 @@ const FALLBACK_SETTING: IndicatorSettings = {
 
 export function ChartObjectsPanel({
   activeIndicators,
+  chartStyle,
   drawings,
   indicatorSettings,
   onClearDrawings,
@@ -100,7 +107,7 @@ export function ChartObjectsPanel({
             <ObjectRow
               active
               icon={CandlestickChart}
-              label={smoothCandles ? "Smooth Candles" : "Candles"}
+              label={chartStyleLabel(chartStyle, smoothCandles)}
               meta="Main price series"
             />
             <ObjectRow
@@ -238,6 +245,19 @@ export function ChartObjectsPanel({
       </div>
     </aside>
   );
+}
+
+function chartStyleLabel(style: ChartStyle, smoothCandles: boolean) {
+  switch (style) {
+    case "area":
+      return "Area Chart";
+    case "heikinAshi":
+      return "Heikin Ashi";
+    case "line":
+      return "Line Chart";
+    default:
+      return smoothCandles ? "Smooth Candles" : "Candles";
+  }
 }
 
 function ObjectRow({

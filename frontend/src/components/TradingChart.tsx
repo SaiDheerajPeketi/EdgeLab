@@ -36,6 +36,7 @@ import {
   toCandles,
   type ChartDrawing,
   type ChartIndicatorId,
+  type ChartStyle,
   type ChartTimeframe,
   type DrawingPoint,
   type DrawingTool,
@@ -47,6 +48,7 @@ import { formatPrice } from "../lib/format";
 type Props = {
   activeIndicators: ChartIndicatorId[];
   bars: Candle[];
+  chartStyle: ChartStyle;
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
   executions: Execution[];
@@ -61,7 +63,6 @@ type Props = {
   position: Position | null;
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
-  smoothCandles: boolean;
   symbol?: string;
   datasetTimeframe?: string | null;
   timeframe: ChartTimeframe;
@@ -91,12 +92,16 @@ const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
   horizontal: "#f59e0b",
   rectangle: "#a78bfa",
   fib: "#22c55e",
+  measure: "#38bdf8",
+  longPosition: "#22c55e",
+  shortPosition: "#fb7185",
   text: "#f8fafc",
 };
 
 export function TradingChart({
   activeIndicators,
   bars,
+  chartStyle,
   drawingTool,
   drawings,
   executions,
@@ -111,7 +116,6 @@ export function TradingChart({
   position,
   selectedDrawingId,
   showOrderOverlays,
-  smoothCandles,
   symbol = "EURUSD",
   datasetTimeframe,
   timeframe,
@@ -120,6 +124,8 @@ export function TradingChart({
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
+  const lineRef = useRef<ISeriesApi<"Line"> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const indicatorRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const priceLinesRef = useRef<IPriceLine[]>([]);
@@ -139,8 +145,18 @@ export function TradingChart({
   );
 
   const candleData = useMemo(
-    () => toCandles(displayBars, smoothCandles),
-    [displayBars, smoothCandles],
+    () => toCandles(displayBars, chartStyle === "heikinAshi"),
+    [chartStyle, displayBars],
+  );
+  const closeLineData = useMemo(
+    () =>
+      displayBars.map(
+        (bar): LineData => ({
+          time: bar.time as UTCTimestamp,
+          value: bar.close,
+        }),
+      ),
+    [displayBars],
   );
   const volumeData = useMemo(
     () =>
@@ -255,6 +271,30 @@ export function TradingChart({
         minMove: 0.00001,
       },
     });
+    const line = chart.addLineSeries({
+      color: "#32d3ee",
+      lineWidth: 2,
+      priceLineVisible: false,
+      visible: false,
+      priceFormat: {
+        type: "price",
+        precision: 5,
+        minMove: 0.00001,
+      },
+    });
+    const area = chart.addAreaSeries({
+      bottomColor: "rgba(50, 211, 238, 0.02)",
+      lineColor: "#32d3ee",
+      lineWidth: 2,
+      priceLineVisible: false,
+      topColor: "rgba(50, 211, 238, 0.28)",
+      visible: false,
+      priceFormat: {
+        type: "price",
+        precision: 5,
+        minMove: 0.00001,
+      },
+    });
     const volume = chart.addHistogramSeries({
       color: "rgba(148, 163, 184, 0.24)",
       priceFormat: {
@@ -276,6 +316,8 @@ export function TradingChart({
 
     chartRef.current = chart;
     candlesRef.current = candles;
+    areaRef.current = area;
+    lineRef.current = line;
     volumeRef.current = volume;
 
     chart.subscribeCrosshairMove((param) => {
@@ -290,6 +332,8 @@ export function TradingChart({
       chart.remove();
       chartRef.current = null;
       candlesRef.current = null;
+      areaRef.current = null;
+      lineRef.current = null;
       volumeRef.current = null;
       indicatorRefs.current = {};
     };
@@ -297,12 +341,22 @@ export function TradingChart({
 
   useEffect(() => {
     candlesRef.current?.setData(toAscendingSeriesData(candleData));
+    lineRef.current?.setData(toAscendingSeriesData(closeLineData));
+    areaRef.current?.setData(toAscendingSeriesData(closeLineData));
     volumeRef.current?.setData(toAscendingHistogramData(volumeData));
     if (displayBars.length > 0) {
       chartRef.current?.timeScale().scrollToRealTime();
     }
     setPlotVersion((value) => value + 1);
-  }, [candleData, displayBars.length, volumeData]);
+  }, [candleData, closeLineData, displayBars.length, volumeData]);
+
+  useEffect(() => {
+    candlesRef.current?.applyOptions({
+      visible: chartStyle === "candles" || chartStyle === "heikinAshi",
+    });
+    lineRef.current?.applyOptions({ visible: chartStyle === "line" });
+    areaRef.current?.applyOptions({ visible: chartStyle === "area" });
+  }, [chartStyle]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -523,7 +577,7 @@ export function TradingChart({
             <div>
               <div className="text-base font-semibold text-white">{symbol}</div>
               <div className="text-xs text-slate-400">
-                {datasetTimeframe ?? timeframe} source / {timeframe} view / {smoothCandles ? "Smooth candles" : "Candles"}
+                {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
               </div>
             </div>
           </div>
@@ -631,6 +685,9 @@ function DrawingRail({
     { icon: Minus, label: "Horizontal level", tool: "horizontal" },
     { icon: Square, label: "Rectangle zone", tool: "rectangle" },
     { icon: Magnet, label: "Fib retracement", tool: "fib" },
+    { icon: Minus, label: "Measure", tool: "measure" },
+    { icon: LineChart, label: "Long position", tool: "longPosition" },
+    { icon: LineChart, label: "Short position", tool: "shortPosition" },
     { icon: Type, label: "Text label", tool: "text" },
   ];
 
@@ -994,6 +1051,78 @@ function renderDrawing(
     return null;
   }
 
+  if (drawing.tool === "measure") {
+    const priceDelta = drawing.points[1].price - drawing.points[0].price;
+    const percentDelta =
+      drawing.points[0].price === 0 ? 0 : (priceDelta / drawing.points[0].price) * 100;
+    const timeDelta = Math.abs(drawing.points[1].time - drawing.points[0].time);
+    const midX = (first.x + second.x) / 2;
+    const midY = (first.y + second.y) / 2;
+    const label = `${priceDelta >= 0 ? "+" : ""}${formatPrice(priceDelta)} (${percentDelta.toFixed(2)}%) · ${formatDurationSeconds(timeDelta)}`;
+    return (
+      <g key={drawing.id}>
+        <line
+          cursor="move"
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents="all"
+          stroke="transparent"
+          strokeWidth="14"
+          x1={first.x}
+          x2={second.x}
+          y1={first.y}
+          y2={second.y}
+        />
+        <line
+          stroke={color}
+          strokeDasharray="6 5"
+          strokeLinecap="round"
+          strokeWidth={options.selected ? "2.5" : "2"}
+          x1={first.x}
+          x2={second.x}
+          y1={first.y}
+          y2={second.y}
+        />
+        <line
+          stroke={color}
+          strokeOpacity="0.38"
+          strokeWidth="1"
+          x1={first.x}
+          x2={first.x}
+          y1={first.y}
+          y2={second.y}
+        />
+        <line
+          stroke={color}
+          strokeOpacity="0.38"
+          strokeWidth="1"
+          x1={first.x}
+          x2={second.x}
+          y1={second.y}
+          y2={second.y}
+        />
+        <rect
+          fill="rgba(8, 12, 17, 0.94)"
+          height={24}
+          rx={5}
+          stroke={color}
+          strokeOpacity="0.72"
+          width={Math.min(300, Math.max(188, label.length * 7.2))}
+          x={midX + 8}
+          y={midY - 32}
+        />
+        <text fill={color} fontSize="11" fontWeight="800" x={midX + 18} y={midY - 16}>
+          {label}
+        </text>
+        {options.selected && renderAnchors(drawing, [first, second], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "longPosition" || drawing.tool === "shortPosition") {
+    return renderPositionDrawing(drawing, first, second, width, options);
+  }
+
   if (drawing.tool === "rectangle") {
     const x = Math.min(first.x, second.x);
     const y = Math.min(first.y, second.y);
@@ -1174,6 +1303,102 @@ function renderAnchors(
   );
 }
 
+function renderPositionDrawing(
+  drawing: ChartDrawing,
+  first: { x: number; y: number },
+  second: { x: number; y: number },
+  width: number,
+  options: {
+    onDeleteDrawing: (drawingId: string) => void;
+    onDragStart: (
+      drawing: ChartDrawing,
+      mode: DragState["mode"],
+      pointIndex: number | null,
+      event: MouseEvent<SVGElement>,
+    ) => void;
+    onSelectDrawing: (drawingId: string | null) => void;
+    selected: boolean;
+  },
+) {
+  const isLong = drawing.tool === "longPosition";
+  const entryPrice = drawing.points[0].price;
+  const targetPrice = drawing.points[1].price;
+  const reward = Math.abs(targetPrice - entryPrice);
+  const stopPrice = isLong ? entryPrice - reward * 0.65 : entryPrice + reward * 0.65;
+  const stopY = first.y + (isLong ? Math.abs(second.y - first.y) * 0.65 : -Math.abs(second.y - first.y) * 0.65);
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const boxWidth = Math.max(72, right - left);
+  const targetTop = Math.min(first.y, second.y);
+  const targetHeight = Math.abs(second.y - first.y);
+  const stopTop = Math.min(first.y, stopY);
+  const stopHeight = Math.abs(stopY - first.y);
+  const risk = Math.abs(entryPrice - stopPrice);
+  const ratio = risk === 0 ? 0 : reward / risk;
+
+  const handleBodyDown = (event: MouseEvent<SVGElement>) => {
+    options.onDragStart(drawing, "body", null, event);
+  };
+  const handleSelect = (event: MouseEvent<SVGElement>) => {
+    event.stopPropagation();
+    options.onSelectDrawing(drawing.id);
+  };
+
+  return (
+    <g key={drawing.id}>
+      <rect
+        cursor="move"
+        fill="transparent"
+        height={targetHeight + stopHeight + 24}
+        onClick={handleSelect}
+        onMouseDown={handleBodyDown}
+        pointerEvents="all"
+        width={boxWidth + 32}
+        x={left - 16}
+        y={Math.min(targetTop, stopTop) - 12}
+      />
+      <rect
+        fill="rgba(34, 197, 94, 0.16)"
+        height={targetHeight}
+        stroke="#22c55e"
+        strokeOpacity={options.selected ? 0.95 : 0.65}
+        width={boxWidth}
+        x={left}
+        y={targetTop}
+      />
+      <rect
+        fill="rgba(251, 113, 133, 0.15)"
+        height={stopHeight}
+        stroke="#fb7185"
+        strokeOpacity={options.selected ? 0.95 : 0.65}
+        width={boxWidth}
+        x={left}
+        y={stopTop}
+      />
+      <line stroke="#e2e8f0" strokeDasharray="4 4" x1={left} x2={right} y1={first.y} y2={first.y} />
+      <line stroke="#22c55e" strokeDasharray="6 5" x1={left} x2={right} y1={second.y} y2={second.y} />
+      <line stroke="#fb7185" strokeDasharray="6 5" x1={left} x2={right} y1={stopY} y2={stopY} />
+      <rect
+        fill="rgba(8, 12, 17, 0.95)"
+        height={44}
+        rx={5}
+        stroke={isLong ? "#22c55e" : "#fb7185"}
+        strokeOpacity="0.72"
+        width={176}
+        x={Math.min(width - 188, right + 10)}
+        y={Math.min(targetTop, stopTop)}
+      />
+      <text fill={isLong ? "#bbf7d0" : "#fecdd3"} fontSize="11" fontWeight="900" x={Math.min(width - 176, right + 20)} y={Math.min(targetTop, stopTop) + 17}>
+        {isLong ? "LONG" : "SHORT"} POSITION
+      </text>
+      <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={Math.min(width - 176, right + 20)} y={Math.min(targetTop, stopTop) + 33}>
+        RR {ratio.toFixed(2)} · Entry {formatPrice(entryPrice)}
+      </text>
+      {options.selected && renderAnchors(drawing, [first, second], options)}
+    </g>
+  );
+}
+
 function pointFromClient(
   clientX: number,
   clientY: number,
@@ -1273,11 +1498,40 @@ function toolLabel(tool: DrawingTool) {
       return "a zone";
     case "fib":
       return "fib anchors";
+    case "longPosition":
+      return "long position anchors";
+    case "measure":
+      return "measurement anchors";
+    case "shortPosition":
+      return "short position anchors";
     case "text":
       return "a text label";
     default:
       return "a drawing";
   }
+}
+
+function chartStyleLabel(style: ChartStyle) {
+  switch (style) {
+    case "area":
+      return "Area";
+    case "heikinAshi":
+      return "Heikin Ashi";
+    case "line":
+      return "Line";
+    default:
+      return "Candles";
+  }
+}
+
+function formatDurationSeconds(seconds: number) {
+  if (seconds < 3600) {
+    return `${Math.round(seconds / 60)}m`;
+  }
+  if (seconds < 86400) {
+    return `${(seconds / 3600).toFixed(1)}h`;
+  }
+  return `${(seconds / 86400).toFixed(1)}d`;
 }
 
 function toRsiPath(values: LineData[], width: number, height: number) {

@@ -14,6 +14,7 @@ export const TIMEFRAMES = [
 ] as const;
 
 export type ChartTimeframe = (typeof TIMEFRAMES)[number]["id"];
+export type ChartStyle = "area" | "candles" | "heikinAshi" | "line";
 export type ChartIndicatorId =
   | "ema20"
   | "ema50"
@@ -29,6 +30,9 @@ export type DrawingTool =
   | "horizontal"
   | "rectangle"
   | "fib"
+  | "measure"
+  | "longPosition"
+  | "shortPosition"
   | "text";
 export type IndicatorSettings = {
   color: string;

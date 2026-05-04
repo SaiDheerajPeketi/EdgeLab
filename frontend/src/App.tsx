@@ -35,6 +35,7 @@ import type { Position, Trade } from "./lib/api";
 import type {
   ChartDrawing,
   ChartIndicatorId,
+  ChartStyle,
   ChartTimeframe,
   DrawingTool,
   IndicatorSettings,
@@ -64,6 +65,7 @@ const VALID_TIMEFRAMES: ChartTimeframe[] = [
   "1W",
   "1M",
 ];
+const VALID_CHART_STYLES: ChartStyle[] = ["area", "candles", "heikinAshi", "line"];
 
 export default function App() {
   const {
@@ -90,6 +92,10 @@ export default function App() {
   const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
     const saved = loadChartLayout();
     return sanitizeTimeframe(saved?.timeframe);
+  });
+  const [chartStyle, setChartStyle] = useState<ChartStyle>(() => {
+    const saved = loadChartLayout();
+    return sanitizeChartStyle(saved?.chartStyle);
   });
   const [activeIndicators, setActiveIndicators] = useState<ChartIndicatorId[]>(() => {
     const saved = loadChartLayout();
@@ -194,6 +200,10 @@ export default function App() {
         case "L":
           setDrawingTool("text");
           break;
+        case "m":
+        case "M":
+          setDrawingTool("measure");
+          break;
         case "Escape":
           setDrawingTool("cursor");
           setIsChartFullscreen(false);
@@ -270,6 +280,7 @@ export default function App() {
   function saveChartLayout() {
     const payload: StoredChartLayout = {
       activeIndicators: sanitizeIndicators(activeIndicators),
+      chartStyle,
       drawings: sanitizeDrawings(drawings),
       indicatorSettings,
       showOrderOverlays,
@@ -409,10 +420,12 @@ export default function App() {
                 <ReplayController />
                 <ChartToolbar
                   activeIndicators={activeIndicators}
+                  chartStyle={chartStyle}
                   drawingTool={drawingTool}
                   drawingsCount={drawings.length}
                   indicatorSettings={indicatorSettings}
                   isFullscreen={isChartFullscreen}
+                  onChartStyleChange={setChartStyle}
                   onClearDrawings={clearDrawings}
                   onDrawingToolChange={setDrawingTool}
                   onSaveLayout={saveChartLayout}
@@ -433,6 +446,7 @@ export default function App() {
                     <TradingChart
                       activeIndicators={activeIndicators}
                       bars={bars}
+                      chartStyle={chartStyle}
                       drawingTool={drawingTool}
                       drawings={drawings}
                       executions={executions}
@@ -456,7 +470,6 @@ export default function App() {
                       position={position}
                       selectedDrawingId={selectedDrawingId}
                       showOrderOverlays={showOrderOverlays}
-                      smoothCandles={smoothCandles}
                       symbol={state?.session.symbol}
                       datasetTimeframe={state?.session.timeframe}
                       timeframe={timeframe}
@@ -464,6 +477,7 @@ export default function App() {
                   </div>
                   <ChartObjectsPanel
                     activeIndicators={activeIndicators}
+                    chartStyle={chartStyle}
                     drawings={drawings}
                     indicatorSettings={indicatorSettings}
                     onClearDrawings={clearDrawings}
@@ -610,6 +624,7 @@ function CollapsedAction({
 
 type StoredChartLayout = {
   activeIndicators: ChartIndicatorId[];
+  chartStyle: ChartStyle;
   drawings: ChartDrawing[];
   indicatorSettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>>;
   showOrderOverlays: boolean;
@@ -649,6 +664,12 @@ function sanitizeTimeframe(value: unknown): ChartTimeframe {
   return VALID_TIMEFRAMES.includes(value as ChartTimeframe)
     ? (value as ChartTimeframe)
     : "1m";
+}
+
+function sanitizeChartStyle(value: unknown): ChartStyle {
+  return VALID_CHART_STYLES.includes(value as ChartStyle)
+    ? (value as ChartStyle)
+    : "candles";
 }
 
 function toChartTimeframe(value: string | null | undefined): ChartTimeframe | null {
@@ -702,7 +723,16 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
     const candidate = drawing as Partial<ChartDrawing>;
     return (
       typeof candidate.id === "string" &&
-      ["fib", "horizontal", "rectangle", "text", "trendline"].includes(candidate.tool ?? "") &&
+      [
+        "fib",
+        "horizontal",
+        "longPosition",
+        "measure",
+        "rectangle",
+        "shortPosition",
+        "text",
+        "trendline",
+      ].includes(candidate.tool ?? "") &&
       typeof candidate.color === "string" &&
       typeof candidate.createdAt === "string" &&
       Array.isArray(candidate.points) &&

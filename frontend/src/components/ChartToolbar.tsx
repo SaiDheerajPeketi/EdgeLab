@@ -1,7 +1,9 @@
 import {
-  BarChart2,
+  Activity,
+  AreaChart,
   CandlestickChart,
   ChevronDown,
+  Command,
   Crosshair,
   Eye,
   EyeOff,
@@ -12,10 +14,14 @@ import {
   Minimize2,
   Minus,
   MousePointer2,
+  Ruler,
   Save,
+  Search,
   Settings2,
   SlidersHorizontal,
   Square,
+  TrendingDown,
+  TrendingUp,
   Trash2,
   Type,
   X,
@@ -26,6 +32,7 @@ import {
   INDICATORS,
   TIMEFRAMES,
   type ChartIndicatorId,
+  type ChartStyle,
   type ChartTimeframe,
   type DrawingTool,
   type IndicatorSettings,
@@ -34,11 +41,13 @@ import {
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
+  chartStyle: ChartStyle;
   drawingTool: DrawingTool;
   drawingsCount: number;
   indicatorSettings: IndicatorSettingsMap;
   isFullscreen: boolean;
   onClearDrawings: () => void;
+  onChartStyleChange: (style: ChartStyle) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onSaveLayout: () => void;
   onToggleFullscreen: () => void;
@@ -73,15 +82,31 @@ const DRAWING_TOOLS: Array<{
   { icon: Minus, label: "H-Line", shortcut: "H", tool: "horizontal" },
   { icon: Square, label: "Zone", shortcut: "R", tool: "rectangle" },
   { icon: Magnet, label: "Fib", shortcut: "F", tool: "fib" },
+  { icon: Ruler, label: "Measure", shortcut: "M", tool: "measure" },
+  { icon: TrendingUp, label: "Long", tool: "longPosition" },
+  { icon: TrendingDown, label: "Short", tool: "shortPosition" },
   { icon: Type, label: "Text", shortcut: "L", tool: "text" },
+];
+
+const CHART_STYLES: Array<{
+  icon: LucideIcon;
+  id: ChartStyle;
+  label: string;
+}> = [
+  { icon: CandlestickChart, id: "candles", label: "Candles" },
+  { icon: Activity, id: "heikinAshi", label: "Heikin Ashi" },
+  { icon: LineChart, id: "line", label: "Line" },
+  { icon: AreaChart, id: "area", label: "Area" },
 ];
 
 export function ChartToolbar({
   activeIndicators,
+  chartStyle,
   drawingTool,
   drawingsCount,
   indicatorSettings,
   isFullscreen,
+  onChartStyleChange,
   onClearDrawings,
   onDrawingToolChange,
   onSaveLayout,
@@ -93,19 +118,29 @@ export function ChartToolbar({
   onUpdateIndicatorSettings,
   orderOverlaysVisible,
   savedLabel,
-  smoothCandles,
   timeframe,
 }: Props) {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const commandRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
+
+  function selectChartStyle(style: ChartStyle) {
+    onChartStyleChange(style);
+    onSmoothCandlesChange(style === "heikinAshi");
+  }
 
   useEffect(() => {
     function closeOnOutsideClick(event: globalThis.MouseEvent) {
       const target = event.target as Node;
       if (menuRef.current && !menuRef.current.contains(target)) {
         setIndicatorMenuOpen(false);
+      }
+      if (commandRef.current && !commandRef.current.contains(target)) {
+        setCommandOpen(false);
       }
       if (settingsRef.current && !settingsRef.current.contains(target)) {
         setSettingsOpen(false);
@@ -125,12 +160,40 @@ export function ChartToolbar({
               <SlidersHorizontal size={17} />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">Chart Studio</div>
+              <div className="text-sm font-semibold text-white">TV Workbench</div>
               <div className="truncate text-xs text-slate-500">
-                {timeframe} active / {activeIndicators.length} indicators / {drawingsCount} drawings
+                {timeframe} / {chartStyleLabel(chartStyle)} / {activeIndicators.length} studies / {drawingsCount} drawings
               </div>
             </div>
           </div>
+        </div>
+
+        <div ref={commandRef} className="chart-command-box">
+          <Command size={15} className="text-cyan-200" />
+          <input
+            onChange={(event) => {
+              setCommandQuery(event.target.value);
+              setCommandOpen(true);
+            }}
+            onFocus={() => setCommandOpen(true)}
+            placeholder="Search tools, indicators, styles, intervals"
+            value={commandQuery}
+          />
+          <Search size={14} className="text-slate-500" />
+          {commandOpen && (
+            <CommandMenu
+              activeIndicators={activeIndicators}
+              onChartStyleChange={selectChartStyle}
+              onClose={() => {
+                setCommandOpen(false);
+                setCommandQuery("");
+              }}
+              onDrawingToolChange={onDrawingToolChange}
+              onTimeframeChange={onTimeframeChange}
+              onToggleIndicator={onToggleIndicator}
+              query={commandQuery}
+            />
+          )}
         </div>
 
         <div className="timeframe-strip">
@@ -148,20 +211,12 @@ export function ChartToolbar({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            className={`chart-mode-button ${!smoothCandles ? "chart-mode-active" : ""}`}
-            onClick={() => onSmoothCandlesChange(false)}
+            className="chart-mode-button"
+            onClick={() => selectChartStyle("candles")}
             type="button"
           >
             <CandlestickChart size={15} />
-            Candle
-          </button>
-          <button
-            className={`chart-mode-button ${smoothCandles ? "chart-mode-active" : ""}`}
-            onClick={() => onSmoothCandlesChange(true)}
-            type="button"
-          >
-            <BarChart2 size={15} />
-            Smooth
+            {chartStyleLabel(chartStyle)}
           </button>
           <button
             className={`chart-mode-button ${orderOverlaysVisible ? "chart-mode-active" : ""}`}
@@ -196,6 +251,25 @@ export function ChartToolbar({
             {savedLabel ?? "Save Layout"}
           </button>
         </div>
+      </div>
+
+      <div className="chart-style-strip">
+        {CHART_STYLES.map((style) => {
+          const Icon = style.icon;
+          return (
+            <button
+              className={`chart-style-button ${chartStyle === style.id ? "chart-style-button-active" : ""}`}
+              key={style.id}
+              onClick={() => {
+                selectChartStyle(style.id);
+              }}
+              type="button"
+            >
+              <Icon size={14} />
+              {style.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -423,6 +497,116 @@ function NumberPill({
   );
 }
 
+function CommandMenu({
+  activeIndicators,
+  onChartStyleChange,
+  onClose,
+  onDrawingToolChange,
+  onTimeframeChange,
+  onToggleIndicator,
+  query,
+}: {
+  activeIndicators: ChartIndicatorId[];
+  onChartStyleChange: (style: ChartStyle) => void;
+  onClose: () => void;
+  onDrawingToolChange: (tool: DrawingTool) => void;
+  onTimeframeChange: (timeframe: ChartTimeframe) => void;
+  onToggleIndicator: (indicator: ChartIndicatorId) => void;
+  query: string;
+}) {
+  const normalized = query.trim().toLowerCase();
+  const commands: Array<{
+    description: string;
+    icon: LucideIcon;
+    id: string;
+    label: string;
+    run: () => void;
+    type: string;
+  }> = [
+    ...INDICATORS.map((indicator) => ({
+      description: activeIndicators.includes(indicator.id) ? "Remove study" : indicator.description,
+      icon: Layers,
+      id: `indicator-${indicator.id}`,
+      label: indicator.label,
+      run: () => onToggleIndicator(indicator.id),
+      type: "Study",
+    })),
+    ...DRAWING_TOOLS.map((tool) => ({
+      description: tool.shortcut ? `Shortcut ${tool.shortcut}` : "Drawing tool",
+      icon: tool.icon,
+      id: `drawing-${tool.tool}`,
+      label: tool.label,
+      run: () => onDrawingToolChange(tool.tool),
+      type: "Drawing",
+    })),
+    ...TIMEFRAMES.map((interval) => ({
+      description: `${interval.seconds}s interval`,
+      icon: Command,
+      id: `timeframe-${interval.id}`,
+      label: interval.label,
+      run: () => onTimeframeChange(interval.id),
+      type: "Interval",
+    })),
+    ...CHART_STYLES.map((style) => ({
+      description: "Chart style",
+      icon: style.icon,
+      id: `style-${style.id}`,
+      label: style.label,
+      run: () => onChartStyleChange(style.id),
+      type: "Style",
+    })),
+  ];
+  const visibleCommands = commands
+    .filter((command) =>
+      normalized
+        ? `${command.label} ${command.description} ${command.type}`
+            .toLowerCase()
+            .includes(normalized)
+        : true,
+    )
+    .slice(0, 12);
+
+  return (
+    <div className="chart-command-menu">
+      <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        Command Search
+      </div>
+      {visibleCommands.map((command) => {
+        const Icon = command.icon;
+        return (
+          <button
+            className="chart-command-row"
+            key={command.id}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              command.run();
+              onClose();
+            }}
+            type="button"
+          >
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 bg-white/5 text-cyan-100">
+              <Icon size={15} />
+            </span>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block truncate text-sm font-semibold text-white">
+                {command.label}
+              </span>
+              <span className="block truncate text-xs text-slate-500">
+                {command.type} · {command.description}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+      {visibleCommands.length === 0 && (
+        <div className="px-3 py-6 text-center text-sm text-slate-500">
+          No matching command
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IndicatorEditor({
   indicator,
   onRemove,
@@ -547,4 +731,17 @@ function clampInteger(value: string, min: number, max: number) {
     return min;
   }
   return Math.min(max, Math.max(min, parsed));
+}
+
+function chartStyleLabel(style: ChartStyle) {
+  switch (style) {
+    case "area":
+      return "Area";
+    case "heikinAshi":
+      return "Heikin";
+    case "line":
+      return "Line";
+    default:
+      return "Candles";
+  }
 }
