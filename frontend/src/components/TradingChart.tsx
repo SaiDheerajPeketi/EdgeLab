@@ -54,6 +54,8 @@ type Props = {
   position: Position | null;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
+  symbol?: string;
+  datasetTimeframe?: string | null;
   timeframe: ChartTimeframe;
 };
 
@@ -89,6 +91,8 @@ export function TradingChart({
   position,
   showOrderOverlays,
   smoothCandles,
+  symbol = "EURUSD",
+  datasetTimeframe,
   timeframe,
 }: Props) {
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +104,7 @@ export function TradingChart({
   const barsRef = useRef<Candle[]>([]);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const tooltipStyle = tooltip
     ? getTooltipStyle(tooltip, chartFrameRef.current)
@@ -138,10 +143,11 @@ export function TradingChart({
         drawings,
         draftDrawing,
         frame: chartFrameRef.current,
+        hoverPoint,
         series: candlesRef.current,
         version: plotVersion,
       }),
-    [drawings, draftDrawing, plotVersion],
+    [drawings, draftDrawing, hoverPoint, plotVersion],
   );
 
   useEffect(() => {
@@ -327,6 +333,7 @@ export function TradingChart({
   useEffect(() => {
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
       setDraftDrawing(null);
+      setHoverPoint(null);
     }
   }, [drawingTool]);
 
@@ -351,6 +358,14 @@ export function TradingChart({
 
     onAddDrawing(makeDrawing(drawingTool, [draftDrawing.point, point]));
     setDraftDrawing(null);
+    setHoverPoint(null);
+  }
+
+  function handleDrawingMove(event: MouseEvent<HTMLDivElement>) {
+    if (!draftDrawing || drawingTool === "cursor" || drawingTool === "crosshair") {
+      return;
+    }
+    setHoverPoint(pointFromMouseEvent(event, chartRef.current, candlesRef.current));
   }
 
   return (
@@ -362,9 +377,9 @@ export function TradingChart({
               EU
             </div>
             <div>
-              <div className="text-base font-semibold text-white">EURUSD</div>
+              <div className="text-base font-semibold text-white">{symbol}</div>
               <div className="text-xs text-slate-400">
-                {timeframe} / {smoothCandles ? "Smooth candles" : "Candles"} / Bar replay
+                {datasetTimeframe ?? timeframe} source / {timeframe} view / {smoothCandles ? "Smooth candles" : "Candles"}
               </div>
             </div>
           </div>
@@ -401,6 +416,7 @@ export function TradingChart({
             <div
               className={`absolute inset-0 z-10 ${drawingTool === "cursor" || drawingTool === "crosshair" ? "pointer-events-none" : "cursor-crosshair"}`}
               onClick={handleDrawingClick}
+              onMouseMove={handleDrawingMove}
             >
               <svg className="h-full w-full overflow-visible">
                 {drawingElements}
@@ -545,12 +561,14 @@ function buildDrawingElements({
   drawings,
   draftDrawing,
   frame,
+  hoverPoint,
   series,
 }: {
   chart: IChartApi | null;
   drawings: ChartDrawing[];
   draftDrawing: DraftDrawing | null;
   frame: HTMLDivElement | null;
+  hoverPoint: DrawingPoint | null;
   series: ISeriesApi<"Candlestick"> | null;
   version: number;
 }) {
@@ -574,13 +592,27 @@ function buildDrawingElements({
         renderDrawing(drawing, toPixel, width),
       )}
       {draftDrawing && (
-        <circle
-          cx={toPixel(draftDrawing.point)?.x ?? 0}
-          cy={toPixel(draftDrawing.point)?.y ?? 0}
-          fill={DRAWING_COLORS[draftDrawing.tool]}
-          opacity={0.9}
-          r={4}
-        />
+        <g>
+          {hoverPoint &&
+            renderDrawing(
+              {
+                id: "draft",
+                tool: draftDrawing.tool,
+                color: DRAWING_COLORS[draftDrawing.tool],
+                points: [draftDrawing.point, hoverPoint],
+                createdAt: "",
+              },
+              toPixel,
+              width,
+            )}
+          <circle
+            cx={toPixel(draftDrawing.point)?.x ?? 0}
+            cy={toPixel(draftDrawing.point)?.y ?? 0}
+            fill={DRAWING_COLORS[draftDrawing.tool]}
+            opacity={0.9}
+            r={4}
+          />
+        </g>
       )}
     </>
   );

@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import {
   BacktestState,
+  BacktestCreatePayload,
   Candle,
+  DatasetCatalog,
   DatasetMeta,
   JournalPayload,
   OrderPayload,
@@ -12,6 +14,7 @@ import {
   createBacktest,
   deleteBacktestOrder,
   getBars,
+  getDatasets,
   getLatestBacktest,
   getMeta,
   getPlaybooks,
@@ -26,6 +29,7 @@ const WINDOW_SIZE = 1500;
 type BacktestStore = {
   bars: Candle[];
   barOffset: number;
+  datasets: DatasetCatalog | null;
   meta: DatasetMeta | null;
   state: BacktestState | null;
   playbooks: Playbook[];
@@ -35,7 +39,7 @@ type BacktestStore = {
   speedMs: number;
   error: string | null;
   loadInitial: () => Promise<void>;
-  newSession: () => Promise<void>;
+  newSession: (payload?: BacktestCreatePayload) => Promise<void>;
   stepForward: (steps?: number) => Promise<void>;
   resetReplay: () => Promise<void>;
   jumpToOffset: (offset: number) => Promise<void>;
@@ -51,6 +55,7 @@ type BacktestStore = {
 export const useBacktestStore = create<BacktestStore>((set, get) => ({
   bars: [],
   barOffset: 0,
+  datasets: null,
   meta: null,
   state: null,
   playbooks: [],
@@ -63,24 +68,52 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadInitial: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [meta, state, playbooks] = await Promise.all([
-        getMeta(),
+      const [datasets, state, playbooks] = await Promise.all([
+        getDatasets(),
         getLatestBacktest(),
         getPlaybooks(),
       ]);
-      const { bars, barOffset } = await loadWindow(state.session.current_offset);
-      set({ meta, state, playbooks, bars, barOffset, isLoading: false });
+      const [meta, window] = await Promise.all([
+        getMeta(state.session.id),
+        loadWindow(
+          state.session.current_offset,
+          state.session.id,
+          state.session.start_offset,
+        ),
+      ]);
+      set({
+        datasets,
+        meta,
+        state,
+        playbooks,
+        bars: window.bars,
+        barOffset: window.barOffset,
+        isLoading: false,
+      });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
     }
   },
 
-  newSession: async () => {
+  newSession: async (payload = {}) => {
     set({ isLoading: true, isPlaying: false, error: null });
     try {
-      const state = await createBacktest();
-      const { bars, barOffset } = await loadWindow(state.session.current_offset);
-      set({ state, bars, barOffset, isLoading: false });
+      const state = await createBacktest(payload);
+      const [meta, window] = await Promise.all([
+        getMeta(state.session.id),
+        loadWindow(
+          state.session.current_offset,
+          state.session.id,
+          state.session.start_offset,
+        ),
+      ]);
+      set({
+        meta,
+        state,
+        bars: window.bars,
+        barOffset: window.barOffset,
+        isLoading: false,
+      });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
     }
@@ -99,6 +132,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         get().bars,
         get().barOffset,
         state.session.current_offset,
+        state.session.id,
+        state.session.start_offset,
       );
       set({
         state,
@@ -114,7 +149,23 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   resetReplay: async () => {
-    await get().newSession();
+    const session = get().state?.session;
+    await get().newSession(
+      session
+        ? {
+            name: session.name,
+            symbol: session.symbol,
+            instrument: session.instrument,
+            timeframe: session.timeframe,
+            csv_path: session.csv_path,
+            strategy_name: session.strategy_name,
+            playbook_id: session.playbook_id,
+            start_timestamp: session.start_at,
+            end_timestamp: session.end_at,
+            initial_balance: session.initial_balance,
+          }
+        : {},
+    );
   },
 
   jumpToOffset: async (offset: number) => {
@@ -125,7 +176,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     set({ isLoading: true, isPlaying: false, error: null });
     try {
       const state = await jumpBacktest(sessionId, { offset });
-      const { bars, barOffset } = await loadWindow(state.session.current_offset);
+      const { bars, barOffset } = await loadWindow(
+        state.session.current_offset,
+        state.session.id,
+        state.session.start_offset,
+      );
       set({ state, bars, barOffset, isLoading: false });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
@@ -140,7 +195,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     set({ isLoading: true, isPlaying: false, error: null });
     try {
       const state = await jumpBacktest(sessionId, { timestamp });
-      const { bars, barOffset } = await loadWindow(state.session.current_offset);
+      const { bars, barOffset } = await loadWindow(
+        state.session.current_offset,
+        state.session.id,
+        state.session.start_offset,
+      );
       set({ state, bars, barOffset, isLoading: false });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
@@ -196,10 +255,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 }));
 
-async function loadWindow(currentOffset: number) {
-  const barOffset = Math.max(0, currentOffset - WINDOW_SIZE + 1);
+async function loadWindow(currentOffset: number, sessionId?: number, startOffset = 0) {
+  const barOffset = Math.max(startOffset, currentOffset - WINDOW_SIZE + 1);
   const limit = currentOffset - barOffset + 1;
-  const response = await getBars(barOffset, limit);
+  const response = await getBars(barOffset, limit, sessionId);
   return { bars: response.bars, barOffset };
 }
 
@@ -207,9 +266,11 @@ async function ensureBarsForOffset(
   bars: Candle[],
   barOffset: number,
   offset: number,
+  sessionId?: number,
+  startOffset = 0,
 ) {
   if (offset < barOffset || offset >= barOffset + WINDOW_SIZE) {
-    return loadWindow(offset);
+    return loadWindow(offset, sessionId, startOffset);
   }
 
   const loadedThrough = barOffset + bars.length - 1;
@@ -217,7 +278,7 @@ async function ensureBarsForOffset(
     return { bars, barOffset };
   }
 
-  const response = await getBars(loadedThrough + 1, offset - loadedThrough);
+  const response = await getBars(loadedThrough + 1, offset - loadedThrough, sessionId);
   return { bars: [...bars, ...response.bars], barOffset };
 }
 

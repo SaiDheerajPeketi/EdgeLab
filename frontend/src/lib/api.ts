@@ -18,6 +18,26 @@ export type DatasetMeta = {
   last_timestamp: string | null;
 };
 
+export type DatasetTimeframe = {
+  timeframe: string;
+  csv_path: string;
+  rows: number;
+  first_timestamp: string | null;
+  last_timestamp: string | null;
+};
+
+export type DatasetInstrument = {
+  id: string;
+  name: string;
+  symbol: string;
+  timeframes: DatasetTimeframe[];
+};
+
+export type DatasetCatalog = {
+  root: string;
+  instruments: DatasetInstrument[];
+};
+
 export type BarsResponse = {
   offset: number;
   limit: number;
@@ -37,6 +57,15 @@ export type BacktestSession = {
   id: number;
   name: string;
   symbol: string;
+  instrument: string | null;
+  timeframe: string | null;
+  csv_path: string | null;
+  strategy_name: string | null;
+  playbook_id: number | null;
+  start_at: string | null;
+  end_at: string | null;
+  start_offset: number;
+  end_offset: number | null;
   status: "ACTIVE" | "COMPLETE";
   current_offset: number;
   initial_balance: number;
@@ -182,6 +211,20 @@ export type OrderPayload = {
   notes?: string | null;
 };
 
+export type BacktestCreatePayload = {
+  name?: string;
+  symbol?: string;
+  instrument?: string | null;
+  timeframe?: string | null;
+  csv_path?: string | null;
+  strategy_name?: string | null;
+  playbook_id?: number | null;
+  start_timestamp?: string | null;
+  end_timestamp?: string | null;
+  initial_balance?: number;
+  initial_offset?: number;
+};
+
 export type OrderUpdatePayload = Partial<OrderPayload>;
 
 export type JournalPayload = {
@@ -212,22 +255,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function getMeta() {
-  return request<DatasetMeta>("/market-data/meta");
+export function getDatasets() {
+  return request<DatasetCatalog>("/datasets");
 }
 
-export function getBars(offset = 0, limit = 300) {
-  return request<BarsResponse>(`/market-data/bars?offset=${offset}&limit=${limit}`);
+export function getMeta(sessionId?: number) {
+  const query = sessionId ? `?session_id=${sessionId}` : "";
+  return request<DatasetMeta>(`/market-data/meta${query}`);
+}
+
+export function getBars(offset = 0, limit = 300, sessionId?: number) {
+  const query = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+  if (sessionId) {
+    query.set("session_id", String(sessionId));
+  }
+  return request<BarsResponse>(`/market-data/bars?${query.toString()}`);
 }
 
 export function getLatestBacktest() {
   return request<BacktestState>("/backtests/latest");
 }
 
-export function createBacktest() {
+export function createBacktest(payload: BacktestCreatePayload = {}) {
   return request<BacktestState>("/backtests", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
 }
 

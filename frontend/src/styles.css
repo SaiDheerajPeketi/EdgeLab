@@ -189,7 +189,11 @@ button:disabled {
   .chart-fullscreen-shell .chart-frame,
   .chart-fullscreen-shell .chart-container-surface,
   .chart-fullscreen-shell .drawing-rail {
-    min-height: calc(100vh - 210px);
+    min-height: calc(100vh - 360px);
+  }
+
+  .chart-fullscreen-dock {
+    @apply grid min-w-0 gap-3 lg:grid-cols-2 2xl:grid-cols-4;
   }
 
   .chart-stage {

@@ -16,6 +16,7 @@ import type { LucideIcon } from "lucide-react";
 import { CandleInspector } from "./components/CandleInspector";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
+import { DatasetSessionPanel } from "./components/DatasetSessionPanel";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { JournalEntryModal } from "./components/JournalEntryModal";
 import { MarketStrip } from "./components/MarketStrip";
@@ -56,6 +57,7 @@ const VALID_TIMEFRAMES: ChartTimeframe[] = ["1m", "5m", "15m", "30m", "1H", "4H"
 export default function App() {
   const {
     bars,
+    datasets,
     meta,
     state,
     playbooks,
@@ -64,6 +66,9 @@ export default function App() {
     isPlaying,
     speedMs,
     loadInitial,
+    newSession,
+    jumpToOffset,
+    setPlaying,
     stepForward,
   } = useBacktestStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
@@ -110,6 +115,78 @@ export default function App() {
     }, speedMs);
     return () => window.clearInterval(timer);
   }, [isPlaying, speedMs, stepForward]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+      if (isTyping) {
+        return;
+      }
+
+      if (event.ctrlKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        setDrawings((currentDrawings) => currentDrawings.slice(0, -1));
+        return;
+      }
+
+      switch (event.key) {
+        case "ArrowRight":
+          event.preventDefault();
+          void stepForward(1);
+          break;
+        case "ArrowLeft":
+          event.preventDefault();
+          if (state) {
+            void jumpToOffset(Math.max(state.session.start_offset, state.session.current_offset - 1));
+          }
+          break;
+        case " ":
+          event.preventDefault();
+          setPlaying(!isPlaying);
+          break;
+        case "b":
+        case "B":
+        case "s":
+        case "S":
+          setLeftPaneOpen(true);
+          break;
+        case "h":
+        case "H":
+          setDrawingTool("horizontal");
+          break;
+        case "t":
+        case "T":
+          setDrawingTool("trendline");
+          break;
+        case "r":
+        case "R":
+          setDrawingTool("rectangle");
+          break;
+        case "f":
+        case "F":
+          setDrawingTool("fib");
+          break;
+        case "Escape":
+          setDrawingTool("cursor");
+          setIsChartFullscreen(false);
+          break;
+        case "Delete":
+        case "Backspace":
+          setDrawings((currentDrawings) => currentDrawings.slice(0, -1));
+          break;
+        default:
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPlaying, jumpToOffset, setPlaying, state, stepForward]);
 
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
@@ -193,7 +270,7 @@ export default function App() {
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-400">
                   <span className="inline-flex items-center gap-2">
                     <CircleDot size={14} className="text-cyan-200" />
-                    EURUSD M1
+                    {state?.session.symbol ?? "EURUSD"} {state?.session.timeframe ?? "M1"}
                   </span>
                   {current && (
                     <span className="inline-flex items-center gap-2">
@@ -246,6 +323,13 @@ export default function App() {
           <MarketStrip current={current} position={position} />
 
           <div className="space-y-4">
+            <DatasetSessionPanel
+              datasets={datasets}
+              isLoading={isLoading}
+              onCreateSession={newSession}
+              playbooks={playbooks}
+              session={state?.session ?? null}
+            />
             <MetricsBar metrics={metrics} />
             <div className={workspaceGridClass}>
               <div className="min-w-0 space-y-4 2xl:order-1">
@@ -322,6 +406,8 @@ export default function App() {
                       position={position}
                       showOrderOverlays={showOrderOverlays}
                       smoothCandles={smoothCandles}
+                      symbol={state?.session.symbol}
+                      datasetTimeframe={state?.session.timeframe}
                       timeframe={timeframe}
                     />
                   </div>
@@ -337,6 +423,14 @@ export default function App() {
                     smoothCandles={smoothCandles}
                   />
                 </div>
+                {isChartFullscreen && (
+                  <div className="chart-fullscreen-dock">
+                    <OrderTicket playbooks={playbooks} />
+                    <PositionPanel position={position} />
+                    <PendingOrders orders={orders} />
+                    <ExecutionTape executions={executions} />
+                  </div>
+                )}
               </div>
               <div className="min-w-0 space-y-4 2xl:order-3">
                 <PendingOrders orders={orders} />
