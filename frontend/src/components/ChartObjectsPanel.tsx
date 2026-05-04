@@ -8,7 +8,9 @@ import {
   Magnet,
   Minus,
   Square,
+  Type,
   Trash2,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -25,6 +27,7 @@ type Props = {
   drawings: ChartDrawing[];
   indicatorSettings: IndicatorSettingsMap;
   onClearDrawings: () => void;
+  onDeleteDrawing: (drawingId: string) => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
   onToggleOrderOverlays: () => void;
   onUpdateIndicatorSettings: (
@@ -39,6 +42,7 @@ const drawingIcons: Record<ChartDrawing["tool"], LucideIcon> = {
   fib: Magnet,
   horizontal: Minus,
   rectangle: Square,
+  text: Type,
   trendline: LineChart,
 };
 
@@ -52,6 +56,7 @@ export function ChartObjectsPanel({
   drawings,
   indicatorSettings,
   onClearDrawings,
+  onDeleteDrawing,
   onToggleIndicator,
   onToggleOrderOverlays,
   onUpdateIndicatorSettings,
@@ -188,7 +193,7 @@ export function ChartObjectsPanel({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold capitalize text-slate-100">
-                      {drawing.tool} {index + 1}
+                      {drawing.label || `${drawing.tool} ${index + 1}`}
                     </span>
                     <span className="block truncate text-xs text-slate-500">
                       {drawing.points.length === 1
@@ -196,6 +201,14 @@ export function ChartObjectsPanel({
                         : `${drawing.points.length} anchors`}
                     </span>
                   </span>
+                  <button
+                    className="icon-button h-8 w-8"
+                    onClick={() => onDeleteDrawing(drawing.id)}
+                    title="Delete drawing"
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
               );
             })}

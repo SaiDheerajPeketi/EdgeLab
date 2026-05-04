@@ -9,11 +9,20 @@ export const TIMEFRAMES = [
   { id: "1H", label: "1H", seconds: 3600 },
   { id: "4H", label: "4H", seconds: 14400 },
   { id: "1D", label: "1D", seconds: 86400 },
+  { id: "1W", label: "1W", seconds: 604800 },
+  { id: "1M", label: "1M", seconds: 2592000 },
 ] as const;
 
 export type ChartTimeframe = (typeof TIMEFRAMES)[number]["id"];
 export type ChartIndicatorId = "ema20" | "ema50" | "sma200" | "vwap" | "bb20" | "rsi14";
-export type DrawingTool = "cursor" | "crosshair" | "trendline" | "horizontal" | "rectangle" | "fib";
+export type DrawingTool =
+  | "cursor"
+  | "crosshair"
+  | "trendline"
+  | "horizontal"
+  | "rectangle"
+  | "fib"
+  | "text";
 export type IndicatorSettings = {
   color: string;
   period: number;
@@ -32,6 +41,7 @@ export type ChartDrawing = {
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
   color: string;
   points: DrawingPoint[];
+  label?: string;
   createdAt: string;
 };
 
@@ -72,6 +82,23 @@ export function getTimeframeSeconds(timeframe: ChartTimeframe) {
 }
 
 export function bucketTime(time: number, timeframe: ChartTimeframe) {
+  if (timeframe === "1W") {
+    const date = new Date(time * 1000);
+    const daysFromMonday = (date.getUTCDay() + 6) % 7;
+    return Math.floor(
+      Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate() - daysFromMonday,
+      ) / 1000,
+    );
+  }
+
+  if (timeframe === "1M") {
+    const date = new Date(time * 1000);
+    return Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000);
+  }
+
   const seconds = getTimeframeSeconds(timeframe);
   return Math.floor(time / seconds) * seconds;
 }

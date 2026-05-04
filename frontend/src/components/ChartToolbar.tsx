@@ -2,16 +2,25 @@ import {
   BarChart2,
   CandlestickChart,
   ChevronDown,
+  Crosshair,
   Eye,
   EyeOff,
   Layers,
+  LineChart,
+  Magnet,
   Maximize2,
   Minimize2,
+  Minus,
+  MousePointer2,
   Save,
   Settings2,
   SlidersHorizontal,
+  Square,
+  Trash2,
+  Type,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   INDICATORS,
@@ -52,6 +61,21 @@ const FALLBACK_SETTING: IndicatorSettings = {
   period: 20,
 };
 
+const DRAWING_TOOLS: Array<{
+  icon: LucideIcon;
+  label: string;
+  shortcut?: string;
+  tool: DrawingTool;
+}> = [
+  { icon: MousePointer2, label: "Cursor", tool: "cursor" },
+  { icon: Crosshair, label: "Crosshair", tool: "crosshair" },
+  { icon: LineChart, label: "Trend", shortcut: "T", tool: "trendline" },
+  { icon: Minus, label: "H-Line", shortcut: "H", tool: "horizontal" },
+  { icon: Square, label: "Zone", shortcut: "R", tool: "rectangle" },
+  { icon: Magnet, label: "Fib", shortcut: "F", tool: "fib" },
+  { icon: Type, label: "Text", shortcut: "L", tool: "text" },
+];
+
 export function ChartToolbar({
   activeIndicators,
   drawingTool,
@@ -59,6 +83,7 @@ export function ChartToolbar({
   indicatorSettings,
   isFullscreen,
   onClearDrawings,
+  onDrawingToolChange,
   onSaveLayout,
   onToggleFullscreen,
   onTimeframeChange,
@@ -174,6 +199,34 @@ export function ChartToolbar({
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="drawing-tool-strip" aria-label="Drawing tools">
+          {DRAWING_TOOLS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                className={`studio-tool-button ${drawingTool === item.tool ? "studio-tool-button-active" : ""}`}
+                key={item.tool}
+                onClick={() => onDrawingToolChange(item.tool)}
+                title={`${item.label}${item.shortcut ? ` (${item.shortcut})` : ""}`}
+                type="button"
+              >
+                <Icon size={15} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+          <button
+            className="studio-tool-button"
+            disabled={drawingsCount === 0}
+            onClick={onClearDrawings}
+            title="Clear all drawings"
+            type="button"
+          >
+            <Trash2 size={14} />
+            <span>{drawingsCount}</span>
+          </button>
+        </div>
+
         <div ref={menuRef} className="relative">
           <button
             className="chart-dropdown-trigger"

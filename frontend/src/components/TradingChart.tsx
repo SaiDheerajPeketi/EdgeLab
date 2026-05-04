@@ -7,6 +7,7 @@ import {
   MousePointer2,
   Square,
   Trash2,
+  Type,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -15,6 +16,7 @@ import {
 } from "lightweight-charts";
 import type {
   CandlestickData,
+  HistogramData,
   IChartApi,
   IPriceLine,
   ISeriesApi,
@@ -75,6 +77,7 @@ const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
   horizontal: "#f59e0b",
   rectangle: "#a78bfa",
   fib: "#22c55e",
+  text: "#f8fafc",
 };
 
 export function TradingChart({
@@ -99,6 +102,7 @@ export function TradingChart({
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const indicatorRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Candle[]>([]);
@@ -118,6 +122,20 @@ export function TradingChart({
   const candleData = useMemo(
     () => toCandles(displayBars, smoothCandles),
     [displayBars, smoothCandles],
+  );
+  const volumeData = useMemo(
+    () =>
+      displayBars.map(
+        (bar): HistogramData => ({
+          time: bar.time as UTCTimestamp,
+          value: bar.volume,
+          color:
+            bar.close >= bar.open
+              ? "rgba(34, 197, 94, 0.22)"
+              : "rgba(251, 113, 133, 0.24)",
+        }),
+      ),
+    [displayBars],
   );
 
   const indicatorDefinitions = useMemo(
@@ -199,6 +217,20 @@ export function TradingChart({
         minMove: 0.00001,
       },
     });
+    const volume = chart.addHistogramSeries({
+      color: "rgba(148, 163, 184, 0.24)",
+      priceFormat: {
+        type: "volume",
+      },
+      priceLineVisible: false,
+      priceScaleId: "",
+    });
+    volume.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.82,
+        bottom: 0,
+      },
+    });
 
     const refreshDrawingLayer = () => {
       setPlotVersion((value) => value + 1);
@@ -206,6 +238,7 @@ export function TradingChart({
 
     chartRef.current = chart;
     candlesRef.current = candles;
+    volumeRef.current = volume;
 
     chart.subscribeCrosshairMove((param) => {
       setTooltip(resolveTooltip(param, barsRef.current));
@@ -219,17 +252,19 @@ export function TradingChart({
       chart.remove();
       chartRef.current = null;
       candlesRef.current = null;
+      volumeRef.current = null;
       indicatorRefs.current = {};
     };
   }, []);
 
   useEffect(() => {
     candlesRef.current?.setData(toAscendingSeriesData(candleData));
+    volumeRef.current?.setData(toAscendingHistogramData(volumeData));
     if (displayBars.length > 0) {
       chartRef.current?.timeScale().scrollToRealTime();
     }
     setPlotVersion((value) => value + 1);
-  }, [candleData, displayBars.length]);
+  }, [candleData, displayBars.length, volumeData]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -348,6 +383,14 @@ export function TradingChart({
 
     if (drawingTool === "horizontal") {
       onAddDrawing(makeDrawing("horizontal", [point]));
+      return;
+    }
+
+    if (drawingTool === "text") {
+      const label = window.prompt("Text label", "Note")?.trim() || "Note";
+      onAddDrawing(makeDrawing("text", [point], label));
+      setDraftDrawing(null);
+      setHoverPoint(null);
       return;
     }
 
@@ -477,6 +520,7 @@ function DrawingRail({
     { icon: Minus, label: "Horizontal level", tool: "horizontal" },
     { icon: Square, label: "Rectangle zone", tool: "rectangle" },
     { icon: Magnet, label: "Fib retracement", tool: "fib" },
+    { icon: Type, label: "Text label", tool: "text" },
   ];
 
   return (
@@ -516,6 +560,20 @@ function DrawingRail({
 
 function toAscendingSeriesData<T extends CandlestickData | LineData>(data: T[]): T[] {
   const byTime = new Map<number, T>();
+  for (const item of data) {
+    const time = Number(item.time);
+    if (!Number.isFinite(time)) {
+      continue;
+    }
+    byTime.set(time, item);
+  }
+  return Array.from(byTime.values()).sort(
+    (left, right) => Number(left.time) - Number(right.time),
+  );
+}
+
+function toAscendingHistogramData(data: HistogramData[]): HistogramData[] {
+  const byTime = new Map<number, HistogramData>();
   for (const item of data) {
     const time = Number(item.time);
     if (!Number.isFinite(time)) {
@@ -647,6 +705,39 @@ function renderDrawing(
     );
   }
 
+  if (drawing.tool === "text") {
+    const point = toPixel(drawing.points[0]);
+    if (!point) {
+      return null;
+    }
+    const label = drawing.label || "Note";
+    const widthEstimate = Math.max(56, Math.min(220, label.length * 7 + 22));
+    return (
+      <g key={drawing.id}>
+        <rect
+          fill="rgba(8, 12, 17, 0.92)"
+          height={24}
+          rx={4}
+          stroke={color}
+          strokeOpacity={0.8}
+          width={widthEstimate}
+          x={point.x + 8}
+          y={point.y - 28}
+        />
+        <text
+          fill={color}
+          fontSize="12"
+          fontWeight="600"
+          x={point.x + 18}
+          y={point.y - 12}
+        >
+          {label}
+        </text>
+        <circle cx={point.x} cy={point.y} fill={color} r={3} />
+      </g>
+    );
+  }
+
   const first = toPixel(drawing.points[0]);
   const second = toPixel(drawing.points[1]);
   if (!first || !second) {
@@ -734,12 +825,14 @@ function pointFromMouseEvent(
 function makeDrawing(
   tool: DraftDrawing["tool"],
   points: DrawingPoint[],
+  label?: string,
 ): ChartDrawing {
   return {
     id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     tool,
     color: DRAWING_COLORS[tool],
     points,
+    label,
     createdAt: new Date().toISOString(),
   };
 }
@@ -787,6 +880,8 @@ function toolLabel(tool: DrawingTool) {
       return "a zone";
     case "fib":
       return "fib anchors";
+    case "text":
+      return "a text label";
     default:
       return "a drawing";
   }

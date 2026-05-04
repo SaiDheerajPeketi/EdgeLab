@@ -52,7 +52,17 @@ const VALID_INDICATORS: ChartIndicatorId[] = [
   "sma200",
   "vwap",
 ];
-const VALID_TIMEFRAMES: ChartTimeframe[] = ["1m", "5m", "15m", "30m", "1H", "4H", "1D"];
+const VALID_TIMEFRAMES: ChartTimeframe[] = [
+  "1m",
+  "5m",
+  "15m",
+  "30m",
+  "1H",
+  "4H",
+  "1D",
+  "1W",
+  "1M",
+];
 
 export default function App() {
   const {
@@ -105,6 +115,13 @@ export default function App() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
+    if (sourceTimeframe) {
+      setTimeframe(sourceTimeframe);
+    }
+  }, [state?.session.id, state?.session.timeframe]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -170,6 +187,10 @@ export default function App() {
         case "f":
         case "F":
           setDrawingTool("fib");
+          break;
+        case "l":
+        case "L":
+          setDrawingTool("text");
           break;
         case "Escape":
           setDrawingTool("cursor");
@@ -306,6 +327,13 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <DatasetSessionPanel
+              datasets={datasets}
+              isLoading={isLoading}
+              onCreateSession={newSession}
+              playbooks={playbooks}
+              session={state?.session ?? null}
+            />
           </header>
 
           {error && (
@@ -323,13 +351,6 @@ export default function App() {
           <MarketStrip current={current} position={position} />
 
           <div className="space-y-4">
-            <DatasetSessionPanel
-              datasets={datasets}
-              isLoading={isLoading}
-              onCreateSession={newSession}
-              playbooks={playbooks}
-              session={state?.session ?? null}
-            />
             <MetricsBar metrics={metrics} />
             <div className={workspaceGridClass}>
               <div className="min-w-0 space-y-4 2xl:order-1">
@@ -416,6 +437,11 @@ export default function App() {
                     drawings={drawings}
                     indicatorSettings={indicatorSettings}
                     onClearDrawings={() => setDrawings([])}
+                    onDeleteDrawing={(drawingId) =>
+                      setDrawings((currentDrawings) =>
+                        currentDrawings.filter((drawing) => drawing.id !== drawingId),
+                      )
+                    }
                     onToggleIndicator={toggleIndicator}
                     onUpdateIndicatorSettings={updateIndicatorSettings}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
@@ -597,6 +623,46 @@ function sanitizeTimeframe(value: unknown): ChartTimeframe {
     : "1m";
 }
 
+function toChartTimeframe(value: string | null | undefined): ChartTimeframe | null {
+  const normalized = value?.toUpperCase();
+  switch (normalized) {
+    case "M1":
+    case "1MIN":
+      return "1m";
+    case "M5":
+    case "5M":
+    case "5MIN":
+      return "5m";
+    case "M15":
+    case "15M":
+    case "15MIN":
+      return "15m";
+    case "M30":
+    case "30M":
+    case "30MIN":
+      return "30m";
+    case "H1":
+    case "1H":
+      return "1H";
+    case "H4":
+    case "4H":
+      return "4H";
+    case "D":
+    case "DAILY":
+    case "1D":
+      return "1D";
+    case "W":
+    case "WEEKLY":
+    case "1W":
+      return "1W";
+    case "MONTHLY":
+    case "1M":
+      return "1M";
+    default:
+      return null;
+  }
+}
+
 function sanitizeDrawings(value: unknown): ChartDrawing[] {
   if (!Array.isArray(value)) {
     return [];
@@ -608,7 +674,7 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
     const candidate = drawing as Partial<ChartDrawing>;
     return (
       typeof candidate.id === "string" &&
-      ["fib", "horizontal", "rectangle", "trendline"].includes(candidate.tool ?? "") &&
+      ["fib", "horizontal", "rectangle", "text", "trendline"].includes(candidate.tool ?? "") &&
       typeof candidate.color === "string" &&
       typeof candidate.createdAt === "string" &&
       Array.isArray(candidate.points) &&

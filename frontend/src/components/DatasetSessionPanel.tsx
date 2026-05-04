@@ -1,4 +1,4 @@
-import { CalendarDays, Database, PlayCircle, RefreshCw } from "lucide-react";
+import { CalendarDays, Database, PlayCircle, RefreshCw, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type {
   BacktestCreatePayload,
@@ -32,7 +32,19 @@ export function DatasetSessionPanel({
   const [startingBalance, setStartingBalance] = useState("100000");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [query, setQuery] = useState("");
 
+  const visibleInstruments = useMemo(
+    () =>
+      instruments.filter((instrument) => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) {
+          return true;
+        }
+        return `${instrument.name} ${instrument.symbol}`.toLowerCase().includes(needle);
+      }),
+    [instruments, query],
+  );
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
     [instrumentId, instruments],
@@ -94,26 +106,39 @@ export function DatasetSessionPanel({
   }
 
   return (
-    <section className="terminal-panel p-3">
+    <section className="dataset-switcher">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <Database size={16} className="text-cyan-200" />
-            Dataset Watchlist
+            Market Launcher
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {datasets?.root ?? "Scanning preprocessed datasets"}
+            {instruments.length} instruments from {datasets?.root ?? "preprocessed datasets"}
           </div>
         </div>
         {session && (
-          <div className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100">
-            Active: {session.symbol} {session.timeframe ?? ""} · {session.strategy_name ?? "No strategy"}
+          <div className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 shadow-inner">
+            Active: <strong>{session.symbol}</strong> {session.timeframe ?? ""} · {session.strategy_name ?? "No strategy"}
           </div>
         )}
       </div>
 
-      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-        {instruments.map((instrument) => (
+      <div className="mb-3 grid gap-2 xl:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="relative block">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+            size={15}
+          />
+          <input
+            className="input-control h-10 w-full pl-9"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search markets"
+            value={query}
+          />
+        </label>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+        {visibleInstruments.map((instrument) => (
           <button
             className={`symbol-chip ${selectedInstrument?.id === instrument.id ? "symbol-chip-active" : ""}`}
             key={instrument.id}
@@ -129,9 +154,25 @@ export function DatasetSessionPanel({
             No datasets found yet
           </div>
         )}
+        </div>
       </div>
 
-      <form className="grid gap-3 xl:grid-cols-[1.1fr_1fr_1fr_1fr_auto]" onSubmit={handleSubmit}>
+      {selectedInstrument && (
+        <div className="mb-3 flex flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1">
+          {selectedInstrument.timeframes.map((item) => (
+            <button
+              className={`timeframe-button ${selectedTimeframe?.timeframe === item.timeframe ? "timeframe-button-active" : ""}`}
+              key={item.timeframe}
+              onClick={() => setTimeframe(item.timeframe)}
+              type="button"
+            >
+              {item.timeframe}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <form className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]" onSubmit={handleSubmit}>
         <label className="form-field">
           <span>Instrument</span>
           <select
@@ -147,7 +188,7 @@ export function DatasetSessionPanel({
           </select>
         </label>
 
-        <label className="form-field">
+        <label className="form-field hidden xl:block">
           <span>Timeframe</span>
           <select
             className="input-control h-10"
@@ -225,7 +266,7 @@ export function DatasetSessionPanel({
         </label>
 
         <button
-          className="control-button h-10 self-end border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+          className="control-button h-10 self-end border-cyan-300/30 bg-cyan-300/10 text-cyan-100 xl:col-span-1"
           disabled={!selectedTimeframe || isLoading}
           type="submit"
         >
@@ -241,7 +282,7 @@ export function DatasetSessionPanel({
           <span>to</span>
           <span>{formatDate(selectedTimeframe.last_timestamp)}</span>
           <span>·</span>
-          <span>{selectedTimeframe.csv_path}</span>
+          <span className="truncate">{selectedTimeframe.csv_path}</span>
         </div>
       )}
     </section>
