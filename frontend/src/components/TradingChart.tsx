@@ -31,6 +31,7 @@ import {
   bucketTime,
   buildIndicatorDefinitions,
   latestIndicatorValue,
+  macdSeries,
   rsiSeries,
   toCandles,
   type ChartDrawing,
@@ -38,6 +39,7 @@ import {
   type ChartTimeframe,
   type DrawingPoint,
   type DrawingTool,
+  type MacdData,
   type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
@@ -51,9 +53,13 @@ type Props = {
   indicatorSettings: IndicatorSettingsMap;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
+  onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
+  onSelectDrawing: (drawingId: string | null) => void;
+  onUpdateDrawing: (drawing: ChartDrawing) => void;
   orders: Order[];
   position: Position | null;
+  selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
   symbol?: string;
@@ -70,6 +76,14 @@ type TooltipData = {
 type DraftDrawing = {
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
   point: DrawingPoint;
+};
+
+type DragState = {
+  drawing: ChartDrawing;
+  mode: "anchor" | "body";
+  originalPoints: DrawingPoint[];
+  pointIndex: number | null;
+  startPoint: DrawingPoint;
 };
 
 const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
@@ -89,9 +103,13 @@ export function TradingChart({
   indicatorSettings,
   onAddDrawing,
   onClearDrawings,
+  onDeleteDrawing,
   onDrawingToolChange,
+  onSelectDrawing,
+  onUpdateDrawing,
   orders,
   position,
+  selectedDrawingId,
   showOrderOverlays,
   smoothCandles,
   symbol = "EURUSD",
@@ -108,6 +126,7 @@ export function TradingChart({
   const barsRef = useRef<Candle[]>([]);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
   const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const tooltipStyle = tooltip
@@ -151,22 +170,41 @@ export function TradingChart({
         : [],
     [activeIndicators, displayBars, rsiPeriod],
   );
+  const macdSettings = indicatorSettings.macd;
+  const macdData = useMemo(
+    () =>
+      activeIndicators.includes("macd")
+        ? macdSeries(
+            displayBars,
+            macdSettings.fastPeriod ?? 12,
+            macdSettings.slowPeriod ?? 26,
+            macdSettings.signalPeriod ?? 9,
+          )
+        : null,
+    [
+      activeIndicators,
+      displayBars,
+      macdSettings.fastPeriod,
+      macdSettings.signalPeriod,
+      macdSettings.slowPeriod,
+    ],
+  );
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
   );
-  const drawingElements = useMemo(
-    () =>
-      buildDrawingElements({
-        chart: chartRef.current,
-        drawings,
-        draftDrawing,
-        frame: chartFrameRef.current,
-        hoverPoint,
-        series: candlesRef.current,
-        version: plotVersion,
-      }),
-    [drawings, draftDrawing, hoverPoint, plotVersion],
-  );
+  const drawingElements = buildDrawingElements({
+    chart: chartRef.current,
+    drawings,
+    draftDrawing,
+    frame: chartFrameRef.current,
+    hoverPoint,
+    onDeleteDrawing,
+    onDragStart: startDrawingDrag,
+    onSelectDrawing,
+    selectedDrawingId,
+    series: candlesRef.current,
+    version: plotVersion,
+  });
 
   useEffect(() => {
     barsRef.current = displayBars;
@@ -374,9 +412,16 @@ export function TradingChart({
 
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
+      onSelectDrawing(null);
       return;
     }
-    const point = pointFromMouseEvent(event, chartRef.current, candlesRef.current);
+    const point = pointFromClient(
+      event.clientX,
+      event.clientY,
+      chartFrameRef.current,
+      chartRef.current,
+      candlesRef.current,
+    );
     if (!point) {
       return;
     }
@@ -405,10 +450,66 @@ export function TradingChart({
   }
 
   function handleDrawingMove(event: MouseEvent<HTMLDivElement>) {
+    if (dragState) {
+      const point = pointFromClient(
+        event.clientX,
+        event.clientY,
+        chartFrameRef.current,
+        chartRef.current,
+        candlesRef.current,
+      );
+      if (!point) {
+        return;
+      }
+      const nextDrawing = moveDrawing(dragState, point);
+      onUpdateDrawing(nextDrawing);
+      return;
+    }
+
     if (!draftDrawing || drawingTool === "cursor" || drawingTool === "crosshair") {
       return;
     }
-    setHoverPoint(pointFromMouseEvent(event, chartRef.current, candlesRef.current));
+    setHoverPoint(
+      pointFromClient(
+        event.clientX,
+        event.clientY,
+        chartFrameRef.current,
+        chartRef.current,
+        candlesRef.current,
+      ),
+    );
+  }
+
+  function startDrawingDrag(
+    drawing: ChartDrawing,
+    mode: DragState["mode"],
+    pointIndex: number | null,
+    event: MouseEvent<SVGElement>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const point = pointFromClient(
+      event.clientX,
+      event.clientY,
+      chartFrameRef.current,
+      chartRef.current,
+      candlesRef.current,
+    );
+    if (!point) {
+      return;
+    }
+    onSelectDrawing(drawing.id);
+    setDragState({
+      drawing,
+      mode,
+      originalPoints: drawing.points.map((item) => ({ ...item })),
+      pointIndex,
+      startPoint: point,
+    });
+  }
+
+  function stopDrawingDrag() {
+    setDragState(null);
   }
 
   return (
@@ -457,16 +558,26 @@ export function TradingChart({
           <div ref={chartFrameRef} className="chart-frame">
             <div ref={chartContainerRef} className="chart-container-surface" />
             <div
-              className={`absolute inset-0 z-10 ${drawingTool === "cursor" || drawingTool === "crosshair" ? "pointer-events-none" : "cursor-crosshair"}`}
-              onClick={handleDrawingClick}
+              className={`absolute inset-0 z-10 ${dragState || (drawingTool !== "cursor" && drawingTool !== "crosshair") ? "pointer-events-auto" : "pointer-events-none"} ${drawingTool === "cursor" || drawingTool === "crosshair" ? "cursor-default" : "cursor-crosshair"}`}
+              onMouseDown={handleDrawingClick}
+              onMouseLeave={stopDrawingDrag}
               onMouseMove={handleDrawingMove}
+              onMouseUp={stopDrawingDrag}
             >
-              <svg className="h-full w-full overflow-visible">
+              <svg className="h-full w-full overflow-visible pointer-events-none">
                 {drawingElements}
               </svg>
             </div>
           </div>
           {rsiData.length > 0 && <RsiPanel data={rsiData} />}
+          {macdData && (
+            <MacdPanel
+              color={macdSettings.color}
+              data={macdData}
+              histogramColor={macdSettings.histogramColor ?? "#94a3b8"}
+              signalColor={macdSettings.signalColor ?? "#f59e0b"}
+            />
+          )}
         </div>
       </div>
 
@@ -614,12 +725,80 @@ function RsiPanel({ data }: { data: LineData[] }) {
   );
 }
 
+function MacdPanel({
+  color,
+  data,
+  histogramColor,
+  signalColor,
+}: {
+  color: string;
+  data: MacdData;
+  histogramColor: string;
+  signalColor: string;
+}) {
+  const visibleMacd = data.macd.slice(-160);
+  const visibleSignal = data.signal.slice(-160);
+  const visibleHistogram = data.histogram.slice(-160);
+  const values = [
+    ...visibleMacd.map((point) => Number(point.value)),
+    ...visibleSignal.map((point) => Number(point.value)),
+    ...visibleHistogram.map((point) => point.value),
+  ];
+  const maxAbs = Math.max(0.000001, ...values.map((value) => Math.abs(value)));
+  const latest = visibleMacd.at(-1)?.value;
+  const signalLatest = visibleSignal.at(-1)?.value;
+
+  return (
+    <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">MACD 12 26 9</span>
+        <span className="text-slate-300">
+          {latest == null ? "—" : Number(latest).toFixed(5)} / {signalLatest == null ? "—" : Number(signalLatest).toFixed(5)}
+        </span>
+      </div>
+      <div className="h-28 overflow-hidden rounded-md bg-black/20">
+        {visibleMacd.length > 1 ? (
+          <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 112">
+            <path d="M 0 56 L 960 56" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
+            {visibleHistogram.map((point, index) => {
+              const x = (index / Math.max(1, visibleHistogram.length - 1)) * 960;
+              const y = 56 - (point.value / maxAbs) * 50;
+              return (
+                <line
+                  key={`${point.time}-${index}`}
+                  stroke={point.value >= 0 ? histogramColor : "#fb7185"}
+                  strokeOpacity="0.62"
+                  strokeWidth="4"
+                  x1={x}
+                  x2={x}
+                  y1={56}
+                  y2={y}
+                />
+              );
+            })}
+            <path d={toOscillatorPath(visibleMacd, 960, 112, maxAbs)} fill="none" stroke={color} strokeWidth="2" />
+            <path d={toOscillatorPath(visibleSignal, 960, 112, maxAbs)} fill="none" stroke={signalColor} strokeWidth="2" />
+          </svg>
+        ) : (
+          <div className="grid h-full place-items-center text-xs text-slate-500">
+            Waiting for enough candles
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function buildDrawingElements({
   chart,
   drawings,
   draftDrawing,
   frame,
   hoverPoint,
+  onDeleteDrawing,
+  onDragStart,
+  onSelectDrawing,
+  selectedDrawingId,
   series,
 }: {
   chart: IChartApi | null;
@@ -627,6 +806,15 @@ function buildDrawingElements({
   draftDrawing: DraftDrawing | null;
   frame: HTMLDivElement | null;
   hoverPoint: DrawingPoint | null;
+  onDeleteDrawing: (drawingId: string) => void;
+  onDragStart: (
+    drawing: ChartDrawing,
+    mode: DragState["mode"],
+    pointIndex: number | null,
+    event: MouseEvent<SVGElement>,
+  ) => void;
+  onSelectDrawing: (drawingId: string | null) => void;
+  selectedDrawingId: string | null;
   series: ISeriesApi<"Candlestick"> | null;
   version: number;
 }) {
@@ -647,7 +835,12 @@ function buildDrawingElements({
   return (
     <>
       {drawings.map((drawing) =>
-        renderDrawing(drawing, toPixel, width),
+        renderDrawing(drawing, toPixel, width, {
+          onDeleteDrawing,
+          onDragStart,
+          onSelectDrawing,
+          selected: selectedDrawingId === drawing.id,
+        }),
       )}
       {draftDrawing && (
         <g>
@@ -662,6 +855,12 @@ function buildDrawingElements({
               },
               toPixel,
               width,
+              {
+                onDeleteDrawing,
+                onDragStart,
+                onSelectDrawing,
+                selected: false,
+              },
             )}
           <circle
             cx={toPixel(draftDrawing.point)?.x ?? 0}
@@ -680,8 +879,27 @@ function renderDrawing(
   drawing: ChartDrawing,
   toPixel: (point: DrawingPoint) => { x: number; y: number } | null,
   width: number,
+  options: {
+    onDeleteDrawing: (drawingId: string) => void;
+    onDragStart: (
+      drawing: ChartDrawing,
+      mode: DragState["mode"],
+      pointIndex: number | null,
+      event: MouseEvent<SVGElement>,
+    ) => void;
+    onSelectDrawing: (drawingId: string | null) => void;
+    selected: boolean;
+  },
 ) {
   const color = drawing.color;
+  const handleBodyDown = (event: MouseEvent<SVGElement>) => {
+    options.onDragStart(drawing, "body", null, event);
+  };
+  const handleSelect = (event: MouseEvent<SVGElement>) => {
+    event.stopPropagation();
+    options.onSelectDrawing(drawing.id);
+  };
+
   if (drawing.tool === "horizontal") {
     const point = toPixel(drawing.points[0]);
     if (!point) {
@@ -690,17 +908,41 @@ function renderDrawing(
     return (
       <g key={drawing.id}>
         <line
-          stroke={color}
-          strokeDasharray="5 5"
-          strokeWidth="1.5"
+          cursor="ns-resize"
+          onMouseDown={handleBodyDown}
+          onClick={handleSelect}
+          pointerEvents="all"
+          stroke="transparent"
+          strokeWidth="14"
           x1={0}
           x2={width}
           y1={point.y}
           y2={point.y}
         />
-        <text fill={color} fontSize="11" x={8} y={point.y - 6}>
+        <line
+          stroke={color}
+          strokeDasharray="5 5"
+          strokeOpacity={options.selected ? 1 : 0.82}
+          strokeWidth={options.selected ? "2.5" : "1.5"}
+          x1={0}
+          x2={width}
+          y1={point.y}
+          y2={point.y}
+        />
+        <rect
+          fill="rgba(8, 12, 17, 0.92)"
+          height={20}
+          rx={4}
+          stroke={color}
+          strokeOpacity="0.55"
+          width={88}
+          x={Math.max(8, width - 104)}
+          y={point.y - 24}
+        />
+        <text fill={color} fontSize="11" fontWeight="700" x={Math.max(16, width - 96)} y={point.y - 10}>
           {formatPrice(drawing.points[0].price)}
         </text>
+        {options.selected && renderAnchors(drawing, [point], options)}
       </g>
     );
   }
@@ -713,13 +955,20 @@ function renderDrawing(
     const label = drawing.label || "Note";
     const widthEstimate = Math.max(56, Math.min(220, label.length * 7 + 22));
     return (
-      <g key={drawing.id}>
+      <g
+        cursor="move"
+        key={drawing.id}
+        onClick={handleSelect}
+        onMouseDown={handleBodyDown}
+        pointerEvents="all"
+      >
         <rect
           fill="rgba(8, 12, 17, 0.92)"
           height={24}
           rx={4}
           stroke={color}
-          strokeOpacity={0.8}
+          strokeOpacity={options.selected ? 1 : 0.8}
+          strokeWidth={options.selected ? 2 : 1}
           width={widthEstimate}
           x={point.x + 8}
           y={point.y - 28}
@@ -734,6 +983,7 @@ function renderDrawing(
           {label}
         </text>
         <circle cx={point.x} cy={point.y} fill={color} r={3} />
+        {options.selected && renderAnchors(drawing, [point], options)}
       </g>
     );
   }
@@ -745,17 +995,43 @@ function renderDrawing(
   }
 
   if (drawing.tool === "rectangle") {
+    const x = Math.min(first.x, second.x);
+    const y = Math.min(first.y, second.y);
+    const rectWidth = Math.abs(second.x - first.x);
+    const rectHeight = Math.abs(second.y - first.y);
     return (
-      <rect
-        fill={`${color}24`}
-        height={Math.abs(second.y - first.y)}
-        key={drawing.id}
-        stroke={color}
-        strokeWidth="1.5"
-        width={Math.abs(second.x - first.x)}
-        x={Math.min(first.x, second.x)}
-        y={Math.min(first.y, second.y)}
-      />
+      <g key={drawing.id}>
+        <rect
+          cursor="move"
+          fill={`${color}26`}
+          height={rectHeight}
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents="all"
+          stroke={color}
+          strokeOpacity={options.selected ? 1 : 0.82}
+          strokeWidth={options.selected ? "2" : "1.5"}
+          width={rectWidth}
+          x={x}
+          y={y}
+        />
+        {options.selected && (
+          <>
+            <rect
+              fill="none"
+              height={rectHeight + 8}
+              pointerEvents="none"
+              stroke={color}
+              strokeDasharray="3 4"
+              strokeOpacity="0.7"
+              width={rectWidth + 8}
+              x={x - 4}
+              y={y - 4}
+            />
+            {renderAnchors(drawing, [first, second], options)}
+          </>
+        )}
+      </g>
     );
   }
 
@@ -767,14 +1043,25 @@ function renderDrawing(
     const right = Math.max(first.x, second.x);
     return (
       <g key={drawing.id}>
+        <rect
+          cursor="move"
+          fill="transparent"
+          height={Math.abs(second.y - first.y) + 20}
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents="all"
+          width={Math.abs(second.x - first.x) + 20}
+          x={left - 10}
+          y={Math.min(first.y, second.y) - 10}
+        />
         {levels.map((level) => {
           const y = top + range * level;
           return (
             <g key={level}>
               <line
                 stroke={color}
-                strokeOpacity={level === 0 || level === 1 ? 0.9 : 0.55}
-                strokeWidth={level === 0 || level === 1 ? "1.5" : "1"}
+                strokeOpacity={options.selected || level === 0 || level === 1 ? 0.9 : 0.55}
+                strokeWidth={options.selected && (level === 0 || level === 1) ? "2" : level === 0 || level === 1 ? "1.5" : "1"}
                 x1={left}
                 x2={right}
                 y1={y}
@@ -786,40 +1073,146 @@ function renderDrawing(
             </g>
           );
         })}
+        {options.selected && renderAnchors(drawing, [first, second], options)}
       </g>
     );
   }
 
   return (
-    <line
-      key={drawing.id}
-      stroke={color}
-      strokeWidth="2"
-      x1={first.x}
-      x2={second.x}
-      y1={first.y}
-      y2={second.y}
-    />
+    <g key={drawing.id}>
+      <line
+        cursor="move"
+        onClick={handleSelect}
+        onMouseDown={handleBodyDown}
+        pointerEvents="all"
+        stroke="transparent"
+        strokeWidth="14"
+        x1={first.x}
+        x2={second.x}
+        y1={first.y}
+        y2={second.y}
+      />
+      <line
+        stroke={color}
+        strokeLinecap="round"
+        strokeOpacity={options.selected ? 1 : 0.9}
+        strokeWidth={options.selected ? "3" : "2"}
+        x1={first.x}
+        x2={second.x}
+        y1={first.y}
+        y2={second.y}
+      />
+      {options.selected && renderAnchors(drawing, [first, second], options)}
+    </g>
   );
 }
 
-function pointFromMouseEvent(
-  event: MouseEvent<HTMLDivElement>,
+function renderAnchors(
+  drawing: ChartDrawing,
+  points: Array<{ x: number; y: number }>,
+  options: {
+    onDeleteDrawing: (drawingId: string) => void;
+    onDragStart: (
+      drawing: ChartDrawing,
+      mode: DragState["mode"],
+      pointIndex: number | null,
+      event: MouseEvent<SVGElement>,
+    ) => void;
+    onSelectDrawing: (drawingId: string | null) => void;
+    selected: boolean;
+  },
+) {
+  const toolbarPoint = points[0];
+  return (
+    <g>
+      {points.map((point, index) => (
+        <circle
+          className="drawing-anchor"
+          cx={point.x}
+          cy={point.y}
+          fill="#05070a"
+          key={`${drawing.id}-${index}`}
+          onMouseDown={(event) => options.onDragStart(drawing, "anchor", index, event)}
+          pointerEvents="all"
+          r={5}
+          stroke={drawing.color}
+          strokeWidth={2}
+        />
+      ))}
+      {toolbarPoint && (
+        <g transform={`translate(${toolbarPoint.x + 12} ${toolbarPoint.y + 12})`}>
+          <rect
+            fill="rgba(8, 12, 17, 0.96)"
+            height={26}
+            rx={5}
+            stroke="rgba(255,255,255,0.14)"
+            width={102}
+          />
+          <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={9} y={17}>
+            DRAG
+          </text>
+          <text
+            cursor="pointer"
+            fill="#fb7185"
+            fontSize="13"
+            fontWeight="800"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              options.onDeleteDrawing(drawing.id);
+              options.onSelectDrawing(null);
+            }}
+            pointerEvents="all"
+            x={82}
+            y={18}
+          >
+            DEL
+          </text>
+        </g>
+      )}
+    </g>
+  );
+}
+
+function pointFromClient(
+  clientX: number,
+  clientY: number,
+  frame: HTMLDivElement | null,
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
 ): DrawingPoint | null {
-  if (!chart || !series) {
+  if (!chart || !series || !frame) {
     return null;
   }
-  const rect = event.currentTarget.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
+  const rect = frame.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
   const time = chart.timeScale().coordinateToTime(x);
   const price = series.coordinateToPrice(y);
   if (time == null || price == null || typeof time !== "number") {
     return null;
   }
   return { time, price };
+}
+
+function moveDrawing(dragState: DragState, point: DrawingPoint): ChartDrawing {
+  if (dragState.mode === "anchor" && dragState.pointIndex != null) {
+    const points = dragState.originalPoints.map((originalPoint, index) =>
+      index === dragState.pointIndex ? point : originalPoint,
+    );
+    return { ...dragState.drawing, points };
+  }
+
+  const timeDelta = point.time - dragState.startPoint.time;
+  const priceDelta = point.price - dragState.startPoint.price;
+  const points = dragState.originalPoints.map((originalPoint) => ({
+    time:
+      dragState.drawing.tool === "horizontal"
+        ? originalPoint.time
+        : originalPoint.time + timeDelta,
+    price: originalPoint.price + priceDelta,
+  }));
+  return { ...dragState.drawing, points };
 }
 
 function makeDrawing(
@@ -896,6 +1289,27 @@ function toRsiPath(values: LineData[], width: number, height: number) {
     .map((point, index) => {
       const x = index * step;
       const y = height - (Number(point.value) / 100) * height;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function toOscillatorPath(
+  values: LineData[],
+  width: number,
+  height: number,
+  maxAbs: number,
+) {
+  if (values.length < 2) {
+    return "";
+  }
+  const step = width / (values.length - 1);
+  const middle = height / 2;
+  const amplitude = height * 0.44;
+  return values
+    .map((point, index) => {
+      const x = index * step;
+      const y = middle - (Number(point.value) / maxAbs) * amplitude;
       return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");

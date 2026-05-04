@@ -329,7 +329,97 @@ export function ChartToolbar({
           })}
         </div>
       </div>
+
+      {activeIndicators.length > 0 && (
+        <div className="study-manager-strip">
+          <span className="study-manager-label">Active studies</span>
+          {activeIndicators.map((indicator) => {
+            const definition = INDICATORS.find((item) => item.id === indicator);
+            const settings = indicatorSettings[indicator] ?? FALLBACK_SETTING;
+            const isMacd = indicator === "macd";
+            return (
+              <div className="study-chip" key={indicator}>
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: settings.color }}
+                />
+                <span className="min-w-0 font-semibold">
+                  {definition?.label ?? indicator}
+                </span>
+                {isMacd ? (
+                  <>
+                    <NumberPill
+                      label="F"
+                      onChange={(value) => onUpdateIndicatorSettings(indicator, { fastPeriod: value })}
+                      value={settings.fastPeriod ?? 12}
+                    />
+                    <NumberPill
+                      label="S"
+                      onChange={(value) => onUpdateIndicatorSettings(indicator, { slowPeriod: value })}
+                      value={settings.slowPeriod ?? 26}
+                    />
+                    <NumberPill
+                      label="Sig"
+                      onChange={(value) => onUpdateIndicatorSettings(indicator, { signalPeriod: value })}
+                      value={settings.signalPeriod ?? 9}
+                    />
+                  </>
+                ) : indicator !== "vwap" ? (
+                  <NumberPill
+                    label="Len"
+                    onChange={(value) => onUpdateIndicatorSettings(indicator, { period: value })}
+                    value={settings.period}
+                  />
+                ) : (
+                  <span className="rounded bg-white/5 px-2 py-1 text-[10px] text-slate-500">
+                    Session
+                  </span>
+                )}
+                <input
+                  className="h-6 w-7 cursor-pointer rounded border border-white/10 bg-ink-950 p-0.5"
+                  onChange={(event) =>
+                    onUpdateIndicatorSettings(indicator, { color: event.target.value })
+                  }
+                  title="Study color"
+                  type="color"
+                  value={settings.color}
+                />
+                <button
+                  className="grid h-6 w-6 place-items-center rounded hover:bg-white/10 hover:text-white"
+                  onClick={() => onToggleIndicator(indicator)}
+                  title="Remove study"
+                  type="button"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
+  );
+}
+
+function NumberPill({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  return (
+    <label className="study-number-pill">
+      <span>{label}</span>
+      <input
+        min={1}
+        onChange={(event) => onChange(clampInteger(event.target.value, 1, 500))}
+        type="number"
+        value={value}
+      />
+    </label>
   );
 }
 
@@ -345,7 +435,8 @@ function IndicatorEditor({
   settings: IndicatorSettings;
 }) {
   const definition = INDICATORS.find((item) => item.id === indicator);
-  const supportsPeriod = indicator !== "vwap";
+  const isMacd = indicator === "macd";
+  const supportsPeriod = indicator !== "vwap" && !isMacd;
   const supportsDeviation = indicator === "bb20";
 
   return (
@@ -368,7 +459,47 @@ function IndicatorEditor({
           <X size={14} />
         </button>
       </div>
-      <div className="grid grid-cols-[1fr_92px] gap-2">
+      <div className={isMacd ? "grid grid-cols-3 gap-2" : "grid grid-cols-[1fr_92px] gap-2"}>
+        {isMacd && (
+          <>
+            <label className="form-field">
+              <span>Fast</span>
+              <input
+                className="input-control h-9"
+                min={1}
+                onChange={(event) =>
+                  onUpdate({ fastPeriod: clampInteger(event.target.value, 1, 100) })
+                }
+                type="number"
+                value={settings.fastPeriod ?? 12}
+              />
+            </label>
+            <label className="form-field">
+              <span>Slow</span>
+              <input
+                className="input-control h-9"
+                min={2}
+                onChange={(event) =>
+                  onUpdate({ slowPeriod: clampInteger(event.target.value, 2, 200) })
+                }
+                type="number"
+                value={settings.slowPeriod ?? 26}
+              />
+            </label>
+            <label className="form-field">
+              <span>Signal</span>
+              <input
+                className="input-control h-9"
+                min={1}
+                onChange={(event) =>
+                  onUpdate({ signalPeriod: clampInteger(event.target.value, 1, 100) })
+                }
+                type="number"
+                value={settings.signalPeriod ?? 9}
+              />
+            </label>
+          </>
+        )}
         {supportsPeriod && (
           <label className="form-field">
             <span>Period</span>

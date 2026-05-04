@@ -68,11 +68,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadInitial: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [datasets, state, playbooks] = await Promise.all([
+      const [datasetsResult, playbooksResult] = await Promise.allSettled([
         getDatasets(),
-        getLatestBacktest(),
         getPlaybooks(),
       ]);
+      const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
+      const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
+      const state = await getLatestBacktest().catch(() => createBacktest({}));
       const [meta, window] = await Promise.all([
         getMeta(state.session.id),
         loadWindow(
@@ -88,6 +90,12 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         playbooks,
         bars: window.bars,
         barOffset: window.barOffset,
+        error:
+          datasetsResult.status === "rejected"
+            ? toErrorMessage(datasetsResult.reason)
+            : playbooksResult.status === "rejected"
+              ? toErrorMessage(playbooksResult.reason)
+              : null,
         isLoading: false,
       });
     } catch (error) {

@@ -14,7 +14,14 @@ export const TIMEFRAMES = [
 ] as const;
 
 export type ChartTimeframe = (typeof TIMEFRAMES)[number]["id"];
-export type ChartIndicatorId = "ema20" | "ema50" | "sma200" | "vwap" | "bb20" | "rsi14";
+export type ChartIndicatorId =
+  | "ema20"
+  | "ema50"
+  | "sma200"
+  | "vwap"
+  | "bb20"
+  | "rsi14"
+  | "macd";
 export type DrawingTool =
   | "cursor"
   | "crosshair"
@@ -27,6 +34,11 @@ export type IndicatorSettings = {
   color: string;
   period: number;
   stdDev?: number;
+  fastPeriod?: number;
+  slowPeriod?: number;
+  signalPeriod?: number;
+  signalColor?: string;
+  histogramColor?: string;
 };
 
 export type IndicatorSettingsMap = Record<ChartIndicatorId, IndicatorSettings>;
@@ -54,6 +66,12 @@ export type IndicatorDefinition = {
   lineStyle?: 0 | 1 | 2 | 3 | 4;
 };
 
+export type MacdData = {
+  histogram: Array<{ time: UTCTimestamp; value: number }>;
+  macd: LineData[];
+  signal: LineData[];
+};
+
 export const INDICATORS: Array<{
   id: ChartIndicatorId;
   label: string;
@@ -66,6 +84,7 @@ export const INDICATORS: Array<{
   { id: "vwap", label: "VWAP", description: "Session fair value", color: "#22c55e" },
   { id: "bb20", label: "Bollinger 20", description: "Volatility envelope", color: "#94a3b8" },
   { id: "rsi14", label: "RSI 14", description: "Momentum pane", color: "#f472b6" },
+  { id: "macd", label: "MACD", description: "Trend momentum pane", color: "#60a5fa" },
 ];
 
 export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
@@ -73,6 +92,15 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   ema20: { color: "#32d3ee", period: 20 },
   ema50: { color: "#f59e0b", period: 50 },
   rsi14: { color: "#f472b6", period: 14 },
+  macd: {
+    color: "#60a5fa",
+    period: 12,
+    fastPeriod: 12,
+    slowPeriod: 26,
+    signalPeriod: 9,
+    signalColor: "#f59e0b",
+    histogramColor: "#94a3b8",
+  },
   sma200: { color: "#a78bfa", period: 200 },
   vwap: { color: "#22c55e", period: 1 },
 };
@@ -264,6 +292,7 @@ export function mergeIndicatorSettings(
     ema20: { ...DEFAULT_INDICATOR_SETTINGS.ema20, ...settings?.ema20 },
     ema50: { ...DEFAULT_INDICATOR_SETTINGS.ema50, ...settings?.ema50 },
     rsi14: { ...DEFAULT_INDICATOR_SETTINGS.rsi14, ...settings?.rsi14 },
+    macd: { ...DEFAULT_INDICATOR_SETTINGS.macd, ...settings?.macd },
     sma200: { ...DEFAULT_INDICATOR_SETTINGS.sma200, ...settings?.sma200 },
     vwap: { ...DEFAULT_INDICATOR_SETTINGS.vwap, ...settings?.vwap },
   };
@@ -313,6 +342,39 @@ export function latestIndicatorValue(data: LineData[]) {
   return data.length === 0 ? null : data[data.length - 1].value;
 }
 
+export function macdSeries(
+  bars: Candle[],
+  fastPeriod = 12,
+  slowPeriod = 26,
+  signalPeriod = 9,
+): MacdData {
+  if (bars.length === 0) {
+    return { histogram: [], macd: [], signal: [] };
+  }
+
+  const closes = bars.map((bar) => bar.close);
+  const fast = emaValues(closes, fastPeriod);
+  const slow = emaValues(closes, slowPeriod);
+  const macdValues = closes.map((_, index) => fast[index] - slow[index]);
+  const signalValues = emaValues(macdValues, signalPeriod);
+
+  const macd: LineData[] = [];
+  const signal: LineData[] = [];
+  const histogram: MacdData["histogram"] = [];
+
+  for (let index = 0; index < bars.length; index += 1) {
+    const time = bars[index].time as UTCTimestamp;
+    macd.push({ time, value: macdValues[index] });
+    signal.push({ time, value: signalValues[index] });
+    histogram.push({
+      time,
+      value: macdValues[index] - signalValues[index],
+    });
+  }
+
+  return { histogram, macd, signal };
+}
+
 function emaSeries(bars: Candle[], period: number): LineData[] {
   if (bars.length === 0) {
     return [];
@@ -322,6 +384,18 @@ function emaSeries(bars: Candle[], period: number): LineData[] {
   return bars.map((bar, index) => {
     ema = index === 0 ? bar.close : (bar.close - ema) * multiplier + ema;
     return { time: bar.time as UTCTimestamp, value: ema };
+  });
+}
+
+function emaValues(values: number[], period: number): number[] {
+  if (values.length === 0) {
+    return [];
+  }
+  const multiplier = 2 / (period + 1);
+  let ema = values[0];
+  return values.map((value, index) => {
+    ema = index === 0 ? value : (value - ema) * multiplier + ema;
+    return ema;
   });
 }
 

@@ -28,6 +28,7 @@ type Props = {
   indicatorSettings: IndicatorSettingsMap;
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
+  onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
   onToggleOrderOverlays: () => void;
   onUpdateIndicatorSettings: (
@@ -35,6 +36,7 @@ type Props = {
     settings: Partial<IndicatorSettings>,
   ) => void;
   orderOverlaysVisible: boolean;
+  selectedDrawingId: string | null;
   smoothCandles: boolean;
 };
 
@@ -57,10 +59,12 @@ export function ChartObjectsPanel({
   indicatorSettings,
   onClearDrawings,
   onDeleteDrawing,
+  onSelectDrawing,
   onToggleIndicator,
   onToggleOrderOverlays,
   onUpdateIndicatorSettings,
   orderOverlaysVisible,
+  selectedDrawingId,
   smoothCandles,
 }: Props) {
   return (
@@ -134,7 +138,9 @@ export function ChartObjectsPanel({
                       {indicator.label}
                     </span>
                     <span className="block truncate text-xs text-slate-500">
-                      {indicator.id === "vwap"
+                      {indicator.id === "macd"
+                        ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
+                        : indicator.id === "vwap"
                         ? indicator.description
                         : `Period ${settings.period}${indicator.id === "bb20" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
                     </span>
@@ -146,7 +152,7 @@ export function ChartObjectsPanel({
                   >
                     {active ? "On" : "Off"}
                   </button>
-                  {active && indicator.id !== "vwap" && (
+                  {active && indicator.id !== "vwap" && indicator.id !== "macd" && (
                     <input
                       className="h-8 w-16 rounded-md border border-white/10 bg-ink-950 px-2 text-xs text-slate-100 outline-none"
                       min={2}
@@ -184,7 +190,13 @@ export function ChartObjectsPanel({
             {drawings.map((drawing, index) => {
               const Icon = drawingIcons[drawing.tool];
               return (
-                <div className="chart-object-row" key={drawing.id}>
+                <div
+                  className={`chart-object-row ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
+                  key={drawing.id}
+                  onClick={() => onSelectDrawing(drawing.id)}
+                  role="button"
+                  tabIndex={0}
+                >
                   <span
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 bg-white/5"
                     style={{ color: drawing.color }}
@@ -203,7 +215,11 @@ export function ChartObjectsPanel({
                   </span>
                   <button
                     className="icon-button h-8 w-8"
-                    onClick={() => onDeleteDrawing(drawing.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteDrawing(drawing.id);
+                      onSelectDrawing(null);
+                    }}
                     title="Delete drawing"
                     type="button"
                   >

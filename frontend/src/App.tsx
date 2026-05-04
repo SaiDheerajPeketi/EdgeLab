@@ -48,6 +48,7 @@ const VALID_INDICATORS: ChartIndicatorId[] = [
   "bb20",
   "ema20",
   "ema50",
+  "macd",
   "rsi14",
   "sma200",
   "vwap",
@@ -99,6 +100,7 @@ export default function App() {
     return mergeIndicatorSettings(saved?.indicatorSettings);
   });
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
     const saved = loadChartLayout();
     return sanitizeDrawings(saved?.drawings);
@@ -198,7 +200,12 @@ export default function App() {
           break;
         case "Delete":
         case "Backspace":
-          setDrawings((currentDrawings) => currentDrawings.slice(0, -1));
+          setDrawings((currentDrawings) =>
+            selectedDrawingId
+              ? currentDrawings.filter((drawing) => drawing.id !== selectedDrawingId)
+              : currentDrawings.slice(0, -1),
+          );
+          setSelectedDrawingId(null);
           break;
         default:
           break;
@@ -207,7 +214,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, jumpToOffset, setPlaying, state, stepForward]);
+  }, [isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
 
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
@@ -248,6 +255,18 @@ export default function App() {
     }));
   }
 
+  function clearDrawings() {
+    setDrawings([]);
+    setSelectedDrawingId(null);
+  }
+
+  function deleteDrawing(drawingId: string) {
+    setDrawings((currentDrawings) =>
+      currentDrawings.filter((drawing) => drawing.id !== drawingId),
+    );
+    setSelectedDrawingId(null);
+  }
+
   function saveChartLayout() {
     const payload: StoredChartLayout = {
       activeIndicators: sanitizeIndicators(activeIndicators),
@@ -266,6 +285,13 @@ export default function App() {
       <div className="flex min-h-screen max-w-full overflow-x-hidden">
         <Sidebar />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
+          <DatasetSessionPanel
+            datasets={datasets}
+            isLoading={isLoading}
+            onCreateSession={newSession}
+            playbooks={playbooks}
+            session={state?.session ?? null}
+          />
           <header className="command-header mb-4">
             <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
@@ -327,13 +353,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <DatasetSessionPanel
-              datasets={datasets}
-              isLoading={isLoading}
-              onCreateSession={newSession}
-              playbooks={playbooks}
-              session={state?.session ?? null}
-            />
           </header>
 
           {error && (
@@ -394,7 +413,7 @@ export default function App() {
                   drawingsCount={drawings.length}
                   indicatorSettings={indicatorSettings}
                   isFullscreen={isChartFullscreen}
-                  onClearDrawings={() => setDrawings([])}
+                  onClearDrawings={clearDrawings}
                   onDrawingToolChange={setDrawingTool}
                   onSaveLayout={saveChartLayout}
                   onToggleFullscreen={() => setIsChartFullscreen((value) => !value)}
@@ -418,13 +437,24 @@ export default function App() {
                       drawings={drawings}
                       executions={executions}
                       indicatorSettings={indicatorSettings}
-                      onAddDrawing={(drawing) =>
-                        setDrawings((currentDrawings) => [...currentDrawings, drawing])
-                      }
-                      onClearDrawings={() => setDrawings([])}
+                      onAddDrawing={(drawing) => {
+                        setDrawings((currentDrawings) => [...currentDrawings, drawing]);
+                        setSelectedDrawingId(drawing.id);
+                      }}
+                      onClearDrawings={clearDrawings}
+                      onDeleteDrawing={deleteDrawing}
                       onDrawingToolChange={setDrawingTool}
+                      onSelectDrawing={setSelectedDrawingId}
+                      onUpdateDrawing={(updatedDrawing) =>
+                        setDrawings((currentDrawings) =>
+                          currentDrawings.map((drawing) =>
+                            drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
+                          ),
+                        )
+                      }
                       orders={orders}
                       position={position}
+                      selectedDrawingId={selectedDrawingId}
                       showOrderOverlays={showOrderOverlays}
                       smoothCandles={smoothCandles}
                       symbol={state?.session.symbol}
@@ -436,16 +466,14 @@ export default function App() {
                     activeIndicators={activeIndicators}
                     drawings={drawings}
                     indicatorSettings={indicatorSettings}
-                    onClearDrawings={() => setDrawings([])}
-                    onDeleteDrawing={(drawingId) =>
-                      setDrawings((currentDrawings) =>
-                        currentDrawings.filter((drawing) => drawing.id !== drawingId),
-                      )
-                    }
+                    onClearDrawings={clearDrawings}
+                    onDeleteDrawing={deleteDrawing}
+                    onSelectDrawing={setSelectedDrawingId}
                     onToggleIndicator={toggleIndicator}
                     onUpdateIndicatorSettings={updateIndicatorSettings}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                     orderOverlaysVisible={showOrderOverlays}
+                    selectedDrawingId={selectedDrawingId}
                     smoothCandles={smoothCandles}
                   />
                 </div>

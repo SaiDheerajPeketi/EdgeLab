@@ -104,7 +104,7 @@ button:disabled {
   }
 
   .dataset-switcher {
-    @apply mt-4 min-w-0 rounded-md border border-cyan-300/25 bg-[#071018] p-4 shadow-panel;
+    @apply sticky top-3 z-40 mb-4 min-w-0 rounded-md border border-cyan-300/35 bg-[#071018]/95 p-4 shadow-panel backdrop-blur;
     background-image:
       linear-gradient(90deg, rgba(50, 211, 238, 0.18), transparent 38%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent);
@@ -185,6 +185,30 @@ button:disabled {
     @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100;
   }
 
+  .study-manager-strip {
+    @apply flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/25 p-2 text-xs text-slate-400;
+  }
+
+  .study-manager-label {
+    @apply mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500;
+  }
+
+  .study-chip {
+    @apply inline-flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
+  }
+
+  .study-number-pill {
+    @apply inline-flex h-6 items-center overflow-hidden rounded border border-white/10 bg-ink-950 text-[10px] text-slate-500;
+  }
+
+  .study-number-pill span {
+    @apply px-1.5 font-bold uppercase;
+  }
+
+  .study-number-pill input {
+    @apply h-full w-10 border-l border-white/10 bg-transparent px-1 text-xs text-slate-100 outline-none;
+  }
+
   .chart-studio-layout {
     @apply grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_280px];
   }
@@ -246,6 +270,11 @@ button:disabled {
     @apply border-cyan-300/30 bg-cyan-300/10 text-cyan-100 shadow-sm;
   }
 
+  .drawing-anchor {
+    cursor: grab;
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.14));
+  }
+
   .chart-frame {
     @apply relative min-h-[568px] overflow-hidden bg-[#0b1017];
   }
@@ -264,5 +293,9 @@ button:disabled {
 
   .chart-object-row-active {
     @apply border-cyan-300/25 bg-cyan-300/10;
+  }
+
+  .chart-object-row-selected {
+    @apply border-amber-300/50 bg-amber-300/10 text-amber-50 shadow-[inset_0_0_0_1px_rgba(252,211,77,0.12)];
   }
 }
