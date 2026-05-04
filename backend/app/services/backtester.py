@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import asc, desc, select
 from sqlalchemy.orm import Session
@@ -21,6 +22,7 @@ from app.schemas import (
     PositionRead,
     TradeRead,
 )
+from app.services.datasets import DatasetCatalogService
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 
@@ -31,14 +33,59 @@ CANCELLED_ORDER = "CANCELLED"
 
 
 class BacktestService:
-    def __init__(self, market_data: MarketDataService):
+    def __init__(
+        self,
+        market_data: MarketDataService,
+        dataset_catalog: DatasetCatalogService | None = None,
+    ):
         self.market_data = market_data
+        self.dataset_catalog = dataset_catalog
+        self._market_data_cache: dict[str, MarketDataService] = {
+            str(market_data.csv_path): market_data
+        }
 
     def create_session(self, db: Session, payload: BacktestCreate) -> BacktestState:
+        csv_path = self.market_data.csv_path
+        instrument = payload.instrument
+        timeframe = payload.timeframe
+        symbol = payload.symbol
+        if self.dataset_catalog is not None and (
+            payload.csv_path or payload.instrument or payload.timeframe
+        ):
+            csv_path, instrument, timeframe, symbol = self.dataset_catalog.resolve_csv(
+                csv_path=payload.csv_path,
+                instrument=payload.instrument,
+                timeframe=payload.timeframe,
+            )
+
+        market_data = self.market_data_for_path(str(csv_path))
+        metadata = market_data.get_metadata()
+        start_offset = payload.initial_offset
+        if payload.start_timestamp is not None:
+            found = market_data.find_offset_at_or_after(payload.start_timestamp)
+            start_offset = found if found is not None else max(metadata.rows - 1, 0)
+        start_offset = min(max(start_offset, 0), max(metadata.rows - 1, 0))
+
+        end_offset = metadata.rows - 1 if metadata.rows > 0 else None
+        if payload.end_timestamp is not None:
+            found = market_data.find_offset_at_or_after(payload.end_timestamp)
+            end_offset = found if found is not None else end_offset
+        if end_offset is not None:
+            end_offset = max(start_offset, min(end_offset, max(metadata.rows - 1, 0)))
+
         session = BacktestSession(
             name=payload.name,
-            symbol=payload.symbol,
-            current_offset=payload.initial_offset,
+            symbol=symbol,
+            instrument=instrument,
+            timeframe=timeframe,
+            csv_path=str(csv_path),
+            strategy_name=payload.strategy_name,
+            playbook_id=payload.playbook_id,
+            start_at=payload.start_timestamp,
+            end_at=payload.end_timestamp,
+            start_offset=start_offset,
+            end_offset=end_offset,
+            current_offset=start_offset,
             initial_balance=payload.initial_balance,
         )
         db.add(session)
@@ -49,7 +96,7 @@ class BacktestService:
 
     def get_state(self, db: Session, session_id: int) -> BacktestState:
         session = self._session_or_404(db, session_id)
-        current_candle = self.market_data.get_candle(session.current_offset)
+        current_candle = self.market_data_for_session(session).get_candle(session.current_offset)
         return BacktestState(
             session=session,
             current_candle=current_candle,
@@ -165,9 +212,13 @@ class BacktestService:
         payload: BacktestAdvanceRequest,
     ) -> BacktestState:
         session = self._session_or_404(db, session_id)
+        market_data = self.market_data_for_session(session)
         for _ in range(payload.steps):
             next_offset = session.current_offset + 1
-            candle = self.market_data.get_candle(next_offset)
+            if session.end_offset is not None and next_offset > session.end_offset:
+                session.status = "COMPLETE"
+                break
+            candle = market_data.get_candle(next_offset)
             if candle is None:
                 session.status = "COMPLETE"
                 break
@@ -183,13 +234,16 @@ class BacktestService:
         payload: BacktestJumpRequest,
     ) -> BacktestState:
         session = self._session_or_404(db, session_id)
+        market_data = self.market_data_for_session(session)
         target_offset = payload.offset
         if payload.timestamp is not None:
-            target_offset = self.market_data.find_offset_at_or_after(payload.timestamp)
+            target_offset = market_data.find_offset_at_or_after(payload.timestamp)
         if target_offset is None:
             raise HTTPException(status_code=404, detail="Requested candle not found")
-        if target_offset < 0:
-            raise HTTPException(status_code=400, detail="offset must be non-negative")
+        if target_offset < session.start_offset:
+            target_offset = session.start_offset
+        if session.end_offset is not None and target_offset > session.end_offset:
+            target_offset = session.end_offset
 
         position = self._position(db, session)
         pending = self._pending_orders(db, session.id)
@@ -203,7 +257,7 @@ class BacktestService:
                     detail="Cannot process more than 5000 candles while orders or a position are active",
                 )
             for _ in range(distance):
-                candle = self.market_data.get_candle(session.current_offset + 1)
+                candle = market_data.get_candle(session.current_offset + 1)
                 if candle is None:
                     break
                 session.current_offset += 1
@@ -691,6 +745,20 @@ class BacktestService:
             raise HTTPException(status_code=404, detail="Backtest session not found")
         return session
 
+    def get_session(self, db: Session, session_id: int) -> BacktestSession:
+        return self._session_or_404(db, session_id)
+
+    def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
+        return self.market_data_for_path(session.csv_path or str(self.market_data.csv_path))
+
+    def market_data_for_path(self, csv_path: str) -> MarketDataService:
+        if csv_path not in self._market_data_cache:
+            self._market_data_cache[csv_path] = MarketDataService(
+                Path(csv_path),
+                cache=self.market_data.cache,
+            )
+        return self._market_data_cache[csv_path]
+
     def _order_or_404(self, db: Session, session_id: int, order_id: int) -> Order:
         order = db.scalar(
             select(Order).where(Order.session_id == session_id, Order.id == order_id)
@@ -700,7 +768,7 @@ class BacktestService:
         return order
 
     def _current_candle_or_404(self, session: BacktestSession) -> Candle:
-        candle = self.market_data.get_candle(session.current_offset)
+        candle = self.market_data_for_session(session).get_candle(session.current_offset)
         if candle is None:
             raise HTTPException(status_code=404, detail="Current replay candle not found")
         return candle

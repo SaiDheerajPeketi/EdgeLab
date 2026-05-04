@@ -12,6 +12,12 @@ class Settings:
     csv_path: Path = Path(
         os.getenv("TRADEZELLA_CSV_PATH", PROJECT_ROOT / "EURUSD_M1.csv")
     )
+    datasets_root: Path = Path(
+        os.getenv(
+            "TRADEZELLA_DATASETS_ROOT",
+            "/Users/speketi/Projects/Backtest/Datasets/Preprocessed",
+        )
+    )
     database_url: str = os.getenv(
         "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'trade_journal_v2.db'}"
     )

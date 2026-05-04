@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine
@@ -180,3 +181,37 @@ def test_breakeven_trigger_moves_stop_and_exits_flat(tmp_path: Path):
     assert state.position is not None
     assert state.position.side == "FLAT"
     assert state.metrics.net_pnl == pytest.approx(0)
+
+
+def test_session_respects_selected_date_window(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(
+        db,
+        BacktestCreate(
+            initial_offset=0,
+            start_timestamp=datetime(2024, 1, 1, 0, 2),
+            end_timestamp=datetime(2024, 1, 1, 0, 3),
+        ),
+    )
+
+    assert state.session.start_offset == 2
+    assert state.session.end_offset == 3
+    assert state.session.current_offset == 2
+
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=5))
+
+    assert state.session.current_offset == 3
+    assert state.session.status == "COMPLETE"
+
+
+def test_market_data_accepts_daily_date_only_csv(tmp_path: Path):
+    csv_path = tmp_path / "daily.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01,100,101,99,100.5,10\n",
+        encoding="utf-8",
+    )
+    metadata = MarketDataService(csv_path, cache=False).get_metadata()
+
+    assert metadata.rows == 1
+    assert metadata.first_timestamp == datetime(2024, 1, 1)

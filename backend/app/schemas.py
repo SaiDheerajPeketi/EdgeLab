@@ -37,6 +37,26 @@ class DatasetMeta(BaseModel):
     last_timestamp: datetime | None
 
 
+class DatasetTimeframe(BaseModel):
+    timeframe: str
+    csv_path: str
+    rows: int
+    first_timestamp: datetime | None
+    last_timestamp: datetime | None
+
+
+class DatasetInstrument(BaseModel):
+    id: str
+    name: str
+    symbol: str
+    timeframes: list[DatasetTimeframe]
+
+
+class DatasetCatalogResponse(BaseModel):
+    root: str
+    instruments: list[DatasetInstrument]
+
+
 class PlaybookCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
@@ -53,8 +73,15 @@ class PlaybookRead(PlaybookCreate):
 class BacktestCreate(BaseModel):
     name: str = "EURUSD Replay"
     symbol: str = "EURUSD"
+    instrument: str | None = None
+    timeframe: str | None = None
+    csv_path: str | None = None
+    strategy_name: str | None = None
+    playbook_id: int | None = None
+    start_timestamp: datetime | None = None
+    end_timestamp: datetime | None = None
     initial_balance: float = Field(default=100_000.0, gt=0)
-    initial_offset: int = Field(default=299, ge=0)
+    initial_offset: int = Field(default=0, ge=0)
 
 
 class BacktestSessionRead(BaseModel):
@@ -63,6 +90,15 @@ class BacktestSessionRead(BaseModel):
     id: int
     name: str
     symbol: str
+    instrument: str | None = None
+    timeframe: str | None = None
+    csv_path: str | None = None
+    strategy_name: str | None = None
+    playbook_id: int | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    start_offset: int = 0
+    end_offset: int | None = None
     status: Literal["ACTIVE", "COMPLETE"]
     current_offset: int
     initial_balance: float

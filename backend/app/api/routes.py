@@ -9,6 +9,7 @@ from app.schemas import (
     BacktestJumpRequest,
     BacktestState,
     BarsResponse,
+    DatasetCatalogResponse,
     DatasetMeta,
     JournalUpdate,
     MetricsResponse,
@@ -19,13 +20,15 @@ from app.schemas import (
     TradeRead,
 )
 from app.services.backtester import BacktestService, list_latest_session
+from app.services.datasets import DatasetCatalogService
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 
 
 router = APIRouter()
 market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
-backtester = BacktestService(market_data)
+dataset_catalog = DatasetCatalogService(settings.datasets_root)
+backtester = BacktestService(market_data, dataset_catalog)
 
 
 @router.get("/health")
@@ -34,9 +37,23 @@ def health() -> dict[str, str]:
 
 
 @router.get("/market-data/meta", response_model=DatasetMeta)
-def market_data_meta() -> DatasetMeta:
+def market_data_meta(
+    session_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> DatasetMeta:
     try:
+        if session_id is not None:
+            session = backtester.get_session(db, session_id)
+            return backtester.market_data_for_session(session).get_metadata()
         return market_data.get_metadata()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/datasets", response_model=DatasetCatalogResponse)
+def datasets(refresh: bool = Query(default=False)) -> DatasetCatalogResponse:
+    try:
+        return dataset_catalog.list_catalog(refresh=refresh)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -46,9 +63,15 @@ def market_data_bars(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=300, ge=1, le=5000),
     warmup: int = Query(default=120, ge=0, le=1000),
+    session_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
 ) -> BarsResponse:
     try:
-        return market_data.get_bars(offset=offset, limit=limit, warmup=warmup)
+        service = market_data
+        if session_id is not None:
+            session = backtester.get_session(db, session_id)
+            service = backtester.market_data_for_session(session)
+        return service.get_bars(offset=offset, limit=limit, warmup=warmup)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

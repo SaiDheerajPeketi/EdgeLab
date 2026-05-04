@@ -88,7 +88,7 @@ class MarketDataService:
             skiprows=range(1, start + 1),
             nrows=nrows,
             parse_dates=["Timestamp"],
-            date_format=DATE_FORMAT,
+            date_format="mixed",
         )
         if frame.empty:
             return BarsResponse(offset=offset, limit=limit, next_offset=offset, bars=[])
@@ -126,7 +126,7 @@ class MarketDataService:
                 self.csv_path,
                 chunksize=chunk_size,
                 parse_dates=["Timestamp"],
-                date_format=DATE_FORMAT,
+                date_format="mixed",
             )
         ):
             target = pd.Timestamp(timestamp.replace(tzinfo=None))
@@ -145,7 +145,7 @@ class MarketDataService:
                 frame = pd.read_csv(
                     self.csv_path,
                     parse_dates=["Timestamp"],
-                    date_format=DATE_FORMAT,
+                    date_format="mixed",
                 )
                 self._validate_columns(frame)
                 self._frame = self._with_indicators(frame)
@@ -205,7 +205,11 @@ class MarketDataService:
             return value.to_pydatetime()
         if isinstance(value, datetime):
             return value
-        return datetime.strptime(str(value), DATE_FORMAT)
+        text = str(value)
+        try:
+            return datetime.strptime(text, DATE_FORMAT)
+        except ValueError:
+            return datetime.strptime(text, "%Y-%m-%d")
 
     def _count_data_rows(self) -> int:
         with self.csv_path.open("rb") as handle:
