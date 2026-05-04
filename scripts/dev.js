@@ -12,13 +12,23 @@ if (!(await isHttpUp("http://127.0.0.1:3001/api/health"))) {
   console.log("[node-api] already running on http://127.0.0.1:3001");
 }
 
-if (!(await isHttpUp("http://127.0.0.1:8000/api/health"))) {
+const pythonApi = await checkHttpService("http://127.0.0.1:8000", [
+  "/api/health",
+  "/api/backtests/latest",
+  "/api/playbooks",
+]);
+if (pythonApi === "down") {
   processes.push({
     name: "python-api",
     command: "backend/.venv/bin/uvicorn",
     args: ["app.main:app", "--host", "127.0.0.1", "--port", "8000"],
     env: { ...process.env, PYTHONPATH: "backend" },
   });
+} else if (pythonApi === "stale") {
+  console.error(
+    "[python-api] port 8000 is occupied by an incompatible/stale API. Stop that process and rerun npm run dev.",
+  );
+  process.exit(1);
 } else {
   console.log("[python-api] already running on http://127.0.0.1:8000");
 }
@@ -81,4 +91,17 @@ async function isHttpUp(url) {
   } catch {
     return false;
   }
+}
+
+async function checkHttpService(baseUrl, requiredPaths) {
+  const statuses = await Promise.all(
+    requiredPaths.map(async (path) => isHttpUp(`${baseUrl}${path}`)),
+  );
+  if (statuses.every(Boolean)) {
+    return "ready";
+  }
+  if (statuses[0]) {
+    return "stale";
+  }
+  return "down";
 }
