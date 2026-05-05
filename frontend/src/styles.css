@@ -79,6 +79,13 @@ button:disabled {
       linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent);
   }
 
+  .backtest-focus-header {
+    @apply sticky top-3 z-40 rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
+    background-image:
+      linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 42%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
+  }
+
   .status-pill {
     @apply inline-flex h-8 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 text-xs font-semibold text-slate-300;
   }
@@ -328,8 +335,30 @@ button:disabled {
     @apply grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_280px];
   }
 
+  .chart-studio-layout-focus {
+    @apply block;
+  }
+
   .chart-studio-layout-collapsed {
     @apply xl:grid-cols-[minmax(0,1fr)_58px];
+  }
+
+  .focus-chart-column {
+    @apply min-w-0 space-y-3;
+  }
+
+  .focus-side-drawer {
+    @apply fixed bottom-3 left-3 top-3 z-50 grid w-[min(360px,calc(100vw-24px))] content-start gap-3 overflow-auto rounded-md border border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
+  }
+
+  @media (min-width: 1024px) {
+    .focus-side-drawer {
+      left: 5.5rem;
+    }
+  }
+
+  .focus-bottom-panel {
+    @apply grid min-w-0 gap-4 lg:grid-cols-3;
   }
 
   .chart-fullscreen-shell {

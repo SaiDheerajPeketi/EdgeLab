@@ -1,21 +1,16 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
-  BadgeDollarSign,
-  CircleDot,
   Clock3,
   Database,
-  Layers,
-  ListOrdered,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Radio,
-  ShoppingCart,
+  SlidersHorizontal,
   WalletCards,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
 import { ExecutionTape } from "./components/ExecutionTape";
@@ -32,7 +27,7 @@ import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { TradeLog } from "./components/TradeLog";
 import { TradingChart } from "./components/TradingChart";
-import type { BacktestCreatePayload, Position, Trade } from "./lib/api";
+import type { BacktestCreatePayload, Trade } from "./lib/api";
 import type {
   ChartDrawing,
   ChartIndicatorId,
@@ -92,7 +87,9 @@ export default function App() {
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
+  const [chartToolsOpen, setChartToolsOpen] = useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
+  const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
@@ -241,9 +238,6 @@ export default function App() {
   const trades = state?.trades ?? [];
   const position = state?.position ?? null;
   const pendingOrders = orders.filter((order) => order.status === "PENDING").length;
-  const workspaceGridClass = leftPaneOpen
-    ? "grid gap-4 2xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)_minmax(300px,360px)]"
-    : "grid gap-4 2xl:grid-cols-[68px_minmax(0,1fr)_minmax(300px,360px)]";
   const savedLayoutLabel =
     chartLayoutSavedAt == null
       ? null
@@ -339,7 +333,9 @@ export default function App() {
     await loadInitial();
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
+    setChartToolsOpen(false);
     setLayersPanelOpen(false);
+    setWorkspacePanel("none");
   }
 
   return (
@@ -366,49 +362,40 @@ export default function App() {
             </>
           ) : (
             <>
-          <header className="command-header mb-4">
-            <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <div className="min-w-0">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="status-pill text-emerald-100">
-                    <Radio size={14} />
-                    Live Replay
-                  </span>
-                  <span className="status-pill">
-                    <Database size={14} />
-                    {meta ? `${meta.rows.toLocaleString()} bars` : "Dataset loading"}
-                  </span>
-                  {state && (
-                    <span className="status-pill">
-                      <WalletCards size={14} />
-                      Session #{state.session.id}
-                    </span>
-                  )}
+          <header className="backtest-focus-header mb-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <span className="status-pill text-emerald-100">
+                <Radio size={14} />
+                {isPlaying ? "Playing" : "Replay"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-base font-semibold text-white">
+                  {state?.session.strategy_name ?? "Strategy"} / {formatTradingViewSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
                 </div>
-                <h1 className="text-3xl font-semibold tracking-normal text-white xl:text-4xl">
-                  Replay Command Center
-                </h1>
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-400">
-                  <span className="inline-flex items-center gap-2">
-                    <CircleDot size={14} className="text-cyan-200" />
-                    {formatTradingViewSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1.5">
+                    <WalletCards size={13} />
+                    Session #{state?.session.id ?? "—"}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Database size={13} />
+                    {meta ? `${meta.rows.toLocaleString()} bars` : "Dataset"}
                   </span>
                   {current && (
-                    <span className="inline-flex items-center gap-2">
-                      <Clock3 size={14} />
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock3 size={13} />
                       {new Date(current.timestamp).toLocaleString()}
                     </span>
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <HeaderStat label="Balance" value={money(state?.session.initial_balance ?? 100000)} />
+              <div className="hidden gap-2 xl:flex">
                 <HeaderStat label="Realized" value={money(state?.session.realized_pnl ?? 0)} tone={(state?.session.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} />
-                <HeaderStat label="Mode" value={isPlaying ? "Playing" : "Paused"} tone={isPlaying ? "text-emerald-300" : "text-amber-200"} />
-                <HeaderStat label="Offset" value={(state?.session.current_offset ?? 0).toLocaleString()} />
+                <HeaderStat label="Position" value={position && position.side !== "FLAT" && position.quantity > 0 ? position.side : "Flat"} tone={position?.side === "LONG" ? "text-emerald-300" : position?.side === "SHORT" ? "text-rose-300" : "text-slate-300"} />
+                <HeaderStat label="Pending" value={String(pendingOrders)} />
               </div>
             </div>
-            <div className="mt-5 flex gap-2 overflow-x-auto">
+            <div className="mt-3 flex gap-2 overflow-x-auto">
               <button
                 className="workspace-tab inline-flex items-center justify-center gap-2"
                 onClick={() => {
@@ -421,12 +408,42 @@ export default function App() {
                 Sessions
               </button>
               <button
-                className="workspace-tab inline-flex items-center justify-center gap-2"
+                className={`workspace-tab inline-flex items-center justify-center gap-2 ${leftPaneOpen ? "workspace-tab-active" : ""}`}
                 onClick={() => setLeftPaneOpen((value) => !value)}
                 type="button"
               >
                 {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
                 Ticket
+              </button>
+              <button
+                className={`workspace-tab inline-flex items-center justify-center gap-2 ${layersPanelOpen ? "workspace-tab-active" : ""}`}
+                onClick={() => setLayersPanelOpen((value) => !value)}
+                type="button"
+              >
+                {layersPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+                Objects
+              </button>
+              <button
+                className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartToolsOpen ? "workspace-tab-active" : ""}`}
+                onClick={() => setChartToolsOpen((value) => !value)}
+                type="button"
+              >
+                <SlidersHorizontal size={14} />
+                Tools
+              </button>
+              <button
+                className={`workspace-tab ${workspacePanel === "orders" ? "workspace-tab-active" : ""}`}
+                onClick={() => setWorkspacePanel((value) => value === "orders" ? "none" : "orders")}
+                type="button"
+              >
+                Orders
+              </button>
+              <button
+                className={`workspace-tab ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
+                onClick={() => setWorkspacePanel((value) => value === "review" ? "none" : "review")}
+                type="button"
+              >
+                Review
               </button>
             </div>
           </header>
@@ -443,75 +460,67 @@ export default function App() {
             </div>
           )}
 
-          <div className="space-y-4">
-            <MetricsBar metrics={metrics} />
-            <div className={workspaceGridClass}>
-              <div className="min-w-0 space-y-4 2xl:order-1">
-                {leftPaneOpen ? (
-                  <>
-                    <section className="terminal-panel flex items-center justify-between gap-3 px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                          Execution
-                        </div>
-                        <div className="truncate text-sm font-semibold text-white">
-                          Order ticket and position controls
-                        </div>
-                      </div>
-                      <button
-                        className="icon-button h-8 w-8 shrink-0"
-                        onClick={() => setLeftPaneOpen(false)}
-                        title="Collapse order ticket"
-                        type="button"
-                      >
-                        <PanelLeftClose size={15} />
-                      </button>
-                    </section>
-                    <OrderTicket
-                      playbooks={playbooks}
-                      riskRewardDrawing={latestRiskRewardDrawing}
-                    />
-                    <PositionPanel position={position} />
-                  </>
-                ) : (
-                  <CollapsedExecutionPane
-                    executionCount={executions.length}
-                    onExpand={() => setLeftPaneOpen(true)}
-                    pendingCount={pendingOrders}
-                    position={position}
+          <div className="space-y-3">
+            {leftPaneOpen && (
+              <aside className="focus-side-drawer">
+                <section className="terminal-panel flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                      Execution
+                    </div>
+                    <div className="truncate text-sm font-semibold text-white">
+                      Order ticket and position controls
+                    </div>
+                  </div>
+                  <button
+                    className="icon-button h-8 w-8 shrink-0"
+                    onClick={() => setLeftPaneOpen(false)}
+                    title="Close order ticket"
+                    type="button"
+                  >
+                    <PanelLeftClose size={15} />
+                  </button>
+                </section>
+                <OrderTicket
+                  playbooks={playbooks}
+                  riskRewardDrawing={latestRiskRewardDrawing}
+                />
+                <PositionPanel position={position} />
+              </aside>
+            )}
+
+              <div className={isChartFullscreen ? "chart-fullscreen-shell" : "focus-chart-column"}>
+                <ReplayController />
+                {chartToolsOpen && (
+                  <ChartToolbar
+                    activeIndicators={activeIndicators}
+                    chartStyle={chartStyle}
+                    drawingTool={drawingTool}
+                    drawingsCount={drawings.length}
+                    indicatorSettings={indicatorSettings}
+                    isFullscreen={isChartFullscreen}
+                    onChartStyleChange={setChartStyle}
+                    onClearDrawings={clearDrawings}
+                    layoutName={layoutName}
+                    layoutNames={availableLayouts}
+                    onDrawingToolChange={setDrawingTool}
+                    onDeleteLayout={deleteNamedChartLayout}
+                    onLayoutNameChange={setLayoutName}
+                    onLoadLayout={loadNamedChartLayout}
+                    onSaveLayout={saveChartLayout}
+                    onToggleFullscreen={() => setIsChartFullscreen((value) => !value)}
+                    onTimeframeChange={setTimeframe}
+                    onToggleIndicator={toggleIndicator}
+                    onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                    onUpdateIndicatorSettings={updateIndicatorSettings}
+                    onSmoothCandlesChange={setSmoothCandles}
+                    orderOverlaysVisible={showOrderOverlays}
+                    savedLabel={savedLayoutLabel}
+                    smoothCandles={smoothCandles}
+                    timeframe={timeframe}
                   />
                 )}
-              </div>
-              <div className={isChartFullscreen ? "chart-fullscreen-shell" : "min-w-0 space-y-4 2xl:order-2"}>
-                <ReplayController />
-                <ChartToolbar
-                  activeIndicators={activeIndicators}
-                  chartStyle={chartStyle}
-                  drawingTool={drawingTool}
-                  drawingsCount={drawings.length}
-                  indicatorSettings={indicatorSettings}
-                  isFullscreen={isChartFullscreen}
-                  onChartStyleChange={setChartStyle}
-                  onClearDrawings={clearDrawings}
-                  layoutName={layoutName}
-                  layoutNames={availableLayouts}
-                  onDrawingToolChange={setDrawingTool}
-                  onDeleteLayout={deleteNamedChartLayout}
-                  onLayoutNameChange={setLayoutName}
-                  onLoadLayout={loadNamedChartLayout}
-                  onSaveLayout={saveChartLayout}
-                  onToggleFullscreen={() => setIsChartFullscreen((value) => !value)}
-                  onTimeframeChange={setTimeframe}
-                  onToggleIndicator={toggleIndicator}
-                  onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
-                  onUpdateIndicatorSettings={updateIndicatorSettings}
-                  onSmoothCandlesChange={setSmoothCandles}
-                  orderOverlaysVisible={showOrderOverlays}
-                  savedLabel={savedLayoutLabel}
-                  smoothCandles={smoothCandles}
-                  timeframe={timeframe}
-                />
-                <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-collapsed"}`}>
+                <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
                   <div className="min-w-0 space-y-3">
                     <TradingChart
                       activeIndicators={activeIndicators}
@@ -569,14 +578,7 @@ export default function App() {
                       selectedDrawingId={selectedDrawingId}
                       smoothCandles={smoothCandles}
                     />
-                  ) : (
-                    <CollapsedLayersPanel
-                      activeIndicatorCount={activeIndicators.length}
-                      drawingCount={drawings.length}
-                      onExpand={() => setLayersPanelOpen(true)}
-                      overlaysVisible={showOrderOverlays}
-                    />
-                  )}
+                  ) : null}
                 </div>
                 {isChartFullscreen && (
                   <div className="chart-fullscreen-dock">
@@ -590,22 +592,31 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="min-w-0 space-y-4 2xl:order-3">
+
+            {workspacePanel === "orders" && (
+              <section className="focus-bottom-panel">
+                <PositionPanel position={position} />
                 <PendingOrders orders={orders} />
                 <ExecutionTape executions={executions} />
-              </div>
-            </div>
-            <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(300px,460px)]">
-              <ReportsPanel metrics={metrics} />
-              <div className="min-w-0 space-y-4">
-                <PlaybookBoard playbooks={playbooks} trades={trades} />
-                <TradeLog
-                  trades={trades}
-                  onEdit={setEditingTrade}
-                  onInspect={setReviewTrade}
-                />
-              </div>
-            </div>
+              </section>
+            )}
+
+            {workspacePanel === "review" && (
+              <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(300px,460px)]">
+                <div className="space-y-4">
+                  <MetricsBar metrics={metrics} />
+                  <ReportsPanel metrics={metrics} />
+                </div>
+                <div className="min-w-0 space-y-4">
+                  <PlaybookBoard playbooks={playbooks} trades={trades} />
+                  <TradeLog
+                    trades={trades}
+                    onEdit={setEditingTrade}
+                    onInspect={setReviewTrade}
+                  />
+                </div>
+              </section>
+            )}
           </div>
             </>
           )}
@@ -629,129 +640,6 @@ export default function App() {
           }}
           trade={reviewTrade}
         />
-      )}
-    </div>
-  );
-}
-
-function CollapsedExecutionPane({
-  executionCount,
-  onExpand,
-  pendingCount,
-  position,
-}: {
-  executionCount: number;
-  onExpand: () => void;
-  pendingCount: number;
-  position: Position | null;
-}) {
-  const isLivePosition = Boolean(position && position.side !== "FLAT" && position.quantity > 0);
-  const positionSide = isLivePosition ? (position?.side ?? "Flat") : "Flat";
-  const positionSize = isLivePosition
-    ? Math.round(position?.quantity ?? 0).toLocaleString()
-    : null;
-  const positionTone = positionSide === "Flat"
-    ? "text-slate-500"
-    : positionSide === "LONG"
-      ? "text-emerald-300"
-      : "text-rose-300";
-
-  return (
-    <section className="terminal-panel flex min-w-0 items-center gap-2 p-2 2xl:min-h-[620px] 2xl:flex-col">
-      <button
-        className="icon-button shrink-0"
-        onClick={onExpand}
-        title="Expand order ticket"
-        type="button"
-      >
-        <PanelLeftOpen size={17} />
-      </button>
-      <div className="hidden h-px w-full bg-white/10 2xl:block" />
-      <CollapsedAction icon={ShoppingCart} label="Ticket" tone="text-cyan-200" />
-      <CollapsedAction
-        badge={pendingCount}
-        icon={ListOrdered}
-        label="Pending"
-        tone="text-amber-200"
-      />
-      <CollapsedAction
-        badge={executionCount}
-        icon={BadgeDollarSign}
-        label={positionSide}
-        tone={positionTone}
-      />
-      <div className="ml-auto hidden min-w-0 flex-1 items-center justify-end gap-2 text-xs text-slate-400 sm:flex 2xl:hidden">
-        <span className="truncate">{positionSize ? `${positionSide} ${positionSize}` : "Flat"}</span>
-        <span>{pendingCount} pending</span>
-      </div>
-    </section>
-  );
-}
-
-function CollapsedLayersPanel({
-  activeIndicatorCount,
-  drawingCount,
-  onExpand,
-  overlaysVisible,
-}: {
-  activeIndicatorCount: number;
-  drawingCount: number;
-  onExpand: () => void;
-  overlaysVisible: boolean;
-}) {
-  return (
-    <aside className="collapsed-layers-panel">
-      <button
-        className="icon-button h-10 w-10"
-        onClick={onExpand}
-        title="Expand layers"
-        type="button"
-      >
-        <PanelRightOpen size={17} />
-      </button>
-      <div className="h-px w-8 bg-white/10" />
-      <CollapsedAction
-        badge={drawingCount}
-        icon={Layers}
-        label="Drawings"
-        tone="text-cyan-200"
-      />
-      <CollapsedAction
-        badge={activeIndicatorCount}
-        icon={ListOrdered}
-        label="Studies"
-        tone="text-fuchsia-200"
-      />
-      <CollapsedAction
-        icon={overlaysVisible ? BadgeDollarSign : PanelRightClose}
-        label={overlaysVisible ? "Overlays On" : "Overlays Off"}
-        tone={overlaysVisible ? "text-emerald-300" : "text-slate-500"}
-      />
-    </aside>
-  );
-}
-
-function CollapsedAction({
-  badge,
-  icon: Icon,
-  label,
-  tone,
-}: {
-  badge?: number;
-  icon: LucideIcon;
-  label: string;
-  tone: string;
-}) {
-  return (
-    <div
-      className={`relative grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/10 bg-white/5 ${tone}`}
-      title={label}
-    >
-      <Icon size={17} />
-      {badge != null && badge > 0 && (
-        <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border border-ink-900 bg-cyan-300 px-1 text-[10px] font-bold text-ink-950">
-          {badge > 99 ? "99+" : badge}
-        </span>
       )}
     </div>
   );
