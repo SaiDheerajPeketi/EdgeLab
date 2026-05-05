@@ -8,6 +8,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Radio,
+  LineChart,
   SlidersHorizontal,
   WalletCards,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { PlaybookBoard } from "./components/PlaybookBoard";
 import { PositionPanel } from "./components/PositionPanel";
 import { ReplayController } from "./components/ReplayController";
 import { ReportsPanel } from "./components/ReportsPanel";
+import { ResultsPanel } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
@@ -73,6 +75,8 @@ export default function App() {
     meta,
     state,
     playbooks,
+    resultSessions,
+    resultTrades,
     error,
     isLoading,
     isPlaying,
@@ -89,7 +93,7 @@ export default function App() {
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
-  const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review">("none");
+  const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
@@ -445,6 +449,14 @@ export default function App() {
               >
                 Review
               </button>
+              <button
+                className={`workspace-tab inline-flex items-center justify-center gap-2 ${workspacePanel === "results" ? "workspace-tab-active" : ""}`}
+                onClick={() => setWorkspacePanel((value) => value === "results" ? "none" : "results")}
+                type="button"
+              >
+                <LineChart size={14} />
+                Results
+              </button>
             </div>
           </header>
 
@@ -602,18 +614,35 @@ export default function App() {
             )}
 
             {workspacePanel === "review" && (
-              <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(300px,460px)]">
+              <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <PlaybookBoard playbooks={playbooks} trades={trades} />
+                <TradeLog
+                  trades={trades}
+                  onEdit={setEditingTrade}
+                  onInspect={setReviewTrade}
+                />
+              </section>
+            )}
+
+            {workspacePanel === "results" && (
+              <section className="min-w-0 space-y-4">
+                <ResultsPanel
+                  activeSessionId={state?.session.id ?? null}
+                  onInspectTrade={setReviewTrade}
+                  sessions={resultSessions}
+                  trades={resultTrades}
+                />
                 <div className="space-y-4">
+                  <div className="terminal-panel px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Active Session Detail
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-white">
+                      {state?.session.name ?? "Current replay"}
+                    </div>
+                  </div>
                   <MetricsBar metrics={metrics} />
                   <ReportsPanel metrics={metrics} />
-                </div>
-                <div className="min-w-0 space-y-4">
-                  <PlaybookBoard playbooks={playbooks} trades={trades} />
-                  <TradeLog
-                    trades={trades}
-                    onEdit={setEditingTrade}
-                    onInspect={setReviewTrade}
-                  />
                 </div>
               </section>
             )}

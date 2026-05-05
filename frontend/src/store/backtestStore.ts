@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   BacktestState,
   BacktestCreatePayload,
+  BacktestSession,
   Candle,
   DatasetCatalog,
   DatasetMeta,
@@ -14,10 +15,12 @@ import {
   createBacktest,
   deleteBacktestOrder,
   getBars,
+  getBacktests,
   getDatasets,
   getLatestBacktest,
   getMeta,
   getPlaybooks,
+  getTrades,
   jumpBacktest,
   patchBacktestOrder,
   patchJournal,
@@ -34,12 +37,15 @@ type BacktestStore = {
   meta: DatasetMeta | null;
   state: BacktestState | null;
   playbooks: Playbook[];
+  resultSessions: BacktestSession[];
+  resultTrades: Trade[];
   isLoading: boolean;
   isStepping: boolean;
   isPlaying: boolean;
   speedMs: number;
   error: string | null;
   loadInitial: () => Promise<void>;
+  refreshResults: () => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
   stepForward: (steps?: number) => Promise<void>;
   resetReplay: () => Promise<void>;
@@ -60,6 +66,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   meta: null,
   state: null,
   playbooks: [],
+  resultSessions: [],
+  resultTrades: [],
   isLoading: false,
   isStepping: false,
   isPlaying: false,
@@ -69,12 +77,16 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadInitial: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [datasetsResult, playbooksResult] = await Promise.allSettled([
+      const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
         getDatasets(),
         getPlaybooks(),
+        getBacktests(),
+        getTrades(),
       ]);
       const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
       const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
+      const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
+      const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
       const initialState = await getLatestBacktest().catch(() => createBacktest({}));
       const meta = await getMeta(initialState.session.id);
       const state = await ensureReplayContext(initialState, meta);
@@ -88,18 +100,32 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         meta,
         state,
         playbooks,
+        resultSessions,
+        resultTrades,
         bars: window.bars,
         barOffset: window.barOffset,
-        error:
-          datasetsResult.status === "rejected"
-            ? toErrorMessage(datasetsResult.reason)
-            : playbooksResult.status === "rejected"
-              ? toErrorMessage(playbooksResult.reason)
-              : null,
+        error: firstRejectedMessage([
+          datasetsResult,
+          playbooksResult,
+          sessionsResult,
+          tradesResult,
+        ]),
         isLoading: false,
       });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
+    }
+  },
+
+  refreshResults: async () => {
+    try {
+      const [resultSessions, resultTrades] = await Promise.all([
+        getBacktests(),
+        getTrades(),
+      ]);
+      set({ resultSessions, resultTrades, error: null });
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
     }
   },
 
@@ -121,6 +147,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         barOffset: window.barOffset,
         isLoading: false,
       });
+      void get().refreshResults();
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
     }
@@ -150,6 +177,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         isStepping: false,
         isPlaying: state.session.status === "ACTIVE" ? get().isPlaying : false,
       });
+      if (state.trades.some((trade) => trade.status === "CLOSED")) {
+        void get().refreshResults();
+      }
     } catch (error) {
       set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
     }
@@ -224,6 +254,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       const state = await postBacktestOrder(sessionId, payload);
       set({ state, error: null });
+      if (state.trades.some((trade) => trade.status === "CLOSED")) {
+        void get().refreshResults();
+      }
     } catch (error) {
       set({ error: toErrorMessage(error) });
     }
@@ -258,6 +291,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   updateJournal: async (tradeId, payload) => {
     const trade = await patchJournal(tradeId, payload);
     await get().loadInitial();
+    await get().refreshResults();
     return trade;
   },
 }));
@@ -319,4 +353,11 @@ function isEmptyFreshReplay(state: BacktestState) {
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected error";
+}
+
+function firstRejectedMessage(results: PromiseSettledResult<unknown>[]) {
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  return rejected ? toErrorMessage(rejected.reason) : null;
 }

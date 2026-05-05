@@ -7,6 +7,7 @@ from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
+    BacktestSessionRead,
     BacktestState,
     BarsResponse,
     DatasetCatalogResponse,
@@ -82,6 +83,14 @@ def create_backtest(
     db: Session = Depends(get_db),
 ) -> BacktestState:
     return backtester.create_session(db, payload)
+
+
+@router.get("/backtests", response_model=list[BacktestSessionRead])
+def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
+    return [
+        BacktestSessionRead.model_validate(session)
+        for session in backtester.list_sessions(db)
+    ]
 
 
 @router.get("/backtests/latest", response_model=BacktestState)

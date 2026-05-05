@@ -285,6 +285,10 @@ export function getLatestBacktest() {
   return request<BacktestState>("/backtests/latest");
 }
 
+export function getBacktests() {
+  return request<BacktestSession[]>("/backtests");
+}
+
 export function createBacktest(payload: BacktestCreatePayload = {}) {
   return request<BacktestState>("/backtests", {
     method: "POST",
@@ -342,6 +346,11 @@ export function postPlaybook(payload: PlaybookPayload) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function getTrades(sessionId?: number) {
+  const query = sessionId ? `?session_id=${sessionId}` : "";
+  return request<Trade[]>(`/trades${query}`);
 }
 
 export function patchJournal(tradeId: number, payload: JournalPayload) {

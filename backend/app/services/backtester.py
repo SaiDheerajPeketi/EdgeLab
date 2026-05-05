@@ -324,6 +324,13 @@ class BacktestService:
         db.refresh(playbook)
         return PlaybookRead.model_validate(playbook)
 
+    def list_sessions(self, db: Session) -> list[BacktestSession]:
+        return list(
+            db.scalars(
+                select(BacktestSession).order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
+            ).all()
+        )
+
     def _process_candle(self, db: Session, session: BacktestSession, candle: Candle) -> None:
         self._process_position_brackets(db, session, candle)
         for order in self._pending_orders(db, session.id):
