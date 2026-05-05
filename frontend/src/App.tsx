@@ -782,8 +782,8 @@ export default function App() {
                 <ResultsPanel
                   activeSessionId={state?.session.id ?? null}
                   onInspectTrade={setReviewTrade}
-                  sessions={resultSessions}
-                  trades={resultTrades}
+                  sessions={state?.session ? [state.session] : []}
+                  trades={trades}
                 />
                 <div className="space-y-4">
                   <div className="terminal-panel px-4 py-3">

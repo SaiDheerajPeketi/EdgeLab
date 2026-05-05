@@ -5,8 +5,6 @@ import {
   BarChart3,
   CalendarDays,
   ChevronRight,
-  Filter,
-  Layers3,
   LineChart,
   Sigma,
   Target,
@@ -29,7 +27,7 @@ type Props = {
   onInspectTrade?: (trade: Trade) => void;
 };
 
-type ResultsView = "strategy" | "session" | "trades";
+type ResultsView = "session" | "trades";
 
 type Aggregate = {
   averageHoldMinutes: number | null;
@@ -54,12 +52,11 @@ type Aggregate = {
   wins: number;
 };
 
-type GroupRow = {
+type SessionResultRow = {
   aggregate: Aggregate;
   id: string;
   label: string;
   sessions: BacktestSession[];
-  strategyName: string;
   subtitle: string;
   trades: Trade[];
 };
@@ -70,7 +67,7 @@ export function ResultsPanel({
   trades,
   onInspectTrade,
 }: Props) {
-  const [view, setView] = useState<ResultsView>("strategy");
+  const [view, setView] = useState<ResultsView>("session");
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
     [sessions],
@@ -87,14 +84,8 @@ export function ResultsPanel({
     closedTrades,
     trades,
   ]);
-  const strategyRows = useMemo(
-    () => buildStrategyRows(sessions, trades, sessionById),
-    [sessionById, sessions, trades],
-  );
   const sessionRows = useMemo(() => buildSessionRows(sessions, trades), [sessions, trades]);
   const activeSession = activeSessionId ? sessionById.get(activeSessionId) : null;
-  const strategyCount = strategyRows.filter((row) => row.aggregate.totalTrades > 0).length;
-  const tradedSessionCount = sessionRows.filter((row) => row.aggregate.totalTrades > 0).length;
 
   return (
     <section className="min-w-0 space-y-4">
@@ -106,21 +97,17 @@ export function ResultsPanel({
               Results
             </div>
             <h2 className="mt-2 text-xl font-semibold text-white">
-              Strategy and Session Results
+              Current Session Results
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Closed trades are aggregated across every saved session, then broken down by
-              strategy and by session so the active replay stays focused.
+              This panel only summarizes the session currently open in replay. Strategy-level
+              comparisons live on the session gateway before you enter the chart.
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <ResultTabButton active={view === "strategy"} onClick={() => setView("strategy")}>
-              <Layers3 size={14} />
-              By Strategy
-            </ResultTabButton>
             <ResultTabButton active={view === "session"} onClick={() => setView("session")}>
               <CalendarDays size={14} />
-              By Session
+              Session
             </ResultTabButton>
             <ResultTabButton active={view === "trades"} onClick={() => setView("trades")}>
               <Activity size={14} />
@@ -134,9 +121,13 @@ export function ResultsPanel({
         <div className="terminal-panel min-w-0 p-4">
           <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-white">All Strategies</h3>
+              <h3 className="text-sm font-semibold text-white">
+                {activeSession?.name ?? "Active Session"}
+              </h3>
               <div className="mt-1 text-xs text-slate-500">
-                {strategyCount} active strategies · {tradedSessionCount} traded sessions
+                {activeSession
+                  ? `${formatTradingViewSymbol(activeSession.symbol)} · ${activeSession.timeframe ?? "M1"} · ${activeSession.status}`
+                  : "Open a session to see results"}
               </div>
             </div>
             <span
@@ -200,9 +191,9 @@ export function ResultsPanel({
 
         <div className="terminal-panel min-w-0 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">Aggregate Equity</h3>
+            <h3 className="text-sm font-semibold text-white">Session Equity</h3>
             <span className="text-xs text-slate-500">
-              {activeSession ? `Active: ${activeSession.name}` : "All sessions"}
+              {activeSession ? `Active: ${activeSession.name}` : "No active session"}
             </span>
           </div>
           <EquitySparkline trades={closedTrades} />
@@ -213,7 +204,6 @@ export function ResultsPanel({
         </div>
       </div>
 
-      {view === "strategy" && <StrategyResults rows={strategyRows} />}
       {view === "session" && <SessionResults rows={sessionRows} activeSessionId={activeSessionId} />}
       {view === "trades" && (
         <TradeResults
@@ -274,29 +264,12 @@ function ResultMetric({
   );
 }
 
-function StrategyResults({ rows }: { rows: GroupRow[] }) {
-  return (
-    <section className="terminal-panel min-w-0 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-white">Strategies Aggregated</h3>
-        <span className="text-xs text-slate-500">{rows.length} strategies</span>
-      </div>
-      <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-        {rows.map((row) => (
-          <ResultGroupCard key={row.id} row={row} />
-        ))}
-        {rows.length === 0 && <EmptyResults message="No strategy results yet" />}
-      </div>
-    </section>
-  );
-}
-
 function SessionResults({
   activeSessionId,
   rows,
 }: {
   activeSessionId: number | null;
-  rows: GroupRow[];
+  rows: SessionResultRow[];
 }) {
   const sessionCount = new Set(rows.map((row) => row.sessions[0]?.id).filter(Boolean)).size;
 
@@ -305,15 +278,14 @@ function SessionResults({
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-white">Session Results</h3>
         <span className="text-xs text-slate-500">
-          {sessionCount} sessions · {rows.length} strategy rows
+          {sessionCount} session{sessionCount === 1 ? "" : "s"}
         </span>
       </div>
       <div className="overflow-auto">
-        <table className="w-full min-w-[920px] text-left text-sm">
+        <table className="w-full min-w-[820px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-3 py-2 font-medium">Session</th>
-              <th className="px-3 py-2 font-medium">Strategy</th>
               <th className="px-3 py-2 font-medium">Trades</th>
               <th className="px-3 py-2 font-medium">Net PnL</th>
               <th className="px-3 py-2 font-medium">Win %</th>
@@ -340,9 +312,6 @@ function SessionResults({
                     <div className="mt-1 text-xs text-slate-500">
                       {row.subtitle}
                     </div>
-                  </td>
-                  <td className="px-3 py-3 text-slate-300">
-                    {row.strategyName}
                   </td>
                   <td className="px-3 py-3 tabular-nums">
                     {row.aggregate.totalTrades}
@@ -475,138 +444,6 @@ function TradeResults({
   );
 }
 
-function ResultGroupCard({ row }: { row: GroupRow }) {
-  const [selectedSessionIds, setSelectedSessionIds] = useState<number[]>([]);
-  const selectedSessionSet = useMemo(
-    () => new Set(selectedSessionIds),
-    [selectedSessionIds],
-  );
-  const filteredSessions = useMemo(
-    () =>
-      selectedSessionIds.length === 0
-        ? row.sessions
-        : row.sessions.filter((session) => selectedSessionSet.has(session.id)),
-    [row.sessions, selectedSessionIds.length, selectedSessionSet],
-  );
-  const filteredTrades = useMemo(
-    () =>
-      selectedSessionIds.length === 0
-        ? row.trades
-        : row.trades.filter((trade) => selectedSessionSet.has(trade.session_id)),
-    [row.trades, selectedSessionIds.length, selectedSessionSet],
-  );
-  const aggregate = useMemo(() => {
-    const closedTrades = filteredTrades.filter((trade) => trade.status === "CLOSED");
-    return aggregateTrades(closedTrades, filteredTrades);
-  }, [filteredTrades]);
-  const allSessionsSelected = selectedSessionIds.length === 0;
-
-  function toggleSession(sessionId: number) {
-    setSelectedSessionIds((current) => {
-      if (current.includes(sessionId)) {
-        return current.filter((id) => id !== sessionId);
-      }
-      return [...current, sessionId];
-    });
-  }
-
-  return (
-    <article className="min-w-0 rounded-md border border-white/10 bg-black/20 p-4">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="truncate text-sm font-semibold text-white">{row.label}</h4>
-          <div className="mt-1 text-xs text-slate-500">
-            {filteredSessions.length} of {row.sessions.length} sessions · {aggregate.totalTrades} closed trades
-          </div>
-        </div>
-        <span className={`shrink-0 text-sm font-semibold ${toneForNumber(aggregate.netPnl)}`}>
-          {formatMoney(aggregate.netPnl)}
-        </span>
-      </div>
-      {row.sessions.length > 1 && (
-        <div className="mt-3 rounded-md border border-white/10 bg-[#080c11] p-2">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              <Filter size={12} />
-              Session Filter
-            </div>
-            <button
-              className={`h-7 rounded px-2 text-xs font-semibold transition ${
-                allSessionsSelected
-                  ? "bg-white text-ink-950"
-                  : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
-              }`}
-              onClick={() => setSelectedSessionIds([])}
-              type="button"
-            >
-              All
-            </button>
-          </div>
-          <div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">
-            {row.sessions.map((session) => {
-              const active = allSessionsSelected || selectedSessionSet.has(session.id);
-              return (
-                <button
-                  key={session.id}
-                  className={`min-w-0 rounded px-2 py-1 text-left text-xs font-semibold transition ${
-                    active
-                      ? "bg-cyan-300/15 text-cyan-100"
-                      : "bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-200"
-                  }`}
-                  onClick={() => toggleSession(session.id)}
-                  title={session.name}
-                  type="button"
-                >
-                  <span className="block max-w-40 truncate">{session.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      <div className="mt-3 grid gap-2 sm:grid-cols-4">
-        <CompactStat label="Trades" value={String(aggregate.totalTrades)} />
-        <CompactStat label="Win" value={formatPercent(aggregate.winRate)} />
-        <CompactStat label="PF" value={formatRatio(aggregate.profitFactor)} />
-        <CompactStat
-          label="Avg R"
-          tone={toneForNumber(aggregate.averageR)}
-          value={formatOptionalNumber(aggregate.averageR)}
-        />
-      </div>
-      <div className="mt-3">
-        <EquitySparkline compact trades={aggregate.closedTrades} />
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-        <span>{filteredSessions.length} sessions selected</span>
-        <span>Best {formatMoney(aggregate.bestTrade ?? 0)}</span>
-        <span>Worst {formatMoney(aggregate.largestLoss ?? 0)}</span>
-      </div>
-    </article>
-  );
-}
-
-function CompactStat({
-  label,
-  tone = "text-slate-100",
-  value,
-}: {
-  label: string;
-  tone?: string;
-  value: string;
-}) {
-  return (
-    <div className="min-w-0 rounded bg-[#080c11] px-2 py-2">
-      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
-        {label}
-      </div>
-      <div className={`mt-1 truncate text-sm font-semibold tabular-nums ${tone}`}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
 function SidePill({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
@@ -654,51 +491,6 @@ function EmptyResults({ message }: { message: string }) {
   );
 }
 
-function buildStrategyRows(
-  sessions: BacktestSession[],
-  trades: Trade[],
-  sessionById: Map<number, BacktestSession>,
-) {
-  const groups = new Map<string, { sessions: Map<number, BacktestSession>; trades: Trade[] }>();
-
-  for (const session of sessions) {
-    const key = sessionStrategyName(session);
-    if (!groups.has(key)) {
-      groups.set(key, { sessions: new Map(), trades: [] });
-    }
-    groups.get(key)?.sessions.set(session.id, session);
-  }
-
-  for (const trade of trades) {
-    const session = sessionById.get(trade.session_id);
-    const key = tradeStrategyName(trade, session);
-    if (!groups.has(key)) {
-      groups.set(key, { sessions: new Map(), trades: [] });
-    }
-    const group = groups.get(key);
-    if (session) {
-      group?.sessions.set(session.id, session);
-    }
-    group?.trades.push(trade);
-  }
-
-  return Array.from(groups.entries())
-    .map(([label, group]) => {
-      const groupSessions = Array.from(group.sessions.values());
-      const closedTrades = group.trades.filter((trade) => trade.status === "CLOSED");
-      return {
-        aggregate: aggregateTrades(closedTrades, group.trades),
-        id: label,
-        label,
-        sessions: groupSessions,
-        strategyName: label,
-        subtitle: `${groupSessions.length} sessions · ${closedTrades.length} closed trades`,
-        trades: group.trades,
-      };
-    })
-    .sort((a, b) => b.aggregate.netPnl - a.aggregate.netPnl);
-}
-
 function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
   const tradesBySession = new Map<number, Trade[]>();
   for (const trade of trades) {
@@ -709,52 +501,21 @@ function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
   }
 
   return sessions
-    .flatMap((session) => {
+    .map((session) => {
       const sessionTrades = tradesBySession.get(session.id) ?? [];
       const baseSubtitle = `${formatTradingViewSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`;
-      if (sessionTrades.length === 0) {
-        const strategyName = sessionStrategyName(session);
-        return [
-          {
-            aggregate: aggregateTrades([], []),
-            id: `${session.id}:${strategyName}`,
-            label: session.name,
-            sessions: [session],
-            strategyName,
-            subtitle: baseSubtitle,
-            trades: [],
-          },
-        ];
-      }
-
-      const tradesByStrategy = new Map<string, Trade[]>();
-      for (const trade of sessionTrades) {
-        const strategyName = tradeStrategyName(trade, session);
-        tradesByStrategy.set(strategyName, [
-          ...(tradesByStrategy.get(strategyName) ?? []),
-          trade,
-        ]);
-      }
-
-      return Array.from(tradesByStrategy.entries()).map(([strategyName, strategyTrades]) => {
-        const closedTrades = strategyTrades.filter((trade) => trade.status === "CLOSED");
-        return {
-          aggregate: aggregateTrades(closedTrades, strategyTrades),
-          id: `${session.id}:${strategyName}`,
-          label: session.name,
-          sessions: [session],
-          strategyName,
-          subtitle: baseSubtitle,
-          trades: strategyTrades,
-        };
-      });
+      const closedTrades = sessionTrades.filter((trade) => trade.status === "CLOSED");
+      return {
+        aggregate: aggregateTrades(closedTrades, sessionTrades),
+        id: String(session.id),
+        label: session.name,
+        sessions: [session],
+        subtitle: `${baseSubtitle} · ${sessionStrategyName(session)}`,
+        trades: sessionTrades,
+      };
     })
     .sort((a, b) => {
-      const sessionDelta = b.sessions[0].id - a.sessions[0].id;
-      if (sessionDelta !== 0) {
-        return sessionDelta;
-      }
-      return a.strategyName.localeCompare(b.strategyName);
+      return b.sessions[0].id - a.sessions[0].id;
     });
 }
 

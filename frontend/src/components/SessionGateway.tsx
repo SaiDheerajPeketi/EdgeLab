@@ -65,6 +65,7 @@ export function SessionGateway({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [selectedStrategyName, setSelectedStrategyName] = useState<string | null>(null);
 
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
@@ -83,6 +84,13 @@ export function SessionGateway({
   const strategyGroups = useMemo(
     () => buildStrategyGroups(sessions, trades),
     [sessions, trades],
+  );
+  const selectedStrategyGroup = useMemo(
+    () =>
+      strategyGroups.find((group) => group.name === selectedStrategyName) ??
+      strategyGroups[0] ??
+      null,
+    [selectedStrategyName, strategyGroups],
   );
 
   useEffect(() => {
@@ -113,6 +121,21 @@ export function SessionGateway({
       }
     }
   }, [playbookId, playbookMode, playbooks]);
+
+  useEffect(() => {
+    if (!strategyGroups[0]) {
+      if (selectedStrategyName) {
+        setSelectedStrategyName(null);
+      }
+      return;
+    }
+    if (
+      !selectedStrategyName ||
+      !strategyGroups.some((group) => group.name === selectedStrategyName)
+    ) {
+      setSelectedStrategyName(strategyGroups[0].name);
+    }
+  }, [selectedStrategyName, strategyGroups]);
 
   function selectInstrument(instrument: DatasetInstrument) {
     setInstrumentId(instrument.id);
@@ -226,15 +249,27 @@ export function SessionGateway({
         <div className="grid min-w-0 gap-3 xl:grid-cols-2">
           {strategyGroups.map((group) => (
             <article
-              className="min-w-0 rounded-md border border-white/10 bg-black/20 p-4"
+              className={`min-w-0 cursor-pointer rounded-md border p-4 transition ${
+                selectedStrategyGroup?.name === group.name
+                  ? "border-cyan-300/35 bg-cyan-300/10"
+                  : "border-white/10 bg-black/20 hover:border-cyan-300/25 hover:bg-cyan-300/5"
+              }`}
               key={group.name}
+              onClick={() => {
+                setSelectedStrategyName(group.name);
+                setStrategy(group.name);
+              }}
             >
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                   <button
                     className="block max-w-full truncate text-left text-base font-semibold text-white transition hover:text-cyan-100"
-                    onClick={() => setStrategy(group.name)}
-                    title="Use this strategy for the new session form"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedStrategyName(group.name);
+                      setStrategy(group.name);
+                    }}
+                    title="View strategy metrics and use this strategy for the new session form"
                     type="button"
                   >
                     {group.name}
@@ -263,7 +298,10 @@ export function SessionGateway({
                         : "border-white/10 bg-[#080c11] hover:border-cyan-300/25 hover:bg-cyan-300/5"
                     }`}
                     key={`${group.name}:${row.session.id}`}
-                    onClick={() => onResumeSession(row.session.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onResumeSession(row.session.id);
+                    }}
                     type="button"
                   >
                     <span className="min-w-0">
@@ -296,6 +334,14 @@ export function SessionGateway({
             </div>
           )}
         </div>
+
+        {selectedStrategyGroup && (
+          <StrategyDetails
+            activeSessionId={session?.id ?? null}
+            group={selectedStrategyGroup}
+            onResumeSession={onResumeSession}
+          />
+        )}
       </section>
 
       <form className="session-builder" onSubmit={(event) => void handleSubmit(event)}>
@@ -566,12 +612,14 @@ type GatewayAggregate = {
 type GatewaySessionResult = {
   aggregate: GatewayAggregate;
   session: BacktestSession;
+  trades: Trade[];
 };
 
 type GatewayStrategyGroup = {
   aggregate: GatewayAggregate;
   name: string;
   sessions: GatewaySessionResult[];
+  trades: Trade[];
 };
 
 function buildStrategyGroups(
@@ -613,6 +661,7 @@ function buildStrategyGroups(
       {
         aggregate: aggregateGatewayTrades(tradesBySessionStrategy.get(key) ?? []),
         session,
+        trades: tradesBySessionStrategy.get(key) ?? [],
       },
     ]);
   }
@@ -626,6 +675,7 @@ function buildStrategyGroups(
         aggregate: aggregateGatewayTrades(strategyTrades),
         name,
         sessions: strategySessions.sort((a, b) => b.session.id - a.session.id),
+        trades: strategyTrades,
       };
     })
     .sort((a, b) => {
@@ -672,6 +722,170 @@ function GatewayMetric({ label, value }: { label: string; value: string }) {
         {value}
       </div>
     </div>
+  );
+}
+
+function StrategyDetails({
+  activeSessionId,
+  group,
+  onResumeSession,
+}: {
+  activeSessionId: number | null;
+  group: GatewayStrategyGroup;
+  onResumeSession: (sessionId?: number) => Promise<void> | void;
+}) {
+  const [selectedSessionIds, setSelectedSessionIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    setSelectedSessionIds([]);
+  }, [group.name]);
+
+  const selectedSessionSet = useMemo(
+    () => new Set(selectedSessionIds),
+    [selectedSessionIds],
+  );
+  const filteredRows = useMemo(
+    () =>
+      selectedSessionIds.length === 0
+        ? group.sessions
+        : group.sessions.filter((row) => selectedSessionSet.has(row.session.id)),
+    [group.sessions, selectedSessionIds.length, selectedSessionSet],
+  );
+  const filteredAggregate = useMemo(
+    () => aggregateGatewayTrades(filteredRows.flatMap((row) => row.trades)),
+    [filteredRows],
+  );
+  const allSessionsSelected = selectedSessionIds.length === 0;
+
+  function toggleSession(sessionId: number) {
+    setSelectedSessionIds((current) =>
+      current.includes(sessionId)
+        ? current.filter((id) => id !== sessionId)
+        : [...current, sessionId],
+    );
+  }
+
+  return (
+    <section className="mt-4 rounded-md border border-cyan-300/20 bg-[#071018] p-4">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">
+            Strategy Metrics
+          </div>
+          <h3 className="mt-2 truncate text-xl font-semibold text-white">
+            {group.name}
+          </h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Aggregated across {group.sessions.length} sessions on the main page.
+          </p>
+        </div>
+        <div className={`text-xl font-semibold ${toneForNumber(filteredAggregate.netPnl)}`}>
+          {formatMoney(filteredAggregate.netPnl)}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <GatewayMetric label="Sessions" value={`${filteredRows.length}/${group.sessions.length}`} />
+        <GatewayMetric label="Closed" value={String(filteredAggregate.closedTrades)} />
+        <GatewayMetric label="Win" value={formatPercent(filteredAggregate.winRate)} />
+        <GatewayMetric label="PF" value={formatRatio(filteredAggregate.profitFactor)} />
+        <GatewayMetric label="Avg R" value={formatOptionalNumber(filteredAggregate.averageR)} />
+      </div>
+
+      {group.sessions.length > 1 && (
+        <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-2">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Filter Sessions
+            </div>
+            <button
+              className={`h-7 rounded px-2 text-xs font-semibold transition ${
+                allSessionsSelected
+                  ? "bg-white text-ink-950"
+                  : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+              }`}
+              onClick={() => setSelectedSessionIds([])}
+              type="button"
+            >
+              All
+            </button>
+          </div>
+          <div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">
+            {group.sessions.map((row) => {
+              const active =
+                allSessionsSelected || selectedSessionSet.has(row.session.id);
+              return (
+                <button
+                  className={`min-w-0 rounded px-2 py-1 text-left text-xs font-semibold transition ${
+                    active
+                      ? "bg-cyan-300/15 text-cyan-100"
+                      : "bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-200"
+                  }`}
+                  key={row.session.id}
+                  onClick={() => toggleSession(row.session.id)}
+                  title={row.session.name}
+                  type="button"
+                >
+                  <span className="block max-w-44 truncate">{row.session.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 overflow-auto rounded-md border border-white/10">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="bg-black/25 text-xs uppercase tracking-[0.16em] text-slate-500">
+            <tr>
+              <th className="px-3 py-2 font-medium">Session</th>
+              <th className="px-3 py-2 font-medium">Market</th>
+              <th className="px-3 py-2 font-medium">Closed</th>
+              <th className="px-3 py-2 font-medium">Net PnL</th>
+              <th className="px-3 py-2 font-medium">Win</th>
+              <th className="px-3 py-2 font-medium" />
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((row) => (
+              <tr
+                className={`border-t border-white/10 ${
+                  row.session.id === activeSessionId ? "bg-cyan-300/10" : ""
+                }`}
+                key={row.session.id}
+              >
+                <td className="px-3 py-3">
+                  <div className="font-semibold text-slate-100">{row.session.name}</div>
+                  <div className="mt-1 text-xs text-slate-500">{row.session.status}</div>
+                </td>
+                <td className="px-3 py-3 text-slate-300">
+                  {formatTradingViewSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"}
+                </td>
+                <td className="px-3 py-3 tabular-nums text-slate-300">
+                  {row.aggregate.closedTrades}
+                </td>
+                <td className={`px-3 py-3 font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
+                  {formatMoney(row.aggregate.netPnl)}
+                </td>
+                <td className="px-3 py-3 tabular-nums text-slate-300">
+                  {formatPercent(row.aggregate.winRate)}
+                </td>
+                <td className="px-3 py-3 text-right">
+                  <button
+                    className="control-button h-9"
+                    onClick={() => onResumeSession(row.session.id)}
+                    type="button"
+                  >
+                    Open
+                    <ArrowRight size={14} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
