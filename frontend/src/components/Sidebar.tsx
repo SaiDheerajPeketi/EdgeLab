@@ -1,7 +1,6 @@
 import {
   BarChart3,
   BookOpen,
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Network,
@@ -44,6 +43,7 @@ const sections: Array<{
         children: [
           { id: "dashboard", label: "Overview" },
           { id: "reports", label: "Metrics" },
+          { id: "dayView", label: "Day View" },
           { id: "tradeView", label: "Trades" },
           { id: "notebook", label: "Notes" },
         ],
@@ -51,7 +51,6 @@ const sections: Array<{
         label: "Results",
         primaryId: "dashboard",
       },
-      { id: "dayView", label: "Backtest Day View", icon: CalendarDays },
       { id: "strategies", label: "Strategies", icon: Target },
       { id: "playbooks", label: "Playbooks", icon: BookOpen },
       { id: "accounts", label: "Backtest Accounts", icon: WalletCards },
@@ -67,6 +66,7 @@ const sections: Array<{
         children: [
           { id: "journalDashboard", label: "Overview" },
           { id: "journalReports", label: "Metrics" },
+          { id: "journalDayView", label: "Day View" },
           { id: "journalTrades", label: "Trades" },
           { id: "journalNotes", label: "Notes" },
         ],
@@ -74,7 +74,6 @@ const sections: Array<{
         label: "Journal Results",
         primaryId: "journalDashboard",
       },
-      { id: "journalDayView", label: "Journal Day View", icon: CalendarDays },
       { id: "journalStrategies", label: "Journal Strategies", icon: Target },
       { id: "journalPlaybooks", label: "Journal Playbooks", icon: BookOpen },
       { id: "journalAccounts", label: "Journal Accounts", icon: WalletCards },
