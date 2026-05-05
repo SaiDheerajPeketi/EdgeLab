@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
-import { ChartTopBar } from "./components/ChartTopBar";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { FilteredTradeReview } from "./components/FilteredTradeReview";
 import { JournalEntryModal } from "./components/JournalEntryModal";
@@ -102,7 +101,6 @@ export default function App() {
     loadInitial,
     newSession,
     jumpToOffset,
-    jumpToTimestamp,
     setPlaying,
     stepForward,
   } = useBacktestStore();
@@ -411,15 +409,6 @@ export default function App() {
     setLeftPaneOpen((value) => !value);
   }
 
-  function openOrderTicket(side: "BUY" | "SELL") {
-    setOrderTicketSide(side);
-    if (isChartFullscreen) {
-      setFullscreenOrderPanelOpen(true);
-      return;
-    }
-    setLeftPaneOpen(true);
-  }
-
   function saveChartLayout() {
     const payload = buildChartLayoutPayload(drawings);
     const name = normalizeLayoutName(layoutName);
@@ -724,33 +713,6 @@ export default function App() {
                 }
                 ref={chartShellRef}
               >
-                <ChartTopBar
-                  activeIndicators={activeIndicators}
-                  chartStyle={chartStyle}
-                  currentTimestamp={current?.timestamp ?? state?.session.start_at ?? null}
-                  indicatorSettings={indicatorSettings}
-                  isFullscreen={isChartFullscreen}
-                  layoutName={layoutName}
-                  onBackToSessions={() => {
-                    setPlaying(false);
-                    setActiveWorkspace("sessions");
-                    setSessionGateOpen(true);
-                  }}
-                  onChartStyleChange={setChartStyle}
-                  onJumpToTimestamp={(timestamp) => void jumpToTimestamp(timestamp)}
-                  onOpenTicket={openOrderTicket}
-                  onOpenTools={() => setChartToolsOpen((value) => !value)}
-                  onSaveLayout={saveChartLayout}
-                  onTimeframeChange={changeTimeframe}
-                  onToggleFullscreen={toggleChartFullscreen}
-                  onToggleIndicator={toggleIndicator}
-                  onUpdateIndicatorSettings={updateIndicatorSettings}
-                  savedLabel={savedLayoutLabel}
-                  sessionLabel={state?.session.name ?? "No active session"}
-                  sourceTimeframe={sourceTimeframe}
-                  symbol={state?.session.symbol ?? "EURUSD"}
-                  timeframe={effectiveTimeframe}
-                />
                 <ReplayController
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
