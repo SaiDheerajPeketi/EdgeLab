@@ -40,7 +40,7 @@ import type {
   IndicatorSettings,
   IndicatorSettingsMap,
 } from "./lib/charting";
-import { mergeIndicatorSettings } from "./lib/charting";
+import { getTimeframeSeconds, mergeIndicatorSettings } from "./lib/charting";
 import { formatTradingViewSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import { useBacktestStore } from "./store/backtestStore";
@@ -134,17 +134,24 @@ export default function App() {
     const saved = loadChartLayout();
     return saved?.smoothCandles ?? false;
   });
+  const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
+  const effectiveTimeframe = coerceTimeframeToSource(timeframe, sourceTimeframe);
 
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
 
   useEffect(() => {
-    const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
     if (sourceTimeframe) {
       setTimeframe(sourceTimeframe);
     }
-  }, [state?.session.id, state?.session.timeframe]);
+  }, [state?.session.id, sourceTimeframe]);
+
+  useEffect(() => {
+    if (timeframe !== effectiveTimeframe) {
+      setTimeframe(effectiveTimeframe);
+    }
+  }, [effectiveTimeframe, timeframe]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -277,6 +284,10 @@ export default function App() {
     );
   }
 
+  function changeTimeframe(nextTimeframe: ChartTimeframe) {
+    setTimeframe(coerceTimeframeToSource(nextTimeframe, sourceTimeframe));
+  }
+
   function updateIndicatorSettings(
     indicator: ChartIndicatorId,
     settings: Partial<IndicatorSettings>,
@@ -356,7 +367,7 @@ export default function App() {
       indicatorSettings,
       showOrderOverlays,
       smoothCandles,
-      timeframe,
+      timeframe: effectiveTimeframe,
     };
   }
 
@@ -387,7 +398,7 @@ export default function App() {
     setIndicatorSettings(mergeIndicatorSettings(layout.indicatorSettings));
     setShowOrderOverlays(layout.showOrderOverlays ?? true);
     setSmoothCandles(layout.smoothCandles ?? false);
-    setTimeframe(sanitizeTimeframe(layout.timeframe));
+    setTimeframe(coerceTimeframeToSource(sanitizeTimeframe(layout.timeframe), sourceTimeframe));
   }
 
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
@@ -613,7 +624,7 @@ export default function App() {
                     onLoadLayout={loadNamedChartLayout}
                     onSaveLayout={saveChartLayout}
                     onToggleFullscreen={toggleChartFullscreen}
-                    onTimeframeChange={setTimeframe}
+                    onTimeframeChange={changeTimeframe}
                     onToggleIndicator={toggleIndicator}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                     onUpdateIndicatorSettings={updateIndicatorSettings}
@@ -621,7 +632,8 @@ export default function App() {
                     orderOverlaysVisible={showOrderOverlays}
                     savedLabel={savedLayoutLabel}
                     smoothCandles={smoothCandles}
-                    timeframe={timeframe}
+                    sourceTimeframe={sourceTimeframe}
+                    timeframe={effectiveTimeframe}
                   />
                 )}
                 <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
@@ -655,7 +667,7 @@ export default function App() {
                       showOrderOverlays={showOrderOverlays}
                       symbol={state?.session.symbol}
                       datasetTimeframe={state?.session.timeframe}
-                      timeframe={timeframe}
+                      timeframe={effectiveTimeframe}
                     />
                   </div>
                   {layersPanelOpen ? (
@@ -979,6 +991,18 @@ function sanitizeTimeframe(value: unknown): ChartTimeframe {
   return VALID_TIMEFRAMES.includes(value as ChartTimeframe)
     ? (value as ChartTimeframe)
     : "1m";
+}
+
+function coerceTimeframeToSource(
+  requested: ChartTimeframe,
+  source: ChartTimeframe | null,
+): ChartTimeframe {
+  if (!source) {
+    return requested;
+  }
+  return getTimeframeSeconds(requested) < getTimeframeSeconds(source)
+    ? source
+    : requested;
 }
 
 function sanitizeChartStyle(value: unknown): ChartStyle {

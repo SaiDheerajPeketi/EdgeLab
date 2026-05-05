@@ -35,6 +35,7 @@ import {
 import {
   INDICATORS,
   TIMEFRAMES,
+  getTimeframeSeconds,
   type ChartIndicatorId,
   type ChartStyle,
   type ChartTimeframe,
@@ -71,6 +72,7 @@ type Props = {
   orderOverlaysVisible: boolean;
   savedLabel: string | null;
   smoothCandles: boolean;
+  sourceTimeframe: ChartTimeframe | null;
   timeframe: ChartTimeframe;
 };
 
@@ -132,6 +134,7 @@ export function ChartToolbar({
   onUpdateIndicatorSettings,
   orderOverlaysVisible,
   savedLabel,
+  sourceTimeframe,
   timeframe,
 }: Props) {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
@@ -206,21 +209,30 @@ export function ChartToolbar({
               onTimeframeChange={onTimeframeChange}
               onToggleIndicator={onToggleIndicator}
               query={commandQuery}
+              sourceTimeframe={sourceTimeframe}
             />
           )}
         </div>
 
         <div className="timeframe-strip">
-          {TIMEFRAMES.map((interval) => (
-            <button
-              className={`timeframe-button ${interval.id === timeframe ? "timeframe-button-active" : ""}`}
-              key={interval.id}
-              onClick={() => onTimeframeChange(interval.id)}
-              type="button"
-            >
-              {interval.label}
-            </button>
-          ))}
+          {TIMEFRAMES.map((interval) => {
+            const unavailable = !isTimeframeAvailable(interval.id, sourceTimeframe);
+            const unavailableLabel = `${interval.label} data not available from ${sourceTimeframe} source`;
+            return (
+              <button
+                aria-label={unavailable ? unavailableLabel : interval.label}
+                className={`timeframe-button ${interval.id === timeframe ? "timeframe-button-active" : ""} ${unavailable ? "timeframe-button-unavailable" : ""}`}
+                disabled={unavailable}
+                key={interval.id}
+                onClick={() => onTimeframeChange(interval.id)}
+                title={unavailable ? unavailableLabel : interval.label}
+                type="button"
+              >
+                <span>{interval.label}</span>
+                {unavailable && <span className="timeframe-unavailable-label">N/A</span>}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -561,6 +573,7 @@ function CommandMenu({
   onTimeframeChange,
   onToggleIndicator,
   query,
+  sourceTimeframe,
 }: {
   activeIndicators: ChartIndicatorId[];
   onChartStyleChange: (style: ChartStyle) => void;
@@ -569,10 +582,12 @@ function CommandMenu({
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
   query: string;
+  sourceTimeframe: ChartTimeframe | null;
 }) {
   const normalized = query.trim().toLowerCase();
   const commands: Array<{
     description: string;
+    disabled?: boolean;
     icon: ChartToolIcon | LucideIcon;
     id: string;
     label: string;
@@ -595,14 +610,20 @@ function CommandMenu({
       run: () => onDrawingToolChange(tool.tool),
       type: "Drawing",
     })),
-    ...TIMEFRAMES.map((interval) => ({
-      description: `${interval.seconds}s interval`,
-      icon: Command,
-      id: `timeframe-${interval.id}`,
-      label: interval.label,
-      run: () => onTimeframeChange(interval.id),
-      type: "Interval",
-    })),
+    ...TIMEFRAMES.map((interval) => {
+      const unavailable = !isTimeframeAvailable(interval.id, sourceTimeframe);
+      return {
+        description: unavailable
+          ? `Data not available from ${sourceTimeframe} source`
+          : `${interval.seconds}s interval`,
+        disabled: unavailable,
+        icon: Command,
+        id: `timeframe-${interval.id}`,
+        label: interval.label,
+        run: () => onTimeframeChange(interval.id),
+        type: "Interval",
+      };
+    }),
     ...CHART_STYLES.map((style) => ({
       description: "Chart style",
       icon: style.icon,
@@ -631,10 +652,14 @@ function CommandMenu({
         const Icon = command.icon;
         return (
           <button
-            className="chart-command-row"
+            className={`chart-command-row ${command.disabled ? "chart-command-row-disabled" : ""}`}
+            disabled={command.disabled}
             key={command.id}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
+              if (command.disabled) {
+                return;
+              }
               command.run();
               onClose();
             }}
@@ -660,6 +685,16 @@ function CommandMenu({
         </div>
       )}
     </div>
+  );
+}
+
+function isTimeframeAvailable(
+  timeframe: ChartTimeframe,
+  sourceTimeframe: ChartTimeframe | null,
+) {
+  return (
+    sourceTimeframe == null ||
+    getTimeframeSeconds(timeframe) >= getTimeframeSeconds(sourceTimeframe)
   );
 }
 
