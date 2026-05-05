@@ -3,8 +3,6 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
-  Maximize2,
-  Minimize2,
   Trash2,
   UnlockKeyhole,
   X,
@@ -72,13 +70,11 @@ type Props = {
   drawings: ChartDrawing[];
   executions: Execution[];
   indicatorSettings: IndicatorSettingsMap;
-  isFullscreen: boolean;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onSelectDrawing: (drawingId: string | null) => void;
-  onToggleFullscreen: () => void;
   onUpdateDrawing: (drawing: ChartDrawing) => void;
   orders: Order[];
   position: Position | null;
@@ -127,13 +123,11 @@ export function TradingChart({
   drawings,
   executions,
   indicatorSettings,
-  isFullscreen,
   onAddDrawing,
   onClearDrawings,
   onDeleteDrawing,
   onDrawingToolChange,
   onSelectDrawing,
-  onToggleFullscreen,
   onUpdateDrawing,
   orders,
   position,
@@ -671,7 +665,7 @@ export function TradingChart({
   return (
     <section className="chart-stage">
       <div className="chart-stage-header">
-        <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
@@ -714,15 +708,6 @@ export function TradingChart({
               )}
             </div>
           </div>
-          <button
-            className="chart-header-fullscreen-button"
-            onClick={onToggleFullscreen}
-            title={isFullscreen ? "Exit full screen" : "Enter full screen"}
-            type="button"
-          >
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            <span>{isFullscreen ? "Exit fullscreen" : "Full screen"}</span>
-          </button>
         </div>
       </div>
 

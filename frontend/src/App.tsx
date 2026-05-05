@@ -631,7 +631,6 @@ export default function App() {
                       drawings={drawings}
                       executions={executions}
                       indicatorSettings={indicatorSettings}
-                      isFullscreen={isChartFullscreen}
                       onAddDrawing={(drawing) => {
                         setDrawings((currentDrawings) => [...currentDrawings, drawing]);
                         setSelectedDrawingId(drawing.id);
@@ -640,7 +639,6 @@ export default function App() {
                       onDeleteDrawing={deleteDrawing}
                       onDrawingToolChange={setDrawingTool}
                       onSelectDrawing={setSelectedDrawingId}
-                      onToggleFullscreen={toggleChartFullscreen}
                       onUpdateDrawing={(updatedDrawing) =>
                         setDrawings((currentDrawings) =>
                           currentDrawings.map((drawing) =>
