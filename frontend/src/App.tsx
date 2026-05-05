@@ -19,7 +19,6 @@ import { ChartToolbar } from "./components/ChartToolbar";
 import { DatasetSessionPanel } from "./components/DatasetSessionPanel";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { JournalEntryModal } from "./components/JournalEntryModal";
-import { MarketStrip } from "./components/MarketStrip";
 import { MetricsBar } from "./components/MetricsBar";
 import { OrderTicket } from "./components/OrderTicket";
 import { PendingOrders } from "./components/PendingOrders";
@@ -377,8 +376,6 @@ export default function App() {
               Loading workspace
             </div>
           )}
-
-          <MarketStrip current={current} position={position} />
 
           <div className="space-y-4">
             <MetricsBar metrics={metrics} />

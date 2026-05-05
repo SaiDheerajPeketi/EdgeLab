@@ -264,7 +264,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 }));
 
 async function loadWindow(currentOffset: number, sessionId?: number, startOffset = 0) {
-  const barOffset = Math.max(startOffset, currentOffset - WINDOW_SIZE + 1);
+  const barOffset = Math.max(0, currentOffset - WINDOW_SIZE + 1);
   const limit = currentOffset - barOffset + 1;
   const response = await getBars(barOffset, limit, sessionId);
   return { bars: response.bars, barOffset };
