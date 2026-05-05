@@ -206,6 +206,9 @@ export function TradingChart({
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
   );
+  const isDrawingPlacementMode = drawingTool !== "cursor" && drawingTool !== "crosshair";
+  const drawingLayerCapturesPointer =
+    dragState != null || isDrawingPlacementMode || selectedDrawingId != null;
   const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
   const headerPriceTone =
     activeHeaderCandle == null
@@ -222,6 +225,7 @@ export function TradingChart({
     onDeleteDrawing,
     onDragStart: startDrawingDrag,
     onSelectDrawing,
+    interactive: !isDrawingPlacementMode,
     selectedDrawingId,
     series: candlesRef.current,
     version: plotVersion,
@@ -670,7 +674,7 @@ export function TradingChart({
           <div ref={chartFrameRef} className="chart-frame">
             <div ref={chartContainerRef} className="chart-container-surface" />
             <div
-              className={`absolute inset-0 z-10 ${dragState || (drawingTool !== "cursor" && drawingTool !== "crosshair") ? "pointer-events-auto" : "pointer-events-none"} ${drawingTool === "cursor" || drawingTool === "crosshair" ? "cursor-default" : "cursor-crosshair"}`}
+              className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode ? "cursor-crosshair" : "cursor-default"}`}
               onMouseDown={handleDrawingClick}
               onMouseLeave={stopDrawingDrag}
               onMouseMove={handleDrawingMove}
@@ -940,6 +944,7 @@ function buildDrawingElements({
   draftDrawing,
   frame,
   hoverPoint,
+  interactive,
   onDeleteDrawing,
   onDragStart,
   onSelectDrawing,
@@ -959,6 +964,7 @@ function buildDrawingElements({
     event: MouseEvent<SVGElement>,
   ) => void;
   onSelectDrawing: (drawingId: string | null) => void;
+  interactive: boolean;
   selectedDrawingId: string | null;
   series: ISeriesApi<"Candlestick"> | null;
   version: number;
@@ -979,6 +985,7 @@ function buildDrawingElements({
           onDeleteDrawing,
           onDragStart,
           onSelectDrawing,
+          interactive,
           selected: selectedDrawingId === drawing.id,
         }),
       )}
@@ -999,6 +1006,7 @@ function buildDrawingElements({
                 onDeleteDrawing,
                 onDragStart,
                 onSelectDrawing,
+                interactive: false,
                 selected: false,
               },
             )}
@@ -1028,14 +1036,20 @@ function renderDrawing(
       event: MouseEvent<SVGElement>,
     ) => void;
     onSelectDrawing: (drawingId: string | null) => void;
+    interactive: boolean;
     selected: boolean;
   },
 ) {
   const color = drawing.color;
   const isLocked = drawing.locked === true;
+  const isSelected = options.interactive && options.selected;
   const strokeDasharray = drawingStrokeDasharray(drawing);
-  const selectedStrokeWidth = drawingStrokeWidth(drawing, options.selected);
+  const selectedStrokeWidth = drawingStrokeWidth(drawing, isSelected);
+  const hitTargetPointerEvents = options.interactive ? "all" : "none";
   const handleBodyDown = (event: MouseEvent<SVGElement>) => {
+    if (!options.interactive) {
+      return;
+    }
     if (isLocked) {
       handleSelect(event);
       return;
@@ -1043,6 +1057,9 @@ function renderDrawing(
     options.onDragStart(drawing, "body", null, event);
   };
   const handleSelect = (event: MouseEvent<SVGElement>) => {
+    if (!options.interactive) {
+      return;
+    }
     event.stopPropagation();
     options.onSelectDrawing(drawing.id);
   };
@@ -1058,7 +1075,7 @@ function renderDrawing(
           cursor={isLocked ? "default" : "ns-resize"}
           onMouseDown={handleBodyDown}
           onClick={handleSelect}
-          pointerEvents="all"
+          pointerEvents={hitTargetPointerEvents}
           stroke="transparent"
           strokeWidth="14"
           x1={0}
@@ -1069,7 +1086,7 @@ function renderDrawing(
         <line
           stroke={color}
           strokeDasharray={strokeDasharray ?? "5 5"}
-          strokeOpacity={options.selected ? 1 : 0.82}
+          strokeOpacity={isSelected ? 1 : 0.82}
           strokeWidth={selectedStrokeWidth}
           x1={0}
           x2={width}
@@ -1089,7 +1106,7 @@ function renderDrawing(
         <text fill={color} fontSize="11" fontWeight="700" x={Math.max(16, width - 96)} y={point.y - 10}>
           {formatPrice(drawing.points[0].price)}
         </text>
-        {options.selected && !isLocked && renderAnchors(drawing, [point], options)}
+        {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
     );
   }
@@ -1107,15 +1124,15 @@ function renderDrawing(
         key={drawing.id}
         onClick={handleSelect}
         onMouseDown={handleBodyDown}
-        pointerEvents="all"
+        pointerEvents={hitTargetPointerEvents}
       >
         <rect
           fill="rgba(8, 12, 17, 0.92)"
           height={24}
           rx={4}
           stroke={color}
-          strokeOpacity={options.selected ? 1 : 0.8}
-          strokeWidth={options.selected ? 2 : 1}
+          strokeOpacity={isSelected ? 1 : 0.8}
+          strokeWidth={isSelected ? 2 : 1}
           width={widthEstimate}
           x={point.x + 8}
           y={point.y - 28}
@@ -1130,7 +1147,7 @@ function renderDrawing(
           {label}
         </text>
         <circle cx={point.x} cy={point.y} fill={color} r={3} />
-        {options.selected && !isLocked && renderAnchors(drawing, [point], options)}
+        {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
     );
   }
@@ -1155,7 +1172,7 @@ function renderDrawing(
           cursor="move"
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
-          pointerEvents="all"
+          pointerEvents={hitTargetPointerEvents}
           stroke="transparent"
           strokeWidth="14"
           x1={first.x}
@@ -1204,7 +1221,7 @@ function renderDrawing(
         <text fill={color} fontSize="11" fontWeight="800" x={midX + 18} y={midY - 16}>
           {label}
         </text>
-        {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
       </g>
     );
   }
@@ -1226,16 +1243,16 @@ function renderDrawing(
           height={rectHeight}
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
-          pointerEvents="all"
+          pointerEvents={hitTargetPointerEvents}
           stroke={color}
-          strokeOpacity={options.selected ? 1 : 0.82}
+          strokeOpacity={isSelected ? 1 : 0.82}
           strokeDasharray={strokeDasharray}
           strokeWidth={selectedStrokeWidth}
           width={rectWidth}
           x={x}
           y={y}
         />
-        {options.selected && (
+        {isSelected && (
           <>
             <rect
               fill="none"
@@ -1269,7 +1286,7 @@ function renderDrawing(
           height={Math.abs(second.y - first.y) + 20}
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
-          pointerEvents="all"
+          pointerEvents={hitTargetPointerEvents}
           width={Math.abs(second.x - first.x) + 20}
           x={left - 10}
           y={Math.min(first.y, second.y) - 10}
@@ -1281,7 +1298,7 @@ function renderDrawing(
               <line
                 stroke={color}
                 strokeDasharray={strokeDasharray}
-                strokeOpacity={options.selected || level === 0 || level === 1 ? 0.9 : 0.55}
+                strokeOpacity={isSelected || level === 0 || level === 1 ? 0.9 : 0.55}
                 strokeWidth={level === 0 || level === 1 ? selectedStrokeWidth : Math.max(1, selectedStrokeWidth - 0.75)}
                 x1={left}
                 x2={right}
@@ -1294,7 +1311,7 @@ function renderDrawing(
             </g>
           );
         })}
-        {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
       </g>
     );
   }
@@ -1305,7 +1322,7 @@ function renderDrawing(
         cursor={isLocked ? "default" : "move"}
         onClick={handleSelect}
         onMouseDown={handleBodyDown}
-        pointerEvents="all"
+        pointerEvents={hitTargetPointerEvents}
         stroke="transparent"
         strokeWidth="14"
         x1={first.x}
@@ -1317,14 +1334,14 @@ function renderDrawing(
         stroke={color}
         strokeDasharray={strokeDasharray}
         strokeLinecap="round"
-        strokeOpacity={options.selected ? 1 : 0.9}
+        strokeOpacity={isSelected ? 1 : 0.9}
         strokeWidth={selectedStrokeWidth}
         x1={first.x}
         x2={second.x}
         y1={first.y}
         y2={second.y}
       />
-      {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
+      {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
     </g>
   );
 }
@@ -1344,62 +1361,44 @@ function renderAnchors(
     selected: boolean;
   },
 ) {
-  const toolbarPoint = points[0];
   return (
     <g>
       {points.map((point, index) => (
-        <circle
-          className="drawing-anchor"
-          cx={point.x}
-          cy={point.y}
-          fill="#05070a"
+        <g
+          className="drawing-anchor-group"
+          cursor="grab"
           key={`${drawing.id}-${index}`}
           onMouseDown={(event) => options.onDragStart(drawing, "anchor", index, event)}
           pointerEvents="all"
-          r={5}
-          stroke={drawing.color}
-          strokeWidth={2}
-        />
-      ))}
-      {toolbarPoint && (
-        <g transform={`translate(${toolbarPoint.x + 12} ${toolbarPoint.y + 12})`}>
-          <rect
-            fill="rgba(8, 12, 17, 0.96)"
-            height={30}
-            rx={7}
-            stroke="rgba(255,255,255,0.14)"
-            width={66}
+        >
+          <circle
+            cx={point.x}
+            cy={point.y}
+            fill="transparent"
+            r={13}
           />
-          <g fill="#94a3b8" opacity="0.78">
-            <circle cx={12} cy={11} r={1.5} />
-            <circle cx={18} cy={11} r={1.5} />
-            <circle cx={12} cy={19} r={1.5} />
-            <circle cx={18} cy={19} r={1.5} />
-          </g>
-          <g
-            cursor="pointer"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              options.onDeleteDrawing(drawing.id);
-              options.onSelectDrawing(null);
-            }}
-            pointerEvents="all"
-            transform="translate(39 6)"
-          >
-            <title>Delete drawing</title>
-            <rect
-              fill="rgba(251, 113, 133, 0.16)"
-              height={18}
-              rx={5}
-              stroke="rgba(251, 113, 133, 0.45)"
-              width={18}
-            />
-            <line stroke="#fecdd3" strokeLinecap="round" strokeWidth={1.8} x1={6} x2={12} y1={6} y2={12} />
-            <line stroke="#fecdd3" strokeLinecap="round" strokeWidth={1.8} x1={12} x2={6} y1={6} y2={12} />
-          </g>
+          <circle
+            className="drawing-anchor"
+            cx={point.x}
+            cy={point.y}
+            fill="#05070a"
+            pointerEvents="none"
+            r={5}
+            stroke={drawing.color}
+            strokeWidth={2}
+          />
+          <circle
+            cx={point.x}
+            cy={point.y}
+            fill="none"
+            pointerEvents="none"
+            r={9}
+            stroke={drawing.color}
+            strokeOpacity="0.22"
+            strokeWidth={1}
+          />
         </g>
-      )}
+      ))}
     </g>
   );
 }
@@ -1418,12 +1417,15 @@ function renderPositionDrawing(
       event: MouseEvent<SVGElement>,
     ) => void;
     onSelectDrawing: (drawingId: string | null) => void;
+    interactive: boolean;
     selected: boolean;
   },
 ) {
   const isLong = drawing.tool === "longPosition";
   const isLocked = drawing.locked === true;
-  const strokeWidth = drawingStrokeWidth(drawing, options.selected);
+  const isSelected = options.interactive && options.selected;
+  const strokeWidth = drawingStrokeWidth(drawing, isSelected);
+  const hitTargetPointerEvents = options.interactive ? "all" : "none";
   const dash = drawingStrokeDasharray(drawing);
   const fillOpacity = drawing.fillOpacity ?? 0.16;
   const entryPrice = drawing.points[0].price;
@@ -1442,6 +1444,9 @@ function renderPositionDrawing(
   const ratio = risk === 0 ? 0 : reward / risk;
 
   const handleBodyDown = (event: MouseEvent<SVGElement>) => {
+    if (!options.interactive) {
+      return;
+    }
     if (isLocked) {
       handleSelect(event);
       return;
@@ -1449,6 +1454,9 @@ function renderPositionDrawing(
     options.onDragStart(drawing, "body", null, event);
   };
   const handleSelect = (event: MouseEvent<SVGElement>) => {
+    if (!options.interactive) {
+      return;
+    }
     event.stopPropagation();
     options.onSelectDrawing(drawing.id);
   };
@@ -1461,7 +1469,7 @@ function renderPositionDrawing(
         height={targetHeight + stopHeight + 24}
         onClick={handleSelect}
         onMouseDown={handleBodyDown}
-        pointerEvents="all"
+        pointerEvents={hitTargetPointerEvents}
         width={boxWidth + 32}
         x={left - 16}
         y={Math.min(targetTop, stopTop) - 12}
@@ -1471,7 +1479,7 @@ function renderPositionDrawing(
         height={targetHeight}
         stroke="#22c55e"
         strokeDasharray={dash}
-        strokeOpacity={options.selected ? 0.95 : 0.65}
+        strokeOpacity={isSelected ? 0.95 : 0.65}
         strokeWidth={strokeWidth}
         width={boxWidth}
         x={left}
@@ -1482,7 +1490,7 @@ function renderPositionDrawing(
         height={stopHeight}
         stroke="#fb7185"
         strokeDasharray={dash}
-        strokeOpacity={options.selected ? 0.95 : 0.65}
+        strokeOpacity={isSelected ? 0.95 : 0.65}
         strokeWidth={strokeWidth}
         width={boxWidth}
         x={left}
@@ -1507,7 +1515,7 @@ function renderPositionDrawing(
       <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={Math.min(width - 176, right + 20)} y={Math.min(targetTop, stopTop) + 33}>
         RR {ratio.toFixed(2)} · Entry {formatPrice(entryPrice)}
       </text>
-      {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
+      {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
     </g>
   );
 }

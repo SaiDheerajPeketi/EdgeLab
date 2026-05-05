@@ -360,6 +360,11 @@ button:disabled {
     filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.14));
   }
 
+  .drawing-anchor-group:hover .drawing-anchor {
+    filter: drop-shadow(0 0 10px rgba(103, 232, 249, 0.32));
+    stroke-width: 2.6;
+  }
+
   .chart-frame {
     @apply relative min-h-[568px] overflow-hidden bg-[#0b1017];
   }
