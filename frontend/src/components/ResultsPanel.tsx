@@ -55,6 +55,7 @@ type GroupRow = {
   id: string;
   label: string;
   sessions: BacktestSession[];
+  strategyName: string;
   subtitle: string;
   trades: Trade[];
 };
@@ -293,11 +294,15 @@ function SessionResults({
   activeSessionId: number | null;
   rows: GroupRow[];
 }) {
+  const sessionCount = new Set(rows.map((row) => row.sessions[0]?.id).filter(Boolean)).size;
+
   return (
     <section className="terminal-panel min-w-0 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-white">Session Results</h3>
-        <span className="text-xs text-slate-500">{rows.length} saved sessions</span>
+        <span className="text-xs text-slate-500">
+          {sessionCount} sessions · {rows.length} strategy rows
+        </span>
       </div>
       <div className="overflow-auto">
         <table className="w-full min-w-[920px] text-left text-sm">
@@ -333,7 +338,7 @@ function SessionResults({
                     </div>
                   </td>
                   <td className="px-3 py-3 text-slate-300">
-                    {session?.strategy_name || "Unassigned"}
+                    {row.strategyName}
                   </td>
                   <td className="px-3 py-3 tabular-nums">
                     {row.aggregate.totalTrades}
@@ -682,6 +687,7 @@ function buildStrategyRows(
         id: label,
         label,
         sessions: groupSessions,
+        strategyName: label,
         subtitle: `${groupSessions.length} sessions · ${closedTrades.length} closed trades`,
         trades: group.trades,
       };
@@ -699,23 +705,54 @@ function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
   }
 
   return sessions
-    .map((session) => {
+    .flatMap((session) => {
       const sessionTrades = tradesBySession.get(session.id) ?? [];
-      const closedTrades = sessionTrades.filter((trade) => trade.status === "CLOSED");
-      return {
-        aggregate: aggregateTrades(closedTrades, sessionTrades),
-        id: String(session.id),
-        label: session.name,
-        sessions: [session],
-        subtitle: `${formatTradingViewSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`,
-        trades: sessionTrades,
-      };
+      const baseSubtitle = `${formatTradingViewSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`;
+      if (sessionTrades.length === 0) {
+        const strategyName = normalizeStrategyName(session.strategy_name);
+        return [
+          {
+            aggregate: aggregateTrades([], []),
+            id: `${session.id}:${strategyName}`,
+            label: session.name,
+            sessions: [session],
+            strategyName,
+            subtitle: baseSubtitle,
+            trades: [],
+          },
+        ];
+      }
+
+      const tradesByStrategy = new Map<string, Trade[]>();
+      for (const trade of sessionTrades) {
+        const strategyName = normalizeStrategyName(
+          trade.strategy_name || session.strategy_name,
+        );
+        tradesByStrategy.set(strategyName, [
+          ...(tradesByStrategy.get(strategyName) ?? []),
+          trade,
+        ]);
+      }
+
+      return Array.from(tradesByStrategy.entries()).map(([strategyName, strategyTrades]) => {
+        const closedTrades = strategyTrades.filter((trade) => trade.status === "CLOSED");
+        return {
+          aggregate: aggregateTrades(closedTrades, strategyTrades),
+          id: `${session.id}:${strategyName}`,
+          label: session.name,
+          sessions: [session],
+          strategyName,
+          subtitle: baseSubtitle,
+          trades: strategyTrades,
+        };
+      });
     })
     .sort((a, b) => {
-      if (a.aggregate.totalTrades !== b.aggregate.totalTrades) {
-        return b.aggregate.totalTrades - a.aggregate.totalTrades;
+      const sessionDelta = b.sessions[0].id - a.sessions[0].id;
+      if (sessionDelta !== 0) {
+        return sessionDelta;
       }
-      return b.sessions[0].id - a.sessions[0].id;
+      return a.strategyName.localeCompare(b.strategyName);
     });
 }
 
