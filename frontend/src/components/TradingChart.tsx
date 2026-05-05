@@ -83,7 +83,9 @@ type DragState = {
   drawing: ChartDrawing;
   mode: "anchor" | "body";
   originalPoints: DrawingPoint[];
+  originalPixels: Array<{ x: number; y: number } | null>;
   pointIndex: number | null;
+  startPixel: { x: number; y: number };
   startPoint: DrawingPoint;
 };
 
@@ -525,10 +527,21 @@ export function TradingChart({
         chartRef.current,
         candlesRef.current,
       );
-      if (!point) {
+      const pixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
+      if (!point || !pixel) {
         return;
       }
-      const nextDrawing = moveDrawing(dragState, point);
+      const nextDrawing = moveDrawing(
+        dragState,
+        point,
+        pixel,
+        chartFrameRef.current,
+        chartRef.current,
+        candlesRef.current,
+      );
+      if (!nextDrawing) {
+        return;
+      }
       onUpdateDrawing(nextDrawing);
       return;
     }
@@ -565,12 +578,25 @@ export function TradingChart({
     if (!point) {
       return;
     }
+    if (drawing.locked) {
+      onSelectDrawing(drawing.id);
+      return;
+    }
+    const startPixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
+    if (!startPixel) {
+      return;
+    }
+    const originalPixels = drawing.points.map((item) =>
+      pixelFromPoint(item, chartRef.current, candlesRef.current),
+    );
     onSelectDrawing(drawing.id);
     setDragState({
       drawing,
       mode,
       originalPoints: drawing.points.map((item) => ({ ...item })),
+      originalPixels,
       pointIndex,
+      startPixel,
       startPoint: point,
     });
   }
@@ -904,7 +930,7 @@ function buildDrawingElements({
 
   return (
     <>
-      {drawings.map((drawing) =>
+      {drawings.filter((drawing) => drawing.visible !== false).map((drawing) =>
         renderDrawing(drawing, toPixel, width, {
           onDeleteDrawing,
           onDragStart,
@@ -962,7 +988,14 @@ function renderDrawing(
   },
 ) {
   const color = drawing.color;
+  const isLocked = drawing.locked === true;
+  const strokeDasharray = drawingStrokeDasharray(drawing);
+  const selectedStrokeWidth = drawingStrokeWidth(drawing, options.selected);
   const handleBodyDown = (event: MouseEvent<SVGElement>) => {
+    if (isLocked) {
+      handleSelect(event);
+      return;
+    }
     options.onDragStart(drawing, "body", null, event);
   };
   const handleSelect = (event: MouseEvent<SVGElement>) => {
@@ -978,7 +1011,7 @@ function renderDrawing(
     return (
       <g key={drawing.id}>
         <line
-          cursor="ns-resize"
+          cursor={isLocked ? "default" : "ns-resize"}
           onMouseDown={handleBodyDown}
           onClick={handleSelect}
           pointerEvents="all"
@@ -991,9 +1024,9 @@ function renderDrawing(
         />
         <line
           stroke={color}
-          strokeDasharray="5 5"
+          strokeDasharray={strokeDasharray ?? "5 5"}
           strokeOpacity={options.selected ? 1 : 0.82}
-          strokeWidth={options.selected ? "2.5" : "1.5"}
+          strokeWidth={selectedStrokeWidth}
           x1={0}
           x2={width}
           y1={point.y}
@@ -1012,7 +1045,7 @@ function renderDrawing(
         <text fill={color} fontSize="11" fontWeight="700" x={Math.max(16, width - 96)} y={point.y - 10}>
           {formatPrice(drawing.points[0].price)}
         </text>
-        {options.selected && renderAnchors(drawing, [point], options)}
+        {options.selected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
     );
   }
@@ -1026,7 +1059,7 @@ function renderDrawing(
     const widthEstimate = Math.max(56, Math.min(220, label.length * 7 + 22));
     return (
       <g
-        cursor="move"
+        cursor={isLocked ? "default" : "move"}
         key={drawing.id}
         onClick={handleSelect}
         onMouseDown={handleBodyDown}
@@ -1053,7 +1086,7 @@ function renderDrawing(
           {label}
         </text>
         <circle cx={point.x} cy={point.y} fill={color} r={3} />
-        {options.selected && renderAnchors(drawing, [point], options)}
+        {options.selected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
     );
   }
@@ -1088,9 +1121,9 @@ function renderDrawing(
         />
         <line
           stroke={color}
-          strokeDasharray="6 5"
+          strokeDasharray={strokeDasharray ?? "6 5"}
           strokeLinecap="round"
-          strokeWidth={options.selected ? "2.5" : "2"}
+          strokeWidth={selectedStrokeWidth}
           x1={first.x}
           x2={second.x}
           y1={first.y}
@@ -1127,7 +1160,7 @@ function renderDrawing(
         <text fill={color} fontSize="11" fontWeight="800" x={midX + 18} y={midY - 16}>
           {label}
         </text>
-        {options.selected && renderAnchors(drawing, [first, second], options)}
+        {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
       </g>
     );
   }
@@ -1144,15 +1177,16 @@ function renderDrawing(
     return (
       <g key={drawing.id}>
         <rect
-          cursor="move"
-          fill={`${color}26`}
+          cursor={isLocked ? "default" : "move"}
+          fill={colorWithOpacity(color, drawing.fillOpacity ?? 0.16)}
           height={rectHeight}
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
           pointerEvents="all"
           stroke={color}
           strokeOpacity={options.selected ? 1 : 0.82}
-          strokeWidth={options.selected ? "2" : "1.5"}
+          strokeDasharray={strokeDasharray}
+          strokeWidth={selectedStrokeWidth}
           width={rectWidth}
           x={x}
           y={y}
@@ -1170,7 +1204,7 @@ function renderDrawing(
               x={x - 4}
               y={y - 4}
             />
-            {renderAnchors(drawing, [first, second], options)}
+            {!isLocked && renderAnchors(drawing, [first, second], options)}
           </>
         )}
       </g>
@@ -1186,7 +1220,7 @@ function renderDrawing(
     return (
       <g key={drawing.id}>
         <rect
-          cursor="move"
+          cursor={isLocked ? "default" : "move"}
           fill="transparent"
           height={Math.abs(second.y - first.y) + 20}
           onClick={handleSelect}
@@ -1202,8 +1236,9 @@ function renderDrawing(
             <g key={level}>
               <line
                 stroke={color}
+                strokeDasharray={strokeDasharray}
                 strokeOpacity={options.selected || level === 0 || level === 1 ? 0.9 : 0.55}
-                strokeWidth={options.selected && (level === 0 || level === 1) ? "2" : level === 0 || level === 1 ? "1.5" : "1"}
+                strokeWidth={level === 0 || level === 1 ? selectedStrokeWidth : Math.max(1, selectedStrokeWidth - 0.75)}
                 x1={left}
                 x2={right}
                 y1={y}
@@ -1215,7 +1250,7 @@ function renderDrawing(
             </g>
           );
         })}
-        {options.selected && renderAnchors(drawing, [first, second], options)}
+        {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
       </g>
     );
   }
@@ -1223,7 +1258,7 @@ function renderDrawing(
   return (
     <g key={drawing.id}>
       <line
-        cursor="move"
+        cursor={isLocked ? "default" : "move"}
         onClick={handleSelect}
         onMouseDown={handleBodyDown}
         pointerEvents="all"
@@ -1236,15 +1271,16 @@ function renderDrawing(
       />
       <line
         stroke={color}
+        strokeDasharray={strokeDasharray}
         strokeLinecap="round"
         strokeOpacity={options.selected ? 1 : 0.9}
-        strokeWidth={options.selected ? "3" : "2"}
+        strokeWidth={selectedStrokeWidth}
         x1={first.x}
         x2={second.x}
         y1={first.y}
         y2={second.y}
       />
-      {options.selected && renderAnchors(drawing, [first, second], options)}
+      {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
     </g>
   );
 }
@@ -1334,6 +1370,10 @@ function renderPositionDrawing(
   },
 ) {
   const isLong = drawing.tool === "longPosition";
+  const isLocked = drawing.locked === true;
+  const strokeWidth = drawingStrokeWidth(drawing, options.selected);
+  const dash = drawingStrokeDasharray(drawing);
+  const fillOpacity = drawing.fillOpacity ?? 0.16;
   const entryPrice = drawing.points[0].price;
   const targetPrice = drawing.points[1].price;
   const reward = Math.abs(targetPrice - entryPrice);
@@ -1350,6 +1390,10 @@ function renderPositionDrawing(
   const ratio = risk === 0 ? 0 : reward / risk;
 
   const handleBodyDown = (event: MouseEvent<SVGElement>) => {
+    if (isLocked) {
+      handleSelect(event);
+      return;
+    }
     options.onDragStart(drawing, "body", null, event);
   };
   const handleSelect = (event: MouseEvent<SVGElement>) => {
@@ -1360,7 +1404,7 @@ function renderPositionDrawing(
   return (
     <g key={drawing.id}>
       <rect
-        cursor="move"
+        cursor={isLocked ? "default" : "move"}
         fill="transparent"
         height={targetHeight + stopHeight + 24}
         onClick={handleSelect}
@@ -1371,26 +1415,30 @@ function renderPositionDrawing(
         y={Math.min(targetTop, stopTop) - 12}
       />
       <rect
-        fill="rgba(34, 197, 94, 0.16)"
+        fill={`rgba(34, 197, 94, ${fillOpacity})`}
         height={targetHeight}
         stroke="#22c55e"
+        strokeDasharray={dash}
         strokeOpacity={options.selected ? 0.95 : 0.65}
+        strokeWidth={strokeWidth}
         width={boxWidth}
         x={left}
         y={targetTop}
       />
       <rect
-        fill="rgba(251, 113, 133, 0.15)"
+        fill={`rgba(251, 113, 133, ${fillOpacity})`}
         height={stopHeight}
         stroke="#fb7185"
+        strokeDasharray={dash}
         strokeOpacity={options.selected ? 0.95 : 0.65}
+        strokeWidth={strokeWidth}
         width={boxWidth}
         x={left}
         y={stopTop}
       />
-      <line stroke="#e2e8f0" strokeDasharray="4 4" x1={left} x2={right} y1={first.y} y2={first.y} />
-      <line stroke="#22c55e" strokeDasharray="6 5" x1={left} x2={right} y1={second.y} y2={second.y} />
-      <line stroke="#fb7185" strokeDasharray="6 5" x1={left} x2={right} y1={stopY} y2={stopY} />
+      <line stroke="#e2e8f0" strokeDasharray="4 4" strokeWidth={strokeWidth} x1={left} x2={right} y1={first.y} y2={first.y} />
+      <line stroke="#22c55e" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={second.y} y2={second.y} />
+      <line stroke="#fb7185" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={stopY} y2={stopY} />
       <rect
         fill="rgba(8, 12, 17, 0.95)"
         height={44}
@@ -1407,7 +1455,7 @@ function renderPositionDrawing(
       <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={Math.min(width - 176, right + 20)} y={Math.min(targetTop, stopTop) + 33}>
         RR {ratio.toFixed(2)} · Entry {formatPrice(entryPrice)}
       </text>
-      {options.selected && renderAnchors(drawing, [first, second], options)}
+      {options.selected && !isLocked && renderAnchors(drawing, [first, second], options)}
     </g>
   );
 }
@@ -1419,21 +1467,72 @@ function pointFromClient(
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
 ): DrawingPoint | null {
-  if (!chart || !series || !frame) {
+  const pixel = pixelFromClient(clientX, clientY, frame);
+  if (!pixel) {
+    return null;
+  }
+  return pointFromPixel(pixel.x, pixel.y, frame, chart, series);
+}
+
+function pixelFromClient(
+  clientX: number,
+  clientY: number,
+  frame: HTMLDivElement | null,
+): { x: number; y: number } | null {
+  if (!frame) {
     return null;
   }
   const rect = frame.getBoundingClientRect();
-  const x = clientX - rect.left;
-  const y = clientY - rect.top;
-  const time = chart.timeScale().coordinateToTime(x);
-  const price = series.coordinateToPrice(y);
+  return {
+    x: clientX - rect.left,
+    y: clientY - rect.top,
+  };
+}
+
+function pointFromPixel(
+  x: number,
+  y: number,
+  frame: HTMLDivElement | null,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+): DrawingPoint | null {
+  if (!chart || !series || !frame) {
+    return null;
+  }
+  const clampedX = clamp(x, 0, Math.max(0, frame.clientWidth - 1));
+  const clampedY = clamp(y, 0, Math.max(0, frame.clientHeight - 1));
+  const time = chart.timeScale().coordinateToTime(clampedX);
+  const price = series.coordinateToPrice(clampedY);
   if (time == null || price == null || typeof time !== "number") {
     return null;
   }
   return { time, price };
 }
 
-function moveDrawing(dragState: DragState, point: DrawingPoint): ChartDrawing {
+function pixelFromPoint(
+  point: DrawingPoint,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+): { x: number; y: number } | null {
+  if (!chart || !series) {
+    return null;
+  }
+  const x = chart.timeScale().timeToCoordinate(point.time as UTCTimestamp);
+  const y = series.priceToCoordinate(point.price);
+  if (x == null || y == null) {
+    return null;
+  }
+  return { x, y };
+}
+
+function moveDrawing(
+  dragState: DragState,
+  point: DrawingPoint,
+  pixel: { x: number; y: number },
+  frame: HTMLDivElement | null,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+): ChartDrawing | null {
   if (dragState.mode === "anchor" && dragState.pointIndex != null) {
     const points = dragState.originalPoints.map((originalPoint, index) =>
       index === dragState.pointIndex ? point : originalPoint,
@@ -1441,15 +1540,26 @@ function moveDrawing(dragState: DragState, point: DrawingPoint): ChartDrawing {
     return { ...dragState.drawing, points };
   }
 
-  const timeDelta = point.time - dragState.startPoint.time;
-  const priceDelta = point.price - dragState.startPoint.price;
-  const points = dragState.originalPoints.map((originalPoint) => ({
-    time:
-      dragState.drawing.tool === "horizontal"
-        ? originalPoint.time
-        : originalPoint.time + timeDelta,
-    price: originalPoint.price + priceDelta,
-  }));
+  const xDelta = pixel.x - dragState.startPixel.x;
+  const yDelta = pixel.y - dragState.startPixel.y;
+  const points = dragState.originalPoints.map((originalPoint, index) => {
+    const originalPixel = dragState.originalPixels[index];
+    if (!originalPixel) {
+      const priceDelta = point.price - dragState.startPoint.price;
+      return {
+        time: originalPoint.time,
+        price: originalPoint.price + priceDelta,
+      };
+    }
+    const moved = pointFromPixel(
+      dragState.drawing.tool === "horizontal" ? originalPixel.x : originalPixel.x + xDelta,
+      originalPixel.y + yDelta,
+      frame,
+      chart,
+      series,
+    );
+    return moved ?? originalPoint;
+  });
   return { ...dragState.drawing, points };
 }
 
@@ -1462,10 +1572,60 @@ function makeDrawing(
     id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     tool,
     color: DRAWING_COLORS[tool],
+    fillOpacity: tool === "rectangle" ? 0.16 : undefined,
+    lineStyle: tool === "horizontal" || tool === "measure" ? "dashed" : "solid",
+    lineWidth: tool === "horizontal" ? 1.5 : 2,
+    locked: false,
     points,
     label,
     createdAt: new Date().toISOString(),
+    visible: true,
   };
+}
+
+function drawingStrokeDasharray(drawing: ChartDrawing) {
+  switch (drawing.lineStyle) {
+    case "dotted":
+      return "2 4";
+    case "dashed":
+      return "6 5";
+    default:
+      return undefined;
+  }
+}
+
+function drawingStrokeWidth(drawing: ChartDrawing, selected: boolean) {
+  const width = drawing.lineWidth ?? 2;
+  return selected ? Math.min(width + 0.75, 6) : width;
+}
+
+function colorWithOpacity(color: string, opacity: number) {
+  const normalizedOpacity = clamp(opacity, 0, 1);
+  if (!color.startsWith("#")) {
+    return color;
+  }
+  const hex = color.slice(1);
+  const expanded =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : hex;
+  if (expanded.length !== 6) {
+    return color;
+  }
+  const red = Number.parseInt(expanded.slice(0, 2), 16);
+  const green = Number.parseInt(expanded.slice(2, 4), 16);
+  const blue = Number.parseInt(expanded.slice(4, 6), 16);
+  if ([red, green, blue].some((value) => Number.isNaN(value))) {
+    return color;
+  }
+  return `rgba(${red}, ${green}, ${blue}, ${normalizedOpacity})`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function getTooltipStyle(tooltip: TooltipData, container: HTMLDivElement | null) {

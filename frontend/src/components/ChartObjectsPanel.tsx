@@ -5,12 +5,15 @@ import {
   EyeOff,
   Layers,
   LineChart,
+  LockKeyhole,
   Magnet,
   Minus,
   Ruler,
+  SlidersHorizontal,
   Square,
   Type,
   Trash2,
+  UnlockKeyhole,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -19,6 +22,7 @@ import {
   type ChartDrawing,
   type ChartIndicatorId,
   type ChartStyle,
+  type DrawingLineStyle,
   type IndicatorSettings,
   type IndicatorSettingsMap,
 } from "../lib/charting";
@@ -34,6 +38,7 @@ type Props = {
   onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
   onToggleOrderOverlays: () => void;
+  onUpdateDrawing: (drawing: ChartDrawing) => void;
   onUpdateIndicatorSettings: (
     indicator: ChartIndicatorId,
     settings: Partial<IndicatorSettings>,
@@ -69,11 +74,20 @@ export function ChartObjectsPanel({
   onSelectDrawing,
   onToggleIndicator,
   onToggleOrderOverlays,
+  onUpdateDrawing,
   onUpdateIndicatorSettings,
   orderOverlaysVisible,
   selectedDrawingId,
   smoothCandles,
 }: Props) {
+  const selectedDrawing = drawings.find((drawing) => drawing.id === selectedDrawingId) ?? null;
+  const updateSelectedDrawing = (patch: Partial<ChartDrawing>) => {
+    if (!selectedDrawing) {
+      return;
+    }
+    onUpdateDrawing({ ...selectedDrawing, ...patch });
+  };
+
   return (
     <aside className="chart-side-panel">
       <div className="border-b border-white/10 px-4 py-3">
@@ -198,7 +212,7 @@ export function ChartObjectsPanel({
               const Icon = drawingIcons[drawing.tool];
               return (
                 <div
-                  className={`chart-object-row ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
+                  className={`chart-object-row ${drawing.visible === false ? "opacity-55" : ""} ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
                   key={drawing.id}
                   onClick={() => onSelectDrawing(drawing.id)}
                   role="button"
@@ -215,11 +229,29 @@ export function ChartObjectsPanel({
                       {drawing.label || `${drawing.tool} ${index + 1}`}
                     </span>
                     <span className="block truncate text-xs text-slate-500">
-                      {drawing.points.length === 1
+                      {drawing.visible === false
+                        ? "Hidden"
+                        : drawing.locked
+                          ? "Locked"
+                          : drawing.points.length === 1
                         ? formatPrice(drawing.points[0].price)
                         : `${drawing.points.length} anchors`}
                     </span>
                   </span>
+                  <button
+                    className="icon-button h-8 w-8"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onUpdateDrawing({
+                        ...drawing,
+                        visible: drawing.visible === false,
+                      });
+                    }}
+                    title={drawing.visible === false ? "Show drawing" : "Hide drawing"}
+                    type="button"
+                  >
+                    {drawing.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
                   <button
                     className="icon-button h-8 w-8"
                     onClick={(event) => {
@@ -242,8 +274,139 @@ export function ChartObjectsPanel({
             )}
           </div>
         </section>
+
+        <section className="rounded-md border border-white/10 bg-black/20 p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Object Settings
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {selectedDrawing ? selectedDrawing.tool : "Select a drawing"}
+              </div>
+            </div>
+            <SlidersHorizontal size={16} className="text-cyan-200" />
+          </div>
+          {selectedDrawing ? (
+            <DrawingInspector
+              drawing={selectedDrawing}
+              onChange={updateSelectedDrawing}
+            />
+          ) : (
+            <div className="rounded-md border border-dashed border-white/10 px-3 py-5 text-center text-sm text-slate-500">
+              Click an object to edit style, visibility, lock, and labels.
+            </div>
+          )}
+        </section>
       </div>
     </aside>
+  );
+}
+
+function DrawingInspector({
+  drawing,
+  onChange,
+}: {
+  drawing: ChartDrawing;
+  onChange: (patch: Partial<ChartDrawing>) => void;
+}) {
+  const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
+  const lineStyle = drawing.lineStyle ?? "solid";
+  const lineWidth = drawing.lineWidth ?? 2;
+
+  return (
+    <div className="grid gap-3">
+      <label className="object-setting-field">
+        <span>Label</span>
+        <input
+          className="input-control h-9"
+          onChange={(event) => onChange({ label: event.target.value })}
+          placeholder={`${drawing.tool} label`}
+          value={drawing.label ?? ""}
+        />
+      </label>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="object-setting-field">
+          <span>Color</span>
+          <input
+            className="h-9 w-full cursor-pointer rounded-md border border-white/10 bg-ink-950 p-1"
+            onChange={(event) => onChange({ color: event.target.value })}
+            type="color"
+            value={drawing.color}
+          />
+        </label>
+        <label className="object-setting-field">
+          <span>Line</span>
+          <select
+            className="input-control h-9"
+            onChange={(event) =>
+              onChange({ lineStyle: event.target.value as DrawingLineStyle })
+            }
+            value={lineStyle}
+          >
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="object-setting-field">
+        <span className="flex items-center justify-between">
+          <span>Stroke Width</span>
+          <strong className="text-slate-300">{lineWidth.toFixed(1)}</strong>
+        </span>
+        <input
+          max={6}
+          min={1}
+          onChange={(event) => onChange({ lineWidth: Number(event.target.value) })}
+          step={0.5}
+          type="range"
+          value={lineWidth}
+        />
+      </label>
+
+      {(drawing.tool === "rectangle" ||
+        drawing.tool === "longPosition" ||
+        drawing.tool === "shortPosition") && (
+        <label className="object-setting-field">
+          <span className="flex items-center justify-between">
+            <span>Fill</span>
+            <strong className="text-slate-300">{fillOpacity}%</strong>
+          </span>
+          <input
+            max={60}
+            min={0}
+            onChange={(event) =>
+              onChange({ fillOpacity: Number(event.target.value) / 100 })
+            }
+            step={1}
+            type="range"
+            value={fillOpacity}
+          />
+        </label>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          className={`control-button h-9 text-xs ${drawing.visible === false ? "" : "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"}`}
+          onClick={() => onChange({ visible: drawing.visible === false })}
+          type="button"
+        >
+          {drawing.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}
+          {drawing.visible === false ? "Hidden" : "Visible"}
+        </button>
+        <button
+          className={`control-button h-9 text-xs ${drawing.locked ? "border-amber-300/30 bg-amber-300/10 text-amber-100" : ""}`}
+          onClick={() => onChange({ locked: !drawing.locked })}
+          type="button"
+        >
+          {drawing.locked ? <LockKeyhole size={14} /> : <UnlockKeyhole size={14} />}
+          {drawing.locked ? "Locked" : "Unlocked"}
+        </button>
+      </div>
+    </div>
   );
 }
 

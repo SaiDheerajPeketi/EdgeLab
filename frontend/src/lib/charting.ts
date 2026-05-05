@@ -34,6 +34,7 @@ export type DrawingTool =
   | "longPosition"
   | "shortPosition"
   | "text";
+export type DrawingLineStyle = "solid" | "dashed" | "dotted";
 export type IndicatorSettings = {
   color: string;
   period: number;
@@ -56,9 +57,14 @@ export type ChartDrawing = {
   id: string;
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
   color: string;
+  fillOpacity?: number;
+  lineStyle?: DrawingLineStyle;
+  lineWidth?: number;
+  locked?: boolean;
   points: DrawingPoint[];
   label?: string;
   createdAt: string;
+  visible?: boolean;
 };
 
 export type IndicatorDefinition = {

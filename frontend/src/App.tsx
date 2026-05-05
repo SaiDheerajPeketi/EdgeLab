@@ -44,6 +44,8 @@ import { mergeIndicatorSettings } from "./lib/charting";
 import { useBacktestStore } from "./store/backtestStore";
 
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
+const CHART_LAYOUTS_KEY = "tradezella.chart-layouts.v1";
+const ACTIVE_CHART_LAYOUT_KEY = "tradezella.active-chart-layout.v1";
 const VALID_INDICATORS: ChartIndicatorId[] = [
   "bb20",
   "ema20",
@@ -88,6 +90,8 @@ export default function App() {
   const [leftPaneOpen, setLeftPaneOpen] = useState(true);
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
+  const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
+  const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
   const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
     const saved = loadChartLayout();
     return sanitizeTimeframe(saved?.timeframe);
@@ -286,8 +290,42 @@ export default function App() {
       smoothCandles,
       timeframe,
     };
+    const name = normalizeLayoutName(layoutName);
     window.localStorage.setItem(CHART_LAYOUT_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, name);
+    setLayoutName(name);
+    setAvailableLayouts(saveNamedChartLayout(name, payload));
     setChartLayoutSavedAt(Date.now());
+  }
+
+  function loadNamedChartLayout(name: string) {
+    const record = loadChartLayoutRecord(name);
+    if (!record) {
+      return;
+    }
+    applyChartLayout(record.layout);
+    window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, record.name);
+    setLayoutName(record.name);
+    setChartLayoutSavedAt(Date.now());
+  }
+
+  function deleteNamedChartLayout(name: string) {
+    const nextNames = deleteChartLayoutRecord(name);
+    setAvailableLayouts(nextNames);
+    if (normalizeLayoutName(name) === normalizeLayoutName(layoutName)) {
+      setLayoutName(nextNames[0] ?? "Default");
+      window.localStorage.removeItem(ACTIVE_CHART_LAYOUT_KEY);
+    }
+  }
+
+  function applyChartLayout(layout: Partial<StoredChartLayout>) {
+    setActiveIndicators(sanitizeIndicators(layout.activeIndicators));
+    setChartStyle(sanitizeChartStyle(layout.chartStyle));
+    setDrawings(sanitizeDrawings(layout.drawings));
+    setIndicatorSettings(mergeIndicatorSettings(layout.indicatorSettings));
+    setShowOrderOverlays(layout.showOrderOverlays ?? true);
+    setSmoothCandles(layout.smoothCandles ?? false);
+    setTimeframe(sanitizeTimeframe(layout.timeframe));
   }
 
   return (
@@ -424,7 +462,12 @@ export default function App() {
                   isFullscreen={isChartFullscreen}
                   onChartStyleChange={setChartStyle}
                   onClearDrawings={clearDrawings}
+                  layoutName={layoutName}
+                  layoutNames={availableLayouts}
                   onDrawingToolChange={setDrawingTool}
+                  onDeleteLayout={deleteNamedChartLayout}
+                  onLayoutNameChange={setLayoutName}
+                  onLoadLayout={loadNamedChartLayout}
                   onSaveLayout={saveChartLayout}
                   onToggleFullscreen={() => setIsChartFullscreen((value) => !value)}
                   onTimeframeChange={setTimeframe}
@@ -481,6 +524,13 @@ export default function App() {
                     onDeleteDrawing={deleteDrawing}
                     onSelectDrawing={setSelectedDrawingId}
                     onToggleIndicator={toggleIndicator}
+                    onUpdateDrawing={(updatedDrawing) =>
+                      setDrawings((currentDrawings) =>
+                        currentDrawings.map((drawing) =>
+                          drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
+                        ),
+                      )
+                    }
                     onUpdateIndicatorSettings={updateIndicatorSettings}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                     orderOverlaysVisible={showOrderOverlays}
@@ -629,11 +679,23 @@ type StoredChartLayout = {
   timeframe: ChartTimeframe;
 };
 
+type StoredChartLayoutRecord = {
+  layout: StoredChartLayout;
+  name: string;
+  updatedAt: string;
+};
+
 function loadChartLayout(): Partial<StoredChartLayout> | null {
   if (typeof window === "undefined") {
     return null;
   }
   try {
+    const activeName = window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY);
+    const activeRecord = activeName ? loadChartLayoutRecord(activeName) : null;
+    if (activeRecord) {
+      return activeRecord.layout;
+    }
+
     const raw = window.localStorage.getItem(CHART_LAYOUT_KEY);
     if (!raw) {
       return null;
@@ -645,6 +707,90 @@ function loadChartLayout(): Partial<StoredChartLayout> | null {
   } catch {
     return null;
   }
+}
+
+function loadActiveLayoutName() {
+  if (typeof window === "undefined") {
+    return "Default";
+  }
+  return normalizeLayoutName(window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY) ?? "Default");
+}
+
+function loadSavedLayoutNames() {
+  return loadChartLayoutRecords().map((record) => record.name);
+}
+
+function loadChartLayoutRecord(name: string) {
+  const normalized = normalizeLayoutName(name);
+  return loadChartLayoutRecords().find(
+    (record) => normalizeLayoutName(record.name) === normalized,
+  );
+}
+
+function loadChartLayoutRecords(): StoredChartLayoutRecord[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(CHART_LAYOUTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((record): record is StoredChartLayoutRecord => {
+        if (typeof record !== "object" || record == null) {
+          return false;
+        }
+        const candidate = record as Partial<StoredChartLayoutRecord>;
+        return (
+          typeof candidate.name === "string" &&
+          typeof candidate.updatedAt === "string" &&
+          typeof candidate.layout === "object" &&
+          candidate.layout != null
+        );
+      })
+      .map((record) => ({
+        ...record,
+        name: normalizeLayoutName(record.name),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function saveNamedChartLayout(name: string, layout: StoredChartLayout) {
+  const normalizedName = normalizeLayoutName(name);
+  const records = loadChartLayoutRecords().filter(
+    (record) => normalizeLayoutName(record.name) !== normalizedName,
+  );
+  const nextRecords = [
+    {
+      layout,
+      name: normalizedName,
+      updatedAt: new Date().toISOString(),
+    },
+    ...records,
+  ].slice(0, 12);
+  window.localStorage.setItem(CHART_LAYOUTS_KEY, JSON.stringify(nextRecords));
+  return nextRecords.map((record) => record.name);
+}
+
+function deleteChartLayoutRecord(name: string) {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const normalizedName = normalizeLayoutName(name);
+  const nextRecords = loadChartLayoutRecords().filter(
+    (record) => normalizeLayoutName(record.name) !== normalizedName,
+  );
+  window.localStorage.setItem(CHART_LAYOUTS_KEY, JSON.stringify(nextRecords));
+  return nextRecords.map((record) => record.name);
+}
+
+function normalizeLayoutName(name: string) {
+  const trimmed = name.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 48) : "Default";
 }
 
 function sanitizeIndicators(value: unknown): ChartIndicatorId[] {
@@ -732,6 +878,16 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       ].includes(candidate.tool ?? "") &&
       typeof candidate.color === "string" &&
       typeof candidate.createdAt === "string" &&
+      (candidate.fillOpacity == null ||
+        (typeof candidate.fillOpacity === "number" &&
+          Number.isFinite(candidate.fillOpacity))) &&
+      (candidate.label == null || typeof candidate.label === "string") &&
+      (candidate.lineStyle == null ||
+        ["solid", "dashed", "dotted"].includes(candidate.lineStyle)) &&
+      (candidate.lineWidth == null ||
+        (typeof candidate.lineWidth === "number" && Number.isFinite(candidate.lineWidth))) &&
+      (candidate.locked == null || typeof candidate.locked === "boolean") &&
+      (candidate.visible == null || typeof candidate.visible === "boolean") &&
       Array.isArray(candidate.points) &&
       candidate.points.every(
         (point) =>

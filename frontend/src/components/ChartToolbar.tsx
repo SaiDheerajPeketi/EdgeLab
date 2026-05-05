@@ -46,9 +46,14 @@ type Props = {
   drawingsCount: number;
   indicatorSettings: IndicatorSettingsMap;
   isFullscreen: boolean;
+  layoutName: string;
+  layoutNames: string[];
   onClearDrawings: () => void;
   onChartStyleChange: (style: ChartStyle) => void;
+  onDeleteLayout: (name: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
+  onLayoutNameChange: (name: string) => void;
+  onLoadLayout: (name: string) => void;
   onSaveLayout: () => void;
   onToggleFullscreen: () => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
@@ -106,9 +111,14 @@ export function ChartToolbar({
   drawingsCount,
   indicatorSettings,
   isFullscreen,
+  layoutName,
+  layoutNames,
   onChartStyleChange,
   onClearDrawings,
+  onDeleteLayout,
   onDrawingToolChange,
+  onLayoutNameChange,
+  onLoadLayout,
   onSaveLayout,
   onToggleFullscreen,
   onTimeframeChange,
@@ -270,6 +280,48 @@ export function ChartToolbar({
             </button>
           );
         })}
+      </div>
+
+      <div className="layout-manager-strip">
+        <span className="study-manager-label">Layouts</span>
+        <select
+          className="input-control h-8 max-w-44 text-xs"
+          disabled={layoutNames.length === 0}
+          onChange={(event) => onLoadLayout(event.target.value)}
+          value={layoutNames.includes(layoutName) ? layoutName : ""}
+        >
+          <option value="" disabled>
+            Saved layouts
+          </option>
+          {layoutNames.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <input
+          className="input-control h-8 max-w-56 text-xs"
+          onChange={(event) => onLayoutNameChange(event.target.value)}
+          placeholder="Layout name"
+          value={layoutName}
+        />
+        <button
+          className="studio-tool-button studio-tool-button-active"
+          onClick={onSaveLayout}
+          type="button"
+        >
+          <Save size={13} />
+          Save
+        </button>
+        <button
+          className="studio-tool-button"
+          disabled={layoutNames.length === 0 || !layoutNames.includes(layoutName)}
+          onClick={() => onDeleteLayout(layoutName)}
+          type="button"
+        >
+          <Trash2 size={13} />
+          Delete
+        </button>
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-2">
