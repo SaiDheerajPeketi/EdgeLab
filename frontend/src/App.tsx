@@ -90,7 +90,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [leftPaneOpen, setLeftPaneOpen] = useState(true);
-  const [layersPanelOpen, setLayersPanelOpen] = useState(true);
+  const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
