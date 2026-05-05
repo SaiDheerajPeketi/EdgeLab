@@ -8,6 +8,7 @@ OrderSide = Literal["BUY", "SELL"]
 OrderType = Literal["MARKET", "LIMIT", "STOP"]
 OrderStatus = Literal["PENDING", "FILLED", "CANCELLED"]
 PositionSide = Literal["FLAT", "LONG", "SHORT"]
+RiskBase = Literal["CURRENT_BALANCE", "INITIAL_BALANCE"]
 
 
 class Candle(BaseModel):
@@ -129,6 +130,7 @@ class OrderCreate(BaseModel):
     order_type: OrderType = "MARKET"
     quantity: float | None = Field(default=None, gt=0)
     risk_percent: float | None = Field(default=None, gt=0, le=100)
+    risk_base: RiskBase | None = "CURRENT_BALANCE"
     limit_price: float | None = Field(default=None, gt=0)
     stop_price: float | None = Field(default=None, gt=0)
     stop_loss: float | None = Field(default=None, gt=0)

@@ -674,7 +674,7 @@ class BacktestService:
             return payload.quantity
         if payload.risk_percent is None or payload.stop_loss is None:
             raise HTTPException(status_code=400, detail="quantity or risk_percent is required")
-        equity = self._risk_sizing_equity(session)
+        equity = self._risk_sizing_equity(session, payload.risk_base or "CURRENT_BALANCE")
         risk_amount = equity * (payload.risk_percent / 100)
         risk_per_unit = abs(reference_price - payload.stop_loss)
         if risk_per_unit <= 0:
@@ -699,8 +699,16 @@ class BacktestService:
             raise HTTPException(status_code=400, detail="stop_loss must differ from entry price")
         return risk_amount / risk_per_unit
 
-    def _risk_sizing_equity(self, session: BacktestSession) -> float:
-        equity = session.initial_balance + session.realized_pnl
+    def _risk_sizing_equity(
+        self,
+        session: BacktestSession,
+        risk_base: str = "CURRENT_BALANCE",
+    ) -> float:
+        equity = (
+            session.initial_balance
+            if risk_base == "INITIAL_BALANCE"
+            else session.initial_balance + session.realized_pnl
+        )
         if equity > 0:
             return equity
         return session.initial_balance

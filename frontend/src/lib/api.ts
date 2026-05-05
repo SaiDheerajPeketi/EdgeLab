@@ -205,6 +205,7 @@ export type OrderPayload = {
   order_type: "MARKET" | "LIMIT" | "STOP";
   quantity?: number | null;
   risk_percent?: number | null;
+  risk_base?: "CURRENT_BALANCE" | "INITIAL_BALANCE" | null;
   limit_price?: number | null;
   stop_price?: number | null;
   stop_loss?: number | null;

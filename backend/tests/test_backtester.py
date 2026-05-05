@@ -191,6 +191,56 @@ def test_risk_percent_sizes_order_from_stop_distance(tmp_path: Path):
     assert state.position.quantity == pytest.approx(500)
 
 
+def test_risk_percent_base_can_use_initial_or_current_balance(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    current_state = service.create_session(
+        db,
+        BacktestCreate(name="Current", initial_offset=0, initial_balance=100_000),
+    )
+    current_session = db.get(BacktestSession, current_state.session.id)
+    assert current_session is not None
+    current_session.realized_pnl = -50_000
+    db.commit()
+
+    current_state = service.place_order(
+        db,
+        current_state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            risk_percent=1,
+            risk_base="CURRENT_BALANCE",
+            stop_loss=98,
+        ),
+    )
+
+    initial_state = service.create_session(
+        db,
+        BacktestCreate(name="Initial", initial_offset=0, initial_balance=100_000),
+    )
+    initial_session = db.get(BacktestSession, initial_state.session.id)
+    assert initial_session is not None
+    initial_session.realized_pnl = -50_000
+    db.commit()
+
+    initial_state = service.place_order(
+        db,
+        initial_state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            risk_percent=1,
+            risk_base="INITIAL_BALANCE",
+            stop_loss=98,
+        ),
+    )
+
+    assert current_state.position is not None
+    assert current_state.position.quantity == pytest.approx(250)
+    assert initial_state.position is not None
+    assert initial_state.position.quantity == pytest.approx(500)
+
+
 def test_risk_percent_never_creates_negative_quantity(tmp_path: Path):
     service, db = make_service(tmp_path, DEFAULT_ROWS)
     state = service.create_session(db, BacktestCreate(initial_offset=0, initial_balance=100_000))

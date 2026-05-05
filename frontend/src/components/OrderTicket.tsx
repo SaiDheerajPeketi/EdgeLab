@@ -6,6 +6,9 @@ import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
 
+const RISK_BASE_STORAGE_KEY = "tradezella.order-risk-base.v1";
+type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
+
 type Props = {
   onOrderPlaced?: () => void;
   playbooks: Playbook[];
@@ -20,6 +23,7 @@ export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Pro
   const [sizingMode, setSizingMode] = useState<"quantity" | "risk">("quantity");
   const [quantity, setQuantity] = useState("100000");
   const [riskPercent, setRiskPercent] = useState("1");
+  const [riskBase, setRiskBase] = useState<RiskBase>(() => loadRiskBase());
   const [limitPrice, setLimitPrice] = useState("");
   const [stopPrice, setStopPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
@@ -54,13 +58,15 @@ export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Pro
     if (!state) {
       return null;
     }
-    const equity = state.session.initial_balance + state.session.realized_pnl;
-    const sizingEquity = equity > 0 ? equity : state.session.initial_balance;
+    const currentBalance = state.session.initial_balance + state.session.realized_pnl;
+    const baseBalance =
+      riskBase === "INITIAL_BALANCE" ? state.session.initial_balance : currentBalance;
+    const sizingEquity = baseBalance > 0 ? baseBalance : state.session.initial_balance;
     if (!Number.isFinite(risk) || risk <= 0) {
       return null;
     }
     return (sizingEquity * (Number(riskPercent) / 100)) / risk;
-  }, [entryReferencePrice, riskPercent, sizingMode, state, stopLoss]);
+  }, [entryReferencePrice, riskBase, riskPercent, sizingMode, state, stopLoss]);
 
   useEffect(() => {
     if (!riskRewardValues) {
@@ -78,6 +84,10 @@ export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Pro
     setPlaybookId(state?.session.playbook_id ? String(state.session.playbook_id) : "");
   }, [state?.session.id, state?.session.playbook_id]);
 
+  useEffect(() => {
+    window.localStorage.setItem(RISK_BASE_STORAGE_KEY, riskBase);
+  }, [riskBase]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (isSubmitting) {
@@ -88,6 +98,7 @@ export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Pro
       order_type: orderType,
       quantity: sizingMode === "quantity" ? numberOrNull(quantity) : null,
       risk_percent: sizingMode === "risk" ? numberOrNull(riskPercent) : null,
+      risk_base: sizingMode === "risk" ? riskBase : null,
       limit_price: orderType === "LIMIT" ? numberOrNull(limitPrice) : null,
       stop_price: orderType === "STOP" ? numberOrNull(stopPrice) : null,
       stop_loss: numberOrNull(stopLoss),
@@ -209,6 +220,30 @@ export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Pro
           </label>
         </div>
 
+        {sizingMode === "risk" && (
+          <div className="rounded-md border border-white/10 bg-black/20 p-2">
+            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Risk % based on
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                className={`segmented ${riskBase === "CURRENT_BALANCE" ? "segmented-active" : ""}`}
+                onClick={() => setRiskBase("CURRENT_BALANCE")}
+                type="button"
+              >
+                Current balance
+              </button>
+              <button
+                className={`segmented ${riskBase === "INITIAL_BALANCE" ? "segmented-active" : ""}`}
+                onClick={() => setRiskBase("INITIAL_BALANCE")}
+                type="button"
+              >
+                Initial balance
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-2">
           <label className="form-field">
             <span>SL</span>
@@ -319,6 +354,14 @@ function numberOrNull(value: string) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function loadRiskBase(): RiskBase {
+  if (typeof window === "undefined") {
+    return "CURRENT_BALANCE";
+  }
+  const saved = window.localStorage.getItem(RISK_BASE_STORAGE_KEY);
+  return saved === "INITIAL_BALANCE" ? "INITIAL_BALANCE" : "CURRENT_BALANCE";
 }
 
 function extractRiskRewardOrderValues(
