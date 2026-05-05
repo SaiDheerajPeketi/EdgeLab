@@ -1,5 +1,5 @@
-import { X } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { Plus, X } from "lucide-react";
+import { FormEvent, KeyboardEvent, useState } from "react";
 import type { Trade } from "../lib/api";
 import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
@@ -18,7 +18,29 @@ export function JournalEntryModal({ trade, onClose }: Props) {
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
   const [screenshotUrl, setScreenshotUrl] = useState(trade.screenshot_url ?? "");
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
+  const [customTag, setCustomTag] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function addTags(value: string) {
+    const nextTags = parseTagInput(value);
+    if (nextTags.length === 0) {
+      return;
+    }
+    setTags((current) => mergeTags(current, nextTags));
+    setCustomTag("");
+  }
+
+  function removeTag(tag: string) {
+    setTags((current) => current.filter((currentTag) => currentTag !== tag));
+  }
+
+  function handleCustomTagKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    addTags(customTag);
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -107,6 +129,39 @@ export function JournalEntryModal({ trade, onClose }: Props) {
                 );
               })}
             </div>
+            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                className="input-control h-10"
+                onChange={(event) => setCustomTag(event.target.value)}
+                onKeyDown={handleCustomTagKeyDown}
+                placeholder="Add custom tag"
+                value={customTag}
+              />
+              <button
+                className="control-button"
+                disabled={!customTag.trim()}
+                onClick={() => addTags(customTag)}
+                type="button"
+              >
+                <Plus size={16} />
+                Add
+              </button>
+            </div>
+            {tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <button
+                    key={tag}
+                    className="inline-flex items-center gap-1 rounded bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-300/20"
+                    onClick={() => removeTag(tag)}
+                    type="button"
+                  >
+                    {tag}
+                    <X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
           </fieldset>
 
           <label className="form-field sm:col-span-2">
@@ -134,4 +189,24 @@ export function JournalEntryModal({ trade, onClose }: Props) {
       </form>
     </div>
   );
+}
+
+function parseTagInput(value: string) {
+  return value
+    .split(",")
+    .map((tag) => tag.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+}
+
+function mergeTags(current: string[], nextTags: string[]) {
+  const seen = new Set(current.map((tag) => tag.toLowerCase()));
+  const merged = [...current];
+  nextTags.forEach((tag) => {
+    const key = tag.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(tag);
+    }
+  });
+  return merged;
 }

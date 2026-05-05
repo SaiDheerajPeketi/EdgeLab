@@ -1,6 +1,8 @@
-import { X } from "lucide-react";
+import { Plus, Save, X } from "lucide-react";
+import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { Execution, Trade } from "../lib/api";
 import { formatPrice } from "../lib/format";
+import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
   trade: Trade;
@@ -10,9 +12,62 @@ type Props = {
 };
 
 export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Props) {
+  const updateJournal = useBacktestStore((state) => state.updateJournal);
+  const [tags, setTags] = useState<string[]>(trade.mistake_tags);
+  const [savedTags, setSavedTags] = useState<string[]>(trade.mistake_tags);
+  const [customTag, setCustomTag] = useState("");
+  const [savingTags, setSavingTags] = useState(false);
   const tradeExecutions = executions.filter(
     (execution) => execution.offset >= trade.entry_offset && (!trade.exit_offset || execution.offset <= trade.exit_offset),
   );
+  const hasTagChanges = useMemo(
+    () => tags.join("\u0000") !== savedTags.join("\u0000"),
+    [savedTags, tags],
+  );
+
+  useEffect(() => {
+    setTags(trade.mistake_tags);
+    setSavedTags(trade.mistake_tags);
+    setCustomTag("");
+  }, [trade.id, trade.mistake_tags]);
+
+  function addTags(value: string) {
+    const nextTags = parseTagInput(value);
+    if (nextTags.length === 0) {
+      return;
+    }
+    setTags((current) => mergeTags(current, nextTags));
+    setCustomTag("");
+  }
+
+  function removeTag(tag: string) {
+    setTags((current) => current.filter((currentTag) => currentTag !== tag));
+  }
+
+  function handleCustomTagKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    addTags(customTag);
+  }
+
+  async function saveTags() {
+    const nextTags = [...tags];
+    setSavingTags(true);
+    try {
+      await updateJournal(trade.id, {
+        notes: trade.notes ?? null,
+        strategy_name: trade.strategy_name ?? null,
+        emotional_state: trade.emotional_state ?? null,
+        screenshot_url: trade.screenshot_url ?? null,
+        mistake_tags: nextTags,
+      });
+      setSavedTags(nextTags);
+    } finally {
+      setSavingTags(false);
+    }
+  }
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-xl overflow-auto border-l border-white/10 bg-ink-900 shadow-panel">
@@ -44,15 +99,53 @@ export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Pro
             </button>
           </div>
           <p className="whitespace-pre-wrap text-sm text-slate-300">{trade.notes || "No notes yet"}</p>
-          {trade.mistake_tags.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {trade.mistake_tags.map((tag) => (
-                <span key={tag} className="rounded bg-rose-300/10 px-2 py-1 text-xs text-rose-100">
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {tags.map((tag) => (
+                <button
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-300/20"
+                  onClick={() => removeTag(tag)}
+                  type="button"
+                >
                   {tag}
-                </span>
+                  <X size={12} />
+                </button>
               ))}
+              {tags.length === 0 && (
+                <span className="rounded bg-white/5 px-2 py-1 text-xs text-slate-500">
+                  No mistake tags
+                </span>
+              )}
             </div>
-          )}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+              <input
+                className="input-control h-10"
+                onChange={(event) => setCustomTag(event.target.value)}
+                onKeyDown={handleCustomTagKeyDown}
+                placeholder="Custom mistake tag"
+                value={customTag}
+              />
+              <button
+                className="control-button h-10"
+                disabled={!customTag.trim()}
+                onClick={() => addTags(customTag)}
+                type="button"
+              >
+                <Plus size={16} />
+                Add
+              </button>
+              <button
+                className="control-button h-10 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+                disabled={!hasTagChanges || savingTags}
+                onClick={() => void saveTags()}
+                type="button"
+              >
+                <Save size={16} />
+                {savingTags ? "Saving" : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-md bg-ink-950 p-3">
@@ -78,6 +171,26 @@ export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Pro
       </div>
     </aside>
   );
+}
+
+function parseTagInput(value: string) {
+  return value
+    .split(",")
+    .map((tag) => tag.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+}
+
+function mergeTags(current: string[], nextTags: string[]) {
+  const seen = new Set(current.map((tag) => tag.toLowerCase()));
+  const merged = [...current];
+  nextTags.forEach((tag) => {
+    const key = tag.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(tag);
+    }
+  });
+  return merged;
 }
 
 function Metric({ label, value, tone = "text-slate-100" }: { label: string; value: string; tone?: string }) {
