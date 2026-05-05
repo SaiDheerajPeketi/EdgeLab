@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   Clock3,
   Database,
+  Maximize2,
+  Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -97,6 +99,7 @@ export default function App() {
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
+  const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
@@ -189,7 +192,11 @@ export default function App() {
         case "B":
         case "s":
         case "S":
-          setLeftPaneOpen(true);
+          if (isChartFullscreen) {
+            setFullscreenOrderPanelOpen(true);
+          } else {
+            setLeftPaneOpen(true);
+          }
           break;
         case "h":
         case "H":
@@ -218,6 +225,7 @@ export default function App() {
         case "Escape":
           setDrawingTool("cursor");
           setIsChartFullscreen(false);
+          setFullscreenOrderPanelOpen(false);
           break;
         case "Delete":
         case "Backspace":
@@ -235,7 +243,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
+  }, [isChartFullscreen, isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
 
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
@@ -284,6 +292,20 @@ export default function App() {
       currentDrawings.filter((drawing) => drawing.id !== drawingId),
     );
     setSelectedDrawingId(null);
+  }
+
+  function toggleChartFullscreen() {
+    setIsChartFullscreen((value) => {
+      if (value) {
+        setFullscreenOrderPanelOpen(false);
+      }
+      return !value;
+    });
+  }
+
+  function closeOrderPanels() {
+    setLeftPaneOpen(false);
+    setFullscreenOrderPanelOpen(false);
   }
 
   function saveChartLayout() {
@@ -451,6 +473,14 @@ export default function App() {
                 Tools
               </button>
               <button
+                className={`workspace-tab inline-flex items-center justify-center gap-2 ${isChartFullscreen ? "workspace-tab-active" : ""}`}
+                onClick={toggleChartFullscreen}
+                type="button"
+              >
+                {isChartFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                {isChartFullscreen ? "Exit Full" : "Full Screen"}
+              </button>
+              <button
                 className={`workspace-tab ${workspacePanel === "orders" ? "workspace-tab-active" : ""}`}
                 onClick={() => setWorkspacePanel((value) => value === "orders" ? "none" : "orders")}
                 type="button"
@@ -509,7 +539,7 @@ export default function App() {
                   </button>
                 </section>
                 <OrderTicket
-                  onOrderPlaced={() => setLeftPaneOpen(false)}
+                  onOrderPlaced={closeOrderPanels}
                   playbooks={playbooks}
                   riskRewardDrawing={latestRiskRewardDrawing}
                 />
@@ -517,7 +547,33 @@ export default function App() {
               </aside>
             )}
 
-              <div className={isChartFullscreen ? "chart-fullscreen-shell" : "focus-chart-column"}>
+              <div
+                className={
+                  isChartFullscreen
+                    ? `chart-fullscreen-shell ${fullscreenOrderPanelOpen ? "chart-fullscreen-with-dock" : ""}`
+                    : "focus-chart-column"
+                }
+              >
+                {isChartFullscreen && (
+                  <div className="chart-fullscreen-actionbar">
+                    <button
+                      className={`chart-fullscreen-action ${fullscreenOrderPanelOpen ? "chart-fullscreen-action-active" : ""}`}
+                      onClick={() => setFullscreenOrderPanelOpen((value) => !value)}
+                      type="button"
+                    >
+                      {fullscreenOrderPanelOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                      Order
+                    </button>
+                    <button
+                      className="chart-fullscreen-action"
+                      onClick={toggleChartFullscreen}
+                      type="button"
+                    >
+                      <Minimize2 size={16} />
+                      Exit
+                    </button>
+                  </div>
+                )}
                 <ReplayController />
                 {chartToolsOpen && (
                   <ChartToolbar
@@ -536,7 +592,7 @@ export default function App() {
                     onLayoutNameChange={setLayoutName}
                     onLoadLayout={loadNamedChartLayout}
                     onSaveLayout={saveChartLayout}
-                    onToggleFullscreen={() => setIsChartFullscreen((value) => !value)}
+                    onToggleFullscreen={toggleChartFullscreen}
                     onTimeframeChange={setTimeframe}
                     onToggleIndicator={toggleIndicator}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
@@ -608,10 +664,10 @@ export default function App() {
                     />
                   ) : null}
                 </div>
-                {isChartFullscreen && (
+                {isChartFullscreen && fullscreenOrderPanelOpen && (
                   <div className="chart-fullscreen-dock">
                     <OrderTicket
-                      onOrderPlaced={() => setLeftPaneOpen(false)}
+                      onOrderPlaced={closeOrderPanels}
                       playbooks={playbooks}
                       riskRewardDrawing={latestRiskRewardDrawing}
                     />
