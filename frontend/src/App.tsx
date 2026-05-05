@@ -18,7 +18,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
-import { DatasetSessionPanel } from "./components/DatasetSessionPanel";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { JournalEntryModal } from "./components/JournalEntryModal";
 import { MetricsBar } from "./components/MetricsBar";
@@ -29,10 +28,11 @@ import { PositionPanel } from "./components/PositionPanel";
 import { ReplayController } from "./components/ReplayController";
 import { ReportsPanel } from "./components/ReportsPanel";
 import { Sidebar } from "./components/Sidebar";
+import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { TradeLog } from "./components/TradeLog";
 import { TradingChart } from "./components/TradingChart";
-import type { Position, Trade } from "./lib/api";
+import type { BacktestCreatePayload, Position, Trade } from "./lib/api";
 import type {
   ChartDrawing,
   ChartIndicatorId,
@@ -90,7 +90,8 @@ export default function App() {
   } = useBacktestStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
-  const [leftPaneOpen, setLeftPaneOpen] = useState(true);
+  const [sessionGateOpen, setSessionGateOpen] = useState(true);
+  const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
@@ -333,18 +334,38 @@ export default function App() {
     setTimeframe(sanitizeTimeframe(layout.timeframe));
   }
 
+  async function createSessionFromGateway(payload: BacktestCreatePayload) {
+    await newSession(payload);
+    await loadInitial();
+    setSessionGateOpen(false);
+    setLeftPaneOpen(false);
+    setLayersPanelOpen(false);
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
       <div className="flex min-h-screen max-w-full overflow-x-hidden">
         <Sidebar />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
-          <DatasetSessionPanel
-            datasets={datasets}
-            isLoading={isLoading}
-            onCreateSession={newSession}
-            playbooks={playbooks}
-            session={state?.session ?? null}
-          />
+          {sessionGateOpen ? (
+            <>
+              {error && (
+                <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                  <AlertTriangle size={18} />
+                  {error}
+                </div>
+              )}
+              <SessionGateway
+                datasets={datasets}
+                isLoading={isLoading}
+                onCreateSession={createSessionFromGateway}
+                onResumeSession={() => setSessionGateOpen(false)}
+                playbooks={playbooks}
+                session={state?.session ?? null}
+              />
+            </>
+          ) : (
+            <>
           <header className="command-header mb-4">
             <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
@@ -390,21 +411,23 @@ export default function App() {
             <div className="mt-5 flex gap-2 overflow-x-auto">
               <button
                 className="workspace-tab inline-flex items-center justify-center gap-2"
+                onClick={() => {
+                  setPlaying(false);
+                  setSessionGateOpen(true);
+                }}
+                type="button"
+              >
+                <Database size={14} />
+                Sessions
+              </button>
+              <button
+                className="workspace-tab inline-flex items-center justify-center gap-2"
                 onClick={() => setLeftPaneOpen((value) => !value)}
                 type="button"
               >
                 {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
                 Ticket
               </button>
-              {["Replay", "Orders", "Reports", "Journal", "Playbook"].map((item, index) => (
-                <button
-                  className={`workspace-tab ${index === 0 ? "workspace-tab-active" : ""}`}
-                  key={item}
-                  type="button"
-                >
-                  {item}
-                </button>
-              ))}
             </div>
           </header>
 
@@ -584,6 +607,8 @@ export default function App() {
               </div>
             </div>
           </div>
+            </>
+          )}
         </main>
       </div>
 
