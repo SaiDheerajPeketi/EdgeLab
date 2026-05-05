@@ -115,7 +115,7 @@ export function DatasetSessionPanel({
               onClick={() => handleInstrumentSelect(instrument)}
               type="button"
             >
-              <span className="font-black text-white">{instrument.symbol}</span>
+              <span className="instrument-tab-symbol">{instrument.symbol}</span>
               <span>{instrument.timeframes.length} TF</span>
             </button>
           ))}
