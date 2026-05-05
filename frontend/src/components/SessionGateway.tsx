@@ -1,4 +1,7 @@
 import {
+  Activity,
+  ArrowRight,
+  BarChart3,
   BookOpenCheck,
   CalendarRange,
   CheckCircle2,
@@ -17,7 +20,9 @@ import type {
   DatasetInstrument,
   DatasetTimeframe,
   Playbook,
+  Trade,
 } from "../lib/api";
+import { formatMoney, formatPercent } from "../lib/format";
 import { postPlaybook } from "../lib/api";
 import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
 
@@ -25,9 +30,11 @@ type Props = {
   datasets: DatasetCatalog | null;
   isLoading: boolean;
   onCreateSession: (payload: BacktestCreatePayload) => Promise<void>;
-  onResumeSession: () => void;
+  onResumeSession: (sessionId?: number) => Promise<void> | void;
   playbooks: Playbook[];
   session: BacktestSession | null;
+  sessions: BacktestSession[];
+  trades: Trade[];
 };
 
 type PlaybookMode = "none" | "existing" | "new";
@@ -39,6 +46,8 @@ export function SessionGateway({
   onResumeSession,
   playbooks,
   session,
+  sessions,
+  trades,
 }: Props) {
   const instruments = datasets?.instruments ?? [];
   const [instrumentId, setInstrumentId] = useState("");
@@ -69,6 +78,10 @@ export function SessionGateway({
   const selectedPlaybook = useMemo(
     () => playbooks.find((playbook) => String(playbook.id) === playbookId) ?? null,
     [playbookId, playbooks],
+  );
+  const strategyGroups = useMemo(
+    () => buildStrategyGroups(sessions, trades),
+    [sessions, trades],
   );
 
   useEffect(() => {
@@ -180,7 +193,7 @@ export function SessionGateway({
           <button
             className="control-button mt-5 w-full border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20"
             disabled={!session}
-            onClick={onResumeSession}
+            onClick={() => onResumeSession(session?.id)}
             type="button"
           >
             <RotateCcw size={16} />
@@ -188,6 +201,101 @@ export function SessionGateway({
           </button>
         </div>
       </div>
+
+      <section className="terminal-panel min-w-0 p-4 xl:p-5">
+        <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">
+              <BarChart3 size={14} />
+              Strategy Workspace
+            </div>
+            <h2 className="mt-2 text-lg font-semibold text-white">
+              Strategies, Sessions, Results
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-slate-500">
+              Pick a strategy to continue an existing session, or use its name when creating the next replay.
+            </p>
+          </div>
+          <span className="status-pill">
+            <Activity size={14} />
+            {strategyGroups.length} strategies
+          </span>
+        </div>
+
+        <div className="grid min-w-0 gap-3 xl:grid-cols-2">
+          {strategyGroups.map((group) => (
+            <article
+              className="min-w-0 rounded-md border border-white/10 bg-black/20 p-4"
+              key={group.name}
+            >
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <button
+                    className="block max-w-full truncate text-left text-base font-semibold text-white transition hover:text-cyan-100"
+                    onClick={() => setStrategy(group.name)}
+                    title="Use this strategy for the new session form"
+                    type="button"
+                  >
+                    {group.name}
+                  </button>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {group.sessions.length} sessions · {group.aggregate.closedTrades} closed trades
+                  </div>
+                </div>
+                <div className={`shrink-0 text-sm font-semibold ${toneForNumber(group.aggregate.netPnl)}`}>
+                  {formatMoney(group.aggregate.netPnl)}
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <GatewayMetric label="Win" value={formatPercent(group.aggregate.winRate)} />
+                <GatewayMetric label="PF" value={formatRatio(group.aggregate.profitFactor)} />
+                <GatewayMetric label="Avg R" value={formatOptionalNumber(group.aggregate.averageR)} />
+              </div>
+
+              <div className="mt-3 grid gap-2">
+                {group.sessions.map((row) => (
+                  <button
+                    className={`grid min-w-0 gap-3 rounded-md border px-3 py-2 text-left transition sm:grid-cols-[minmax(0,1fr)_auto] ${
+                      row.session.id === session?.id
+                        ? "border-cyan-300/35 bg-cyan-300/10"
+                        : "border-white/10 bg-[#080c11] hover:border-cyan-300/25 hover:bg-cyan-300/5"
+                    }`}
+                    key={`${group.name}:${row.session.id}`}
+                    onClick={() => onResumeSession(row.session.id)}
+                    type="button"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-100">
+                        {row.session.name}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {formatTradingViewSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"} · {row.session.status}
+                      </span>
+                    </span>
+                    <span className="flex items-center justify-between gap-3 sm:justify-end">
+                      <span className="text-right">
+                        <span className={`block text-sm font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
+                          {formatMoney(row.aggregate.netPnl)}
+                        </span>
+                        <span className="block text-xs text-slate-500">
+                          {row.aggregate.closedTrades} trades · {formatPercent(row.aggregate.winRate)}
+                        </span>
+                      </span>
+                      <ArrowRight size={15} className="text-slate-500" />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </article>
+          ))}
+          {strategyGroups.length === 0 && (
+            <div className="rounded-md border border-white/10 bg-black/20 px-4 py-10 text-center text-sm text-slate-500 xl:col-span-2">
+              Create a session to start building strategy results.
+            </div>
+          )}
+        </div>
+      </section>
 
       <form className="session-builder" onSubmit={(event) => void handleSubmit(event)}>
         <div className="session-step">
@@ -444,6 +552,160 @@ function ModeButton({
       {label}
     </button>
   );
+}
+
+type GatewayAggregate = {
+  averageR: number | null;
+  closedTrades: number;
+  netPnl: number;
+  profitFactor: number | null;
+  winRate: number;
+};
+
+type GatewaySessionResult = {
+  aggregate: GatewayAggregate;
+  session: BacktestSession;
+};
+
+type GatewayStrategyGroup = {
+  aggregate: GatewayAggregate;
+  name: string;
+  sessions: GatewaySessionResult[];
+};
+
+function buildStrategyGroups(
+  sessions: BacktestSession[],
+  trades: Trade[],
+): GatewayStrategyGroup[] {
+  const sessionById = new Map(sessions.map((item) => [item.id, item]));
+  const tradesBySessionStrategy = new Map<string, Trade[]>();
+  const sessionStrategyKeys = new Set<string>();
+
+  for (const session of sessions) {
+    const strategyName = normalizeStrategyName(session.strategy_name);
+    sessionStrategyKeys.add(sessionStrategyKey(session.id, strategyName));
+  }
+
+  for (const trade of trades) {
+    const session = sessionById.get(trade.session_id);
+    if (!session) {
+      continue;
+    }
+    const strategyName = normalizeStrategyName(trade.strategy_name || session.strategy_name);
+    const key = sessionStrategyKey(session.id, strategyName);
+    sessionStrategyKeys.add(key);
+    tradesBySessionStrategy.set(key, [
+      ...(tradesBySessionStrategy.get(key) ?? []),
+      trade,
+    ]);
+  }
+
+  const groups = new Map<string, GatewaySessionResult[]>();
+  for (const key of sessionStrategyKeys) {
+    const [sessionIdPart, strategyName] = splitSessionStrategyKey(key);
+    const session = sessionById.get(Number(sessionIdPart));
+    if (!session) {
+      continue;
+    }
+    groups.set(strategyName, [
+      ...(groups.get(strategyName) ?? []),
+      {
+        aggregate: aggregateGatewayTrades(tradesBySessionStrategy.get(key) ?? []),
+        session,
+      },
+    ]);
+  }
+
+  return Array.from(groups.entries())
+    .map(([name, strategySessions]) => {
+      const strategyTrades = strategySessions.flatMap((row) =>
+        tradesBySessionStrategy.get(sessionStrategyKey(row.session.id, name)) ?? [],
+      );
+      return {
+        aggregate: aggregateGatewayTrades(strategyTrades),
+        name,
+        sessions: strategySessions.sort((a, b) => b.session.id - a.session.id),
+      };
+    })
+    .sort((a, b) => {
+      if (b.aggregate.closedTrades !== a.aggregate.closedTrades) {
+        return b.aggregate.closedTrades - a.aggregate.closedTrades;
+      }
+      return a.name.localeCompare(b.name);
+    });
+}
+
+function aggregateGatewayTrades(trades: Trade[]): GatewayAggregate {
+  const closedTrades = trades.filter((trade) => trade.status === "CLOSED");
+  const netPnl = closedTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
+  const wins = closedTrades.filter((trade) => (trade.realized_pnl ?? 0) > 0);
+  const grossWins = wins.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
+  const grossLosses = Math.abs(
+    closedTrades
+      .filter((trade) => (trade.realized_pnl ?? 0) < 0)
+      .reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0),
+  );
+  const rValues = closedTrades
+    .map((trade) => trade.r_multiple)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+
+  return {
+    averageR:
+      rValues.length > 0
+        ? rValues.reduce((sum, value) => sum + value, 0) / rValues.length
+        : null,
+    closedTrades: closedTrades.length,
+    netPnl,
+    profitFactor: grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : null,
+    winRate: closedTrades.length > 0 ? wins.length / closedTrades.length : 0,
+  };
+}
+
+function GatewayMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded bg-[#080c11] px-2 py-2">
+      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
+        {label}
+      </div>
+      <div className="mt-1 truncate text-sm font-semibold tabular-nums text-slate-100">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function normalizeStrategyName(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "Unassigned";
+}
+
+function sessionStrategyKey(sessionId: number, strategyName: string) {
+  return `${sessionId}\u0000${strategyName}`;
+}
+
+function splitSessionStrategyKey(key: string) {
+  return key.split("\u0000") as [string, string];
+}
+
+function formatRatio(value: number | null | undefined) {
+  if (value == null) {
+    return "-";
+  }
+  if (!Number.isFinite(value)) {
+    return "∞";
+  }
+  return value.toFixed(2);
+}
+
+function formatOptionalNumber(value: number | null | undefined) {
+  return value == null || !Number.isFinite(value) ? "-" : value.toFixed(2);
+}
+
+function toneForNumber(value: number | null | undefined) {
+  if (value == null || value === 0) {
+    return "text-slate-100";
+  }
+  return value > 0 ? "text-emerald-300" : "text-rose-300";
 }
 
 function RuleBox({

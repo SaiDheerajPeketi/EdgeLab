@@ -285,6 +285,10 @@ export function getLatestBacktest() {
   return request<BacktestState>("/backtests/latest");
 }
 
+export function getBacktest(sessionId: number) {
+  return request<BacktestState>(`/backtests/${sessionId}`);
+}
+
 export function getBacktests() {
   return request<BacktestSession[]>("/backtests");
 }

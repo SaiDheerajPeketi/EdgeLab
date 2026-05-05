@@ -15,6 +15,7 @@ import {
   createBacktest,
   deleteBacktestOrder,
   getBars,
+  getBacktest,
   getBacktests,
   getDatasets,
   getLatestBacktest,
@@ -46,6 +47,7 @@ type BacktestStore = {
   error: string | null;
   loadInitial: () => Promise<void>;
   refreshResults: () => Promise<void>;
+  loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
   stepForward: (steps?: number) => Promise<void>;
   resetReplay: () => Promise<void>;
@@ -126,6 +128,30 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       set({ resultSessions, resultTrades, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
+    }
+  },
+
+  loadSession: async (sessionId) => {
+    set({ isLoading: true, isPlaying: false, error: null });
+    try {
+      const initialState = await getBacktest(sessionId);
+      const meta = await getMeta(initialState.session.id);
+      const state = await ensureReplayContext(initialState, meta);
+      const window = await loadWindow(
+        state.session.current_offset,
+        state.session.id,
+        state.session.start_offset,
+      );
+      set({
+        meta,
+        state,
+        bars: window.bars,
+        barOffset: window.barOffset,
+        isLoading: false,
+      });
+      void get().refreshResults();
+    } catch (error) {
+      set({ error: toErrorMessage(error), isLoading: false });
     }
   },
 

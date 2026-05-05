@@ -81,6 +81,7 @@ export default function App() {
     isLoading,
     isPlaying,
     speedMs,
+    loadSession,
     loadInitial,
     newSession,
     jumpToOffset,
@@ -342,6 +343,17 @@ export default function App() {
     setWorkspacePanel("none");
   }
 
+  async function resumeSessionFromGateway(sessionId?: number) {
+    if (sessionId) {
+      await loadSession(sessionId);
+    }
+    setSessionGateOpen(false);
+    setLeftPaneOpen(false);
+    setChartToolsOpen(false);
+    setLayersPanelOpen(false);
+    setWorkspacePanel("none");
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
       <div className="flex min-h-screen max-w-full overflow-x-hidden">
@@ -359,9 +371,11 @@ export default function App() {
                 datasets={datasets}
                 isLoading={isLoading}
                 onCreateSession={createSessionFromGateway}
-                onResumeSession={() => setSessionGateOpen(false)}
+                onResumeSession={resumeSessionFromGateway}
                 playbooks={playbooks}
                 session={state?.session ?? null}
+                sessions={resultSessions}
+                trades={resultTrades}
               />
             </>
           ) : (
