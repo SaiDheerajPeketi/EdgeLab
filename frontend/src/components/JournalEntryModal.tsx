@@ -1,7 +1,7 @@
 import { Image, Plus, RefreshCw, X } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { Trade } from "../lib/api";
-import { formatPrice } from "../lib/format";
+import { formatDateTime, formatPrice } from "../lib/format";
 import {
   DEFAULT_MISTAKE_TAGS,
   loadStrategyMistakeTags,
@@ -139,7 +139,7 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
           <div>
             <h2 className="text-base font-semibold text-white">Journal Entry</h2>
             <p className="text-xs text-slate-500">
-              #{trade.id} · {formatPrice(trade.entry_price)}
+              #{trade.id} · {formatDateTime(trade.entry_time)} → {formatDateTime(trade.exit_time)}
             </p>
           </div>
           <button className="icon-button" onClick={onClose} type="button">
@@ -164,6 +164,18 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
               value={emotion}
             />
           </label>
+          <div className="sm:col-span-2 grid gap-2 sm:grid-cols-2">
+            <ReadonlyTradeTime
+              label="Entry Date/Time"
+              price={formatPrice(trade.entry_price)}
+              value={formatDateTime(trade.entry_time)}
+            />
+            <ReadonlyTradeTime
+              label="Exit Date/Time"
+              price={formatPrice(trade.exit_price)}
+              value={formatDateTime(trade.exit_time)}
+            />
+          </div>
           <section className="sm:col-span-2 rounded-md border border-white/10 bg-black/20 p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -290,6 +302,24 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ReadonlyTradeTime({
+  label,
+  price,
+  value,
+}: {
+  label: string;
+  price: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-100">{value}</div>
+      <div className="mt-0.5 text-xs tabular-nums text-slate-500">{price}</div>
     </div>
   );
 }

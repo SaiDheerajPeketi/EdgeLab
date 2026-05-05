@@ -1,7 +1,7 @@
 import { Image, Plus, RefreshCw, Save, X } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Execution, Trade } from "../lib/api";
-import { formatPrice } from "../lib/format";
+import { formatDateTime, formatPrice } from "../lib/format";
 import {
   loadStrategyMistakeTags,
   mergeTags,
@@ -184,6 +184,8 @@ export function TradeDetailDrawer({
 
       <div className="space-y-4 p-5">
         <div className="grid grid-cols-2 gap-2 text-sm">
+          <Metric label="Entry Date/Time" value={formatDateTime(trade.entry_time)} />
+          <Metric label="Exit Date/Time" value={formatDateTime(trade.exit_time)} />
           <Metric label="Entry" value={formatPrice(trade.entry_price)} />
           <Metric label="Exit" value={formatPrice(trade.exit_price)} />
           <Metric label="PnL" value={money(trade.realized_pnl)} tone={trade.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"} />

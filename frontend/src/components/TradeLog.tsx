@@ -1,6 +1,6 @@
 import { Edit3 } from "lucide-react";
 import type { Trade } from "../lib/api";
-import { formatPrice } from "../lib/format";
+import { formatDateTime, formatPrice } from "../lib/format";
 
 type Props = {
   trades: Trade[];
@@ -17,10 +17,11 @@ export function TradeLog({ trades, onEdit, onInspect }: Props) {
       </div>
 
       <div className="max-h-[476px] overflow-auto">
-        <table className="w-full min-w-[620px] text-left text-sm">
+        <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="sticky top-0 bg-ink-850 text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">Entry</th>
+              <th className="px-3 py-3 font-medium">Exit</th>
               <th className="px-3 py-3 font-medium">Side</th>
               <th className="px-3 py-3 font-medium">PnL</th>
               <th className="px-3 py-3 font-medium">R</th>
@@ -36,7 +37,15 @@ export function TradeLog({ trades, onEdit, onInspect }: Props) {
                     {formatPrice(trade.entry_price)}
                   </div>
                   <div className="text-xs text-slate-500">
-                    {new Date(trade.entry_time).toLocaleString()}
+                    {formatDateTime(trade.entry_time)}
+                  </div>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="font-medium text-slate-100">
+                    {formatPrice(trade.exit_price)}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {formatDateTime(trade.exit_time)}
                   </div>
                 </td>
                 <td className="px-3 py-3">
