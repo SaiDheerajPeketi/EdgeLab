@@ -36,8 +36,12 @@ import {
   aggregateBars,
   bucketTime,
   buildIndicatorDefinitions,
+  defaultRiskRewardStopPoint,
+  isRiskRewardTool,
   latestIndicatorValue,
   macdSeries,
+  normalizeRiskRewardDrawing,
+  normalizeRiskRewardPoints,
   rsiSeries,
   toCandles,
   type ChartDrawing,
@@ -1477,16 +1481,14 @@ function renderDrawing(
   }
 
   if (drawing.tool === "longPosition" || drawing.tool === "shortPosition") {
-    const stopPoint = drawing.points[2] ?? defaultPositionStopPoint(drawing);
-    const stop = toPixel(stopPoint);
-    if (!stop) {
+    const positionDrawing = normalizeRiskRewardDrawing(drawing);
+    const entry = toPixel(positionDrawing.points[0]);
+    const target = toPixel(positionDrawing.points[1]);
+    const stop = toPixel(positionDrawing.points[2]);
+    if (!entry || !target || !stop) {
       return null;
     }
-    const positionDrawing =
-      drawing.points[2] == null
-        ? { ...drawing, points: [drawing.points[0], drawing.points[1], stopPoint] }
-        : drawing;
-    return renderPositionDrawing(positionDrawing, first, second, stop, width, options);
+    return renderPositionDrawing(positionDrawing, entry, target, stop, width, options);
   }
 
   if (drawing.tool === "rectangle") {
@@ -1996,7 +1998,7 @@ function moveDrawing(
     const points = dragState.originalPoints.map((originalPoint, index) =>
       index === dragState.pointIndex ? point : originalPoint,
     );
-    return { ...dragState.drawing, points };
+    return normalizeDraggedDrawing({ ...dragState.drawing, points });
   }
 
   const xDelta = pixel.x - dragState.startPixel.x;
@@ -2020,25 +2022,11 @@ function moveDrawing(
     );
     return moved ?? originalPoint;
   });
-  return { ...dragState.drawing, points };
+  return normalizeDraggedDrawing({ ...dragState.drawing, points });
 }
 
-function defaultPositionStopPoint(drawing: ChartDrawing): DrawingPoint {
-  const entry = drawing.points[0];
-  const target = drawing.points[1] ?? entry;
-  const reward = Math.abs(target.price - entry.price);
-  const fallbackRisk = Math.max(Math.abs(entry.price) * 0.001, 0.0001);
-  const risk = reward > 0 ? reward : fallbackRisk;
-  const price =
-    drawing.tool === "shortPosition"
-      ? entry.price + risk
-      : entry.price - risk;
-
-  return {
-    logical: target.logical,
-    time: target.time,
-    price,
-  };
+function normalizeDraggedDrawing(drawing: ChartDrawing): ChartDrawing {
+  return isRiskRewardTool(drawing.tool) ? normalizeRiskRewardDrawing(drawing) : drawing;
 }
 
 function makeDrawing(
@@ -2047,18 +2035,12 @@ function makeDrawing(
   label?: string,
 ): ChartDrawing {
   const normalizedPoints =
-    (tool === "longPosition" || tool === "shortPosition") && points.length === 2
-      ? [
+    isRiskRewardTool(tool) && points.length >= 2
+      ? normalizeRiskRewardPoints(tool, [
           points[0],
           points[1],
-          defaultPositionStopPoint({
-            id: "draft-position",
-            tool,
-            color: DRAWING_COLORS[tool],
-            points,
-            createdAt: "",
-          }),
-        ]
+          points[2] ?? defaultRiskRewardStopPoint(tool, points),
+        ])
       : points;
 
   return {

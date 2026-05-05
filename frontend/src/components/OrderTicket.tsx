@@ -2,6 +2,7 @@ import { Send, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderPayload, Playbook } from "../lib/api";
 import type { ChartDrawing } from "../lib/charting";
+import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
 
@@ -311,10 +312,12 @@ function extractRiskRewardOrderValues(
     return null;
   }
 
-  const side: "BUY" | "SELL" = drawing.tool === "longPosition" ? "BUY" : "SELL";
-  const entry = drawing.points[0].price;
-  const takeProfit = drawing.points[1].price;
-  const stopLoss = drawing.points[2]?.price ?? defaultRiskRewardStopPrice(drawing);
+  const normalizedDrawing = normalizeRiskRewardDrawing(drawing);
+  const side: "BUY" | "SELL" =
+    normalizedDrawing.tool === "longPosition" ? "BUY" : "SELL";
+  const entry = normalizedDrawing.points[0].price;
+  const takeProfit = normalizedDrawing.points[1].price;
+  const stopLoss = normalizedDrawing.points[2].price;
   const orderType = inferEntryOrderType(side, entry, currentPrice);
   const risk = Math.abs(entry - stopLoss);
   const reward = Math.abs(takeProfit - entry);
@@ -327,15 +330,6 @@ function extractRiskRewardOrderValues(
     stopLoss: priceInputValue(stopLoss),
     takeProfit: priceInputValue(takeProfit),
   };
-}
-
-function defaultRiskRewardStopPrice(drawing: ChartDrawing) {
-  const entry = drawing.points[0].price;
-  const target = drawing.points[1]?.price ?? entry;
-  const reward = Math.abs(target - entry);
-  const fallbackRisk = Math.max(Math.abs(entry) * 0.001, 0.0001);
-  const risk = reward > 0 ? reward : fallbackRisk;
-  return drawing.tool === "shortPosition" ? entry + risk : entry - risk;
 }
 
 function inferEntryOrderType(

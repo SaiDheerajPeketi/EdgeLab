@@ -116,6 +116,80 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   vwap: { color: "#22c55e", period: 1 },
 };
 
+export function isRiskRewardTool(
+  tool: ChartDrawing["tool"] | DrawingTool,
+): tool is "longPosition" | "shortPosition" {
+  return tool === "longPosition" || tool === "shortPosition";
+}
+
+export function normalizeRiskRewardPoints(
+  tool: "longPosition" | "shortPosition",
+  points: DrawingPoint[],
+): DrawingPoint[] {
+  if (points.length === 0) {
+    return points;
+  }
+
+  const entry = { ...points[0] };
+  const targetSource = points[1] ? { ...points[1] } : { ...entry };
+  const stopSource = points[2]
+    ? { ...points[2] }
+    : defaultRiskRewardStopPoint(tool, [entry, targetSource]);
+  const gap = riskRewardMinimumGap(entry.price);
+  const target =
+    tool === "longPosition"
+      ? {
+          ...targetSource,
+          price: Math.max(targetSource.price, entry.price + gap),
+        }
+      : {
+          ...targetSource,
+          price: Math.min(targetSource.price, entry.price - gap),
+        };
+  const stop =
+    tool === "longPosition"
+      ? {
+          ...stopSource,
+          price: Math.min(stopSource.price, entry.price - gap),
+        }
+      : {
+          ...stopSource,
+          price: Math.max(stopSource.price, entry.price + gap),
+        };
+
+  return [entry, target, stop, ...points.slice(3)];
+}
+
+export function normalizeRiskRewardDrawing(drawing: ChartDrawing): ChartDrawing {
+  if (!isRiskRewardTool(drawing.tool)) {
+    return drawing;
+  }
+  return {
+    ...drawing,
+    points: normalizeRiskRewardPoints(drawing.tool, drawing.points),
+  };
+}
+
+export function defaultRiskRewardStopPoint(
+  tool: "longPosition" | "shortPosition",
+  points: DrawingPoint[],
+): DrawingPoint {
+  const entry = points[0];
+  const target = points[1] ?? entry;
+  const reward = Math.abs(target.price - entry.price);
+  const fallbackRisk = Math.max(Math.abs(entry.price) * 0.001, riskRewardMinimumGap(entry.price));
+  const risk = reward > 0 ? reward : fallbackRisk;
+  return {
+    logical: target.logical,
+    time: target.time,
+    price: tool === "shortPosition" ? entry.price + risk : entry.price - risk,
+  };
+}
+
+function riskRewardMinimumGap(entryPrice: number) {
+  return Math.max(Math.abs(entryPrice) * 0.000001, 0.00001);
+}
+
 export function getTimeframeSeconds(timeframe: ChartTimeframe) {
   return TIMEFRAMES.find((item) => item.id === timeframe)?.seconds ?? 60;
 }
