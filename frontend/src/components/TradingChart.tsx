@@ -211,6 +211,13 @@ export function TradingChart({
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
   );
+  const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
+  const headerPriceTone =
+    activeHeaderCandle == null
+      ? "text-slate-300"
+      : activeHeaderCandle.close >= activeHeaderCandle.open
+        ? "text-emerald-300"
+        : "text-rose-300";
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
     drawings,
@@ -614,7 +621,7 @@ export function TradingChart({
   return (
     <section className="chart-stage">
       <div className="chart-stage-header">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
               EU
@@ -626,22 +633,33 @@ export function TradingChart({
               </div>
             </div>
           </div>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-slate-400">
-          {activeOverlayIndicators.slice(0, 4).map((indicator) => (
-            <span className="chart-legend-pill" key={indicator.id}>
-              <span
-                className="h-2 w-2 rounded-sm"
-                style={{ backgroundColor: indicator.color }}
-              />
-              {indicator.label}
-            </span>
-          ))}
-          {rsiData.length > 0 && (
-            <span className="chart-legend-pill text-fuchsia-100">
-              RSI {latestIndicatorValue(rsiData)?.toFixed(1)}
-            </span>
-          )}
+          <OhlcvStrip candle={activeHeaderCandle} tone={headerPriceTone} />
+          <div className="chart-study-row">
+            {activeOverlayIndicators.slice(0, 5).map((indicator) => (
+              <span className="chart-study-pill" key={indicator.id}>
+                <span
+                  className="h-2 w-2 rounded-sm"
+                  style={{ backgroundColor: indicator.color }}
+                />
+                <span>{indicator.label}</span>
+                <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
+              </span>
+            ))}
+            {rsiData.length > 0 && (
+              <span className="chart-study-pill text-fuchsia-100">
+                <span className="h-2 w-2 rounded-sm bg-fuchsia-300" />
+                <span>RSI</span>
+                <strong>{latestIndicatorValue(rsiData)?.toFixed(2) ?? "—"}</strong>
+              </span>
+            )}
+            {macdData && (
+              <span className="chart-study-pill text-blue-100">
+                <span className="h-2 w-2 rounded-sm bg-blue-300" />
+                <span>MACD</span>
+                <strong>{latestIndicatorValue(macdData.macd)?.toFixed(5) ?? "—"}</strong>
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -705,6 +723,55 @@ export function TradingChart({
         </div>
       )}
     </section>
+  );
+}
+
+function OhlcvStrip({
+  candle,
+  tone,
+}: {
+  candle: Candle | null;
+  tone: string;
+}) {
+  const change =
+    candle == null || candle.open === 0
+      ? null
+      : ((candle.close - candle.open) / candle.open) * 100;
+
+  return (
+    <div className="chart-ohlcv-row">
+      <span className="chart-ohlcv-time">
+        {candle ? new Date(candle.timestamp).toLocaleString() : "No candle"}
+      </span>
+      <OhlcvValue label="O" value={formatPrice(candle?.open)} />
+      <OhlcvValue label="H" value={formatPrice(candle?.high)} tone="text-emerald-300" />
+      <OhlcvValue label="L" value={formatPrice(candle?.low)} tone="text-rose-300" />
+      <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
+      <OhlcvValue
+        label="Vol"
+        value={candle ? formatCompactNumber(candle.volume) : "—"}
+      />
+      <span className={`chart-ohlcv-change ${tone}`}>
+        {change == null ? "—" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
+      </span>
+    </div>
+  );
+}
+
+function OhlcvValue({
+  label,
+  tone = "text-slate-200",
+  value,
+}: {
+  label: string;
+  tone?: string;
+  value: string;
+}) {
+  return (
+    <span className="chart-ohlcv-item">
+      <span>{label}</span>
+      <strong className={tone}>{value}</strong>
+    </span>
   );
 }
 
@@ -1771,6 +1838,13 @@ function formatDurationSeconds(seconds: number) {
     return `${(seconds / 3600).toFixed(1)}h`;
   }
   return `${(seconds / 86400).toFixed(1)}d`;
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+    notation: "compact",
+  }).format(value);
 }
 
 function toRsiPath(values: LineData[], width: number, height: number) {

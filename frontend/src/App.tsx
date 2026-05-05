@@ -5,15 +5,17 @@ import {
   CircleDot,
   Clock3,
   Database,
+  Layers,
   ListOrdered,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Radio,
   ShoppingCart,
   WalletCards,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { CandleInspector } from "./components/CandleInspector";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
 import { DatasetSessionPanel } from "./components/DatasetSessionPanel";
@@ -88,6 +90,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [leftPaneOpen, setLeftPaneOpen] = useState(true);
+  const [layersPanelOpen, setLayersPanelOpen] = useState(true);
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
@@ -480,9 +483,8 @@ export default function App() {
                   smoothCandles={smoothCandles}
                   timeframe={timeframe}
                 />
-                <div className="chart-studio-layout">
+                <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-collapsed"}`}>
                   <div className="min-w-0 space-y-3">
-                    <CandleInspector candle={current} orders={orders} position={position} />
                     <TradingChart
                       activeIndicators={activeIndicators}
                       bars={bars}
@@ -515,28 +517,38 @@ export default function App() {
                       timeframe={timeframe}
                     />
                   </div>
-                  <ChartObjectsPanel
-                    activeIndicators={activeIndicators}
-                    chartStyle={chartStyle}
-                    drawings={drawings}
-                    indicatorSettings={indicatorSettings}
-                    onClearDrawings={clearDrawings}
-                    onDeleteDrawing={deleteDrawing}
-                    onSelectDrawing={setSelectedDrawingId}
-                    onToggleIndicator={toggleIndicator}
-                    onUpdateDrawing={(updatedDrawing) =>
-                      setDrawings((currentDrawings) =>
-                        currentDrawings.map((drawing) =>
-                          drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
-                        ),
-                      )
-                    }
-                    onUpdateIndicatorSettings={updateIndicatorSettings}
-                    onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
-                    orderOverlaysVisible={showOrderOverlays}
-                    selectedDrawingId={selectedDrawingId}
-                    smoothCandles={smoothCandles}
-                  />
+                  {layersPanelOpen ? (
+                    <ChartObjectsPanel
+                      activeIndicators={activeIndicators}
+                      chartStyle={chartStyle}
+                      drawings={drawings}
+                      indicatorSettings={indicatorSettings}
+                      onClearDrawings={clearDrawings}
+                      onCollapse={() => setLayersPanelOpen(false)}
+                      onDeleteDrawing={deleteDrawing}
+                      onSelectDrawing={setSelectedDrawingId}
+                      onToggleIndicator={toggleIndicator}
+                      onUpdateDrawing={(updatedDrawing) =>
+                        setDrawings((currentDrawings) =>
+                          currentDrawings.map((drawing) =>
+                            drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
+                          ),
+                        )
+                      }
+                      onUpdateIndicatorSettings={updateIndicatorSettings}
+                      onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                      orderOverlaysVisible={showOrderOverlays}
+                      selectedDrawingId={selectedDrawingId}
+                      smoothCandles={smoothCandles}
+                    />
+                  ) : (
+                    <CollapsedLayersPanel
+                      activeIndicatorCount={activeIndicators.length}
+                      drawingCount={drawings.length}
+                      onExpand={() => setLayersPanelOpen(true)}
+                      overlaysVisible={showOrderOverlays}
+                    />
+                  )}
                 </div>
                 {isChartFullscreen && (
                   <div className="chart-fullscreen-dock">
@@ -640,6 +652,49 @@ function CollapsedExecutionPane({
         <span>{pendingCount} pending</span>
       </div>
     </section>
+  );
+}
+
+function CollapsedLayersPanel({
+  activeIndicatorCount,
+  drawingCount,
+  onExpand,
+  overlaysVisible,
+}: {
+  activeIndicatorCount: number;
+  drawingCount: number;
+  onExpand: () => void;
+  overlaysVisible: boolean;
+}) {
+  return (
+    <aside className="collapsed-layers-panel">
+      <button
+        className="icon-button h-10 w-10"
+        onClick={onExpand}
+        title="Expand layers"
+        type="button"
+      >
+        <PanelRightOpen size={17} />
+      </button>
+      <div className="h-px w-8 bg-white/10" />
+      <CollapsedAction
+        badge={drawingCount}
+        icon={Layers}
+        label="Drawings"
+        tone="text-cyan-200"
+      />
+      <CollapsedAction
+        badge={activeIndicatorCount}
+        icon={ListOrdered}
+        label="Studies"
+        tone="text-fuchsia-200"
+      />
+      <CollapsedAction
+        icon={overlaysVisible ? BadgeDollarSign : PanelRightClose}
+        label={overlaysVisible ? "Overlays On" : "Overlays Off"}
+        tone={overlaysVisible ? "text-emerald-300" : "text-slate-500"}
+      />
+    </aside>
   );
 }
 

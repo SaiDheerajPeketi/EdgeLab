@@ -8,6 +8,7 @@ import {
   LockKeyhole,
   Magnet,
   Minus,
+  PanelRightClose,
   Ruler,
   SlidersHorizontal,
   Square,
@@ -34,6 +35,7 @@ type Props = {
   drawings: ChartDrawing[];
   indicatorSettings: IndicatorSettingsMap;
   onClearDrawings: () => void;
+  onCollapse: () => void;
   onDeleteDrawing: (drawingId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
@@ -70,6 +72,7 @@ export function ChartObjectsPanel({
   drawings,
   indicatorSettings,
   onClearDrawings,
+  onCollapse,
   onDeleteDrawing,
   onSelectDrawing,
   onToggleIndicator,
@@ -98,7 +101,17 @@ export function ChartObjectsPanel({
               Indicators, drawings, overlays
             </p>
           </div>
-          <Layers size={18} className="text-cyan-200" />
+          <div className="flex items-center gap-2">
+            <Layers size={18} className="text-cyan-200" />
+            <button
+              className="icon-button h-8 w-8"
+              onClick={onCollapse}
+              title="Collapse layers"
+              type="button"
+            >
+              <PanelRightClose size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
