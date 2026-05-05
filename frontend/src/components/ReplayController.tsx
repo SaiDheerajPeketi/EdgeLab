@@ -7,7 +7,7 @@ import {
   SkipForward,
   StepForward,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -36,6 +36,11 @@ export function ReplayController({
   const [jumpOffset, setJumpOffset] = useState("");
   const [jumpTime, setJumpTime] = useState("");
   const currentOffset = state?.session.current_offset ?? 0;
+  const currentTimestamp = state?.current_candle?.timestamp ?? null;
+
+  useEffect(() => {
+    setJumpTime(toLocalInputValue(currentTimestamp));
+  }, [currentTimestamp]);
 
   return (
     <section className="rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
@@ -127,8 +132,8 @@ export function ReplayController({
           />
           <button
             className="control-button"
-            disabled={!jumpTime}
-            onClick={() => void jumpToTimestamp(new Date(jumpTime).toISOString())}
+            disabled={!state || !jumpTime}
+            onClick={() => void jumpToTimestamp(toDatasetTimestamp(jumpTime))}
             type="button"
           >
             Go Date
@@ -137,4 +142,20 @@ export function ReplayController({
       </div>
     </section>
   );
+}
+
+function toLocalInputValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function toDatasetTimestamp(value: string) {
+  return value.length === 16 ? `${value}:00` : value;
 }
