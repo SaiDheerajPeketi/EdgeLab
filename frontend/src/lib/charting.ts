@@ -49,6 +49,7 @@ export type IndicatorSettings = {
 export type IndicatorSettingsMap = Record<ChartIndicatorId, IndicatorSettings>;
 
 export type DrawingPoint = {
+  logical?: number;
   time: number;
   price: number;
 };

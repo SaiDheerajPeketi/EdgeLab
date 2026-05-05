@@ -20,6 +20,7 @@ import type {
   IChartApi,
   IPriceLine,
   ISeriesApi,
+  Logical,
   LineData,
   MouseEventParams,
   Time,
@@ -490,6 +491,7 @@ export function TradingChart({
       chartFrameRef.current,
       chartRef.current,
       candlesRef.current,
+      barsRef.current,
     );
     if (!point) {
       return;
@@ -526,6 +528,7 @@ export function TradingChart({
         chartFrameRef.current,
         chartRef.current,
         candlesRef.current,
+        barsRef.current,
       );
       const pixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
       if (!point || !pixel) {
@@ -538,6 +541,7 @@ export function TradingChart({
         chartFrameRef.current,
         chartRef.current,
         candlesRef.current,
+        barsRef.current,
       );
       if (!nextDrawing) {
         return;
@@ -556,6 +560,7 @@ export function TradingChart({
         chartFrameRef.current,
         chartRef.current,
         candlesRef.current,
+        barsRef.current,
       ),
     );
   }
@@ -574,6 +579,7 @@ export function TradingChart({
       chartFrameRef.current,
       chartRef.current,
       candlesRef.current,
+      barsRef.current,
     );
     if (!point) {
       return;
@@ -920,12 +926,7 @@ function buildDrawingElements({
 
   const width = frame.clientWidth;
   const toPixel = (point: DrawingPoint) => {
-    const x = chart.timeScale().timeToCoordinate(point.time as UTCTimestamp);
-    const y = series.priceToCoordinate(point.price);
-    if (x == null || y == null) {
-      return null;
-    }
-    return { x, y };
+    return pixelFromPoint(point, chart, series);
   };
 
   return (
@@ -1321,19 +1322,19 @@ function renderAnchors(
         <g transform={`translate(${toolbarPoint.x + 12} ${toolbarPoint.y + 12})`}>
           <rect
             fill="rgba(8, 12, 17, 0.96)"
-            height={26}
-            rx={5}
+            height={30}
+            rx={7}
             stroke="rgba(255,255,255,0.14)"
-            width={102}
+            width={66}
           />
-          <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={9} y={17}>
-            DRAG
-          </text>
-          <text
+          <g fill="#94a3b8" opacity="0.78">
+            <circle cx={12} cy={11} r={1.5} />
+            <circle cx={18} cy={11} r={1.5} />
+            <circle cx={12} cy={19} r={1.5} />
+            <circle cx={18} cy={19} r={1.5} />
+          </g>
+          <g
             cursor="pointer"
-            fill="#fb7185"
-            fontSize="13"
-            fontWeight="800"
             onMouseDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -1341,11 +1342,19 @@ function renderAnchors(
               options.onSelectDrawing(null);
             }}
             pointerEvents="all"
-            x={82}
-            y={18}
+            transform="translate(39 6)"
           >
-            DEL
-          </text>
+            <title>Delete drawing</title>
+            <rect
+              fill="rgba(251, 113, 133, 0.16)"
+              height={18}
+              rx={5}
+              stroke="rgba(251, 113, 133, 0.45)"
+              width={18}
+            />
+            <line stroke="#fecdd3" strokeLinecap="round" strokeWidth={1.8} x1={6} x2={12} y1={6} y2={12} />
+            <line stroke="#fecdd3" strokeLinecap="round" strokeWidth={1.8} x1={12} x2={6} y1={6} y2={12} />
+          </g>
         </g>
       )}
     </g>
@@ -1466,12 +1475,13 @@ function pointFromClient(
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
+  bars: Candle[] = [],
 ): DrawingPoint | null {
   const pixel = pixelFromClient(clientX, clientY, frame);
   if (!pixel) {
     return null;
   }
-  return pointFromPixel(pixel.x, pixel.y, frame, chart, series);
+  return pointFromPixel(pixel.x, pixel.y, frame, chart, series, bars);
 }
 
 function pixelFromClient(
@@ -1495,18 +1505,31 @@ function pointFromPixel(
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
+  bars: Candle[] = [],
 ): DrawingPoint | null {
   if (!chart || !series || !frame) {
     return null;
   }
   const clampedX = clamp(x, 0, Math.max(0, frame.clientWidth - 1));
   const clampedY = clamp(y, 0, Math.max(0, frame.clientHeight - 1));
+  const logicalValue = chart.timeScale().coordinateToLogical(clampedX);
+  const logical = logicalValue == null ? null : Number(logicalValue);
   const time = chart.timeScale().coordinateToTime(clampedX);
   const price = series.coordinateToPrice(clampedY);
-  if (time == null || price == null || typeof time !== "number") {
+  if (price == null) {
     return null;
   }
-  return { time, price };
+  if (time != null && typeof time === "number") {
+    return { logical: logical ?? undefined, time, price };
+  }
+  if (logical == null) {
+    return null;
+  }
+  return {
+    logical,
+    time: estimateTimeFromLogical(logical, bars),
+    price,
+  };
 }
 
 function pixelFromPoint(
@@ -1517,12 +1540,53 @@ function pixelFromPoint(
   if (!chart || !series) {
     return null;
   }
-  const x = chart.timeScale().timeToCoordinate(point.time as UTCTimestamp);
+  const x =
+    point.logical == null
+      ? chart.timeScale().timeToCoordinate(point.time as UTCTimestamp)
+      : chart.timeScale().logicalToCoordinate(point.logical as Logical);
   const y = series.priceToCoordinate(point.price);
   if (x == null || y == null) {
     return null;
   }
   return { x, y };
+}
+
+function estimateTimeFromLogical(logical: number, bars: Candle[]) {
+  const sortedBars = bars
+    .filter((bar) => Number.isFinite(bar.time))
+    .sort((left, right) => left.time - right.time);
+  if (sortedBars.length === 0) {
+    return Math.max(0, Math.round(logical));
+  }
+
+  const barSeconds = inferBarSeconds(sortedBars);
+  if (logical <= 0) {
+    return Math.max(0, Math.round(sortedBars[0].time + logical * barSeconds));
+  }
+
+  const lowerIndex = Math.floor(logical);
+  const upperIndex = Math.ceil(logical);
+  if (lowerIndex >= 0 && upperIndex < sortedBars.length) {
+    const lower = sortedBars[lowerIndex].time;
+    const upper = sortedBars[upperIndex].time;
+    return Math.round(lower + (upper - lower) * (logical - lowerIndex));
+  }
+
+  if (lowerIndex < sortedBars.length) {
+    return Math.round(sortedBars[lowerIndex].time);
+  }
+
+  const lastIndex = sortedBars.length - 1;
+  return Math.round(sortedBars[lastIndex].time + (logical - lastIndex) * barSeconds);
+}
+
+function inferBarSeconds(bars: Candle[]) {
+  const gaps = bars
+    .slice(1, Math.min(bars.length, 80))
+    .map((bar, index) => bar.time - bars[index].time)
+    .filter((gap) => Number.isFinite(gap) && gap > 0)
+    .sort((left, right) => left - right);
+  return gaps[Math.floor(gaps.length / 2)] ?? 60;
 }
 
 function moveDrawing(
@@ -1532,6 +1596,7 @@ function moveDrawing(
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
+  bars: Candle[] = [],
 ): ChartDrawing | null {
   if (dragState.mode === "anchor" && dragState.pointIndex != null) {
     const points = dragState.originalPoints.map((originalPoint, index) =>
@@ -1557,6 +1622,7 @@ function moveDrawing(
       frame,
       chart,
       series,
+      bars,
     );
     return moved ?? originalPoint;
   });

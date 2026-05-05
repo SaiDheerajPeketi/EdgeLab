@@ -894,7 +894,9 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
           typeof point.time === "number" &&
           typeof point.price === "number" &&
           Number.isFinite(point.time) &&
-          Number.isFinite(point.price),
+          Number.isFinite(point.price) &&
+          (point.logical == null ||
+            (typeof point.logical === "number" && Number.isFinite(point.logical))),
       )
     );
   });
