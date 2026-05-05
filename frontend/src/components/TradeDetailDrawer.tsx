@@ -1,5 +1,5 @@
-import { Plus, Save, X } from "lucide-react";
-import { KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { Image, Plus, RefreshCw, Save, X } from "lucide-react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Execution, Trade } from "../lib/api";
 import { formatPrice } from "../lib/format";
 import {
@@ -9,6 +9,7 @@ import {
   persistStrategyMistakeTags,
   strategyTagScope,
 } from "../lib/mistakeTags";
+import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -31,6 +32,11 @@ export function TradeDetailDrawer({
   const [savedTags, setSavedTags] = useState<string[]>(trade.mistake_tags);
   const [customTag, setCustomTag] = useState("");
   const [savingTags, setSavingTags] = useState(false);
+  const [snapshotUrl, setSnapshotUrl] = useState(trade.screenshot_url ?? "");
+  const [snapshotStatus, setSnapshotStatus] = useState<
+    "idle" | "loading" | "ready" | "saving" | "saved" | "error"
+  >(trade.screenshot_url ? "ready" : "idle");
+  const tagsRef = useRef(tags);
   const activeStrategyScope = strategyTagScope(
     trade.strategy_name || strategyScope,
   );
@@ -46,6 +52,10 @@ export function TradeDetailDrawer({
   );
 
   useEffect(() => {
+    tagsRef.current = tags;
+  }, [tags]);
+
+  useEffect(() => {
     setTags(trade.mistake_tags);
     setSavedTags(trade.mistake_tags);
     setCustomTag("");
@@ -54,6 +64,67 @@ export function TradeDetailDrawer({
   useEffect(() => {
     setStrategyTagOptions(loadStrategyMistakeTags(activeStrategyScope));
   }, [activeStrategyScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSnapshotUrl(trade.screenshot_url ?? "");
+    if (trade.screenshot_url) {
+      setSnapshotStatus("ready");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function generateAndSaveSnapshot() {
+      setSnapshotStatus("loading");
+      try {
+        const snapshot = await createTradeSnapshotDataUrl(trade);
+        if (cancelled) {
+          return;
+        }
+        setSnapshotUrl(snapshot);
+        setSnapshotStatus("saving");
+        await updateJournal(trade.id, {
+          notes: trade.notes ?? null,
+          strategy_name: trade.strategy_name ?? strategyScope ?? null,
+          emotional_state: trade.emotional_state ?? null,
+          screenshot_url: snapshot,
+          mistake_tags: tagsRef.current,
+        });
+        if (!cancelled) {
+          setSnapshotStatus("saved");
+        }
+      } catch {
+        if (!cancelled) {
+          setSnapshotStatus("error");
+        }
+      }
+    }
+
+    void generateAndSaveSnapshot();
+    return () => {
+      cancelled = true;
+    };
+  }, [strategyScope, trade.id, trade.screenshot_url, updateJournal]);
+
+  async function regenerateSnapshot() {
+    setSnapshotStatus("loading");
+    try {
+      const snapshot = await createTradeSnapshotDataUrl(trade);
+      setSnapshotUrl(snapshot);
+      setSnapshotStatus("saving");
+      await updateJournal(trade.id, {
+        notes: trade.notes ?? null,
+        strategy_name: trade.strategy_name ?? strategyScope ?? null,
+        emotional_state: trade.emotional_state ?? null,
+        screenshot_url: snapshot,
+        mistake_tags: tagsRef.current,
+      });
+      setSnapshotStatus("saved");
+    } catch {
+      setSnapshotStatus("error");
+    }
+  }
 
   function addTags(value: string) {
     const nextTags = parseTagInput(value);
@@ -116,6 +187,58 @@ export function TradeDetailDrawer({
           <Metric label="R" value={trade.r_multiple?.toFixed(2) ?? "—"} />
           <Metric label="Qty" value={trade.quantity.toLocaleString()} />
           <Metric label="Remaining" value={trade.remaining_quantity.toLocaleString()} />
+        </div>
+
+        <div className="rounded-md bg-ink-950 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                <Image size={14} />
+                Trade Snapshot
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Entry to exit, with surrounding context candles.
+              </p>
+            </div>
+            <button
+              className="control-button h-9"
+              disabled={snapshotStatus === "loading" || snapshotStatus === "saving"}
+              onClick={() => void regenerateSnapshot()}
+              type="button"
+            >
+              <RefreshCw
+                className={
+                  snapshotStatus === "loading" || snapshotStatus === "saving"
+                    ? "animate-spin"
+                    : ""
+                }
+                size={14}
+              />
+              {snapshotStatus === "saving" ? "Saving" : "Regenerate"}
+            </button>
+          </div>
+          {snapshotUrl ? (
+            <img
+              alt="Generated trade snapshot"
+              className="w-full rounded-md border border-white/10"
+              src={snapshotUrl}
+            />
+          ) : (
+            <div className="grid h-44 place-items-center rounded-md bg-black/25 text-sm text-slate-500">
+              {snapshotStatus === "error"
+                ? "Snapshot could not be generated"
+                : "Generating snapshot"}
+            </div>
+          )}
+          <div className="mt-2 text-xs text-slate-500">
+            {snapshotStatus === "saved"
+              ? "Snapshot preserved with this trade."
+              : snapshotStatus === "ready"
+                ? "Snapshot already preserved."
+                : snapshotStatus === "error"
+                  ? "Use regenerate after market data is available."
+                  : "Preparing snapshot."}
+          </div>
         </div>
 
         <div className="rounded-md bg-ink-950 p-3">
@@ -214,14 +337,6 @@ export function TradeDetailDrawer({
             {tradeExecutions.length === 0 && <div className="text-sm text-slate-500">No executions linked</div>}
           </div>
         </div>
-
-        {trade.screenshot_url && (
-          <img
-            alt="Trade screenshot"
-            className="w-full rounded-md border border-white/10"
-            src={trade.screenshot_url}
-          />
-        )}
       </div>
     </aside>
   );

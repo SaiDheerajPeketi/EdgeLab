@@ -1,4 +1,4 @@
-import { Plus, X } from "lucide-react";
+import { Image, Plus, RefreshCw, X } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { Trade } from "../lib/api";
 import { formatPrice } from "../lib/format";
@@ -10,6 +10,7 @@ import {
   persistStrategyMistakeTags,
   strategyTagScope,
 } from "../lib/mistakeTags";
+import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -25,7 +26,10 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
     trade.strategy_name?.trim() ? trade.strategy_name : strategyScope ?? "",
   );
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
-  const [screenshotUrl, setScreenshotUrl] = useState(trade.screenshot_url ?? "");
+  const [snapshotUrl, setSnapshotUrl] = useState(trade.screenshot_url ?? "");
+  const [snapshotStatus, setSnapshotStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    trade.screenshot_url ? "ready" : "idle",
+  );
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
   const [customTag, setCustomTag] = useState("");
   const [saving, setSaving] = useState(false);
@@ -41,6 +45,47 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
   useEffect(() => {
     setStrategyCustomTags(loadStrategyMistakeTags(activeStrategyScope));
   }, [activeStrategyScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSnapshotUrl(trade.screenshot_url ?? "");
+    if (trade.screenshot_url) {
+      setSnapshotStatus("ready");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSnapshotStatus("loading");
+    void createTradeSnapshotDataUrl(trade)
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+        setSnapshotUrl(snapshot);
+        setSnapshotStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSnapshotStatus("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trade.id, trade.screenshot_url]);
+
+  async function regenerateSnapshot() {
+    setSnapshotStatus("loading");
+    try {
+      const snapshot = await createTradeSnapshotDataUrl(trade);
+      setSnapshotUrl(snapshot);
+      setSnapshotStatus("ready");
+    } catch {
+      setSnapshotStatus("error");
+    }
+  }
 
   function addTags(value: string) {
     const nextTags = parseTagInput(value);
@@ -72,7 +117,7 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
       notes: notes || null,
       strategy_name: strategy || null,
       emotional_state: emotion || null,
-      screenshot_url: screenshotUrl || null,
+      screenshot_url: snapshotUrl || null,
       mistake_tags: tags,
     });
     persistStrategyMistakeTags(strategy || activeStrategyScope, tags);
@@ -115,14 +160,44 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
               value={emotion}
             />
           </label>
-          <label className="form-field sm:col-span-2">
-            <span>Screenshot URL</span>
-            <input
-              className="input-control h-10"
-              onChange={(event) => setScreenshotUrl(event.target.value)}
-              value={screenshotUrl}
-            />
-          </label>
+          <section className="sm:col-span-2 rounded-md border border-white/10 bg-black/20 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                  <Image size={14} />
+                  Trade Snapshot
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Auto-preserved from entry to exit with surrounding candle context.
+                </p>
+              </div>
+              <button
+                className="control-button h-9"
+                disabled={snapshotStatus === "loading"}
+                onClick={() => void regenerateSnapshot()}
+                type="button"
+              >
+                <RefreshCw
+                  className={snapshotStatus === "loading" ? "animate-spin" : ""}
+                  size={14}
+                />
+                Regenerate
+              </button>
+            </div>
+            {snapshotUrl ? (
+              <img
+                alt="Generated trade snapshot"
+                className="w-full rounded-md border border-white/10"
+                src={snapshotUrl}
+              />
+            ) : (
+              <div className="grid h-40 place-items-center rounded-md bg-ink-950 text-sm text-slate-500">
+                {snapshotStatus === "error"
+                  ? "Snapshot could not be generated"
+                  : "Generating snapshot"}
+              </div>
+            )}
+          </section>
 
           <fieldset className="sm:col-span-2">
             <legend className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
@@ -204,10 +279,10 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
           </button>
           <button
             className="control-button border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
-            disabled={saving}
+            disabled={saving || snapshotStatus === "loading"}
             type="submit"
           >
-            {saving ? "Saving" : "Save"}
+            {saving ? "Saving" : snapshotStatus === "loading" ? "Generating Snapshot" : "Save"}
           </button>
         </div>
       </form>

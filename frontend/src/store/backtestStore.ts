@@ -318,7 +318,17 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 
   updateJournal: async (tradeId, payload) => {
     const trade = await patchJournal(tradeId, payload);
-    await get().loadInitial();
+    const activeSessionId = get().state?.session.id;
+    if (activeSessionId) {
+      const state = await getBacktest(activeSessionId);
+      set({ state });
+    } else {
+      set((current) => ({
+        resultTrades: current.resultTrades.map((item) =>
+          item.id === trade.id ? trade : item,
+        ),
+      }));
+    }
     await get().refreshResults();
     return trade;
   },
