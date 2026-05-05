@@ -36,10 +36,11 @@ export function ReplayController({
   const [jumpOffset, setJumpOffset] = useState("");
   const [jumpTime, setJumpTime] = useState("");
   const currentOffset = state?.session.current_offset ?? 0;
-  const currentTimestamp = state?.current_candle?.timestamp ?? null;
+  const currentTimestamp =
+    state?.current_candle?.timestamp ?? state?.session.start_at ?? null;
 
   useEffect(() => {
-    setJumpTime(toLocalInputValue(currentTimestamp));
+    setJumpTime(toReplayInputValue(currentTimestamp));
   }, [currentTimestamp]);
 
   return (
@@ -144,16 +145,13 @@ export function ReplayController({
   );
 }
 
-function toLocalInputValue(value: string | null) {
+function toReplayInputValue(value: string | null) {
   if (!value) {
     return "";
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  const normalized = value.trim().replace(" ", "T");
+  const match = normalized.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return match ? `${match[1]}T${match[2]}` : "";
 }
 
 function toDatasetTimestamp(value: string) {
