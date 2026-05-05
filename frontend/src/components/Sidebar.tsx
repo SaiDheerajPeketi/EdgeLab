@@ -4,8 +4,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
-  LineChart,
   Network,
   PlaySquare,
   Settings,
@@ -42,19 +40,18 @@ const sections: Array<{
     shortLabel: "BT",
     items: [
       { id: "sessions", label: "Sessions", icon: PlaySquare },
-      { id: "backtest", label: "Replay Chart", icon: LineChart },
       {
         children: [
           { id: "dashboard", label: "Overview" },
           { id: "reports", label: "Metrics" },
+          { id: "tradeView", label: "Trades" },
+          { id: "notebook", label: "Notes" },
         ],
         icon: BarChart3,
         label: "Results",
         primaryId: "dashboard",
       },
       { id: "dayView", label: "Backtest Day View", icon: CalendarDays },
-      { id: "tradeView", label: "Backtest Trades", icon: ClipboardList },
-      { id: "notebook", label: "Backtest Notes", icon: BookOpen },
       { id: "strategies", label: "Strategies", icon: Target },
       { id: "playbooks", label: "Playbooks", icon: BookOpen },
       { id: "accounts", label: "Backtest Accounts", icon: WalletCards },
@@ -70,14 +67,14 @@ const sections: Array<{
         children: [
           { id: "journalDashboard", label: "Overview" },
           { id: "journalReports", label: "Metrics" },
+          { id: "journalTrades", label: "Trades" },
+          { id: "journalNotes", label: "Notes" },
         ],
         icon: BarChart3,
         label: "Journal Results",
         primaryId: "journalDashboard",
       },
       { id: "journalDayView", label: "Journal Day View", icon: CalendarDays },
-      { id: "journalTrades", label: "Live Trades", icon: ClipboardList },
-      { id: "journalNotes", label: "Journal Notes", icon: BookOpen },
       { id: "journalStrategies", label: "Journal Strategies", icon: Target },
       { id: "journalPlaybooks", label: "Journal Playbooks", icon: BookOpen },
       { id: "journalAccounts", label: "Journal Accounts", icon: WalletCards },
@@ -217,7 +214,7 @@ export function Sidebar({
                   );
                 }
                 const Icon = item.icon;
-                const active = item.id === activeView;
+                const active = item.id === activeView || (item.id === "sessions" && activeView === "backtest");
                 return (
                   <button
                     key={item.label}
