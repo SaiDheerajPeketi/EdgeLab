@@ -25,6 +25,7 @@ import {
 } from "../lib/api";
 
 const WINDOW_SIZE = 1500;
+const DEFAULT_CONTEXT_BARS = 300;
 
 type BacktestStore = {
   bars: Candle[];
@@ -74,15 +75,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       ]);
       const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
       const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
-      const state = await getLatestBacktest().catch(() => createBacktest({}));
-      const [meta, window] = await Promise.all([
-        getMeta(state.session.id),
-        loadWindow(
-          state.session.current_offset,
-          state.session.id,
-          state.session.start_offset,
-        ),
-      ]);
+      const initialState = await getLatestBacktest().catch(() => createBacktest({}));
+      const meta = await getMeta(initialState.session.id);
+      const state = await ensureReplayContext(initialState, meta);
+      const window = await loadWindow(
+        state.session.current_offset,
+        state.session.id,
+        state.session.start_offset,
+      );
       set({
         datasets,
         meta,
@@ -106,15 +106,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   newSession: async (payload = {}) => {
     set({ isLoading: true, isPlaying: false, error: null });
     try {
-      const state = await createBacktest(payload);
-      const [meta, window] = await Promise.all([
-        getMeta(state.session.id),
-        loadWindow(
-          state.session.current_offset,
-          state.session.id,
-          state.session.start_offset,
-        ),
-      ]);
+      const initialState = await createBacktest(payload);
+      const meta = await getMeta(initialState.session.id);
+      const state = await ensureReplayContext(initialState, meta);
+      const window = await loadWindow(
+        state.session.current_offset,
+        state.session.id,
+        state.session.start_offset,
+      );
       set({
         meta,
         state,
@@ -288,6 +287,34 @@ async function ensureBarsForOffset(
 
   const response = await getBars(loadedThrough + 1, offset - loadedThrough, sessionId);
   return { bars: [...bars, ...response.bars], barOffset };
+}
+
+async function ensureReplayContext(state: BacktestState, meta: DatasetMeta) {
+  if (!isEmptyFreshReplay(state)) {
+    return state;
+  }
+
+  if (state.session.current_offset >= DEFAULT_CONTEXT_BARS || meta.rows <= 1) {
+    return state;
+  }
+
+  const sessionEnd = state.session.end_offset ?? meta.rows - 1;
+  const targetOffset = Math.min(DEFAULT_CONTEXT_BARS, sessionEnd, meta.rows - 1);
+  if (targetOffset <= state.session.current_offset) {
+    return state;
+  }
+
+  return jumpBacktest(state.session.id, { offset: targetOffset });
+}
+
+function isEmptyFreshReplay(state: BacktestState) {
+  const position = state.position;
+  return (
+    state.orders.length === 0 &&
+    state.executions.length === 0 &&
+    state.trades.length === 0 &&
+    (!position || position.side === "FLAT" || position.quantity <= 0)
+  );
 }
 
 function toErrorMessage(error: unknown) {

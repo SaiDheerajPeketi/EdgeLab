@@ -65,7 +65,7 @@ export function DatasetSessionPanel({
     if (!selectedTimeframe) {
       return;
     }
-    setStartDate(toLocalInputValue(selectedTimeframe.first_timestamp));
+    setStartDate(defaultReplayStartValue(selectedTimeframe));
     setEndDate(toLocalInputValue(selectedTimeframe.last_timestamp));
   }, [selectedTimeframe?.csv_path]);
 
@@ -289,6 +289,46 @@ function toLocalInputValue(value: string | null) {
   }
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function defaultReplayStartValue(timeframe: DatasetTimeframe) {
+  if (!timeframe.first_timestamp) {
+    return "";
+  }
+
+  const firstDate = new Date(timeframe.first_timestamp);
+  if (Number.isNaN(firstDate.getTime())) {
+    return "";
+  }
+
+  const contextBars = Math.min(300, Math.max(timeframe.rows - 1, 0));
+  const contextMs = contextBars * timeframeSeconds(timeframe.timeframe) * 1000;
+  return toLocalInputValue(new Date(firstDate.getTime() + contextMs).toISOString());
+}
+
+function timeframeSeconds(timeframe: string) {
+  switch (timeframe) {
+    case "M1":
+      return 60;
+    case "M5":
+      return 300;
+    case "M15":
+      return 900;
+    case "M30":
+      return 1800;
+    case "H1":
+      return 3600;
+    case "H4":
+      return 14400;
+    case "Daily":
+      return 86400;
+    case "Weekly":
+      return 604800;
+    case "Monthly":
+      return 2592000;
+    default:
+      return 60;
+  }
 }
 
 function formatDate(value: string | null) {
