@@ -48,6 +48,8 @@ import { useBacktestStore } from "./store/backtestStore";
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
 const CHART_LAYOUTS_KEY = "tradezella.chart-layouts.v1";
 const ACTIVE_CHART_LAYOUT_KEY = "tradezella.active-chart-layout.v1";
+const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
+  "tradezella.chart-layout-cleared-single-horizontal.v1";
 const VALID_INDICATORS: ChartIndicatorId[] = [
   "bb20",
   "ema20",
@@ -820,6 +822,7 @@ function loadChartLayout(): Partial<StoredChartLayout> | null {
   if (typeof window === "undefined") {
     return null;
   }
+  purgeStaleSingleHorizontalDrawing();
   try {
     const activeName = window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY);
     const activeRecord = activeName ? loadChartLayoutRecord(activeName) : null;
@@ -837,6 +840,61 @@ function loadChartLayout(): Partial<StoredChartLayout> | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function purgeStaleSingleHorizontalDrawing() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (window.localStorage.getItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY) === "1") {
+    return;
+  }
+  window.localStorage.setItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY, "1");
+
+  try {
+    const rawLegacyLayout = window.localStorage.getItem(CHART_LAYOUT_KEY);
+    const legacyLayout = rawLegacyLayout
+      ? (JSON.parse(rawLegacyLayout) as Partial<StoredChartLayout>)
+      : null;
+    const records = loadChartLayoutRecords();
+    const layouts = [
+      legacyLayout,
+      ...records.map((record) => record.layout),
+    ].filter((layout): layout is Partial<StoredChartLayout> => layout != null);
+
+    const hasOnlyStaleHorizontal = layouts.some((layout) => {
+      const savedDrawings = sanitizeDrawings(layout.drawings);
+      return savedDrawings.length === 1 && savedDrawings[0].tool === "horizontal";
+    });
+    if (!hasOnlyStaleHorizontal) {
+      return;
+    }
+
+    if (legacyLayout) {
+      window.localStorage.setItem(
+        CHART_LAYOUT_KEY,
+        JSON.stringify({ ...legacyLayout, drawings: [] }),
+      );
+    }
+
+    if (records.length > 0) {
+      window.localStorage.setItem(
+        CHART_LAYOUTS_KEY,
+        JSON.stringify(
+          records.map((record) => ({
+            ...record,
+            layout: {
+              ...record.layout,
+              drawings: [],
+            },
+            updatedAt: new Date().toISOString(),
+          })),
+        ),
+      );
+    }
+  } catch {
+    // Ignore invalid local layout JSON; normal sanitizers handle the fallback path.
   }
 }
 
