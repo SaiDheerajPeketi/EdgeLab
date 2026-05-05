@@ -494,6 +494,7 @@ export default function App() {
                   </button>
                 </section>
                 <OrderTicket
+                  onOrderPlaced={() => setLeftPaneOpen(false)}
                   playbooks={playbooks}
                   riskRewardDrawing={latestRiskRewardDrawing}
                 />
@@ -595,6 +596,7 @@ export default function App() {
                 {isChartFullscreen && (
                   <div className="chart-fullscreen-dock">
                     <OrderTicket
+                      onOrderPlaced={() => setLeftPaneOpen(false)}
                       playbooks={playbooks}
                       riskRewardDrawing={latestRiskRewardDrawing}
                     />

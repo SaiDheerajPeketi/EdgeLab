@@ -7,11 +7,12 @@ import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
+  onOrderPlaced?: () => void;
   playbooks: Playbook[];
   riskRewardDrawing?: ChartDrawing | null;
 };
 
-export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
+export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Props) {
   const state = useBacktestStore((store) => store.state);
   const placeOrder = useBacktestStore((store) => store.placeOrder);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -25,11 +26,13 @@ export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
   const [takeProfit, setTakeProfit] = useState("");
   const [breakeven, setBreakeven] = useState("");
   const [reduceOnly, setReduceOnly] = useState(false);
-  const [strategy, setStrategy] = useState("London Continuation");
   const [playbookId, setPlaybookId] = useState("");
   const [notes, setNotes] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const currentPrice = state?.current_candle?.close;
+  const sessionStrategy = state?.session.strategy_name?.trim() ?? "";
+  const sessionStrategyLabel = sessionStrategy || "Unassigned";
   const riskRewardValues = useMemo(
     () => extractRiskRewardOrderValues(riskRewardDrawing, currentPrice),
     [currentPrice, riskRewardDrawing],
@@ -71,8 +74,15 @@ export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
     setTakeProfit(riskRewardValues.takeProfit);
   }, [riskRewardValues]);
 
-  function handleSubmit(event: FormEvent) {
+  useEffect(() => {
+    setPlaybookId(state?.session.playbook_id ? String(state.session.playbook_id) : "");
+  }, [state?.session.id, state?.session.playbook_id]);
+
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
     const payload: OrderPayload = {
       side,
       order_type: orderType,
@@ -84,12 +94,17 @@ export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
       take_profit: numberOrNull(takeProfit),
       breakeven_trigger_r: numberOrNull(breakeven),
       reduce_only: reduceOnly,
-      strategy_name: strategy || null,
+      strategy_name: sessionStrategy || null,
       playbook_id: playbookId ? Number(playbookId) : null,
       mistake_tags: [],
       notes: notes || null,
     };
-    void placeOrder(payload);
+    setIsSubmitting(true);
+    const placed = await placeOrder(payload);
+    setIsSubmitting(false);
+    if (placed) {
+      onOrderPlaced?.();
+    }
   }
 
   return (
@@ -244,9 +259,10 @@ export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
           <label className="form-field">
             <span>Strategy</span>
             <input
-              className="input-control h-10"
-              onChange={(event) => setStrategy(event.target.value)}
-              value={strategy}
+              className="input-control h-10 cursor-not-allowed border-cyan-300/20 bg-cyan-300/5 text-cyan-100"
+              readOnly
+              title="Orders inherit the current session strategy"
+              value={sessionStrategyLabel}
             />
           </label>
           <label className="form-field">
@@ -284,9 +300,13 @@ export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
           Reduce only
         </label>
 
-        <button className="control-button border-cyan-300/30 bg-cyan-300/10 text-cyan-100" type="submit">
+        <button
+          className="control-button border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+          disabled={isSubmitting}
+          type="submit"
+        >
           <Send size={17} />
-          Submit Order
+          {isSubmitting ? "Submitting" : "Submit Order"}
         </button>
       </div>
     </form>

@@ -53,7 +53,7 @@ type BacktestStore = {
   jumpToTimestamp: (timestamp: string) => Promise<void>;
   setPlaying: (value: boolean) => void;
   setSpeed: (value: number) => void;
-  placeOrder: (payload: OrderPayload) => Promise<void>;
+  placeOrder: (payload: OrderPayload) => Promise<boolean>;
   amendOrder: (orderId: number, payload: OrderUpdatePayload) => Promise<void>;
   cancelOrder: (orderId: number) => Promise<void>;
   updateJournal: (tradeId: number, payload: JournalPayload) => Promise<Trade>;
@@ -249,7 +249,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   placeOrder: async (payload) => {
     const sessionId = get().state?.session.id;
     if (!sessionId) {
-      return;
+      return false;
     }
     try {
       const state = await postBacktestOrder(sessionId, payload);
@@ -257,8 +257,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       if (state.trades.some((trade) => trade.status === "CLOSED")) {
         void get().refreshResults();
       }
+      return true;
     } catch (error) {
       set({ error: toErrorMessage(error) });
+      return false;
     }
   },
 
