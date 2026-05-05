@@ -1241,6 +1241,26 @@ function chartPlotWidth(chart: IChartApi, frame: HTMLDivElement) {
   return frame.clientWidth;
 }
 
+function horizontalPriceLabelGeometry(label: string, plotWidth: number, y: number) {
+  const paddingX = 16;
+  const estimatedTextWidth = label.length * 6.9;
+  const maxWidth = Math.max(72, plotWidth - 16);
+  const labelWidth = clamp(
+    Math.ceil(estimatedTextWidth + paddingX),
+    72,
+    Math.min(172, maxWidth),
+  );
+  const textWidth = Math.max(12, labelWidth - paddingX);
+
+  return {
+    squeeze: estimatedTextWidth > textWidth,
+    textWidth,
+    width: labelWidth,
+    x: clamp(plotWidth - labelWidth - 8, 8, Math.max(8, plotWidth - labelWidth - 8)),
+    y: clamp(y - 24, 4, Math.max(4, y + 4)),
+  };
+}
+
 function renderDrawing(
   drawing: ChartDrawing,
   toPixel: (point: DrawingPoint) => { x: number; y: number } | null,
@@ -1287,6 +1307,8 @@ function renderDrawing(
     if (!point) {
       return null;
     }
+    const label = formatPrice(drawing.points[0].price);
+    const labelGeometry = horizontalPriceLabelGeometry(label, width, point.y);
     return (
       <g key={drawing.id}>
         <line
@@ -1317,12 +1339,21 @@ function renderDrawing(
           rx={4}
           stroke={color}
           strokeOpacity="0.55"
-          width={88}
-          x={Math.max(8, width - 104)}
-          y={point.y - 24}
+          width={labelGeometry.width}
+          x={labelGeometry.x}
+          y={labelGeometry.y}
         />
-        <text fill={color} fontSize="11" fontWeight="700" x={Math.max(16, width - 96)} y={point.y - 10}>
-          {formatPrice(drawing.points[0].price)}
+        <text
+          fill={color}
+          fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          fontSize="11"
+          fontWeight="700"
+          lengthAdjust={labelGeometry.squeeze ? "spacingAndGlyphs" : undefined}
+          textLength={labelGeometry.squeeze ? labelGeometry.textWidth : undefined}
+          x={labelGeometry.x + 8}
+          y={labelGeometry.y + 14}
+        >
+          {label}
         </text>
         {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
