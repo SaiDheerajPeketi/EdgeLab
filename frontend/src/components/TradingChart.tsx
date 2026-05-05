@@ -70,8 +70,6 @@ type Props = {
 };
 
 type TooltipData = {
-  x: number;
-  y: number;
   candle: Candle;
 };
 
@@ -138,9 +136,6 @@ export function TradingChart({
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
-  const tooltipStyle = tooltip
-    ? getTooltipStyle(tooltip, chartFrameRef.current)
-    : undefined;
 
   const displayBars = useMemo(
     () => aggregateBars(bars, timeframe),
@@ -704,24 +699,6 @@ export function TradingChart({
         </div>
       )}
 
-      {tooltip && (
-        <div
-          className="pointer-events-none absolute z-30 max-w-[240px] rounded-md border border-white/10 bg-ink-950/95 px-3 py-2 text-xs text-slate-200 shadow-panel"
-          style={tooltipStyle}
-        >
-          <div className="mb-1 font-semibold text-white">
-            {new Date(tooltip.candle.timestamp).toLocaleString()}
-          </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            <span>O {formatPrice(tooltip.candle.open)}</span>
-            <span>H {formatPrice(tooltip.candle.high)}</span>
-            <span>L {formatPrice(tooltip.candle.low)}</span>
-            <span>C {formatPrice(tooltip.candle.close)}</span>
-            <span>Vol {tooltip.candle.volume}</span>
-            <span>RSI {tooltip.candle.rsi_14?.toFixed(1) ?? "—"}</span>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
@@ -737,6 +714,8 @@ function OhlcvStrip({
     candle == null || candle.open === 0
       ? null
       : ((candle.close - candle.open) / candle.open) * 100;
+  const hasVolume =
+    candle != null && Number.isFinite(candle.volume) && candle.volume > 0;
 
   return (
     <div className="chart-ohlcv-row">
@@ -747,10 +726,7 @@ function OhlcvStrip({
       <OhlcvValue label="H" value={formatPrice(candle?.high)} tone="text-emerald-300" />
       <OhlcvValue label="L" value={formatPrice(candle?.low)} tone="text-rose-300" />
       <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
-      <OhlcvValue
-        label="Vol"
-        value={candle ? formatCompactNumber(candle.volume) : "—"}
-      />
+      {hasVolume && <OhlcvValue label="Vol" value={formatCompactNumber(candle.volume)} />}
       <span className={`chart-ohlcv-change ${tone}`}>
         {change == null ? "—" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
       </span>
@@ -1761,19 +1737,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getTooltipStyle(tooltip: TooltipData, container: HTMLDivElement | null) {
-  const width = container?.clientWidth ?? 320;
-  const height = container?.clientHeight ?? 508;
-  const left = Math.min(Math.max(12, tooltip.x + 12), Math.max(12, width - 252));
-  const top = Math.min(Math.max(60, tooltip.y + 60), Math.max(60, height - 102));
-  return { left, top };
-}
-
 function resolveTooltip(
   param: MouseEventParams<Time>,
   bars: Candle[],
 ): TooltipData | null {
-  if (!param.point || param.time == null) {
+  if (param.time == null) {
     return null;
   }
   const time = Number(param.time);
@@ -1782,8 +1750,6 @@ function resolveTooltip(
     return null;
   }
   return {
-    x: param.point.x,
-    y: param.point.y,
     candle,
   };
 }
