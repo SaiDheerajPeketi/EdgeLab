@@ -10,7 +10,6 @@ import {
   Minus,
   PanelRightClose,
   Ruler,
-  SlidersHorizontal,
   Square,
   Type,
   Trash2,
@@ -83,14 +82,6 @@ export function ChartObjectsPanel({
   selectedDrawingId,
   smoothCandles,
 }: Props) {
-  const selectedDrawing = drawings.find((drawing) => drawing.id === selectedDrawingId) ?? null;
-  const updateSelectedDrawing = (patch: Partial<ChartDrawing>) => {
-    if (!selectedDrawing) {
-      return;
-    }
-    onUpdateDrawing({ ...selectedDrawing, ...patch });
-  };
-
   return (
     <aside className="chart-side-panel">
       <div className="border-b border-white/10 px-4 py-3">
@@ -156,17 +147,31 @@ export function ChartObjectsPanel({
               const settings = indicatorSettings[indicator.id] ?? FALLBACK_SETTING;
               return (
                 <div
-                  className={`chart-object-row text-left ${active ? "chart-object-row-active" : ""}`}
+                  className={`chart-object-row object-row-with-hover text-left ${active ? "chart-object-row-active" : ""}`}
                   key={indicator.id}
                 >
                   <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{
-                      backgroundColor: active
-                        ? settings.color
-                        : "rgba(148, 163, 184, 0.38)",
-                    }}
-                  />
+                    className="object-symbol-cell"
+                    style={{ color: active ? settings.color : "rgba(148, 163, 184, 0.55)" }}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{
+                        backgroundColor: active
+                          ? settings.color
+                          : "rgba(148, 163, 184, 0.38)",
+                      }}
+                    />
+                    <IndicatorHoverControls
+                      active={active}
+                      indicator={indicator.id}
+                      onToggle={() => onToggleIndicator(indicator.id)}
+                      onUpdate={(settingsPatch) =>
+                        onUpdateIndicatorSettings(indicator.id, settingsPatch)
+                      }
+                      settings={settings}
+                    />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-slate-100">
                       {indicator.label}
@@ -180,25 +185,12 @@ export function ChartObjectsPanel({
                     </span>
                   </span>
                   <button
-                    className={active ? "text-cyan-100" : "text-slate-500"}
+                    className={`rounded px-1.5 py-1 ${active ? "text-cyan-100" : "text-slate-500"}`}
                     onClick={() => onToggleIndicator(indicator.id)}
                     type="button"
                   >
                     {active ? "On" : "Off"}
                   </button>
-                  {active && indicator.id !== "vwap" && indicator.id !== "macd" && (
-                    <input
-                      className="h-8 w-16 rounded-md border border-white/10 bg-ink-950 px-2 text-xs text-slate-100 outline-none"
-                      min={2}
-                      onChange={(event) =>
-                        onUpdateIndicatorSettings(indicator.id, {
-                          period: Math.max(2, Number(event.target.value) || 2),
-                        })
-                      }
-                      type="number"
-                      value={settings.period}
-                    />
-                  )}
                 </div>
               );
             })}
@@ -225,17 +217,25 @@ export function ChartObjectsPanel({
               const Icon = drawingIcons[drawing.tool];
               return (
                 <div
-                  className={`chart-object-row ${drawing.visible === false ? "opacity-55" : ""} ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
+                  className={`chart-object-row drawing-object-row object-row-with-hover ${drawing.visible === false ? "opacity-55" : ""} ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
                   key={drawing.id}
                   onClick={() => onSelectDrawing(drawing.id)}
                   role="button"
                   tabIndex={0}
                 >
                   <span
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 bg-white/5"
+                    className="drawing-symbol-cell"
                     style={{ color: drawing.color }}
                   >
                     <Icon size={15} />
+                    <DrawingHoverControls
+                      drawing={drawing}
+                      onChange={(patch) => onUpdateDrawing({ ...drawing, ...patch })}
+                      onDelete={() => {
+                        onDeleteDrawing(drawing.id);
+                        onSelectDrawing(null);
+                      }}
+                    />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold capitalize text-slate-100">
@@ -251,32 +251,10 @@ export function ChartObjectsPanel({
                         : `${drawing.points.length} anchors`}
                     </span>
                   </span>
-                  <button
-                    className="icon-button h-8 w-8"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onUpdateDrawing({
-                        ...drawing,
-                        visible: drawing.visible === false,
-                      });
-                    }}
-                    title={drawing.visible === false ? "Show drawing" : "Hide drawing"}
-                    type="button"
-                  >
+                  <div className="drawing-row-actions">
                     {drawing.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
-                  </button>
-                  <button
-                    className="icon-button h-8 w-8"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDeleteDrawing(drawing.id);
-                      onSelectDrawing(null);
-                    }}
-                    title="Delete drawing"
-                    type="button"
-                  >
-                    <X size={13} />
-                  </button>
+                    {drawing.locked ? <LockKeyhole size={13} /> : null}
+                  </div>
                 </div>
               );
             })}
@@ -287,48 +265,31 @@ export function ChartObjectsPanel({
             )}
           </div>
         </section>
-
-        <section className="rounded-md border border-white/10 bg-black/20 p-3">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Object Settings
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {selectedDrawing ? selectedDrawing.tool : "Select a drawing"}
-              </div>
-            </div>
-            <SlidersHorizontal size={16} className="text-cyan-200" />
-          </div>
-          {selectedDrawing ? (
-            <DrawingInspector
-              drawing={selectedDrawing}
-              onChange={updateSelectedDrawing}
-            />
-          ) : (
-            <div className="rounded-md border border-dashed border-white/10 px-3 py-5 text-center text-sm text-slate-500">
-              Click an object to edit style, visibility, lock, and labels.
-            </div>
-          )}
-        </section>
       </div>
     </aside>
   );
 }
 
-function DrawingInspector({
+function DrawingHoverControls({
   drawing,
   onChange,
+  onDelete,
 }: {
   drawing: ChartDrawing;
   onChange: (patch: Partial<ChartDrawing>) => void;
+  onDelete: () => void;
 }) {
   const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
 
   return (
-    <div className="grid gap-3">
+    <div
+      className="drawing-hover-options"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      role="group"
+    >
       <label className="object-setting-field">
         <span>Label</span>
         <input
@@ -367,7 +328,7 @@ function DrawingInspector({
 
       <label className="object-setting-field">
         <span className="flex items-center justify-between">
-          <span>Stroke Width</span>
+          <span>Width</span>
           <strong className="text-slate-300">{lineWidth.toFixed(1)}</strong>
         </span>
         <input
@@ -419,7 +380,113 @@ function DrawingInspector({
           {drawing.locked ? "Locked" : "Unlocked"}
         </button>
       </div>
+      <button
+        className="control-button h-9 border-rose-300/30 bg-rose-300/10 text-xs text-rose-100"
+        onClick={onDelete}
+        type="button"
+      >
+        <X size={14} />
+        Delete
+      </button>
     </div>
+  );
+}
+
+function IndicatorHoverControls({
+  active,
+  indicator,
+  onToggle,
+  onUpdate,
+  settings,
+}: {
+  active: boolean;
+  indicator: ChartIndicatorId;
+  onToggle: () => void;
+  onUpdate: (settings: Partial<IndicatorSettings>) => void;
+  settings: IndicatorSettings;
+}) {
+  const isMacd = indicator === "macd";
+  const isVwap = indicator === "vwap";
+
+  return (
+    <div
+      className="drawing-hover-options"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      role="group"
+    >
+      <button
+        className={`control-button h-9 text-xs ${active ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
+        onClick={onToggle}
+        type="button"
+      >
+        {active ? <Eye size={14} /> : <EyeOff size={14} />}
+        {active ? "Enabled" : "Enable"}
+      </button>
+
+      {active && (
+        <>
+          <label className="object-setting-field">
+            <span>Color</span>
+            <input
+              className="h-9 w-full cursor-pointer rounded-md border border-white/10 bg-ink-950 p-1"
+              onChange={(event) => onUpdate({ color: event.target.value })}
+              type="color"
+              value={settings.color}
+            />
+          </label>
+
+          {isMacd ? (
+            <div className="grid grid-cols-3 gap-2">
+              <NumberSetting
+                label="Fast"
+                onChange={(value) => onUpdate({ fastPeriod: value })}
+                value={settings.fastPeriod ?? 12}
+              />
+              <NumberSetting
+                label="Slow"
+                onChange={(value) => onUpdate({ slowPeriod: value })}
+                value={settings.slowPeriod ?? 26}
+              />
+              <NumberSetting
+                label="Sig"
+                onChange={(value) => onUpdate({ signalPeriod: value })}
+                value={settings.signalPeriod ?? 9}
+              />
+            </div>
+          ) : !isVwap ? (
+            <NumberSetting
+              label="Period"
+              onChange={(value) => onUpdate({ period: value })}
+              value={settings.period}
+            />
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function NumberSetting({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  return (
+    <label className="object-setting-field">
+      <span>{label}</span>
+      <input
+        className="input-control h-9"
+        min={1}
+        onChange={(event) => onChange(Math.max(1, Number(event.target.value) || 1))}
+        type="number"
+        value={value}
+      />
+    </label>
   );
 }
 
