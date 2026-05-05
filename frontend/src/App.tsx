@@ -488,7 +488,7 @@ export default function App() {
                 type="button"
               >
                 {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-                Order
+                Ticket
               </button>
               <button
                 className={`workspace-tab inline-flex items-center justify-center gap-2 ${layersPanelOpen ? "workspace-tab-active" : ""}`}

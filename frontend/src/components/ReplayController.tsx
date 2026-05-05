@@ -49,7 +49,7 @@ export function ReplayController({
               type="button"
             >
               {isOrderPaneOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-              Order
+              Ticket
             </button>
           )}
           <button
