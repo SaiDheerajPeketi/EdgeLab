@@ -15,6 +15,7 @@ import {
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
 import { ExecutionTape } from "./components/ExecutionTape";
+import { FilteredTradeReview } from "./components/FilteredTradeReview";
 import { JournalEntryModal } from "./components/JournalEntryModal";
 import { MetricsBar } from "./components/MetricsBar";
 import { OrderTicket } from "./components/OrderTicket";
@@ -27,7 +28,6 @@ import { ResultsPanel } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
-import { TradeLog } from "./components/TradeLog";
 import { TradingChart } from "./components/TradingChart";
 import type { BacktestCreatePayload, Trade } from "./lib/api";
 import type {
@@ -616,7 +616,7 @@ export default function App() {
             {workspacePanel === "review" && (
               <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                 <PlaybookBoard playbooks={playbooks} trades={trades} />
-                <TradeLog
+                <FilteredTradeReview
                   trades={trades}
                   onEdit={setEditingTrade}
                   onInspect={setReviewTrade}

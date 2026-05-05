@@ -5,6 +5,7 @@ import {
   BarChart3,
   CalendarDays,
   ChevronRight,
+  Filter,
   Layers3,
   LineChart,
   Sigma,
@@ -466,18 +467,94 @@ function TradeResults({
 }
 
 function ResultGroupCard({ row }: { row: GroupRow }) {
-  const aggregate = row.aggregate;
+  const [selectedSessionIds, setSelectedSessionIds] = useState<number[]>([]);
+  const selectedSessionSet = useMemo(
+    () => new Set(selectedSessionIds),
+    [selectedSessionIds],
+  );
+  const filteredSessions = useMemo(
+    () =>
+      selectedSessionIds.length === 0
+        ? row.sessions
+        : row.sessions.filter((session) => selectedSessionSet.has(session.id)),
+    [row.sessions, selectedSessionIds.length, selectedSessionSet],
+  );
+  const filteredTrades = useMemo(
+    () =>
+      selectedSessionIds.length === 0
+        ? row.trades
+        : row.trades.filter((trade) => selectedSessionSet.has(trade.session_id)),
+    [row.trades, selectedSessionIds.length, selectedSessionSet],
+  );
+  const aggregate = useMemo(() => {
+    const closedTrades = filteredTrades.filter((trade) => trade.status === "CLOSED");
+    return aggregateTrades(closedTrades, filteredTrades);
+  }, [filteredTrades]);
+  const allSessionsSelected = selectedSessionIds.length === 0;
+
+  function toggleSession(sessionId: number) {
+    setSelectedSessionIds((current) => {
+      if (current.includes(sessionId)) {
+        return current.filter((id) => id !== sessionId);
+      }
+      return [...current, sessionId];
+    });
+  }
+
   return (
     <article className="min-w-0 rounded-md border border-white/10 bg-black/20 p-4">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <h4 className="truncate text-sm font-semibold text-white">{row.label}</h4>
-          <div className="mt-1 text-xs text-slate-500">{row.subtitle}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {filteredSessions.length} of {row.sessions.length} sessions · {aggregate.totalTrades} closed trades
+          </div>
         </div>
         <span className={`shrink-0 text-sm font-semibold ${toneForNumber(aggregate.netPnl)}`}>
           {formatMoney(aggregate.netPnl)}
         </span>
       </div>
+      {row.sessions.length > 1 && (
+        <div className="mt-3 rounded-md border border-white/10 bg-[#080c11] p-2">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              <Filter size={12} />
+              Session Filter
+            </div>
+            <button
+              className={`h-7 rounded px-2 text-xs font-semibold transition ${
+                allSessionsSelected
+                  ? "bg-white text-ink-950"
+                  : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+              }`}
+              onClick={() => setSelectedSessionIds([])}
+              type="button"
+            >
+              All
+            </button>
+          </div>
+          <div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">
+            {row.sessions.map((session) => {
+              const active = allSessionsSelected || selectedSessionSet.has(session.id);
+              return (
+                <button
+                  key={session.id}
+                  className={`min-w-0 rounded px-2 py-1 text-left text-xs font-semibold transition ${
+                    active
+                      ? "bg-cyan-300/15 text-cyan-100"
+                      : "bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-200"
+                  }`}
+                  onClick={() => toggleSession(session.id)}
+                  title={session.name}
+                  type="button"
+                >
+                  <span className="block max-w-40 truncate">{session.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
         <CompactStat label="Trades" value={String(aggregate.totalTrades)} />
         <CompactStat label="Win" value={formatPercent(aggregate.winRate)} />
@@ -492,7 +569,7 @@ function ResultGroupCard({ row }: { row: GroupRow }) {
         <EquitySparkline compact trades={aggregate.closedTrades} />
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-        <span>{row.sessions.length} sessions</span>
+        <span>{filteredSessions.length} sessions selected</span>
         <span>Best {formatMoney(aggregate.bestTrade ?? 0)}</span>
         <span>Worst {formatMoney(aggregate.largestLoss ?? 0)}</span>
       </div>
