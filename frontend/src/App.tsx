@@ -488,7 +488,7 @@ export default function App() {
                 type="button"
               >
                 {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-                Ticket
+                Order
               </button>
               <button
                 className={`workspace-tab inline-flex items-center justify-center gap-2 ${layersPanelOpen ? "workspace-tab-active" : ""}`}
@@ -593,6 +593,7 @@ export default function App() {
                 <ReplayController
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
+                  showOrderToggle={isChartFullscreen}
                 />
                 {chartToolsOpen && (
                   <ChartToolbar

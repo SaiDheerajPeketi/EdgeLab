@@ -13,9 +13,14 @@ import { useBacktestStore } from "../store/backtestStore";
 type Props = {
   isOrderPaneOpen: boolean;
   onToggleOrderPane: () => void;
+  showOrderToggle?: boolean;
 };
 
-export function ReplayController({ isOrderPaneOpen, onToggleOrderPane }: Props) {
+export function ReplayController({
+  isOrderPaneOpen,
+  onToggleOrderPane,
+  showOrderToggle = true,
+}: Props) {
   const {
     state,
     isPlaying,
@@ -36,15 +41,17 @@ export function ReplayController({ isOrderPaneOpen, onToggleOrderPane }: Props) 
     <section className="rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            className={`control-button ${isOrderPaneOpen ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
-            disabled={!state}
-            onClick={onToggleOrderPane}
-            type="button"
-          >
-            {isOrderPaneOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-            Order
-          </button>
+          {showOrderToggle && (
+            <button
+              className={`control-button ${isOrderPaneOpen ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
+              disabled={!state}
+              onClick={onToggleOrderPane}
+              type="button"
+            >
+              {isOrderPaneOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+              Order
+            </button>
+          )}
           <button
             className="control-button"
             disabled={!state}
