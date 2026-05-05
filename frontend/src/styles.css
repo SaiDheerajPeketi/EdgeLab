@@ -404,7 +404,7 @@ button:disabled {
   }
 
   .chart-fullscreen-dock {
-    @apply fixed bottom-4 right-4 top-16 z-[65] grid w-[min(430px,calc(100vw-24px))] content-start gap-3 overflow-y-auto rounded-md border border-cyan-300/20 bg-[#070b10]/95 p-3 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply fixed bottom-3 left-3 top-3 z-[65] grid w-[min(360px,calc(100vw-24px))] animate-[slideInLeft_160ms_ease-out] content-start gap-3 overflow-y-auto rounded-md border border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   .chart-fullscreen-dock-header {
@@ -413,8 +413,20 @@ button:disabled {
 
   @media (max-width: 768px) {
     .chart-fullscreen-dock {
-      inset: 4rem 0.75rem 0.75rem;
+      inset: 0.75rem;
       width: auto;
+    }
+  }
+
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
     }
   }
 

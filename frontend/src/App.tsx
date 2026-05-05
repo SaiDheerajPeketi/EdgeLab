@@ -699,13 +699,13 @@ export default function App() {
                           Execution
                         </div>
                         <div className="truncate text-sm font-semibold text-white">
-                          Order ticket and live position
+                          Order ticket and position controls
                         </div>
                       </div>
                       <button
                         className="icon-button h-8 w-8 shrink-0"
                         onClick={() => setFullscreenOrderPanelOpen(false)}
-                        title="Close order popout"
+                        title="Close order ticket"
                         type="button"
                       >
                         <PanelLeftClose size={15} />
@@ -717,8 +717,6 @@ export default function App() {
                       riskRewardDrawing={latestRiskRewardDrawing}
                     />
                     <PositionPanel position={position} />
-                    <PendingOrders orders={orders} />
-                    <ExecutionTape executions={executions} />
                   </div>
                 )}
               </div>
