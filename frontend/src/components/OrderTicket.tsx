@@ -6,7 +6,7 @@ import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
 
-const RISK_BASE_STORAGE_KEY = "tradezella.order-risk-base.v1";
+const RISK_BASE_STORAGE_KEY = "edgelab.order-risk-base.v1";
 type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
 
 type Props = {

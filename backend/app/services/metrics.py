@@ -176,7 +176,7 @@ def _sharpe_ratio(trades: list[Trade]) -> float | None:
 
 
 def _prepare_quantstats_cache() -> None:
-    cache_root = Path("/private/tmp/tradezella-cache")
+    cache_root = Path("/private/tmp/edgelab-cache")
     mpl_root = cache_root / "matplotlib"
     cache_root.mkdir(parents=True, exist_ok=True)
     mpl_root.mkdir(parents=True, exist_ok=True)

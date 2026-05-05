@@ -8,7 +8,7 @@ import type {
   DatasetTimeframe,
   Playbook,
 } from "../lib/api";
-import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
+import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 
 type Props = {
   datasets: DatasetCatalog | null;
@@ -117,7 +117,7 @@ export function DatasetSessionPanel({
               type="button"
             >
               <span className="instrument-tab-badge">{symbolBadge(instrument.symbol)}</span>
-              <span className="instrument-tab-symbol">{formatTradingViewSymbol(instrument.symbol)}</span>
+              <span className="instrument-tab-symbol">{formatMarketSymbol(instrument.symbol)}</span>
               <span>{instrument.timeframes.length} TF</span>
             </button>
           ))}
@@ -147,7 +147,7 @@ export function DatasetSessionPanel({
         <div className="ml-auto flex min-w-0 items-center gap-2">
           {session && (
             <div className="hidden rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 shadow-inner xl:block">
-              Active: <strong>{formatTradingViewSymbol(session.symbol)}</strong> {session.timeframe ?? ""} · {session.strategy_name ?? "No strategy"}
+              Active: <strong>{formatMarketSymbol(session.symbol)}</strong> {session.timeframe ?? ""} · {session.strategy_name ?? "No strategy"}
             </div>
           )}
           <button

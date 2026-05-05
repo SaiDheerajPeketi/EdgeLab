@@ -29,7 +29,7 @@ import { ResultsPanel } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
-import { TradeZellaWorkspace } from "./components/TradeZellaWorkspace";
+import { EdgeLabWorkspace } from "./components/EdgeLabWorkspace";
 import { TradingChart } from "./components/TradingChart";
 import type { BacktestCreatePayload, Trade } from "./lib/api";
 import type {
@@ -42,16 +42,16 @@ import type {
   IndicatorSettingsMap,
 } from "./lib/charting";
 import { getTimeframeSeconds, mergeIndicatorSettings } from "./lib/charting";
-import { formatTradingViewSymbol } from "./lib/symbols";
+import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import type { WorkspaceView } from "./lib/workspace";
 import { useBacktestStore } from "./store/backtestStore";
 
-const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
-const CHART_LAYOUTS_KEY = "tradezella.chart-layouts.v1";
-const ACTIVE_CHART_LAYOUT_KEY = "tradezella.active-chart-layout.v1";
+const CHART_LAYOUT_KEY = "edgelab.chart-layout.v1";
+const CHART_LAYOUTS_KEY = "edgelab.chart-layouts.v1";
+const ACTIVE_CHART_LAYOUT_KEY = "edgelab.active-chart-layout.v1";
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
-  "tradezella.chart-layout-cleared-single-horizontal.v1";
+  "edgelab.chart-layout-cleared-single-horizontal.v1";
 const VALID_INDICATORS: ChartIndicatorId[] = [
   "atr14",
   "bb20",
@@ -499,7 +499,7 @@ export default function App() {
         />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
-            <TradeZellaWorkspace
+            <EdgeLabWorkspace
               activeSession={state?.session ?? null}
               datasets={datasets}
               onEditTrade={setEditingTrade}
@@ -547,7 +547,7 @@ export default function App() {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-base font-semibold text-white">
-                  {state?.session.strategy_name ?? "Strategy"} / {formatTradingViewSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
+                  {state?.session.strategy_name ?? "Strategy"} / {formatMarketSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                   <span className="inline-flex items-center gap-1.5">

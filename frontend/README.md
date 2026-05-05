@@ -1,6 +1,6 @@
 # Frontend
 
-Vite React dashboard using Tailwind, Zustand, Lucide icons, and TradingView Lightweight Charts.
+Vite React dashboard using Tailwind, Zustand, Lucide icons, and Lightweight Charts.
 
 ## Setup
 

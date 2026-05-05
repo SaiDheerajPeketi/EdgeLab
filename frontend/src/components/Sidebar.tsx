@@ -88,8 +88,8 @@ export function Sidebar({
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-black text-white">Backtest Lab</div>
-            <div className="truncate text-xs text-slate-500">TradeZella workspace</div>
+            <div className="truncate text-sm font-black text-white">EdgeLab</div>
+            <div className="truncate text-xs text-slate-500">EdgeLab workspace</div>
           </div>
         )}
         {!collapsed && (

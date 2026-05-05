@@ -14,7 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { BacktestSession, Trade } from "../lib/api";
 import { formatMoney, formatPercent, formatPrice } from "../lib/format";
-import { formatTradingViewSymbol } from "../lib/symbols";
+import { formatMarketSymbol } from "../lib/symbols";
 import {
   sessionStrategyName,
   tradeStrategyName,
@@ -126,7 +126,7 @@ export function ResultsPanel({
               </h3>
               <div className="mt-1 text-xs text-slate-500">
                 {activeSession
-                  ? `${formatTradingViewSymbol(activeSession.symbol)} · ${activeSession.timeframe ?? "M1"} · ${activeSession.status}`
+                  ? `${formatMarketSymbol(activeSession.symbol)} · ${activeSession.timeframe ?? "M1"} · ${activeSession.status}`
                   : "Open a session to see results"}
               </div>
             </div>
@@ -393,7 +393,7 @@ function TradeResults({
                       {session?.name ?? `Session #${trade.session_id}`}
                     </div>
                     <div className="text-xs text-slate-500">
-                      {session ? formatTradingViewSymbol(session.symbol) : "—"}
+                      {session ? formatMarketSymbol(session.symbol) : "—"}
                     </div>
                   </td>
                   <td className="px-3 py-3">
@@ -503,7 +503,7 @@ function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
   return sessions
     .map((session) => {
       const sessionTrades = tradesBySession.get(session.id) ?? [];
-      const baseSubtitle = `${formatTradingViewSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`;
+      const baseSubtitle = `${formatMarketSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`;
       const closedTrades = sessionTrades.filter((trade) => trade.status === "CLOSED");
       return {
         aggregate: aggregateTrades(closedTrades, sessionTrades),

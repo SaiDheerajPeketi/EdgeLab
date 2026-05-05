@@ -7,7 +7,7 @@ from app.db import init_db
 
 
 app = FastAPI(
-    title="Personal TradeZella Clone API",
+    title="Personal EdgeLab API",
     description="CSV-powered backtesting, trade journaling, and performance metrics.",
     version="0.1.0",
 )

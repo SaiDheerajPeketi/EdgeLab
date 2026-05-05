@@ -1,1 +1,1 @@
-"""Personal TradeZella-style backend."""
+"""EdgeLab backend."""

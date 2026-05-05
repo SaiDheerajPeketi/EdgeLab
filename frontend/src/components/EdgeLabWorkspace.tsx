@@ -47,7 +47,7 @@ import type {
   Trade,
 } from "../lib/api";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
-import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
+import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
 import type { WorkspaceView } from "../lib/workspace";
 import { TradeLog } from "./TradeLog";
@@ -150,9 +150,9 @@ type LiveTradeInput = {
   takeProfit: number | null;
 };
 
-const LIVE_JOURNAL_STORAGE_KEY = "tradezella.live-journal.v1";
+const LIVE_JOURNAL_STORAGE_KEY = "edgelab.live-journal.v1";
 
-export function TradeZellaWorkspace({
+export function EdgeLabWorkspace({
   activeSession,
   datasets,
   onEditTrade,
@@ -1438,7 +1438,7 @@ function NotebookPage({
     <PageScaffold
       eyebrow="Backtest Notebook"
       title="Backtest Trade Notes"
-      description="A TradeZella-style notebook linked to closed replay trades and session review."
+      description="An EdgeLab notebook linked to closed replay trades and session review."
       actions={
         <button className="control-button workspace-tab-active" type="button">
           <FolderPlus size={15} />
@@ -2309,7 +2309,7 @@ function CrossAnalysis({
 }
 
 function NetworkMark() {
-  return <span className="grid h-5 w-5 place-items-center rounded bg-cyan-300/15 text-[10px] text-cyan-100">TZ</span>;
+  return <span className="grid h-5 w-5 place-items-center rounded bg-cyan-300/15 text-[10px] text-cyan-100">EL</span>;
 }
 
 function useLiveJournalData(): LiveJournalController {
@@ -2775,7 +2775,7 @@ function monthExtrema(trades: Trade[], mode: "best" | "worst") {
 }
 
 function tradeSymbol(trade: Trade, sessionById: Map<number, BacktestSession>) {
-  return formatTradingViewSymbol(sessionById.get(trade.session_id)?.symbol ?? "SYMBOL");
+  return formatMarketSymbol(sessionById.get(trade.session_id)?.symbol ?? "SYMBOL");
 }
 
 function compareTradesAscending(a: Trade, b: Trade) {

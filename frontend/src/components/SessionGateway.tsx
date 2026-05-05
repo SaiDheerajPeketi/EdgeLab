@@ -24,7 +24,7 @@ import type {
 } from "../lib/api";
 import { formatMoney, formatPercent } from "../lib/format";
 import { postPlaybook } from "../lib/api";
-import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
+import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
 
 type Props = {
@@ -206,7 +206,7 @@ export function SessionGateway({
               </div>
               <div className="mt-1 text-sm text-slate-400">
                 {session
-                  ? `${formatTradingViewSymbol(session.symbol)} ${session.timeframe ?? ""} / ${session.strategy_name ?? "No strategy"}`
+                  ? `${formatMarketSymbol(session.symbol)} ${session.timeframe ?? ""} / ${session.strategy_name ?? "No strategy"}`
                   : "Create a session to unlock replay."}
               </div>
             </div>
@@ -309,7 +309,7 @@ export function SessionGateway({
                         {row.session.name}
                       </span>
                       <span className="mt-1 block text-xs text-slate-500">
-                        {formatTradingViewSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"} · {row.session.status}
+                        {formatMarketSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"} · {row.session.status}
                       </span>
                     </span>
                     <span className="flex items-center justify-between gap-3 sm:justify-end">
@@ -403,7 +403,7 @@ export function SessionGateway({
                 <span className="session-instrument-badge">{symbolBadge(instrument.symbol)}</span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-white">
-                    {formatTradingViewSymbol(instrument.symbol)}
+                    {formatMarketSymbol(instrument.symbol)}
                   </span>
                   <span className="block text-xs text-slate-500">
                     {instrument.timeframes.length} timeframes
@@ -859,7 +859,7 @@ function StrategyDetails({
                   <div className="mt-1 text-xs text-slate-500">{row.session.status}</div>
                 </td>
                 <td className="px-3 py-3 text-slate-300">
-                  {formatTradingViewSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"}
+                  {formatMarketSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"}
                 </td>
                 <td className="px-3 py-3 tabular-nums text-slate-300">
                   {row.aggregate.closedTrades}

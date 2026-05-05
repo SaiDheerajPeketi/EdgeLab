@@ -62,7 +62,7 @@ import {
   type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
-import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
+import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
@@ -691,7 +691,7 @@ export function TradingChart({
               </div>
               <div>
                 <div className="text-base font-semibold text-white">
-                  {formatTradingViewSymbol(symbol)}
+                  {formatMarketSymbol(symbol)}
                 </div>
                 <div className="text-xs text-slate-400">
                   {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}

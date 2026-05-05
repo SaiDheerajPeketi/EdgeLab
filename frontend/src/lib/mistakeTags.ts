@@ -1,4 +1,4 @@
-const STORAGE_KEY = "tradezella.strategy-mistake-tags.v1";
+const STORAGE_KEY = "edgelab.strategy-mistake-tags.v1";
 
 export const DEFAULT_MISTAKE_TAGS = [
   "FOMO",
