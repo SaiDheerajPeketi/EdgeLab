@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Clock3,
@@ -100,6 +100,7 @@ export default function App() {
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
+  const chartFullscreenRef = useRef<HTMLDivElement | null>(null);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
@@ -226,6 +227,9 @@ export default function App() {
           setDrawingTool("cursor");
           setIsChartFullscreen(false);
           setFullscreenOrderPanelOpen(false);
+          if (document.fullscreenElement) {
+            void document.exitFullscreen().catch(() => undefined);
+          }
           break;
         case "Delete":
         case "Backspace":
@@ -244,6 +248,18 @@ export default function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isChartFullscreen, isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      if (!document.fullscreenElement) {
+        setIsChartFullscreen(false);
+        setFullscreenOrderPanelOpen(false);
+      }
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
 
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
@@ -295,12 +311,20 @@ export default function App() {
   }
 
   function toggleChartFullscreen() {
-    setIsChartFullscreen((value) => {
-      if (value) {
-        setFullscreenOrderPanelOpen(false);
+    if (isChartFullscreen) {
+      setIsChartFullscreen(false);
+      setFullscreenOrderPanelOpen(false);
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
       }
-      return !value;
-    });
+      return;
+    }
+
+    setIsChartFullscreen(true);
+    const fullscreenTarget = chartFullscreenRef.current;
+    if (fullscreenTarget?.requestFullscreen && !document.fullscreenElement) {
+      void fullscreenTarget.requestFullscreen().catch(() => undefined);
+    }
   }
 
   function closeOrderPanels() {
@@ -548,6 +572,7 @@ export default function App() {
             )}
 
               <div
+                ref={chartFullscreenRef}
                 className={
                   isChartFullscreen
                     ? `chart-fullscreen-shell ${fullscreenOrderPanelOpen ? "chart-fullscreen-with-dock" : ""}`
