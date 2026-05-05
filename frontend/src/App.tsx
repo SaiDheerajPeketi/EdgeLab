@@ -4,7 +4,6 @@ import {
   Clock3,
   Database,
   Maximize2,
-  Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -504,14 +503,16 @@ export default function App() {
                 <SlidersHorizontal size={14} />
                 Tools
               </button>
-              <button
-                className={`workspace-tab inline-flex items-center justify-center gap-2 ${isChartFullscreen ? "workspace-tab-active" : ""}`}
-                onClick={toggleChartFullscreen}
-                type="button"
-              >
-                {isChartFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                {isChartFullscreen ? "Exit Full" : "Full Screen"}
-              </button>
+              {!isChartFullscreen && (
+                <button
+                  className="workspace-tab inline-flex items-center justify-center gap-2"
+                  onClick={toggleChartFullscreen}
+                  type="button"
+                >
+                  <Maximize2 size={14} />
+                  Full Screen
+                </button>
+              )}
               <button
                 className={`workspace-tab ${workspacePanel === "orders" ? "workspace-tab-active" : ""}`}
                 onClick={() => setWorkspacePanel((value) => value === "orders" ? "none" : "orders")}
@@ -587,18 +588,6 @@ export default function App() {
                     : "focus-chart-column"
                 }
               >
-                {isChartFullscreen && (
-                  <div className="chart-fullscreen-actionbar">
-                    <button
-                      className="chart-fullscreen-action"
-                      onClick={toggleChartFullscreen}
-                      type="button"
-                    >
-                      <Minimize2 size={16} />
-                      Exit
-                    </button>
-                  </div>
-                )}
                 <ReplayController
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}

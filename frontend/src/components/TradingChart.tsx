@@ -721,7 +721,7 @@ export function TradingChart({
             type="button"
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            <span>{isFullscreen ? "Exit full" : "Full screen"}</span>
+            <span>{isFullscreen ? "Exit fullscreen" : "Full screen"}</span>
           </button>
         </div>
       </div>
