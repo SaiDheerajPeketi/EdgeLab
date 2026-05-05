@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
 import { ChartToolbar } from "./components/ChartToolbar";
+import { ChartTopBar } from "./components/ChartTopBar";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { FilteredTradeReview } from "./components/FilteredTradeReview";
 import { JournalEntryModal } from "./components/JournalEntryModal";
@@ -53,13 +54,22 @@ const ACTIVE_CHART_LAYOUT_KEY = "tradezella.active-chart-layout.v1";
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "tradezella.chart-layout-cleared-single-horizontal.v1";
 const VALID_INDICATORS: ChartIndicatorId[] = [
+  "atr14",
   "bb20",
+  "dema20",
+  "donchian20",
   "ema20",
   "ema50",
+  "hma20",
+  "keltner20",
   "macd",
+  "momentum10",
   "rsi14",
   "sma200",
+  "supertrend10",
+  "tema20",
   "vwap",
+  "wma20",
 ];
 const VALID_TIMEFRAMES: ChartTimeframe[] = [
   "1m",
@@ -91,6 +101,7 @@ export default function App() {
     loadInitial,
     newSession,
     jumpToOffset,
+    jumpToTimestamp,
     setPlaying,
     stepForward,
   } = useBacktestStore();
@@ -100,6 +111,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
+  const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
@@ -203,8 +215,16 @@ export default function App() {
           break;
         case "b":
         case "B":
+          setOrderTicketSide("BUY");
+          if (isChartFullscreen) {
+            setFullscreenOrderPanelOpen(true);
+          } else {
+            setLeftPaneOpen(true);
+          }
+          break;
         case "s":
         case "S":
+          setOrderTicketSide("SELL");
           if (isChartFullscreen) {
             setFullscreenOrderPanelOpen(true);
           } else {
@@ -369,6 +389,15 @@ export default function App() {
       return;
     }
     setLeftPaneOpen((value) => !value);
+  }
+
+  function openOrderTicket(side: "BUY" | "SELL") {
+    setOrderTicketSide(side);
+    if (isChartFullscreen) {
+      setFullscreenOrderPanelOpen(true);
+      return;
+    }
+    setLeftPaneOpen(true);
   }
 
   function saveChartLayout() {
@@ -659,6 +688,7 @@ export default function App() {
                   </button>
                 </section>
                 <OrderTicket
+                  initialSide={orderTicketSide}
                   onOrderPlaced={closeOrderPanels}
                   playbooks={playbooks}
                   riskRewardDrawing={latestRiskRewardDrawing}
@@ -675,6 +705,33 @@ export default function App() {
                 }
                 ref={chartShellRef}
               >
+                <ChartTopBar
+                  activeIndicators={activeIndicators}
+                  chartStyle={chartStyle}
+                  currentTimestamp={current?.timestamp ?? state?.session.start_at ?? null}
+                  indicatorSettings={indicatorSettings}
+                  isFullscreen={isChartFullscreen}
+                  layoutName={layoutName}
+                  onBackToSessions={() => {
+                    setPlaying(false);
+                    setActiveWorkspace("sessions");
+                    setSessionGateOpen(true);
+                  }}
+                  onChartStyleChange={setChartStyle}
+                  onJumpToTimestamp={(timestamp) => void jumpToTimestamp(timestamp)}
+                  onOpenTicket={openOrderTicket}
+                  onOpenTools={() => setChartToolsOpen((value) => !value)}
+                  onSaveLayout={saveChartLayout}
+                  onTimeframeChange={changeTimeframe}
+                  onToggleFullscreen={toggleChartFullscreen}
+                  onToggleIndicator={toggleIndicator}
+                  onUpdateIndicatorSettings={updateIndicatorSettings}
+                  savedLabel={savedLayoutLabel}
+                  sessionLabel={state?.session.name ?? "No active session"}
+                  sourceTimeframe={sourceTimeframe}
+                  symbol={state?.session.symbol ?? "EURUSD"}
+                  timeframe={effectiveTimeframe}
+                />
                 <ReplayController
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
@@ -791,6 +848,7 @@ export default function App() {
                       </button>
                     </div>
                     <OrderTicket
+                      initialSide={orderTicketSide}
                       onOrderPlaced={closeOrderPanels}
                       playbooks={playbooks}
                       riskRewardDrawing={latestRiskRewardDrawing}

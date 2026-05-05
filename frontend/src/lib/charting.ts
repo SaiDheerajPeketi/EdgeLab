@@ -16,10 +16,19 @@ export const TIMEFRAMES = [
 export type ChartTimeframe = (typeof TIMEFRAMES)[number]["id"];
 export type ChartStyle = "area" | "candles" | "heikinAshi" | "line";
 export type ChartIndicatorId =
+  | "atr14"
   | "ema20"
   | "ema50"
+  | "dema20"
+  | "donchian20"
+  | "hma20"
+  | "keltner20"
+  | "momentum10"
   | "sma200"
+  | "supertrend10"
+  | "tema20"
   | "vwap"
+  | "wma20"
   | "bb20"
   | "rsi14"
   | "macd";
@@ -91,17 +100,32 @@ export const INDICATORS: Array<{
 }> = [
   { id: "ema20", label: "EMA 20", description: "Fast trend overlay", color: "#32d3ee" },
   { id: "ema50", label: "EMA 50", description: "Structure trend overlay", color: "#f59e0b" },
+  { id: "wma20", label: "WMA 20", description: "Weighted moving average", color: "#38bdf8" },
+  { id: "dema20", label: "DEMA 20", description: "Double exponential average", color: "#2dd4bf" },
+  { id: "tema20", label: "TEMA 20", description: "Triple exponential average", color: "#34d399" },
+  { id: "hma20", label: "HMA 20", description: "Hull moving average", color: "#fbbf24" },
   { id: "sma200", label: "SMA 200", description: "Higher timeframe bias", color: "#a78bfa" },
   { id: "vwap", label: "VWAP", description: "Session fair value", color: "#22c55e" },
   { id: "bb20", label: "Bollinger 20", description: "Volatility envelope", color: "#94a3b8" },
+  { id: "donchian20", label: "Donchian 20", description: "Range channel", color: "#60a5fa" },
+  { id: "keltner20", label: "Keltner 20", description: "ATR volatility channel", color: "#fb923c" },
+  { id: "supertrend10", label: "SuperTrend 10", description: "ATR trend overlay", color: "#84cc16" },
+  { id: "atr14", label: "ATR 14", description: "Average true range pane", color: "#f97316" },
+  { id: "momentum10", label: "Momentum 10", description: "Close-to-close momentum pane", color: "#c084fc" },
   { id: "rsi14", label: "RSI 14", description: "Momentum pane", color: "#f472b6" },
   { id: "macd", label: "MACD", description: "Trend momentum pane", color: "#60a5fa" },
 ];
 
 export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
+  atr14: { color: "#f97316", period: 14 },
   bb20: { color: "#94a3b8", period: 20, stdDev: 2 },
+  dema20: { color: "#2dd4bf", period: 20 },
+  donchian20: { color: "#60a5fa", period: 20 },
   ema20: { color: "#32d3ee", period: 20 },
   ema50: { color: "#f59e0b", period: 50 },
+  hma20: { color: "#fbbf24", period: 20 },
+  keltner20: { color: "#fb923c", period: 20, stdDev: 2 },
+  momentum10: { color: "#c084fc", period: 10 },
   rsi14: { color: "#f472b6", period: 14 },
   macd: {
     color: "#60a5fa",
@@ -113,7 +137,10 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
     histogramColor: "#94a3b8",
   },
   sma200: { color: "#a78bfa", period: 200 },
+  supertrend10: { color: "#84cc16", period: 10, stdDev: 3 },
+  tema20: { color: "#34d399", period: 20 },
   vwap: { color: "#22c55e", period: 1 },
+  wma20: { color: "#38bdf8", period: 20 },
 };
 
 export function isRiskRewardTool(
@@ -312,6 +339,50 @@ export function buildIndicatorDefinitions(
     });
   }
 
+  if (has("wma20")) {
+    const config = settings.wma20;
+    definitions.push({
+      id: "wma20",
+      label: `WMA ${config.period}`,
+      color: config.color,
+      data: wmaSeries(bars, config.period),
+      lineWidth: 2,
+    });
+  }
+
+  if (has("dema20")) {
+    const config = settings.dema20;
+    definitions.push({
+      id: "dema20",
+      label: `DEMA ${config.period}`,
+      color: config.color,
+      data: demaSeries(bars, config.period),
+      lineWidth: 2,
+    });
+  }
+
+  if (has("tema20")) {
+    const config = settings.tema20;
+    definitions.push({
+      id: "tema20",
+      label: `TEMA ${config.period}`,
+      color: config.color,
+      data: temaSeries(bars, config.period),
+      lineWidth: 2,
+    });
+  }
+
+  if (has("hma20")) {
+    const config = settings.hma20;
+    definitions.push({
+      id: "hma20",
+      label: `HMA ${config.period}`,
+      color: config.color,
+      data: hmaSeries(bars, config.period),
+      lineWidth: 2,
+    });
+  }
+
   if (has("sma200")) {
     const config = settings.sma200;
     definitions.push({
@@ -366,6 +437,79 @@ export function buildIndicatorDefinitions(
     );
   }
 
+  if (has("donchian20")) {
+    const config = settings.donchian20;
+    const channel = donchianChannel(bars, config.period);
+    definitions.push(
+      {
+        id: "donchian20-upper",
+        label: `DC ${config.period} High`,
+        color: config.color,
+        data: channel.map((band) => ({ time: band.time, value: band.upper })),
+        lineWidth: 1,
+        lineStyle: 2,
+      },
+      {
+        id: "donchian20-mid",
+        label: `DC ${config.period} Mid`,
+        color: config.color,
+        data: channel.map((band) => ({ time: band.time, value: band.middle })),
+        lineWidth: 1,
+        lineStyle: 2,
+      },
+      {
+        id: "donchian20-lower",
+        label: `DC ${config.period} Low`,
+        color: config.color,
+        data: channel.map((band) => ({ time: band.time, value: band.lower })),
+        lineWidth: 1,
+        lineStyle: 2,
+      },
+    );
+  }
+
+  if (has("keltner20")) {
+    const config = settings.keltner20;
+    const channel = keltnerChannel(bars, config.period, config.stdDev ?? 2);
+    definitions.push(
+      {
+        id: "keltner20-upper",
+        label: `KC ${config.period} Upper`,
+        color: config.color,
+        data: channel.map((band) => ({ time: band.time, value: band.upper })),
+        lineWidth: 1,
+        lineStyle: 2,
+      },
+      {
+        id: "keltner20-mid",
+        label: `KC ${config.period} Mid`,
+        color: config.color,
+        data: channel.map((band) => ({ time: band.time, value: band.middle })),
+        lineWidth: 1,
+      },
+      {
+        id: "keltner20-lower",
+        label: `KC ${config.period} Lower`,
+        color: config.color,
+        data: channel.map((band) => ({ time: band.time, value: band.lower })),
+        lineWidth: 1,
+        lineStyle: 2,
+      },
+    );
+  }
+
+  if (has("supertrend10")) {
+    const config = settings.supertrend10;
+    definitions.push({
+      id: "supertrend10",
+      label: `SuperTrend ${config.period}`,
+      color: config.color,
+      data: superTrendSeries(bars, config.period, config.stdDev ?? 3),
+      lineWidth: 2,
+      lineStyle: 1,
+    });
+  }
+
   return definitions;
 }
 
@@ -373,13 +517,22 @@ export function mergeIndicatorSettings(
   settings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>> | null,
 ): IndicatorSettingsMap {
   return {
+    atr14: { ...DEFAULT_INDICATOR_SETTINGS.atr14, ...settings?.atr14 },
     bb20: { ...DEFAULT_INDICATOR_SETTINGS.bb20, ...settings?.bb20 },
+    dema20: { ...DEFAULT_INDICATOR_SETTINGS.dema20, ...settings?.dema20 },
+    donchian20: { ...DEFAULT_INDICATOR_SETTINGS.donchian20, ...settings?.donchian20 },
     ema20: { ...DEFAULT_INDICATOR_SETTINGS.ema20, ...settings?.ema20 },
     ema50: { ...DEFAULT_INDICATOR_SETTINGS.ema50, ...settings?.ema50 },
+    hma20: { ...DEFAULT_INDICATOR_SETTINGS.hma20, ...settings?.hma20 },
+    keltner20: { ...DEFAULT_INDICATOR_SETTINGS.keltner20, ...settings?.keltner20 },
+    momentum10: { ...DEFAULT_INDICATOR_SETTINGS.momentum10, ...settings?.momentum10 },
     rsi14: { ...DEFAULT_INDICATOR_SETTINGS.rsi14, ...settings?.rsi14 },
     macd: { ...DEFAULT_INDICATOR_SETTINGS.macd, ...settings?.macd },
     sma200: { ...DEFAULT_INDICATOR_SETTINGS.sma200, ...settings?.sma200 },
+    supertrend10: { ...DEFAULT_INDICATOR_SETTINGS.supertrend10, ...settings?.supertrend10 },
+    tema20: { ...DEFAULT_INDICATOR_SETTINGS.tema20, ...settings?.tema20 },
     vwap: { ...DEFAULT_INDICATOR_SETTINGS.vwap, ...settings?.vwap },
+    wma20: { ...DEFAULT_INDICATOR_SETTINGS.wma20, ...settings?.wma20 },
   };
 }
 
@@ -460,6 +613,27 @@ export function macdSeries(
   return { histogram, macd, signal };
 }
 
+export function atrSeries(bars: Candle[], period = 14): LineData[] {
+  const values = atrValues(bars, period);
+  return values
+    .map((value, index) => ({
+      time: bars[index]?.time as UTCTimestamp,
+      value,
+    }))
+    .filter((point) => Number.isFinite(point.value));
+}
+
+export function momentumSeries(bars: Candle[], period = 10): LineData[] {
+  const output: LineData[] = [];
+  for (let index = period; index < bars.length; index += 1) {
+    output.push({
+      time: bars[index].time as UTCTimestamp,
+      value: bars[index].close - bars[index - period].close,
+    });
+  }
+  return output;
+}
+
 function emaSeries(bars: Candle[], period: number): LineData[] {
   if (bars.length === 0) {
     return [];
@@ -472,6 +646,49 @@ function emaSeries(bars: Candle[], period: number): LineData[] {
   });
 }
 
+function wmaSeries(bars: Candle[], period: number): LineData[] {
+  const values = wmaValues(
+    bars.map((bar) => bar.close),
+    period,
+  );
+  return valuesToLineData(bars, values);
+}
+
+function demaSeries(bars: Candle[], period: number): LineData[] {
+  const closes = bars.map((bar) => bar.close);
+  const emaOne = emaValues(closes, period);
+  const emaTwo = emaValues(emaOne, period);
+  return valuesToLineData(
+    bars,
+    closes.map((_, index) => 2 * emaOne[index] - emaTwo[index]),
+  );
+}
+
+function temaSeries(bars: Candle[], period: number): LineData[] {
+  const closes = bars.map((bar) => bar.close);
+  const emaOne = emaValues(closes, period);
+  const emaTwo = emaValues(emaOne, period);
+  const emaThree = emaValues(emaTwo, period);
+  return valuesToLineData(
+    bars,
+    closes.map((_, index) => 3 * emaOne[index] - 3 * emaTwo[index] + emaThree[index]),
+  );
+}
+
+function hmaSeries(bars: Candle[], period: number): LineData[] {
+  const closes = bars.map((bar) => bar.close);
+  const halfPeriod = Math.max(1, Math.round(period / 2));
+  const sqrtPeriod = Math.max(1, Math.round(Math.sqrt(period)));
+  const half = wmaValues(closes, halfPeriod);
+  const full = wmaValues(closes, period);
+  const composite = closes.map((_, index) =>
+    Number.isFinite(half[index]) && Number.isFinite(full[index])
+      ? 2 * half[index] - full[index]
+      : Number.NaN,
+  );
+  return valuesToLineData(bars, wmaValues(composite, sqrtPeriod));
+}
+
 function emaValues(values: number[], period: number): number[] {
   if (values.length === 0) {
     return [];
@@ -481,6 +698,24 @@ function emaValues(values: number[], period: number): number[] {
   return values.map((value, index) => {
     ema = index === 0 ? value : (value - ema) * multiplier + ema;
     return ema;
+  });
+}
+
+function wmaValues(values: number[], period: number): number[] {
+  const denominator = (period * (period + 1)) / 2;
+  return values.map((_, index) => {
+    if (index < period - 1) {
+      return Number.NaN;
+    }
+    let weighted = 0;
+    for (let step = 0; step < period; step += 1) {
+      const value = values[index - step];
+      if (!Number.isFinite(value)) {
+        return Number.NaN;
+      }
+      weighted += value * (period - step);
+    }
+    return weighted / denominator;
   });
 }
 
@@ -500,6 +735,97 @@ function smaSeries(bars: Candle[], period: number): LineData[] {
     }
   }
   return output;
+}
+
+function donchianChannel(bars: Candle[], period: number) {
+  const output: Array<{
+    time: UTCTimestamp;
+    upper: number;
+    middle: number;
+    lower: number;
+  }> = [];
+
+  for (let index = period - 1; index < bars.length; index += 1) {
+    const window = bars.slice(index - period + 1, index + 1);
+    const upper = Math.max(...window.map((bar) => bar.high));
+    const lower = Math.min(...window.map((bar) => bar.low));
+    output.push({
+      time: bars[index].time as UTCTimestamp,
+      upper,
+      middle: (upper + lower) / 2,
+      lower,
+    });
+  }
+
+  return output;
+}
+
+function keltnerChannel(bars: Candle[], period: number, multiplier: number) {
+  const middle = emaValues(
+    bars.map((bar) => (bar.high + bar.low + bar.close) / 3),
+    period,
+  );
+  const atr = atrValues(bars, period);
+  return bars
+    .map((bar, index) => ({
+      time: bar.time as UTCTimestamp,
+      upper: middle[index] + atr[index] * multiplier,
+      middle: middle[index],
+      lower: middle[index] - atr[index] * multiplier,
+    }))
+    .filter((band) =>
+      Number.isFinite(band.upper) &&
+      Number.isFinite(band.middle) &&
+      Number.isFinite(band.lower),
+    );
+}
+
+function superTrendSeries(bars: Candle[], period: number, multiplier: number): LineData[] {
+  const atr = atrValues(bars, period);
+  const closes = bars.map((bar) => bar.close);
+  const ema = emaValues(closes, Math.max(2, period));
+  const output: LineData[] = [];
+  for (let index = 0; index < bars.length; index += 1) {
+    if (!Number.isFinite(atr[index]) || !Number.isFinite(ema[index])) {
+      continue;
+    }
+    const bar = bars[index];
+    const basis = (bar.high + bar.low) / 2;
+    const bullish = bar.close >= ema[index];
+    output.push({
+      time: bar.time as UTCTimestamp,
+      value: bullish ? basis - atr[index] * multiplier : basis + atr[index] * multiplier,
+    });
+  }
+  return output;
+}
+
+function atrValues(bars: Candle[], period: number) {
+  if (bars.length === 0) {
+    return [];
+  }
+
+  const trueRanges = bars.map((bar, index) => {
+    if (index === 0) {
+      return bar.high - bar.low;
+    }
+    const previousClose = bars[index - 1].close;
+    return Math.max(
+      bar.high - bar.low,
+      Math.abs(bar.high - previousClose),
+      Math.abs(bar.low - previousClose),
+    );
+  });
+  return emaValues(trueRanges, period);
+}
+
+function valuesToLineData(bars: Candle[], values: number[]): LineData[] {
+  return values
+    .map((value, index) => ({
+      time: bars[index]?.time as UTCTimestamp,
+      value,
+    }))
+    .filter((point) => Number.isFinite(point.value));
 }
 
 function vwapSeries(bars: Candle[]): LineData[] {

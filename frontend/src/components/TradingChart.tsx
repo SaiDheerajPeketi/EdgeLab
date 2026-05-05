@@ -39,12 +39,14 @@ import {
 } from "./ChartToolIcons";
 import {
   aggregateBars,
+  atrSeries,
   bucketTime,
   buildIndicatorDefinitions,
   defaultRiskRewardStopPoint,
   isRiskRewardTool,
   latestIndicatorValue,
   macdSeries,
+  momentumSeries,
   normalizeRiskRewardDrawing,
   normalizeRiskRewardPoints,
   rsiSeries,
@@ -218,6 +220,22 @@ export function TradingChart({
       macdSettings.signalPeriod,
       macdSettings.slowPeriod,
     ],
+  );
+  const atrPeriod = indicatorSettings.atr14?.period ?? 14;
+  const atrData = useMemo(
+    () =>
+      activeIndicators.includes("atr14")
+        ? atrSeries(displayBars, atrPeriod)
+        : [],
+    [activeIndicators, atrPeriod, displayBars],
+  );
+  const momentumPeriod = indicatorSettings.momentum10?.period ?? 10;
+  const momentumData = useMemo(
+    () =>
+      activeIndicators.includes("momentum10")
+        ? momentumSeries(displayBars, momentumPeriod)
+        : [],
+    [activeIndicators, displayBars, momentumPeriod],
   );
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
@@ -706,6 +724,20 @@ export function TradingChart({
                   <strong>{latestIndicatorValue(macdData.macd)?.toFixed(5) ?? "—"}</strong>
                 </span>
               )}
+              {atrData.length > 0 && (
+                <span className="chart-study-pill text-orange-100">
+                  <span className="h-2 w-2 rounded-sm bg-orange-300" />
+                  <span>ATR</span>
+                  <strong>{latestIndicatorValue(atrData)?.toFixed(5) ?? "—"}</strong>
+                </span>
+              )}
+              {momentumData.length > 0 && (
+                <span className="chart-study-pill text-violet-100">
+                  <span className="h-2 w-2 rounded-sm bg-violet-300" />
+                  <span>Momentum</span>
+                  <strong>{latestIndicatorValue(momentumData)?.toFixed(5) ?? "—"}</strong>
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -752,6 +784,23 @@ export function TradingChart({
               data={macdData}
               histogramColor={macdSettings.histogramColor ?? "#94a3b8"}
               signalColor={macdSettings.signalColor ?? "#f59e0b"}
+            />
+          )}
+          {atrData.length > 0 && (
+            <StudyLinePanel
+              color={indicatorSettings.atr14.color}
+              data={atrData}
+              label={`ATR ${atrPeriod}`}
+              valueDigits={5}
+            />
+          )}
+          {momentumData.length > 0 && (
+            <StudyLinePanel
+              color={indicatorSettings.momentum10.color}
+              data={momentumData}
+              label={`Momentum ${momentumPeriod}`}
+              valueDigits={5}
+              zeroLine
             />
           )}
         </div>
@@ -987,6 +1036,61 @@ function MacdPanel({
             })}
             <path d={toOscillatorPath(visibleMacd, 960, 112, maxAbs)} fill="none" stroke={color} strokeWidth="2" />
             <path d={toOscillatorPath(visibleSignal, 960, 112, maxAbs)} fill="none" stroke={signalColor} strokeWidth="2" />
+          </svg>
+        ) : (
+          <div className="grid h-full place-items-center text-xs text-slate-500">
+            Waiting for enough candles
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StudyLinePanel({
+  color,
+  data,
+  label,
+  valueDigits = 2,
+  zeroLine = false,
+}: {
+  color: string;
+  data: LineData[];
+  label: string;
+  valueDigits?: number;
+  zeroLine?: boolean;
+}) {
+  const visible = data.slice(-160);
+  const values = visible.map((point) => Number(point.value));
+  const maxAbs = Math.max(0.000001, ...values.map((value) => Math.abs(value)));
+  const latest = latestIndicatorValue(data);
+
+  return (
+    <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">
+          {label}
+        </span>
+        <span className="text-slate-300">
+          {latest == null ? "—" : latest.toFixed(valueDigits)}
+        </span>
+      </div>
+      <div className="h-24 overflow-hidden rounded-md bg-black/20">
+        {visible.length > 1 ? (
+          <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
+            {zeroLine && (
+              <path d="M 0 48 L 960 48" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
+            )}
+            <path
+              d={
+                zeroLine
+                  ? toOscillatorPath(visible, 960, 96, maxAbs)
+                  : toScaledPath(visible, 960, 96)
+              }
+              fill="none"
+              stroke={color}
+              strokeWidth="2"
+            />
           </svg>
         ) : (
           <div className="grid h-full place-items-center text-xs text-slate-500">
@@ -2281,6 +2385,24 @@ function toOscillatorPath(
     .map((point, index) => {
       const x = index * step;
       const y = middle - (Number(point.value) / maxAbs) * amplitude;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function toScaledPath(values: LineData[], width: number, height: number) {
+  if (values.length < 2) {
+    return "";
+  }
+  const numericValues = values.map((point) => Number(point.value));
+  const min = Math.min(...numericValues);
+  const max = Math.max(...numericValues);
+  const range = max - min || 1;
+  const step = width / (values.length - 1);
+  return numericValues
+    .map((value, index) => {
+      const x = index * step;
+      const y = height - ((value - min) / range) * height;
       return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");

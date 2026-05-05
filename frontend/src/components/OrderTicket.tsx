@@ -10,12 +10,18 @@ const RISK_BASE_STORAGE_KEY = "tradezella.order-risk-base.v1";
 type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
 
 type Props = {
+  initialSide?: "BUY" | "SELL" | null;
   onOrderPlaced?: () => void;
   playbooks: Playbook[];
   riskRewardDrawing?: ChartDrawing | null;
 };
 
-export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Props) {
+export function OrderTicket({
+  initialSide,
+  onOrderPlaced,
+  playbooks,
+  riskRewardDrawing,
+}: Props) {
   const state = useBacktestStore((store) => store.state);
   const placeOrder = useBacktestStore((store) => store.placeOrder);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -79,6 +85,12 @@ export function OrderTicket({ onOrderPlaced, playbooks, riskRewardDrawing }: Pro
     setStopLoss(riskRewardValues.stopLoss);
     setTakeProfit(riskRewardValues.takeProfit);
   }, [riskRewardValues]);
+
+  useEffect(() => {
+    if (initialSide) {
+      setSide(initialSide);
+    }
+  }, [initialSide]);
 
   useEffect(() => {
     setPlaybookId(state?.session.playbook_id ? String(state.session.playbook_id) : "");
