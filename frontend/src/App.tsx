@@ -106,7 +106,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);

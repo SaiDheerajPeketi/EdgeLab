@@ -363,7 +363,7 @@ function TradeResults({
     <section className="terminal-panel min-w-0 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-white">Closed Trades</h3>
-        <span className="text-xs text-slate-500">{trades.length} journaled exits</span>
+        <span className="text-xs text-slate-500">{trades.length} closed replay exits</span>
       </div>
       <div className="overflow-auto">
         <table className="w-full min-w-[960px] text-left text-sm">

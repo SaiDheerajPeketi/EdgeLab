@@ -165,6 +165,10 @@ export function TradeZellaWorkspace({
       return <DashboardPage {...shared} />;
     case "dayView":
       return <DayViewPage {...shared} />;
+    case "journal":
+      return <LiveJournalPage />;
+    case "journalReports":
+      return <LiveJournalReportsPage />;
     case "notebook":
       return <NotebookPage {...shared} />;
     case "reports":
@@ -595,6 +599,68 @@ function TradeViewPage({
         </div>
         <TradeLog trades={closedTrades} onEdit={onEditTrade} onInspect={onInspectTrade} />
       </FeatureCard>
+    </PageScaffold>
+  );
+}
+
+function LiveJournalPage() {
+  return (
+    <PageScaffold
+      eyebrow="Journal"
+      title="Live Trade Journal"
+      description="Actual taken trades are tracked here, separate from replay/backtest trades and metrics."
+    >
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <FeatureCard>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <CardLabel icon={ClipboardList} label="Actual trades" />
+            <button className="control-button workspace-tab-active" type="button">
+              <Plus size={15} />
+              Add live trade
+            </button>
+          </div>
+          <div className="grid h-72 place-items-center rounded-md border border-dashed border-white/10 bg-black/20 text-center">
+            <div>
+              <div className="text-sm font-semibold text-white">No live Journal trades yet</div>
+              <p className="mt-1 max-w-md text-sm text-slate-500">
+                Backtest trades stay in Backtesting. Actual trades will populate this Journal area.
+              </p>
+            </div>
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={Info} label="Journal scope" />
+          <div className="mt-4 grid gap-2">
+            <CompactMetric label="Trade source" value="Live actual" />
+            <CompactMetric label="Backtest aggregation" value="Separated" />
+            <CompactMetric label="Current live trades" value="0" />
+          </div>
+        </FeatureCard>
+      </div>
+    </PageScaffold>
+  );
+}
+
+function LiveJournalReportsPage() {
+  const emptyAggregate = aggregateTrades([]);
+
+  return (
+    <PageScaffold
+      eyebrow="Journal Metrics"
+      title="Live Journal Metrics"
+      description="Metrics here are reserved for actual taken trades and never aggregate replay/backtest sessions."
+    >
+      <div className="grid gap-4">
+        <FeatureCard>
+          <StatsGrid aggregate={emptyAggregate} />
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={BarChart3} label="Live equity curve" />
+          <div className="mt-4 grid h-64 place-items-center rounded-md border border-dashed border-white/10 bg-black/20 text-sm text-slate-500">
+            Add or import actual trades to build the live Journal curve.
+          </div>
+        </FeatureCard>
+      </div>
     </PageScaffold>
   );
 }

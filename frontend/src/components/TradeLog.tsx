@@ -77,7 +77,7 @@ export function TradeLog({ trades, onEdit, onInspect }: Props) {
                   <button
                     className="icon-button"
                     onClick={() => onEdit(trade)}
-                    title="Edit journal"
+                    title="Edit backtest review"
                     type="button"
                   >
                     <Edit3 size={16} />

@@ -15,21 +15,41 @@ import {
 } from "lucide-react";
 import type { WorkspaceView } from "../lib/workspace";
 
-const items: Array<{
+type SidebarItem = {
   id: WorkspaceView;
   label: string;
   icon: typeof BarChart3;
+};
+
+const sections: Array<{
+  label: "Backtesting" | "Journal";
+  shortLabel: string;
+  items: SidebarItem[];
 }> = [
-  { id: "sessions", label: "Sessions", icon: PlaySquare },
-  { id: "backtest", label: "Backtest", icon: LineChart },
-  { id: "dashboard", label: "Dashboard", icon: BarChart3 },
-  { id: "dayView", label: "Day View", icon: CalendarDays },
-  { id: "tradeView", label: "Trade View", icon: ClipboardList },
-  { id: "notebook", label: "Notebook", icon: BookOpen },
-  { id: "reports", label: "Reports", icon: BadgeDollarSign },
-  { id: "strategies", label: "Strategies", icon: Target },
-  { id: "accounts", label: "Accounts", icon: WalletCards },
-  { id: "settings", label: "Settings", icon: Settings },
+  {
+    label: "Backtesting",
+    shortLabel: "BT",
+    items: [
+      { id: "sessions", label: "Sessions", icon: PlaySquare },
+      { id: "backtest", label: "Replay Chart", icon: LineChart },
+      { id: "dashboard", label: "Backtest Results", icon: BarChart3 },
+      { id: "dayView", label: "Backtest Day View", icon: CalendarDays },
+      { id: "tradeView", label: "Backtest Trades", icon: ClipboardList },
+      { id: "notebook", label: "Backtest Notes", icon: BookOpen },
+      { id: "reports", label: "Backtest Reports", icon: BadgeDollarSign },
+      { id: "strategies", label: "Strategies", icon: Target },
+      { id: "accounts", label: "Backtest Accounts", icon: WalletCards },
+      { id: "settings", label: "Backtest Settings", icon: Settings },
+    ],
+  },
+  {
+    label: "Journal",
+    shortLabel: "JR",
+    items: [
+      { id: "journal", label: "Live Journal", icon: ClipboardList },
+      { id: "journalReports", label: "Journal Metrics", icon: BarChart3 },
+    ],
+  },
 ];
 
 type Props = {
@@ -87,38 +107,62 @@ export function Sidebar({
         </button>
       )}
 
-      <nav className="flex w-full flex-col gap-1.5">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const active = item.id === activeView;
-          return (
-            <button
-              key={item.label}
-              className={`group relative flex h-11 items-center rounded-md transition ${
-                collapsed ? "w-12 justify-center" : "w-full justify-start gap-3 px-3"
-              } ${
-                active
-                  ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white"
+      <nav className="flex w-full flex-col gap-4">
+        {sections.map((section) => (
+          <div className="w-full" key={section.label}>
+            <div
+              className={`mb-2 flex h-6 items-center ${
+                collapsed ? "justify-center" : "justify-between px-2"
               }`}
-              onClick={() => onNavigate(item.id)}
-              title={item.label}
-              type="button"
             >
-              <Icon size={18} />
-              {!collapsed && (
-                <span className="truncate text-sm font-semibold">{item.label}</span>
+              {collapsed ? (
+                <span
+                  className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-black text-slate-500"
+                  title={section.label}
+                >
+                  {section.shortLabel}
+                </span>
+              ) : (
+                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  {section.label}
+                </span>
               )}
-              <span
-                className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
-                  collapsed ? "hidden group-hover:block" : "hidden"
-                }`}
-              >
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
+            </div>
+            <div className="flex w-full flex-col gap-1.5">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const active = item.id === activeView;
+                return (
+                  <button
+                    key={item.label}
+                    className={`group relative flex h-11 items-center rounded-md transition ${
+                      collapsed ? "w-12 justify-center" : "w-full justify-start gap-3 px-3"
+                    } ${
+                      active
+                        ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+                        : "text-slate-400 hover:bg-white/5 hover:text-white"
+                    }`}
+                    onClick={() => onNavigate(item.id)}
+                    title={`${section.label} / ${item.label}`}
+                    type="button"
+                  >
+                    <Icon size={18} />
+                    {!collapsed && (
+                      <span className="truncate text-sm font-semibold">{item.label}</span>
+                    )}
+                    <span
+                      className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
+                        collapsed ? "hidden group-hover:block" : "hidden"
+                      }`}
+                    >
+                      {section.label} / {item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
     </aside>
   );
