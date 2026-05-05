@@ -680,15 +680,13 @@ export default function App() {
                     <PanelLeftClose size={15} />
                   </button>
                 </section>
-                <div className="focus-side-drawer-body">
-                  <OrderTicket
-                    initialSide={orderTicketSide}
-                    onOrderPlaced={closeOrderPanels}
-                    playbooks={playbooks}
-                    riskRewardDrawing={latestRiskRewardDrawing}
-                  />
-                  <PositionPanel position={position} />
-                </div>
+                <OrderTicket
+                  initialSide={orderTicketSide}
+                  onOrderPlaced={closeOrderPanels}
+                  playbooks={playbooks}
+                  riskRewardDrawing={latestRiskRewardDrawing}
+                />
+                <PositionPanel position={position} />
               </aside>
             )}
 
@@ -815,15 +813,13 @@ export default function App() {
                         <PanelLeftClose size={15} />
                       </button>
                     </div>
-                    <div className="focus-side-drawer-body">
-                      <OrderTicket
-                        initialSide={orderTicketSide}
-                        onOrderPlaced={closeOrderPanels}
-                        playbooks={playbooks}
-                        riskRewardDrawing={latestRiskRewardDrawing}
-                      />
-                      <PositionPanel position={position} />
-                    </div>
+                    <OrderTicket
+                      initialSide={orderTicketSide}
+                      onOrderPlaced={closeOrderPanels}
+                      playbooks={playbooks}
+                      riskRewardDrawing={latestRiskRewardDrawing}
+                    />
+                    <PositionPanel position={position} />
                   </div>
                 )}
               </div>

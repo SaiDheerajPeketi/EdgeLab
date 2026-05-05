@@ -360,12 +360,7 @@ button:disabled {
   }
 
   .focus-side-drawer {
-    @apply fixed bottom-3 left-3 top-3 z-50 grid w-[min(360px,calc(100vw-24px))] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-md border border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
-  }
-
-  .focus-side-drawer-body {
-    @apply grid min-h-0 content-start gap-3 overflow-y-auto pr-1;
-    overscroll-behavior: contain;
+    @apply fixed bottom-3 left-3 top-3 z-50 grid w-[min(360px,calc(100vw-24px))] content-start gap-3 overflow-auto rounded-md border border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   @media (min-width: 1024px) {
@@ -417,7 +412,7 @@ button:disabled {
   }
 
   .chart-fullscreen-dock {
-    @apply fixed bottom-3 left-3 top-3 z-[65] grid w-[min(360px,calc(100vw-24px))] animate-[slideInLeft_160ms_ease-out] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-md border border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
+    @apply fixed bottom-3 left-3 top-3 z-[65] grid w-[min(360px,calc(100vw-24px))] animate-[slideInLeft_160ms_ease-out] content-start gap-3 overflow-y-auto rounded-md border border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   .chart-fullscreen-dock-header {
