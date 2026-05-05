@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   AlertTriangle,
   Clock3,
@@ -661,7 +662,10 @@ export default function App() {
 
           <div className="space-y-3">
             {leftPaneOpen && (
-              <aside className="focus-side-drawer">
+              <aside
+                className="focus-side-drawer"
+                style={{ "--edge-sidebar-width": sidebarCollapsed ? "76px" : "244px" } as CSSProperties}
+              >
                 <section className="terminal-panel flex items-center justify-between gap-3 px-3 py-2">
                   <div className="min-w-0">
                     <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
@@ -680,13 +684,15 @@ export default function App() {
                     <PanelLeftClose size={15} />
                   </button>
                 </section>
-                <OrderTicket
-                  initialSide={orderTicketSide}
-                  onOrderPlaced={closeOrderPanels}
-                  playbooks={playbooks}
-                  riskRewardDrawing={latestRiskRewardDrawing}
-                />
-                <PositionPanel position={position} />
+                <div className="focus-side-drawer-body">
+                  <OrderTicket
+                    initialSide={orderTicketSide}
+                    onOrderPlaced={closeOrderPanels}
+                    playbooks={playbooks}
+                    riskRewardDrawing={latestRiskRewardDrawing}
+                  />
+                  <PositionPanel position={position} />
+                </div>
               </aside>
             )}
 
@@ -813,13 +819,15 @@ export default function App() {
                         <PanelLeftClose size={15} />
                       </button>
                     </div>
-                    <OrderTicket
-                      initialSide={orderTicketSide}
-                      onOrderPlaced={closeOrderPanels}
-                      playbooks={playbooks}
-                      riskRewardDrawing={latestRiskRewardDrawing}
-                    />
-                    <PositionPanel position={position} />
+                    <div className="focus-side-drawer-body">
+                      <OrderTicket
+                        initialSide={orderTicketSide}
+                        onOrderPlaced={closeOrderPanels}
+                        playbooks={playbooks}
+                        riskRewardDrawing={latestRiskRewardDrawing}
+                      />
+                      <PositionPanel position={position} />
+                    </div>
                   </div>
                 )}
               </div>

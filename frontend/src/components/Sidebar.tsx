@@ -1,5 +1,4 @@
 import {
-  BadgeDollarSign,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -21,10 +20,22 @@ type SidebarItem = {
   icon: typeof BarChart3;
 };
 
+type SidebarGroup = {
+  children: Array<{
+    id: WorkspaceView;
+    label: string;
+  }>;
+  icon: typeof BarChart3;
+  label: string;
+  primaryId: WorkspaceView;
+};
+
+type SidebarEntry = SidebarItem | SidebarGroup;
+
 const sections: Array<{
   label: "Backtesting" | "Journal";
   shortLabel: string;
-  items: SidebarItem[];
+  items: SidebarEntry[];
 }> = [
   {
     label: "Backtesting",
@@ -32,11 +43,18 @@ const sections: Array<{
     items: [
       { id: "sessions", label: "Sessions", icon: PlaySquare },
       { id: "backtest", label: "Replay Chart", icon: LineChart },
-      { id: "dashboard", label: "Backtest Results", icon: BarChart3 },
+      {
+        children: [
+          { id: "dashboard", label: "Overview" },
+          { id: "reports", label: "Metrics" },
+        ],
+        icon: BarChart3,
+        label: "Results",
+        primaryId: "dashboard",
+      },
       { id: "dayView", label: "Backtest Day View", icon: CalendarDays },
       { id: "tradeView", label: "Backtest Trades", icon: ClipboardList },
       { id: "notebook", label: "Backtest Notes", icon: BookOpen },
-      { id: "reports", label: "Backtest Reports", icon: BadgeDollarSign },
       { id: "strategies", label: "Strategies", icon: Target },
       { id: "playbooks", label: "Playbooks", icon: BookOpen },
       { id: "accounts", label: "Backtest Accounts", icon: WalletCards },
@@ -48,11 +66,18 @@ const sections: Array<{
     shortLabel: "JR",
     items: [
       { id: "journalSessions", label: "Journal Sessions", icon: PlaySquare },
-      { id: "journalDashboard", label: "Journal Dashboard", icon: BarChart3 },
+      {
+        children: [
+          { id: "journalDashboard", label: "Overview" },
+          { id: "journalReports", label: "Metrics" },
+        ],
+        icon: BarChart3,
+        label: "Journal Results",
+        primaryId: "journalDashboard",
+      },
       { id: "journalDayView", label: "Journal Day View", icon: CalendarDays },
       { id: "journalTrades", label: "Live Trades", icon: ClipboardList },
       { id: "journalNotes", label: "Journal Notes", icon: BookOpen },
-      { id: "journalReports", label: "Journal Metrics", icon: BarChart3 },
       { id: "journalStrategies", label: "Journal Strategies", icon: Target },
       { id: "journalPlaybooks", label: "Journal Playbooks", icon: BookOpen },
       { id: "journalAccounts", label: "Journal Accounts", icon: WalletCards },
@@ -141,6 +166,56 @@ export function Sidebar({
             </div>
             <div className={`flex w-full flex-col ${collapsed ? "gap-1" : "gap-1.5"}`}>
               {section.items.map((item) => {
+                if ("children" in item) {
+                  const Icon = item.icon;
+                  const active = item.children.some((child) => child.id === activeView);
+                  return (
+                    <div className="min-w-0" key={item.label}>
+                      <button
+                        className={`group relative flex items-center rounded-md transition ${
+                          collapsed ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
+                        } ${
+                          active
+                            ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+                            : "text-slate-400 hover:bg-white/5 hover:text-white"
+                        }`}
+                        onClick={() => onNavigate(item.primaryId)}
+                        title={`${section.label} / ${item.label}`}
+                        type="button"
+                      >
+                        <Icon size={18} />
+                        {!collapsed && (
+                          <span className="truncate text-sm font-semibold">{item.label}</span>
+                        )}
+                        <span
+                          className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
+                            collapsed ? "hidden group-hover:block" : "hidden"
+                          }`}
+                        >
+                          {section.label} / {item.label}
+                        </span>
+                      </button>
+                      {!collapsed && active && (
+                        <div className="mt-1 grid grid-cols-2 gap-1 pl-3">
+                          {item.children.map((child) => (
+                            <button
+                              className={`h-8 rounded border px-2 text-xs font-semibold transition ${
+                                child.id === activeView
+                                  ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+                                  : "border-white/10 bg-white/[0.03] text-slate-500 hover:bg-white/10 hover:text-white"
+                              }`}
+                              key={child.id}
+                              onClick={() => onNavigate(child.id)}
+                              type="button"
+                            >
+                              {child.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 const Icon = item.icon;
                 const active = item.id === activeView;
                 return (
