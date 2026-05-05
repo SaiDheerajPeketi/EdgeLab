@@ -303,11 +303,6 @@ class BacktestService:
 
     def list_playbooks(self, db: Session) -> list[PlaybookRead]:
         playbooks = db.scalars(select(Playbook).order_by(asc(Playbook.name))).all()
-        if not playbooks:
-            for name in ("London Continuation", "Breakout Retest", "Mean Reversion"):
-                db.add(Playbook(name=name))
-            db.commit()
-            playbooks = db.scalars(select(Playbook).order_by(asc(Playbook.name))).all()
         return [PlaybookRead.model_validate(playbook) for playbook in playbooks]
 
     def create_playbook(self, db: Session, payload: PlaybookCreate) -> PlaybookRead:
