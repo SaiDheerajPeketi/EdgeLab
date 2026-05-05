@@ -575,7 +575,7 @@ export default function App() {
                 ref={chartFullscreenRef}
                 className={
                   isChartFullscreen
-                    ? `chart-fullscreen-shell ${fullscreenOrderPanelOpen ? "chart-fullscreen-with-dock" : ""}`
+                    ? "chart-fullscreen-shell"
                     : "focus-chart-column"
                 }
               >
@@ -693,6 +693,24 @@ export default function App() {
                 </div>
                 {isChartFullscreen && fullscreenOrderPanelOpen && (
                   <div className="chart-fullscreen-dock">
+                    <div className="chart-fullscreen-dock-header">
+                      <div className="min-w-0">
+                        <div className="text-xs uppercase tracking-[0.16em] text-cyan-200/70">
+                          Execution
+                        </div>
+                        <div className="truncate text-sm font-semibold text-white">
+                          Order ticket and live position
+                        </div>
+                      </div>
+                      <button
+                        className="icon-button h-8 w-8 shrink-0"
+                        onClick={() => setFullscreenOrderPanelOpen(false)}
+                        title="Close order popout"
+                        type="button"
+                      >
+                        <PanelLeftClose size={15} />
+                      </button>
+                    </div>
                     <OrderTicket
                       onOrderPlaced={closeOrderPanels}
                       playbooks={playbooks}
