@@ -46,8 +46,15 @@ const sections: Array<{
     label: "Journal",
     shortLabel: "JR",
     items: [
-      { id: "journal", label: "Live Journal", icon: ClipboardList },
+      { id: "journalSessions", label: "Journal Sessions", icon: PlaySquare },
+      { id: "journalDashboard", label: "Journal Dashboard", icon: BarChart3 },
+      { id: "journalDayView", label: "Journal Day View", icon: CalendarDays },
+      { id: "journalTrades", label: "Live Trades", icon: ClipboardList },
+      { id: "journalNotes", label: "Journal Notes", icon: BookOpen },
       { id: "journalReports", label: "Journal Metrics", icon: BarChart3 },
+      { id: "journalStrategies", label: "Journal Strategies", icon: Target },
+      { id: "journalAccounts", label: "Journal Accounts", icon: WalletCards },
+      { id: "journalSettings", label: "Journal Settings", icon: Settings },
     ],
   },
 ];
@@ -67,7 +74,7 @@ export function Sidebar({
 }: Props) {
   return (
     <aside
-      className={`hidden shrink-0 border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:flex lg:flex-col ${
+      className={`hidden max-h-screen shrink-0 overflow-y-auto border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:flex lg:flex-col ${
         collapsed ? "w-[76px] items-center" : "w-[244px]"
       }`}
     >

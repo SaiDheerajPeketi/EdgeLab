@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -27,6 +27,7 @@ import {
   MoreHorizontal,
   NotebookPen,
   PieChart,
+  PlaySquare,
   Plus,
   Search,
   Settings,
@@ -103,6 +104,54 @@ type StrategyGroup = {
   trades: Trade[];
 };
 
+type LiveJournalSession = {
+  account: string;
+  created_at: string;
+  currency: string;
+  id: number;
+  initial_balance: number;
+  instrument: string;
+  name: string;
+  notes: string;
+  status: "ACTIVE" | "ARCHIVED";
+  strategy_name: string;
+};
+
+type LiveJournalData = {
+  sessions: LiveJournalSession[];
+  trades: Trade[];
+};
+
+type LiveStrategyGroup = {
+  aggregate: Aggregate;
+  name: string;
+  sessions: LiveJournalSession[];
+  trades: Trade[];
+};
+
+type LiveJournalController = {
+  addSession: (payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) => void;
+  addTrade: (payload: LiveTradeInput) => void;
+  data: LiveJournalData;
+};
+
+type LiveTradeInput = {
+  entryPrice: number;
+  entryTime: string;
+  exitPrice: number;
+  exitTime: string;
+  mistakeTags: string[];
+  notes: string | null;
+  quantity: number;
+  sessionId: number;
+  side: "LONG" | "SHORT";
+  stopLoss: number | null;
+  strategyName: string | null;
+  takeProfit: number | null;
+};
+
+const LIVE_JOURNAL_STORAGE_KEY = "tradezella.live-journal.v1";
+
 export function TradeZellaWorkspace({
   activeSession,
   datasets,
@@ -116,6 +165,7 @@ export function TradeZellaWorkspace({
   trades,
   view,
 }: Props) {
+  const liveJournal = useLiveJournalData();
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
     [sessions],
@@ -166,9 +216,17 @@ export function TradeZellaWorkspace({
     case "dayView":
       return <DayViewPage {...shared} />;
     case "journal":
-      return <LiveJournalPage />;
+    case "journalTrades":
+      return <JournalWorkspacePage journal={liveJournal} view="journalTrades" />;
+    case "journalAccounts":
+    case "journalDashboard":
+    case "journalDayView":
+    case "journalNotes":
     case "journalReports":
-      return <LiveJournalReportsPage />;
+    case "journalSessions":
+    case "journalSettings":
+    case "journalStrategies":
+      return <JournalWorkspacePage journal={liveJournal} view={view} />;
     case "notebook":
       return <NotebookPage {...shared} />;
     case "reports":
@@ -603,37 +661,178 @@ function TradeViewPage({
   );
 }
 
-function LiveJournalPage() {
+function JournalWorkspacePage({
+  journal,
+  view,
+}: {
+  journal: LiveJournalController;
+  view:
+    | "journalAccounts"
+    | "journalDashboard"
+    | "journalDayView"
+    | "journalNotes"
+    | "journalReports"
+    | "journalSessions"
+    | "journalSettings"
+    | "journalStrategies"
+    | "journalTrades";
+}) {
+  const sessionById = useMemo(
+    () => new Map(journal.data.sessions.map((session) => [session.id, session])),
+    [journal.data.sessions],
+  );
+  const closedTrades = useMemo(
+    () =>
+      journal.data.trades
+        .filter((trade) => trade.status === "CLOSED")
+        .slice()
+        .sort(compareTradesAscending),
+    [journal.data.trades],
+  );
+  const aggregate = useMemo(() => aggregateTrades(closedTrades), [closedTrades]);
+  const days = useMemo(() => groupTradesByDay(closedTrades), [closedTrades]);
+  const strategies = useMemo(
+    () => groupLiveStrategies(journal.data.sessions, journal.data.trades),
+    [journal.data.sessions, journal.data.trades],
+  );
+
+  const shared = {
+    aggregate,
+    closedTrades,
+    days,
+    journal,
+    sessionById,
+    sessions: journal.data.sessions,
+    strategies,
+  };
+
+  switch (view) {
+    case "journalAccounts":
+      return <JournalAccountsPage {...shared} />;
+    case "journalDashboard":
+      return <JournalDashboardPage {...shared} />;
+    case "journalDayView":
+      return <JournalDayViewPage {...shared} />;
+    case "journalNotes":
+      return <JournalNotesPage {...shared} />;
+    case "journalReports":
+      return <JournalReportsPage {...shared} />;
+    case "journalSessions":
+      return <JournalSessionsPage {...shared} />;
+    case "journalSettings":
+      return <JournalSettingsPage {...shared} />;
+    case "journalStrategies":
+      return <JournalStrategiesPage {...shared} />;
+    case "journalTrades":
+      return <JournalTradesPage {...shared} />;
+    default:
+      return null;
+  }
+}
+
+type JournalPageProps = {
+  aggregate: Aggregate;
+  closedTrades: Trade[];
+  days: DayGroup[];
+  journal: LiveJournalController;
+  sessionById: Map<number, LiveJournalSession>;
+  sessions: LiveJournalSession[];
+  strategies: LiveStrategyGroup[];
+};
+
+function JournalSessionsPage({
+  aggregate,
+  journal,
+  sessionById,
+  sessions,
+}: JournalPageProps) {
+  const [name, setName] = useState("Live Trading Session");
+  const [strategy, setStrategy] = useState("Discretionary");
+  const [instrument, setInstrument] = useState("OANDA:EURUSD");
+  const [balance, setBalance] = useState("100000");
+
+  function submitSession(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    journal.addSession({
+      account: "Manual",
+      currency: "USD",
+      initial_balance: Number(balance) || 0,
+      instrument: instrument.trim() || "Manual",
+      name: name.trim() || "Live Trading Session",
+      notes: "",
+      strategy_name: strategy.trim() || "Unassigned",
+    });
+  }
+
   return (
     <PageScaffold
-      eyebrow="Journal"
-      title="Live Trade Journal"
-      description="Actual taken trades are tracked here, separate from replay/backtest trades and metrics."
+      eyebrow="Journal Sessions"
+      title="Live Session Management"
+      description="Actual-trade sessions are separate from replay sessions. Their metrics are built only from manually recorded live trades."
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <FeatureCard>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <CardLabel icon={ClipboardList} label="Actual trades" />
-            <button className="control-button workspace-tab-active" type="button">
-              <Plus size={15} />
-              Add live trade
-            </button>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <CardLabel icon={PlaySquare} label="Live sessions" />
+            <span className="status-pill">{sessions.length} sessions</span>
           </div>
-          <div className="grid h-72 place-items-center rounded-md border border-dashed border-white/10 bg-black/20 text-center">
-            <div>
-              <div className="text-sm font-semibold text-white">No live Journal trades yet</div>
-              <p className="mt-1 max-w-md text-sm text-slate-500">
-                Backtest trades stay in Backtesting. Actual trades will populate this Journal area.
-              </p>
-            </div>
+          <div className="overflow-auto">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                <tr>
+                  <th className="px-3 py-3 font-medium">Session</th>
+                  <th className="px-3 py-3 font-medium">Instrument</th>
+                  <th className="px-3 py-3 font-medium">Strategy</th>
+                  <th className="px-3 py-3 font-medium">Trades</th>
+                  <th className="px-3 py-3 font-medium">Net P&L</th>
+                  <th className="px-3 py-3 font-medium">Win rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((session) => {
+                  const rowAggregate = aggregateTrades(journal.data.trades.filter((trade) => trade.session_id === session.id));
+                  return (
+                    <tr className="border-t border-white/10 text-slate-300" key={session.id}>
+                      <td className="px-3 py-4 font-semibold text-white">{session.name}</td>
+                      <td className="px-3 py-4">{session.instrument}</td>
+                      <td className="px-3 py-4">{session.strategy_name}</td>
+                      <td className="px-3 py-4">{rowAggregate.totalTrades}</td>
+                      <td className={`px-3 py-4 font-semibold ${toneForNumber(rowAggregate.netPnl)}`}>{formatMoney(rowAggregate.netPnl)}</td>
+                      <td className="px-3 py-4">{formatPercent(rowAggregate.winRate)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </FeatureCard>
         <FeatureCard>
-          <CardLabel icon={Info} label="Journal scope" />
+          <CardLabel icon={Plus} label="Create live session" />
+          <form className="mt-4 grid gap-3" onSubmit={submitSession}>
+            <label className="form-field">
+              Session name
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setName(event.target.value)} value={name} />
+            </label>
+            <label className="form-field">
+              Strategy
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStrategy(event.target.value)} value={strategy} />
+            </label>
+            <label className="form-field">
+              Instrument
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setInstrument(event.target.value)} value={instrument} />
+            </label>
+            <label className="form-field">
+              Starting balance
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setBalance(event.target.value)} type="number" value={balance} />
+            </label>
+            <button className="control-button workspace-tab-active justify-center" type="submit">
+              <Plus size={15} />
+              Save session
+            </button>
+          </form>
           <div className="mt-4 grid gap-2">
-            <CompactMetric label="Trade source" value="Live actual" />
-            <CompactMetric label="Backtest aggregation" value="Separated" />
-            <CompactMetric label="Current live trades" value="0" />
+            <CompactMetric label="Live total P&L" value={formatMoney(aggregate.netPnl)} tone={toneForNumber(aggregate.netPnl)} />
+            <CompactMetric label="Latest session" value={sessionById.get(sessions.at(-1)?.id ?? 0)?.name ?? "-"} />
           </div>
         </FeatureCard>
       </div>
@@ -641,27 +840,584 @@ function LiveJournalPage() {
   );
 }
 
-function LiveJournalReportsPage() {
-  const emptyAggregate = aggregateTrades([]);
+function JournalDashboardPage({
+  aggregate,
+  closedTrades,
+  days,
+  sessions,
+}: JournalPageProps) {
+  const latestDay = days[0];
+  const startingBalance = sessions[0]?.initial_balance ?? 0;
+  const liveBalance = startingBalance + aggregate.netPnl;
 
   return (
     <PageScaffold
-      eyebrow="Journal Metrics"
-      title="Live Journal Metrics"
-      description="Metrics here are reserved for actual taken trades and never aggregate replay/backtest sessions."
+      eyebrow="Journal Dashboard"
+      title="Live Trading Command Center"
+      description="Actual taken trade performance only. Backtest sessions and replay trades are not included here."
     >
-      <div className="grid gap-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,1fr)_minmax(300px,0.75fr)]">
         <FeatureCard>
-          <StatsGrid aggregate={emptyAggregate} />
+          <CardLabel icon={TrendingUp} label="Live daily P&L" />
+          <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(latestDay?.aggregate.netPnl)}`}>
+            {formatMoney(latestDay?.aggregate.netPnl ?? 0)}
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <CompactMetric label="Trades" value={String(latestDay?.aggregate.totalTrades ?? 0)} />
+            <CompactMetric label="Win" value={formatPercent(latestDay?.aggregate.winRate ?? 0)} />
+            <CompactMetric label="Avg R" value={formatOptionalNumber(latestDay?.aggregate.averageR)} />
+          </div>
         </FeatureCard>
         <FeatureCard>
-          <CardLabel icon={BarChart3} label="Live equity curve" />
-          <div className="mt-4 grid h-64 place-items-center rounded-md border border-dashed border-white/10 bg-black/20 text-sm text-slate-500">
-            Add or import actual trades to build the live Journal curve.
+          <CardLabel icon={Activity} label="Recent actual trades" />
+          <div className="mt-4 grid max-h-72 gap-2 overflow-auto">
+            {closedTrades.slice(-8).reverse().map((trade) => (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm" key={trade.id}>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-white">{trade.strategy_name || "Unassigned"} - {trade.side}</span>
+                  <span className="text-xs text-slate-500">{formatDateTime(trade.exit_time)}</span>
+                </span>
+                <span className={`font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</span>
+              </div>
+            ))}
+            {closedTrades.length === 0 && <EmptyState icon={ClipboardList} message="Record a live trade to populate Journal activity." />}
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={WalletCards} label="Live account balance" />
+          <div className="mt-6 text-4xl font-semibold tabular-nums text-white">{formatMoney(liveBalance)}</div>
+          <p className="mt-3 text-sm text-slate-500">Starting balance plus actual recorded trade P&L.</p>
+        </FeatureCard>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.55fr)]">
+        <FeatureCard>
+          <CardLabel icon={CalendarDays} label="Live trading calendar" />
+          <div className="mt-4">
+            <CalendarHeatmap days={days} />
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={TrendingDown} label="Live drawdown" />
+          <div className="mt-4">
+            <AreaSparkline values={drawdownValues(closedTrades)} height={220} tone="rose" />
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown)} tone="text-rose-300" />
+            <CompactMetric label="PF" value={formatRatio(aggregate.profitFactor)} />
           </div>
         </FeatureCard>
       </div>
     </PageScaffold>
+  );
+}
+
+function JournalTradesPage({
+  closedTrades,
+  journal,
+  sessions,
+}: JournalPageProps) {
+  return (
+    <PageScaffold
+      eyebrow="Journal Trades"
+      title="Live Trade Log"
+      description="Manually record actual taken trades here. These entries feed only Journal sessions, strategies, and reports."
+    >
+      <div className="grid gap-4 2xl:grid-cols-[380px_minmax(0,1fr)]">
+        <LiveTradeForm journal={journal} sessions={sessions} />
+        <LiveTradeTable sessionById={new Map(sessions.map((session) => [session.id, session]))} trades={closedTrades} />
+      </div>
+    </PageScaffold>
+  );
+}
+
+function JournalDayViewPage({ days }: JournalPageProps) {
+  return (
+    <PageScaffold
+      eyebrow="Journal Day View"
+      title="Actual Trade Daily Review"
+      description="Daily review for live trades only, using the same P&L, win rate, and calendar rhythm as backtesting."
+    >
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="space-y-3">
+          {days.map((day) => (
+            <FeatureCard key={day.date}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-white">{day.label}</div>
+                  <div className={`mt-1 text-sm font-semibold ${toneForNumber(day.aggregate.netPnl)}`}>
+                    Net P&L {formatMoney(day.aggregate.netPnl)}
+                  </div>
+                </div>
+                <span className="status-pill">{day.aggregate.totalTrades} actual trades</span>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
+                <AreaSparkline values={cumulativeValues(day.trades)} height={150} />
+                <div className="grid grid-cols-2 gap-2">
+                  <CompactMetric label="Win rate" value={formatPercent(day.aggregate.winRate)} />
+                  <CompactMetric label="Profit factor" value={formatRatio(day.aggregate.profitFactor)} />
+                  <CompactMetric label="Winners" value={String(day.aggregate.wins)} tone="text-emerald-300" />
+                  <CompactMetric label="Losers" value={String(day.aggregate.losses)} tone="text-rose-300" />
+                </div>
+              </div>
+            </FeatureCard>
+          ))}
+          {days.length === 0 && <EmptyState icon={CalendarDays} message="Live trade days appear after recording actual trades." />}
+        </div>
+        <FeatureCard>
+          <CardLabel icon={CalendarDays} label="Calendar navigator" />
+          <div className="mt-4">
+            <CalendarHeatmap compact days={days} />
+          </div>
+        </FeatureCard>
+      </div>
+    </PageScaffold>
+  );
+}
+
+function JournalNotesPage({ closedTrades }: JournalPageProps) {
+  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(closedTrades.at(-1)?.id ?? null);
+  const selectedTrade = closedTrades.find((trade) => trade.id === selectedTradeId) ?? closedTrades.at(-1) ?? null;
+
+  return (
+    <PageScaffold
+      eyebrow="Journal Notes"
+      title="Live Trade Notes"
+      description="Notes, tags, and emotional review for actual trades only."
+    >
+      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <FeatureCard className="p-0">
+          <div className="border-b border-white/10 p-3">
+            <div className="flex items-center gap-2">
+              <Search size={15} className="text-slate-500" />
+              <input className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Search live notes" />
+            </div>
+          </div>
+          <div className="grid gap-2 p-3">
+            <NotebookFolder label={`All live notes (${closedTrades.length})`} active />
+            {closedTrades.slice().reverse().map((trade) => (
+              <button
+                className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                  selectedTrade?.id === trade.id ? "border-cyan-300/30 bg-cyan-300/10" : "border-white/10 bg-black/20 hover:border-white/20"
+                }`}
+                key={trade.id}
+                onClick={() => setSelectedTradeId(trade.id)}
+                type="button"
+              >
+                <span className="block font-semibold text-white">{trade.strategy_name || "Unassigned"} : {shortDate(trade.entry_time)}</span>
+                <span className={`text-xs font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</span>
+              </button>
+            ))}
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          {selectedTrade ? (
+            <>
+              <h2 className="text-xl font-semibold text-white">{selectedTrade.strategy_name || "Live trade"} : {shortDate(selectedTrade.entry_time)}</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Entry {formatDateTime(selectedTrade.entry_time)} - Exit {formatDateTime(selectedTrade.exit_time)}
+              </p>
+              <div className="mt-4 grid gap-2 md:grid-cols-4">
+                <CompactMetric label="Side" value={selectedTrade.side} />
+                <CompactMetric label="P&L" value={formatMoney(selectedTrade.realized_pnl)} tone={toneForNumber(selectedTrade.realized_pnl)} />
+                <CompactMetric label="R multiple" value={formatOptionalNumber(selectedTrade.r_multiple)} />
+                <CompactMetric label="Tags" value={selectedTrade.mistake_tags.join(", ") || "-"} />
+              </div>
+              <RichTextEditorStub />
+            </>
+          ) : (
+            <EmptyState icon={NotebookPen} message="Record a live trade to start live notes." />
+          )}
+        </FeatureCard>
+      </div>
+    </PageScaffold>
+  );
+}
+
+function JournalReportsPage({
+  aggregate,
+  closedTrades,
+  days,
+  strategies,
+}: JournalPageProps) {
+  const [tab, setTab] = useState<"daytime" | "overview" | "performance" | "risk" | "strategies">("performance");
+  const rRows = useMemo(() => groupByRMultiple(closedTrades), [closedTrades]);
+  const hourRows = useMemo(() => groupByHour(closedTrades), [closedTrades]);
+
+  return (
+    <PageScaffold
+      eyebrow="Journal Reports"
+      title="Live Journal Performance Reports"
+      description="Reports calculated from actual manually recorded trades only."
+    >
+      <div className="flex gap-2 overflow-x-auto rounded-md border border-white/10 bg-black/20 p-1">
+        {[
+          ["performance", "Performance"],
+          ["overview", "Overview"],
+          ["daytime", "Day & Time"],
+          ["risk", "Risk"],
+          ["strategies", "Strategies"],
+        ].map(([id, label]) => (
+          <TinyTab active={tab === id} key={id} onClick={() => setTab(id as typeof tab)}>
+            {label}
+          </TinyTab>
+        ))}
+      </div>
+      {tab === "performance" && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <FeatureCard>
+            <CardLabel icon={LineChart} label="Live equity curve" />
+            <AreaSparkline values={cumulativeValues(closedTrades)} height={260} />
+          </FeatureCard>
+          <FeatureCard>
+            <CardLabel icon={BarChart3} label="Live P&L by day" />
+            <BarBreakdown rows={days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
+          </FeatureCard>
+          <FeatureCard className="xl:col-span-2">
+            <StatsGrid aggregate={aggregate} />
+          </FeatureCard>
+        </div>
+      )}
+      {tab === "overview" && <FeatureCard><StatsGrid aggregate={aggregate} /></FeatureCard>}
+      {tab === "daytime" && <ReportBreakdown leftTitle="Live net P&L by hour" rightTitle="Live win % by hour" rows={hourRows} />}
+      {tab === "risk" && <ReportBreakdown leftTitle="Live net P&L by R multiple" rightTitle="Live win % by R bucket" rows={rRows} />}
+      {tab === "strategies" && (
+        <ReportBreakdown
+          leftTitle="Live P&L by strategy"
+          rightTitle="Live win % by strategy"
+          rows={strategies.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name }))}
+        />
+      )}
+    </PageScaffold>
+  );
+}
+
+function JournalStrategiesPage({ strategies }: JournalPageProps) {
+  const [selectedName, setSelectedName] = useState<string | null>(strategies[0]?.name ?? null);
+  const selected = strategies.find((strategy) => strategy.name === selectedName) ?? strategies[0] ?? null;
+
+  return (
+    <PageScaffold
+      eyebrow="Journal Strategies"
+      title="Live Strategy Performance"
+      description="Strategy analytics from actual trades only. Backtest strategy stats remain in Backtesting."
+    >
+      <FeatureCard>
+        <div className="overflow-auto">
+          <table className="w-full min-w-[860px] text-left text-sm">
+            <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              <tr>
+                <th className="px-3 py-3 font-medium">Strategy</th>
+                <th className="px-3 py-3 font-medium">Sessions</th>
+                <th className="px-3 py-3 font-medium">Trades</th>
+                <th className="px-3 py-3 font-medium">Net P&L</th>
+                <th className="px-3 py-3 font-medium">Win rate</th>
+                <th className="px-3 py-3 font-medium">Avg R</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strategies.map((strategy) => (
+                <tr
+                  className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selected?.name === strategy.name ? "bg-cyan-300/10" : ""}`}
+                  key={strategy.name}
+                  onClick={() => setSelectedName(strategy.name)}
+                >
+                  <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
+                  <td className="px-3 py-4">{strategy.sessions.length}</td>
+                  <td className="px-3 py-4">{strategy.aggregate.totalTrades}</td>
+                  <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl)}</td>
+                  <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
+                  <td className="px-3 py-4">{formatOptionalNumber(strategy.aggregate.averageR)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {strategies.length === 0 && <EmptyState icon={Target} message="Record live trades with strategies to populate this list." />}
+        </div>
+      </FeatureCard>
+      <FeatureCard>
+        {selected ? (
+          <div>
+            <CardLabel icon={Target} label="Live strategy detail" />
+            <h3 className="mt-3 text-xl font-semibold text-white">{selected.name}</h3>
+            <div className="mt-4 grid gap-2 md:grid-cols-4">
+              <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl)} tone={toneForNumber(selected.aggregate.netPnl)} />
+              <CompactMetric label="Win rate" value={formatPercent(selected.aggregate.winRate)} />
+              <CompactMetric label="Profit factor" value={formatRatio(selected.aggregate.profitFactor)} />
+              <CompactMetric label="Sessions" value={String(selected.sessions.length)} />
+            </div>
+          </div>
+        ) : (
+          <EmptyState icon={Target} message="No live strategy selected." />
+        )}
+      </FeatureCard>
+    </PageScaffold>
+  );
+}
+
+function JournalAccountsPage({ aggregate, closedTrades, sessions }: JournalPageProps) {
+  const startingBalance = sessions[0]?.initial_balance ?? 0;
+  return (
+    <PageScaffold
+      eyebrow="Journal Accounts"
+      title="Live Account Management"
+      description="Live account metrics are calculated from actual recorded trades only."
+    >
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.7fr)_minmax(0,0.3fr)]">
+        <FeatureCard>
+          <CardLabel icon={WalletCards} label="Manual live accounts" />
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            {sessions.map((session) => (
+              <div className="rounded-md border border-white/10 bg-black/20 p-3" key={session.id}>
+                <div className="font-semibold text-white">{session.account}</div>
+                <div className="mt-1 text-xs text-slate-500">{session.name}</div>
+                <div className="mt-3 text-lg font-semibold tabular-nums text-white">
+                  {formatMoney(session.initial_balance + aggregateTrades(closedTrades.filter((trade) => trade.session_id === session.id)).netPnl)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={Gauge} label="Live account total" />
+          <div className="mt-6 text-3xl font-semibold text-white">{formatMoney(startingBalance + aggregate.netPnl)}</div>
+          <div className="mt-4 grid gap-2">
+            <CompactMetric label="Recorded P&L" value={formatMoney(aggregate.netPnl)} tone={toneForNumber(aggregate.netPnl)} />
+            <CompactMetric label="Sessions" value={String(sessions.length)} />
+          </div>
+        </FeatureCard>
+      </div>
+    </PageScaffold>
+  );
+}
+
+function JournalSettingsPage(_: JournalPageProps) {
+  return (
+    <PageScaffold
+      eyebrow="Journal Settings"
+      title="Live Journal Settings"
+      description="Defaults for manually recorded actual trades."
+    >
+      <FeatureCard>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="form-field">
+            Default live risk %
+            <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
+          </label>
+          <label className="form-field">
+            Default account
+            <input className="input-control h-10 normal-case tracking-normal" defaultValue="Manual" />
+          </label>
+          <label className="form-field">
+            Commission mode
+            <select className="input-control h-10 normal-case tracking-normal" defaultValue="Manual entry">
+              <option>Manual entry</option>
+              <option>Flat per trade</option>
+              <option>Percent of notional</option>
+            </select>
+          </label>
+          <label className="form-field">
+            Journal import source
+            <select className="input-control h-10 normal-case tracking-normal" defaultValue="Manual">
+              <option>Manual</option>
+              <option>Broker CSV</option>
+            </select>
+          </label>
+        </div>
+      </FeatureCard>
+    </PageScaffold>
+  );
+}
+
+function LiveTradeForm({
+  journal,
+  sessions,
+}: {
+  journal: LiveJournalController;
+  sessions: LiveJournalSession[];
+}) {
+  const defaultSessionId = String(sessions[0]?.id ?? 1);
+  const defaultSession = sessions[0];
+  const [sessionId, setSessionId] = useState(defaultSessionId);
+  const [side, setSide] = useState<"LONG" | "SHORT">("LONG");
+  const [strategy, setStrategy] = useState(defaultSession?.strategy_name ?? "Discretionary");
+  const [entryTime, setEntryTime] = useState(defaultDateTimeLocal(-60));
+  const [exitTime, setExitTime] = useState(defaultDateTimeLocal(0));
+  const [entryPrice, setEntryPrice] = useState("1.00000");
+  const [exitPrice, setExitPrice] = useState("1.00100");
+  const [quantity, setQuantity] = useState("10000");
+  const [stopLoss, setStopLoss] = useState("");
+  const [takeProfit, setTakeProfit] = useState("");
+  const [tags, setTags] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function submitTrade(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const parsedEntry = Number(entryPrice);
+    const parsedExit = Number(exitPrice);
+    const parsedQuantity = Number(quantity);
+    if (!Number.isFinite(parsedEntry) || !Number.isFinite(parsedExit) || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+      return;
+    }
+    journal.addTrade({
+      entryPrice: parsedEntry,
+      entryTime,
+      exitPrice: parsedExit,
+      exitTime,
+      mistakeTags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      notes: notes.trim() || null,
+      quantity: parsedQuantity,
+      sessionId: Number(sessionId) || sessions[0]?.id || 1,
+      side,
+      stopLoss: stopLoss.trim() ? Number(stopLoss) : null,
+      strategyName: strategy.trim() || null,
+      takeProfit: takeProfit.trim() ? Number(takeProfit) : null,
+    });
+    setNotes("");
+    setTags("");
+  }
+
+  return (
+    <FeatureCard>
+      <CardLabel icon={Plus} label="Record actual trade" />
+      <form className="mt-4 grid gap-3" onSubmit={submitTrade}>
+        <label className="form-field">
+          Live session
+          <select className="input-control h-10 normal-case tracking-normal" onChange={(event) => setSessionId(event.target.value)} value={sessionId}>
+            {sessions.map((session) => (
+              <option key={session.id} value={session.id}>{session.name}</option>
+            ))}
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            className={`control-button justify-center ${side === "LONG" ? "workspace-tab-active" : ""}`}
+            onClick={() => setSide("LONG")}
+            type="button"
+          >
+            Long
+          </button>
+          <button
+            className={`control-button justify-center ${side === "SHORT" ? "workspace-tab-active" : ""}`}
+            onClick={() => setSide("SHORT")}
+            type="button"
+          >
+            Short
+          </button>
+        </div>
+        <label className="form-field">
+          Strategy
+          <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStrategy(event.target.value)} value={strategy} />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="form-field">
+            Entry time
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryTime(event.target.value)} type="datetime-local" value={entryTime} />
+          </label>
+          <label className="form-field">
+            Exit time
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitTime(event.target.value)} type="datetime-local" value={exitTime} />
+          </label>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="form-field">
+            Entry
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
+          </label>
+          <label className="form-field">
+            Exit
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
+          </label>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="form-field">
+            Size
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} value={quantity} />
+          </label>
+          <label className="form-field">
+            SL
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" value={stopLoss} />
+          </label>
+          <label className="form-field">
+            TP
+            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" value={takeProfit} />
+          </label>
+        </div>
+        <label className="form-field">
+          Tags
+          <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTags(event.target.value)} placeholder="FOMO, Late entry" value={tags} />
+        </label>
+        <label className="form-field">
+          Notes
+          <textarea className="input-control min-h-24 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
+        </label>
+        <button className="control-button workspace-tab-active justify-center" type="submit">
+          Save actual trade
+        </button>
+      </form>
+    </FeatureCard>
+  );
+}
+
+function LiveTradeTable({
+  sessionById,
+  trades,
+}: {
+  sessionById: Map<number, LiveJournalSession>;
+  trades: Trade[];
+}) {
+  return (
+    <FeatureCard>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <CardLabel icon={ClipboardList} label="Live trade ledger" />
+        <span className="text-xs text-slate-500">{trades.length} actual exits</span>
+      </div>
+      <div className="overflow-auto">
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            <tr>
+              <th className="px-3 py-3 font-medium">Session</th>
+              <th className="px-3 py-3 font-medium">Entry</th>
+              <th className="px-3 py-3 font-medium">Exit</th>
+              <th className="px-3 py-3 font-medium">Side</th>
+              <th className="px-3 py-3 font-medium">Size</th>
+              <th className="px-3 py-3 font-medium">P&L</th>
+              <th className="px-3 py-3 font-medium">R</th>
+              <th className="px-3 py-3 font-medium">Strategy</th>
+              <th className="px-3 py-3 font-medium">Tags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trades.map((trade) => (
+              <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
+                <td className="px-3 py-4">
+                  <div className="font-semibold text-white">{sessionById.get(trade.session_id)?.name ?? "Live session"}</div>
+                  <div className="text-xs text-slate-500">{sessionById.get(trade.session_id)?.instrument ?? "Manual"}</div>
+                </td>
+                <td className="px-3 py-4">
+                  <div className="font-semibold text-white">{formatPrice(trade.entry_price)}</div>
+                  <div className="text-xs text-slate-500">{formatDateTime(trade.entry_time)}</div>
+                </td>
+                <td className="px-3 py-4">
+                  <div className="font-semibold text-white">{formatPrice(trade.exit_price)}</div>
+                  <div className="text-xs text-slate-500">{formatDateTime(trade.exit_time)}</div>
+                </td>
+                <td className="px-3 py-4">
+                  <span className={`rounded px-2 py-1 text-xs font-semibold ${trade.side === "LONG" ? "bg-emerald-300/10 text-emerald-200" : "bg-rose-300/10 text-rose-200"}`}>
+                    {trade.side}
+                  </span>
+                </td>
+                <td className="px-3 py-4">{formatCompactNumber(trade.quantity)}</td>
+                <td className={`px-3 py-4 font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</td>
+                <td className="px-3 py-4">{formatOptionalNumber(trade.r_multiple)}</td>
+                <td className="px-3 py-4">{trade.strategy_name || "-"}</td>
+                <td className="px-3 py-4">{trade.mistake_tags.join(", ") || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {trades.length === 0 && <EmptyState icon={ClipboardList} message="Record an actual trade to populate the live ledger." />}
+      </div>
+    </FeatureCard>
   );
 }
 
@@ -1554,6 +2310,196 @@ function CrossAnalysis({
 
 function NetworkMark() {
   return <span className="grid h-5 w-5 place-items-center rounded bg-cyan-300/15 text-[10px] text-cyan-100">TZ</span>;
+}
+
+function useLiveJournalData(): LiveJournalController {
+  const [data, setData] = useState<LiveJournalData>(() => loadLiveJournalData());
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(LIVE_JOURNAL_STORAGE_KEY, JSON.stringify(data));
+  }, [data]);
+
+  function addSession(payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) {
+    setData((current) => ({
+      ...current,
+      sessions: [
+        ...current.sessions,
+        {
+          ...payload,
+          created_at: new Date().toISOString(),
+          id: nextNumericId(current.sessions),
+          status: "ACTIVE",
+        },
+      ],
+    }));
+  }
+
+  function addTrade(payload: LiveTradeInput) {
+    setData((current) => {
+      const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession();
+      const sessions = current.sessions.length > 0 ? current.sessions : [session];
+      const realizedPnl =
+        payload.side === "LONG"
+          ? (payload.exitPrice - payload.entryPrice) * payload.quantity
+          : (payload.entryPrice - payload.exitPrice) * payload.quantity;
+      const riskAmount =
+        payload.stopLoss == null
+          ? null
+          : Math.abs(payload.entryPrice - payload.stopLoss) * payload.quantity;
+      const trade: Trade = {
+        emotional_state: null,
+        entry_offset: 0,
+        entry_price: payload.entryPrice,
+        entry_time: toIsoFromDateTimeLocal(payload.entryTime),
+        exit_offset: null,
+        exit_price: payload.exitPrice,
+        exit_time: toIsoFromDateTimeLocal(payload.exitTime),
+        id: nextNumericId(current.trades),
+        mistake_tags: payload.mistakeTags,
+        notes: payload.notes,
+        playbook_id: null,
+        quantity: payload.quantity,
+        r_multiple: riskAmount != null && riskAmount > 0 ? realizedPnl / riskAmount : null,
+        realized_pnl: realizedPnl,
+        remaining_quantity: 0,
+        screenshot_url: null,
+        session_id: session.id,
+        side: payload.side,
+        status: "CLOSED",
+        stop_loss: payload.stopLoss,
+        strategy_name: payload.strategyName ?? session.strategy_name,
+        take_profit: payload.takeProfit,
+      };
+      return {
+        sessions,
+        trades: [...current.trades, trade],
+      };
+    });
+  }
+
+  return { addSession, addTrade, data };
+}
+
+function loadLiveJournalData(): LiveJournalData {
+  if (typeof window === "undefined") {
+    return { sessions: [defaultLiveSession()], trades: [] };
+  }
+  try {
+    const raw = window.localStorage.getItem(LIVE_JOURNAL_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return sanitizeLiveJournalData(parsed);
+  } catch {
+    return { sessions: [defaultLiveSession()], trades: [] };
+  }
+}
+
+function sanitizeLiveJournalData(value: unknown): LiveJournalData {
+  if (typeof value !== "object" || value == null) {
+    return { sessions: [defaultLiveSession()], trades: [] };
+  }
+  const candidate = value as Partial<LiveJournalData>;
+  const sessions = Array.isArray(candidate.sessions)
+    ? candidate.sessions.filter(isLiveJournalSession)
+    : [];
+  const trades = Array.isArray(candidate.trades)
+    ? candidate.trades.filter(isTradeLike)
+    : [];
+  return {
+    sessions: sessions.length > 0 ? sessions : [defaultLiveSession()],
+    trades,
+  };
+}
+
+function defaultLiveSession(): LiveJournalSession {
+  return {
+    account: "Manual",
+    created_at: new Date().toISOString(),
+    currency: "USD",
+    id: 1,
+    initial_balance: 100000,
+    instrument: "Manual",
+    name: "Primary Live Journal",
+    notes: "",
+    status: "ACTIVE",
+    strategy_name: "Unassigned",
+  };
+}
+
+function isLiveJournalSession(value: unknown): value is LiveJournalSession {
+  if (typeof value !== "object" || value == null) {
+    return false;
+  }
+  const candidate = value as Partial<LiveJournalSession>;
+  return (
+    typeof candidate.id === "number" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.strategy_name === "string" &&
+    typeof candidate.instrument === "string" &&
+    typeof candidate.initial_balance === "number"
+  );
+}
+
+function isTradeLike(value: unknown): value is Trade {
+  if (typeof value !== "object" || value == null) {
+    return false;
+  }
+  const candidate = value as Partial<Trade>;
+  return (
+    typeof candidate.id === "number" &&
+    typeof candidate.session_id === "number" &&
+    (candidate.side === "LONG" || candidate.side === "SHORT") &&
+    typeof candidate.entry_time === "string" &&
+    typeof candidate.entry_price === "number" &&
+    typeof candidate.quantity === "number" &&
+    typeof candidate.realized_pnl === "number"
+  );
+}
+
+function groupLiveStrategies(
+  sessions: LiveJournalSession[],
+  trades: Trade[],
+): LiveStrategyGroup[] {
+  const grouped = new Map<string, { sessions: Map<number, LiveJournalSession>; trades: Trade[] }>();
+  for (const session of sessions) {
+    const name = session.strategy_name || "Unassigned";
+    grouped.set(name, grouped.get(name) ?? { sessions: new Map(), trades: [] });
+    grouped.get(name)?.sessions.set(session.id, session);
+  }
+  for (const trade of trades) {
+    const session = sessions.find((item) => item.id === trade.session_id);
+    const name = trade.strategy_name || session?.strategy_name || "Unassigned";
+    grouped.set(name, grouped.get(name) ?? { sessions: new Map(), trades: [] });
+    if (session) {
+      grouped.get(name)?.sessions.set(session.id, session);
+    }
+    grouped.get(name)?.trades.push(trade);
+  }
+  return Array.from(grouped.entries())
+    .map(([name, group]) => ({
+      aggregate: aggregateTrades(group.trades),
+      name,
+      sessions: Array.from(group.sessions.values()).sort((a, b) => b.id - a.id),
+      trades: group.trades,
+    }))
+    .sort((a, b) => b.aggregate.netPnl - a.aggregate.netPnl);
+}
+
+function nextNumericId(items: Array<{ id: number }>) {
+  return Math.max(0, ...items.map((item) => item.id)) + 1;
+}
+
+function defaultDateTimeLocal(offsetMinutes: number) {
+  const date = new Date(Date.now() + offsetMinutes * 60000);
+  const localOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - localOffset).toISOString().slice(0, 16);
+}
+
+function toIsoFromDateTimeLocal(value: string) {
+  const date = value ? new Date(value) : new Date();
+  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
 }
 
 function aggregateTrades(trades: Trade[]): Aggregate {
