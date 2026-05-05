@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -136,6 +136,7 @@ type LiveJournalController = {
 };
 
 type LiveTradeInput = {
+  emotionalState: string | null;
   entryPrice: number;
   entryTime: string;
   exitPrice: number;
@@ -143,6 +144,7 @@ type LiveTradeInput = {
   mistakeTags: string[];
   notes: string | null;
   quantity: number;
+  screenshotUrl: string | null;
   sessionId: number;
   side: "LONG" | "SHORT";
   stopLoss: number | null;
@@ -151,6 +153,7 @@ type LiveTradeInput = {
 };
 
 const LIVE_JOURNAL_STORAGE_KEY = "edgelab.live-journal.v1";
+const LIVE_EMOTIONS = ["Calm", "Confident", "Focused", "Fearful", "Impulsive", "Frustrated", "Other"] as const;
 
 export function EdgeLabWorkspace({
   activeSession,
@@ -1016,12 +1019,24 @@ function JournalNotesPage({ closedTrades }: JournalPageProps) {
               <p className="mt-1 text-xs text-slate-500">
                 Entry {formatDateTime(selectedTrade.entry_time)} - Exit {formatDateTime(selectedTrade.exit_time)}
               </p>
-              <div className="mt-4 grid gap-2 md:grid-cols-4">
+              <div className="mt-4 grid gap-2 md:grid-cols-5">
                 <CompactMetric label="Side" value={selectedTrade.side} />
                 <CompactMetric label="P&L" value={formatMoney(selectedTrade.realized_pnl)} tone={toneForNumber(selectedTrade.realized_pnl)} />
                 <CompactMetric label="R multiple" value={formatOptionalNumber(selectedTrade.r_multiple)} />
+                <CompactMetric label="Emotion" value={selectedTrade.emotional_state || "-"} />
                 <CompactMetric label="Tags" value={selectedTrade.mistake_tags.join(", ") || "-"} />
               </div>
+              {selectedTrade.screenshot_url && (
+                <div className="mt-4 overflow-hidden rounded-md border border-white/10 bg-black/20">
+                  <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                    <CardLabel icon={Eye} label="Screenshot" />
+                    <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={selectedTrade.screenshot_url} rel="noreferrer" target="_blank">
+                      Open full size
+                    </a>
+                  </div>
+                  <img alt="Live trade screenshot" className="max-h-80 w-full object-contain" src={selectedTrade.screenshot_url} />
+                </div>
+              )}
               <RichTextEditorStub />
             </>
           ) : (
@@ -1247,8 +1262,24 @@ function LiveTradeForm({
   const [quantity, setQuantity] = useState("10000");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
+  const [emotion, setEmotion] = useState<string>("Calm");
+  const [screenshotUrl, setScreenshotUrl] = useState("");
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
+
+  function handleScreenshotFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setScreenshotUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
 
   function submitTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1259,6 +1290,7 @@ function LiveTradeForm({
       return;
     }
     journal.addTrade({
+      emotionalState: emotion || null,
       entryPrice: parsedEntry,
       entryTime,
       exitPrice: parsedExit,
@@ -1266,6 +1298,7 @@ function LiveTradeForm({
       mistakeTags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       notes: notes.trim() || null,
       quantity: parsedQuantity,
+      screenshotUrl: screenshotUrl.trim() || null,
       sessionId: Number(sessionId) || sessions[0]?.id || 1,
       side,
       stopLoss: stopLoss.trim() ? Number(stopLoss) : null,
@@ -1273,6 +1306,7 @@ function LiveTradeForm({
       takeProfit: takeProfit.trim() ? Number(takeProfit) : null,
     });
     setNotes("");
+    setScreenshotUrl("");
     setTags("");
   }
 
@@ -1308,6 +1342,23 @@ function LiveTradeForm({
           Strategy
           <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStrategy(event.target.value)} value={strategy} />
         </label>
+        <div className="grid gap-2">
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Emotion</div>
+          <div className="flex flex-wrap gap-1.5 rounded-md border border-white/10 bg-black/20 p-1">
+            {LIVE_EMOTIONS.map((item) => (
+              <button
+                className={`h-8 rounded px-2.5 text-xs font-semibold transition ${
+                  emotion === item ? "bg-white text-ink-950" : "text-slate-400 hover:bg-white/10 hover:text-white"
+                }`}
+                key={item}
+                onClick={() => setEmotion(item)}
+                type="button"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <label className="form-field">
             Entry time
@@ -1346,6 +1397,26 @@ function LiveTradeForm({
           Tags
           <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTags(event.target.value)} placeholder="FOMO, Late entry" value={tags} />
         </label>
+        <div className="grid gap-2">
+          <label className="form-field">
+            Screenshot URL
+            <input
+              className="input-control h-10 normal-case tracking-normal"
+              onChange={(event) => setScreenshotUrl(event.target.value)}
+              placeholder="Paste image URL or upload below"
+              value={screenshotUrl.startsWith("data:") ? "Uploaded image attached" : screenshotUrl}
+            />
+          </label>
+          <label className="form-field">
+            Upload screenshot
+            <input className="input-control h-10 normal-case tracking-normal file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-200" accept="image/*" onChange={handleScreenshotFile} type="file" />
+          </label>
+          {screenshotUrl && (
+            <div className="overflow-hidden rounded-md border border-white/10 bg-black/20">
+              <img alt="Trade screenshot preview" className="max-h-36 w-full object-cover" src={screenshotUrl} />
+            </div>
+          )}
+        </div>
         <label className="form-field">
           Notes
           <textarea className="input-control min-h-24 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
@@ -1372,7 +1443,7 @@ function LiveTradeTable({
         <span className="text-xs text-slate-500">{trades.length} actual exits</span>
       </div>
       <div className="overflow-auto">
-        <table className="w-full min-w-[980px] text-left text-sm">
+        <table className="w-full min-w-[1120px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-3 py-3 font-medium">Session</th>
@@ -1383,7 +1454,9 @@ function LiveTradeTable({
               <th className="px-3 py-3 font-medium">P&L</th>
               <th className="px-3 py-3 font-medium">R</th>
               <th className="px-3 py-3 font-medium">Strategy</th>
+              <th className="px-3 py-3 font-medium">Emotion</th>
               <th className="px-3 py-3 font-medium">Tags</th>
+              <th className="px-3 py-3 font-medium">Screenshot</th>
             </tr>
           </thead>
           <tbody>
@@ -1410,7 +1483,17 @@ function LiveTradeTable({
                 <td className={`px-3 py-4 font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</td>
                 <td className="px-3 py-4">{formatOptionalNumber(trade.r_multiple)}</td>
                 <td className="px-3 py-4">{trade.strategy_name || "-"}</td>
+                <td className="px-3 py-4">{trade.emotional_state || "-"}</td>
                 <td className="px-3 py-4">{trade.mistake_tags.join(", ") || "-"}</td>
+                <td className="px-3 py-4">
+                  {trade.screenshot_url ? (
+                    <a className="font-semibold text-cyan-200 hover:text-cyan-100" href={trade.screenshot_url} rel="noreferrer" target="_blank">
+                      View
+                    </a>
+                  ) : (
+                    "-"
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -2319,7 +2402,11 @@ function useLiveJournalData(): LiveJournalController {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem(LIVE_JOURNAL_STORAGE_KEY, JSON.stringify(data));
+    try {
+      window.localStorage.setItem(LIVE_JOURNAL_STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // Large uploaded screenshots can exceed browser storage. Keep the UI running.
+    }
   }, [data]);
 
   function addSession(payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) {
@@ -2350,7 +2437,7 @@ function useLiveJournalData(): LiveJournalController {
           ? null
           : Math.abs(payload.entryPrice - payload.stopLoss) * payload.quantity;
       const trade: Trade = {
-        emotional_state: null,
+        emotional_state: payload.emotionalState,
         entry_offset: 0,
         entry_price: payload.entryPrice,
         entry_time: toIsoFromDateTimeLocal(payload.entryTime),
@@ -2365,7 +2452,7 @@ function useLiveJournalData(): LiveJournalController {
         r_multiple: riskAmount != null && riskAmount > 0 ? realizedPnl / riskAmount : null,
         realized_pnl: realizedPnl,
         remaining_quantity: 0,
-        screenshot_url: null,
+        screenshot_url: payload.screenshotUrl,
         session_id: session.id,
         side: payload.side,
         status: "CLOSED",
