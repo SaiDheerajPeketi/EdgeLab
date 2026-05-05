@@ -2,6 +2,13 @@ import { Plus, Save, X } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { Execution, Trade } from "../lib/api";
 import { formatPrice } from "../lib/format";
+import {
+  loadStrategyMistakeTags,
+  mergeTags,
+  parseTagInput,
+  persistStrategyMistakeTags,
+  strategyTagScope,
+} from "../lib/mistakeTags";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -9,14 +16,27 @@ type Props = {
   executions: Execution[];
   onClose: () => void;
   onJournal: (trade: Trade) => void;
+  strategyScope?: string | null;
 };
 
-export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Props) {
+export function TradeDetailDrawer({
+  trade,
+  executions,
+  onClose,
+  onJournal,
+  strategyScope,
+}: Props) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
   const [savedTags, setSavedTags] = useState<string[]>(trade.mistake_tags);
   const [customTag, setCustomTag] = useState("");
   const [savingTags, setSavingTags] = useState(false);
+  const activeStrategyScope = strategyTagScope(
+    trade.strategy_name || strategyScope,
+  );
+  const [strategyTagOptions, setStrategyTagOptions] = useState<string[]>(() =>
+    loadStrategyMistakeTags(activeStrategyScope),
+  );
   const tradeExecutions = executions.filter(
     (execution) => execution.offset >= trade.entry_offset && (!trade.exit_offset || execution.offset <= trade.exit_offset),
   );
@@ -31,11 +51,17 @@ export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Pro
     setCustomTag("");
   }, [trade.id, trade.mistake_tags]);
 
+  useEffect(() => {
+    setStrategyTagOptions(loadStrategyMistakeTags(activeStrategyScope));
+  }, [activeStrategyScope]);
+
   function addTags(value: string) {
     const nextTags = parseTagInput(value);
     if (nextTags.length === 0) {
       return;
     }
+    persistStrategyMistakeTags(activeStrategyScope, nextTags);
+    setStrategyTagOptions((current) => mergeTags(current, nextTags));
     setTags((current) => mergeTags(current, nextTags));
     setCustomTag("");
   }
@@ -63,6 +89,7 @@ export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Pro
         screenshot_url: trade.screenshot_url ?? null,
         mistake_tags: nextTags,
       });
+      persistStrategyMistakeTags(activeStrategyScope, nextTags);
       setSavedTags(nextTags);
     } finally {
       setSavingTags(false);
@@ -145,6 +172,33 @@ export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Pro
                 {savingTags ? "Saving" : "Save"}
               </button>
             </div>
+            {strategyTagOptions.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {strategyTagOptions.map((tag) => {
+                  const active = tags.includes(tag);
+                  return (
+                    <button
+                      className={`rounded px-2 py-1 text-xs font-semibold transition ${
+                        active
+                          ? "bg-rose-300/10 text-rose-100"
+                          : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                      }`}
+                      key={tag}
+                      onClick={() =>
+                        setTags((current) =>
+                          current.includes(tag)
+                            ? current.filter((currentTag) => currentTag !== tag)
+                            : [...current, tag],
+                        )
+                      }
+                      type="button"
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -171,26 +225,6 @@ export function TradeDetailDrawer({ trade, executions, onClose, onJournal }: Pro
       </div>
     </aside>
   );
-}
-
-function parseTagInput(value: string) {
-  return value
-    .split(",")
-    .map((tag) => tag.trim().replace(/\s+/g, " "))
-    .filter(Boolean);
-}
-
-function mergeTags(current: string[], nextTags: string[]) {
-  const seen = new Set(current.map((tag) => tag.toLowerCase()));
-  const merged = [...current];
-  nextTags.forEach((tag) => {
-    const key = tag.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(tag);
-    }
-  });
-  return merged;
 }
 
 function Metric({ label, value, tone = "text-slate-100" }: { label: string; value: string; tone?: string }) {

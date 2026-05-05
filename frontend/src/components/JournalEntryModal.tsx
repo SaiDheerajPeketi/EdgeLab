@@ -1,31 +1,54 @@
 import { Plus, X } from "lucide-react";
-import { FormEvent, KeyboardEvent, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import type { Trade } from "../lib/api";
 import { formatPrice } from "../lib/format";
+import {
+  DEFAULT_MISTAKE_TAGS,
+  loadStrategyMistakeTags,
+  mergeTags,
+  parseTagInput,
+  persistStrategyMistakeTags,
+  strategyTagScope,
+} from "../lib/mistakeTags";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
+  strategyScope?: string | null;
   trade: Trade;
   onClose: () => void;
 };
 
-const mistakeOptions = ["FOMO", "Early Exit", "Late Entry", "Moved Stop", "Oversized"];
-
-export function JournalEntryModal({ trade, onClose }: Props) {
+export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
   const [notes, setNotes] = useState(trade.notes ?? "");
-  const [strategy, setStrategy] = useState(trade.strategy_name ?? "");
+  const [strategy, setStrategy] = useState(
+    trade.strategy_name?.trim() ? trade.strategy_name : strategyScope ?? "",
+  );
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
   const [screenshotUrl, setScreenshotUrl] = useState(trade.screenshot_url ?? "");
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
   const [customTag, setCustomTag] = useState("");
   const [saving, setSaving] = useState(false);
+  const activeStrategyScope = strategyTagScope(strategy || strategyScope || trade.strategy_name);
+  const [strategyCustomTags, setStrategyCustomTags] = useState<string[]>(() =>
+    loadStrategyMistakeTags(activeStrategyScope),
+  );
+  const mistakeOptions = useMemo(
+    () => mergeTags(DEFAULT_MISTAKE_TAGS, strategyCustomTags),
+    [strategyCustomTags],
+  );
+
+  useEffect(() => {
+    setStrategyCustomTags(loadStrategyMistakeTags(activeStrategyScope));
+  }, [activeStrategyScope]);
 
   function addTags(value: string) {
     const nextTags = parseTagInput(value);
     if (nextTags.length === 0) {
       return;
     }
+    persistStrategyMistakeTags(activeStrategyScope, nextTags);
+    setStrategyCustomTags((current) => mergeTags(current, nextTags));
     setTags((current) => mergeTags(current, nextTags));
     setCustomTag("");
   }
@@ -52,6 +75,7 @@ export function JournalEntryModal({ trade, onClose }: Props) {
       screenshot_url: screenshotUrl || null,
       mistake_tags: tags,
     });
+    persistStrategyMistakeTags(strategy || activeStrategyScope, tags);
     setSaving(false);
     onClose();
   }
@@ -189,24 +213,4 @@ export function JournalEntryModal({ trade, onClose }: Props) {
       </form>
     </div>
   );
-}
-
-function parseTagInput(value: string) {
-  return value
-    .split(",")
-    .map((tag) => tag.trim().replace(/\s+/g, " "))
-    .filter(Boolean);
-}
-
-function mergeTags(current: string[], nextTags: string[]) {
-  const seen = new Set(current.map((tag) => tag.toLowerCase()));
-  const merged = [...current];
-  nextTags.forEach((tag) => {
-    const key = tag.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(tag);
-    }
-  });
-  return merged;
 }

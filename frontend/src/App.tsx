@@ -670,6 +670,7 @@ export default function App() {
 
       {editingTrade && (
         <JournalEntryModal
+          strategyScope={strategyScopeForTrade(editingTrade, resultSessions, state?.session ?? null)}
           trade={editingTrade}
           onClose={() => setEditingTrade(null)}
         />
@@ -683,6 +684,7 @@ export default function App() {
             setReviewTrade(null);
             setEditingTrade(trade);
           }}
+          strategyScope={strategyScopeForTrade(reviewTrade, resultSessions, state?.session ?? null)}
           trade={reviewTrade}
         />
       )}
@@ -960,4 +962,18 @@ function findLatestRiskRewardDrawing(drawings: ChartDrawing[]) {
     }
   }
   return null;
+}
+
+function strategyScopeForTrade(
+  trade: Trade,
+  sessions: { id: number; strategy_name: string | null }[],
+  activeSession: { id: number; strategy_name: string | null } | null,
+) {
+  if (trade.strategy_name?.trim()) {
+    return trade.strategy_name;
+  }
+  if (activeSession?.id === trade.session_id && activeSession.strategy_name?.trim()) {
+    return activeSession.strategy_name;
+  }
+  return sessions.find((session) => session.id === trade.session_id)?.strategy_name ?? null;
 }
