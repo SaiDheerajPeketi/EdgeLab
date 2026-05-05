@@ -1,14 +1,13 @@
 import {
   BarChart3,
   BookOpen,
-  ChevronLeft,
-  ChevronRight,
   Network,
   PlaySquare,
   Settings,
   Target,
   WalletCards,
 } from "lucide-react";
+import { useState } from "react";
 import type { WorkspaceView } from "../lib/workspace";
 
 type SidebarItem = {
@@ -86,68 +85,57 @@ type Props = {
   activeView: WorkspaceView;
   collapsed: boolean;
   onNavigate: (view: WorkspaceView) => void;
-  onToggleCollapsed: () => void;
 };
 
 export function Sidebar({
   activeView,
   collapsed,
   onNavigate,
-  onToggleCollapsed,
 }: Props) {
+  const [hoverExpanded, setHoverExpanded] = useState(false);
+  const compact = collapsed && !hoverExpanded;
+
   return (
     <aside
       className={`edge-sidebar hidden h-screen shrink-0 overflow-y-auto overscroll-contain border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:sticky lg:top-0 lg:flex lg:flex-col ${
-        collapsed ? "w-[76px] items-center" : "w-[244px]"
+        compact ? "w-[76px] items-center" : "w-[244px]"
       }`}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setHoverExpanded(false);
+        }
+      }}
+      onFocus={() => setHoverExpanded(true)}
+      onMouseEnter={() => setHoverExpanded(true)}
+      onMouseLeave={() => setHoverExpanded(false)}
     >
       <div
         className={`mb-5 flex w-full items-center gap-3 ${
-          collapsed ? "justify-center" : "justify-between"
+          compact ? "justify-center" : "justify-between"
         }`}
       >
         <div className="grid h-12 w-12 shrink-0 place-items-center rounded-md border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
           <Network size={20} />
         </div>
-        {!collapsed && (
+        {!compact && (
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-black text-white">EdgeLab</div>
             <div className="truncate text-xs text-slate-500">EdgeLab workspace</div>
           </div>
         )}
-        {!collapsed && (
-          <button
-            className="icon-button h-9 w-9 shrink-0"
-            onClick={onToggleCollapsed}
-            title="Collapse sidebar"
-            type="button"
-          >
-            <ChevronLeft size={15} />
-          </button>
-        )}
       </div>
-      {collapsed && (
-        <button
-          className="icon-button mb-3 h-8 w-8"
-          onClick={onToggleCollapsed}
-          title="Expand sidebar"
-          type="button"
-        >
-          <ChevronRight size={15} />
-        </button>
-      )}
 
-      <nav className={`flex w-full flex-col ${collapsed ? "gap-3" : "gap-4"}`}>
+      <nav className={`flex w-full flex-col ${compact ? "gap-3" : "gap-4"}`}>
         {sections.map((section) => (
           <div className="w-full" key={section.label}>
             <div
               className={`mb-2 flex items-center ${
-                collapsed ? "h-5" : "h-6"
+                compact ? "h-5" : "h-6"
               } ${
-                collapsed ? "justify-center" : "justify-between px-2"
+                compact ? "justify-center" : "justify-between px-2"
               }`}
             >
-              {collapsed ? (
+              {compact ? (
                 <span
                   className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-black text-slate-500"
                   title={section.label}
@@ -160,7 +148,7 @@ export function Sidebar({
                 </span>
               )}
             </div>
-            <div className={`flex w-full flex-col ${collapsed ? "gap-1" : "gap-1.5"}`}>
+            <div className={`flex w-full flex-col ${compact ? "gap-1" : "gap-1.5"}`}>
               {section.items.map((item) => {
                 if ("children" in item) {
                   const Icon = item.icon;
@@ -169,7 +157,7 @@ export function Sidebar({
                     <div className="min-w-0" key={item.label}>
                       <button
                         className={`group relative flex items-center rounded-md transition ${
-                          collapsed ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
+                          compact ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
                         } ${
                           active
                             ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
@@ -180,18 +168,18 @@ export function Sidebar({
                         type="button"
                       >
                         <Icon size={18} />
-                        {!collapsed && (
+                        {!compact && (
                           <span className="truncate text-sm font-semibold">{item.label}</span>
                         )}
                         <span
                           className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
-                            collapsed ? "hidden group-hover:block" : "hidden"
+                            compact ? "hidden group-hover:block" : "hidden"
                           }`}
                         >
                           {section.label} / {item.label}
                         </span>
                       </button>
-                      {!collapsed && active && (
+                      {!compact && active && (
                         <div className="mt-1 grid grid-cols-2 gap-1 pl-3">
                           {item.children.map((child) => (
                             <button
@@ -218,7 +206,7 @@ export function Sidebar({
                   <button
                     key={item.label}
                     className={`group relative flex items-center rounded-md transition ${
-                      collapsed ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
+                      compact ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
                     } ${
                       active
                         ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
@@ -229,12 +217,12 @@ export function Sidebar({
                     type="button"
                   >
                     <Icon size={18} />
-                    {!collapsed && (
+                    {!compact && (
                       <span className="truncate text-sm font-semibold">{item.label}</span>
                     )}
                     <span
                       className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
-                        collapsed ? "hidden group-hover:block" : "hidden"
+                        compact ? "hidden group-hover:block" : "hidden"
                       }`}
                     >
                       {section.label} / {item.label}

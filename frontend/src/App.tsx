@@ -108,7 +108,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const sidebarCollapsed = true;
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
@@ -497,7 +497,6 @@ export default function App() {
           activeView={activeWorkspace}
           collapsed={sidebarCollapsed}
           onNavigate={navigateWorkspace}
-          onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
         />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
