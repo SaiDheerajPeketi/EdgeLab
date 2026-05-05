@@ -10,6 +10,7 @@ import {
   OrderPayload,
   OrderUpdatePayload,
   Playbook,
+  PlaybookPayload,
   Trade,
   advanceBacktest,
   createBacktest,
@@ -26,6 +27,7 @@ import {
   patchBacktestOrder,
   patchJournal,
   postBacktestOrder,
+  postPlaybook,
 } from "../lib/api";
 
 const WINDOW_SIZE = 1500;
@@ -45,7 +47,9 @@ type BacktestStore = {
   isPlaying: boolean;
   speedMs: number;
   error: string | null;
+  createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   loadInitial: () => Promise<void>;
+  refreshPlaybooks: () => Promise<void>;
   refreshResults: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
@@ -75,6 +79,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   isPlaying: false,
   speedMs: 450,
   error: null,
+
+  createPlaybook: async (payload) => {
+    const playbook = await postPlaybook(payload);
+    set((current) => ({
+      playbooks: [...current.playbooks.filter((item) => item.id !== playbook.id), playbook],
+      error: null,
+    }));
+    return playbook;
+  },
 
   loadInitial: async () => {
     set({ isLoading: true, error: null });
@@ -116,6 +129,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
+    }
+  },
+
+  refreshPlaybooks: async () => {
+    try {
+      const playbooks = await getPlaybooks();
+      set({ playbooks, error: null });
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
     }
   },
 

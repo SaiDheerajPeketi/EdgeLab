@@ -20,10 +20,10 @@ import type {
   DatasetInstrument,
   DatasetTimeframe,
   Playbook,
+  PlaybookPayload,
   Trade,
 } from "../lib/api";
 import { formatMoney, formatPercent } from "../lib/format";
-import { postPlaybook } from "../lib/api";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
 
@@ -31,6 +31,7 @@ type Props = {
   datasets: DatasetCatalog | null;
   isLoading: boolean;
   onCreateSession: (payload: BacktestCreatePayload) => Promise<void>;
+  onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   playbooks: Playbook[];
   session: BacktestSession | null;
@@ -44,6 +45,7 @@ export function SessionGateway({
   datasets,
   isLoading,
   onCreateSession,
+  onCreatePlaybook,
   onResumeSession,
   playbooks,
   session,
@@ -154,7 +156,7 @@ export function SessionGateway({
         playbookMode === "existing" && playbookId ? Number(playbookId) : null;
 
       if (playbookMode === "new" && newPlaybookName.trim()) {
-        const playbook = await postPlaybook({
+        const playbook = await onCreatePlaybook({
           name: newPlaybookName.trim(),
           description: sessionNotes.trim() || `Rules for ${strategy.trim()}`,
           rules: buildPlaybookRules(entryRules, exitRules, riskRules),
@@ -365,8 +367,8 @@ export function SessionGateway({
               value={strategy}
             />
             <datalist id="gateway-strategies">
-              {playbooks.map((playbook) => (
-                <option key={playbook.id} value={playbook.name} />
+              {strategyGroups.map((group) => (
+                <option key={group.name} value={group.name} />
               ))}
             </datalist>
           </label>

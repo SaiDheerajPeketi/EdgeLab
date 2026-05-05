@@ -199,15 +199,9 @@ export function DatasetSessionPanel({
           <span>Strategy</span>
           <input
             className="input-control h-10"
-            list="strategy-playbooks"
             onChange={(event) => setStrategy(event.target.value)}
             value={strategy}
           />
-          <datalist id="strategy-playbooks">
-            {playbooks.map((playbook) => (
-              <option key={playbook.id} value={playbook.name} />
-            ))}
-          </datalist>
         </label>
 
         <label className="form-field">

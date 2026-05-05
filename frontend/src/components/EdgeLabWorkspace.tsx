@@ -44,6 +44,7 @@ import type {
   BacktestSession,
   DatasetCatalog,
   Playbook,
+  PlaybookPayload,
   Trade,
 } from "../lib/api";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
@@ -59,6 +60,7 @@ type Props = {
   datasets: DatasetCatalog | null;
   onEditTrade: (trade: Trade) => void;
   onInspectTrade: (trade: Trade) => void;
+  onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
@@ -113,11 +115,13 @@ type LiveJournalSession = {
   instrument: string;
   name: string;
   notes: string;
+  playbook_id: number | null;
   status: "ACTIVE" | "ARCHIVED";
   strategy_name: string;
 };
 
 type LiveJournalData = {
+  playbooks: Playbook[];
   sessions: LiveJournalSession[];
   trades: Trade[];
 };
@@ -130,6 +134,7 @@ type LiveStrategyGroup = {
 };
 
 type LiveJournalController = {
+  addPlaybook: (payload: PlaybookPayload) => Playbook;
   addSession: (payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) => void;
   addTrade: (payload: LiveTradeInput) => void;
   data: LiveJournalData;
@@ -160,6 +165,7 @@ export function EdgeLabWorkspace({
   datasets,
   onEditTrade,
   onInspectTrade,
+  onCreatePlaybook,
   onNavigateBacktest,
   onNavigateSessions,
   onResumeSession,
@@ -200,6 +206,7 @@ export function EdgeLabWorkspace({
     days,
     onEditTrade,
     onInspectTrade,
+    onCreatePlaybook,
     onNavigateBacktest,
     onNavigateSessions,
     onResumeSession,
@@ -225,6 +232,7 @@ export function EdgeLabWorkspace({
     case "journalDashboard":
     case "journalDayView":
     case "journalNotes":
+    case "journalPlaybooks":
     case "journalReports":
     case "journalSessions":
     case "journalSettings":
@@ -232,6 +240,8 @@ export function EdgeLabWorkspace({
       return <JournalWorkspacePage journal={liveJournal} view={view} />;
     case "notebook":
       return <NotebookPage {...shared} />;
+    case "playbooks":
+      return <BacktestPlaybooksPage {...shared} />;
     case "reports":
       return <ReportsPage {...shared} />;
     case "settings":
@@ -253,6 +263,7 @@ type SharedPageProps = {
   days: DayGroup[];
   onEditTrade: (trade: Trade) => void;
   onInspectTrade: (trade: Trade) => void;
+  onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
@@ -674,6 +685,7 @@ function JournalWorkspacePage({
     | "journalDashboard"
     | "journalDayView"
     | "journalNotes"
+    | "journalPlaybooks"
     | "journalReports"
     | "journalSessions"
     | "journalSettings"
@@ -704,6 +716,7 @@ function JournalWorkspacePage({
     closedTrades,
     days,
     journal,
+    playbooks: journal.data.playbooks,
     sessionById,
     sessions: journal.data.sessions,
     strategies,
@@ -718,6 +731,8 @@ function JournalWorkspacePage({
       return <JournalDayViewPage {...shared} />;
     case "journalNotes":
       return <JournalNotesPage {...shared} />;
+    case "journalPlaybooks":
+      return <JournalPlaybooksPage {...shared} />;
     case "journalReports":
       return <JournalReportsPage {...shared} />;
     case "journalSessions":
@@ -738,6 +753,7 @@ type JournalPageProps = {
   closedTrades: Trade[];
   days: DayGroup[];
   journal: LiveJournalController;
+  playbooks: Playbook[];
   sessionById: Map<number, LiveJournalSession>;
   sessions: LiveJournalSession[];
   strategies: LiveStrategyGroup[];
@@ -746,6 +762,7 @@ type JournalPageProps = {
 function JournalSessionsPage({
   aggregate,
   journal,
+  playbooks,
   sessionById,
   sessions,
 }: JournalPageProps) {
@@ -753,6 +770,11 @@ function JournalSessionsPage({
   const [strategy, setStrategy] = useState("Discretionary");
   const [instrument, setInstrument] = useState("OANDA:EURUSD");
   const [balance, setBalance] = useState("100000");
+  const [playbookId, setPlaybookId] = useState("");
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
+  );
 
   function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -763,6 +785,7 @@ function JournalSessionsPage({
       instrument: instrument.trim() || "Manual",
       name: name.trim() || "Live Trading Session",
       notes: "",
+      playbook_id: playbookId ? Number(playbookId) : null,
       strategy_name: strategy.trim() || "Unassigned",
     });
   }
@@ -780,12 +803,13 @@ function JournalSessionsPage({
             <span className="status-pill">{sessions.length} sessions</span>
           </div>
           <div className="overflow-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
+            <table className="w-full min-w-[960px] text-left text-sm">
               <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>
                   <th className="px-3 py-3 font-medium">Session</th>
                   <th className="px-3 py-3 font-medium">Instrument</th>
                   <th className="px-3 py-3 font-medium">Strategy</th>
+                  <th className="px-3 py-3 font-medium">Playbook</th>
                   <th className="px-3 py-3 font-medium">Trades</th>
                   <th className="px-3 py-3 font-medium">Net P&L</th>
                   <th className="px-3 py-3 font-medium">Win rate</th>
@@ -799,6 +823,7 @@ function JournalSessionsPage({
                       <td className="px-3 py-4 font-semibold text-white">{session.name}</td>
                       <td className="px-3 py-4">{session.instrument}</td>
                       <td className="px-3 py-4">{session.strategy_name}</td>
+                      <td className="px-3 py-4">{session.playbook_id ? playbookById.get(session.playbook_id)?.name ?? "Missing rules" : "Unlinked"}</td>
                       <td className="px-3 py-4">{rowAggregate.totalTrades}</td>
                       <td className={`px-3 py-4 font-semibold ${toneForNumber(rowAggregate.netPnl)}`}>{formatMoney(rowAggregate.netPnl)}</td>
                       <td className="px-3 py-4">{formatPercent(rowAggregate.winRate)}</td>
@@ -823,6 +848,17 @@ function JournalSessionsPage({
             <label className="form-field">
               Instrument
               <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setInstrument(event.target.value)} value={instrument} />
+            </label>
+            <label className="form-field">
+              Playbook rules
+              <select className="input-control h-10 normal-case tracking-normal" onChange={(event) => setPlaybookId(event.target.value)} value={playbookId}>
+                <option value="">No playbook</option>
+                {playbooks.map((playbook) => (
+                  <option key={playbook.id} value={playbook.id}>
+                    {playbook.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="form-field">
               Starting balance
@@ -1165,6 +1201,31 @@ function JournalStrategiesPage({ strategies }: JournalPageProps) {
           <EmptyState icon={Target} message="No live strategy selected." />
         )}
       </FeatureCard>
+    </PageScaffold>
+  );
+}
+
+function JournalPlaybooksPage({
+  closedTrades,
+  journal,
+  playbooks,
+  sessions,
+}: JournalPageProps) {
+  return (
+    <PageScaffold
+      eyebrow="Journal Playbooks"
+      title="Live Trade Rule Sets"
+      description="Playbooks are written rules and conditions for live trading review. They are separate from Journal strategy performance."
+    >
+      <PlaybookRuleLibrary
+        contextLabel="Journal"
+        createLabel="Create live playbook"
+        emptyMessage="Create a Journal playbook to keep live-trading rules separate from strategy metrics."
+        onCreatePlaybook={journal.addPlaybook}
+        playbooks={playbooks}
+        sessions={sessions}
+        trades={closedTrades}
+      />
     </PageScaffold>
   );
 }
@@ -1758,7 +1819,7 @@ function ReportsPage({
 
 function StrategiesPage({
   onNavigateSessions,
-  playbooks,
+  onResumeSession,
   strategies,
 }: SharedPageProps) {
   const [selectedName, setSelectedName] = useState<string | null>(strategies[0]?.name ?? null);
@@ -1767,8 +1828,8 @@ function StrategiesPage({
   return (
     <PageScaffold
       eyebrow="Backtest Strategies"
-      title="Strategy Playbooks"
-      description="Strategy-level metrics from linked backtest sessions only, with playbook rules kept separate from live Journal performance."
+      title="Backtest Strategy Performance"
+      description="Strategies are performance groupings for replay sessions. Playbook rule sets now live in their own Backtest Playbooks page."
       actions={
         <button className="control-button workspace-tab-active" onClick={onNavigateSessions} type="button">
           <Plus size={15} />
@@ -1829,10 +1890,10 @@ function StrategiesPage({
         {selected ? (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
             <div>
-              <CardLabel icon={BookOpen} label="Strategy detail" />
+              <CardLabel icon={Target} label="Strategy detail" />
               <h3 className="mt-3 text-xl font-semibold text-white">{selected.name}</h3>
               <p className="mt-2 text-sm text-slate-500">
-                Attach a playbook to new sessions, then use this page to compare strategy performance.
+                Compare session outcomes, win rate, R-multiple, and drawdown for this strategy only.
               </p>
               <div className="mt-4 grid gap-2 md:grid-cols-3">
                 <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl)} tone={toneForNumber(selected.aggregate.netPnl)} />
@@ -1841,15 +1902,22 @@ function StrategiesPage({
               </div>
             </div>
             <div className="rounded-md border border-white/10 bg-black/20 p-3">
-              <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Linked playbooks</div>
+              <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Linked sessions</div>
               <div className="mt-3 grid gap-2">
-                {playbooks.map((playbook) => (
-                  <div className="rounded-md bg-white/5 px-3 py-2" key={playbook.id}>
-                    <div className="font-semibold text-white">{playbook.name}</div>
-                    <div className="text-xs text-slate-500">{playbook.description ?? "No description"}</div>
-                  </div>
+                {selected.sessions.map((session) => (
+                  <button
+                    className="rounded-md bg-white/5 px-3 py-2 text-left transition hover:bg-white/10"
+                    key={session.id}
+                    onClick={() => onResumeSession(session.id)}
+                    type="button"
+                  >
+                    <div className="font-semibold text-white">{session.name}</div>
+                    <div className="text-xs text-slate-500">
+                      {formatMarketSymbol(session.symbol)} · {session.timeframe ?? "M1"} · {session.status}
+                    </div>
+                  </button>
                 ))}
-                {playbooks.length === 0 && <div className="text-sm text-slate-500">No playbooks yet.</div>}
+                {selected.sessions.length === 0 && <div className="text-sm text-slate-500">No sessions linked yet.</div>}
               </div>
             </div>
           </div>
@@ -1858,6 +1926,265 @@ function StrategiesPage({
         )}
       </FeatureCard>
     </PageScaffold>
+  );
+}
+
+type PlaybookUsageSession = {
+  id: number;
+  name: string;
+  playbook_id: number | null;
+  strategy_name: string | null;
+};
+
+function BacktestPlaybooksPage({
+  onCreatePlaybook,
+  playbooks,
+  sessions,
+  trades,
+}: SharedPageProps) {
+  return (
+    <PageScaffold
+      eyebrow="Backtest Playbooks"
+      title="Backtest Rule Library"
+      description="Playbooks are rule sets: entry conditions, exit rules, and risk constraints. Strategy performance stays on the Strategies page."
+    >
+      <PlaybookRuleLibrary
+        contextLabel="Backtesting"
+        createLabel="Create backtest playbook"
+        emptyMessage="Create a playbook here, then attach it when creating a backtesting session or placing an order."
+        onCreatePlaybook={onCreatePlaybook}
+        playbooks={playbooks}
+        sessions={sessions}
+        trades={trades}
+      />
+    </PageScaffold>
+  );
+}
+
+function PlaybookRuleLibrary({
+  contextLabel,
+  createLabel,
+  emptyMessage,
+  onCreatePlaybook,
+  playbooks,
+  sessions,
+  trades,
+}: {
+  contextLabel: "Backtesting" | "Journal";
+  createLabel: string;
+  emptyMessage: string;
+  onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook> | Playbook;
+  playbooks: Playbook[];
+  sessions: PlaybookUsageSession[];
+  trades: Trade[];
+}) {
+  const [selectedId, setSelectedId] = useState<number | null>(playbooks[0]?.id ?? null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [entryRules, setEntryRules] = useState("");
+  const [exitRules, setExitRules] = useState("");
+  const [riskRules, setRiskRules] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (playbooks.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    if (selectedId == null || !playbooks.some((playbook) => playbook.id === selectedId)) {
+      setSelectedId(playbooks[0].id);
+    }
+  }, [playbooks, selectedId]);
+
+  const selected = playbooks.find((playbook) => playbook.id === selectedId) ?? playbooks[0] ?? null;
+  const selectedUsage = selected
+    ? computePlaybookUsage(selected, sessions, trades)
+    : null;
+
+  async function submitPlaybook(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!name.trim()) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const created = await Promise.resolve(
+        onCreatePlaybook({
+          description: description.trim() || null,
+          name: name.trim(),
+          rules: composePlaybookRules(entryRules, exitRules, riskRules),
+        }),
+      );
+      setSelectedId(created.id);
+      setName("");
+      setDescription("");
+      setEntryRules("");
+      setExitRules("");
+      setRiskRules("");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid content-start gap-4">
+        <FeatureCard>
+          <CardLabel icon={BookOpen} label={`${contextLabel} rule set`} />
+          <p className="mt-3 text-sm leading-6 text-slate-400">
+            A strategy groups performance. A playbook stores the actual rules:
+            what must be true before entry, where exits belong, and how risk is controlled.
+          </p>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <CompactMetric label="Playbooks" value={String(playbooks.length)} />
+            <CompactMetric label="Linked sessions" value={String(sessions.filter((session) => session.playbook_id != null).length)} />
+            <CompactMetric label="Linked trades" value={String(trades.filter((trade) => trade.playbook_id != null).length)} />
+          </div>
+        </FeatureCard>
+
+        <FeatureCard>
+          <CardLabel icon={Plus} label={createLabel} />
+          <form className="mt-4 grid gap-3" onSubmit={(event) => void submitPlaybook(event)}>
+            <label className="form-field">
+              Playbook name
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Opening range rules"
+                value={name}
+              />
+            </label>
+            <label className="form-field">
+              Description
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="One-line setup context"
+                value={description}
+              />
+            </label>
+            <PlaybookRuleTextArea label="Entry conditions" onChange={setEntryRules} value={entryRules} />
+            <PlaybookRuleTextArea label="Exit conditions" onChange={setExitRules} value={exitRules} />
+            <PlaybookRuleTextArea label="Risk conditions" onChange={setRiskRules} value={riskRules} />
+            <button className="control-button workspace-tab-active justify-center" disabled={submitting || !name.trim()} type="submit">
+              <Plus size={15} />
+              {submitting ? "Saving..." : "Save playbook"}
+            </button>
+          </form>
+        </FeatureCard>
+      </div>
+
+      <FeatureCard>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <CardLabel icon={BookOpen} label={`${contextLabel} playbooks`} />
+          <span className="status-pill">{playbooks.length} rule sets</span>
+        </div>
+        {playbooks.length === 0 ? (
+          <EmptyState icon={BookOpen} message={emptyMessage} />
+        ) : (
+          <div className="grid gap-4 2xl:grid-cols-[minmax(260px,0.42fr)_minmax(0,1fr)]">
+            <div className="grid max-h-[620px] content-start gap-2 overflow-auto pr-1">
+              {playbooks.map((playbook) => {
+                const usage = computePlaybookUsage(playbook, sessions, trades);
+                const active = selected?.id === playbook.id;
+                return (
+                  <button
+                    className={`rounded-md border px-3 py-3 text-left transition ${
+                      active
+                        ? "border-cyan-300/35 bg-cyan-300/10"
+                        : "border-white/10 bg-black/20 hover:border-cyan-300/25 hover:bg-cyan-300/5"
+                    }`}
+                    key={playbook.id}
+                    onClick={() => setSelectedId(playbook.id)}
+                    type="button"
+                  >
+                    <div className="truncate font-semibold text-white">{playbook.name}</div>
+                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                      {playbook.description || "No description saved."}
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-1.5">
+                      <MiniMetric label="Sessions" value={String(usage.sessions.length)} />
+                      <MiniMetric label="Trades" value={String(usage.aggregate.totalTrades)} />
+                      <MiniMetric label="Win" value={formatPercent(usage.aggregate.winRate)} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selected && selectedUsage ? (
+              <div className="min-w-0 rounded-md border border-white/10 bg-black/20 p-4">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Rule details</div>
+                    <h3 className="mt-2 truncate text-2xl font-semibold text-white">{selected.name}</h3>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                      {selected.description || "No description saved."}
+                    </p>
+                  </div>
+                  <span className="status-pill">{shortDate(selected.created_at)}</span>
+                </div>
+
+                <div className="mt-4 grid gap-2 md:grid-cols-4">
+                  <CompactMetric label="Net P&L" value={formatMoney(selectedUsage.aggregate.netPnl)} tone={toneForNumber(selectedUsage.aggregate.netPnl)} />
+                  <CompactMetric label="Win rate" value={formatPercent(selectedUsage.aggregate.winRate)} />
+                  <CompactMetric label="Avg R" value={formatOptionalNumber(selectedUsage.aggregate.averageR)} />
+                  <CompactMetric label="Profit factor" value={formatRatio(selectedUsage.aggregate.profitFactor)} />
+                </div>
+
+                <div className="mt-4 rounded-md border border-white/10 bg-[#080c11] p-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Rules</div>
+                  <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
+                    {selected.rules || "No written rules saved yet."}
+                  </pre>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Linked sessions</div>
+                  <div className="mt-3 grid gap-2">
+                    {selectedUsage.sessions.map((session) => (
+                      <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2" key={session.id}>
+                        <div className="font-semibold text-white">{session.name}</div>
+                        <div className="text-xs text-slate-500">{session.strategy_name || "Unassigned strategy"}</div>
+                      </div>
+                    ))}
+                    {selectedUsage.sessions.length === 0 && (
+                      <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
+                        This playbook has not been attached to a session yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <EmptyState icon={BookOpen} message="Select a playbook to inspect its rules and linked results." />
+            )}
+          </div>
+        )}
+      </FeatureCard>
+    </div>
+  );
+}
+
+function PlaybookRuleTextArea({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="form-field">
+      {label}
+      <textarea
+        className="input-control min-h-20 py-3 normal-case tracking-normal"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Write one condition per line"
+        value={value}
+      />
+    </label>
   );
 }
 
@@ -2062,6 +2389,15 @@ function CompactMetric({
         {label}
       </div>
       <div className={`mt-1 truncate text-sm font-semibold tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded bg-black/30 px-2 py-1">
+      <div className="truncate text-[9px] font-bold uppercase tracking-[0.12em] text-slate-600">{label}</div>
+      <div className="mt-0.5 truncate text-xs font-semibold tabular-nums text-slate-200">{value}</div>
     </div>
   );
 }
@@ -2424,6 +2760,21 @@ function useLiveJournalData(): LiveJournalController {
     }));
   }
 
+  function addPlaybook(payload: PlaybookPayload) {
+    const playbook: Playbook = {
+      created_at: new Date().toISOString(),
+      description: payload.description ?? null,
+      id: nextNumericId(data.playbooks),
+      name: payload.name,
+      rules: payload.rules ?? null,
+    };
+    setData((current) => ({
+      ...current,
+      playbooks: [...current.playbooks, playbook],
+    }));
+    return playbook;
+  }
+
   function addTrade(payload: LiveTradeInput) {
     setData((current) => {
       const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession();
@@ -2447,7 +2798,7 @@ function useLiveJournalData(): LiveJournalController {
         id: nextNumericId(current.trades),
         mistake_tags: payload.mistakeTags,
         notes: payload.notes,
-        playbook_id: null,
+        playbook_id: session.playbook_id ?? null,
         quantity: payload.quantity,
         r_multiple: riskAmount != null && riskAmount > 0 ? realizedPnl / riskAmount : null,
         realized_pnl: realizedPnl,
@@ -2461,40 +2812,47 @@ function useLiveJournalData(): LiveJournalController {
         take_profit: payload.takeProfit,
       };
       return {
+        ...current,
         sessions,
         trades: [...current.trades, trade],
       };
     });
   }
 
-  return { addSession, addTrade, data };
+  return { addPlaybook, addSession, addTrade, data };
 }
 
 function loadLiveJournalData(): LiveJournalData {
   if (typeof window === "undefined") {
-    return { sessions: [defaultLiveSession()], trades: [] };
+    return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
   }
   try {
     const raw = window.localStorage.getItem(LIVE_JOURNAL_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     return sanitizeLiveJournalData(parsed);
   } catch {
-    return { sessions: [defaultLiveSession()], trades: [] };
+    return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
   }
 }
 
 function sanitizeLiveJournalData(value: unknown): LiveJournalData {
   if (typeof value !== "object" || value == null) {
-    return { sessions: [defaultLiveSession()], trades: [] };
+    return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
   }
   const candidate = value as Partial<LiveJournalData>;
   const sessions = Array.isArray(candidate.sessions)
-    ? candidate.sessions.filter(isLiveJournalSession)
+    ? candidate.sessions
+        .filter(isLiveJournalSession)
+        .map((session) => ({ ...session, playbook_id: session.playbook_id ?? null }))
     : [];
   const trades = Array.isArray(candidate.trades)
     ? candidate.trades.filter(isTradeLike)
     : [];
+  const playbooks = Array.isArray(candidate.playbooks)
+    ? candidate.playbooks.filter(isPlaybookLike)
+    : [];
   return {
+    playbooks,
     sessions: sessions.length > 0 ? sessions : [defaultLiveSession()],
     trades,
   };
@@ -2510,6 +2868,7 @@ function defaultLiveSession(): LiveJournalSession {
     instrument: "Manual",
     name: "Primary Live Journal",
     notes: "",
+    playbook_id: null,
     status: "ACTIVE",
     strategy_name: "Unassigned",
   };
@@ -2527,6 +2886,14 @@ function isLiveJournalSession(value: unknown): value is LiveJournalSession {
     typeof candidate.instrument === "string" &&
     typeof candidate.initial_balance === "number"
   );
+}
+
+function isPlaybookLike(value: unknown): value is Playbook {
+  if (typeof value !== "object" || value == null) {
+    return false;
+  }
+  const candidate = value as Partial<Playbook>;
+  return typeof candidate.id === "number" && typeof candidate.name === "string";
 }
 
 function isTradeLike(value: unknown): value is Trade {
@@ -2626,6 +2993,31 @@ function aggregateTrades(trades: Trade[]): Aggregate {
     winRate: closed.length > 0 ? wins.length / closed.length : 0,
     wins: wins.length,
   };
+}
+
+function computePlaybookUsage(
+  playbook: Playbook,
+  sessions: PlaybookUsageSession[],
+  trades: Trade[],
+) {
+  const linkedSessions = sessions.filter((session) => session.playbook_id === playbook.id);
+  const linkedTrades = trades.filter((trade) => trade.playbook_id === playbook.id);
+  return {
+    aggregate: aggregateTrades(linkedTrades),
+    sessions: linkedSessions,
+    trades: linkedTrades,
+  };
+}
+
+function composePlaybookRules(entryRules: string, exitRules: string, riskRules: string) {
+  const sections = [
+    ["Entry Conditions", entryRules],
+    ["Exit Conditions", exitRules],
+    ["Risk Conditions", riskRules],
+  ]
+    .map(([title, body]) => `${title}\n${body.trim() || "Not defined yet."}`)
+    .join("\n\n");
+  return sections;
 }
 
 function groupTradesByDay(trades: Trade[]): DayGroup[] {

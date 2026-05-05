@@ -96,6 +96,7 @@ export default function App() {
     isLoading,
     isPlaying,
     speedMs,
+    createPlaybook,
     loadSession,
     loadInitial,
     newSession,
@@ -513,6 +514,7 @@ export default function App() {
                 setSessionGateOpen(true);
               }}
               onResumeSession={resumeSessionFromGateway}
+              onCreatePlaybook={createPlaybook}
               playbooks={playbooks}
               sessions={resultSessions}
               trades={resultTrades}
@@ -530,6 +532,7 @@ export default function App() {
                 datasets={datasets}
                 isLoading={isLoading}
                 onCreateSession={createSessionFromGateway}
+                onCreatePlaybook={createPlaybook}
                 onResumeSession={resumeSessionFromGateway}
                 playbooks={playbooks}
                 session={state?.session ?? null}
