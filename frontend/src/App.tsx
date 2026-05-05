@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Clock3,
@@ -101,6 +101,7 @@ export default function App() {
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
+  const chartShellRef = useRef<HTMLDivElement | null>(null);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
@@ -238,8 +239,7 @@ export default function App() {
             break;
           }
           if (isChartFullscreen) {
-            setIsChartFullscreen(false);
-            setFullscreenOrderPanelOpen(false);
+            exitChartFullscreen();
           }
           break;
         case "Delete":
@@ -259,6 +259,22 @@ export default function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
+
+  useEffect(() => {
+    function syncNativeFullscreen() {
+      if (document.fullscreenElement === chartShellRef.current) {
+        setIsChartFullscreen(true);
+        return;
+      }
+      if (!document.fullscreenElement) {
+        setIsChartFullscreen(false);
+        setFullscreenOrderPanelOpen(false);
+      }
+    }
+
+    document.addEventListener("fullscreenchange", syncNativeFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncNativeFullscreen);
+  }, []);
 
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
@@ -316,11 +332,26 @@ export default function App() {
 
   function toggleChartFullscreen() {
     if (isChartFullscreen) {
-      setIsChartFullscreen(false);
-      setFullscreenOrderPanelOpen(false);
+      exitChartFullscreen();
       return;
     }
     setIsChartFullscreen(true);
+    const element = chartShellRef.current;
+    if (element && document.fullscreenElement !== element && element.requestFullscreen) {
+      void element.requestFullscreen().catch(() => {
+        // Keep the in-app fullscreen layout as a fallback when native fullscreen is blocked.
+      });
+    }
+  }
+
+  function exitChartFullscreen() {
+    setIsChartFullscreen(false);
+    setFullscreenOrderPanelOpen(false);
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {
+        // Browser fullscreen can already be gone by the time React handles Escape.
+      });
+    }
   }
 
   function closeOrderPanels() {
@@ -600,6 +631,7 @@ export default function App() {
                     ? "chart-fullscreen-shell"
                     : "focus-chart-column"
                 }
+                ref={chartShellRef}
               >
                 <ReplayController
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
