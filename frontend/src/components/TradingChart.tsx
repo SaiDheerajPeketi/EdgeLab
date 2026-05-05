@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   Crosshair,
+  Eye,
+  EyeOff,
   LineChart,
+  LockKeyhole,
   Magnet,
   Minus,
   MousePointer2,
   Square,
   Trash2,
   Type,
+  UnlockKeyhole,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -39,6 +44,7 @@ import {
   type ChartIndicatorId,
   type ChartStyle,
   type ChartTimeframe,
+  type DrawingLineStyle,
   type DrawingPoint,
   type DrawingTool,
   type MacdData,
@@ -209,6 +215,10 @@ export function TradingChart({
   const isDrawingPlacementMode = drawingTool !== "cursor" && drawingTool !== "crosshair";
   const drawingLayerCapturesPointer =
     dragState != null || isDrawingPlacementMode || selectedDrawingId != null;
+  const selectedDrawing = useMemo(
+    () => drawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,
+    [drawings, selectedDrawingId],
+  );
   const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
   const headerPriceTone =
     activeHeaderCandle == null
@@ -230,6 +240,15 @@ export function TradingChart({
     series: candlesRef.current,
     version: plotVersion,
   });
+  const floatingToolbarPosition =
+    selectedDrawing && !isDrawingPlacementMode
+      ? toolbarPositionFromDrawing(
+          selectedDrawing,
+          chartFrameRef.current,
+          chartRef.current,
+          candlesRef.current,
+        )
+      : null;
 
   useEffect(() => {
     barsRef.current = displayBars;
@@ -505,12 +524,13 @@ export function TradingChart({
 
     if (drawingTool === "horizontal") {
       onAddDrawing(makeDrawing("horizontal", [point]));
+      onDrawingToolChange("cursor");
       return;
     }
 
     if (drawingTool === "text") {
-      const label = window.prompt("Text label", "Note")?.trim() || "Note";
-      onAddDrawing(makeDrawing("text", [point], label));
+      onAddDrawing(makeDrawing("text", [point], "Text"));
+      onDrawingToolChange("cursor");
       setDraftDrawing(null);
       setHoverPoint(null);
       return;
@@ -522,6 +542,7 @@ export function TradingChart({
     }
 
     onAddDrawing(makeDrawing(drawingTool, [draftDrawing.point, point]));
+    onDrawingToolChange("cursor");
     setDraftDrawing(null);
     setHoverPoint(null);
   }
@@ -617,6 +638,16 @@ export function TradingChart({
     setDragState(null);
   }
 
+  function updateSelectedDrawing(patch: Partial<ChartDrawing>) {
+    if (!selectedDrawing) {
+      return;
+    }
+    onUpdateDrawing({
+      ...selectedDrawing,
+      ...patch,
+    });
+  }
+
   return (
     <section className="chart-stage">
       <div className="chart-stage-header">
@@ -684,6 +715,17 @@ export function TradingChart({
                 {drawingElements}
               </svg>
             </div>
+            {selectedDrawing && floatingToolbarPosition && !isDrawingPlacementMode && (
+              <FloatingDrawingToolbar
+                drawing={selectedDrawing}
+                onChange={updateSelectedDrawing}
+                onDelete={() => {
+                  onDeleteDrawing(selectedDrawing.id);
+                  onSelectDrawing(null);
+                }}
+                position={floatingToolbarPosition}
+              />
+            )}
           </div>
           {rsiData.length > 0 && <RsiPanel data={rsiData} />}
           {macdData && (
@@ -938,6 +980,131 @@ function MacdPanel({
   );
 }
 
+function FloatingDrawingToolbar({
+  drawing,
+  onChange,
+  onDelete,
+  position,
+}: {
+  drawing: ChartDrawing;
+  onChange: (patch: Partial<ChartDrawing>) => void;
+  onDelete: () => void;
+  position: { x: number; y: number };
+}) {
+  const lineStyle = drawing.lineStyle ?? "solid";
+  const lineWidth = drawing.lineWidth ?? 2;
+  const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
+  const canFill =
+    drawing.tool === "rectangle" ||
+    drawing.tool === "longPosition" ||
+    drawing.tool === "shortPosition";
+  const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
+
+  const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+  };
+
+  return (
+    <div
+      className="chart-object-floating-toolbar"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={stopToolbarEvent}
+      role="group"
+      style={{ left: position.x, top: position.y }}
+    >
+      {drawing.tool === "text" && (
+        <input
+          aria-label="Text label"
+          className="chart-object-floating-label-input"
+          onChange={(event) => onChange({ label: event.target.value })}
+          placeholder="Text"
+          value={drawing.label ?? ""}
+        />
+      )}
+
+      <label
+        className="chart-object-floating-color"
+        title="Color"
+      >
+        <span style={{ backgroundColor: drawing.color }} />
+        <input
+          aria-label="Drawing color"
+          onChange={(event) => onChange({ color: event.target.value })}
+          type="color"
+          value={drawing.color}
+        />
+      </label>
+
+      <div className="chart-object-floating-style" role="group">
+        {lineStyles.map((style) => (
+          <button
+            className={lineStyle === style ? "active" : ""}
+            key={style}
+            onClick={() => onChange({ lineStyle: style })}
+            title={`${style} line`}
+            type="button"
+          >
+            <span className={`line-preview line-preview-${style}`} />
+          </button>
+        ))}
+      </div>
+
+      <label className="chart-object-floating-width" title="Line width">
+        <span>{lineWidth.toFixed(1)}</span>
+        <input
+          max={6}
+          min={1}
+          onChange={(event) => onChange({ lineWidth: Number(event.target.value) })}
+          step={0.5}
+          type="range"
+          value={lineWidth}
+        />
+      </label>
+
+      {canFill && (
+        <label className="chart-object-floating-width" title="Fill opacity">
+          <span>{fillOpacity}%</span>
+          <input
+            max={60}
+            min={0}
+            onChange={(event) =>
+              onChange({ fillOpacity: Number(event.target.value) / 100 })
+            }
+            step={1}
+            type="range"
+            value={fillOpacity}
+          />
+        </label>
+      )}
+
+      <button
+        className={`chart-object-floating-button ${drawing.visible === false ? "" : "active"}`}
+        onClick={() => onChange({ visible: drawing.visible === false })}
+        title={drawing.visible === false ? "Show drawing" : "Hide drawing"}
+        type="button"
+      >
+        {drawing.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+      <button
+        className={`chart-object-floating-button ${drawing.locked ? "active-warn" : ""}`}
+        onClick={() => onChange({ locked: !drawing.locked })}
+        title={drawing.locked ? "Unlock drawing" : "Lock drawing"}
+        type="button"
+      >
+        {drawing.locked ? <LockKeyhole size={14} /> : <UnlockKeyhole size={14} />}
+      </button>
+      <button
+        className="chart-object-floating-button danger"
+        onClick={onDelete}
+        title="Delete drawing"
+        type="button"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
 function buildDrawingElements({
   chart,
   drawings,
@@ -1116,8 +1283,10 @@ function renderDrawing(
     if (!point) {
       return null;
     }
-    const label = drawing.label || "Note";
-    const widthEstimate = Math.max(56, Math.min(220, label.length * 7 + 22));
+    const textLines = normalizeTextLines(drawing.label);
+    const labelMetrics = textLabelMetrics(textLines);
+    const labelX = point.x + 14;
+    const labelY = point.y - labelMetrics.height - 16;
     return (
       <g
         cursor={isLocked ? "default" : "move"}
@@ -1127,26 +1296,87 @@ function renderDrawing(
         pointerEvents={hitTargetPointerEvents}
       >
         <rect
-          fill="rgba(8, 12, 17, 0.92)"
-          height={24}
-          rx={4}
+          fill="transparent"
+          height={labelMetrics.height + 28}
+          width={labelMetrics.width + 34}
+          x={point.x - 8}
+          y={labelY - 8}
+        />
+        <line
           stroke={color}
-          strokeOpacity={isSelected ? 1 : 0.8}
-          strokeWidth={isSelected ? 2 : 1}
-          width={widthEstimate}
-          x={point.x + 8}
-          y={point.y - 28}
+          strokeOpacity={isSelected ? 0.58 : 0.22}
+          strokeWidth={1}
+          x1={point.x}
+          x2={labelX + 6}
+          y1={point.y}
+          y2={labelY + labelMetrics.height}
+        />
+        <rect
+          fill={isSelected ? "rgba(8, 12, 17, 0.88)" : "rgba(8, 12, 17, 0.62)"}
+          height={labelMetrics.height}
+          rx={5}
+          stroke={color}
+          strokeOpacity={isSelected ? 0.82 : 0.2}
+          strokeWidth={isSelected ? 1.5 : 1}
+          width={labelMetrics.width}
+          x={labelX}
+          y={labelY}
+        />
+        <rect
+          fill={color}
+          height={Math.max(18, labelMetrics.height - 10)}
+          opacity={isSelected ? 0.95 : 0.7}
+          rx={2}
+          width={3}
+          x={labelX + 7}
+          y={labelY + 5}
         />
         <text
-          fill={color}
-          fontSize="12"
-          fontWeight="600"
-          x={point.x + 18}
-          y={point.y - 12}
+          fill="rgba(5, 7, 10, 0.9)"
+          fontSize="13"
+          fontWeight="700"
+          stroke="rgba(5, 7, 10, 0.82)"
+          strokeLinejoin="round"
+          strokeWidth={4}
+          x={labelX + 18}
+          y={labelY + 21}
         >
-          {label}
+          {textLines.map((line, index) => (
+            <tspan
+              key={`${drawing.id}-halo-${index}`}
+              x={labelX + 18}
+              dy={index === 0 ? 0 : 17}
+            >
+              {line}
+            </tspan>
+          ))}
         </text>
-        <circle cx={point.x} cy={point.y} fill={color} r={3} />
+        <text
+          fill={color}
+          fontSize="13"
+          fontWeight="700"
+          x={labelX + 18}
+          y={labelY + 21}
+        >
+          {textLines.map((line, index) => (
+            <tspan
+              key={`${drawing.id}-text-${index}`}
+              x={labelX + 18}
+              dy={index === 0 ? 0 : 17}
+            >
+              {line}
+            </tspan>
+          ))}
+        </text>
+        <circle
+          cx={point.x}
+          cy={point.y}
+          fill="#05070a"
+          r={4}
+          stroke={color}
+          strokeOpacity={0.95}
+          strokeWidth={1.5}
+        />
         {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
     );
@@ -1518,6 +1748,77 @@ function renderPositionDrawing(
       {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
     </g>
   );
+}
+
+function toolbarPositionFromDrawing(
+  drawing: ChartDrawing,
+  frame: HTMLDivElement | null,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+): { x: number; y: number } | null {
+  if (!frame || !chart || !series) {
+    return null;
+  }
+
+  const pixels = drawing.points
+    .map((point) => pixelFromPoint(point, chart, series))
+    .filter((point): point is { x: number; y: number } => point != null);
+
+  if (pixels.length === 0) {
+    return null;
+  }
+
+  const toolbarWidth = drawing.tool === "text" ? 380 : 332;
+  const toolbarHeight =
+    drawing.tool === "rectangle" ||
+    drawing.tool === "longPosition" ||
+    drawing.tool === "shortPosition"
+      ? 88
+      : 48;
+  const minX = Math.min(...pixels.map((point) => point.x));
+  const maxX = Math.max(...pixels.map((point) => point.x));
+  const minY = Math.min(...pixels.map((point) => point.y));
+  const maxY = Math.max(...pixels.map((point) => point.y));
+  const maxLeft = Math.max(12, frame.clientWidth - toolbarWidth - 12);
+  const maxTop = Math.max(12, frame.clientHeight - toolbarHeight - 12);
+
+  if (drawing.tool === "horizontal") {
+    return {
+      x: clamp(frame.clientWidth - toolbarWidth - 14, 12, maxLeft),
+      y: clamp(minY - toolbarHeight - 10, 12, maxTop),
+    };
+  }
+
+  const rightX = maxX + 14;
+  const leftX = minX - toolbarWidth - 14;
+  const x = rightX <= maxLeft ? rightX : leftX;
+  const y =
+    drawing.tool === "text"
+      ? minY - toolbarHeight - 34
+      : Math.min(minY, maxY) - toolbarHeight - 12;
+
+  return {
+    x: clamp(x, 12, maxLeft),
+    y: clamp(y, 12, maxTop),
+  };
+}
+
+function normalizeTextLines(label: string | undefined) {
+  const lines = (label?.trim() || "Text")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  return lines.length > 0 ? lines : ["Text"];
+}
+
+function textLabelMetrics(lines: string[]) {
+  const longest = Math.max(...lines.map((line) => line.length), 4);
+  return {
+    height: lines.length * 17 + 15,
+    width: clamp(longest * 7.4 + 38, 78, 280),
+  };
 }
 
 function pointFromClient(
