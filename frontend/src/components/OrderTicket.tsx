@@ -1,14 +1,16 @@
 import { Send, ShieldCheck } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { OrderPayload, Playbook } from "../lib/api";
+import type { ChartDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
   playbooks: Playbook[];
+  riskRewardDrawing?: ChartDrawing | null;
 };
 
-export function OrderTicket({ playbooks }: Props) {
+export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
   const state = useBacktestStore((store) => store.state);
   const placeOrder = useBacktestStore((store) => store.placeOrder);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -27,11 +29,24 @@ export function OrderTicket({ playbooks }: Props) {
   const [notes, setNotes] = useState("");
 
   const currentPrice = state?.current_candle?.close;
+  const riskRewardValues = useMemo(
+    () => extractRiskRewardOrderValues(riskRewardDrawing, currentPrice),
+    [currentPrice, riskRewardDrawing],
+  );
+  const entryReferencePrice = useMemo(() => {
+    if (orderType === "LIMIT") {
+      return numberOrNull(limitPrice);
+    }
+    if (orderType === "STOP") {
+      return numberOrNull(stopPrice);
+    }
+    return currentPrice ?? null;
+  }, [currentPrice, limitPrice, orderType, stopPrice]);
   const estimatedRiskSize = useMemo(() => {
-    if (sizingMode !== "risk" || currentPrice == null || !stopLoss) {
+    if (sizingMode !== "risk" || entryReferencePrice == null || !stopLoss) {
       return null;
     }
-    const risk = Math.abs(currentPrice - Number(stopLoss));
+    const risk = Math.abs(entryReferencePrice - Number(stopLoss));
     if (!state) {
       return null;
     }
@@ -40,7 +55,19 @@ export function OrderTicket({ playbooks }: Props) {
       return null;
     }
     return (equity * (Number(riskPercent) / 100)) / risk;
-  }, [currentPrice, riskPercent, sizingMode, state, stopLoss]);
+  }, [entryReferencePrice, riskPercent, sizingMode, state, stopLoss]);
+
+  useEffect(() => {
+    if (!riskRewardValues) {
+      return;
+    }
+    setSide(riskRewardValues.side);
+    setOrderType(riskRewardValues.orderType);
+    setLimitPrice(riskRewardValues.orderType === "LIMIT" ? riskRewardValues.entry : "");
+    setStopPrice(riskRewardValues.orderType === "STOP" ? riskRewardValues.entry : "");
+    setStopLoss(riskRewardValues.stopLoss);
+    setTakeProfit(riskRewardValues.takeProfit);
+  }, [riskRewardValues]);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -203,6 +230,14 @@ export function OrderTicket({ playbooks }: Props) {
           </div>
         )}
 
+        {riskRewardValues && (
+          <div className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-100">
+            Synced from latest RR: Entry {riskRewardValues.entry} · SL{" "}
+            {riskRewardValues.stopLoss} · TP {riskRewardValues.takeProfit} ·{" "}
+            {riskRewardValues.ratio.toFixed(2)}R
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           <label className="form-field">
             <span>Strategy</span>
@@ -262,4 +297,61 @@ function numberOrNull(value: string) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractRiskRewardOrderValues(
+  drawing: ChartDrawing | null | undefined,
+  currentPrice: number | undefined,
+) {
+  if (
+    !drawing ||
+    (drawing.tool !== "longPosition" && drawing.tool !== "shortPosition") ||
+    drawing.points.length < 2
+  ) {
+    return null;
+  }
+
+  const side: "BUY" | "SELL" = drawing.tool === "longPosition" ? "BUY" : "SELL";
+  const entry = drawing.points[0].price;
+  const takeProfit = drawing.points[1].price;
+  const stopLoss = drawing.points[2]?.price ?? defaultRiskRewardStopPrice(drawing);
+  const orderType = inferEntryOrderType(side, entry, currentPrice);
+  const risk = Math.abs(entry - stopLoss);
+  const reward = Math.abs(takeProfit - entry);
+
+  return {
+    entry: priceInputValue(entry),
+    orderType,
+    ratio: risk > 0 ? reward / risk : 0,
+    side,
+    stopLoss: priceInputValue(stopLoss),
+    takeProfit: priceInputValue(takeProfit),
+  };
+}
+
+function defaultRiskRewardStopPrice(drawing: ChartDrawing) {
+  const entry = drawing.points[0].price;
+  const target = drawing.points[1]?.price ?? entry;
+  const reward = Math.abs(target - entry);
+  const fallbackRisk = Math.max(Math.abs(entry) * 0.001, 0.0001);
+  const risk = reward > 0 ? reward : fallbackRisk;
+  return drawing.tool === "shortPosition" ? entry + risk : entry - risk;
+}
+
+function inferEntryOrderType(
+  side: "BUY" | "SELL",
+  entry: number,
+  currentPrice: number | undefined,
+): "LIMIT" | "STOP" {
+  if (currentPrice == null || !Number.isFinite(currentPrice)) {
+    return "LIMIT";
+  }
+  if (side === "BUY") {
+    return entry <= currentPrice ? "LIMIT" : "STOP";
+  }
+  return entry >= currentPrice ? "LIMIT" : "STOP";
+}
+
+function priceInputValue(value: number) {
+  return Number.isFinite(value) ? formatPrice(value) : "";
 }

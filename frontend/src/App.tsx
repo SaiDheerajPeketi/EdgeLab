@@ -249,6 +249,7 @@ export default function App() {
           hour: "2-digit",
           minute: "2-digit",
         })}`;
+  const latestRiskRewardDrawing = findLatestRiskRewardDrawing(drawings);
 
   function toggleIndicator(indicator: ChartIndicatorId) {
     setActiveIndicators((current) =>
@@ -442,7 +443,10 @@ export default function App() {
                         <PanelLeftClose size={15} />
                       </button>
                     </section>
-                    <OrderTicket playbooks={playbooks} />
+                    <OrderTicket
+                      playbooks={playbooks}
+                      riskRewardDrawing={latestRiskRewardDrawing}
+                    />
                     <PositionPanel position={position} />
                   </>
                 ) : (
@@ -552,7 +556,10 @@ export default function App() {
                 </div>
                 {isChartFullscreen && (
                   <div className="chart-fullscreen-dock">
-                    <OrderTicket playbooks={playbooks} />
+                    <OrderTicket
+                      playbooks={playbooks}
+                      riskRewardDrawing={latestRiskRewardDrawing}
+                    />
                     <PositionPanel position={position} />
                     <PendingOrders orders={orders} />
                     <ExecutionTape executions={executions} />
@@ -980,4 +987,18 @@ function money(value: number) {
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function findLatestRiskRewardDrawing(drawings: ChartDrawing[]) {
+  for (let index = drawings.length - 1; index >= 0; index -= 1) {
+    const drawing = drawings[index];
+    if (
+      drawing.visible !== false &&
+      (drawing.tool === "longPosition" || drawing.tool === "shortPosition") &&
+      drawing.points.length >= 2
+    ) {
+      return drawing;
+    }
+  }
+  return null;
 }

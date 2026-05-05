@@ -1457,7 +1457,16 @@ function renderDrawing(
   }
 
   if (drawing.tool === "longPosition" || drawing.tool === "shortPosition") {
-    return renderPositionDrawing(drawing, first, second, width, options);
+    const stopPoint = drawing.points[2] ?? defaultPositionStopPoint(drawing);
+    const stop = toPixel(stopPoint);
+    if (!stop) {
+      return null;
+    }
+    const positionDrawing =
+      drawing.points[2] == null
+        ? { ...drawing, points: [drawing.points[0], drawing.points[1], stopPoint] }
+        : drawing;
+    return renderPositionDrawing(positionDrawing, first, second, stop, width, options);
   }
 
   if (drawing.tool === "rectangle") {
@@ -1637,6 +1646,7 @@ function renderPositionDrawing(
   drawing: ChartDrawing,
   first: { x: number; y: number },
   second: { x: number; y: number },
+  stop: { x: number; y: number },
   width: number,
   options: {
     onDeleteDrawing: (drawingId: string) => void;
@@ -1660,18 +1670,21 @@ function renderPositionDrawing(
   const fillOpacity = drawing.fillOpacity ?? 0.16;
   const entryPrice = drawing.points[0].price;
   const targetPrice = drawing.points[1].price;
+  const stopPrice = drawing.points[2].price;
   const reward = Math.abs(targetPrice - entryPrice);
-  const stopPrice = isLong ? entryPrice - reward * 0.65 : entryPrice + reward * 0.65;
-  const stopY = first.y + (isLong ? Math.abs(second.y - first.y) * 0.65 : -Math.abs(second.y - first.y) * 0.65);
-  const left = Math.min(first.x, second.x);
-  const right = Math.max(first.x, second.x);
+  const left = Math.min(first.x, second.x, stop.x);
+  const right = Math.max(first.x, second.x, stop.x);
   const boxWidth = Math.max(72, right - left);
   const targetTop = Math.min(first.y, second.y);
   const targetHeight = Math.abs(second.y - first.y);
-  const stopTop = Math.min(first.y, stopY);
-  const stopHeight = Math.abs(stopY - first.y);
+  const stopTop = Math.min(first.y, stop.y);
+  const stopHeight = Math.abs(stop.y - first.y);
   const risk = Math.abs(entryPrice - stopPrice);
   const ratio = risk === 0 ? 0 : reward / risk;
+  const hitTop = Math.min(first.y, second.y, stop.y);
+  const hitBottom = Math.max(first.y, second.y, stop.y);
+  const labelX = Math.min(width - 204, right + 10);
+  const labelY = clamp(hitTop, 10, Math.max(10, hitBottom - 46));
 
   const handleBodyDown = (event: MouseEvent<SVGElement>) => {
     if (!options.interactive) {
@@ -1696,13 +1709,13 @@ function renderPositionDrawing(
       <rect
         cursor={isLocked ? "default" : "move"}
         fill="transparent"
-        height={targetHeight + stopHeight + 24}
+        height={hitBottom - hitTop + 24}
         onClick={handleSelect}
         onMouseDown={handleBodyDown}
         pointerEvents={hitTargetPointerEvents}
         width={boxWidth + 32}
         x={left - 16}
-        y={Math.min(targetTop, stopTop) - 12}
+        y={hitTop - 12}
       />
       <rect
         fill={`rgba(34, 197, 94, ${fillOpacity})`}
@@ -1728,24 +1741,33 @@ function renderPositionDrawing(
       />
       <line stroke="#e2e8f0" strokeDasharray="4 4" strokeWidth={strokeWidth} x1={left} x2={right} y1={first.y} y2={first.y} />
       <line stroke="#22c55e" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={second.y} y2={second.y} />
-      <line stroke="#fb7185" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={stopY} y2={stopY} />
+      <line stroke="#fb7185" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={stop.y} y2={stop.y} />
+      <text fill="#dbeafe" fontSize="10" fontWeight="800" x={left + 8} y={first.y - 7}>
+        ENTRY {formatPrice(entryPrice)}
+      </text>
+      <text fill="#bbf7d0" fontSize="10" fontWeight="800" x={left + 8} y={second.y - 7}>
+        TP {formatPrice(targetPrice)}
+      </text>
+      <text fill="#fecdd3" fontSize="10" fontWeight="800" x={left + 8} y={stop.y - 7}>
+        SL {formatPrice(stopPrice)}
+      </text>
       <rect
         fill="rgba(8, 12, 17, 0.95)"
         height={44}
         rx={5}
         stroke={isLong ? "#22c55e" : "#fb7185"}
         strokeOpacity="0.72"
-        width={176}
-        x={Math.min(width - 188, right + 10)}
-        y={Math.min(targetTop, stopTop)}
+        width={192}
+        x={labelX}
+        y={labelY}
       />
-      <text fill={isLong ? "#bbf7d0" : "#fecdd3"} fontSize="11" fontWeight="900" x={Math.min(width - 176, right + 20)} y={Math.min(targetTop, stopTop) + 17}>
+      <text fill={isLong ? "#bbf7d0" : "#fecdd3"} fontSize="11" fontWeight="900" x={labelX + 10} y={labelY + 17}>
         {isLong ? "LONG" : "SHORT"} POSITION
       </text>
-      <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={Math.min(width - 176, right + 20)} y={Math.min(targetTop, stopTop) + 33}>
-        RR {ratio.toFixed(2)} · Entry {formatPrice(entryPrice)}
+      <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={labelX + 10} y={labelY + 33}>
+        RR {ratio.toFixed(2)} · Risk {formatPrice(risk)}
       </text>
-      {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
+      {isSelected && !isLocked && renderAnchors(drawing, [first, second, stop], options)}
     </g>
   );
 }
@@ -1981,11 +2003,44 @@ function moveDrawing(
   return { ...dragState.drawing, points };
 }
 
+function defaultPositionStopPoint(drawing: ChartDrawing): DrawingPoint {
+  const entry = drawing.points[0];
+  const target = drawing.points[1] ?? entry;
+  const reward = Math.abs(target.price - entry.price);
+  const fallbackRisk = Math.max(Math.abs(entry.price) * 0.001, 0.0001);
+  const risk = reward > 0 ? reward : fallbackRisk;
+  const price =
+    drawing.tool === "shortPosition"
+      ? entry.price + risk
+      : entry.price - risk;
+
+  return {
+    logical: target.logical,
+    time: target.time,
+    price,
+  };
+}
+
 function makeDrawing(
   tool: DraftDrawing["tool"],
   points: DrawingPoint[],
   label?: string,
 ): ChartDrawing {
+  const normalizedPoints =
+    (tool === "longPosition" || tool === "shortPosition") && points.length === 2
+      ? [
+          points[0],
+          points[1],
+          defaultPositionStopPoint({
+            id: "draft-position",
+            tool,
+            color: DRAWING_COLORS[tool],
+            points,
+            createdAt: "",
+          }),
+        ]
+      : points;
+
   return {
     id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     tool,
@@ -1994,7 +2049,7 @@ function makeDrawing(
     lineStyle: tool === "horizontal" || tool === "measure" ? "dashed" : "solid",
     lineWidth: tool === "horizontal" ? 1.5 : 2,
     locked: false,
-    points,
+    points: normalizedPoints,
     label,
     createdAt: new Date().toISOString(),
     visible: true,
