@@ -220,12 +220,7 @@ export function TradingChart({
     [drawings, selectedDrawingId],
   );
   const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
-  const headerPriceTone =
-    activeHeaderCandle == null
-      ? "text-slate-300"
-      : activeHeaderCandle.close >= activeHeaderCandle.open
-        ? "text-emerald-300"
-        : "text-rose-300";
+  const headerPriceTone = candleChangeTone(activeHeaderCandle);
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
     drawings,
@@ -768,9 +763,9 @@ function OhlcvStrip({
       <span className="chart-ohlcv-time">
         {candle ? new Date(candle.timestamp).toLocaleString() : "No candle"}
       </span>
-      <OhlcvValue label="O" value={formatPrice(candle?.open)} />
-      <OhlcvValue label="H" value={formatPrice(candle?.high)} tone="text-emerald-300" />
-      <OhlcvValue label="L" value={formatPrice(candle?.low)} tone="text-rose-300" />
+      <OhlcvValue label="O" value={formatPrice(candle?.open)} tone={tone} />
+      <OhlcvValue label="H" value={formatPrice(candle?.high)} tone={tone} />
+      <OhlcvValue label="L" value={formatPrice(candle?.low)} tone={tone} />
       <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
       {hasVolume && <OhlcvValue label="Vol" value={formatCompactNumber(candle.volume)} />}
       <span className={`chart-ohlcv-change ${tone}`}>
@@ -1044,7 +1039,7 @@ function FloatingDrawingToolbar({
             title={`${style} line`}
             type="button"
           >
-            <span className={`line-preview line-preview-${style}`} />
+            <LineStylePreview style={style} />
           </button>
         ))}
       </div>
@@ -1102,6 +1097,31 @@ function FloatingDrawingToolbar({
         <X size={14} />
       </button>
     </div>
+  );
+}
+
+function LineStylePreview({ style }: { style: DrawingLineStyle }) {
+  const dashArray =
+    style === "dashed" ? "7 5" : style === "dotted" ? "1 4" : undefined;
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="line-preview"
+      focusable="false"
+      viewBox="0 0 28 12"
+    >
+      <line
+        stroke="currentColor"
+        strokeDasharray={dashArray}
+        strokeLinecap={style === "dotted" ? "round" : "butt"}
+        strokeWidth={2}
+        x1={3}
+        x2={25}
+        y1={6}
+        y2={6}
+      />
+    </svg>
   );
 }
 
@@ -1252,7 +1272,7 @@ function renderDrawing(
         />
         <line
           stroke={color}
-          strokeDasharray={strokeDasharray ?? "5 5"}
+          strokeDasharray={strokeDasharray}
           strokeOpacity={isSelected ? 1 : 0.82}
           strokeWidth={selectedStrokeWidth}
           x1={0}
@@ -2046,7 +2066,7 @@ function makeDrawing(
     tool,
     color: DRAWING_COLORS[tool],
     fillOpacity: tool === "rectangle" ? 0.16 : undefined,
-    lineStyle: tool === "horizontal" || tool === "measure" ? "dashed" : "solid",
+    lineStyle: tool === "measure" ? "dashed" : "solid",
     lineWidth: tool === "horizontal" ? 1.5 : 2,
     locked: false,
     points: normalizedPoints,
@@ -2095,6 +2115,20 @@ function colorWithOpacity(color: string, opacity: number) {
     return color;
   }
   return `rgba(${red}, ${green}, ${blue}, ${normalizedOpacity})`;
+}
+
+function candleChangeTone(candle: Candle | null) {
+  if (candle == null || candle.open === 0) {
+    return "text-slate-300";
+  }
+  const change = ((candle.close - candle.open) / candle.open) * 100;
+  if (change > 0) {
+    return "text-emerald-300";
+  }
+  if (change < 0) {
+    return "text-rose-300";
+  }
+  return "text-slate-300";
 }
 
 function clamp(value: number, min: number, max: number) {
