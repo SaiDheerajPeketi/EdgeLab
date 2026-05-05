@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Clock3,
@@ -101,7 +101,6 @@ export default function App() {
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
-  const chartFullscreenRef = useRef<HTMLDivElement | null>(null);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
@@ -225,11 +224,15 @@ export default function App() {
           setDrawingTool("measure");
           break;
         case "Escape":
-          setDrawingTool("cursor");
-          setIsChartFullscreen(false);
-          setFullscreenOrderPanelOpen(false);
-          if (document.fullscreenElement) {
-            void document.exitFullscreen().catch(() => undefined);
+          event.preventDefault();
+          if (drawingTool !== "cursor") {
+            setDrawingTool("cursor");
+            setSelectedDrawingId(null);
+            break;
+          }
+          if (isChartFullscreen) {
+            setIsChartFullscreen(false);
+            setFullscreenOrderPanelOpen(false);
           }
           break;
         case "Delete":
@@ -248,19 +251,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isChartFullscreen, isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
-
-  useEffect(() => {
-    function handleFullscreenChange() {
-      if (!document.fullscreenElement) {
-        setIsChartFullscreen(false);
-        setFullscreenOrderPanelOpen(false);
-      }
-    }
-
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
+  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
 
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
@@ -316,17 +307,9 @@ export default function App() {
     if (isChartFullscreen) {
       setIsChartFullscreen(false);
       setFullscreenOrderPanelOpen(false);
-      if (document.fullscreenElement) {
-        void document.exitFullscreen().catch(() => undefined);
-      }
       return;
     }
-
     setIsChartFullscreen(true);
-    const fullscreenTarget = chartFullscreenRef.current;
-    if (fullscreenTarget?.requestFullscreen && !document.fullscreenElement) {
-      void fullscreenTarget.requestFullscreen().catch(() => undefined);
-    }
   }
 
   function closeOrderPanels() {
@@ -601,7 +584,6 @@ export default function App() {
             )}
 
               <div
-                ref={chartFullscreenRef}
                 className={
                   isChartFullscreen
                     ? "chart-fullscreen-shell"
