@@ -332,6 +332,14 @@ export default function App() {
     setFullscreenOrderPanelOpen(false);
   }
 
+  function toggleOrderPanel() {
+    if (isChartFullscreen) {
+      setFullscreenOrderPanelOpen((value) => !value);
+      return;
+    }
+    setLeftPaneOpen((value) => !value);
+  }
+
   function saveChartLayout() {
     const payload: StoredChartLayout = {
       activeIndicators: sanitizeIndicators(activeIndicators),
@@ -582,14 +590,6 @@ export default function App() {
                 {isChartFullscreen && (
                   <div className="chart-fullscreen-actionbar">
                     <button
-                      className={`chart-fullscreen-action ${fullscreenOrderPanelOpen ? "chart-fullscreen-action-active" : ""}`}
-                      onClick={() => setFullscreenOrderPanelOpen((value) => !value)}
-                      type="button"
-                    >
-                      {fullscreenOrderPanelOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-                      Order
-                    </button>
-                    <button
                       className="chart-fullscreen-action"
                       onClick={toggleChartFullscreen}
                       type="button"
@@ -599,7 +599,10 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                <ReplayController />
+                <ReplayController
+                  isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
+                  onToggleOrderPane={toggleOrderPanel}
+                />
                 {chartToolsOpen && (
                   <ChartToolbar
                     activeIndicators={activeIndicators}
