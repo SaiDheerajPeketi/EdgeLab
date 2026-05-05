@@ -1183,7 +1183,7 @@ function buildDrawingElements({
     return null;
   }
 
-  const width = frame.clientWidth;
+  const width = chartPlotWidth(chart, frame);
   const toPixel = (point: DrawingPoint) => {
     return pixelFromPoint(point, chart, series);
   };
@@ -1231,6 +1231,14 @@ function buildDrawingElements({
       )}
     </>
   );
+}
+
+function chartPlotWidth(chart: IChartApi, frame: HTMLDivElement) {
+  const timeScaleWidth = chart.timeScale().width();
+  if (Number.isFinite(timeScaleWidth) && timeScaleWidth > 0) {
+    return Math.min(frame.clientWidth, timeScaleWidth);
+  }
+  return frame.clientWidth;
 }
 
 function renderDrawing(
