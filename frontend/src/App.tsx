@@ -43,6 +43,7 @@ import type {
   IndicatorSettingsMap,
 } from "./lib/charting";
 import { mergeIndicatorSettings } from "./lib/charting";
+import { formatTradingViewSymbol } from "./lib/symbols";
 import { useBacktestStore } from "./store/backtestStore";
 
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
@@ -369,7 +370,7 @@ export default function App() {
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-400">
                   <span className="inline-flex items-center gap-2">
                     <CircleDot size={14} className="text-cyan-200" />
-                    {state?.session.symbol ?? "EURUSD"} {state?.session.timeframe ?? "M1"}
+                    {formatTradingViewSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
                   </span>
                   {current && (
                     <span className="inline-flex items-center gap-2">

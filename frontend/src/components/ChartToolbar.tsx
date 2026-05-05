@@ -4,30 +4,34 @@ import {
   CandlestickChart,
   ChevronDown,
   Command,
-  Crosshair,
   Eye,
   EyeOff,
   Layers,
   LineChart,
-  Magnet,
   Maximize2,
   Minimize2,
-  Minus,
-  MousePointer2,
-  Ruler,
   Save,
   Search,
   Settings2,
   SlidersHorizontal,
-  Square,
-  TrendingDown,
-  TrendingUp,
   Trash2,
-  Type,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  TvCrosshairIcon,
+  TvCursorIcon,
+  TvFibIcon,
+  TvHorizontalLineIcon,
+  TvLongPositionIcon,
+  TvMeasureIcon,
+  TvRectangleIcon,
+  TvShortPositionIcon,
+  TvTextIcon,
+  TvTrendLineIcon,
+  type ChartToolIcon,
+} from "./ChartToolIcons";
 import {
   INDICATORS,
   TIMEFRAMES,
@@ -76,21 +80,21 @@ const FALLBACK_SETTING: IndicatorSettings = {
 };
 
 const DRAWING_TOOLS: Array<{
-  icon: LucideIcon;
+  icon: ChartToolIcon;
   label: string;
   shortcut?: string;
   tool: DrawingTool;
 }> = [
-  { icon: MousePointer2, label: "Cursor", tool: "cursor" },
-  { icon: Crosshair, label: "Crosshair", tool: "crosshair" },
-  { icon: LineChart, label: "Trend", shortcut: "T", tool: "trendline" },
-  { icon: Minus, label: "H-Line", shortcut: "H", tool: "horizontal" },
-  { icon: Square, label: "Zone", shortcut: "R", tool: "rectangle" },
-  { icon: Magnet, label: "Fib", shortcut: "F", tool: "fib" },
-  { icon: Ruler, label: "Measure", shortcut: "M", tool: "measure" },
-  { icon: TrendingUp, label: "Long", tool: "longPosition" },
-  { icon: TrendingDown, label: "Short", tool: "shortPosition" },
-  { icon: Type, label: "Text", shortcut: "L", tool: "text" },
+  { icon: TvCursorIcon, label: "Cursor", tool: "cursor" },
+  { icon: TvCrosshairIcon, label: "Crosshair", tool: "crosshair" },
+  { icon: TvTrendLineIcon, label: "Trend", shortcut: "T", tool: "trendline" },
+  { icon: TvHorizontalLineIcon, label: "H-Line", shortcut: "H", tool: "horizontal" },
+  { icon: TvRectangleIcon, label: "Zone", shortcut: "R", tool: "rectangle" },
+  { icon: TvFibIcon, label: "Fib", shortcut: "F", tool: "fib" },
+  { icon: TvMeasureIcon, label: "Measure", shortcut: "M", tool: "measure" },
+  { icon: TvLongPositionIcon, label: "Long", tool: "longPosition" },
+  { icon: TvShortPositionIcon, label: "Short", tool: "shortPosition" },
+  { icon: TvTextIcon, label: "Text", shortcut: "L", tool: "text" },
 ];
 
 const CHART_STYLES: Array<{
@@ -569,7 +573,7 @@ function CommandMenu({
   const normalized = query.trim().toLowerCase();
   const commands: Array<{
     description: string;
-    icon: LucideIcon;
+    icon: ChartToolIcon | LucideIcon;
     id: string;
     label: string;
     run: () => void;

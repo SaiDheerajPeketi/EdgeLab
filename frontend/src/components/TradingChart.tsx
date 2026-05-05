@@ -1,20 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
-  Crosshair,
   Eye,
   EyeOff,
-  LineChart,
   LockKeyhole,
-  Magnet,
-  Minus,
-  MousePointer2,
-  Square,
   Trash2,
-  Type,
   UnlockKeyhole,
   X,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import {
   CrosshairMode,
   createChart,
@@ -32,6 +24,19 @@ import type {
   UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle, Execution, Order, Position } from "../lib/api";
+import {
+  TvCrosshairIcon,
+  TvCursorIcon,
+  TvFibIcon,
+  TvHorizontalLineIcon,
+  TvLongPositionIcon,
+  TvMeasureIcon,
+  TvRectangleIcon,
+  TvShortPositionIcon,
+  TvTextIcon,
+  TvTrendLineIcon,
+  type ChartToolIcon,
+} from "./ChartToolIcons";
 import {
   aggregateBars,
   bucketTime,
@@ -55,6 +60,7 @@ import {
   type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
+import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
@@ -662,10 +668,12 @@ export function TradingChart({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
-              EU
+              {symbolBadge(symbol)}
             </div>
             <div>
-              <div className="text-base font-semibold text-white">{symbol}</div>
+              <div className="text-base font-semibold text-white">
+                {formatTradingViewSymbol(symbol)}
+              </div>
               <div className="text-xs text-slate-400">
                 {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
               </div>
@@ -817,20 +825,20 @@ function DrawingRail({
   onToolChange: (tool: DrawingTool) => void;
 }) {
   const tools: Array<{
-    icon: LucideIcon;
+    icon: ChartToolIcon;
     label: string;
     tool: DrawingTool;
   }> = [
-    { icon: MousePointer2, label: "Cursor", tool: "cursor" },
-    { icon: Crosshair, label: "Crosshair", tool: "crosshair" },
-    { icon: LineChart, label: "Trendline", tool: "trendline" },
-    { icon: Minus, label: "Horizontal level", tool: "horizontal" },
-    { icon: Square, label: "Rectangle zone", tool: "rectangle" },
-    { icon: Magnet, label: "Fib retracement", tool: "fib" },
-    { icon: Minus, label: "Measure", tool: "measure" },
-    { icon: LineChart, label: "Long position", tool: "longPosition" },
-    { icon: LineChart, label: "Short position", tool: "shortPosition" },
-    { icon: Type, label: "Text label", tool: "text" },
+    { icon: TvCursorIcon, label: "Cursor", tool: "cursor" },
+    { icon: TvCrosshairIcon, label: "Crosshair", tool: "crosshair" },
+    { icon: TvTrendLineIcon, label: "Trendline", tool: "trendline" },
+    { icon: TvHorizontalLineIcon, label: "Horizontal level", tool: "horizontal" },
+    { icon: TvRectangleIcon, label: "Rectangle zone", tool: "rectangle" },
+    { icon: TvFibIcon, label: "Fib retracement", tool: "fib" },
+    { icon: TvMeasureIcon, label: "Measure", tool: "measure" },
+    { icon: TvLongPositionIcon, label: "Long position", tool: "longPosition" },
+    { icon: TvShortPositionIcon, label: "Short position", tool: "shortPosition" },
+    { icon: TvTextIcon, label: "Text label", tool: "text" },
   ];
 
   return (

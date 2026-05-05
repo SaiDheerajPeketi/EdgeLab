@@ -4,19 +4,24 @@ import {
   Eye,
   EyeOff,
   Layers,
-  LineChart,
   LockKeyhole,
-  Magnet,
-  Minus,
   PanelRightClose,
-  Ruler,
-  Square,
-  Type,
   Trash2,
   UnlockKeyhole,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import {
+  TvFibIcon,
+  TvHorizontalLineIcon,
+  TvLongPositionIcon,
+  TvMeasureIcon,
+  TvRectangleIcon,
+  TvShortPositionIcon,
+  TvTextIcon,
+  TvTrendLineIcon,
+  type ChartToolIcon,
+} from "./ChartToolIcons";
 import {
   INDICATORS,
   type ChartDrawing,
@@ -49,15 +54,15 @@ type Props = {
   smoothCandles: boolean;
 };
 
-const drawingIcons: Record<ChartDrawing["tool"], LucideIcon> = {
-  fib: Magnet,
-  horizontal: Minus,
-  longPosition: LineChart,
-  measure: Ruler,
-  rectangle: Square,
-  shortPosition: LineChart,
-  text: Type,
-  trendline: LineChart,
+const drawingIcons: Record<ChartDrawing["tool"], ChartToolIcon> = {
+  fib: TvFibIcon,
+  horizontal: TvHorizontalLineIcon,
+  longPosition: TvLongPositionIcon,
+  measure: TvMeasureIcon,
+  rectangle: TvRectangleIcon,
+  shortPosition: TvShortPositionIcon,
+  text: TvTextIcon,
+  trendline: TvTrendLineIcon,
 };
 
 const FALLBACK_SETTING: IndicatorSettings = {
