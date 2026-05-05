@@ -76,7 +76,7 @@ export function Sidebar({
 }: Props) {
   return (
     <aside
-      className={`hidden max-h-screen shrink-0 overflow-y-auto border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:flex lg:flex-col ${
+      className={`edge-sidebar hidden h-screen shrink-0 overflow-y-auto overscroll-contain border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:sticky lg:top-0 lg:flex lg:flex-col ${
         collapsed ? "w-[76px] items-center" : "w-[244px]"
       }`}
     >
@@ -107,7 +107,7 @@ export function Sidebar({
       </div>
       {collapsed && (
         <button
-          className="icon-button mb-4 h-9 w-9"
+          className="icon-button mb-3 h-8 w-8"
           onClick={onToggleCollapsed}
           title="Expand sidebar"
           type="button"
@@ -116,11 +116,13 @@ export function Sidebar({
         </button>
       )}
 
-      <nav className="flex w-full flex-col gap-4">
+      <nav className={`flex w-full flex-col ${collapsed ? "gap-3" : "gap-4"}`}>
         {sections.map((section) => (
           <div className="w-full" key={section.label}>
             <div
-              className={`mb-2 flex h-6 items-center ${
+              className={`mb-2 flex items-center ${
+                collapsed ? "h-5" : "h-6"
+              } ${
                 collapsed ? "justify-center" : "justify-between px-2"
               }`}
             >
@@ -137,15 +139,15 @@ export function Sidebar({
                 </span>
               )}
             </div>
-            <div className="flex w-full flex-col gap-1.5">
+            <div className={`flex w-full flex-col ${collapsed ? "gap-1" : "gap-1.5"}`}>
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const active = item.id === activeView;
                 return (
                   <button
                     key={item.label}
-                    className={`group relative flex h-11 items-center rounded-md transition ${
-                      collapsed ? "w-12 justify-center" : "w-full justify-start gap-3 px-3"
+                    className={`group relative flex items-center rounded-md transition ${
+                      collapsed ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
                     } ${
                       active
                         ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
