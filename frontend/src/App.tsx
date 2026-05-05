@@ -29,6 +29,7 @@ import { ResultsPanel } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
+import { TradeZellaWorkspace } from "./components/TradeZellaWorkspace";
 import { TradingChart } from "./components/TradingChart";
 import type { BacktestCreatePayload, Trade } from "./lib/api";
 import type {
@@ -43,6 +44,7 @@ import type {
 import { getTimeframeSeconds, mergeIndicatorSettings } from "./lib/charting";
 import { formatTradingViewSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
+import type { WorkspaceView } from "./lib/workspace";
 import { useBacktestStore } from "./store/backtestStore";
 
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
@@ -94,6 +96,8 @@ export default function App() {
   } = useBacktestStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
@@ -435,6 +439,7 @@ export default function App() {
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
     await newSession(payload);
     await loadInitial();
+    setActiveWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -446,6 +451,7 @@ export default function App() {
     if (sessionId) {
       await loadSession(sessionId);
     }
+    setActiveWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
     setChartToolsOpen(false);
@@ -456,9 +462,44 @@ export default function App() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
       <div className="flex min-h-screen max-w-full overflow-x-hidden">
-        <Sidebar />
+        <Sidebar
+          activeView={activeWorkspace}
+          collapsed={sidebarCollapsed}
+          onNavigate={(view) => {
+            setActiveWorkspace(view);
+            if (view === "sessions") {
+              setPlaying(false);
+              setSessionGateOpen(true);
+              return;
+            }
+            if (view === "backtest") {
+              setSessionGateOpen(false);
+            }
+          }}
+          onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
-          {sessionGateOpen ? (
+          {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
+            <TradeZellaWorkspace
+              activeSession={state?.session ?? null}
+              datasets={datasets}
+              onEditTrade={setEditingTrade}
+              onInspectTrade={setReviewTrade}
+              onNavigateBacktest={() => {
+                setActiveWorkspace("backtest");
+                setSessionGateOpen(false);
+              }}
+              onNavigateSessions={() => {
+                setActiveWorkspace("sessions");
+                setSessionGateOpen(true);
+              }}
+              onResumeSession={resumeSessionFromGateway}
+              playbooks={playbooks}
+              sessions={resultSessions}
+              trades={resultTrades}
+              view={activeWorkspace}
+            />
+          ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
               {error && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
@@ -517,6 +558,7 @@ export default function App() {
                 className="workspace-tab inline-flex items-center justify-center gap-2"
                 onClick={() => {
                   setPlaying(false);
+                  setActiveWorkspace("sessions");
                   setSessionGateOpen(true);
                 }}
                 type="button"
