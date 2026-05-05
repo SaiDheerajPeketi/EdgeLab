@@ -300,13 +300,14 @@ export default function App() {
   function clearDrawings() {
     setDrawings([]);
     setSelectedDrawingId(null);
+    persistChartLayoutWithDrawings([]);
   }
 
   function deleteDrawing(drawingId: string) {
-    setDrawings((currentDrawings) =>
-      currentDrawings.filter((drawing) => drawing.id !== drawingId),
-    );
+    const nextDrawings = drawings.filter((drawing) => drawing.id !== drawingId);
+    setDrawings(nextDrawings);
     setSelectedDrawingId(null);
+    persistChartLayoutWithDrawings(nextDrawings);
   }
 
   function toggleChartFullscreen() {
@@ -340,21 +341,38 @@ export default function App() {
   }
 
   function saveChartLayout() {
-    const payload: StoredChartLayout = {
-      activeIndicators: sanitizeIndicators(activeIndicators),
-      chartStyle,
-      drawings: sanitizeDrawings(drawings),
-      indicatorSettings,
-      showOrderOverlays,
-      smoothCandles,
-      timeframe,
-    };
+    const payload = buildChartLayoutPayload(drawings);
     const name = normalizeLayoutName(layoutName);
     window.localStorage.setItem(CHART_LAYOUT_KEY, JSON.stringify(payload));
     window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, name);
     setLayoutName(name);
     setAvailableLayouts(saveNamedChartLayout(name, payload));
     setChartLayoutSavedAt(Date.now());
+  }
+
+  function persistChartLayoutWithDrawings(nextDrawings: ChartDrawing[]) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const payload = buildChartLayoutPayload(nextDrawings);
+    const name = normalizeLayoutName(layoutName);
+    window.localStorage.setItem(CHART_LAYOUT_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, name);
+    setLayoutName(name);
+    setAvailableLayouts(saveNamedChartLayout(name, payload));
+    setChartLayoutSavedAt(Date.now());
+  }
+
+  function buildChartLayoutPayload(nextDrawings: ChartDrawing[]): StoredChartLayout {
+    return {
+      activeIndicators: sanitizeIndicators(activeIndicators),
+      chartStyle,
+      drawings: sanitizeDrawings(nextDrawings),
+      indicatorSettings,
+      showOrderOverlays,
+      smoothCandles,
+      timeframe,
+    };
   }
 
   function loadNamedChartLayout(name: string) {
