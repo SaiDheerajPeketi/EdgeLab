@@ -96,6 +96,7 @@ class BacktestService:
 
     def get_state(self, db: Session, session_id: int) -> BacktestState:
         session = self._session_or_404(db, session_id)
+        self._repair_negative_open_position(db, session)
         current_candle = self.market_data_for_session(session).get_candle(session.current_offset)
         return BacktestState(
             session=session,
@@ -329,6 +330,7 @@ class BacktestService:
             trigger_price = self._trigger_price(order, candle)
             if trigger_price is not None:
                 self._fill_order(db, session, order, candle, trigger_price)
+                self._process_position_brackets(db, session, candle)
 
     def _process_position_brackets(
         self,
@@ -390,6 +392,8 @@ class BacktestService:
         if quantity is None or quantity <= 0:
             quantity = self._resolve_quantity_from_order(db, session, order, price)
             order.quantity = quantity
+        if quantity <= 0:
+            raise HTTPException(status_code=400, detail="quantity must be greater than zero")
         if order.reduce_only:
             self._execute_reduce_only(db, session, order.side, quantity, price, candle, order)
         else:
@@ -658,10 +662,12 @@ class BacktestService:
         reference_price: float,
     ) -> float:
         if payload.quantity is not None:
+            if payload.quantity <= 0:
+                raise HTTPException(status_code=400, detail="quantity must be greater than zero")
             return payload.quantity
         if payload.risk_percent is None or payload.stop_loss is None:
             raise HTTPException(status_code=400, detail="quantity or risk_percent is required")
-        equity = session.initial_balance + session.realized_pnl
+        equity = self._risk_sizing_equity(session)
         risk_amount = equity * (payload.risk_percent / 100)
         risk_per_unit = abs(reference_price - payload.stop_loss)
         if risk_per_unit <= 0:
@@ -675,16 +681,63 @@ class BacktestService:
         order: Order,
         price: float,
     ) -> float:
-        if order.quantity is not None:
+        if order.quantity is not None and order.quantity > 0:
             return order.quantity
         if order.risk_percent is None or order.stop_loss is None:
             raise HTTPException(status_code=400, detail="quantity or risk_percent is required")
-        equity = session.initial_balance + session.realized_pnl
+        equity = self._risk_sizing_equity(session)
         risk_amount = equity * (order.risk_percent / 100)
         risk_per_unit = abs(price - order.stop_loss)
         if risk_per_unit <= 0:
             raise HTTPException(status_code=400, detail="stop_loss must differ from entry price")
         return risk_amount / risk_per_unit
+
+    def _risk_sizing_equity(self, session: BacktestSession) -> float:
+        equity = session.initial_balance + session.realized_pnl
+        if equity > 0:
+            return equity
+        return session.initial_balance
+
+    def _repair_negative_open_position(self, db: Session, session: BacktestSession) -> None:
+        position = self._position(db, session)
+        if position is None or position.side == "FLAT" or position.quantity >= 0:
+            return
+
+        original_offset = session.current_offset
+        position.quantity = abs(position.quantity)
+        for order in db.scalars(select(Order).where(Order.session_id == session.id)):
+            if order.quantity is not None and order.quantity < 0:
+                order.quantity = abs(order.quantity)
+        for execution in db.scalars(select(Execution).where(Execution.session_id == session.id)):
+            if execution.quantity < 0:
+                execution.quantity = abs(execution.quantity)
+            if execution.position_quantity_after < 0:
+                execution.position_quantity_after = abs(execution.position_quantity_after)
+        for trade in db.scalars(
+            select(Trade).where(Trade.session_id == session.id, Trade.status == "OPEN")
+        ):
+            if trade.quantity < 0:
+                trade.quantity = abs(trade.quantity)
+            if trade.remaining_quantity < 0:
+                trade.remaining_quantity = abs(trade.remaining_quantity)
+
+        open_trade = self._open_trade_for_position(db, session.id, position.side)
+        if open_trade is None:
+            db.commit()
+            return
+
+        market_data = self.market_data_for_session(session)
+        start_offset = max(open_trade.entry_offset + 1, session.start_offset)
+        for offset in range(start_offset, original_offset + 1):
+            candle = market_data.get_candle(offset)
+            if candle is None:
+                break
+            session.current_offset = offset
+            self._process_position_brackets(db, session, candle)
+            if position.side == "FLAT" or position.quantity <= 0:
+                break
+        session.current_offset = original_offset
+        db.commit()
 
     def _position_risk(self, position: Position) -> float | None:
         if position.stop_loss is None:

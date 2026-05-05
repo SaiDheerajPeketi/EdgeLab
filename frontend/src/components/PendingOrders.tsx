@@ -47,8 +47,8 @@ export function PendingOrders({ orders }: Props) {
                   {order.side} {order.order_type}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Qty {order.quantity?.toLocaleString() ?? "risk"} · Price{" "}
-                  {formatPrice(order.limit_price ?? order.stop_price)}
+                  Qty {order.quantity?.toLocaleString() ?? `${order.risk_percent ?? "risk"}% risk`} · Entry{" "}
+                  {formatPrice(entryPrice(order))}
                 </div>
               </div>
               <div className="flex gap-2">
@@ -59,6 +59,12 @@ export function PendingOrders({ orders }: Props) {
                   <X size={14} />
                 </button>
               </div>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
+              <OrderMetric label="SL" value={formatPrice(order.stop_loss)} tone="text-rose-200" />
+              <OrderMetric label="TP" value={formatPrice(order.take_profit)} tone="text-emerald-200" />
+              <OrderMetric label="R:R" value={formatRatio(order)} tone={rrTone(order)} />
+              <OrderMetric label="Kind" value={order.reduce_only ? "Reduce" : "Entry"} />
             </div>
           </div>
         ))}
@@ -84,5 +90,46 @@ export function PendingOrders({ orders }: Props) {
         </div>
       )}
     </section>
+  );
+}
+
+function entryPrice(order: Order) {
+  return order.limit_price ?? order.stop_price ?? order.filled_price;
+}
+
+function riskReward(order: Order) {
+  const entry = entryPrice(order);
+  if (entry == null || order.stop_loss == null || order.take_profit == null) {
+    return null;
+  }
+  const risk =
+    order.side === "BUY"
+      ? entry - order.stop_loss
+      : order.stop_loss - entry;
+  const reward =
+    order.side === "BUY"
+      ? order.take_profit - entry
+      : entry - order.take_profit;
+  if (!Number.isFinite(risk) || !Number.isFinite(reward) || risk <= 0 || reward <= 0) {
+    return null;
+  }
+  return reward / risk;
+}
+
+function formatRatio(order: Order) {
+  const ratio = riskReward(order);
+  return ratio == null ? "Invalid" : `${ratio.toFixed(2)}R`;
+}
+
+function rrTone(order: Order) {
+  return riskReward(order) == null ? "text-amber-200" : "text-cyan-100";
+}
+
+function OrderMetric({ label, value, tone = "text-slate-200" }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className={`mt-0.5 truncate font-semibold ${tone}`}>{value}</div>
+    </div>
   );
 }

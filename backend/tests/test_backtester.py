@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
+from app.models import BacktestSession, Execution, Order, Position, Trade
 from app.schemas import BacktestAdvanceRequest, BacktestCreate, OrderCreate
 from app.services.backtester import BacktestService
 from app.services.market_data import MarketDataService
@@ -120,6 +121,37 @@ def test_limit_and_stop_orders_fill_on_advanced_candle(tmp_path: Path):
     assert state.position.side == "LONG"
 
 
+def test_pending_entry_processes_bracket_on_fill_candle(tmp_path: Path):
+    service, db = make_service(
+        tmp_path,
+        [
+            ("2024-01-01 00:00:00", 100, 100, 100, 100, 1),
+            ("2024-01-01 00:01:00", 100, 105, 97, 102, 1),
+        ],
+    )
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="STOP",
+            quantity=10,
+            stop_price=101,
+            stop_loss=98,
+            take_profit=102,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=1))
+
+    assert state.position is not None
+    assert state.position.side == "FLAT"
+    assert state.orders[0].status == "FILLED"
+    assert state.trades[0].status == "CLOSED"
+    assert state.trades[0].exit_price == pytest.approx(98)
+    assert state.metrics.net_pnl == pytest.approx(-30)
+
+
 def test_partial_exit_reduces_position(tmp_path: Path):
     service, db = make_service(tmp_path, DEFAULT_ROWS)
     state = service.create_session(db, BacktestCreate(initial_offset=0))
@@ -157,6 +189,91 @@ def test_risk_percent_sizes_order_from_stop_distance(tmp_path: Path):
 
     assert state.position is not None
     assert state.position.quantity == pytest.approx(500)
+
+
+def test_risk_percent_never_creates_negative_quantity(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0, initial_balance=100_000))
+    session = db.get(BacktestSession, state.session.id)
+    assert session is not None
+    session.realized_pnl = -200_000
+    db.commit()
+
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            risk_percent=1,
+            stop_loss=98,
+        ),
+    )
+
+    assert state.position is not None
+    assert state.position.quantity == pytest.approx(500)
+
+
+def test_pending_risk_order_recalculates_corrupt_negative_quantity(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0, initial_balance=100_000))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="STOP",
+            risk_percent=1,
+            stop_price=101,
+            stop_loss=98,
+        ),
+    )
+    order = db.query(Order).filter(Order.session_id == state.session.id).one()
+    order.quantity = -abs(order.quantity or 0)
+    db.commit()
+
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=1))
+
+    assert state.position is not None
+    assert state.position.side == "LONG"
+    assert state.position.quantity == pytest.approx(1000 / 3)
+    assert state.orders[0].quantity == pytest.approx(1000 / 3)
+
+
+def test_negative_open_position_is_repaired_and_bracketed(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=110,
+        ),
+    )
+
+    session_id = state.session.id
+    position = db.query(Position).filter(Position.session_id == session_id).one()
+    position.quantity = -10
+    for order in db.query(Order).filter(Order.session_id == session_id).all():
+        order.quantity = -abs(order.quantity or 0)
+    for execution in db.query(Execution).filter(Execution.session_id == session_id).all():
+        execution.quantity = -abs(execution.quantity)
+        execution.position_quantity_after = -abs(execution.position_quantity_after)
+    trade = db.query(Trade).filter(Trade.session_id == session_id, Trade.status == "OPEN").one()
+    trade.quantity = -10
+    trade.remaining_quantity = -10
+    db.commit()
+
+    state = service.advance(db, session_id, BacktestAdvanceRequest(steps=3))
+
+    assert state.position is not None
+    assert state.position.side == "FLAT"
+    assert state.trades[0].status == "CLOSED"
+    assert state.trades[0].exit_price == pytest.approx(98)
 
 
 def test_breakeven_trigger_moves_stop_and_exits_flat(tmp_path: Path):

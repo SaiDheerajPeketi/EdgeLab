@@ -464,7 +464,12 @@ export function TradingChart({
       return;
     }
 
-    const addLine = (price: number | null | undefined, color: string, title: string) => {
+    const addLine = (
+      price: number | null | undefined,
+      color: string,
+      title: string,
+      lineStyle = 2,
+    ) => {
       if (price == null) {
         return;
       }
@@ -474,26 +479,30 @@ export function TradingChart({
           color,
           title,
           lineWidth: 1,
-          lineStyle: 2,
+          lineStyle,
           axisLabelVisible: true,
         }),
       );
     };
 
-    if (position && position.side !== "FLAT") {
-      addLine(position.avg_price, "#a8b3c7", `${position.side} avg`);
-      addLine(position.stop_loss, "#fb7185", "SL");
-      addLine(position.take_profit, "#22c55e", "TP");
+    if (position && position.side !== "FLAT" && position.quantity > 0) {
+      addLine(position.avg_price, "#a8b3c7", `${position.side} avg`, 0);
+      addLine(position.stop_loss, "#fb7185", "SL", 2);
+      addLine(position.take_profit, "#22c55e", "TP", 2);
     }
 
     orders
       .filter((order) => order.status === "PENDING")
       .forEach((order) => {
+        const orderLabel = `P#${order.id}`;
         addLine(
           order.limit_price ?? order.stop_price,
           order.side === "BUY" ? "#32d3ee" : "#f59e0b",
-          `${order.side} ${order.order_type}`,
+          `${orderLabel} ${order.side} ${order.order_type}`,
+          2,
         );
+        addLine(order.stop_loss, "#fb7185", `${orderLabel} SL`, 1);
+        addLine(order.take_profit, "#22c55e", `${orderLabel} TP`, 1);
       });
   }, [orders, position, showOrderOverlays]);
 

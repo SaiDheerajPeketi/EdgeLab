@@ -52,10 +52,11 @@ export function OrderTicket({ playbooks, riskRewardDrawing }: Props) {
       return null;
     }
     const equity = state.session.initial_balance + state.session.realized_pnl;
+    const sizingEquity = equity > 0 ? equity : state.session.initial_balance;
     if (!Number.isFinite(risk) || risk <= 0) {
       return null;
     }
-    return (equity * (Number(riskPercent) / 100)) / risk;
+    return (sizingEquity * (Number(riskPercent) / 100)) / risk;
   }, [entryReferencePrice, riskPercent, sizingMode, state, stopLoss]);
 
   useEffect(() => {
