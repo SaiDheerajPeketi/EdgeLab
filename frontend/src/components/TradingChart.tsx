@@ -3,6 +3,8 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  Maximize2,
+  Minimize2,
   Trash2,
   UnlockKeyhole,
   X,
@@ -70,11 +72,13 @@ type Props = {
   drawings: ChartDrawing[];
   executions: Execution[];
   indicatorSettings: IndicatorSettingsMap;
+  isFullscreen: boolean;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onSelectDrawing: (drawingId: string | null) => void;
+  onToggleFullscreen: () => void;
   onUpdateDrawing: (drawing: ChartDrawing) => void;
   orders: Order[];
   position: Position | null;
@@ -123,11 +127,13 @@ export function TradingChart({
   drawings,
   executions,
   indicatorSettings,
+  isFullscreen,
   onAddDrawing,
   onClearDrawings,
   onDeleteDrawing,
   onDrawingToolChange,
   onSelectDrawing,
+  onToggleFullscreen,
   onUpdateDrawing,
   orders,
   position,
@@ -665,47 +671,58 @@ export function TradingChart({
   return (
     <section className="chart-stage">
       <div className="chart-stage-header">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
-              {symbolBadge(symbol)}
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
+                {symbolBadge(symbol)}
+              </div>
+              <div>
+                <div className="text-base font-semibold text-white">
+                  {formatTradingViewSymbol(symbol)}
+                </div>
+                <div className="text-xs text-slate-400">
+                  {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="text-base font-semibold text-white">
-                {formatTradingViewSymbol(symbol)}
-              </div>
-              <div className="text-xs text-slate-400">
-                {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
-              </div>
+            <OhlcvStrip candle={activeHeaderCandle} tone={headerPriceTone} />
+            <div className="chart-study-row">
+              {activeOverlayIndicators.slice(0, 5).map((indicator) => (
+                <span className="chart-study-pill" key={indicator.id}>
+                  <span
+                    className="h-2 w-2 rounded-sm"
+                    style={{ backgroundColor: indicator.color }}
+                  />
+                  <span>{indicator.label}</span>
+                  <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
+                </span>
+              ))}
+              {rsiData.length > 0 && (
+                <span className="chart-study-pill text-fuchsia-100">
+                  <span className="h-2 w-2 rounded-sm bg-fuchsia-300" />
+                  <span>RSI</span>
+                  <strong>{latestIndicatorValue(rsiData)?.toFixed(2) ?? "—"}</strong>
+                </span>
+              )}
+              {macdData && (
+                <span className="chart-study-pill text-blue-100">
+                  <span className="h-2 w-2 rounded-sm bg-blue-300" />
+                  <span>MACD</span>
+                  <strong>{latestIndicatorValue(macdData.macd)?.toFixed(5) ?? "—"}</strong>
+                </span>
+              )}
             </div>
           </div>
-          <OhlcvStrip candle={activeHeaderCandle} tone={headerPriceTone} />
-          <div className="chart-study-row">
-            {activeOverlayIndicators.slice(0, 5).map((indicator) => (
-              <span className="chart-study-pill" key={indicator.id}>
-                <span
-                  className="h-2 w-2 rounded-sm"
-                  style={{ backgroundColor: indicator.color }}
-                />
-                <span>{indicator.label}</span>
-                <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
-              </span>
-            ))}
-            {rsiData.length > 0 && (
-              <span className="chart-study-pill text-fuchsia-100">
-                <span className="h-2 w-2 rounded-sm bg-fuchsia-300" />
-                <span>RSI</span>
-                <strong>{latestIndicatorValue(rsiData)?.toFixed(2) ?? "—"}</strong>
-              </span>
-            )}
-            {macdData && (
-              <span className="chart-study-pill text-blue-100">
-                <span className="h-2 w-2 rounded-sm bg-blue-300" />
-                <span>MACD</span>
-                <strong>{latestIndicatorValue(macdData.macd)?.toFixed(5) ?? "—"}</strong>
-              </span>
-            )}
-          </div>
+          <button
+            className="chart-header-fullscreen-button"
+            onClick={onToggleFullscreen}
+            title={isFullscreen ? "Exit full screen" : "Enter full screen"}
+            type="button"
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            <span>{isFullscreen ? "Exit full" : "Full screen"}</span>
+          </button>
         </div>
       </div>
 
