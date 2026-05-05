@@ -218,9 +218,9 @@ function DashboardPage({
 
   return (
     <PageScaffold
-      eyebrow="Dashboard"
-      title="Trading Command Center"
-      description="Daily performance, recent activity, account balance, and the calendar view from your backtesting data."
+      eyebrow="Backtest Dashboard"
+      title="Backtest Command Center"
+      description="Replay performance, recent simulated activity, account balance, and calendar review from backtest sessions only. Live Journal metrics stay separate."
       actions={
         <div className="relative">
           <button
@@ -238,7 +238,7 @@ function DashboardPage({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,1fr)_minmax(300px,0.75fr)]">
         <FeatureCard>
           <div className="flex items-center justify-between gap-3">
-            <CardLabel icon={TrendingUp} label="Net daily P&L" />
+            <CardLabel icon={TrendingUp} label="Backtest daily P&L" />
             <span className="status-pill">{latestDay?.label ?? "No trade day"}</span>
           </div>
           <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(latestDay?.aggregate.netPnl)}`}>
@@ -295,7 +295,7 @@ function DashboardPage({
 
         <FeatureCard>
           <div className="flex items-center justify-between gap-3">
-            <CardLabel icon={WalletCards} label="Account balance" />
+            <CardLabel icon={WalletCards} label="Simulated account balance" />
             <button className="icon-button h-8 w-8" title="Copy balance" type="button">
               <Copy size={14} />
             </button>
@@ -304,7 +304,7 @@ function DashboardPage({
             {formatMoney(accountBalance)}
           </div>
           <p className="mt-3 text-sm text-slate-500">
-            Simulated from starting balance plus closed trade P&L.
+            Simulated from starting balance plus closed replay trade P&L.
           </p>
           <button className="control-button mt-5 w-full" onClick={onNavigateSessions} type="button">
             Manage sessions
@@ -316,7 +316,7 @@ function DashboardPage({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.55fr)]">
         <FeatureCard>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <CardLabel icon={CalendarDays} label="Monthly calendar" />
+            <CardLabel icon={CalendarDays} label="Backtest calendar" />
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <button className="icon-button h-8 w-8" type="button">
                 <Share2 size={14} />
@@ -379,9 +379,9 @@ function AccountsPage({ aggregate, datasets, sessions }: SharedPageProps) {
 
   return (
     <PageScaffold
-      eyebrow="Accounts"
-      title="Account Management"
-      description="Manual accounts for local backtesting, balances, and imported CSV sources."
+      eyebrow="Backtest Accounts"
+      title="Simulated Account Management"
+      description="Manual balances and imported CSV sources for replay/backtest sessions. Live brokerage Journal balances are not aggregated here."
       actions={
         <button className="control-button workspace-tab-active" onClick={() => setModalOpen(true)} type="button">
           <Plus size={15} />
@@ -496,9 +496,9 @@ function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
 
   return (
     <PageScaffold
-      eyebrow="Day View"
-      title="Daily Review"
-      description="Review each trading day with summary stats, mini equity, and the trades inside that day."
+      eyebrow="Backtest Day View"
+      title="Backtest Daily Review"
+      description="Review each replay day with backtest summary stats, mini equity, and the simulated trades inside that day."
       actions={
         <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
           <TinyTab active={mode === "day"} onClick={() => setMode("day")}>Day</TinyTab>
@@ -572,9 +572,9 @@ function TradeViewPage({
 }: SharedPageProps) {
   return (
     <PageScaffold
-      eyebrow="Trade View"
-      title="Journal Table"
-      description="Full sortable-style review table for closed trades, with review and journal editing actions."
+      eyebrow="Backtest Trade View"
+      title="Backtest Trade Log"
+      description="Closed replay trades only, with review notes and tagging. Live actual trades belong in the separate Journal scope."
       actions={
         <button className="control-button" type="button">
           <Download size={15} />
@@ -614,9 +614,9 @@ function NotebookPage({
 
   return (
     <PageScaffold
-      eyebrow="Notebook"
-      title="Trade Notes"
-      description="A TradeZella-style notebook linked to closed trades and session review."
+      eyebrow="Backtest Notebook"
+      title="Backtest Trade Notes"
+      description="A TradeZella-style notebook linked to closed replay trades and session review."
       actions={
         <button className="control-button workspace-tab-active" type="button">
           <FolderPlus size={15} />
@@ -728,9 +728,9 @@ function ReportsPage({
 
   return (
     <PageScaffold
-      eyebrow="Reports"
-      title="Performance Reports"
-      description="Performance, overview, day/time, risk, tags, calendar, and recaps from your journaled trades."
+      eyebrow="Backtest Reports"
+      title="Backtest Performance Reports"
+      description="Performance, overview, day/time, risk, tags, calendar, and recaps from replay/backtest trades only."
       actions={
         <button className="control-button" type="button">
           <Filter size={15} />
@@ -839,7 +839,7 @@ function ReportsPage({
         <div className="grid gap-3">
           <InsightCard
             title="Monthly recap"
-            body={closedTrades.length > 0 ? `Net ${formatMoney(aggregate.netPnl)} across ${closedTrades.length} closed trades. Best trade ${formatMoney(aggregate.largestWin ?? 0)}, worst trade ${formatMoney(aggregate.largestLoss ?? 0)}.` : "Reports will appear here after your first import or monthly recap is generated."}
+            body={closedTrades.length > 0 ? `Net ${formatMoney(aggregate.netPnl)} across ${closedTrades.length} closed backtest trades. Best trade ${formatMoney(aggregate.largestWin ?? 0)}, worst trade ${formatMoney(aggregate.largestLoss ?? 0)}.` : "Backtest reports will appear here after your first closed replay trade."}
           />
           <InsightCard
             title="Strategy pattern"
@@ -861,9 +861,9 @@ function StrategiesPage({
 
   return (
     <PageScaffold
-      eyebrow="Strategies"
+      eyebrow="Backtest Strategies"
       title="Strategy Playbooks"
-      description="Strategy table with performance stats, linked sessions, and playbook rules."
+      description="Strategy-level metrics from linked backtest sessions only, with playbook rules kept separate from live Journal performance."
       actions={
         <button className="control-button workspace-tab-active" onClick={onNavigateSessions} type="button">
           <Plus size={15} />

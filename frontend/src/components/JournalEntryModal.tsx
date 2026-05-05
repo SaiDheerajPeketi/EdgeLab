@@ -137,7 +137,7 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
       >
         <div className="flex h-14 items-center justify-between border-b border-white/10 px-5">
           <div>
-            <h2 className="text-base font-semibold text-white">Journal Entry</h2>
+            <h2 className="text-base font-semibold text-white">Backtest Review Entry</h2>
             <p className="text-xs text-slate-500">
               #{trade.id} · {formatDateTime(trade.entry_time)} → {formatDateTime(trade.exit_time)}
             </p>

@@ -31,7 +31,6 @@ import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { TradeZellaWorkspace } from "./components/TradeZellaWorkspace";
 import { TradingChart } from "./components/TradingChart";
-import { WorkspaceRibbon } from "./components/WorkspaceRibbon";
 import type { BacktestCreatePayload, Trade } from "./lib/api";
 import type {
   ChartDrawing,
@@ -314,14 +313,6 @@ export default function App() {
           minute: "2-digit",
         })}`;
   const latestRiskRewardDrawing = findLatestRiskRewardDrawing(drawings);
-  const closedResultTradeCount = resultTrades.filter((trade) => trade.status === "CLOSED").length;
-  const displayedBalance =
-    (state?.session.initial_balance ?? resultSessions[0]?.initial_balance ?? 100000) +
-    (state?.session.realized_pnl ??
-      resultTrades
-        .filter((trade) => trade.status === "CLOSED")
-        .reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0));
-
   function navigateWorkspace(view: WorkspaceView) {
     setActiveWorkspace(view);
     if (view === "sessions") {
@@ -507,15 +498,6 @@ export default function App() {
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
         />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
-          {!isChartFullscreen && (
-            <WorkspaceRibbon
-              activeView={activeWorkspace}
-              balance={displayedBalance}
-              isPlaying={isPlaying}
-              onNavigate={navigateWorkspace}
-              tradeCount={closedResultTradeCount}
-            />
-          )}
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
             <TradeZellaWorkspace
               activeSession={state?.session ?? null}

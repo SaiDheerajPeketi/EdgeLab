@@ -248,7 +248,7 @@ export function TradeDetailDrawer({
 
         <div className="rounded-md bg-ink-950 p-3">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">Journal</h3>
+            <h3 className="text-sm font-semibold text-white">Backtest Notes</h3>
             <button className="control-button h-8" onClick={() => onJournal(trade)} type="button">
               Edit
             </button>
