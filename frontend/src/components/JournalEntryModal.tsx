@@ -10,6 +10,7 @@ import {
   persistStrategyMistakeTags,
   strategyTagScope,
 } from "../lib/mistakeTags";
+import { tradeStrategyName } from "../lib/strategy";
 import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
 
@@ -23,7 +24,10 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
   const [notes, setNotes] = useState(trade.notes ?? "");
   const [strategy, setStrategy] = useState(
-    trade.strategy_name?.trim() ? trade.strategy_name : strategyScope ?? "",
+    tradeStrategyName(trade, {
+      name: null,
+      strategy_name: strategyScope ?? null,
+    }),
   );
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
   const [snapshotUrl, setSnapshotUrl] = useState(trade.screenshot_url ?? "");

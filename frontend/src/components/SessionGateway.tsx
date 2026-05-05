@@ -25,6 +25,7 @@ import type {
 import { formatMoney, formatPercent } from "../lib/format";
 import { postPlaybook } from "../lib/api";
 import { formatTradingViewSymbol, symbolBadge } from "../lib/symbols";
+import { sessionStrategyName } from "../lib/strategy";
 
 type Props = {
   datasets: DatasetCatalog | null;
@@ -582,7 +583,7 @@ function buildStrategyGroups(
   const sessionStrategyKeys = new Set<string>();
 
   for (const session of sessions) {
-    const strategyName = normalizeStrategyName(session.strategy_name);
+    const strategyName = sessionStrategyName(session);
     sessionStrategyKeys.add(sessionStrategyKey(session.id, strategyName));
   }
 
@@ -591,7 +592,7 @@ function buildStrategyGroups(
     if (!session) {
       continue;
     }
-    const strategyName = normalizeStrategyName(trade.strategy_name || session.strategy_name);
+    const strategyName = sessionStrategyName(session);
     const key = sessionStrategyKey(session.id, strategyName);
     sessionStrategyKeys.add(key);
     tradesBySessionStrategy.set(key, [
@@ -672,11 +673,6 @@ function GatewayMetric({ label, value }: { label: string; value: string }) {
       </div>
     </div>
   );
-}
-
-function normalizeStrategyName(value: string | null | undefined) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "Unassigned";
 }
 
 function sessionStrategyKey(sessionId: number, strategyName: string) {

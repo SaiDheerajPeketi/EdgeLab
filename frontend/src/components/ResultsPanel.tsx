@@ -17,6 +17,10 @@ import type { LucideIcon } from "lucide-react";
 import type { BacktestSession, Trade } from "../lib/api";
 import { formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { formatTradingViewSymbol } from "../lib/symbols";
+import {
+  sessionStrategyName,
+  tradeStrategyName,
+} from "../lib/strategy";
 
 type Props = {
   activeSessionId: number | null;
@@ -424,7 +428,7 @@ function TradeResults({
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    {strategyNameForTrade(trade, session)}
+                    {tradeStrategyName(trade, session)}
                   </td>
                   <td className="px-3 py-3">
                     <span
@@ -658,7 +662,7 @@ function buildStrategyRows(
   const groups = new Map<string, { sessions: Map<number, BacktestSession>; trades: Trade[] }>();
 
   for (const session of sessions) {
-    const key = normalizeStrategyName(session.strategy_name);
+    const key = sessionStrategyName(session);
     if (!groups.has(key)) {
       groups.set(key, { sessions: new Map(), trades: [] });
     }
@@ -667,7 +671,7 @@ function buildStrategyRows(
 
   for (const trade of trades) {
     const session = sessionById.get(trade.session_id);
-    const key = strategyNameForTrade(trade, session);
+    const key = tradeStrategyName(trade, session);
     if (!groups.has(key)) {
       groups.set(key, { sessions: new Map(), trades: [] });
     }
@@ -709,7 +713,7 @@ function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
       const sessionTrades = tradesBySession.get(session.id) ?? [];
       const baseSubtitle = `${formatTradingViewSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`;
       if (sessionTrades.length === 0) {
-        const strategyName = normalizeStrategyName(session.strategy_name);
+        const strategyName = sessionStrategyName(session);
         return [
           {
             aggregate: aggregateTrades([], []),
@@ -725,9 +729,7 @@ function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
 
       const tradesByStrategy = new Map<string, Trade[]>();
       for (const trade of sessionTrades) {
-        const strategyName = normalizeStrategyName(
-          trade.strategy_name || session.strategy_name,
-        );
+        const strategyName = tradeStrategyName(trade, session);
         tradesByStrategy.set(strategyName, [
           ...(tradesByStrategy.get(strategyName) ?? []),
           trade,
@@ -882,15 +884,6 @@ function average(values: number[]) {
     return null;
   }
   return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function strategyNameForTrade(trade: Trade, session: BacktestSession | undefined) {
-  return normalizeStrategyName(trade.strategy_name || session?.strategy_name);
-}
-
-function normalizeStrategyName(value: string | null | undefined) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "Unassigned";
 }
 
 function formatRatio(value: number | null | undefined) {

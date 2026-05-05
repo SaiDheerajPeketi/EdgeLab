@@ -41,6 +41,7 @@ import type {
 } from "./lib/charting";
 import { mergeIndicatorSettings } from "./lib/charting";
 import { formatTradingViewSymbol } from "./lib/symbols";
+import { tradeStrategyName } from "./lib/strategy";
 import { useBacktestStore } from "./store/backtestStore";
 
 const CHART_LAYOUT_KEY = "tradezella.chart-layout.v1";
@@ -969,11 +970,9 @@ function strategyScopeForTrade(
   sessions: { id: number; strategy_name: string | null }[],
   activeSession: { id: number; strategy_name: string | null } | null,
 ) {
-  if (trade.strategy_name?.trim()) {
-    return trade.strategy_name;
-  }
-  if (activeSession?.id === trade.session_id && activeSession.strategy_name?.trim()) {
-    return activeSession.strategy_name;
-  }
-  return sessions.find((session) => session.id === trade.session_id)?.strategy_name ?? null;
+  const session =
+    activeSession?.id === trade.session_id
+      ? activeSession
+      : sessions.find((item) => item.id === trade.session_id);
+  return session ? tradeStrategyName(trade, session) : trade.strategy_name;
 }

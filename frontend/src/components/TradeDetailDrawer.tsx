@@ -9,6 +9,7 @@ import {
   persistStrategyMistakeTags,
   strategyTagScope,
 } from "../lib/mistakeTags";
+import { tradeStrategyName } from "../lib/strategy";
 import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
 
@@ -37,9 +38,11 @@ export function TradeDetailDrawer({
     "idle" | "loading" | "ready" | "saving" | "saved" | "error"
   >(trade.screenshot_url ? "ready" : "idle");
   const tagsRef = useRef(tags);
-  const activeStrategyScope = strategyTagScope(
-    trade.strategy_name || strategyScope,
-  );
+  const effectiveStrategyName = tradeStrategyName(trade, {
+    name: null,
+    strategy_name: strategyScope ?? null,
+  });
+  const activeStrategyScope = strategyTagScope(effectiveStrategyName);
   const [strategyTagOptions, setStrategyTagOptions] = useState<string[]>(() =>
     loadStrategyMistakeTags(activeStrategyScope),
   );
@@ -86,7 +89,7 @@ export function TradeDetailDrawer({
         setSnapshotStatus("saving");
         await updateJournal(trade.id, {
           notes: trade.notes ?? null,
-          strategy_name: trade.strategy_name ?? strategyScope ?? null,
+          strategy_name: effectiveStrategyName,
           emotional_state: trade.emotional_state ?? null,
           screenshot_url: snapshot,
           mistake_tags: tagsRef.current,
@@ -105,7 +108,7 @@ export function TradeDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [strategyScope, trade.id, trade.screenshot_url, updateJournal]);
+  }, [effectiveStrategyName, trade.id, trade.screenshot_url, updateJournal]);
 
   async function regenerateSnapshot() {
     setSnapshotStatus("loading");
@@ -115,7 +118,7 @@ export function TradeDetailDrawer({
       setSnapshotStatus("saving");
       await updateJournal(trade.id, {
         notes: trade.notes ?? null,
-        strategy_name: trade.strategy_name ?? strategyScope ?? null,
+        strategy_name: effectiveStrategyName,
         emotional_state: trade.emotional_state ?? null,
         screenshot_url: snapshot,
         mistake_tags: tagsRef.current,
