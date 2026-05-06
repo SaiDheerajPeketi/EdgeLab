@@ -878,6 +878,8 @@ export default function App() {
               >
                 {backtestFocusHeader}
                 <ReplayController
+                  dateFormat={chartSettings.dateFormat}
+                  dayOfWeekLabels={chartSettings.dayOfWeekLabels}
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
                   showOrderToggle={isChartFullscreen}

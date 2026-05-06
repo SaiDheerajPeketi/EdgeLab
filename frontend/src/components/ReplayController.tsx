@@ -19,12 +19,15 @@ import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
+  dateFormat?: ReplayDateFormat;
+  dayOfWeekLabels?: boolean;
   isOrderPaneOpen: boolean;
   onToggleOrderPane: () => void;
   showOrderToggle?: boolean;
   timeHoursFormat?: TimeHoursFormat;
 };
 
+type ReplayDateFormat = "dd MMM yy" | "MMM dd yyyy" | "yyyy-MM-dd";
 type TimeHoursFormat = "12-hour" | "24-hour";
 
 const CUSTOM_SPEED_VALUE = "custom";
@@ -38,6 +41,8 @@ const SPEED_PRESETS = [
 ];
 
 export function ReplayController({
+  dateFormat = "dd MMM yy",
+  dayOfWeekLabels = false,
   isOrderPaneOpen,
   onToggleOrderPane,
   showOrderToggle = true,
@@ -200,6 +205,8 @@ export function ReplayController({
           </button>
           <ReplayDateTimePicker
             currentTimestamp={currentTimestamp}
+            dateFormat={dateFormat}
+            dayOfWeekLabels={dayOfWeekLabels}
             disabled={!state}
             onChange={setJumpTime}
             timeHoursFormat={timeHoursFormat}
@@ -221,12 +228,16 @@ export function ReplayController({
 
 function ReplayDateTimePicker({
   currentTimestamp,
+  dateFormat,
+  dayOfWeekLabels,
   disabled,
   onChange,
   timeHoursFormat,
   value,
 }: {
   currentTimestamp: string | null;
+  dateFormat: ReplayDateFormat;
+  dayOfWeekLabels: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
   timeHoursFormat: TimeHoursFormat;
@@ -373,7 +384,11 @@ function ReplayDateTimePicker({
 
   const cells = calendarCells(viewYear, viewMonth);
   const displayValue = selected
-    ? formatPickerDisplay(selected, timeHoursFormat)
+    ? formatPickerDisplay(selected, {
+        dateFormat,
+        dayOfWeekLabels,
+        timeHoursFormat,
+      })
     : "Select replay date";
   const is12Hour = timeHoursFormat === "12-hour";
   const currentPeriod = hourPeriod(draftHour);
@@ -553,6 +568,7 @@ const MONTH_NAMES = [
 ];
 
 const WEEKDAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const FULL_WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function parseReplayDateTime(value: string): ReplayDateParts | null {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
@@ -613,12 +629,49 @@ function formatReplayDateTime(
   return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
 }
 
-function formatPickerDisplay(parts: ReplayDateParts, timeHoursFormat: TimeHoursFormat) {
-  const time =
-    timeHoursFormat === "12-hour"
-      ? `${formatHourInputValue(parts.hour, timeHoursFormat)}:${pad2(parts.minute)} ${hourPeriod(parts.hour)}`
-      : `${pad2(parts.hour)}:${pad2(parts.minute)}`;
-  return `${pad2(parts.day)} ${MONTH_NAMES[parts.month - 1].slice(0, 3)} '${String(parts.year).slice(-2)} ${time}`;
+function formatPickerDisplay(
+  parts: ReplayDateParts,
+  settings: {
+    dateFormat: ReplayDateFormat;
+    dayOfWeekLabels: boolean;
+    timeHoursFormat: TimeHoursFormat;
+  },
+) {
+  return `${formatReplayDateLabel(parts, settings)} ${formatReplayTimeLabel(parts, settings.timeHoursFormat)}`;
+}
+
+function formatReplayDateLabel(
+  parts: ReplayDateParts,
+  settings: {
+    dateFormat: ReplayDateFormat;
+    dayOfWeekLabels: boolean;
+  },
+) {
+  const weekday = settings.dayOfWeekLabels
+    ? `${FULL_WEEKDAY_NAMES[new Date(parts.year, parts.month - 1, parts.day).getDay()]} `
+    : "";
+  const month = MONTH_NAMES[parts.month - 1].slice(0, 3);
+  const shortYear = String(parts.year).slice(-2);
+
+  if (settings.dateFormat === "yyyy-MM-dd") {
+    return `${weekday}${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+  }
+
+  if (settings.dateFormat === "MMM dd yyyy") {
+    return `${weekday}${month} ${pad2(parts.day)} ${parts.year}`;
+  }
+
+  return `${weekday}${pad2(parts.day)} ${month} '${shortYear}`;
+}
+
+function formatReplayTimeLabel(
+  parts: Pick<ReplayDateParts, "hour" | "minute">,
+  timeHoursFormat: TimeHoursFormat,
+) {
+  if (timeHoursFormat === "12-hour") {
+    return `${formatHourInputValue(parts.hour, timeHoursFormat)}:${pad2(parts.minute)} ${hourPeriod(parts.hour)}`;
+  }
+  return `${pad2(parts.hour)}:${pad2(parts.minute)}`;
 }
 
 function formatHourInputValue(hour: number, timeHoursFormat: TimeHoursFormat) {
