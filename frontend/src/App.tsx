@@ -11,6 +11,7 @@ import {
   PanelRightOpen,
   Radio,
   LineChart,
+  Settings2,
   SlidersHorizontal,
   WalletCards,
 } from "lucide-react";
@@ -127,6 +128,7 @@ export default function App() {
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
+  const [chartSettingsOpenSignal, setChartSettingsOpenSignal] = useState(0);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "tape" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
@@ -676,6 +678,17 @@ export default function App() {
                 <SlidersHorizontal size={14} />
                 Tools
               </button>
+              <button
+                className="workspace-tab inline-flex items-center justify-center gap-2"
+                onClick={() => {
+                  setChartToolsOpen(true);
+                  setChartSettingsOpenSignal((value) => value + 1);
+                }}
+                type="button"
+              >
+                <Settings2 size={14} />
+                Settings
+              </button>
               {!isChartFullscreen && (
                 <button
                   className="workspace-tab inline-flex items-center justify-center gap-2"
@@ -803,6 +816,7 @@ export default function App() {
                     onSmoothCandlesChange={setSmoothCandles}
                     orderOverlaysVisible={showOrderOverlays}
                     savedLabel={savedLayoutLabel}
+                    settingsOpenSignal={chartSettingsOpenSignal}
                     smoothCandles={smoothCandles}
                     sourceTimeframe={sourceTimeframe}
                     timeframe={effectiveTimeframe}

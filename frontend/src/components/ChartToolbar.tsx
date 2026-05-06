@@ -86,6 +86,7 @@ type Props = {
   ) => void;
   orderOverlaysVisible: boolean;
   savedLabel: string | null;
+  settingsOpenSignal?: number;
   smoothCandles: boolean;
   sourceTimeframe: ChartTimeframe | null;
   timeframe: ChartTimeframe;
@@ -151,6 +152,7 @@ export function ChartToolbar({
   onUpdateIndicatorSettings,
   orderOverlaysVisible,
   savedLabel,
+  settingsOpenSignal = 0,
   sourceTimeframe,
   timeframe,
 }: Props) {
@@ -189,6 +191,16 @@ export function ChartToolbar({
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, []);
+
+  useEffect(() => {
+    if (settingsOpenSignal <= 0) {
+      return;
+    }
+
+    setCommandOpen(false);
+    setIndicatorMenuOpen(false);
+    setSettingsOpen(true);
+  }, [settingsOpenSignal]);
 
   function openCommandSearch(
     event?: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>,
