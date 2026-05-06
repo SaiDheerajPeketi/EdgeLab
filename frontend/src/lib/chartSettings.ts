@@ -30,6 +30,7 @@ export type ChartVisualSettings = {
   pricePrecision: number;
   priceScaleBorderVisible: boolean;
   scalePlacement: ChartScalePlacement;
+  sessionBreakColor: string;
   sessionBreaks: boolean;
   symbolLine: ChartVisibilityMode;
   textColor: string;
@@ -78,6 +79,7 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   pricePrecision: 5,
   priceScaleBorderVisible: true,
   scalePlacement: "right",
+  sessionBreakColor: "#38BDF8",
   sessionBreaks: false,
   symbolLine: "valueLine",
   textColor: "#A8B3C7",
@@ -120,6 +122,7 @@ export function sanitizeChartVisualSettings(
     crosshairColor: sanitizeHex(candidate.crosshairColor, DEFAULT_CHART_VISUAL_SETTINGS.crosshairColor),
     gridColor: sanitizeHex(candidate.gridColor, DEFAULT_CHART_VISUAL_SETTINGS.gridColor),
     pricePrecision: clampInteger(candidate.pricePrecision, 0, 8, DEFAULT_CHART_VISUAL_SETTINGS.pricePrecision),
+    sessionBreakColor: sanitizeHex(candidate.sessionBreakColor, DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakColor),
     textColor: sanitizeHex(candidate.textColor, DEFAULT_CHART_VISUAL_SETTINGS.textColor),
     textSize: clampInteger(candidate.textSize, 10, 18, DEFAULT_CHART_VISUAL_SETTINGS.textSize),
     wickDownColor,

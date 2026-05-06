@@ -907,6 +907,11 @@ function ChartSettingsPanel({
                   label="Session breaks"
                   onChange={(sessionBreaks) => updateSettings({ sessionBreaks })}
                 />
+                <ColorSetting
+                  label="Session break color"
+                  onChange={(sessionBreakColor) => updateSettings({ sessionBreakColor })}
+                  value={settings.sessionBreakColor}
+                />
               </SettingsSection>
 
               <SettingsSection title="Time scale">

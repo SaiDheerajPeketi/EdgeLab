@@ -1059,7 +1059,7 @@ export function TradingChart({
                     displayBars,
                     chartFrameRef.current,
                     chartRef.current,
-                    colorWithOpacity(chartSettings.gridColor, 0.55),
+                    colorWithOpacity(chartSettings.sessionBreakColor, 0.72),
                   )}
                 {drawingElements}
               </svg>
