@@ -831,22 +831,6 @@ function ChartSettingsPanel({
                 />
               </SettingsSection>
 
-              <SettingsSection title="Active indicators">
-                {indicatorInstances.length === 0 ? (
-                  <div className="chart-settings-empty">No active studies.</div>
-                ) : (
-                  indicatorInstances.map((indicator) => (
-                    <IndicatorEditor
-                      indicator={indicator}
-                      key={indicator.id}
-                      onRemove={() => onRemoveIndicator(indicator.id)}
-                      onUpdate={(nextSettings) =>
-                        onUpdateIndicatorSettings(indicator.id, nextSettings)
-                      }
-                    />
-                  ))
-                )}
-              </SettingsSection>
             </>
           )}
 
