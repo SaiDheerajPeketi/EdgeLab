@@ -36,13 +36,20 @@ import type { BacktestCreatePayload, Trade } from "./lib/api";
 import type {
   ChartDrawing,
   ChartIndicatorId,
+  ChartIndicatorInstance,
+  ChartIndicatorKind,
   ChartStyle,
   ChartTimeframe,
   DrawingTool,
   IndicatorSettings,
-  IndicatorSettingsMap,
 } from "./lib/charting";
-import { getTimeframeSeconds, mergeIndicatorSettings } from "./lib/charting";
+import {
+  createIndicatorInstance,
+  createLegacyIndicatorInstance,
+  getTimeframeSeconds,
+  isIndicatorKind,
+  mergeIndicatorSettings,
+} from "./lib/charting";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import type { WorkspaceView } from "./lib/workspace";
@@ -53,7 +60,7 @@ const CHART_LAYOUTS_KEY = "edgelab.chart-layouts.v1";
 const ACTIVE_CHART_LAYOUT_KEY = "edgelab.active-chart-layout.v1";
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
-const VALID_INDICATORS: ChartIndicatorId[] = [
+const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
   "atr14",
   "bb20",
   "dema20",
@@ -129,13 +136,13 @@ export default function App() {
     const saved = loadChartLayout();
     return sanitizeChartStyle(saved?.chartStyle);
   });
-  const [activeIndicators, setActiveIndicators] = useState<ChartIndicatorId[]>(() => {
+  const [indicatorInstances, setIndicatorInstances] = useState<ChartIndicatorInstance[]>(() => {
     const saved = loadChartLayout();
-    return sanitizeIndicators(saved?.activeIndicators);
-  });
-  const [indicatorSettings, setIndicatorSettings] = useState<IndicatorSettingsMap>(() => {
-    const saved = loadChartLayout();
-    return mergeIndicatorSettings(saved?.indicatorSettings);
+    return sanitizeIndicatorInstances(
+      saved?.indicatorInstances,
+      saved?.activeIndicators,
+      saved?.indicatorSettings,
+    );
   });
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
@@ -327,11 +334,23 @@ export default function App() {
     }
   }
 
-  function toggleIndicator(indicator: ChartIndicatorId) {
-    setActiveIndicators((current) =>
-      current.includes(indicator)
-        ? current.filter((item) => item !== indicator)
-        : [...current, indicator],
+  function addIndicator(kind: ChartIndicatorKind) {
+    setIndicatorInstances((current) => [...current, createIndicatorInstance(kind)]);
+  }
+
+  function removeIndicator(instanceId: string) {
+    setIndicatorInstances((current) =>
+      current.filter((indicator) => indicator.id !== instanceId),
+    );
+  }
+
+  function toggleIndicatorVisibility(instanceId: string) {
+    setIndicatorInstances((current) =>
+      current.map((indicator) =>
+        indicator.id === instanceId
+          ? { ...indicator, visible: indicator.visible === false }
+          : indicator,
+      ),
     );
   }
 
@@ -340,16 +359,22 @@ export default function App() {
   }
 
   function updateIndicatorSettings(
-    indicator: ChartIndicatorId,
+    instanceId: string,
     settings: Partial<IndicatorSettings>,
   ) {
-    setIndicatorSettings((current) => ({
-      ...current,
-      [indicator]: {
-        ...current[indicator],
-        ...settings,
-      },
-    }));
+    setIndicatorInstances((current) =>
+      current.map((indicator) =>
+        indicator.id === instanceId
+          ? {
+              ...indicator,
+              settings: mergeIndicatorSettings(indicator.kind, {
+                ...indicator.settings,
+                ...settings,
+              }),
+            }
+          : indicator,
+      ),
+    );
   }
 
   function clearDrawings() {
@@ -427,10 +452,9 @@ export default function App() {
 
   function buildChartLayoutPayload(nextDrawings: ChartDrawing[]): StoredChartLayout {
     return {
-      activeIndicators: sanitizeIndicators(activeIndicators),
       chartStyle,
       drawings: sanitizeDrawings(nextDrawings),
-      indicatorSettings,
+      indicatorInstances: sanitizeIndicatorInstances(indicatorInstances),
       showOrderOverlays,
       smoothCandles,
       timeframe: effectiveTimeframe,
@@ -458,10 +482,15 @@ export default function App() {
   }
 
   function applyChartLayout(layout: Partial<StoredChartLayout>) {
-    setActiveIndicators(sanitizeIndicators(layout.activeIndicators));
+    setIndicatorInstances(
+      sanitizeIndicatorInstances(
+        layout.indicatorInstances,
+        layout.activeIndicators,
+        layout.indicatorSettings,
+      ),
+    );
     setChartStyle(sanitizeChartStyle(layout.chartStyle));
     setDrawings(sanitizeDrawings(layout.drawings));
-    setIndicatorSettings(mergeIndicatorSettings(layout.indicatorSettings));
     setShowOrderOverlays(layout.showOrderOverlays ?? true);
     setSmoothCandles(layout.smoothCandles ?? false);
     setTimeframe(coerceTimeframeToSource(sanitizeTimeframe(layout.timeframe), sourceTimeframe));
@@ -710,11 +739,11 @@ export default function App() {
                 />
                 {chartToolsOpen && (
                   <ChartToolbar
-                    activeIndicators={activeIndicators}
                     chartStyle={chartStyle}
                     drawingTool={drawingTool}
                     drawingsCount={drawings.length}
-                    indicatorSettings={indicatorSettings}
+                    indicatorInstances={indicatorInstances}
+                    onAddIndicator={addIndicator}
                     onChartStyleChange={setChartStyle}
                     onClearDrawings={clearDrawings}
                     layoutName={layoutName}
@@ -725,8 +754,8 @@ export default function App() {
                     onLoadLayout={loadNamedChartLayout}
                     onSaveLayout={saveChartLayout}
                     onTimeframeChange={changeTimeframe}
-                    onToggleIndicator={toggleIndicator}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                    onRemoveIndicator={removeIndicator}
                     onUpdateIndicatorSettings={updateIndicatorSettings}
                     onSmoothCandlesChange={setSmoothCandles}
                     orderOverlaysVisible={showOrderOverlays}
@@ -739,13 +768,12 @@ export default function App() {
                 <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
                   <div className="min-w-0 space-y-3">
                     <TradingChart
-                      activeIndicators={activeIndicators}
                       bars={bars}
                       chartStyle={chartStyle}
                       drawingTool={drawingTool}
                       drawings={drawings}
                       executions={executions}
-                      indicatorSettings={indicatorSettings}
+                      indicatorInstances={indicatorInstances}
                       onAddDrawing={(drawing) => {
                         setDrawings((currentDrawings) => [...currentDrawings, drawing]);
                         setSelectedDrawingId(drawing.id);
@@ -772,15 +800,16 @@ export default function App() {
                   </div>
                   {layersPanelOpen ? (
                     <ChartObjectsPanel
-                      activeIndicators={activeIndicators}
                       chartStyle={chartStyle}
                       drawings={drawings}
-                      indicatorSettings={indicatorSettings}
+                      indicatorInstances={indicatorInstances}
+                      onAddIndicator={addIndicator}
                       onClearDrawings={clearDrawings}
                       onCollapse={() => setLayersPanelOpen(false)}
                       onDeleteDrawing={deleteDrawing}
                       onSelectDrawing={setSelectedDrawingId}
-                      onToggleIndicator={toggleIndicator}
+                      onRemoveIndicator={removeIndicator}
+                      onToggleIndicatorVisibility={toggleIndicatorVisibility}
                       onUpdateDrawing={(updatedDrawing) =>
                         setDrawings((currentDrawings) =>
                           currentDrawings.map((drawing) =>
@@ -901,9 +930,10 @@ export default function App() {
 }
 
 type StoredChartLayout = {
-  activeIndicators: ChartIndicatorId[];
+  activeIndicators?: ChartIndicatorId[];
   chartStyle: ChartStyle;
   drawings: ChartDrawing[];
+  indicatorInstances: ChartIndicatorInstance[];
   indicatorSettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>>;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
@@ -1080,14 +1110,50 @@ function normalizeLayoutName(name: string) {
   return trimmed.length > 0 ? trimmed.slice(0, 48) : "Default";
 }
 
-function sanitizeIndicators(value: unknown): ChartIndicatorId[] {
-  if (!Array.isArray(value)) {
-    return ["ema20", "ema50"];
+function sanitizeIndicatorInstances(
+  value: unknown,
+  legacyIndicators?: unknown,
+  legacySettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>> | null,
+): ChartIndicatorInstance[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeIndicatorInstance(item))
+      .filter((item): item is ChartIndicatorInstance => item != null);
   }
-  const clean = value.filter((item): item is ChartIndicatorId =>
-    VALID_INDICATORS.includes(item as ChartIndicatorId),
-  );
-  return Array.from(new Set(clean));
+
+  if (Array.isArray(legacyIndicators)) {
+    const cleanLegacy = legacyIndicators.filter((item): item is ChartIndicatorId =>
+      VALID_LEGACY_INDICATORS.includes(item as ChartIndicatorId),
+    );
+    return Array.from(new Set(cleanLegacy)).map((indicator) =>
+      createLegacyIndicatorInstance(indicator, legacySettings),
+    );
+  }
+
+  return [createIndicatorInstance("ema")];
+}
+
+function sanitizeIndicatorInstance(value: unknown): ChartIndicatorInstance | null {
+  if (typeof value !== "object" || value == null) {
+    return null;
+  }
+  const candidate = value as Partial<ChartIndicatorInstance>;
+  if (!isIndicatorKind(candidate.kind)) {
+    return null;
+  }
+  const base = createIndicatorInstance(candidate.kind, candidate.settings);
+  return {
+    ...base,
+    id:
+      typeof candidate.id === "string" && candidate.id.trim().length > 0
+        ? candidate.id.trim().slice(0, 96)
+        : base.id,
+    visible: candidate.visible !== false,
+    createdAt:
+      typeof candidate.createdAt === "string" && candidate.createdAt.length > 0
+        ? candidate.createdAt
+        : base.createdAt,
+  };
 }
 
 function sanitizeTimeframe(value: unknown): ChartTimeframe {

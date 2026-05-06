@@ -25,29 +25,31 @@ import {
 import {
   INDICATORS,
   type ChartDrawing,
-  type ChartIndicatorId,
+  indicatorDisplayName,
+  type ChartIndicatorInstance,
+  type ChartIndicatorKind,
   type ChartStyle,
   type DrawingLineStyle,
   type IndicatorSettings,
-  type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
-  activeIndicators: ChartIndicatorId[];
   chartStyle: ChartStyle;
   drawings: ChartDrawing[];
-  indicatorSettings: IndicatorSettingsMap;
+  indicatorInstances: ChartIndicatorInstance[];
+  onAddIndicator: (kind: ChartIndicatorKind) => void;
   onClearDrawings: () => void;
   onCollapse: () => void;
   onDeleteDrawing: (drawingId: string) => void;
+  onRemoveIndicator: (instanceId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
-  onToggleIndicator: (indicator: ChartIndicatorId) => void;
+  onToggleIndicatorVisibility: (instanceId: string) => void;
   onToggleOrderOverlays: () => void;
   onUpdateDrawing: (drawing: ChartDrawing) => void;
   onUpdateIndicatorSettings: (
-    indicator: ChartIndicatorId,
+    instanceId: string,
     settings: Partial<IndicatorSettings>,
   ) => void;
   orderOverlaysVisible: boolean;
@@ -72,15 +74,16 @@ const FALLBACK_SETTING: IndicatorSettings = {
 };
 
 export function ChartObjectsPanel({
-  activeIndicators,
   chartStyle,
   drawings,
-  indicatorSettings,
+  indicatorInstances,
+  onAddIndicator,
   onClearDrawings,
   onCollapse,
   onDeleteDrawing,
+  onRemoveIndicator,
   onSelectDrawing,
-  onToggleIndicator,
+  onToggleIndicatorVisibility,
   onToggleOrderOverlays,
   onUpdateDrawing,
   onUpdateIndicatorSettings,
@@ -148,58 +151,81 @@ export function ChartObjectsPanel({
             Indicators
           </div>
           <div className="grid gap-2">
-            {INDICATORS.map((indicator) => {
-              const active = activeIndicators.includes(indicator.id);
-              const settings = indicatorSettings[indicator.id] ?? FALLBACK_SETTING;
+            {indicatorInstances.length === 0 && (
+              <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-4 text-center text-xs text-slate-500">
+                No active studies. Add one below.
+              </div>
+            )}
+            {indicatorInstances.map((indicator) => {
+              const settings = indicator.settings ?? FALLBACK_SETTING;
               return (
                 <div
-                  className={`chart-object-row object-row-with-hover text-left ${active ? "chart-object-row-active" : ""}`}
+                  className={`chart-object-row object-row-with-hover text-left ${indicator.visible === false ? "opacity-55" : "chart-object-row-active"}`}
                   key={indicator.id}
                 >
                   <span
                     className="object-symbol-cell"
-                    style={{ color: active ? settings.color : "rgba(148, 163, 184, 0.55)" }}
+                    style={{ color: settings.color }}
                   >
                     <span
                       className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor: active
-                          ? settings.color
-                          : "rgba(148, 163, 184, 0.38)",
-                      }}
+                      style={{ backgroundColor: settings.color }}
                     />
                     <IndicatorHoverControls
-                      active={active}
-                      indicator={indicator.id}
-                      onToggle={() => onToggleIndicator(indicator.id)}
+                      indicator={indicator}
+                      onRemove={() => onRemoveIndicator(indicator.id)}
+                      onToggleVisibility={() => onToggleIndicatorVisibility(indicator.id)}
                       onUpdate={(settingsPatch) =>
                         onUpdateIndicatorSettings(indicator.id, settingsPatch)
                       }
-                      settings={settings}
                     />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-slate-100">
-                      {indicator.label}
+                      {indicatorDisplayName(indicator)}
                     </span>
                     <span className="block truncate text-xs text-slate-500">
-                      {indicator.id === "macd"
+                      {indicator.kind === "macd"
                         ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
-                        : indicator.id === "vwap"
-                        ? indicator.description
-                        : `Period ${settings.period}${indicator.id === "bb20" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
+                        : indicator.kind === "vwap"
+                        ? "Session fair value"
+                        : `Period ${settings.period}${indicator.kind === "bb" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
                     </span>
                   </span>
                   <button
-                    className={`rounded px-1.5 py-1 ${active ? "text-cyan-100" : "text-slate-500"}`}
-                    onClick={() => onToggleIndicator(indicator.id)}
+                    className={`rounded px-1.5 py-1 ${indicator.visible === false ? "text-slate-500" : "text-cyan-100"}`}
+                    onClick={() => onToggleIndicatorVisibility(indicator.id)}
                     type="button"
                   >
-                    {active ? "On" : "Off"}
+                    {indicator.visible === false ? "Off" : "On"}
                   </button>
                 </div>
               );
             })}
+            <div className="mt-2 grid gap-1 border-t border-white/10 pt-2">
+              {INDICATORS.map((indicator) => (
+                <button
+                  className="chart-dropdown-row"
+                  key={indicator.id}
+                  onClick={() => onAddIndicator(indicator.kind)}
+                  type="button"
+                >
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: indicator.color }}
+                  />
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-sm font-semibold text-slate-100">
+                      {indicator.label}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500">
+                      {indicator.description}
+                    </span>
+                  </span>
+                  <span className="text-slate-500">Add</span>
+                </button>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -399,20 +425,20 @@ function DrawingHoverControls({
 }
 
 function IndicatorHoverControls({
-  active,
   indicator,
-  onToggle,
+  onRemove,
+  onToggleVisibility,
   onUpdate,
-  settings,
 }: {
-  active: boolean;
-  indicator: ChartIndicatorId;
-  onToggle: () => void;
+  indicator: ChartIndicatorInstance;
+  onRemove: () => void;
+  onToggleVisibility: () => void;
   onUpdate: (settings: Partial<IndicatorSettings>) => void;
-  settings: IndicatorSettings;
 }) {
-  const isMacd = indicator === "macd";
-  const isVwap = indicator === "vwap";
+  const settings = indicator.settings ?? FALLBACK_SETTING;
+  const isMacd = indicator.kind === "macd";
+  const isVwap = indicator.kind === "vwap";
+  const isVisible = indicator.visible !== false;
 
   return (
     <div
@@ -422,15 +448,15 @@ function IndicatorHoverControls({
       role="group"
     >
       <button
-        className={`control-button h-9 text-xs ${active ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
-        onClick={onToggle}
+        className={`control-button h-9 text-xs ${isVisible ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
+        onClick={onToggleVisibility}
         type="button"
       >
-        {active ? <Eye size={14} /> : <EyeOff size={14} />}
-        {active ? "Enabled" : "Enable"}
+        {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+        {isVisible ? "Visible" : "Hidden"}
       </button>
 
-      {active && (
+      {isVisible && (
         <>
           <label className="object-setting-field">
             <span>Color</span>
@@ -467,6 +493,15 @@ function IndicatorHoverControls({
               value={settings.period}
             />
           ) : null}
+
+          <button
+            className="control-button h-9 border-rose-300/30 bg-rose-300/10 text-xs text-rose-100"
+            onClick={onRemove}
+            type="button"
+          >
+            <Trash2 size={14} />
+            Remove
+          </button>
         </>
       )}
     </div>

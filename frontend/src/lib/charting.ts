@@ -32,6 +32,22 @@ export type ChartIndicatorId =
   | "bb20"
   | "rsi14"
   | "macd";
+export type ChartIndicatorKind =
+  | "atr"
+  | "bb"
+  | "dema"
+  | "donchian"
+  | "ema"
+  | "hma"
+  | "keltner"
+  | "macd"
+  | "momentum"
+  | "rsi"
+  | "sma"
+  | "supertrend"
+  | "tema"
+  | "vwap"
+  | "wma";
 export type DrawingTool =
   | "cursor"
   | "crosshair"
@@ -55,7 +71,16 @@ export type IndicatorSettings = {
   histogramColor?: string;
 };
 
-export type IndicatorSettingsMap = Record<ChartIndicatorId, IndicatorSettings>;
+export type IndicatorSettingsMap = Record<ChartIndicatorKind, IndicatorSettings>;
+export type LegacyIndicatorSettingsMap = Record<ChartIndicatorId, IndicatorSettings>;
+
+export type ChartIndicatorInstance = {
+  id: string;
+  kind: ChartIndicatorKind;
+  settings: IndicatorSettings;
+  visible?: boolean;
+  createdAt?: string;
+};
 
 export type DrawingPoint = {
   logical?: number;
@@ -93,30 +118,57 @@ export type MacdData = {
 };
 
 export const INDICATORS: Array<{
-  id: ChartIndicatorId;
+  id: ChartIndicatorKind;
+  kind: ChartIndicatorKind;
   label: string;
   description: string;
   color: string;
+  pane: "overlay" | "pane";
 }> = [
-  { id: "ema20", label: "EMA 20", description: "Fast trend overlay", color: "#32d3ee" },
-  { id: "ema50", label: "EMA 50", description: "Structure trend overlay", color: "#f59e0b" },
-  { id: "wma20", label: "WMA 20", description: "Weighted moving average", color: "#38bdf8" },
-  { id: "dema20", label: "DEMA 20", description: "Double exponential average", color: "#2dd4bf" },
-  { id: "tema20", label: "TEMA 20", description: "Triple exponential average", color: "#34d399" },
-  { id: "hma20", label: "HMA 20", description: "Hull moving average", color: "#fbbf24" },
-  { id: "sma200", label: "SMA 200", description: "Higher timeframe bias", color: "#a78bfa" },
-  { id: "vwap", label: "VWAP", description: "Session fair value", color: "#22c55e" },
-  { id: "bb20", label: "Bollinger 20", description: "Volatility envelope", color: "#94a3b8" },
-  { id: "donchian20", label: "Donchian 20", description: "Range channel", color: "#60a5fa" },
-  { id: "keltner20", label: "Keltner 20", description: "ATR volatility channel", color: "#fb923c" },
-  { id: "supertrend10", label: "SuperTrend 10", description: "ATR trend overlay", color: "#84cc16" },
-  { id: "atr14", label: "ATR 14", description: "Average true range pane", color: "#f97316" },
-  { id: "momentum10", label: "Momentum 10", description: "Close-to-close momentum pane", color: "#c084fc" },
-  { id: "rsi14", label: "RSI 14", description: "Momentum pane", color: "#f472b6" },
-  { id: "macd", label: "MACD", description: "Trend momentum pane", color: "#60a5fa" },
+  { id: "ema", kind: "ema", label: "EMA", description: "Exponential moving average", color: "#32d3ee", pane: "overlay" },
+  { id: "sma", kind: "sma", label: "SMA", description: "Simple moving average", color: "#a78bfa", pane: "overlay" },
+  { id: "wma", kind: "wma", label: "WMA", description: "Weighted moving average", color: "#38bdf8", pane: "overlay" },
+  { id: "dema", kind: "dema", label: "DEMA", description: "Double exponential average", color: "#2dd4bf", pane: "overlay" },
+  { id: "tema", kind: "tema", label: "TEMA", description: "Triple exponential average", color: "#34d399", pane: "overlay" },
+  { id: "hma", kind: "hma", label: "HMA", description: "Hull moving average", color: "#fbbf24", pane: "overlay" },
+  { id: "vwap", kind: "vwap", label: "VWAP", description: "Session fair value", color: "#22c55e", pane: "overlay" },
+  { id: "bb", kind: "bb", label: "Bollinger Bands", description: "Volatility envelope", color: "#94a3b8", pane: "overlay" },
+  { id: "donchian", kind: "donchian", label: "Donchian Channel", description: "High-low range channel", color: "#60a5fa", pane: "overlay" },
+  { id: "keltner", kind: "keltner", label: "Keltner Channel", description: "ATR volatility channel", color: "#fb923c", pane: "overlay" },
+  { id: "supertrend", kind: "supertrend", label: "SuperTrend", description: "ATR trend overlay", color: "#84cc16", pane: "overlay" },
+  { id: "rsi", kind: "rsi", label: "RSI", description: "Relative strength pane", color: "#f472b6", pane: "pane" },
+  { id: "macd", kind: "macd", label: "MACD", description: "Trend momentum pane", color: "#60a5fa", pane: "pane" },
+  { id: "atr", kind: "atr", label: "ATR", description: "Average true range pane", color: "#f97316", pane: "pane" },
+  { id: "momentum", kind: "momentum", label: "Momentum", description: "Close-to-close momentum pane", color: "#c084fc", pane: "pane" },
 ];
 
 export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
+  atr: { color: "#f97316", period: 14 },
+  bb: { color: "#94a3b8", period: 20, stdDev: 2 },
+  dema: { color: "#2dd4bf", period: 20 },
+  donchian: { color: "#60a5fa", period: 20 },
+  ema: { color: "#32d3ee", period: 20 },
+  hma: { color: "#fbbf24", period: 20 },
+  keltner: { color: "#fb923c", period: 20, stdDev: 2 },
+  macd: {
+    color: "#60a5fa",
+    period: 12,
+    fastPeriod: 12,
+    slowPeriod: 26,
+    signalPeriod: 9,
+    signalColor: "#f59e0b",
+    histogramColor: "#94a3b8",
+  },
+  momentum: { color: "#c084fc", period: 10 },
+  rsi: { color: "#f472b6", period: 14 },
+  sma: { color: "#a78bfa", period: 20 },
+  supertrend: { color: "#84cc16", period: 10, stdDev: 3 },
+  tema: { color: "#34d399", period: 20 },
+  vwap: { color: "#22c55e", period: 1 },
+  wma: { color: "#38bdf8", period: 20 },
+};
+
+export const DEFAULT_LEGACY_INDICATOR_SETTINGS: LegacyIndicatorSettingsMap = {
   atr14: { color: "#f97316", period: 14 },
   bb20: { color: "#94a3b8", period: 20, stdDev: 2 },
   dema20: { color: "#2dd4bf", period: 20 },
@@ -127,21 +179,115 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   keltner20: { color: "#fb923c", period: 20, stdDev: 2 },
   momentum10: { color: "#c084fc", period: 10 },
   rsi14: { color: "#f472b6", period: 14 },
-  macd: {
-    color: "#60a5fa",
-    period: 12,
-    fastPeriod: 12,
-    slowPeriod: 26,
-    signalPeriod: 9,
-    signalColor: "#f59e0b",
-    histogramColor: "#94a3b8",
-  },
+  macd: { ...DEFAULT_INDICATOR_SETTINGS.macd },
   sma200: { color: "#a78bfa", period: 200 },
   supertrend10: { color: "#84cc16", period: 10, stdDev: 3 },
   tema20: { color: "#34d399", period: 20 },
   vwap: { color: "#22c55e", period: 1 },
   wma20: { color: "#38bdf8", period: 20 },
 };
+
+export const LEGACY_INDICATOR_KIND: Record<ChartIndicatorId, ChartIndicatorKind> = {
+  atr14: "atr",
+  bb20: "bb",
+  dema20: "dema",
+  donchian20: "donchian",
+  ema20: "ema",
+  ema50: "ema",
+  hma20: "hma",
+  keltner20: "keltner",
+  macd: "macd",
+  momentum10: "momentum",
+  rsi14: "rsi",
+  sma200: "sma",
+  supertrend10: "supertrend",
+  tema20: "tema",
+  vwap: "vwap",
+  wma20: "wma",
+};
+
+export function getIndicatorCatalogItem(kind: ChartIndicatorKind) {
+  return INDICATORS.find((indicator) => indicator.kind === kind);
+}
+
+export function mergeIndicatorSettings(
+  kind: ChartIndicatorKind,
+  settings?: Partial<IndicatorSettings> | null,
+): IndicatorSettings {
+  return {
+    ...DEFAULT_INDICATOR_SETTINGS[kind],
+    ...(settings ?? {}),
+  };
+}
+
+export function createIndicatorInstance(
+  kind: ChartIndicatorKind,
+  settings?: Partial<IndicatorSettings> | null,
+): ChartIndicatorInstance {
+  return {
+    id: createIndicatorInstanceId(kind),
+    kind,
+    settings: mergeIndicatorSettings(kind, settings),
+    visible: true,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function createLegacyIndicatorInstance(
+  indicator: ChartIndicatorId,
+  settings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>> | null,
+): ChartIndicatorInstance {
+  const kind = LEGACY_INDICATOR_KIND[indicator];
+  return createIndicatorInstance(kind, {
+    ...DEFAULT_LEGACY_INDICATOR_SETTINGS[indicator],
+    ...(settings?.[indicator] ?? {}),
+  });
+}
+
+export function isIndicatorKind(value: unknown): value is ChartIndicatorKind {
+  return INDICATORS.some((indicator) => indicator.kind === value);
+}
+
+export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
+  const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+  const period = Math.max(1, Math.round(settings.period));
+  switch (indicator.kind) {
+    case "atr":
+      return `ATR ${period}`;
+    case "bb":
+      return `Bollinger ${period}`;
+    case "dema":
+      return `DEMA ${period}`;
+    case "donchian":
+      return `Donchian ${period}`;
+    case "ema":
+      return `EMA ${period}`;
+    case "hma":
+      return `HMA ${period}`;
+    case "keltner":
+      return `Keltner ${period}`;
+    case "macd":
+      return `MACD ${settings.fastPeriod ?? 12} ${settings.slowPeriod ?? 26} ${settings.signalPeriod ?? 9}`;
+    case "momentum":
+      return `Momentum ${period}`;
+    case "rsi":
+      return `RSI ${period}`;
+    case "sma":
+      return `SMA ${period}`;
+    case "supertrend":
+      return `SuperTrend ${period}`;
+    case "tema":
+      return `TEMA ${period}`;
+    case "vwap":
+      return "VWAP";
+    case "wma":
+      return `WMA ${period}`;
+  }
+}
+
+function createIndicatorInstanceId(kind: ChartIndicatorKind) {
+  return `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function isRiskRewardTool(
   tool: ChartDrawing["tool"] | DrawingTool,
@@ -311,229 +457,189 @@ export function toCandles(bars: Candle[], smoothCandles: boolean): CandlestickDa
 
 export function buildIndicatorDefinitions(
   bars: Candle[],
-  activeIndicators: ChartIndicatorId[],
-  settings: IndicatorSettingsMap = DEFAULT_INDICATOR_SETTINGS,
+  indicatorInstances: ChartIndicatorInstance[],
 ): IndicatorDefinition[] {
   const definitions: IndicatorDefinition[] = [];
-  const has = (id: ChartIndicatorId) => activeIndicators.includes(id);
+  for (const instance of indicatorInstances) {
+    if (instance.visible === false) {
+      continue;
+    }
+    const config = mergeIndicatorSettings(instance.kind, instance.settings);
+    const label = indicatorDisplayName({ ...instance, settings: config });
 
-  if (has("ema20")) {
-    const config = settings.ema20;
-    definitions.push({
-      id: "ema20",
-      label: `EMA ${config.period}`,
-      color: config.color,
-      data: emaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("ema50")) {
-    const config = settings.ema50;
-    definitions.push({
-      id: "ema50",
-      label: `EMA ${config.period}`,
-      color: config.color,
-      data: emaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("wma20")) {
-    const config = settings.wma20;
-    definitions.push({
-      id: "wma20",
-      label: `WMA ${config.period}`,
-      color: config.color,
-      data: wmaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("dema20")) {
-    const config = settings.dema20;
-    definitions.push({
-      id: "dema20",
-      label: `DEMA ${config.period}`,
-      color: config.color,
-      data: demaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("tema20")) {
-    const config = settings.tema20;
-    definitions.push({
-      id: "tema20",
-      label: `TEMA ${config.period}`,
-      color: config.color,
-      data: temaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("hma20")) {
-    const config = settings.hma20;
-    definitions.push({
-      id: "hma20",
-      label: `HMA ${config.period}`,
-      color: config.color,
-      data: hmaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("sma200")) {
-    const config = settings.sma200;
-    definitions.push({
-      id: "sma200",
-      label: `SMA ${config.period}`,
-      color: config.color,
-      data: smaSeries(bars, config.period),
-      lineWidth: 2,
-    });
-  }
-
-  if (has("vwap")) {
-    const config = settings.vwap;
-    definitions.push({
-      id: "vwap",
-      label: "VWAP",
-      color: config.color,
-      data: vwapSeries(bars),
-      lineWidth: 2,
-      lineStyle: 2,
-    });
-  }
-
-  if (has("bb20")) {
-    const config = settings.bb20;
-    const bands = bollingerBands(bars, config.period, config.stdDev ?? 2);
-    definitions.push(
-      {
-        id: "bb20-upper",
-        label: `BB ${config.period} Upper`,
+    if (instance.kind === "ema") {
+      definitions.push({
+        id: instance.id,
+        label,
         color: config.color,
-        data: bands.map((band) => ({ time: band.time, value: band.upper })),
-        lineWidth: 1,
+        data: emaSeries(bars, config.period),
+        lineWidth: 2,
+      });
+    }
+
+    if (instance.kind === "sma") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: smaSeries(bars, config.period),
+        lineWidth: 2,
+      });
+    }
+
+    if (instance.kind === "wma") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: wmaSeries(bars, config.period),
+        lineWidth: 2,
+      });
+    }
+
+    if (instance.kind === "dema") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: demaSeries(bars, config.period),
+        lineWidth: 2,
+      });
+    }
+
+    if (instance.kind === "tema") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: temaSeries(bars, config.period),
+        lineWidth: 2,
+      });
+    }
+
+    if (instance.kind === "hma") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: hmaSeries(bars, config.period),
+        lineWidth: 2,
+      });
+    }
+
+    if (instance.kind === "vwap") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: vwapSeries(bars),
+        lineWidth: 2,
         lineStyle: 2,
-      },
-      {
-        id: "bb20-mid",
-        label: `BB ${config.period} Mid`,
-        color: config.color,
-        data: bands.map((band) => ({ time: band.time, value: band.middle })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-      {
-        id: "bb20-lower",
-        label: `BB ${config.period} Lower`,
-        color: config.color,
-        data: bands.map((band) => ({ time: band.time, value: band.lower })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-    );
-  }
+      });
+    }
 
-  if (has("donchian20")) {
-    const config = settings.donchian20;
-    const channel = donchianChannel(bars, config.period);
-    definitions.push(
-      {
-        id: "donchian20-upper",
-        label: `DC ${config.period} High`,
-        color: config.color,
-        data: channel.map((band) => ({ time: band.time, value: band.upper })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-      {
-        id: "donchian20-mid",
-        label: `DC ${config.period} Mid`,
-        color: config.color,
-        data: channel.map((band) => ({ time: band.time, value: band.middle })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-      {
-        id: "donchian20-lower",
-        label: `DC ${config.period} Low`,
-        color: config.color,
-        data: channel.map((band) => ({ time: band.time, value: band.lower })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-    );
-  }
+    if (instance.kind === "bb") {
+      const bands = bollingerBands(bars, config.period, config.stdDev ?? 2);
+      definitions.push(
+        {
+          id: `${instance.id}-upper`,
+          label: `${label} Upper`,
+          color: config.color,
+          data: bands.map((band) => ({ time: band.time, value: band.upper })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+        {
+          id: `${instance.id}-mid`,
+          label: `${label} Mid`,
+          color: config.color,
+          data: bands.map((band) => ({ time: band.time, value: band.middle })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+        {
+          id: `${instance.id}-lower`,
+          label: `${label} Lower`,
+          color: config.color,
+          data: bands.map((band) => ({ time: band.time, value: band.lower })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+      );
+    }
 
-  if (has("keltner20")) {
-    const config = settings.keltner20;
-    const channel = keltnerChannel(bars, config.period, config.stdDev ?? 2);
-    definitions.push(
-      {
-        id: "keltner20-upper",
-        label: `KC ${config.period} Upper`,
-        color: config.color,
-        data: channel.map((band) => ({ time: band.time, value: band.upper })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-      {
-        id: "keltner20-mid",
-        label: `KC ${config.period} Mid`,
-        color: config.color,
-        data: channel.map((band) => ({ time: band.time, value: band.middle })),
-        lineWidth: 1,
-      },
-      {
-        id: "keltner20-lower",
-        label: `KC ${config.period} Lower`,
-        color: config.color,
-        data: channel.map((band) => ({ time: band.time, value: band.lower })),
-        lineWidth: 1,
-        lineStyle: 2,
-      },
-    );
-  }
+    if (instance.kind === "donchian") {
+      const channel = donchianChannel(bars, config.period);
+      definitions.push(
+        {
+          id: `${instance.id}-upper`,
+          label: `${label} High`,
+          color: config.color,
+          data: channel.map((band) => ({ time: band.time, value: band.upper })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+        {
+          id: `${instance.id}-mid`,
+          label: `${label} Mid`,
+          color: config.color,
+          data: channel.map((band) => ({ time: band.time, value: band.middle })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+        {
+          id: `${instance.id}-lower`,
+          label: `${label} Low`,
+          color: config.color,
+          data: channel.map((band) => ({ time: band.time, value: band.lower })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+      );
+    }
 
-  if (has("supertrend10")) {
-    const config = settings.supertrend10;
-    definitions.push({
-      id: "supertrend10",
-      label: `SuperTrend ${config.period}`,
-      color: config.color,
-      data: superTrendSeries(bars, config.period, config.stdDev ?? 3),
-      lineWidth: 2,
-      lineStyle: 1,
-    });
+    if (instance.kind === "keltner") {
+      const channel = keltnerChannel(bars, config.period, config.stdDev ?? 2);
+      definitions.push(
+        {
+          id: `${instance.id}-upper`,
+          label: `${label} Upper`,
+          color: config.color,
+          data: channel.map((band) => ({ time: band.time, value: band.upper })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+        {
+          id: `${instance.id}-mid`,
+          label: `${label} Mid`,
+          color: config.color,
+          data: channel.map((band) => ({ time: band.time, value: band.middle })),
+          lineWidth: 1,
+        },
+        {
+          id: `${instance.id}-lower`,
+          label: `${label} Lower`,
+          color: config.color,
+          data: channel.map((band) => ({ time: band.time, value: band.lower })),
+          lineWidth: 1,
+          lineStyle: 2,
+        },
+      );
+    }
+
+    if (instance.kind === "supertrend") {
+      definitions.push({
+        id: instance.id,
+        label,
+        color: config.color,
+        data: superTrendSeries(bars, config.period, config.stdDev ?? 3),
+        lineWidth: 2,
+        lineStyle: 1,
+      });
+    }
   }
 
   return definitions;
-}
-
-export function mergeIndicatorSettings(
-  settings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>> | null,
-): IndicatorSettingsMap {
-  return {
-    atr14: { ...DEFAULT_INDICATOR_SETTINGS.atr14, ...settings?.atr14 },
-    bb20: { ...DEFAULT_INDICATOR_SETTINGS.bb20, ...settings?.bb20 },
-    dema20: { ...DEFAULT_INDICATOR_SETTINGS.dema20, ...settings?.dema20 },
-    donchian20: { ...DEFAULT_INDICATOR_SETTINGS.donchian20, ...settings?.donchian20 },
-    ema20: { ...DEFAULT_INDICATOR_SETTINGS.ema20, ...settings?.ema20 },
-    ema50: { ...DEFAULT_INDICATOR_SETTINGS.ema50, ...settings?.ema50 },
-    hma20: { ...DEFAULT_INDICATOR_SETTINGS.hma20, ...settings?.hma20 },
-    keltner20: { ...DEFAULT_INDICATOR_SETTINGS.keltner20, ...settings?.keltner20 },
-    momentum10: { ...DEFAULT_INDICATOR_SETTINGS.momentum10, ...settings?.momentum10 },
-    rsi14: { ...DEFAULT_INDICATOR_SETTINGS.rsi14, ...settings?.rsi14 },
-    macd: { ...DEFAULT_INDICATOR_SETTINGS.macd, ...settings?.macd },
-    sma200: { ...DEFAULT_INDICATOR_SETTINGS.sma200, ...settings?.sma200 },
-    supertrend10: { ...DEFAULT_INDICATOR_SETTINGS.supertrend10, ...settings?.supertrend10 },
-    tema20: { ...DEFAULT_INDICATOR_SETTINGS.tema20, ...settings?.tema20 },
-    vwap: { ...DEFAULT_INDICATOR_SETTINGS.vwap, ...settings?.vwap },
-    wma20: { ...DEFAULT_INDICATOR_SETTINGS.wma20, ...settings?.wma20 },
-  };
 }
 
 export function rsiSeries(bars: Candle[], period = 14): LineData[] {

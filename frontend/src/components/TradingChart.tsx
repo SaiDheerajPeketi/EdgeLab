@@ -43,8 +43,10 @@ import {
   bucketTime,
   buildIndicatorDefinitions,
   defaultRiskRewardStopPoint,
+  indicatorDisplayName,
   isRiskRewardTool,
   latestIndicatorValue,
+  mergeIndicatorSettings,
   macdSeries,
   momentumSeries,
   normalizeRiskRewardDrawing,
@@ -52,26 +54,24 @@ import {
   rsiSeries,
   toCandles,
   type ChartDrawing,
-  type ChartIndicatorId,
+  type ChartIndicatorInstance,
   type ChartStyle,
   type ChartTimeframe,
   type DrawingLineStyle,
   type DrawingPoint,
   type DrawingTool,
   type MacdData,
-  type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 
 type Props = {
-  activeIndicators: ChartIndicatorId[];
   bars: Candle[];
   chartStyle: ChartStyle;
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
   executions: Execution[];
-  indicatorSettings: IndicatorSettingsMap;
+  indicatorInstances: ChartIndicatorInstance[];
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
@@ -118,13 +118,12 @@ const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
 };
 
 export function TradingChart({
-  activeIndicators,
   bars,
   chartStyle,
   drawingTool,
   drawings,
   executions,
-  indicatorSettings,
+  indicatorInstances,
   onAddDrawing,
   onClearDrawings,
   onDeleteDrawing,
@@ -190,52 +189,84 @@ export function TradingChart({
   );
 
   const indicatorDefinitions = useMemo(
-    () => buildIndicatorDefinitions(displayBars, activeIndicators, indicatorSettings),
-    [activeIndicators, displayBars, indicatorSettings],
+    () => buildIndicatorDefinitions(displayBars, indicatorInstances),
+    [displayBars, indicatorInstances],
   );
 
-  const rsiPeriod = indicatorSettings.rsi14?.period ?? 14;
-  const rsiData = useMemo(
-    () =>
-      activeIndicators.includes("rsi14")
-        ? rsiSeries(displayBars, rsiPeriod)
-        : [],
-    [activeIndicators, displayBars, rsiPeriod],
+  const visibleIndicatorInstances = useMemo(
+    () => indicatorInstances.filter((indicator) => indicator.visible !== false),
+    [indicatorInstances],
   );
-  const macdSettings = indicatorSettings.macd;
-  const macdData = useMemo(
+
+  const rsiStudies = useMemo(
     () =>
-      activeIndicators.includes("macd")
-        ? macdSeries(
-            displayBars,
-            macdSettings.fastPeriod ?? 12,
-            macdSettings.slowPeriod ?? 26,
-            macdSettings.signalPeriod ?? 9,
-          )
-        : null,
-    [
-      activeIndicators,
-      displayBars,
-      macdSettings.fastPeriod,
-      macdSettings.signalPeriod,
-      macdSettings.slowPeriod,
-    ],
+      visibleIndicatorInstances
+        .filter((indicator) => indicator.kind === "rsi")
+        .map((indicator) => {
+          const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          return {
+            color: settings.color,
+            data: rsiSeries(displayBars, settings.period),
+            id: indicator.id,
+            label: indicatorDisplayName({ ...indicator, settings }),
+          };
+        }),
+    [displayBars, visibleIndicatorInstances],
   );
-  const atrPeriod = indicatorSettings.atr14?.period ?? 14;
-  const atrData = useMemo(
+
+  const macdStudies = useMemo(
     () =>
-      activeIndicators.includes("atr14")
-        ? atrSeries(displayBars, atrPeriod)
-        : [],
-    [activeIndicators, atrPeriod, displayBars],
+      visibleIndicatorInstances
+        .filter((indicator) => indicator.kind === "macd")
+        .map((indicator) => {
+          const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          return {
+            color: settings.color,
+            data: macdSeries(
+              displayBars,
+              settings.fastPeriod ?? 12,
+              settings.slowPeriod ?? 26,
+              settings.signalPeriod ?? 9,
+            ),
+            histogramColor: settings.histogramColor ?? "#94a3b8",
+            id: indicator.id,
+            label: indicatorDisplayName({ ...indicator, settings }),
+            signalColor: settings.signalColor ?? "#f59e0b",
+          };
+        }),
+    [displayBars, visibleIndicatorInstances],
   );
-  const momentumPeriod = indicatorSettings.momentum10?.period ?? 10;
-  const momentumData = useMemo(
+
+  const atrStudies = useMemo(
     () =>
-      activeIndicators.includes("momentum10")
-        ? momentumSeries(displayBars, momentumPeriod)
-        : [],
-    [activeIndicators, displayBars, momentumPeriod],
+      visibleIndicatorInstances
+        .filter((indicator) => indicator.kind === "atr")
+        .map((indicator) => {
+          const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          return {
+            color: settings.color,
+            data: atrSeries(displayBars, settings.period),
+            id: indicator.id,
+            label: indicatorDisplayName({ ...indicator, settings }),
+          };
+        }),
+    [displayBars, visibleIndicatorInstances],
+  );
+
+  const momentumStudies = useMemo(
+    () =>
+      visibleIndicatorInstances
+        .filter((indicator) => indicator.kind === "momentum")
+        .map((indicator) => {
+          const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          return {
+            color: settings.color,
+            data: momentumSeries(displayBars, settings.period),
+            id: indicator.id,
+            label: indicatorDisplayName({ ...indicator, settings }),
+          };
+        }),
+    [displayBars, visibleIndicatorInstances],
   );
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
@@ -710,33 +741,51 @@ export function TradingChart({
                   <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
                 </span>
               ))}
-              {rsiData.length > 0 && (
-                <span className="chart-study-pill text-fuchsia-100">
-                  <span className="h-2 w-2 rounded-sm bg-fuchsia-300" />
-                  <span>RSI</span>
-                  <strong>{latestIndicatorValue(rsiData)?.toFixed(2) ?? "—"}</strong>
-                </span>
+              {rsiStudies.map((study) =>
+                study.data.length > 0 ? (
+                  <span className="chart-study-pill" key={`header-${study.id}`}>
+                    <span
+                      className="h-2 w-2 rounded-sm"
+                      style={{ backgroundColor: study.color }}
+                    />
+                    <span>{study.label}</span>
+                    <strong>{latestIndicatorValue(study.data)?.toFixed(2) ?? "—"}</strong>
+                  </span>
+                ) : null,
               )}
-              {macdData && (
-                <span className="chart-study-pill text-blue-100">
-                  <span className="h-2 w-2 rounded-sm bg-blue-300" />
-                  <span>MACD</span>
-                  <strong>{latestIndicatorValue(macdData.macd)?.toFixed(5) ?? "—"}</strong>
+              {macdStudies.map((study) => (
+                <span className="chart-study-pill" key={`header-${study.id}`}>
+                  <span
+                    className="h-2 w-2 rounded-sm"
+                    style={{ backgroundColor: study.color }}
+                  />
+                  <span>{study.label}</span>
+                  <strong>{latestIndicatorValue(study.data.macd)?.toFixed(5) ?? "—"}</strong>
                 </span>
+              ))}
+              {atrStudies.map((study) =>
+                study.data.length > 0 ? (
+                  <span className="chart-study-pill" key={`header-${study.id}`}>
+                    <span
+                      className="h-2 w-2 rounded-sm"
+                      style={{ backgroundColor: study.color }}
+                    />
+                    <span>{study.label}</span>
+                    <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
+                  </span>
+                ) : null,
               )}
-              {atrData.length > 0 && (
-                <span className="chart-study-pill text-orange-100">
-                  <span className="h-2 w-2 rounded-sm bg-orange-300" />
-                  <span>ATR</span>
-                  <strong>{latestIndicatorValue(atrData)?.toFixed(5) ?? "—"}</strong>
-                </span>
-              )}
-              {momentumData.length > 0 && (
-                <span className="chart-study-pill text-violet-100">
-                  <span className="h-2 w-2 rounded-sm bg-violet-300" />
-                  <span>Momentum</span>
-                  <strong>{latestIndicatorValue(momentumData)?.toFixed(5) ?? "—"}</strong>
-                </span>
+              {momentumStudies.map((study) =>
+                study.data.length > 0 ? (
+                  <span className="chart-study-pill" key={`header-${study.id}`}>
+                    <span
+                      className="h-2 w-2 rounded-sm"
+                      style={{ backgroundColor: study.color }}
+                    />
+                    <span>{study.label}</span>
+                    <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
+                  </span>
+                ) : null,
               )}
             </div>
           </div>
@@ -777,32 +826,43 @@ export function TradingChart({
               />
             )}
           </div>
-          {rsiData.length > 0 && <RsiPanel data={rsiData} />}
-          {macdData && (
-            <MacdPanel
-              color={macdSettings.color}
-              data={macdData}
-              histogramColor={macdSettings.histogramColor ?? "#94a3b8"}
-              signalColor={macdSettings.signalColor ?? "#f59e0b"}
+          {rsiStudies.map((study) => (
+            <RsiPanel
+              color={study.color}
+              data={study.data}
+              key={study.id}
+              label={study.label}
             />
-          )}
-          {atrData.length > 0 && (
+          ))}
+          {macdStudies.map((study) => (
+            <MacdPanel
+              color={study.color}
+              data={study.data}
+              histogramColor={study.histogramColor}
+              key={study.id}
+              label={study.label}
+              signalColor={study.signalColor}
+            />
+          ))}
+          {atrStudies.map((study) => (
             <StudyLinePanel
-              color={indicatorSettings.atr14.color}
-              data={atrData}
-              label={`ATR ${atrPeriod}`}
+              color={study.color}
+              data={study.data}
+              key={study.id}
+              label={study.label}
               valueDigits={5}
             />
-          )}
-          {momentumData.length > 0 && (
+          ))}
+          {momentumStudies.map((study) => (
             <StudyLinePanel
-              color={indicatorSettings.momentum10.color}
-              data={momentumData}
-              label={`Momentum ${momentumPeriod}`}
+              color={study.color}
+              data={study.data}
+              key={study.id}
+              label={study.label}
               valueDigits={5}
               zeroLine
             />
-          )}
+          ))}
         </div>
       </div>
 
@@ -955,7 +1015,15 @@ function toAscendingHistogramData(data: HistogramData[]): HistogramData[] {
   );
 }
 
-function RsiPanel({ data }: { data: LineData[] }) {
+function RsiPanel({
+  color,
+  data,
+  label,
+}: {
+  color: string;
+  data: LineData[];
+  label: string;
+}) {
   const visible = data.slice(-160);
   const path = toRsiPath(visible, 960, 96);
   const latest = latestIndicatorValue(data);
@@ -963,15 +1031,15 @@ function RsiPanel({ data }: { data: LineData[] }) {
   return (
     <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">RSI 14</span>
-        <span className="text-fuchsia-100">{latest == null ? "—" : latest.toFixed(1)}</span>
+        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+        <span style={{ color }}>{latest == null ? "—" : latest.toFixed(1)}</span>
       </div>
       <div className="h-24 overflow-hidden rounded-md bg-black/20">
         {visible.length > 1 ? (
           <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
             <path d="M 0 28.8 L 960 28.8" stroke="rgba(34, 197, 94, 0.26)" strokeWidth="1" />
             <path d="M 0 67.2 L 960 67.2" stroke="rgba(251, 113, 133, 0.26)" strokeWidth="1" />
-            <path d={path} fill="none" stroke="#f472b6" strokeWidth="2" />
+            <path d={path} fill="none" stroke={color} strokeWidth="2" />
           </svg>
         ) : (
           <div className="grid h-full place-items-center text-xs text-slate-500">
@@ -987,11 +1055,13 @@ function MacdPanel({
   color,
   data,
   histogramColor,
+  label,
   signalColor,
 }: {
   color: string;
   data: MacdData;
   histogramColor: string;
+  label: string;
   signalColor: string;
 }) {
   const visibleMacd = data.macd.slice(-160);
@@ -1009,7 +1079,7 @@ function MacdPanel({
   return (
     <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">MACD 12 26 9</span>
+        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
         <span className="text-slate-300">
           {latest == null ? "—" : Number(latest).toFixed(5)} / {signalLatest == null ? "—" : Number(signalLatest).toFixed(5)}
         </span>

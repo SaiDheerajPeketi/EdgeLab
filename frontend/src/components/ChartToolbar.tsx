@@ -38,23 +38,24 @@ import {
   INDICATORS,
   TIMEFRAMES,
   getTimeframeSeconds,
-  type ChartIndicatorId,
+  indicatorDisplayName,
+  type ChartIndicatorInstance,
+  type ChartIndicatorKind,
   type ChartStyle,
   type ChartTimeframe,
   type DrawingTool,
   type IndicatorSettings,
-  type IndicatorSettingsMap,
 } from "../lib/charting";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
-  activeIndicators: ChartIndicatorId[];
   chartStyle: ChartStyle;
   drawingTool: DrawingTool;
   drawingsCount: number;
-  indicatorSettings: IndicatorSettingsMap;
+  indicatorInstances: ChartIndicatorInstance[];
   layoutName: string;
   layoutNames: string[];
+  onAddIndicator: (kind: ChartIndicatorKind) => void;
   onClearDrawings: () => void;
   onChartStyleChange: (style: ChartStyle) => void;
   onDeleteLayout: (name: string) => void;
@@ -63,11 +64,11 @@ type Props = {
   onLoadLayout: (name: string) => void;
   onSaveLayout: () => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
-  onToggleIndicator: (indicator: ChartIndicatorId) => void;
+  onRemoveIndicator: (instanceId: string) => void;
   onToggleOrderOverlays: () => void;
   onSmoothCandlesChange: (value: boolean) => void;
   onUpdateIndicatorSettings: (
-    indicator: ChartIndicatorId,
+    instanceId: string,
     settings: Partial<IndicatorSettings>,
   ) => void;
   orderOverlaysVisible: boolean;
@@ -112,13 +113,13 @@ const CHART_STYLES: Array<{
 ];
 
 export function ChartToolbar({
-  activeIndicators,
   chartStyle,
   drawingTool,
   drawingsCount,
-  indicatorSettings,
+  indicatorInstances,
   layoutName,
   layoutNames,
+  onAddIndicator,
   onChartStyleChange,
   onClearDrawings,
   onDeleteLayout,
@@ -127,7 +128,7 @@ export function ChartToolbar({
   onLoadLayout,
   onSaveLayout,
   onTimeframeChange,
-  onToggleIndicator,
+  onRemoveIndicator,
   onToggleOrderOverlays,
   onSmoothCandlesChange,
   onUpdateIndicatorSettings,
@@ -187,9 +188,9 @@ export function ChartToolbar({
               <SlidersHorizontal size={17} />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">TV Workbench</div>
+              <div className="text-sm font-semibold text-white">Chart Workbench</div>
               <div className="truncate text-xs text-slate-500">
-                {timeframe} / {chartStyleLabel(chartStyle)} / {activeIndicators.length} studies / {drawingsCount} drawings
+                {timeframe} / {chartStyleLabel(chartStyle)} / {indicatorInstances.length} studies / {drawingsCount} drawings
               </div>
             </div>
           </div>
@@ -217,7 +218,7 @@ export function ChartToolbar({
           <Search size={14} className="text-slate-500" />
           {commandOpen && (
             <CommandMenu
-              activeIndicators={activeIndicators}
+              indicatorInstances={indicatorInstances}
               onChartStyleChange={selectChartStyle}
               onClose={() => {
                 setCommandOpen(false);
@@ -225,7 +226,7 @@ export function ChartToolbar({
               }}
               onDrawingToolChange={onDrawingToolChange}
               onTimeframeChange={onTimeframeChange}
-              onToggleIndicator={onToggleIndicator}
+              onAddIndicator={onAddIndicator}
               query={commandQuery}
               sourceTimeframe={sourceTimeframe}
             />
@@ -394,18 +395,19 @@ export function ChartToolbar({
           {indicatorMenuOpen && (
             <div className="chart-dropdown-panel left-0 w-72">
               {INDICATORS.map((indicator) => {
-                const active = activeIndicators.includes(indicator.id);
-                const settings = indicatorSettings[indicator.id] ?? FALLBACK_SETTING;
+                const count = indicatorInstances.filter(
+                  (instance) => instance.kind === indicator.kind,
+                ).length;
                 return (
                   <button
-                    className={`chart-dropdown-row ${active ? "chart-dropdown-row-active" : ""}`}
+                    className={`chart-dropdown-row ${count > 0 ? "chart-dropdown-row-active" : ""}`}
                     key={indicator.id}
-                    onClick={() => onToggleIndicator(indicator.id)}
+                    onClick={() => onAddIndicator(indicator.kind)}
                     type="button"
                   >
                     <span
                       className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: settings.color }}
+                      style={{ backgroundColor: indicator.color }}
                     />
                     <span className="min-w-0 flex-1 text-left">
                       <span className="block truncate text-sm font-semibold text-slate-100">
@@ -415,8 +417,8 @@ export function ChartToolbar({
                         {indicator.description}
                       </span>
                     </span>
-                    <span className={active ? "text-cyan-100" : "text-slate-500"}>
-                      {active ? "Remove" : "Add"}
+                    <span className={count > 0 ? "text-cyan-100" : "text-slate-500"}>
+                      {count > 0 ? `Add ${count + 1}` : "Add"}
                     </span>
                   </button>
                 );
@@ -428,7 +430,7 @@ export function ChartToolbar({
         <div ref={settingsRef} className="relative">
           <button
             className="chart-dropdown-trigger"
-            disabled={activeIndicators.length === 0}
+            disabled={indicatorInstances.length === 0}
             onClick={() => {
               setSettingsOpen((value) => !value);
               setIndicatorMenuOpen(false);
@@ -437,21 +439,20 @@ export function ChartToolbar({
           >
             <Settings2 size={15} />
             Settings
-            {activeIndicators.length > 0 && (
+            {indicatorInstances.length > 0 && (
               <span className="rounded bg-cyan-300/15 px-1.5 py-0.5 text-[10px] text-cyan-100">
-                {activeIndicators.length}
+                {indicatorInstances.length}
               </span>
             )}
           </button>
           {settingsOpen && (
             <div className="chart-dropdown-panel left-0 w-[360px]">
-              {activeIndicators.map((indicator) => (
+              {indicatorInstances.map((indicator) => (
                 <IndicatorEditor
                   indicator={indicator}
-                  key={indicator}
-                  onRemove={() => onToggleIndicator(indicator)}
-                  onUpdate={(settings) => onUpdateIndicatorSettings(indicator, settings)}
-                  settings={indicatorSettings[indicator] ?? FALLBACK_SETTING}
+                  key={indicator.id}
+                  onRemove={() => onRemoveIndicator(indicator.id)}
+                  onUpdate={(settings) => onUpdateIndicatorSettings(indicator.id, settings)}
                 />
               ))}
             </div>
@@ -459,21 +460,20 @@ export function ChartToolbar({
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {activeIndicators.map((indicator) => {
-            const definition = INDICATORS.find((item) => item.id === indicator);
-            const settings = indicatorSettings[indicator] ?? FALLBACK_SETTING;
+          {indicatorInstances.map((indicator) => {
+            const settings = indicator.settings ?? FALLBACK_SETTING;
             return (
               <button
                 className="indicator-chip indicator-chip-active"
-                key={indicator}
-                onClick={() => onToggleIndicator(indicator)}
+                key={indicator.id}
+                onClick={() => onRemoveIndicator(indicator.id)}
                 type="button"
               >
                 <span
                   className="h-2 w-2 rounded-full"
                   style={{ backgroundColor: settings.color }}
                 />
-                {definition?.label ?? indicator}
+                {indicatorDisplayName(indicator)}
                 <X size={12} />
               </button>
             );
@@ -481,44 +481,43 @@ export function ChartToolbar({
         </div>
       </div>
 
-      {activeIndicators.length > 0 && (
+      {indicatorInstances.length > 0 && (
         <div className="study-manager-strip">
           <span className="study-manager-label">Active studies</span>
-          {activeIndicators.map((indicator) => {
-            const definition = INDICATORS.find((item) => item.id === indicator);
-            const settings = indicatorSettings[indicator] ?? FALLBACK_SETTING;
-            const isMacd = indicator === "macd";
+          {indicatorInstances.map((indicator) => {
+            const settings = indicator.settings ?? FALLBACK_SETTING;
+            const isMacd = indicator.kind === "macd";
             return (
-              <div className="study-chip" key={indicator}>
+              <div className="study-chip" key={indicator.id}>
                 <span
                   className="h-2.5 w-2.5 rounded-full"
                   style={{ backgroundColor: settings.color }}
                 />
                 <span className="min-w-0 font-semibold">
-                  {definition?.label ?? indicator}
+                  {indicatorDisplayName(indicator)}
                 </span>
                 {isMacd ? (
                   <>
                     <NumberPill
                       label="F"
-                      onChange={(value) => onUpdateIndicatorSettings(indicator, { fastPeriod: value })}
+                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { fastPeriod: value })}
                       value={settings.fastPeriod ?? 12}
                     />
                     <NumberPill
                       label="S"
-                      onChange={(value) => onUpdateIndicatorSettings(indicator, { slowPeriod: value })}
+                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { slowPeriod: value })}
                       value={settings.slowPeriod ?? 26}
                     />
                     <NumberPill
                       label="Sig"
-                      onChange={(value) => onUpdateIndicatorSettings(indicator, { signalPeriod: value })}
+                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { signalPeriod: value })}
                       value={settings.signalPeriod ?? 9}
                     />
                   </>
-                ) : indicator !== "vwap" ? (
+                ) : indicator.kind !== "vwap" ? (
                   <NumberPill
                     label="Len"
-                    onChange={(value) => onUpdateIndicatorSettings(indicator, { period: value })}
+                    onChange={(value) => onUpdateIndicatorSettings(indicator.id, { period: value })}
                     value={settings.period}
                   />
                 ) : (
@@ -529,7 +528,7 @@ export function ChartToolbar({
                 <input
                   className="h-6 w-7 cursor-pointer rounded border border-white/10 bg-ink-950 p-0.5"
                   onChange={(event) =>
-                    onUpdateIndicatorSettings(indicator, { color: event.target.value })
+                    onUpdateIndicatorSettings(indicator.id, { color: event.target.value })
                   }
                   title="Study color"
                   type="color"
@@ -537,7 +536,7 @@ export function ChartToolbar({
                 />
                 <button
                   className="grid h-6 w-6 place-items-center rounded hover:bg-white/10 hover:text-white"
-                  onClick={() => onToggleIndicator(indicator)}
+                  onClick={() => onRemoveIndicator(indicator.id)}
                   title="Remove study"
                   type="button"
                 >
@@ -575,21 +574,21 @@ function NumberPill({
 }
 
 function CommandMenu({
-  activeIndicators,
+  indicatorInstances,
   onChartStyleChange,
   onClose,
   onDrawingToolChange,
   onTimeframeChange,
-  onToggleIndicator,
+  onAddIndicator,
   query,
   sourceTimeframe,
 }: {
-  activeIndicators: ChartIndicatorId[];
+  indicatorInstances: ChartIndicatorInstance[];
   onChartStyleChange: (style: ChartStyle) => void;
   onClose: () => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
-  onToggleIndicator: (indicator: ChartIndicatorId) => void;
+  onAddIndicator: (kind: ChartIndicatorKind) => void;
   query: string;
   sourceTimeframe: ChartTimeframe | null;
 }) {
@@ -604,11 +603,14 @@ function CommandMenu({
     type: string;
   }> = [
     ...INDICATORS.map((indicator) => ({
-      description: activeIndicators.includes(indicator.id) ? "Remove study" : indicator.description,
+      description:
+        indicatorInstances.some((instance) => instance.kind === indicator.kind)
+          ? "Add another configurable instance"
+          : indicator.description,
       icon: Layers,
       id: `indicator-${indicator.id}`,
       label: indicator.label,
-      run: () => onToggleIndicator(indicator.id),
+      run: () => onAddIndicator(indicator.kind),
       type: "Study",
     })),
     ...DRAWING_TOOLS.map((tool) => ({
@@ -711,24 +713,26 @@ function IndicatorEditor({
   indicator,
   onRemove,
   onUpdate,
-  settings,
 }: {
-  indicator: ChartIndicatorId;
+  indicator: ChartIndicatorInstance;
   onRemove: () => void;
   onUpdate: (settings: Partial<IndicatorSettings>) => void;
-  settings: IndicatorSettings;
 }) {
-  const definition = INDICATORS.find((item) => item.id === indicator);
-  const isMacd = indicator === "macd";
-  const supportsPeriod = indicator !== "vwap" && !isMacd;
-  const supportsDeviation = indicator === "bb20";
+  const definition = INDICATORS.find((item) => item.kind === indicator.kind);
+  const settings = indicator.settings ?? FALLBACK_SETTING;
+  const isMacd = indicator.kind === "macd";
+  const supportsPeriod = indicator.kind !== "vwap" && !isMacd;
+  const supportsDeviation =
+    indicator.kind === "bb" ||
+    indicator.kind === "keltner" ||
+    indicator.kind === "supertrend";
 
   return (
     <div className="rounded-md border border-white/10 bg-black/20 p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-white">
-            {definition?.label ?? indicator}
+            {indicatorDisplayName(indicator)}
           </div>
           <div className="truncate text-xs text-slate-500">
             {definition?.description ?? "Custom indicator"}
@@ -800,7 +804,7 @@ function IndicatorEditor({
         )}
         {supportsDeviation && (
           <label className="form-field">
-            <span>Std Dev</span>
+            <span>{indicator.kind === "bb" ? "Std Dev" : "Multiplier"}</span>
             <input
               className="input-control h-9"
               min={0.5}
