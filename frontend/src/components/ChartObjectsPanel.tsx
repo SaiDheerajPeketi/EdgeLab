@@ -327,6 +327,7 @@ function DrawingHoverControls({
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
   const canDelete = !drawing.locked;
+  const hasRenderedLabel = drawing.tool === "text" || Boolean(drawing.label?.trim());
 
   return (
     <div
@@ -407,10 +408,7 @@ function DrawingHoverControls({
         </label>
       )}
 
-      {(drawing.tool === "horizontal" ||
-        drawing.tool === "rectangle" ||
-        drawing.tool === "text" ||
-        drawing.tool === "trendline") && (
+      {hasRenderedLabel && (
         <label className="object-setting-field">
           <span className="flex items-center justify-between">
             <span>Label BG</span>

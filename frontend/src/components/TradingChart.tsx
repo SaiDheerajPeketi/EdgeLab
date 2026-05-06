@@ -1250,6 +1250,7 @@ function FloatingDrawingToolbar({
   const canDelete = !drawing.locked;
   const isFib = drawing.tool === "fib";
   const canLabel = drawing.tool === "text" || isLabelableDrawingTool(drawing.tool);
+  const hasRenderedLabel = drawing.tool === "text" || Boolean(drawing.label?.trim());
   const drawingPresets = isLabelableDrawingTool(drawing.tool)
     ? presets.filter((preset) => preset.tool === drawing.tool)
     : [];
@@ -1384,7 +1385,7 @@ function FloatingDrawingToolbar({
         </label>
       )}
 
-      {canLabel && (
+      {hasRenderedLabel && (
         <label className="chart-object-floating-width" title="Label background opacity">
           <span>BG {labelBackgroundOpacity}%</span>
           <input
