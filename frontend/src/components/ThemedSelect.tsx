@@ -1,5 +1,5 @@
 import { Check, ChevronDown } from "lucide-react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export type ThemedSelectOption = {
@@ -82,8 +82,17 @@ export function ThemedSelect({
     if (value == null) {
       setInternalValue(nextValue);
     }
-    onChange?.(nextValue);
     setOpen(false);
+    onChange?.(nextValue);
+  }
+
+  function handleOptionClick(
+    event: MouseEvent<HTMLButtonElement>,
+    nextValue: string,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    choose(nextValue);
   }
 
   function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -142,7 +151,7 @@ export function ThemedSelect({
                 className={`themed-select-option ${selected ? "themed-select-option-active" : ""}`}
                 disabled={option.disabled}
                 key={option.value}
-                onClick={() => choose(option.value)}
+                onClick={(event) => handleOptionClick(event, option.value)}
                 role="option"
                 type="button"
               >
