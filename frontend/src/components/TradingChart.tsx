@@ -371,6 +371,9 @@ export function TradingChart({
     if (!chartContainerRef.current) {
       return;
     }
+    const initialPrimaryPriceScaleId = primaryPriceScaleIdForPlacement(
+      chartSettings.scalePlacement,
+    );
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -388,6 +391,11 @@ export function TradingChart({
       },
       rightPriceScale: {
         borderColor: "rgba(148, 163, 184, 0.16)",
+        visible: chartSettings.scalePlacement !== "left",
+      },
+      leftPriceScale: {
+        borderColor: "rgba(148, 163, 184, 0.16)",
+        visible: chartSettings.scalePlacement === "left",
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.16)",
@@ -411,6 +419,7 @@ export function TradingChart({
         precision: 5,
         minMove: 0.00001,
       },
+      priceScaleId: initialPrimaryPriceScaleId,
     });
     let line: ISeriesApi<"Line"> | null = null;
     let area: ISeriesApi<"Area"> | null = null;
@@ -425,6 +434,7 @@ export function TradingChart({
           precision: 5,
           minMove: 0.00001,
         },
+        priceScaleId: initialPrimaryPriceScaleId,
       });
       area = chart.addAreaSeries({
         bottomColor: "rgba(50, 211, 238, 0.02)",
@@ -438,6 +448,7 @@ export function TradingChart({
           precision: 5,
           minMove: 0.00001,
         },
+        priceScaleId: initialPrimaryPriceScaleId,
       });
     } catch {
       line = null;
@@ -514,6 +525,7 @@ export function TradingChart({
 
   useEffect(() => {
     const priceFormat = priceFormatFromPrecision(chartSettings.pricePrecision);
+    const primaryPriceScaleId = primaryPriceScaleIdForPlacement(chartSettings.scalePlacement);
     chartRef.current?.applyOptions({
       crosshair: {
         mode: chartSettings.crosshairVisible
@@ -587,6 +599,7 @@ export function TradingChart({
       lastValueVisible: chartSettings.symbolLine !== "hidden",
       priceFormat,
       priceLineVisible: chartSettings.symbolLine === "valueLine",
+      priceScaleId: primaryPriceScaleId,
       upColor: chartSettings.bodyVisible
         ? chartSettings.bodyUpColor
         : colorWithOpacity(chartSettings.bodyUpColor, 0.08),
@@ -598,11 +611,13 @@ export function TradingChart({
       lastValueVisible: chartSettings.symbolLine !== "hidden",
       priceFormat,
       priceLineVisible: chartSettings.symbolLine === "valueLine",
+      priceScaleId: primaryPriceScaleId,
     });
     areaRef.current?.applyOptions({
       lastValueVisible: chartSettings.symbolLine !== "hidden",
       priceFormat,
       priceLineVisible: chartSettings.symbolLine === "valueLine",
+      priceScaleId: primaryPriceScaleId,
     });
     volumeRef.current?.applyOptions({ visible: chartSettings.volume && hasVolumeData });
     setPlotVersion((value) => value + 1);
@@ -613,6 +628,7 @@ export function TradingChart({
     if (!chart) {
       return;
     }
+    const primaryPriceScaleId = primaryPriceScaleIdForPlacement(chartSettings.scalePlacement);
 
     const activeIds = new Set(indicatorDefinitions.map((indicator) => indicator.id));
     Object.entries(indicatorRefs.current).forEach(([id, series]) => {
@@ -630,6 +646,7 @@ export function TradingChart({
           lineStyle: indicator.lineStyle ?? 0,
           priceLineVisible: false,
           lastValueVisible: chartSettings.indicatorValues,
+          priceScaleId: primaryPriceScaleId,
           priceFormat: {
             type: "price",
             precision: chartSettings.pricePrecision,
@@ -643,10 +660,16 @@ export function TradingChart({
         lineStyle: indicator.lineStyle ?? 0,
         lineWidth: indicator.lineWidth ?? 2,
         priceFormat: priceFormatFromPrecision(chartSettings.pricePrecision),
+        priceScaleId: primaryPriceScaleId,
       });
       indicatorRefs.current[indicator.id].setData(toAscendingSeriesData(indicator.data));
     });
-  }, [chartSettings.indicatorValues, chartSettings.pricePrecision, indicatorDefinitions]);
+  }, [
+    chartSettings.indicatorValues,
+    chartSettings.pricePrecision,
+    chartSettings.scalePlacement,
+    indicatorDefinitions,
+  ]);
 
   useEffect(() => {
     const series = candlesRef.current;
@@ -1331,6 +1354,12 @@ function priceFormatFromPrecision(precision: number) {
 
 function minMoveFromPrecision(precision: number) {
   return precision <= 0 ? 1 : 1 / 10 ** precision;
+}
+
+function primaryPriceScaleIdForPlacement(
+  placement: ChartVisualSettings["scalePlacement"],
+) {
+  return placement === "left" ? "left" : "right";
 }
 
 function toLightweightDateFormat(format: ChartVisualSettings["dateFormat"]) {
