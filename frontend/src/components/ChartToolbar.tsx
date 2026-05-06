@@ -511,6 +511,7 @@ export function ChartToolbar({
                 const nextPresets = saveChartSettingsPreset(settingsPresetName, chartSettings);
                 setSettingsPresets(nextPresets);
                 setSettingsPresetName(normalizeChartSettingsPresetName(settingsPresetName));
+                setSettingsOpen(false);
               }}
               onSettingsChange={onChartSettingsChange}
               onUpdateIndicatorSettings={onUpdateIndicatorSettings}
@@ -1034,7 +1035,17 @@ function ChartSettingsPanel({
           placeholder="Template name"
           value={presetName}
         />
-        <button className="studio-tool-button studio-tool-button-active" onClick={onSavePreset} type="button">
+        <button
+          className="studio-tool-button studio-tool-button-active"
+          onClick={() => {
+            try {
+              onSavePreset();
+            } finally {
+              onClose();
+            }
+          }}
+          type="button"
+        >
           <Save size={13} />
           Save
         </button>
