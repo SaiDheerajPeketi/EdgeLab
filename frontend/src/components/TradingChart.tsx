@@ -947,11 +947,6 @@ export function TradingChart({
                 tone={headerPriceTone}
               />
             )}
-            {chartSettings.countdownToBarClose && activeHeaderCandle && (
-              <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Next bar in {formatSeconds(inferBarSeconds(displayBars))}
-              </div>
-            )}
             {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
               <div className="chart-study-row">
                 {activeOverlayIndicators.slice(0, 5).map((indicator) => (
@@ -1373,15 +1368,6 @@ function timeToDate(time: Time) {
     return new Date(Date.UTC(time.year, time.month - 1, time.day));
   }
   return null;
-}
-
-function formatSeconds(seconds: number) {
-  if (seconds < 60) {
-    return `${Math.round(seconds)}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainder = Math.round(seconds % 60);
-  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
 }
 
 function previousDayClose(bars: Candle[]) {

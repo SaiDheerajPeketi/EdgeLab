@@ -15,7 +15,6 @@ export type ChartVisualSettings = {
   candleUpColor: string;
   chartValues: boolean;
   colorBarsByPreviousClose: boolean;
-  countdownToBarClose: boolean;
   crosshairColor: string;
   crosshairVisible: boolean;
   dateFormat: "dd MMM yy" | "MMM dd yyyy" | "yyyy-MM-dd";
@@ -64,7 +63,6 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   candleUpColor: "#22C55E",
   chartValues: true,
   colorBarsByPreviousClose: false,
-  countdownToBarClose: false,
   crosshairColor: "#94A3B8",
   crosshairVisible: true,
   dateFormat: "dd MMM yy",

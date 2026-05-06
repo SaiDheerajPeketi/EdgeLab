@@ -946,13 +946,6 @@ function ChartSettingsPanel({
                   ]}
                   value={settings.timeHoursFormat}
                 />
-                <SettingToggle
-                  checked={settings.countdownToBarClose}
-                  label="Countdown to bar close"
-                  onChange={(countdownToBarClose) =>
-                    updateSettings({ countdownToBarClose })
-                  }
-                />
               </SettingsSection>
             </>
           )}
