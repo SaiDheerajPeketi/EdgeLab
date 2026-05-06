@@ -1,4 +1,9 @@
 import {
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
   PanelLeftClose,
   PanelLeftOpen,
   Pause,
@@ -6,6 +11,7 @@ import {
   RotateCcw,
   SkipForward,
   StepForward,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBacktestStore } from "../store/backtestStore";
@@ -187,10 +193,10 @@ export function ReplayController({
           >
             Go
           </button>
-          <input
-            className="input-control h-10 w-52"
-            onChange={(event) => setJumpTime(event.target.value)}
-            type="datetime-local"
+          <ReplayDateTimePicker
+            currentTimestamp={currentTimestamp}
+            disabled={!state}
+            onChange={setJumpTime}
             value={jumpTime}
           />
           <button
@@ -207,6 +213,207 @@ export function ReplayController({
   );
 }
 
+function ReplayDateTimePicker({
+  currentTimestamp,
+  disabled,
+  onChange,
+  value,
+}: {
+  currentTimestamp: string | null;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const selected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
+  const [viewYear, setViewYear] = useState(() => selected?.year ?? new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => selected?.month ?? new Date().getMonth() + 1);
+  const [draftHour, setDraftHour] = useState(() => selected?.hour ?? 0);
+  const [draftMinute, setDraftMinute] = useState(() => selected?.minute ?? 0);
+
+  useEffect(() => {
+    const nextSelected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
+    if (!nextSelected || open) {
+      return;
+    }
+    setViewYear(nextSelected.year);
+    setViewMonth(nextSelected.month);
+    setDraftHour(nextSelected.hour);
+    setDraftMinute(nextSelected.minute);
+  }, [currentTimestamp, open, value]);
+
+  useEffect(() => {
+    function closeOnOutside(event: PointerEvent) {
+      if (!open || !containerRef.current) {
+        return;
+      }
+      if (!containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  function openPicker() {
+    if (disabled) {
+      return;
+    }
+    const nextSelected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
+    if (nextSelected) {
+      setViewYear(nextSelected.year);
+      setViewMonth(nextSelected.month);
+      setDraftHour(nextSelected.hour);
+      setDraftMinute(nextSelected.minute);
+    }
+    setOpen((isOpen) => !isOpen);
+  }
+
+  function moveMonth(delta: number) {
+    const date = new Date(viewYear, viewMonth - 1 + delta, 1);
+    setViewYear(date.getFullYear());
+    setViewMonth(date.getMonth() + 1);
+  }
+
+  function selectDay(day: number) {
+    onChange(formatReplayDateTime(viewYear, viewMonth, day, draftHour, draftMinute));
+  }
+
+  function applyTime() {
+    const selectedDay = selected?.day ?? 1;
+    const day = Math.min(selectedDay, daysInMonth(viewYear, viewMonth));
+    onChange(formatReplayDateTime(viewYear, viewMonth, day, draftHour, draftMinute));
+    setOpen(false);
+  }
+
+  const cells = calendarCells(viewYear, viewMonth);
+  const displayValue = selected ? formatPickerDisplay(selected) : "Select replay date";
+
+  return (
+    <div className="replay-date-picker" ref={containerRef}>
+      <button
+        className="replay-date-trigger"
+        disabled={disabled}
+        onClick={openPicker}
+        type="button"
+      >
+        <CalendarDays size={15} />
+        <span>{displayValue}</span>
+      </button>
+
+      {open && (
+        <div className="replay-date-popover">
+          <div className="replay-date-popover-header">
+            <button
+              className="replay-date-icon-button"
+              onClick={() => moveMonth(-1)}
+              type="button"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <div className="min-w-0 text-center">
+              <div className="text-sm font-semibold text-white">
+                {MONTH_NAMES[viewMonth - 1]} {viewYear}
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                Replay Date
+              </div>
+            </div>
+            <button
+              className="replay-date-icon-button"
+              onClick={() => moveMonth(1)}
+              type="button"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+
+          <div className="replay-date-weekdays">
+            {WEEKDAY_NAMES.map((day) => (
+              <span key={day}>{day}</span>
+            ))}
+          </div>
+
+          <div className="replay-date-grid">
+            {cells.map((cell) => {
+              const isSelected =
+                cell.day != null &&
+                selected?.year === viewYear &&
+                selected.month === viewMonth &&
+                selected.day === cell.day;
+              return (
+                <button
+                  className={`replay-date-cell ${cell.day == null ? "replay-date-cell-empty" : ""} ${isSelected ? "replay-date-cell-active" : ""}`}
+                  disabled={cell.day == null}
+                  key={cell.key}
+                  onClick={() => cell.day != null && selectDay(cell.day)}
+                  type="button"
+                >
+                  {cell.day ?? ""}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="replay-time-row">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <Clock3 size={13} />
+              Time
+            </span>
+            <label>
+              <span>HH</span>
+              <input
+                max={23}
+                min={0}
+                onChange={(event) => setDraftHour(clampTimePart(event.target.value, 23))}
+                type="number"
+                value={String(draftHour).padStart(2, "0")}
+              />
+            </label>
+            <label>
+              <span>MM</span>
+              <input
+                max={59}
+                min={0}
+                onChange={(event) => setDraftMinute(clampTimePart(event.target.value, 59))}
+                type="number"
+                value={String(draftMinute).padStart(2, "0")}
+              />
+            </label>
+          </div>
+
+          <div className="replay-date-actions">
+            <button className="control-button h-9 px-3 text-xs" onClick={() => setOpen(false)} type="button">
+              <X size={14} />
+              Cancel
+            </button>
+            <button
+              className="control-button h-9 border-cyan-300/30 bg-cyan-300/10 px-3 text-xs text-cyan-100"
+              onClick={applyTime}
+              type="button"
+            >
+              <Check size={14} />
+              Set
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function toReplayInputValue(value: string | null) {
   if (!value) {
     return "";
@@ -218,6 +425,106 @@ function toReplayInputValue(value: string | null) {
 
 function toDatasetTimestamp(value: string) {
   return value.length === 16 ? `${value}:00` : value;
+}
+
+type ReplayDateParts = {
+  day: number;
+  hour: number;
+  minute: number;
+  month: number;
+  year: number;
+};
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+const WEEKDAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function parseReplayDateTime(value: string): ReplayDateParts | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const [, year, month, day, hour, minute] = match;
+  const parts = {
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+    month: Number(month),
+    year: Number(year),
+  };
+  if (
+    !Number.isFinite(parts.year) ||
+    parts.month < 1 ||
+    parts.month > 12 ||
+    parts.day < 1 ||
+    parts.day > daysInMonth(parts.year, parts.month) ||
+    parts.hour < 0 ||
+    parts.hour > 23 ||
+    parts.minute < 0 ||
+    parts.minute > 59
+  ) {
+    return null;
+  }
+  return parts;
+}
+
+function calendarCells(year: number, month: number) {
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const totalDays = daysInMonth(year, month);
+  const cells: Array<{ day: number | null; key: string }> = [];
+  for (let index = 0; index < firstWeekday; index += 1) {
+    cells.push({ day: null, key: `blank-${index}` });
+  }
+  for (let day = 1; day <= totalDays; day += 1) {
+    cells.push({ day, key: `day-${day}` });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ day: null, key: `tail-${cells.length}` });
+  }
+  return cells;
+}
+
+function daysInMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function formatReplayDateTime(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+) {
+  return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
+}
+
+function formatPickerDisplay(parts: ReplayDateParts) {
+  return `${pad2(parts.day)} ${MONTH_NAMES[parts.month - 1].slice(0, 3)} '${String(parts.year).slice(-2)} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
+}
+
+function clampTimePart(value: string, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.min(max, Math.max(0, Math.round(parsed)));
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
 }
 
 function msToBarsPerSecond(value: number) {
