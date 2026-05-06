@@ -35,7 +35,7 @@ export function PendingOrders({ orders }: Props) {
   return (
     <section className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Pending Tape</h2>
+        <h2 className="text-sm font-semibold text-white">Pending Orders</h2>
         <span className="text-xs text-slate-500">{pending.length}</span>
       </div>
       <div className="space-y-2">
@@ -70,7 +70,7 @@ export function PendingOrders({ orders }: Props) {
         ))}
         {pending.length === 0 && (
           <div className="grid h-24 place-items-center rounded-md bg-ink-950 text-sm text-slate-500">
-            No pending queue
+            No pending orders
           </div>
         )}
       </div>

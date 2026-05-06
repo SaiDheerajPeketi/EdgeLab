@@ -124,7 +124,7 @@ export function ChartObjectsPanel({
             <button
               className="icon-button h-8 w-8"
               onClick={onToggleOrderOverlays}
-              title={orderOverlaysVisible ? "Hide tape overlays" : "Show tape overlays"}
+              title={orderOverlaysVisible ? "Hide order overlays" : "Show order overlays"}
               type="button"
             >
               {orderOverlaysVisible ? <Eye size={14} /> : <EyeOff size={14} />}
@@ -140,7 +140,7 @@ export function ChartObjectsPanel({
             <ObjectRow
               active={orderOverlaysVisible}
               icon={Activity}
-              label="Tape & Levels"
+              label="Orders & Levels"
               meta="Entries, exits, SL/TP"
             />
           </div>
