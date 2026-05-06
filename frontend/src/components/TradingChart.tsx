@@ -69,6 +69,7 @@ import {
   type FibLevel,
   type MacdData,
 } from "../lib/charting";
+import type { ChartVisualSettings } from "../lib/chartSettings";
 import { formatPrice } from "../lib/format";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { ThemedColorPicker } from "./ThemedColorPicker";
@@ -80,6 +81,7 @@ const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 
 type Props = {
   bars: Candle[];
+  chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
@@ -163,6 +165,7 @@ const RECTANGLE_EDGE_HANDLE = {
 
 export function TradingChart({
   bars,
+  chartSettings,
   chartStyle,
   drawingTool,
   drawings,
@@ -191,6 +194,7 @@ export function TradingChart({
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const indicatorRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const settingPriceLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Candle[]>([]);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
@@ -204,8 +208,13 @@ export function TradingChart({
   );
 
   const candleData = useMemo(
-    () => toCandles(displayBars, chartStyle === "heikinAshi"),
-    [chartStyle, displayBars],
+    () =>
+      applyCandleVisualSettings(
+        toCandles(displayBars, chartStyle === "heikinAshi"),
+        displayBars,
+        chartSettings,
+      ),
+    [chartSettings, chartStyle, displayBars],
   );
   const closeLineData = useMemo(
     () =>
@@ -225,11 +234,11 @@ export function TradingChart({
           value: bar.volume,
           color:
             bar.close >= bar.open
-              ? "rgba(34, 197, 94, 0.22)"
-              : "rgba(251, 113, 133, 0.24)",
+              ? colorWithOpacity(chartSettings.candleUpColor, 0.22)
+              : colorWithOpacity(chartSettings.candleDownColor, 0.24),
         }),
       ),
-    [displayBars],
+    [chartSettings.candleDownColor, chartSettings.candleUpColor, displayBars],
   );
 
   const indicatorDefinitions = useMemo(
@@ -498,6 +507,102 @@ export function TradingChart({
   }, [chartStyle]);
 
   useEffect(() => {
+    const priceFormat = priceFormatFromPrecision(chartSettings.pricePrecision);
+    chartRef.current?.applyOptions({
+      crosshair: {
+        mode: chartSettings.crosshairVisible
+          ? CrosshairMode.Normal
+          : CrosshairMode.Hidden,
+        horzLine: {
+          color: chartSettings.crosshairColor,
+          labelVisible: chartSettings.crosshairVisible,
+          visible: chartSettings.crosshairVisible,
+        },
+        vertLine: {
+          color: chartSettings.crosshairColor,
+          labelVisible: chartSettings.crosshairVisible,
+          visible: chartSettings.crosshairVisible,
+        },
+      },
+      grid: {
+        horzLines: {
+          color: colorWithOpacity(chartSettings.gridColor, 0.28),
+          visible: chartSettings.gridMode === "both" || chartSettings.gridMode === "horizontal",
+        },
+        vertLines: {
+          color: colorWithOpacity(chartSettings.gridColor, 0.22),
+          visible: chartSettings.gridMode === "both" || chartSettings.gridMode === "vertical",
+        },
+      },
+      layout: {
+        background: { color: chartSettings.backgroundColor },
+        fontSize: chartSettings.textSize,
+        textColor: chartSettings.textColor,
+      },
+      localization: {
+        dateFormat: toLightweightDateFormat(chartSettings.dateFormat),
+        priceFormatter: (price: number) =>
+          price.toFixed(chartSettings.pricePrecision),
+        timeFormatter: (time: Time) => formatChartTime(time, chartSettings),
+      },
+      leftPriceScale: {
+        alignLabels: chartSettings.noOverlappingLabels,
+        borderColor: colorWithOpacity(chartSettings.textColor, 0.16),
+        borderVisible: chartSettings.priceScaleBorderVisible,
+        visible: chartSettings.scalePlacement === "left",
+      },
+      rightPriceScale: {
+        alignLabels: chartSettings.noOverlappingLabels,
+        borderColor: colorWithOpacity(chartSettings.textColor, 0.16),
+        borderVisible: chartSettings.priceScaleBorderVisible,
+        visible: chartSettings.scalePlacement !== "left",
+      },
+      timeScale: {
+        borderColor: colorWithOpacity(chartSettings.textColor, 0.16),
+        borderVisible: chartSettings.priceScaleBorderVisible,
+      },
+      watermark: {
+        color: colorWithOpacity(chartSettings.textColor, 0.08),
+        fontSize: Math.max(26, chartSettings.textSize * 4),
+        text:
+          chartSettings.watermark === "symbol"
+            ? formatMarketSymbol(symbol)
+            : chartSettings.watermarkText,
+        visible: chartSettings.watermark !== "hidden",
+      },
+    });
+    candlesRef.current?.applyOptions({
+      borderDownColor: chartSettings.candleDownColor,
+      borderUpColor: chartSettings.candleUpColor,
+      borderVisible: chartSettings.borderVisible,
+      downColor: chartSettings.bodyVisible
+        ? chartSettings.candleDownColor
+        : colorWithOpacity(chartSettings.candleDownColor, 0.08),
+      lastValueVisible: chartSettings.symbolLine !== "hidden",
+      priceFormat,
+      priceLineVisible: chartSettings.symbolLine === "valueLine",
+      upColor: chartSettings.bodyVisible
+        ? chartSettings.candleUpColor
+        : colorWithOpacity(chartSettings.candleUpColor, 0.08),
+      wickDownColor: chartSettings.candleDownColor,
+      wickUpColor: chartSettings.candleUpColor,
+      wickVisible: chartSettings.wickVisible,
+    });
+    lineRef.current?.applyOptions({
+      lastValueVisible: chartSettings.symbolLine !== "hidden",
+      priceFormat,
+      priceLineVisible: chartSettings.symbolLine === "valueLine",
+    });
+    areaRef.current?.applyOptions({
+      lastValueVisible: chartSettings.symbolLine !== "hidden",
+      priceFormat,
+      priceLineVisible: chartSettings.symbolLine === "valueLine",
+    });
+    volumeRef.current?.applyOptions({ visible: chartSettings.volume });
+    setPlotVersion((value) => value + 1);
+  }, [chartSettings, symbol]);
+
+  useEffect(() => {
     const chart = chartRef.current;
     if (!chart) {
       return;
@@ -518,22 +623,76 @@ export function TradingChart({
           lineWidth: indicator.lineWidth ?? 2,
           lineStyle: indicator.lineStyle ?? 0,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: chartSettings.indicatorValues,
           priceFormat: {
             type: "price",
-            precision: 5,
-            minMove: 0.00001,
+            precision: chartSettings.pricePrecision,
+            minMove: minMoveFromPrecision(chartSettings.pricePrecision),
           },
         });
       }
       indicatorRefs.current[indicator.id].applyOptions({
         color: indicator.color,
+        lastValueVisible: chartSettings.indicatorValues,
         lineStyle: indicator.lineStyle ?? 0,
         lineWidth: indicator.lineWidth ?? 2,
+        priceFormat: priceFormatFromPrecision(chartSettings.pricePrecision),
       });
       indicatorRefs.current[indicator.id].setData(toAscendingSeriesData(indicator.data));
     });
-  }, [indicatorDefinitions]);
+  }, [chartSettings.indicatorValues, chartSettings.pricePrecision, indicatorDefinitions]);
+
+  useEffect(() => {
+    const series = candlesRef.current;
+    if (!series) {
+      return;
+    }
+    settingPriceLinesRef.current.forEach((line) => series.removePriceLine(line));
+    settingPriceLinesRef.current = [];
+
+    const addSettingLine = (
+      price: number | null,
+      title: string,
+      mode: "hidden" | "value" | "valueLine",
+      color: string,
+    ) => {
+      if (price == null || mode === "hidden") {
+        return;
+      }
+      settingPriceLinesRef.current.push(
+        series.createPriceLine({
+          axisLabelVisible: true,
+          color,
+          lineStyle: 2,
+          lineVisible: mode === "valueLine",
+          lineWidth: 1,
+          price,
+          title,
+        }),
+      );
+    };
+
+    addSettingLine(
+      previousDayClose(displayBars),
+      "Prev close",
+      chartSettings.previousDayClose,
+      "#94a3b8",
+    );
+    const extremes = highLowRange(displayBars);
+    addSettingLine(extremes.high, "High", chartSettings.highLowLabels, chartSettings.candleUpColor);
+    addSettingLine(extremes.low, "Low", chartSettings.highLowLabels, chartSettings.candleDownColor);
+
+    return () => {
+      settingPriceLinesRef.current.forEach((line) => series.removePriceLine(line));
+      settingPriceLinesRef.current = [];
+    };
+  }, [
+    chartSettings.candleDownColor,
+    chartSettings.candleUpColor,
+    chartSettings.highLowLabels,
+    chartSettings.previousDayClose,
+    displayBars,
+  ]);
 
   useEffect(() => {
     candlesRef.current?.setMarkers(
@@ -762,78 +921,112 @@ export function TradingChart({
       <div className="chart-stage-header">
         <div className="min-w-0">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
-                {symbolBadge(symbol)}
-              </div>
-              <div>
-                <div className="text-base font-semibold text-white">
-                  {formatMarketSymbol(symbol)}
+            {chartSettings.title && (
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
+                  {symbolBadge(symbol)}
                 </div>
-                <div className="text-xs text-slate-400">
-                  {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
+                <div>
+                  <div className="flex items-center gap-2 text-base font-semibold text-white">
+                    {formatMarketSymbol(symbol)}
+                    {chartSettings.openMarketStatus && (
+                      <span className="rounded border border-emerald-300/20 bg-emerald-300/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+                        Open
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
+                  </div>
                 </div>
               </div>
-            </div>
-            <OhlcvStrip candle={activeHeaderCandle} tone={headerPriceTone} />
-            <div className="chart-study-row">
-              {activeOverlayIndicators.slice(0, 5).map((indicator) => (
-                <span className="chart-study-pill" key={indicator.id}>
-                  <span
-                    className="h-2 w-2 rounded-sm"
-                    style={{ backgroundColor: indicator.color }}
-                  />
-                  <span>{indicator.label}</span>
-                  <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
-                </span>
-              ))}
-              {rsiStudies.map((study) =>
-                study.data.length > 0 ? (
+            )}
+            {(chartSettings.chartValues ||
+              chartSettings.barChangeValues ||
+              chartSettings.volume) && (
+              <OhlcvStrip
+                candle={activeHeaderCandle}
+                showChange={chartSettings.barChangeValues}
+                showOhlc={chartSettings.chartValues}
+                showVolume={chartSettings.volume}
+                tone={headerPriceTone}
+              />
+            )}
+            {chartSettings.countdownToBarClose && activeHeaderCandle && (
+              <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Next bar in {formatSeconds(inferBarSeconds(displayBars))}
+              </div>
+            )}
+            {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
+              <div className="chart-study-row">
+                {activeOverlayIndicators.slice(0, 5).map((indicator) => (
+                  <span className="chart-study-pill" key={indicator.id}>
+                    <span
+                      className="h-2 w-2 rounded-sm"
+                      style={{ backgroundColor: indicator.color }}
+                    />
+                    {chartSettings.indicatorTitles && <span>{indicator.label}</span>}
+                    {chartSettings.indicatorValues && (
+                      <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
+                    )}
+                  </span>
+                ))}
+                {rsiStudies.map((study) =>
+                  study.data.length > 0 ? (
+                    <span className="chart-study-pill" key={`header-${study.id}`}>
+                      <span
+                        className="h-2 w-2 rounded-sm"
+                        style={{ backgroundColor: study.color }}
+                      />
+                      {chartSettings.indicatorTitles && <span>{study.label}</span>}
+                      {chartSettings.indicatorValues && (
+                        <strong>{latestIndicatorValue(study.data)?.toFixed(2) ?? "—"}</strong>
+                      )}
+                    </span>
+                  ) : null,
+                )}
+                {macdStudies.map((study) => (
                   <span className="chart-study-pill" key={`header-${study.id}`}>
                     <span
                       className="h-2 w-2 rounded-sm"
                       style={{ backgroundColor: study.color }}
                     />
-                    <span>{study.label}</span>
-                    <strong>{latestIndicatorValue(study.data)?.toFixed(2) ?? "—"}</strong>
+                    {chartSettings.indicatorTitles && <span>{study.label}</span>}
+                    {chartSettings.indicatorValues && (
+                      <strong>{latestIndicatorValue(study.data.macd)?.toFixed(5) ?? "—"}</strong>
+                    )}
                   </span>
-                ) : null,
-              )}
-              {macdStudies.map((study) => (
-                <span className="chart-study-pill" key={`header-${study.id}`}>
-                  <span
-                    className="h-2 w-2 rounded-sm"
-                    style={{ backgroundColor: study.color }}
-                  />
-                  <span>{study.label}</span>
-                  <strong>{latestIndicatorValue(study.data.macd)?.toFixed(5) ?? "—"}</strong>
-                </span>
-              ))}
-              {atrStudies.map((study) =>
-                study.data.length > 0 ? (
-                  <span className="chart-study-pill" key={`header-${study.id}`}>
-                    <span
-                      className="h-2 w-2 rounded-sm"
-                      style={{ backgroundColor: study.color }}
-                    />
-                    <span>{study.label}</span>
-                    <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
-                  </span>
-                ) : null,
-              )}
-              {momentumStudies.map((study) =>
-                study.data.length > 0 ? (
-                  <span className="chart-study-pill" key={`header-${study.id}`}>
-                    <span
-                      className="h-2 w-2 rounded-sm"
-                      style={{ backgroundColor: study.color }}
-                    />
-                    <span>{study.label}</span>
-                    <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
-                  </span>
-                ) : null,
-              )}
-            </div>
+                ))}
+                {atrStudies.map((study) =>
+                  study.data.length > 0 ? (
+                    <span className="chart-study-pill" key={`header-${study.id}`}>
+                      <span
+                        className="h-2 w-2 rounded-sm"
+                        style={{ backgroundColor: study.color }}
+                      />
+                      {chartSettings.indicatorTitles && <span>{study.label}</span>}
+                      {chartSettings.indicatorValues && (
+                        <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
+                      )}
+                    </span>
+                  ) : null,
+                )}
+                {momentumStudies.map((study) =>
+                  study.data.length > 0 ? (
+                    <span className="chart-study-pill" key={`header-${study.id}`}>
+                      <span
+                        className="h-2 w-2 rounded-sm"
+                        style={{ backgroundColor: study.color }}
+                      />
+                      {chartSettings.indicatorTitles && <span>{study.label}</span>}
+                      {chartSettings.indicatorValues && (
+                        <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
+                      )}
+                    </span>
+                  ) : null,
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -848,8 +1041,26 @@ export function TradingChart({
         />
 
         <div className="relative min-w-0">
-          <div ref={chartFrameRef} className="chart-frame">
-            <div ref={chartContainerRef} className="chart-container-surface" />
+          <div
+            ref={chartFrameRef}
+            className="chart-frame"
+            style={{ backgroundColor: chartSettings.backgroundColor }}
+          >
+            <div
+              ref={chartContainerRef}
+              className="chart-container-surface"
+              style={{ backgroundColor: chartSettings.backgroundColor }}
+            />
+            {chartSettings.plusButton && (
+              <button
+                className="chart-plus-button"
+                onClick={() => onDrawingToolChange("cursor")}
+                title="Quick action"
+                type="button"
+              >
+                <Plus size={15} />
+              </button>
+            )}
             <div
               className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode ? "cursor-crosshair" : "cursor-default"}`}
               onMouseDown={handleDrawingClick}
@@ -858,6 +1069,13 @@ export function TradingChart({
               onMouseUp={stopDrawingDrag}
             >
               <svg className="h-full w-full overflow-visible pointer-events-none">
+                {chartSettings.sessionBreaks &&
+                  buildSessionBreakElements(
+                    displayBars,
+                    chartFrameRef.current,
+                    chartRef.current,
+                    colorWithOpacity(chartSettings.gridColor, 0.55),
+                  )}
                 {drawingElements}
               </svg>
             </div>
@@ -925,9 +1143,15 @@ export function TradingChart({
 
 function OhlcvStrip({
   candle,
+  showChange,
+  showOhlc,
+  showVolume,
   tone,
 }: {
   candle: Candle | null;
+  showChange: boolean;
+  showOhlc: boolean;
+  showVolume: boolean;
   tone: string;
 }) {
   const change =
@@ -942,14 +1166,22 @@ function OhlcvStrip({
       <span className="chart-ohlcv-time">
         {candle ? new Date(candle.timestamp).toLocaleString() : "No candle"}
       </span>
-      <OhlcvValue label="O" value={formatPrice(candle?.open)} tone={tone} />
-      <OhlcvValue label="H" value={formatPrice(candle?.high)} tone={tone} />
-      <OhlcvValue label="L" value={formatPrice(candle?.low)} tone={tone} />
-      <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
-      {hasVolume && <OhlcvValue label="Vol" value={formatCompactNumber(candle.volume)} />}
-      <span className={`chart-ohlcv-change ${tone}`}>
-        {change == null ? "—" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
-      </span>
+      {showOhlc && (
+        <>
+          <OhlcvValue label="O" value={formatPrice(candle?.open)} tone={tone} />
+          <OhlcvValue label="H" value={formatPrice(candle?.high)} tone={tone} />
+          <OhlcvValue label="L" value={formatPrice(candle?.low)} tone={tone} />
+          <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
+        </>
+      )}
+      {showVolume && hasVolume && (
+        <OhlcvValue label="Vol" value={formatCompactNumber(candle.volume)} />
+      )}
+      {showChange && (
+        <span className={`chart-ohlcv-change ${tone}`}>
+          {change == null ? "—" : `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}
+        </span>
+      )}
     </div>
   );
 }
@@ -1066,6 +1298,167 @@ function toAscendingHistogramData(data: HistogramData[]): HistogramData[] {
   return Array.from(byTime.values()).sort(
     (left, right) => Number(left.time) - Number(right.time),
   );
+}
+
+function applyCandleVisualSettings(
+  data: CandlestickData[],
+  bars: Candle[],
+  settings: ChartVisualSettings,
+): CandlestickData[] {
+  return data.map((candle, index) => {
+    const sourceBar = bars[index];
+    if (!sourceBar) {
+      return candle;
+    }
+    const previousBar = bars[index - 1];
+    const isUp = settings.colorBarsByPreviousClose && previousBar
+      ? sourceBar.close >= previousBar.close
+      : sourceBar.close >= sourceBar.open;
+    const color = isUp ? settings.candleUpColor : settings.candleDownColor;
+    return {
+      ...candle,
+      borderColor: color,
+      color: settings.bodyVisible ? color : colorWithOpacity(color, 0.08),
+      wickColor: color,
+    };
+  });
+}
+
+function priceFormatFromPrecision(precision: number) {
+  return {
+    type: "price" as const,
+    precision,
+    minMove: minMoveFromPrecision(precision),
+  };
+}
+
+function minMoveFromPrecision(precision: number) {
+  return precision <= 0 ? 1 : 1 / 10 ** precision;
+}
+
+function toLightweightDateFormat(format: ChartVisualSettings["dateFormat"]) {
+  if (format === "MMM dd yyyy") {
+    return "MMM dd yyyy";
+  }
+  if (format === "yyyy-MM-dd") {
+    return "yyyy-MM-dd";
+  }
+  return "dd MMM 'yy";
+}
+
+function formatChartTime(time: Time, settings: ChartVisualSettings) {
+  const date = timeToDate(time);
+  if (!date) {
+    return String(time);
+  }
+  const options: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    hour12: settings.timeHoursFormat === "12-hour",
+    minute: "2-digit",
+    month: "short",
+  };
+  if (settings.dayOfWeekLabels) {
+    options.weekday = "short";
+  }
+  if (settings.dateFormat === "yyyy-MM-dd") {
+    options.year = "numeric";
+    options.month = "2-digit";
+    options.day = "2-digit";
+  } else {
+    options.day = "2-digit";
+    if (settings.dateFormat === "MMM dd yyyy") {
+      options.year = "numeric";
+    } else {
+      options.year = "2-digit";
+    }
+  }
+  return new Intl.DateTimeFormat(undefined, options).format(date);
+}
+
+function timeToDate(time: Time) {
+  if (typeof time === "number") {
+    return new Date(time * 1000);
+  }
+  if (typeof time === "string") {
+    return new Date(time);
+  }
+  if ("year" in time) {
+    return new Date(Date.UTC(time.year, time.month - 1, time.day));
+  }
+  return null;
+}
+
+function formatSeconds(seconds: number) {
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+function previousDayClose(bars: Candle[]) {
+  const latest = bars.at(-1);
+  if (!latest) {
+    return null;
+  }
+  const latestDay = dayKey(latest.timestamp);
+  for (let index = bars.length - 2; index >= 0; index -= 1) {
+    if (dayKey(bars[index].timestamp) !== latestDay) {
+      return bars[index].close;
+    }
+  }
+  return null;
+}
+
+function highLowRange(bars: Candle[]) {
+  if (bars.length === 0) {
+    return { high: null, low: null };
+  }
+  return bars.reduce(
+    (range, bar) => ({
+      high: Math.max(range.high, bar.high),
+      low: Math.min(range.low, bar.low),
+    }),
+    { high: Number.NEGATIVE_INFINITY, low: Number.POSITIVE_INFINITY },
+  );
+}
+
+function dayKey(timestamp: string) {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function buildSessionBreakElements(
+  bars: Candle[],
+  frame: HTMLDivElement | null,
+  chart: IChartApi | null,
+  color: string,
+) {
+  if (!frame || !chart || bars.length < 2) {
+    return null;
+  }
+  const height = frame.clientHeight;
+  return bars.flatMap((bar, index) => {
+    if (index === 0 || dayKey(bar.timestamp) === dayKey(bars[index - 1].timestamp)) {
+      return [];
+    }
+    const x = chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp);
+    if (x == null || x < 0 || x > frame.clientWidth) {
+      return [];
+    }
+    return (
+      <line
+        key={`session-break-${bar.time}`}
+        stroke={color}
+        strokeDasharray="4 8"
+        strokeWidth="1"
+        x1={x}
+        x2={x}
+        y1={0}
+        y2={height}
+      />
+    );
+  });
 }
 
 function RsiPanel({

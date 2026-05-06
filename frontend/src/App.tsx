@@ -52,6 +52,11 @@ import {
   nextIndicatorInstanceColor,
   normalizeFibLevels,
 } from "./lib/charting";
+import {
+  DEFAULT_CHART_VISUAL_SETTINGS,
+  sanitizeChartVisualSettings,
+  type ChartVisualSettings,
+} from "./lib/chartSettings";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import type { WorkspaceView } from "./lib/workspace";
@@ -137,6 +142,10 @@ export default function App() {
   const [chartStyle, setChartStyle] = useState<ChartStyle>(() => {
     const saved = loadChartLayout();
     return sanitizeChartStyle(saved?.chartStyle);
+  });
+  const [chartSettings, setChartSettings] = useState<ChartVisualSettings>(() => {
+    const saved = loadChartLayout();
+    return sanitizeChartVisualSettings(saved?.chartSettings);
   });
   const [indicatorInstances, setIndicatorInstances] = useState<ChartIndicatorInstance[]>(() => {
     const saved = loadChartLayout();
@@ -474,6 +483,7 @@ export default function App() {
 
   function buildChartLayoutPayload(nextDrawings: ChartDrawing[]): StoredChartLayout {
     return {
+      chartSettings: sanitizeChartVisualSettings(chartSettings),
       chartStyle,
       drawings: sanitizeDrawings(nextDrawings),
       indicatorInstances: sanitizeIndicatorInstances(indicatorInstances),
@@ -512,6 +522,7 @@ export default function App() {
       ),
     );
     setChartStyle(sanitizeChartStyle(layout.chartStyle));
+    setChartSettings(sanitizeChartVisualSettings(layout.chartSettings));
     setDrawings(sanitizeDrawings(layout.drawings));
     setShowOrderOverlays(layout.showOrderOverlays ?? true);
     setSmoothCandles(layout.smoothCandles ?? false);
@@ -763,12 +774,19 @@ export default function App() {
                 />
                 {chartToolsOpen && (
                   <ChartToolbar
+                    chartSettings={chartSettings}
                     chartStyle={chartStyle}
                     clearableDrawingsCount={unlockedDrawingsCount}
                     drawingTool={drawingTool}
                     drawingsCount={drawings.length}
                     indicatorInstances={indicatorInstances}
                     onAddIndicator={addIndicator}
+                    onChartSettingsChange={(settings) =>
+                      setChartSettings(sanitizeChartVisualSettings(settings))
+                    }
+                    onChartSettingsReset={() =>
+                      setChartSettings(DEFAULT_CHART_VISUAL_SETTINGS)
+                    }
                     onChartStyleChange={setChartStyle}
                     onClearDrawings={clearDrawings}
                     layoutName={layoutName}
@@ -794,6 +812,7 @@ export default function App() {
                   <div className="min-w-0 space-y-3">
                     <TradingChart
                       bars={bars}
+                      chartSettings={chartSettings}
                       chartStyle={chartStyle}
                       drawingTool={drawingTool}
                       drawings={drawings}
@@ -955,6 +974,7 @@ export default function App() {
 
 type StoredChartLayout = {
   activeIndicators?: ChartIndicatorId[];
+  chartSettings?: ChartVisualSettings;
   chartStyle: ChartStyle;
   drawings: ChartDrawing[];
   indicatorInstances: ChartIndicatorInstance[];

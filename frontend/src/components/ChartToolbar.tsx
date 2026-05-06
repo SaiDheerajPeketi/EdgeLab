@@ -20,7 +20,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   TvCrosshairIcon,
   TvCursorIcon,
@@ -46,10 +46,19 @@ import {
   type DrawingTool,
   type IndicatorSettings,
 } from "../lib/charting";
+import {
+  deleteChartSettingsPreset,
+  loadChartSettingsPresets,
+  normalizeChartSettingsPresetName,
+  saveChartSettingsPreset,
+  type ChartSettingsPreset,
+  type ChartVisualSettings,
+} from "../lib/chartSettings";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
+  chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   clearableDrawingsCount: number;
   drawingTool: DrawingTool;
@@ -58,6 +67,8 @@ type Props = {
   layoutName: string;
   layoutNames: string[];
   onAddIndicator: (kind: ChartIndicatorKind) => void;
+  onChartSettingsChange: (settings: ChartVisualSettings) => void;
+  onChartSettingsReset: () => void;
   onClearDrawings: () => void;
   onChartStyleChange: (style: ChartStyle) => void;
   onDeleteLayout: (name: string) => void;
@@ -115,6 +126,7 @@ const CHART_STYLES: Array<{
 ];
 
 export function ChartToolbar({
+  chartSettings,
   chartStyle,
   clearableDrawingsCount,
   drawingTool,
@@ -123,6 +135,8 @@ export function ChartToolbar({
   layoutName,
   layoutNames,
   onAddIndicator,
+  onChartSettingsChange,
+  onChartSettingsReset,
   onChartStyleChange,
   onClearDrawings,
   onDeleteLayout,
@@ -144,6 +158,10 @@ export function ChartToolbar({
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPresetName, setSettingsPresetName] = useState("Default");
+  const [settingsPresets, setSettingsPresets] = useState<ChartSettingsPreset[]>(() =>
+    loadChartSettingsPresets(),
+  );
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const commandRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -442,7 +460,6 @@ export function ChartToolbar({
         <div ref={settingsRef} className="relative">
           <button
             className="chart-dropdown-trigger"
-            disabled={indicatorInstances.length === 0}
             onClick={() => {
               setSettingsOpen((value) => !value);
               setIndicatorMenuOpen(false);
@@ -451,23 +468,44 @@ export function ChartToolbar({
           >
             <Settings2 size={15} />
             Settings
-            {indicatorInstances.length > 0 && (
+            {settingsPresets.length > 0 && (
               <span className="rounded bg-cyan-300/15 px-1.5 py-0.5 text-[10px] text-cyan-100">
-                {indicatorInstances.length}
+                {settingsPresets.length}
               </span>
             )}
           </button>
           {settingsOpen && (
-            <div className="chart-dropdown-panel left-0 w-[360px]">
-              {indicatorInstances.map((indicator) => (
-                <IndicatorEditor
-                  indicator={indicator}
-                  key={indicator.id}
-                  onRemove={() => onRemoveIndicator(indicator.id)}
-                  onUpdate={(settings) => onUpdateIndicatorSettings(indicator.id, settings)}
-                />
-              ))}
-            </div>
+            <ChartSettingsPanel
+              indicatorInstances={indicatorInstances}
+              onClose={() => setSettingsOpen(false)}
+              onDeletePreset={(name) => {
+                setSettingsPresets(deleteChartSettingsPreset(name));
+                if (normalizeChartSettingsPresetName(name) === settingsPresetName) {
+                  setSettingsPresetName("Default");
+                }
+              }}
+              onLoadPreset={(name) => {
+                const preset = settingsPresets.find((item) => item.name === name);
+                if (!preset) {
+                  return;
+                }
+                setSettingsPresetName(preset.name);
+                onChartSettingsChange(preset.settings);
+              }}
+              onPresetNameChange={setSettingsPresetName}
+              onRemoveIndicator={onRemoveIndicator}
+              onReset={onChartSettingsReset}
+              onSavePreset={() => {
+                const nextPresets = saveChartSettingsPreset(settingsPresetName, chartSettings);
+                setSettingsPresets(nextPresets);
+                setSettingsPresetName(normalizeChartSettingsPresetName(settingsPresetName));
+              }}
+              onSettingsChange={onChartSettingsChange}
+              onUpdateIndicatorSettings={onUpdateIndicatorSettings}
+              presetName={settingsPresetName}
+              presets={settingsPresets}
+              settings={chartSettings}
+            />
           )}
         </div>
 
@@ -584,6 +622,586 @@ function NumberPill({
     </label>
   );
 }
+
+type ChartSettingsTab = "canvas" | "scales" | "status" | "symbol";
+
+const CHART_SETTINGS_TABS: Array<{ id: ChartSettingsTab; label: string }> = [
+  { id: "symbol", label: "Symbol" },
+  { id: "status", label: "Status line" },
+  { id: "scales", label: "Scales and lines" },
+  { id: "canvas", label: "Canvas" },
+];
+
+function ChartSettingsPanel({
+  indicatorInstances,
+  onClose,
+  onDeletePreset,
+  onLoadPreset,
+  onPresetNameChange,
+  onRemoveIndicator,
+  onReset,
+  onSavePreset,
+  onSettingsChange,
+  onUpdateIndicatorSettings,
+  presetName,
+  presets,
+  settings,
+}: {
+  indicatorInstances: ChartIndicatorInstance[];
+  onClose: () => void;
+  onDeletePreset: (name: string) => void;
+  onLoadPreset: (name: string) => void;
+  onPresetNameChange: (name: string) => void;
+  onRemoveIndicator: (instanceId: string) => void;
+  onReset: () => void;
+  onSavePreset: () => void;
+  onSettingsChange: (settings: ChartVisualSettings) => void;
+  onUpdateIndicatorSettings: (
+    instanceId: string,
+    settings: Partial<IndicatorSettings>,
+  ) => void;
+  presetName: string;
+  presets: ChartSettingsPreset[];
+  settings: ChartVisualSettings;
+}) {
+  const [activeTab, setActiveTab] = useState<ChartSettingsTab>("symbol");
+
+  function updateSettings(patch: Partial<ChartVisualSettings>) {
+    onSettingsChange({ ...settings, ...patch });
+  }
+
+  return (
+    <div className="chart-settings-popover">
+      <div className="chart-settings-header">
+        <div>
+          <div className="text-sm font-semibold text-white">Settings</div>
+          <div className="text-xs text-slate-500">
+            Chart display, scales, labels, and canvas styling
+          </div>
+        </div>
+        <button className="icon-button h-8 w-8" onClick={onClose} type="button">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="chart-settings-body">
+        <nav className="chart-settings-nav" aria-label="Chart settings sections">
+          {CHART_SETTINGS_TABS.map((tab) => (
+            <button
+              className={`chart-settings-nav-button ${activeTab === tab.id ? "chart-settings-nav-button-active" : ""}`}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="chart-settings-content">
+          {activeTab === "symbol" && (
+            <>
+              <SettingsSection title="Visibility">
+                <SettingToggle
+                  checked={settings.title}
+                  label="Title"
+                  onChange={(title) => updateSettings({ title })}
+                />
+                <SettingToggle
+                  checked={settings.openMarketStatus}
+                  label="Open market status"
+                  onChange={(openMarketStatus) => updateSettings({ openMarketStatus })}
+                />
+                <SettingToggle
+                  checked={settings.chartValues}
+                  label="Chart values"
+                  onChange={(chartValues) => updateSettings({ chartValues })}
+                />
+                <SettingToggle
+                  checked={settings.barChangeValues}
+                  label="Bar change values"
+                  onChange={(barChangeValues) => updateSettings({ barChangeValues })}
+                />
+                <SettingToggle
+                  checked={settings.volume}
+                  label="Volume"
+                  onChange={(volume) => updateSettings({ volume })}
+                />
+              </SettingsSection>
+
+              <SettingsSection title="Candles">
+                <SettingToggle
+                  checked={settings.colorBarsByPreviousClose}
+                  label="Color bars based on previous close"
+                  onChange={(colorBarsByPreviousClose) =>
+                    updateSettings({ colorBarsByPreviousClose })
+                  }
+                />
+                <CandleColorSetting
+                  checked={settings.bodyVisible}
+                  downColor={settings.candleDownColor}
+                  label="Body"
+                  onCheckedChange={(bodyVisible) => updateSettings({ bodyVisible })}
+                  onDownColorChange={(candleDownColor) => updateSettings({ candleDownColor })}
+                  onUpColorChange={(candleUpColor) => updateSettings({ candleUpColor })}
+                  upColor={settings.candleUpColor}
+                />
+                <CandleColorSetting
+                  checked={settings.borderVisible}
+                  downColor={settings.candleDownColor}
+                  label="Borders"
+                  onCheckedChange={(borderVisible) => updateSettings({ borderVisible })}
+                  onDownColorChange={(candleDownColor) => updateSettings({ candleDownColor })}
+                  onUpColorChange={(candleUpColor) => updateSettings({ candleUpColor })}
+                  upColor={settings.candleUpColor}
+                />
+                <CandleColorSetting
+                  checked={settings.wickVisible}
+                  downColor={settings.candleDownColor}
+                  label="Wick"
+                  onCheckedChange={(wickVisible) => updateSettings({ wickVisible })}
+                  onDownColorChange={(candleDownColor) => updateSettings({ candleDownColor })}
+                  onUpColorChange={(candleUpColor) => updateSettings({ candleUpColor })}
+                  upColor={settings.candleUpColor}
+                />
+                <NumberSetting
+                  label="Precision"
+                  max={8}
+                  min={0}
+                  onChange={(pricePrecision) => updateSettings({ pricePrecision })}
+                  value={settings.pricePrecision}
+                />
+              </SettingsSection>
+            </>
+          )}
+
+          {activeTab === "status" && (
+            <>
+              <SettingsSection title="Status line">
+                <SettingToggle
+                  checked={settings.indicatorTitles}
+                  label="Indicator titles"
+                  onChange={(indicatorTitles) => updateSettings({ indicatorTitles })}
+                />
+                <SettingToggle
+                  checked={settings.indicatorValues}
+                  label="Indicator values"
+                  onChange={(indicatorValues) => updateSettings({ indicatorValues })}
+                />
+                <SelectSetting
+                  label="Symbol"
+                  onChange={(symbolLine) =>
+                    updateSettings({ symbolLine: symbolLine as ChartVisualSettings["symbolLine"] })
+                  }
+                  options={visibilityOptions}
+                  value={settings.symbolLine}
+                />
+                <SelectSetting
+                  label="Previous day close"
+                  onChange={(previousDayClose) =>
+                    updateSettings({
+                      previousDayClose:
+                        previousDayClose as ChartVisualSettings["previousDayClose"],
+                    })
+                  }
+                  options={visibilityOptions}
+                  value={settings.previousDayClose}
+                />
+                <SelectSetting
+                  label="High and low"
+                  onChange={(highLowLabels) =>
+                    updateSettings({
+                      highLowLabels: highLowLabels as ChartVisualSettings["highLowLabels"],
+                    })
+                  }
+                  options={visibilityOptions}
+                  value={settings.highLowLabels}
+                />
+              </SettingsSection>
+
+              <SettingsSection title="Active indicators">
+                {indicatorInstances.length === 0 ? (
+                  <div className="chart-settings-empty">No active studies.</div>
+                ) : (
+                  indicatorInstances.map((indicator) => (
+                    <IndicatorEditor
+                      indicator={indicator}
+                      key={indicator.id}
+                      onRemove={() => onRemoveIndicator(indicator.id)}
+                      onUpdate={(nextSettings) =>
+                        onUpdateIndicatorSettings(indicator.id, nextSettings)
+                      }
+                    />
+                  ))
+                )}
+              </SettingsSection>
+            </>
+          )}
+
+          {activeTab === "scales" && (
+            <>
+              <SettingsSection title="Price scale">
+                <SelectSetting
+                  label="Scale placement"
+                  onChange={(scalePlacement) =>
+                    updateSettings({
+                      scalePlacement: scalePlacement as ChartVisualSettings["scalePlacement"],
+                    })
+                  }
+                  options={[
+                    { label: "Auto", value: "auto" },
+                    { label: "Right", value: "right" },
+                    { label: "Left", value: "left" },
+                  ]}
+                  value={settings.scalePlacement}
+                />
+                <SettingToggle
+                  checked={settings.priceScaleBorderVisible}
+                  label="Scale border"
+                  onChange={(priceScaleBorderVisible) =>
+                    updateSettings({ priceScaleBorderVisible })
+                  }
+                />
+                <SettingToggle
+                  checked={settings.noOverlappingLabels}
+                  label="No overlapping labels"
+                  onChange={(noOverlappingLabels) =>
+                    updateSettings({ noOverlappingLabels })
+                  }
+                />
+              </SettingsSection>
+
+              <SettingsSection title="Grid and sessions">
+                <SelectSetting
+                  label="Grid lines"
+                  onChange={(gridMode) =>
+                    updateSettings({ gridMode: gridMode as ChartVisualSettings["gridMode"] })
+                  }
+                  options={[
+                    { label: "Vertical and horizontal", value: "both" },
+                    { label: "Horizontal", value: "horizontal" },
+                    { label: "Vertical", value: "vertical" },
+                    { label: "Hidden", value: "none" },
+                  ]}
+                  value={settings.gridMode}
+                />
+                <ColorSetting
+                  label="Grid color"
+                  onChange={(gridColor) => updateSettings({ gridColor })}
+                  value={settings.gridColor}
+                />
+                <SettingToggle
+                  checked={settings.sessionBreaks}
+                  label="Session breaks"
+                  onChange={(sessionBreaks) => updateSettings({ sessionBreaks })}
+                />
+              </SettingsSection>
+
+              <SettingsSection title="Time scale">
+                <SettingToggle
+                  checked={settings.dayOfWeekLabels}
+                  label="Day of week on labels"
+                  onChange={(dayOfWeekLabels) => updateSettings({ dayOfWeekLabels })}
+                />
+                <SelectSetting
+                  label="Date format"
+                  onChange={(dateFormat) =>
+                    updateSettings({ dateFormat: dateFormat as ChartVisualSettings["dateFormat"] })
+                  }
+                  options={[
+                    { label: "Mon 29 Sep '97", value: "dd MMM yy" },
+                    { label: "Sep 29 1997", value: "MMM dd yyyy" },
+                    { label: "1997-09-29", value: "yyyy-MM-dd" },
+                  ]}
+                  value={settings.dateFormat}
+                />
+                <SelectSetting
+                  label="Time hours format"
+                  onChange={(timeHoursFormat) =>
+                    updateSettings({
+                      timeHoursFormat:
+                        timeHoursFormat as ChartVisualSettings["timeHoursFormat"],
+                    })
+                  }
+                  options={[
+                    { label: "24-hours", value: "24-hour" },
+                    { label: "12-hours", value: "12-hour" },
+                  ]}
+                  value={settings.timeHoursFormat}
+                />
+                <SettingToggle
+                  checked={settings.countdownToBarClose}
+                  label="Countdown to bar close"
+                  onChange={(countdownToBarClose) =>
+                    updateSettings({ countdownToBarClose })
+                  }
+                />
+                <SettingToggle
+                  checked={settings.plusButton}
+                  label="Plus button"
+                  onChange={(plusButton) => updateSettings({ plusButton })}
+                />
+              </SettingsSection>
+            </>
+          )}
+
+          {activeTab === "canvas" && (
+            <>
+              <SettingsSection title="Canvas">
+                <ColorSetting
+                  label="Background"
+                  onChange={(backgroundColor) => updateSettings({ backgroundColor })}
+                  value={settings.backgroundColor}
+                />
+                <ColorSetting
+                  label="Text"
+                  onChange={(textColor) => updateSettings({ textColor })}
+                  value={settings.textColor}
+                />
+                <NumberSetting
+                  label="Text size"
+                  max={18}
+                  min={10}
+                  onChange={(textSize) => updateSettings({ textSize })}
+                  value={settings.textSize}
+                />
+                <SettingToggle
+                  checked={settings.crosshairVisible}
+                  label="Crosshair"
+                  onChange={(crosshairVisible) => updateSettings({ crosshairVisible })}
+                />
+                <ColorSetting
+                  label="Crosshair color"
+                  onChange={(crosshairColor) => updateSettings({ crosshairColor })}
+                  value={settings.crosshairColor}
+                />
+              </SettingsSection>
+
+              <SettingsSection title="Watermark">
+                <SelectSetting
+                  label="Watermark"
+                  onChange={(watermark) =>
+                    updateSettings({ watermark: watermark as ChartVisualSettings["watermark"] })
+                  }
+                  options={[
+                    { label: "Hidden", value: "hidden" },
+                    { label: "Symbol", value: "symbol" },
+                    { label: "Text", value: "text" },
+                  ]}
+                  value={settings.watermark}
+                />
+                <label className="chart-settings-field">
+                  <span>Watermark text</span>
+                  <input
+                    className="input-control h-9"
+                    onChange={(event) =>
+                      updateSettings({ watermarkText: event.target.value })
+                    }
+                    value={settings.watermarkText}
+                  />
+                </label>
+              </SettingsSection>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="chart-settings-footer">
+        <span className="study-manager-label">Template</span>
+        <ThemedSelect
+          ariaLabel="Settings templates"
+          className="h-8 w-44"
+          onChange={onLoadPreset}
+          options={
+            presets.length > 0
+              ? [
+                  { disabled: true, label: "Saved templates", value: "" },
+                  ...presets.map((preset) => ({
+                    label: preset.name,
+                    sublabel: new Date(preset.updatedAt).toLocaleDateString(),
+                    value: preset.name,
+                  })),
+                ]
+              : [{ disabled: true, label: "No saved templates", value: "" }]
+          }
+          value={presets.some((preset) => preset.name === presetName) ? presetName : ""}
+        />
+        <input
+          className="input-control h-8 min-w-32 flex-1 text-xs"
+          onChange={(event) => onPresetNameChange(event.target.value)}
+          placeholder="Template name"
+          value={presetName}
+        />
+        <button className="studio-tool-button studio-tool-button-active" onClick={onSavePreset} type="button">
+          <Save size={13} />
+          Save
+        </button>
+        <button
+          className="studio-tool-button"
+          disabled={!presets.some((preset) => preset.name === presetName)}
+          onClick={() => onDeletePreset(presetName)}
+          type="button"
+        >
+          <Trash2 size={13} />
+          Delete
+        </button>
+        <button className="studio-tool-button" onClick={onReset} type="button">
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SettingsSection({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="chart-settings-section">
+      <div className="chart-settings-section-title">{title}</div>
+      <div className="chart-settings-section-grid">{children}</div>
+    </section>
+  );
+}
+
+function SettingToggle({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="chart-settings-toggle">
+      <input
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        type="checkbox"
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function CandleColorSetting({
+  checked,
+  downColor,
+  label,
+  onCheckedChange,
+  onDownColorChange,
+  onUpColorChange,
+  upColor,
+}: {
+  checked: boolean;
+  downColor: string;
+  label: string;
+  onCheckedChange: (value: boolean) => void;
+  onDownColorChange: (value: string) => void;
+  onUpColorChange: (value: string) => void;
+  upColor: string;
+}) {
+  return (
+    <div className="chart-settings-candle-row">
+      <SettingToggle checked={checked} label={label} onChange={onCheckedChange} />
+      <div className="chart-settings-color-pair">
+        <ThemedColorPicker
+          ariaLabel={`${label} up color`}
+          compact
+          onChange={onUpColorChange}
+          value={upColor}
+        />
+        <ThemedColorPicker
+          ariaLabel={`${label} down color`}
+          compact
+          onChange={onDownColorChange}
+          value={downColor}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ColorSetting({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="chart-settings-field chart-settings-color-field">
+      <span>{label}</span>
+      <ThemedColorPicker ariaLabel={label} compact onChange={onChange} value={value} />
+    </label>
+  );
+}
+
+function NumberSetting({
+  label,
+  max,
+  min,
+  onChange,
+  value,
+}: {
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  return (
+    <label className="chart-settings-field">
+      <span>{label}</span>
+      <input
+        className="input-control h-9"
+        max={max}
+        min={min}
+        onChange={(event) => onChange(clampInteger(event.target.value, min, max))}
+        type="number"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function SelectSetting({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  return (
+    <label className="chart-settings-field">
+      <span>{label}</span>
+      <ThemedSelect
+        ariaLabel={label}
+        className="h-9"
+        onChange={onChange}
+        options={options}
+        value={value}
+      />
+    </label>
+  );
+}
+
+const visibilityOptions = [
+  { label: "Hidden", value: "hidden" },
+  { label: "Value", value: "value" },
+  { label: "Value, line", value: "valueLine" },
+];
 
 function CommandMenu({
   indicatorInstances,
