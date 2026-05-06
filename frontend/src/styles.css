@@ -288,7 +288,7 @@ button:disabled {
   }
 
   .backtest-focus-header {
-    @apply sticky top-3 z-40 rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
+    @apply sticky top-3 z-[90] rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
     background-image:
       linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 42%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
@@ -533,7 +533,7 @@ button:disabled {
 
   .chart-settings-popover {
     @apply fixed z-50 grid grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
-    --chart-settings-popover-top: clamp(72px, 8vh, 112px);
+    --chart-settings-popover-top: clamp(132px, 12vh, 156px);
     left: max(16px, calc(50vw - 430px));
     top: var(--chart-settings-popover-top);
     width: min(860px, calc(100vw - 32px));
@@ -546,7 +546,7 @@ button:disabled {
 
   @media (max-width: 720px) {
     .chart-settings-popover {
-      --chart-settings-popover-top: 64px;
+      --chart-settings-popover-top: 112px;
       left: 12px;
       width: calc(100vw - 24px);
     }

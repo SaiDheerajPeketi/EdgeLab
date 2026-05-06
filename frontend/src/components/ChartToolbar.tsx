@@ -183,14 +183,18 @@ export function ChartToolbar({
   useEffect(() => {
     function closeOnOutsideClick(event: globalThis.PointerEvent) {
       const target = event.target as Node;
+      const targetElement = target instanceof Element ? target : null;
+      if (
+        targetElement?.closest("[data-chart-header-control]") ||
+        targetElement?.closest(".backtest-focus-header")
+      ) {
+        return;
+      }
       if (menuRef.current && !menuRef.current.contains(target)) {
         setIndicatorMenuOpen(false);
       }
       if (commandRef.current && !commandRef.current.contains(target)) {
         setCommandOpen(false);
-      }
-      if (settingsRef.current && !settingsRef.current.contains(target)) {
-        setSettingsOpen(false);
       }
     }
 
@@ -199,17 +203,18 @@ export function ChartToolbar({
   }, []);
 
   useEffect(() => {
-    if (settingsOpenSignal <= 0) {
+    if (settingsOpenSignal <= 0 || toolsOpen) {
       return;
     }
 
     setCommandOpen(false);
     setIndicatorMenuOpen(false);
     setSettingsOpen(true);
-  }, [settingsOpenSignal]);
+  }, [settingsOpenSignal, toolsOpen]);
 
   useEffect(() => {
     if (toolsOpen) {
+      setSettingsOpen(false);
       return;
     }
     setCommandOpen(false);

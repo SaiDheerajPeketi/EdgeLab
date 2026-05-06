@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
   AlertTriangle,
   Clock3,
@@ -136,6 +136,7 @@ export default function App() {
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
+  const skipNextToolsClickRef = useRef(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
@@ -201,6 +202,54 @@ export default function App() {
     }, speedMs);
     return () => window.clearInterval(timer);
   }, [isPlaying, speedMs, stepForward]);
+
+  useEffect(() => {
+    function handleHeaderControlPointerDown(event: PointerEvent) {
+      if (!document.querySelector(".chart-settings-popover")) {
+        return;
+      }
+
+      const target = event.target instanceof Element ? event.target : null;
+      const hitElements =
+        typeof document.elementsFromPoint === "function"
+          ? document.elementsFromPoint(event.clientX, event.clientY)
+          : [];
+      const toolsButton = document.querySelector(
+        '[data-chart-header-control="tools"]',
+      );
+      const toolsRect = toolsButton?.getBoundingClientRect();
+      const hitsToolsRect = toolsRect
+        ? event.clientX >= toolsRect.left &&
+          event.clientX <= toolsRect.right &&
+          event.clientY >= toolsRect.top &&
+          event.clientY <= toolsRect.bottom
+        : false;
+      const hitsTools =
+        target?.closest('[data-chart-header-control="tools"]') ||
+        hitsToolsRect ||
+        hitElements.some((element) =>
+          element.closest('[data-chart-header-control="tools"]'),
+        );
+
+      if (!hitsTools) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      skipNextToolsClickRef.current = true;
+      if (toolsButton instanceof HTMLElement) {
+        toolsButton.focus({ preventScroll: true });
+      }
+      setChartSettingsPanelOpen(false);
+      setChartToolsOpen(true);
+    }
+
+    document.addEventListener("pointerdown", handleHeaderControlPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", handleHeaderControlPointerDown, true);
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -535,10 +584,40 @@ export default function App() {
   }
 
   function toggleChartTools() {
+    setChartSettingsPanelOpen(false);
     setChartToolsOpen((value) => !value);
   }
 
+  function openChartTools() {
+    setChartSettingsPanelOpen(false);
+    setChartToolsOpen(true);
+  }
+
+  function handleChartToolsPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!chartSettingsPanelOpen) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    skipNextToolsClickRef.current = true;
+    event.currentTarget.focus({ preventScroll: true });
+    openChartTools();
+  }
+
+  function handleChartToolsClick() {
+    if (skipNextToolsClickRef.current) {
+      skipNextToolsClickRef.current = false;
+      return;
+    }
+    if (chartSettingsPanelOpen) {
+      openChartTools();
+      return;
+    }
+    toggleChartTools();
+  }
+
   function openChartSettings() {
+    setChartToolsOpen(false);
     setChartSettingsPanelOpen(true);
     setChartSettingsOpenSignal((value) => value + 1);
   }
@@ -688,7 +767,9 @@ export default function App() {
               </button>
               <button
                 className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartToolsOpen ? "workspace-tab-active" : ""}`}
-                onClick={toggleChartTools}
+                data-chart-header-control="tools"
+                onClick={handleChartToolsClick}
+                onPointerDown={handleChartToolsPointerDown}
                 type="button"
               >
                 <SlidersHorizontal size={14} />
@@ -696,6 +777,7 @@ export default function App() {
               </button>
               <button
                 className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`}
+                data-chart-header-control="settings"
                 onClick={openChartSettings}
                 type="button"
               >
@@ -800,6 +882,7 @@ export default function App() {
                 />
                 {(chartToolsOpen || chartSettingsPanelOpen) && (
                   <ChartToolbar
+                    key={chartToolsOpen ? "chart-tools" : "chart-settings"}
                     chartSettings={chartSettings}
                     chartStyle={chartStyle}
                     clearableDrawingsCount={unlockedDrawingsCount}
