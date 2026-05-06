@@ -1256,6 +1256,9 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       (candidate.fibExtendRight == null ||
         typeof candidate.fibExtendRight === "boolean") &&
       (candidate.label == null || typeof candidate.label === "string") &&
+      (candidate.labelBackgroundOpacity == null ||
+        (typeof candidate.labelBackgroundOpacity === "number" &&
+          Number.isFinite(candidate.labelBackgroundOpacity))) &&
       (candidate.lineStyle == null ||
         ["solid", "dashed", "dotted"].includes(candidate.lineStyle)) &&
       (candidate.lineWidth == null ||

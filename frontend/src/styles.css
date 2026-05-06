@@ -72,6 +72,43 @@ button:disabled {
     color-scheme: dark;
   }
 
+  .themed-color-picker {
+    @apply flex h-9 min-w-0 items-center gap-1 rounded-md border border-cyan-300/15 bg-[#060a0f] p-1 transition focus-within:border-cyan-300/45 focus-within:ring-2 focus-within:ring-cyan-300/15 hover:border-cyan-300/30;
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
+      linear-gradient(90deg, rgba(50, 211, 238, 0.06), transparent 48%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.025),
+      0 8px 24px rgba(0, 0, 0, 0.14);
+  }
+
+  .themed-color-picker-compact {
+    @apply h-8;
+  }
+
+  .themed-color-swatch {
+    @apply relative grid h-7 w-7 shrink-0 cursor-pointer place-items-center overflow-hidden rounded border border-white/10 bg-black/35 transition hover:border-cyan-300/40;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+      0 0 16px color-mix(in srgb, var(--selected-color) 24%, transparent);
+  }
+
+  .themed-color-swatch span {
+    @apply block h-[18px] w-[18px] rounded-sm border border-white/30;
+  }
+
+  .themed-color-swatch input {
+    @apply absolute inset-0 cursor-pointer opacity-0;
+  }
+
+  .themed-color-hex {
+    @apply h-7 w-[92px] min-w-0 rounded border border-white/10 bg-black/30 px-2 font-mono text-[11px] font-bold uppercase tracking-normal text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
+  }
+
+  .themed-color-picker-compact .themed-color-hex {
+    @apply w-[78px] text-[10px];
+  }
+
   .themed-select {
     @apply relative min-w-0;
   }
@@ -412,6 +449,22 @@ button:disabled {
     @apply inline-flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
   }
 
+  .study-chip-color {
+    @apply h-7;
+  }
+
+  .study-chip-color .themed-color-swatch {
+    @apply h-6 w-6;
+  }
+
+  .study-chip-color .themed-color-swatch span {
+    @apply h-3.5 w-3.5;
+  }
+
+  .study-chip-color .themed-color-hex {
+    @apply h-6 w-[74px];
+  }
+
   .study-number-pill {
     @apply inline-flex h-6 items-center overflow-hidden rounded border border-white/10 bg-ink-950 text-[10px] text-slate-500;
   }
@@ -622,16 +675,8 @@ button:disabled {
     @apply min-h-0 px-2 text-xs;
   }
 
-  .chart-object-floating-color {
-    @apply relative grid h-8 w-8 cursor-pointer place-items-center rounded border border-white/10 bg-white/5 transition hover:border-white/20 hover:bg-white/10;
-  }
-
-  .chart-object-floating-color span {
-    @apply block h-4 w-4 rounded-sm border border-white/30;
-  }
-
-  .chart-object-floating-color input {
-    @apply absolute inset-0 cursor-pointer opacity-0;
+  .chart-object-floating-picker {
+    @apply h-8;
   }
 
   .chart-object-floating-style {
@@ -693,7 +738,7 @@ button:disabled {
   }
 
   .fib-level-row {
-    @apply grid grid-cols-[18px_28px_72px_minmax(0,1fr)_24px] items-center gap-2 rounded bg-white/[0.03] px-2 py-1;
+    @apply grid grid-cols-[18px_116px_72px_minmax(0,1fr)_24px] items-center gap-2 rounded bg-white/[0.03] px-2 py-1;
   }
 
   .fib-level-row > input[type="checkbox"] {
@@ -701,7 +746,11 @@ button:disabled {
   }
 
   .fib-level-color {
-    @apply h-6 w-7 cursor-pointer rounded border border-white/10 bg-ink-950 p-0.5;
+    @apply h-7;
+  }
+
+  .fib-level-color .themed-color-hex {
+    @apply w-[70px];
   }
 
   .fib-level-value {

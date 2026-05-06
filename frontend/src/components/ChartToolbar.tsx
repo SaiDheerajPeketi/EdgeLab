@@ -46,6 +46,7 @@ import {
   type DrawingTool,
   type IndicatorSettings,
 } from "../lib/charting";
+import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
@@ -525,13 +526,13 @@ export function ChartToolbar({
                     Session
                   </span>
                 )}
-                <input
-                  className="h-6 w-7 cursor-pointer rounded border border-white/10 bg-ink-950 p-0.5"
-                  onChange={(event) =>
-                    onUpdateIndicatorSettings(indicator.id, { color: event.target.value })
+                <ThemedColorPicker
+                  ariaLabel="Study color"
+                  className="study-chip-color"
+                  compact
+                  onChange={(color) =>
+                    onUpdateIndicatorSettings(indicator.id, { color })
                   }
-                  title="Study color"
-                  type="color"
                   value={settings.color}
                 />
                 <button
@@ -817,10 +818,9 @@ function IndicatorEditor({
         )}
         <label className="form-field">
           <span>Color</span>
-          <input
-            className="h-9 w-full cursor-pointer rounded-md border border-white/10 bg-ink-950 p-1"
-            onChange={(event) => onUpdate({ color: event.target.value })}
-            type="color"
+          <ThemedColorPicker
+            ariaLabel="Indicator color"
+            onChange={(color) => onUpdate({ color })}
             value={settings.color}
           />
         </label>

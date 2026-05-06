@@ -70,9 +70,11 @@ import {
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
+import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
 const DRAWING_PRESETS_KEY = "edgelab.drawing-presets.v1";
+const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 
 type Props = {
   bars: Candle[];
@@ -122,6 +124,7 @@ type DrawingPreset = {
   color: string;
   fillOpacity?: number;
   label: string;
+  labelBackgroundOpacity?: number;
   lineStyle?: DrawingLineStyle;
   lineWidth?: number;
   name: string;
@@ -1216,6 +1219,9 @@ function FloatingDrawingToolbar({
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
   const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
+  const labelBackgroundOpacity = Math.round(
+    (drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY) * 100,
+  );
   const [presets, setPresets] = useState<DrawingPreset[]>(() => loadDrawingPresets());
   const canFill =
     drawing.tool === "rectangle" ||
@@ -1256,6 +1262,7 @@ function FloatingDrawingToolbar({
       color: preset.color,
       fillOpacity: drawing.tool === "rectangle" ? preset.fillOpacity : drawing.fillOpacity,
       label: preset.label,
+      labelBackgroundOpacity: preset.labelBackgroundOpacity,
       lineStyle: preset.lineStyle,
       lineWidth: preset.lineWidth,
     });
@@ -1306,18 +1313,13 @@ function FloatingDrawingToolbar({
         </div>
       )}
 
-      <label
-        className="chart-object-floating-color"
-        title="Color"
-      >
-        <span style={{ backgroundColor: drawing.color }} />
-        <input
-          aria-label="Drawing color"
-          onChange={(event) => onChange({ color: event.target.value })}
-          type="color"
-          value={drawing.color}
-        />
-      </label>
+      <ThemedColorPicker
+        ariaLabel="Drawing color"
+        className="chart-object-floating-picker"
+        compact
+        onChange={(color) => onChange({ color })}
+        value={drawing.color}
+      />
 
       <div className="chart-object-floating-style" role="group">
         {lineStyles.map((style) => (
@@ -1357,6 +1359,22 @@ function FloatingDrawingToolbar({
             step={1}
             type="range"
             value={fillOpacity}
+          />
+        </label>
+      )}
+
+      {canLabel && (
+        <label className="chart-object-floating-width" title="Label background opacity">
+          <span>BG {labelBackgroundOpacity}%</span>
+          <input
+            max={100}
+            min={0}
+            onChange={(event) =>
+              onChange({ labelBackgroundOpacity: Number(event.target.value) / 100 })
+            }
+            step={1}
+            type="range"
+            value={labelBackgroundOpacity}
           />
         </label>
       )}
@@ -1484,11 +1502,11 @@ function FibLevelEditor({
                 }
                 type="checkbox"
               />
-              <input
-                aria-label={`${level.label ?? level.value} color`}
+              <ThemedColorPicker
+                ariaLabel={`${level.label ?? level.value} color`}
                 className="fib-level-color"
-                onChange={(event) => updateLevel(level.id, { color: event.target.value })}
-                type="color"
+                compact
+                onChange={(color) => updateLevel(level.id, { color })}
                 value={level.color}
               />
               <input
@@ -1769,6 +1787,7 @@ function renderDrawing(
           {label}
         </text>
         {renderDrawingLabel({
+          backgroundOpacity: drawing.labelBackgroundOpacity,
           color,
           id: `${drawing.id}-label`,
           label: drawing.label,
@@ -1790,6 +1809,7 @@ function renderDrawing(
     const labelMetrics = textLabelMetrics(textLines);
     const labelX = point.x + 14;
     const labelY = point.y - labelMetrics.height - 16;
+    const labelBackgroundFill = drawingLabelBackgroundFill(drawing.labelBackgroundOpacity);
     return (
       <g
         cursor={isLocked ? "default" : "move"}
@@ -1815,7 +1835,8 @@ function renderDrawing(
           y2={labelY + labelMetrics.height}
         />
         <rect
-          fill={isSelected ? "rgba(8, 12, 17, 0.88)" : "rgba(8, 12, 17, 0.62)"}
+          fill={labelBackgroundFill}
+          fillOpacity={isSelected ? 1 : 0.72}
           height={labelMetrics.height}
           rx={5}
           stroke={color}
@@ -1993,6 +2014,7 @@ function renderDrawing(
           y={y}
         />
         {renderDrawingLabel({
+          backgroundOpacity: drawing.labelBackgroundOpacity,
           color,
           id: `${drawing.id}-label`,
           label: drawing.label,
@@ -2174,6 +2196,7 @@ function renderDrawing(
         y2={second.y}
       />
       {renderDrawingLabel({
+        backgroundOpacity: drawing.labelBackgroundOpacity,
         color,
         id: `${drawing.id}-label`,
         label: drawing.label,
@@ -2187,6 +2210,7 @@ function renderDrawing(
 }
 
 function renderDrawingLabel({
+  backgroundOpacity,
   color,
   id,
   label,
@@ -2194,6 +2218,7 @@ function renderDrawingLabel({
   x,
   y,
 }: {
+  backgroundOpacity?: number;
   color: string;
   id: string;
   label?: string;
@@ -2213,7 +2238,7 @@ function renderDrawingLabel({
   return (
     <g key={id} pointerEvents="none">
       <rect
-        fill="rgba(8, 12, 17, 0.92)"
+        fill={drawingLabelBackgroundFill(backgroundOpacity)}
         height={22}
         rx={5}
         stroke={color}
@@ -2579,6 +2604,10 @@ function compactDrawingLabel(label: string | undefined) {
   return normalized ? normalized.slice(0, 48) : null;
 }
 
+function drawingLabelBackgroundFill(opacity: number | undefined) {
+  return `rgba(8, 12, 17, ${clamp(opacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY, 0, 1)})`;
+}
+
 function isLabelableDrawingTool(
   tool: ChartDrawing["tool"] | DrawingTool,
 ): tool is LabelableDrawingTool {
@@ -2620,6 +2649,11 @@ function loadDrawingPresets(): DrawingPreset[] {
               ? clamp(candidate.fillOpacity, 0, 0.6)
               : undefined,
           label: candidate.label.slice(0, 64),
+          labelBackgroundOpacity:
+            typeof candidate.labelBackgroundOpacity === "number" &&
+            Number.isFinite(candidate.labelBackgroundOpacity)
+              ? clamp(candidate.labelBackgroundOpacity, 0, 1)
+              : DEFAULT_LABEL_BACKGROUND_OPACITY,
           lineStyle:
             candidate.lineStyle === "dashed" || candidate.lineStyle === "dotted"
               ? candidate.lineStyle
@@ -2656,6 +2690,7 @@ function makeDrawingPreset(drawing: ChartDrawing): DrawingPreset {
     color: drawing.color,
     fillOpacity: tool === "rectangle" ? drawing.fillOpacity ?? 0.16 : undefined,
     label,
+    labelBackgroundOpacity: drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY,
     lineStyle: drawing.lineStyle ?? "solid",
     lineWidth: drawing.lineWidth ?? 2,
     name,
@@ -2914,6 +2949,10 @@ function makeDrawing(
     fibLevels:
       tool === "fib" ? DEFAULT_FIB_LEVELS.map((level) => ({ ...level })) : undefined,
     fillOpacity: tool === "rectangle" ? 0.16 : undefined,
+    labelBackgroundOpacity:
+      tool === "text" || isLabelableDrawingTool(tool)
+        ? DEFAULT_LABEL_BACKGROUND_OPACITY
+        : undefined,
     lineStyle: "solid",
     lineWidth: tool === "horizontal" ? 1.5 : 2,
     locked: false,

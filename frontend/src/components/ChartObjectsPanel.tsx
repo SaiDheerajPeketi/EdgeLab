@@ -33,7 +33,10 @@ import {
   type IndicatorSettings,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
+import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+
+const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 
 type Props = {
   chartStyle: ChartStyle;
@@ -312,6 +315,9 @@ function DrawingHoverControls({
   onDelete: () => void;
 }) {
   const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
+  const labelBackgroundOpacity = Math.round(
+    (drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY) * 100,
+  );
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
 
@@ -335,10 +341,10 @@ function DrawingHoverControls({
       <div className="grid grid-cols-2 gap-2">
         <label className="object-setting-field">
           <span>Color</span>
-          <input
-            className="h-9 w-full cursor-pointer rounded-md border border-white/10 bg-ink-950 p-1"
-            onChange={(event) => onChange({ color: event.target.value })}
-            type="color"
+          <ThemedColorPicker
+            ariaLabel="Drawing color"
+            compact
+            onChange={(color) => onChange({ color })}
             value={drawing.color}
           />
         </label>
@@ -390,6 +396,28 @@ function DrawingHoverControls({
             step={1}
             type="range"
             value={fillOpacity}
+          />
+        </label>
+      )}
+
+      {(drawing.tool === "horizontal" ||
+        drawing.tool === "rectangle" ||
+        drawing.tool === "text" ||
+        drawing.tool === "trendline") && (
+        <label className="object-setting-field">
+          <span className="flex items-center justify-between">
+            <span>Label BG</span>
+            <strong className="text-slate-300">{labelBackgroundOpacity}%</strong>
+          </span>
+          <input
+            max={100}
+            min={0}
+            onChange={(event) =>
+              onChange({ labelBackgroundOpacity: Number(event.target.value) / 100 })
+            }
+            step={1}
+            type="range"
+            value={labelBackgroundOpacity}
           />
         </label>
       )}
@@ -460,10 +488,10 @@ function IndicatorHoverControls({
         <>
           <label className="object-setting-field">
             <span>Color</span>
-            <input
-              className="h-9 w-full cursor-pointer rounded-md border border-white/10 bg-ink-950 p-1"
-              onChange={(event) => onUpdate({ color: event.target.value })}
-              type="color"
+            <ThemedColorPicker
+              ariaLabel="Indicator color"
+              compact
+              onChange={(color) => onUpdate({ color })}
               value={settings.color}
             />
           </label>

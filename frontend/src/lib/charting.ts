@@ -108,6 +108,7 @@ export type ChartDrawing = {
   locked?: boolean;
   points: DrawingPoint[];
   label?: string;
+  labelBackgroundOpacity?: number;
   createdAt: string;
   visible?: boolean;
 };
