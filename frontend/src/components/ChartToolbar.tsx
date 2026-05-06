@@ -85,6 +85,7 @@ type Props = {
     instanceId: string,
     settings: Partial<IndicatorSettings>,
   ) => void;
+  onSettingsClose?: () => void;
   orderOverlaysVisible: boolean;
   savedLabel: string | null;
   settingsOpenSignal?: number;
@@ -151,6 +152,7 @@ export function ChartToolbar({
   onToggleOrderOverlays,
   onSmoothCandlesChange,
   onUpdateIndicatorSettings,
+  onSettingsClose,
   orderOverlaysVisible,
   savedLabel,
   settingsOpenSignal = 0,
@@ -169,6 +171,7 @@ export function ChartToolbar({
   const commandRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
+  const settingsWasOpenRef = useRef(false);
 
   function selectChartStyle(style: ChartStyle) {
     onChartStyleChange(style);
@@ -202,6 +205,18 @@ export function ChartToolbar({
     setIndicatorMenuOpen(false);
     setSettingsOpen(true);
   }, [settingsOpenSignal]);
+
+  useEffect(() => {
+    if (settingsOpen) {
+      settingsWasOpenRef.current = true;
+      return;
+    }
+    if (!settingsWasOpenRef.current) {
+      return;
+    }
+    settingsWasOpenRef.current = false;
+    onSettingsClose?.();
+  }, [onSettingsClose, settingsOpen]);
 
   function openCommandSearch(
     event?: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>,

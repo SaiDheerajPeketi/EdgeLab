@@ -129,6 +129,8 @@ export default function App() {
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
   const [chartSettingsOpenSignal, setChartSettingsOpenSignal] = useState(0);
+  const [collapseToolsAfterSettingsClose, setCollapseToolsAfterSettingsClose] =
+    useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "tape" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
@@ -531,6 +533,24 @@ export default function App() {
     setTimeframe(coerceTimeframeToSource(sanitizeTimeframe(layout.timeframe), sourceTimeframe));
   }
 
+  function toggleChartTools() {
+    setCollapseToolsAfterSettingsClose(false);
+    setChartToolsOpen((value) => !value);
+  }
+
+  function openChartSettings() {
+    setCollapseToolsAfterSettingsClose(!chartToolsOpen);
+    setChartToolsOpen(true);
+    setChartSettingsOpenSignal((value) => value + 1);
+  }
+
+  function handleChartSettingsClose() {
+    if (collapseToolsAfterSettingsClose) {
+      setChartToolsOpen(false);
+    }
+    setCollapseToolsAfterSettingsClose(false);
+  }
+
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
     await newSession(payload);
     await loadInitial();
@@ -672,7 +692,7 @@ export default function App() {
               </button>
               <button
                 className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartToolsOpen ? "workspace-tab-active" : ""}`}
-                onClick={() => setChartToolsOpen((value) => !value)}
+                onClick={toggleChartTools}
                 type="button"
               >
                 <SlidersHorizontal size={14} />
@@ -680,10 +700,7 @@ export default function App() {
               </button>
               <button
                 className="workspace-tab inline-flex items-center justify-center gap-2"
-                onClick={() => {
-                  setChartToolsOpen(true);
-                  setChartSettingsOpenSignal((value) => value + 1);
-                }}
+                onClick={openChartSettings}
                 type="button"
               >
                 <Settings2 size={14} />
@@ -813,6 +830,7 @@ export default function App() {
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                     onRemoveIndicator={removeIndicator}
                     onUpdateIndicatorSettings={updateIndicatorSettings}
+                    onSettingsClose={handleChartSettingsClose}
                     onSmoothCandlesChange={setSmoothCandles}
                     orderOverlaysVisible={showOrderOverlays}
                     savedLabel={savedLayoutLabel}
