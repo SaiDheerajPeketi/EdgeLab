@@ -200,11 +200,11 @@ export function ChartToolbar({
     function closeOnOutsideClick(event: globalThis.PointerEvent) {
       const target = event.target as Node;
       const targetElement = target instanceof Element ? target : null;
-      if (
-        targetElement?.closest("[data-chart-header-control]") ||
-        targetElement?.closest(".backtest-focus-header")
-      ) {
+      if (targetElement?.closest("[data-chart-header-control]")) {
         return;
+      }
+      if (settingsOpen && settingsRef.current && !settingsRef.current.contains(target)) {
+        setSettingsOpen(false);
       }
       if (menuRef.current && !menuRef.current.contains(target)) {
         setIndicatorMenuOpen(false);
@@ -216,7 +216,7 @@ export function ChartToolbar({
 
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, []);
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (settingsOpenSignal <= 0 || toolsOpen) {
