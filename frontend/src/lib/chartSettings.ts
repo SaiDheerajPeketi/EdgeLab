@@ -62,7 +62,7 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   bodyVisible: true,
   borderDownColor: "#FB7185",
   borderUpColor: "#22C55E",
-  borderVisible: false,
+  borderVisible: true,
   candleDownColor: "#FB7185",
   candleUpColor: "#22C55E",
   chartValues: true,

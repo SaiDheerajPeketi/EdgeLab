@@ -66,6 +66,7 @@ import { useBacktestStore } from "./store/backtestStore";
 const CHART_LAYOUT_KEY = "edgelab.chart-layout.v1";
 const CHART_LAYOUTS_KEY = "edgelab.chart-layouts.v1";
 const ACTIVE_CHART_LAYOUT_KEY = "edgelab.active-chart-layout.v1";
+const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
 const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
@@ -491,6 +492,7 @@ export default function App() {
       chartStyle,
       drawings: sanitizeDrawings(nextDrawings),
       indicatorInstances: sanitizeIndicatorInstances(indicatorInstances),
+      settingsDefaultsVersion: CHART_SETTINGS_DEFAULTS_VERSION,
       showOrderOverlays,
       smoothCandles,
       timeframe: effectiveTimeframe,
@@ -1011,6 +1013,7 @@ type StoredChartLayout = {
   drawings: ChartDrawing[];
   indicatorInstances: ChartIndicatorInstance[];
   indicatorSettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>>;
+  settingsDefaultsVersion?: number;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
   timeframe: ChartTimeframe;
@@ -1031,7 +1034,7 @@ function loadChartLayout(): Partial<StoredChartLayout> | null {
     const activeName = window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY);
     const activeRecord = activeName ? loadChartLayoutRecord(activeName) : null;
     if (activeRecord) {
-      return activeRecord.layout;
+      return upgradeStoredChartLayout(activeRecord.layout);
     }
 
     const raw = window.localStorage.getItem(CHART_LAYOUT_KEY);
@@ -1040,11 +1043,36 @@ function loadChartLayout(): Partial<StoredChartLayout> | null {
     }
     const parsed = JSON.parse(raw);
     return typeof parsed === "object" && parsed != null
-      ? (parsed as Partial<StoredChartLayout>)
+      ? upgradeStoredChartLayout(parsed as Partial<StoredChartLayout>)
       : null;
   } catch {
     return null;
   }
+}
+
+function upgradeStoredChartLayout(
+  layout: Partial<StoredChartLayout>,
+): Partial<StoredChartLayout> {
+  if ((layout.settingsDefaultsVersion ?? 1) >= CHART_SETTINGS_DEFAULTS_VERSION) {
+    return layout;
+  }
+
+  const chartSettings =
+    layout.chartSettings && typeof layout.chartSettings === "object"
+      ? {
+          ...layout.chartSettings,
+          borderVisible:
+            layout.chartSettings.borderVisible === false
+              ? true
+              : layout.chartSettings.borderVisible ?? true,
+        }
+      : layout.chartSettings;
+
+  return {
+    ...layout,
+    chartSettings,
+    settingsDefaultsVersion: CHART_SETTINGS_DEFAULTS_VERSION,
+  };
 }
 
 function purgeStaleSingleHorizontalDrawing() {
@@ -1145,6 +1173,7 @@ function loadChartLayoutRecords(): StoredChartLayoutRecord[] {
       })
       .map((record) => ({
         ...record,
+        layout: upgradeStoredChartLayout(record.layout) as StoredChartLayout,
         name: normalizeLayoutName(record.name),
       }));
   } catch {

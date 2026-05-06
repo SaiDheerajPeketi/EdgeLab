@@ -409,11 +409,13 @@ export function TradingChart({
     });
 
     const candles = chart.addCandlestickSeries({
-      upColor: "#22c55e",
-      downColor: "#fb7185",
-      borderVisible: false,
-      wickUpColor: "#22c55e",
-      wickDownColor: "#fb7185",
+      upColor: chartSettings.bodyUpColor,
+      downColor: chartSettings.bodyDownColor,
+      borderUpColor: chartSettings.borderUpColor,
+      borderDownColor: chartSettings.borderDownColor,
+      borderVisible: chartSettings.borderVisible,
+      wickUpColor: chartSettings.wickUpColor,
+      wickDownColor: chartSettings.wickDownColor,
       priceFormat: {
         type: "price",
         precision: 5,
