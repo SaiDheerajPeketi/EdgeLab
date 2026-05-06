@@ -254,15 +254,14 @@ export function nextIndicatorInstanceColor(
   kind: ChartIndicatorKind,
   instances: ChartIndicatorInstance[],
 ) {
-  const sameKind = instances.filter((indicator) => indicator.kind === kind);
   const defaultColor = DEFAULT_INDICATOR_SETTINGS[kind].color;
-  if (sameKind.length === 0) {
+  const usedColors = new Set(
+    instances.map((indicator) => indicator.settings.color.toLowerCase()),
+  );
+  if (!usedColors.has(defaultColor.toLowerCase())) {
     return defaultColor;
   }
 
-  const usedColors = new Set(
-    sameKind.map((indicator) => indicator.settings.color.toLowerCase()),
-  );
   const palette = [
     defaultColor,
     ...INDICATOR_INSTANCE_COLORS.filter(
@@ -271,7 +270,7 @@ export function nextIndicatorInstanceColor(
   ];
   return (
     palette.find((color) => !usedColors.has(color.toLowerCase())) ??
-    palette[sameKind.length % palette.length] ??
+    palette[instances.length % palette.length] ??
     defaultColor
   );
 }
