@@ -11,6 +11,7 @@ type Props = {
   ariaLabel?: string;
   className?: string;
   compact?: boolean;
+  disabled?: boolean;
   onChange: (value: string) => void;
   value: string;
 };
@@ -39,6 +40,7 @@ export function ThemedColorPicker({
   ariaLabel = "Color",
   className = "",
   compact = false,
+  disabled = false,
   onChange,
   value,
 }: Props) {
@@ -56,6 +58,14 @@ export function ThemedColorPicker({
       setDraft(normalizedValue);
     }
   }, [isEditing, normalizedValue]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+      setIsEditing(false);
+      setDraft(normalizedValue);
+    }
+  }, [disabled, normalizedValue]);
 
   useEffect(() => {
     if (!open) {
@@ -82,6 +92,9 @@ export function ThemedColorPicker({
   }, [open]);
 
   function applyColor(nextValue: string) {
+    if (disabled) {
+      return;
+    }
     const normalized = normalizeHexColor(nextValue);
     if (!normalized) {
       return;
@@ -114,13 +127,15 @@ export function ThemedColorPicker({
 
   return (
     <div
-      className={`themed-color-picker ${compact ? "themed-color-picker-compact" : ""} ${className}`}
+      aria-disabled={disabled}
+      className={`themed-color-picker ${compact ? "themed-color-picker-compact" : ""} ${disabled ? "themed-color-picker-disabled" : ""} ${className}`}
       ref={rootRef}
     >
       <button
         aria-expanded={open}
         aria-label={`${ariaLabel} palette`}
         className="themed-color-swatch"
+        disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         style={{ "--selected-color": normalizedValue } as CSSProperties}
         title={ariaLabel}
@@ -131,8 +146,12 @@ export function ThemedColorPicker({
       <input
         aria-label={`${ariaLabel} hex code`}
         className="themed-color-hex"
+        disabled={disabled}
         onBlur={handleDraftBlur}
         onChange={(event) => {
+          if (disabled) {
+            return;
+          }
           const nextValue = sanitizeHexDraft(event.target.value);
           setDraft(nextValue);
           const normalized = normalizeHexColor(nextValue, { allowShorthand: false });

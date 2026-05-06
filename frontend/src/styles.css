@@ -86,6 +86,14 @@ button:disabled {
     @apply h-8;
   }
 
+  .themed-color-picker-disabled {
+    @apply border-white/10 opacity-45 hover:border-white/10;
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.035), transparent 48%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+  }
+
   .themed-color-swatch {
     @apply relative grid h-7 w-7 shrink-0 cursor-pointer place-items-center overflow-hidden rounded border border-white/10 bg-black/35 outline-none transition hover:border-cyan-300/40 focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/30;
     box-shadow:
@@ -95,6 +103,11 @@ button:disabled {
 
   .themed-color-swatch span {
     @apply block h-[18px] w-[18px] rounded-sm border border-white/30;
+  }
+
+  .themed-color-picker-disabled .themed-color-swatch,
+  .themed-color-picker-disabled .themed-color-hex {
+    @apply cursor-not-allowed;
   }
 
   .themed-color-hex {
@@ -584,6 +597,10 @@ button:disabled {
 
   .chart-settings-field {
     @apply grid gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500;
+  }
+
+  .chart-settings-field-disabled {
+    @apply text-slate-700;
   }
 
   .chart-settings-color-field {

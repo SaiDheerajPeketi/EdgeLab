@@ -908,6 +908,7 @@ function ChartSettingsPanel({
                   onChange={(sessionBreaks) => updateSettings({ sessionBreaks })}
                 />
                 <ColorSetting
+                  disabled={!settings.sessionBreaks}
                   label="Session break color"
                   onChange={(sessionBreakColor) => updateSettings({ sessionBreakColor })}
                   value={settings.sessionBreakColor}
@@ -1188,18 +1189,30 @@ function CandleColorSetting({
 }
 
 function ColorSetting({
+  disabled = false,
   label,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   label: string;
   onChange: (value: string) => void;
   value: string;
 }) {
   return (
-    <label className="chart-settings-field chart-settings-color-field">
+    <label
+      className={`chart-settings-field chart-settings-color-field ${
+        disabled ? "chart-settings-field-disabled" : ""
+      }`}
+    >
       <span>{label}</span>
-      <ThemedColorPicker ariaLabel={label} compact onChange={onChange} value={value} />
+      <ThemedColorPicker
+        ariaLabel={label}
+        compact
+        disabled={disabled}
+        onChange={onChange}
+        value={value}
+      />
     </label>
   );
 }
