@@ -828,7 +828,6 @@ export default function App() {
                       chartStyle={chartStyle}
                       drawings={drawings}
                       indicatorInstances={indicatorInstances}
-                      onAddIndicator={addIndicator}
                       onClearDrawings={clearDrawings}
                       onCollapse={() => setLayersPanelOpen(false)}
                       onDeleteDrawing={deleteDrawing}

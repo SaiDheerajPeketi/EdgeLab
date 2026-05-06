@@ -23,11 +23,9 @@ import {
   type ChartToolIcon,
 } from "./ChartToolIcons";
 import {
-  INDICATORS,
   type ChartDrawing,
   indicatorDisplayName,
   type ChartIndicatorInstance,
-  type ChartIndicatorKind,
   type ChartStyle,
   type DrawingLineStyle,
   type IndicatorSettings,
@@ -42,7 +40,6 @@ type Props = {
   chartStyle: ChartStyle;
   drawings: ChartDrawing[];
   indicatorInstances: ChartIndicatorInstance[];
-  onAddIndicator: (kind: ChartIndicatorKind) => void;
   onClearDrawings: () => void;
   onCollapse: () => void;
   onDeleteDrawing: (drawingId: string) => void;
@@ -80,7 +77,6 @@ export function ChartObjectsPanel({
   chartStyle,
   drawings,
   indicatorInstances,
-  onAddIndicator,
   onClearDrawings,
   onCollapse,
   onDeleteDrawing,
@@ -158,7 +154,7 @@ export function ChartObjectsPanel({
           <div className="grid gap-2">
             {indicatorInstances.length === 0 && (
               <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-4 text-center text-xs text-slate-500">
-                No active studies. Add one below.
+                No active studies.
               </div>
             )}
             {indicatorInstances.map((indicator) => {
@@ -207,30 +203,6 @@ export function ChartObjectsPanel({
                 </div>
               );
             })}
-            <div className="mt-2 grid gap-1 border-t border-white/10 pt-2">
-              {INDICATORS.map((indicator) => (
-                <button
-                  className="chart-dropdown-row"
-                  key={indicator.id}
-                  onClick={() => onAddIndicator(indicator.kind)}
-                  type="button"
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: indicator.color }}
-                  />
-                  <span className="min-w-0 flex-1 text-left">
-                    <span className="block truncate text-sm font-semibold text-slate-100">
-                      {indicator.label}
-                    </span>
-                    <span className="block truncate text-xs text-slate-500">
-                      {indicator.description}
-                    </span>
-                  </span>
-                  <span className="text-slate-500">Add</span>
-                </button>
-              ))}
-            </div>
           </div>
         </section>
 
