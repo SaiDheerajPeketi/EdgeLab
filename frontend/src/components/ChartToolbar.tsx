@@ -941,7 +941,7 @@ function ChartSettingsPanel({
                     updateSettings({ dateFormat: dateFormat as ChartVisualSettings["dateFormat"] })
                   }
                   options={[
-                    { label: "Mon 29 Sep '97", value: "dd MMM yy" },
+                    { label: "29 Sep '97", value: "dd MMM yy" },
                     { label: "Sep 29 1997", value: "MMM dd yyyy" },
                     { label: "1997-09-29", value: "yyyy-MM-dd" },
                   ]}
