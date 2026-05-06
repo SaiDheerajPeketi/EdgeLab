@@ -78,6 +78,7 @@ import { ThemedSelect } from "./ThemedSelect";
 const DRAWING_PRESETS_KEY = "edgelab.drawing-presets.v1";
 const FIB_PRESETS_KEY = "edgelab.fib-presets.v1";
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
+const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 
 type Props = {
   bars: Candle[];
@@ -409,8 +410,12 @@ export function TradingChart({
     });
 
     const candles = chart.addCandlestickSeries({
-      upColor: chartSettings.bodyUpColor,
-      downColor: chartSettings.bodyDownColor,
+      upColor: chartSettings.bodyVisible
+        ? chartSettings.bodyUpColor
+        : TRANSPARENT_COLOR,
+      downColor: chartSettings.bodyVisible
+        ? chartSettings.bodyDownColor
+        : TRANSPARENT_COLOR,
       borderUpColor: chartSettings.borderUpColor,
       borderDownColor: chartSettings.borderDownColor,
       borderVisible: chartSettings.borderVisible,
@@ -597,14 +602,14 @@ export function TradingChart({
       borderVisible: chartSettings.borderVisible,
       downColor: chartSettings.bodyVisible
         ? chartSettings.bodyDownColor
-        : colorWithOpacity(chartSettings.bodyDownColor, 0.08),
+        : TRANSPARENT_COLOR,
       lastValueVisible: chartSettings.symbolLine !== "hidden",
       priceFormat,
       priceLineVisible: chartSettings.symbolLine === "valueLine",
       priceScaleId: primaryPriceScaleId,
       upColor: chartSettings.bodyVisible
         ? chartSettings.bodyUpColor
-        : colorWithOpacity(chartSettings.bodyUpColor, 0.08),
+        : TRANSPARENT_COLOR,
       wickDownColor: chartSettings.wickDownColor,
       wickUpColor: chartSettings.wickUpColor,
       wickVisible: chartSettings.wickVisible,
@@ -1340,7 +1345,7 @@ function applyCandleVisualSettings(
     return {
       ...candle,
       borderColor,
-      color: settings.bodyVisible ? bodyColor : colorWithOpacity(bodyColor, 0.08),
+      color: settings.bodyVisible ? bodyColor : TRANSPARENT_COLOR,
       wickColor,
     };
   });
