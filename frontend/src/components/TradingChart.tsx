@@ -929,11 +929,6 @@ export function TradingChart({
                 <div>
                   <div className="flex items-center gap-2 text-base font-semibold text-white">
                     {formatMarketSymbol(symbol)}
-                    {chartSettings.openMarketStatus && (
-                      <span className="rounded border border-emerald-300/20 bg-emerald-300/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-200">
-                        Open
-                      </span>
-                    )}
                   </div>
                   <div className="text-xs text-slate-400">
                     {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}

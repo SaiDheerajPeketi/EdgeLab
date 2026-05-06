@@ -708,11 +708,6 @@ function ChartSettingsPanel({
                   onChange={(title) => updateSettings({ title })}
                 />
                 <SettingToggle
-                  checked={settings.openMarketStatus}
-                  label="Open market status"
-                  onChange={(openMarketStatus) => updateSettings({ openMarketStatus })}
-                />
-                <SettingToggle
                   checked={settings.chartValues}
                   label="Chart values"
                   onChange={(chartValues) => updateSettings({ chartValues })}
