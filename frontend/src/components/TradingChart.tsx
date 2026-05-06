@@ -1598,7 +1598,7 @@ function renderDrawing(
         />
         <line
           stroke={color}
-          strokeDasharray={strokeDasharray ?? "6 5"}
+          strokeDasharray={strokeDasharray}
           strokeLinecap="round"
           strokeWidth={selectedStrokeWidth}
           x1={first.x}
@@ -2210,7 +2210,7 @@ function makeDrawing(
     tool,
     color: DRAWING_COLORS[tool],
     fillOpacity: tool === "rectangle" ? 0.16 : undefined,
-    lineStyle: tool === "measure" ? "dashed" : "solid",
+    lineStyle: "solid",
     lineWidth: tool === "horizontal" ? 1.5 : 2,
     locked: false,
     points: normalizedPoints,
