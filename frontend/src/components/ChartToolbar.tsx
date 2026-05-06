@@ -304,12 +304,15 @@ export function ChartToolbar({
         <ThemedSelect
           ariaLabel="Saved layouts"
           className="h-8 w-44"
-          disabled={layoutNames.length === 0}
           onChange={onLoadLayout}
-          options={[
-            { disabled: true, label: "Saved layouts", value: "" },
-            ...layoutNames.map((name) => ({ label: name, value: name })),
-          ]}
+          options={
+            layoutNames.length > 0
+              ? [
+                  { disabled: true, label: "Saved layouts", value: "" },
+                  ...layoutNames.map((name) => ({ label: name, value: name })),
+                ]
+              : [{ disabled: true, label: "No saved layouts", value: "" }]
+          }
           value={layoutNames.includes(layoutName) ? layoutName : ""}
         />
         <input
