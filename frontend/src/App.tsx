@@ -717,7 +717,7 @@ export default function App() {
                 onClick={() => setWorkspacePanel((value) => value === "tape" ? "none" : "tape")}
                 type="button"
               >
-                Tape
+                Orders Tape
               </button>
               <button
                 className={`workspace-tab ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
