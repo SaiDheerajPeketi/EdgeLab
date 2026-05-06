@@ -8,8 +8,6 @@ import {
   EyeOff,
   Layers,
   LineChart,
-  Maximize2,
-  Minimize2,
   Save,
   Search,
   Settings2,
@@ -55,7 +53,6 @@ type Props = {
   drawingTool: DrawingTool;
   drawingsCount: number;
   indicatorSettings: IndicatorSettingsMap;
-  isFullscreen: boolean;
   layoutName: string;
   layoutNames: string[];
   onClearDrawings: () => void;
@@ -65,7 +62,6 @@ type Props = {
   onLayoutNameChange: (name: string) => void;
   onLoadLayout: (name: string) => void;
   onSaveLayout: () => void;
-  onToggleFullscreen: () => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
   onToggleIndicator: (indicator: ChartIndicatorId) => void;
   onToggleOrderOverlays: () => void;
@@ -121,7 +117,6 @@ export function ChartToolbar({
   drawingTool,
   drawingsCount,
   indicatorSettings,
-  isFullscreen,
   layoutName,
   layoutNames,
   onChartStyleChange,
@@ -131,7 +126,6 @@ export function ChartToolbar({
   onLayoutNameChange,
   onLoadLayout,
   onSaveLayout,
-  onToggleFullscreen,
   onTimeframeChange,
   onToggleIndicator,
   onToggleOrderOverlays,
@@ -283,14 +277,6 @@ export function ChartToolbar({
             type="button"
           >
             Clear {drawingsCount}
-          </button>
-          <button
-            className="chart-mode-button"
-            onClick={onToggleFullscreen}
-            type="button"
-          >
-            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-            {isFullscreen ? "Exit" : "Full"}
           </button>
           <button
             className="chart-mode-button chart-mode-primary"

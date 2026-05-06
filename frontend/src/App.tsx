@@ -715,7 +715,6 @@ export default function App() {
                     drawingTool={drawingTool}
                     drawingsCount={drawings.length}
                     indicatorSettings={indicatorSettings}
-                    isFullscreen={isChartFullscreen}
                     onChartStyleChange={setChartStyle}
                     onClearDrawings={clearDrawings}
                     layoutName={layoutName}
@@ -725,7 +724,6 @@ export default function App() {
                     onLayoutNameChange={setLayoutName}
                     onLoadLayout={loadNamedChartLayout}
                     onSaveLayout={saveChartLayout}
-                    onToggleFullscreen={toggleChartFullscreen}
                     onTimeframeChange={changeTimeframe}
                     onToggleIndicator={toggleIndicator}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
