@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 
 type Props = {
   ariaLabel?: string;
@@ -9,6 +16,24 @@ type Props = {
 };
 
 const FALLBACK_COLOR = "#32D3EE";
+const COLOR_PALETTES = [
+  {
+    label: "Chart",
+    swatches: ["#32D3EE", "#38BDF8", "#60A5FA", "#A78BFA"],
+  },
+  {
+    label: "Signal",
+    swatches: ["#22C55E", "#84CC16", "#FBBF24", "#F97316"],
+  },
+  {
+    label: "Risk",
+    swatches: ["#FB7185", "#EF4444", "#F472B6", "#C084FC"],
+  },
+  {
+    label: "Neutral",
+    swatches: ["#F8FAFC", "#CBD5E1", "#94A3B8", "#64748B"],
+  },
+];
 
 export function ThemedColorPicker({
   ariaLabel = "Color",
@@ -22,10 +47,36 @@ export function ThemedColorPicker({
     [value],
   );
   const [draft, setDraft] = useState(normalizedValue);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setDraft(normalizedValue);
   }, [normalizedValue]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
 
   function applyColor(nextValue: string) {
     const normalized = normalizeHexColor(nextValue);
@@ -58,20 +109,19 @@ export function ThemedColorPicker({
   return (
     <div
       className={`themed-color-picker ${compact ? "themed-color-picker-compact" : ""} ${className}`}
+      ref={rootRef}
     >
-      <label
+      <button
+        aria-expanded={open}
+        aria-label={`${ariaLabel} palette`}
         className="themed-color-swatch"
+        onClick={() => setOpen((current) => !current)}
         style={{ "--selected-color": normalizedValue } as CSSProperties}
         title={ariaLabel}
+        type="button"
       >
         <span style={{ backgroundColor: normalizedValue }} />
-        <input
-          aria-label={ariaLabel}
-          onChange={(event) => applyColor(event.target.value)}
-          type="color"
-          value={normalizedValue}
-        />
-      </label>
+      </button>
       <input
         aria-label={`${ariaLabel} hex code`}
         className="themed-color-hex"
@@ -88,6 +138,53 @@ export function ThemedColorPicker({
         spellCheck={false}
         value={draft}
       />
+
+      {open && (
+        <div
+          aria-label={`${ariaLabel} color palette`}
+          className="themed-color-popover"
+          role="dialog"
+        >
+          <div className="themed-color-popover-header">
+            <span>{ariaLabel}</span>
+            <code>{normalizedValue}</code>
+          </div>
+          <div
+            className="themed-color-preview"
+            style={{ "--selected-color": normalizedValue } as CSSProperties}
+          >
+            <span className="themed-color-preview-swatch" />
+            <div>
+              <span>Selected</span>
+              <strong>{normalizedValue}</strong>
+            </div>
+          </div>
+          {COLOR_PALETTES.map((palette) => (
+            <div className="themed-color-group" key={palette.label}>
+              <div className="themed-color-section-title">{palette.label}</div>
+              <div className="themed-color-grid">
+                {palette.swatches.map((color) => (
+                  <button
+                    aria-current={normalizedValue === color ? "true" : undefined}
+                    aria-label={`Use ${color}`}
+                    className={`themed-color-option ${normalizedValue === color ? "themed-color-option-active" : ""}`}
+                    key={color}
+                    onClick={() => {
+                      applyColor(color);
+                      setOpen(false);
+                    }}
+                    style={{ "--swatch-color": color } as CSSProperties}
+                    type="button"
+                  >
+                    <span />
+                    <i aria-hidden="true" className="themed-color-option-check" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
