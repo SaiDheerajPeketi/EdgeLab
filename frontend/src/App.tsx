@@ -49,6 +49,7 @@ import {
   getTimeframeSeconds,
   isIndicatorKind,
   mergeIndicatorSettings,
+  nextIndicatorInstanceColor,
 } from "./lib/charting";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
@@ -335,7 +336,12 @@ export default function App() {
   }
 
   function addIndicator(kind: ChartIndicatorKind) {
-    setIndicatorInstances((current) => [...current, createIndicatorInstance(kind)]);
+    setIndicatorInstances((current) => [
+      ...current,
+      createIndicatorInstance(kind, {
+        color: nextIndicatorInstanceColor(kind, current),
+      }),
+    ]);
   }
 
   function removeIndicator(instanceId: string) {

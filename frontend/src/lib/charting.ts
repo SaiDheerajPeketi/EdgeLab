@@ -168,6 +168,23 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   wma: { color: "#38bdf8", period: 20 },
 };
 
+const INDICATOR_INSTANCE_COLORS = [
+  "#32d3ee",
+  "#f59e0b",
+  "#a78bfa",
+  "#22c55e",
+  "#fb7185",
+  "#f472b6",
+  "#fbbf24",
+  "#38bdf8",
+  "#c084fc",
+  "#84cc16",
+  "#fb923c",
+  "#2dd4bf",
+  "#60a5fa",
+  "#94a3b8",
+];
+
 export const DEFAULT_LEGACY_INDICATOR_SETTINGS: LegacyIndicatorSettingsMap = {
   atr14: { color: "#f97316", period: 14 },
   bb20: { color: "#94a3b8", period: 20, stdDev: 2 },
@@ -231,6 +248,32 @@ export function createIndicatorInstance(
     visible: true,
     createdAt: new Date().toISOString(),
   };
+}
+
+export function nextIndicatorInstanceColor(
+  kind: ChartIndicatorKind,
+  instances: ChartIndicatorInstance[],
+) {
+  const sameKind = instances.filter((indicator) => indicator.kind === kind);
+  const defaultColor = DEFAULT_INDICATOR_SETTINGS[kind].color;
+  if (sameKind.length === 0) {
+    return defaultColor;
+  }
+
+  const usedColors = new Set(
+    sameKind.map((indicator) => indicator.settings.color.toLowerCase()),
+  );
+  const palette = [
+    defaultColor,
+    ...INDICATOR_INSTANCE_COLORS.filter(
+      (color) => color.toLowerCase() !== defaultColor.toLowerCase(),
+    ),
+  ];
+  return (
+    palette.find((color) => !usedColors.has(color.toLowerCase())) ??
+    palette[sameKind.length % palette.length] ??
+    defaultColor
+  );
 }
 
 export function createLegacyIndicatorInstance(
