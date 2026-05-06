@@ -1,4 +1,5 @@
 export type ChartGridMode = "both" | "horizontal" | "none" | "vertical";
+export type ChartLineStyle = "solid" | "dashed" | "dotted";
 export type ChartScalePlacement = "auto" | "left" | "right";
 export type ChartVisibilityMode = "hidden" | "value" | "valueLine";
 
@@ -30,6 +31,8 @@ export type ChartVisualSettings = {
   priceScaleBorderVisible: boolean;
   scalePlacement: ChartScalePlacement;
   sessionBreakColor: string;
+  sessionBreakLineStyle: ChartLineStyle;
+  sessionBreakLineWidth: number;
   sessionBreaks: boolean;
   symbolLine: ChartVisibilityMode;
   textColor: string;
@@ -79,6 +82,8 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   priceScaleBorderVisible: true,
   scalePlacement: "right",
   sessionBreakColor: "#38BDF8",
+  sessionBreakLineStyle: "dashed",
+  sessionBreakLineWidth: 1,
   sessionBreaks: false,
   symbolLine: "valueLine",
   textColor: "#A8B3C7",
@@ -123,6 +128,13 @@ export function sanitizeChartVisualSettings(
     gridColor: sanitizeHex(candidate.gridColor, DEFAULT_CHART_VISUAL_SETTINGS.gridColor),
     pricePrecision: clampInteger(candidate.pricePrecision, 0, 8, DEFAULT_CHART_VISUAL_SETTINGS.pricePrecision),
     sessionBreakColor: sanitizeHex(candidate.sessionBreakColor, DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakColor),
+    sessionBreakLineStyle: sanitizeLineStyle(candidate.sessionBreakLineStyle),
+    sessionBreakLineWidth: clampInteger(
+      candidate.sessionBreakLineWidth,
+      1,
+      8,
+      DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakLineWidth,
+    ),
     textColor: sanitizeHex(candidate.textColor, DEFAULT_CHART_VISUAL_SETTINGS.textColor),
     textSize: clampInteger(candidate.textSize, 10, 18, DEFAULT_CHART_VISUAL_SETTINGS.textSize),
     timeScaleBorderVisible:
@@ -134,6 +146,12 @@ export function sanitizeChartVisualSettings(
     wickDownColor,
     wickUpColor,
   };
+}
+
+function sanitizeLineStyle(value: unknown): ChartLineStyle {
+  return value === "solid" || value === "dashed" || value === "dotted"
+    ? value
+    : DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakLineStyle;
 }
 
 export function loadChartSettingsPresets(): ChartSettingsPreset[] {

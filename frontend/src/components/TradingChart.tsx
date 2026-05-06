@@ -1055,6 +1055,8 @@ export function TradingChart({
                     chartFrameRef.current,
                     chartRef.current,
                     colorWithOpacity(chartSettings.sessionBreakColor, 0.72),
+                    chartSettings.sessionBreakLineStyle,
+                    chartSettings.sessionBreakLineWidth,
                   )}
                 {drawingElements}
               </svg>
@@ -1406,6 +1408,8 @@ function buildSessionBreakElements(
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
   color: string,
+  lineStyle: DrawingLineStyle,
+  lineWidth: number,
 ) {
   if (!frame || !chart || bars.length < 2) {
     return null;
@@ -1423,8 +1427,9 @@ function buildSessionBreakElements(
       <line
         key={`session-break-${bar.time}`}
         stroke={color}
-        strokeDasharray="4 8"
-        strokeWidth="1"
+        strokeDasharray={lineStyleDasharray(lineStyle)}
+        strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
+        strokeWidth={lineWidth}
         x1={x}
         x2={x}
         y1={0}

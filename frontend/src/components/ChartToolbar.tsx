@@ -51,6 +51,7 @@ import {
   loadChartSettingsPresets,
   normalizeChartSettingsPresetName,
   saveChartSettingsPreset,
+  type ChartLineStyle,
   type ChartSettingsPreset,
   type ChartVisualSettings,
 } from "../lib/chartSettings";
@@ -895,6 +896,29 @@ function ChartSettingsPanel({
                   label="Session break color"
                   onChange={(sessionBreakColor) => updateSettings({ sessionBreakColor })}
                   value={settings.sessionBreakColor}
+                />
+                <NumberSetting
+                  label="Session break thickness"
+                  max={8}
+                  min={1}
+                  onChange={(sessionBreakLineWidth) =>
+                    updateSettings({ sessionBreakLineWidth })
+                  }
+                  value={settings.sessionBreakLineWidth}
+                />
+                <SelectSetting
+                  label="Session break style"
+                  onChange={(sessionBreakLineStyle) =>
+                    updateSettings({
+                      sessionBreakLineStyle: sessionBreakLineStyle as ChartLineStyle,
+                    })
+                  }
+                  options={[
+                    { label: "Solid", value: "solid" },
+                    { label: "Dashed", value: "dashed" },
+                    { label: "Dotted", value: "dotted" },
+                  ]}
+                  value={settings.sessionBreakLineStyle}
                 />
               </SettingsSection>
 
