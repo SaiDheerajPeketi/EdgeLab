@@ -768,6 +768,7 @@ button:disabled {
 
   .focus-chart-column {
     @apply min-w-0 space-y-3;
+    isolation: isolate;
   }
 
   .focus-side-drawer {
@@ -791,6 +792,7 @@ button:disabled {
 
   .chart-fullscreen-shell {
     @apply fixed inset-0 z-50 grid min-w-0 gap-3 overflow-auto bg-[#05070a] p-3;
+    isolation: isolate;
   }
 
   .chart-fullscreen-actionbar {

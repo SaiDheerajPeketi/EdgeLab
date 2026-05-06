@@ -650,6 +650,123 @@ export default function App() {
   }
 
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+  const backtestFocusHeader = (
+    <header className="backtest-focus-header">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <span className="status-pill text-emerald-100">
+          <Radio size={14} />
+          {isPlaying ? "Playing" : "Replay"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-base font-semibold text-white">
+            {state?.session.strategy_name ?? "Strategy"} / {formatMarketSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1.5">
+              <WalletCards size={13} />
+              Session #{state?.session.id ?? "—"}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Database size={13} />
+              {meta ? `${meta.rows.toLocaleString()} bars` : "Dataset"}
+            </span>
+            {current && (
+              <span className="inline-flex items-center gap-1.5">
+                <Clock3 size={13} />
+                {new Date(current.timestamp).toLocaleString()}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="hidden gap-2 xl:flex">
+          <HeaderStat label="Realized" value={money(state?.session.realized_pnl ?? 0)} tone={(state?.session.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} />
+          <HeaderStat label="Position" value={position && position.side !== "FLAT" && position.quantity > 0 ? position.side : "Flat"} tone={position?.side === "LONG" ? "text-emerald-300" : position?.side === "SHORT" ? "text-rose-300" : "text-slate-300"} />
+          <HeaderStat label="Pending" value={String(pendingOrders)} />
+        </div>
+      </div>
+      <div className="mt-3 flex gap-2 overflow-x-auto">
+        <button
+          className="workspace-tab inline-flex items-center justify-center gap-2"
+          onClick={() => {
+            setPlaying(false);
+            setActiveWorkspace("sessions");
+            setSessionGateOpen(true);
+          }}
+          type="button"
+        >
+          <Database size={14} />
+          Sessions
+        </button>
+        <button
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${leftPaneOpen ? "workspace-tab-active" : ""}`}
+          onClick={() => setLeftPaneOpen((value) => !value)}
+          type="button"
+        >
+          {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+          Ticket
+        </button>
+        <button
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${layersPanelOpen ? "workspace-tab-active" : ""}`}
+          onClick={() => setLayersPanelOpen((value) => !value)}
+          type="button"
+        >
+          {layersPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+          Objects
+        </button>
+        <button
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartToolsOpen ? "workspace-tab-active" : ""}`}
+          data-chart-header-control="tools"
+          onClick={handleChartToolsClick}
+          onPointerDown={handleChartToolsPointerDown}
+          type="button"
+        >
+          <SlidersHorizontal size={14} />
+          Tools
+        </button>
+        <button
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`}
+          data-chart-header-control="settings"
+          onClick={openChartSettings}
+          type="button"
+        >
+          <Settings2 size={14} />
+          Settings
+        </button>
+        {!isChartFullscreen && (
+          <button
+            className="workspace-tab inline-flex items-center justify-center gap-2"
+            onClick={toggleChartFullscreen}
+            type="button"
+          >
+            <Maximize2 size={14} />
+            Full Screen
+          </button>
+        )}
+        <button
+          className={`workspace-tab ${workspacePanel === "tape" ? "workspace-tab-active" : ""}`}
+          onClick={() => setWorkspacePanel((value) => value === "tape" ? "none" : "tape")}
+          type="button"
+        >
+          Orders Tape
+        </button>
+        <button
+          className={`workspace-tab ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
+          onClick={() => setWorkspacePanel((value) => value === "review" ? "none" : "review")}
+          type="button"
+        >
+          Review
+        </button>
+        <button
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${workspacePanel === "results" ? "workspace-tab-active" : ""}`}
+          onClick={() => setWorkspacePanel((value) => value === "results" ? "none" : "results")}
+          type="button"
+        >
+          <LineChart size={14} />
+          Results
+        </button>
+      </div>
+    </header>
+  );
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
@@ -703,122 +820,6 @@ export default function App() {
             </>
           ) : (
             <>
-          <header className="backtest-focus-header mb-3">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <span className="status-pill text-emerald-100">
-                <Radio size={14} />
-                {isPlaying ? "Playing" : "Replay"}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold text-white">
-                  {state?.session.strategy_name ?? "Strategy"} / {formatMarketSymbol(state?.session.symbol)} {state?.session.timeframe ?? "M1"}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                  <span className="inline-flex items-center gap-1.5">
-                    <WalletCards size={13} />
-                    Session #{state?.session.id ?? "—"}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Database size={13} />
-                    {meta ? `${meta.rows.toLocaleString()} bars` : "Dataset"}
-                  </span>
-                  {current && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Clock3 size={13} />
-                      {new Date(current.timestamp).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="hidden gap-2 xl:flex">
-                <HeaderStat label="Realized" value={money(state?.session.realized_pnl ?? 0)} tone={(state?.session.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} />
-                <HeaderStat label="Position" value={position && position.side !== "FLAT" && position.quantity > 0 ? position.side : "Flat"} tone={position?.side === "LONG" ? "text-emerald-300" : position?.side === "SHORT" ? "text-rose-300" : "text-slate-300"} />
-                <HeaderStat label="Pending" value={String(pendingOrders)} />
-              </div>
-            </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto">
-              <button
-                className="workspace-tab inline-flex items-center justify-center gap-2"
-                onClick={() => {
-                  setPlaying(false);
-                  setActiveWorkspace("sessions");
-                  setSessionGateOpen(true);
-                }}
-                type="button"
-              >
-                <Database size={14} />
-                Sessions
-              </button>
-              <button
-                className={`workspace-tab inline-flex items-center justify-center gap-2 ${leftPaneOpen ? "workspace-tab-active" : ""}`}
-                onClick={() => setLeftPaneOpen((value) => !value)}
-                type="button"
-              >
-                {leftPaneOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-                Ticket
-              </button>
-              <button
-                className={`workspace-tab inline-flex items-center justify-center gap-2 ${layersPanelOpen ? "workspace-tab-active" : ""}`}
-                onClick={() => setLayersPanelOpen((value) => !value)}
-                type="button"
-              >
-                {layersPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-                Objects
-              </button>
-              <button
-                className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartToolsOpen ? "workspace-tab-active" : ""}`}
-                data-chart-header-control="tools"
-                onClick={handleChartToolsClick}
-                onPointerDown={handleChartToolsPointerDown}
-                type="button"
-              >
-                <SlidersHorizontal size={14} />
-                Tools
-              </button>
-              <button
-                className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`}
-                data-chart-header-control="settings"
-                onClick={openChartSettings}
-                type="button"
-              >
-                <Settings2 size={14} />
-                Settings
-              </button>
-              {!isChartFullscreen && (
-                <button
-                  className="workspace-tab inline-flex items-center justify-center gap-2"
-                  onClick={toggleChartFullscreen}
-                  type="button"
-                >
-                  <Maximize2 size={14} />
-                  Full Screen
-                </button>
-              )}
-              <button
-                className={`workspace-tab ${workspacePanel === "tape" ? "workspace-tab-active" : ""}`}
-                onClick={() => setWorkspacePanel((value) => value === "tape" ? "none" : "tape")}
-                type="button"
-              >
-                Orders Tape
-              </button>
-              <button
-                className={`workspace-tab ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
-                onClick={() => setWorkspacePanel((value) => value === "review" ? "none" : "review")}
-                type="button"
-              >
-                Review
-              </button>
-              <button
-                className={`workspace-tab inline-flex items-center justify-center gap-2 ${workspacePanel === "results" ? "workspace-tab-active" : ""}`}
-                onClick={() => setWorkspacePanel((value) => value === "results" ? "none" : "results")}
-                type="button"
-              >
-                <LineChart size={14} />
-                Results
-              </button>
-            </div>
-          </header>
-
           {error && (
             <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
               <AlertTriangle size={18} />
@@ -875,6 +876,7 @@ export default function App() {
                 }
                 ref={chartShellRef}
               >
+                {backtestFocusHeader}
                 <ReplayController
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
