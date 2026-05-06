@@ -810,6 +810,22 @@ button:disabled {
     @apply grid min-w-0 grid-cols-[56px_minmax(0,1fr)];
   }
 
+  .chart-canvas-grid-rail-right {
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .chart-canvas-grid-rail-right > .drawing-rail {
+    grid-column: 2;
+    grid-row: 1;
+    border-left-width: 1px;
+    border-right-width: 0;
+  }
+
+  .chart-canvas-grid-rail-right > .chart-plot-column {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
   .drawing-rail {
     @apply flex min-h-[568px] flex-col items-center gap-2 border-r border-white/10 bg-black/25 px-2 py-3;
   }

@@ -1021,7 +1021,11 @@ export function TradingChart({
         </div>
       </div>
 
-      <div className="chart-canvas-grid">
+      <div
+        className={`chart-canvas-grid ${
+          chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""
+        }`}
+      >
         <DrawingRail
           activeTool={drawingTool}
           clearableDrawingsCount={unlockedDrawingsCount}
@@ -1030,7 +1034,7 @@ export function TradingChart({
           onToolChange={onDrawingToolChange}
         />
 
-        <div className="relative min-w-0">
+        <div className="chart-plot-column relative min-w-0">
           <div
             ref={chartFrameRef}
             className="chart-frame"
