@@ -5,6 +5,7 @@ import {
   LockKeyhole,
   Plus,
   RotateCcw,
+  Save,
   Trash2,
   UnlockKeyhole,
   X,
@@ -69,6 +70,9 @@ import {
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
+import { ThemedSelect } from "./ThemedSelect";
+
+const DRAWING_PRESETS_KEY = "edgelab.drawing-presets.v1";
 
 type Props = {
   bars: Candle[];
@@ -109,6 +113,20 @@ type DragState = {
   pointIndex: number | null;
   startPixel: { x: number; y: number };
   startPoint: DrawingPoint;
+};
+
+type LabelableDrawingTool = "horizontal" | "rectangle" | "trendline";
+
+type DrawingPreset = {
+  id: string;
+  color: string;
+  fillOpacity?: number;
+  label: string;
+  lineStyle?: DrawingLineStyle;
+  lineWidth?: number;
+  name: string;
+  tool: LabelableDrawingTool;
+  updatedAt: string;
 };
 
 const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
@@ -1198,16 +1216,50 @@ function FloatingDrawingToolbar({
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
   const fillOpacity = Math.round((drawing.fillOpacity ?? 0.16) * 100);
+  const [presets, setPresets] = useState<DrawingPreset[]>(() => loadDrawingPresets());
   const canFill =
     drawing.tool === "rectangle" ||
     drawing.tool === "longPosition" ||
     drawing.tool === "shortPosition";
   const isFib = drawing.tool === "fib";
+  const canLabel = drawing.tool === "text" || isLabelableDrawingTool(drawing.tool);
+  const drawingPresets = isLabelableDrawingTool(drawing.tool)
+    ? presets.filter((preset) => preset.tool === drawing.tool)
+    : [];
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
   };
+
+  function saveCurrentPreset() {
+    if (!isLabelableDrawingTool(drawing.tool)) {
+      return;
+    }
+    const preset = makeDrawingPreset(drawing);
+    const nextPresets = [
+      preset,
+      ...presets.filter(
+        (item) => !(item.tool === preset.tool && normalizePresetName(item.name) === normalizePresetName(preset.name)),
+      ),
+    ].slice(0, 36);
+    setPresets(nextPresets);
+    saveDrawingPresets(nextPresets);
+  }
+
+  function applyPreset(presetId: string) {
+    const preset = presets.find((item) => item.id === presetId);
+    if (!preset) {
+      return;
+    }
+    onChange({
+      color: preset.color,
+      fillOpacity: drawing.tool === "rectangle" ? preset.fillOpacity : drawing.fillOpacity,
+      label: preset.label,
+      lineStyle: preset.lineStyle,
+      lineWidth: preset.lineWidth,
+    });
+  }
 
   return (
     <div
@@ -1217,14 +1269,41 @@ function FloatingDrawingToolbar({
       role="group"
       style={{ left: position.x, top: position.y }}
     >
-      {drawing.tool === "text" && (
+      {canLabel && (
         <input
-          aria-label="Text label"
+          aria-label="Drawing label"
           className="chart-object-floating-label-input"
           onChange={(event) => onChange({ label: event.target.value })}
-          placeholder="Text"
+          placeholder={drawing.tool === "text" ? "Text" : "Label"}
           value={drawing.label ?? ""}
         />
+      )}
+
+      {isLabelableDrawingTool(drawing.tool) && (
+        <div className="drawing-preset-controls">
+          <ThemedSelect
+            ariaLabel="Drawing presets"
+            className="h-8 w-40"
+            disabled={drawingPresets.length === 0}
+            menuClassName="w-56"
+            onChange={applyPreset}
+            options={drawingPresets.map((preset) => ({
+              label: preset.name,
+              sublabel: preset.label || `${preset.lineStyle ?? "solid"} · ${preset.lineWidth ?? 2}px`,
+              value: preset.id,
+            }))}
+            placeholder={drawingPresets.length === 0 ? "No presets" : "Apply preset"}
+            value=""
+          />
+          <button
+            className="chart-object-floating-button"
+            onClick={saveCurrentPreset}
+            title="Save label/style preset"
+            type="button"
+          >
+            <Save size={14} />
+          </button>
+        </div>
       )}
 
       <label
@@ -1689,6 +1768,14 @@ function renderDrawing(
         >
           {label}
         </text>
+        {renderDrawingLabel({
+          color,
+          id: `${drawing.id}-label`,
+          label: drawing.label,
+          plotWidth: width,
+          x: 10,
+          y: point.y - 34,
+        })}
         {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
     );
@@ -1905,6 +1992,14 @@ function renderDrawing(
           x={x}
           y={y}
         />
+        {renderDrawingLabel({
+          color,
+          id: `${drawing.id}-label`,
+          label: drawing.label,
+          plotWidth: width,
+          x: x + 8,
+          y: rectHeight >= 34 ? y + 8 : y - 28,
+        })}
         {isSelected && (
           <>
             <rect
@@ -2078,7 +2173,66 @@ function renderDrawing(
         y1={first.y}
         y2={second.y}
       />
+      {renderDrawingLabel({
+        color,
+        id: `${drawing.id}-label`,
+        label: drawing.label,
+        plotWidth: width,
+        x: (first.x + second.x) / 2 - 70,
+        y: (first.y + second.y) / 2 - 30,
+      })}
       {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
+    </g>
+  );
+}
+
+function renderDrawingLabel({
+  color,
+  id,
+  label,
+  plotWidth,
+  x,
+  y,
+}: {
+  color: string;
+  id: string;
+  label?: string;
+  plotWidth: number;
+  x: number;
+  y: number;
+}) {
+  const text = compactDrawingLabel(label);
+  if (!text) {
+    return null;
+  }
+  const labelWidth = clamp(Math.ceil(text.length * 7.2 + 18), 54, 220);
+  const labelX = clamp(x, 6, Math.max(6, plotWidth - labelWidth - 6));
+  const labelY = Math.max(4, y);
+  const squeeze = text.length * 7.2 > labelWidth - 18;
+
+  return (
+    <g key={id} pointerEvents="none">
+      <rect
+        fill="rgba(8, 12, 17, 0.92)"
+        height={22}
+        rx={5}
+        stroke={color}
+        strokeOpacity="0.55"
+        width={labelWidth}
+        x={labelX}
+        y={labelY}
+      />
+      <text
+        fill={color}
+        fontSize="11"
+        fontWeight="800"
+        lengthAdjust={squeeze ? "spacingAndGlyphs" : undefined}
+        textLength={squeeze ? labelWidth - 16 : undefined}
+        x={labelX + 8}
+        y={labelY + 15}
+      >
+        {text}
+      </text>
     </g>
   );
 }
@@ -2418,6 +2572,111 @@ function textLabelMetrics(lines: string[]) {
     height: lines.length * 17 + 15,
     width: clamp(longest * 7.4 + 38, 78, 280),
   };
+}
+
+function compactDrawingLabel(label: string | undefined) {
+  const normalized = label?.trim().replace(/\s+/g, " ");
+  return normalized ? normalized.slice(0, 48) : null;
+}
+
+function isLabelableDrawingTool(
+  tool: ChartDrawing["tool"] | DrawingTool,
+): tool is LabelableDrawingTool {
+  return tool === "horizontal" || tool === "rectangle" || tool === "trendline";
+}
+
+function loadDrawingPresets(): DrawingPreset[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DRAWING_PRESETS_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((preset): DrawingPreset | null => {
+        if (typeof preset !== "object" || preset == null) {
+          return null;
+        }
+        const candidate = preset as Partial<DrawingPreset>;
+        if (
+          typeof candidate.id !== "string" ||
+          typeof candidate.name !== "string" ||
+          typeof candidate.tool !== "string" ||
+          !isLabelableDrawingTool(candidate.tool) ||
+          typeof candidate.color !== "string" ||
+          typeof candidate.label !== "string" ||
+          typeof candidate.updatedAt !== "string"
+        ) {
+          return null;
+        }
+        return {
+          id: candidate.id,
+          color: candidate.color,
+          fillOpacity:
+            typeof candidate.fillOpacity === "number" &&
+            Number.isFinite(candidate.fillOpacity)
+              ? clamp(candidate.fillOpacity, 0, 0.6)
+              : undefined,
+          label: candidate.label.slice(0, 64),
+          lineStyle:
+            candidate.lineStyle === "dashed" || candidate.lineStyle === "dotted"
+              ? candidate.lineStyle
+              : "solid",
+          lineWidth:
+            typeof candidate.lineWidth === "number" && Number.isFinite(candidate.lineWidth)
+              ? clamp(candidate.lineWidth, 1, 6)
+              : 2,
+          name: candidate.name.slice(0, 48),
+          tool: candidate.tool,
+          updatedAt: candidate.updatedAt,
+        };
+      })
+      .filter((preset): preset is DrawingPreset => preset != null)
+      .slice(0, 36);
+  } catch {
+    return [];
+  }
+}
+
+function saveDrawingPresets(presets: DrawingPreset[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(DRAWING_PRESETS_KEY, JSON.stringify(presets));
+}
+
+function makeDrawingPreset(drawing: ChartDrawing): DrawingPreset {
+  const tool = isLabelableDrawingTool(drawing.tool) ? drawing.tool : "trendline";
+  const label = drawing.label?.trim() ?? "";
+  const name = label.length > 0 ? label.slice(0, 48) : `${presetToolName(tool)} preset`;
+  return {
+    id: `${tool}-${normalizePresetName(name)}-${Date.now().toString(36)}`,
+    color: drawing.color,
+    fillOpacity: tool === "rectangle" ? drawing.fillOpacity ?? 0.16 : undefined,
+    label,
+    lineStyle: drawing.lineStyle ?? "solid",
+    lineWidth: drawing.lineWidth ?? 2,
+    name,
+    tool,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizePresetName(name: string) {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function presetToolName(tool: LabelableDrawingTool) {
+  switch (tool) {
+    case "horizontal":
+      return "Horizontal";
+    case "rectangle":
+      return "Rectangle";
+    case "trendline":
+      return "Trendline";
+  }
 }
 
 function pointFromClient(
