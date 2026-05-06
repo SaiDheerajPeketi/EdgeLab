@@ -186,13 +186,18 @@ export function ChartToolbar({
           </div>
         </div>
 
-        <div ref={commandRef} className="chart-command-box">
+        <div
+          ref={commandRef}
+          className="chart-command-box"
+          onPointerDown={() => setCommandOpen(true)}
+        >
           <Command size={15} className="text-cyan-200" />
           <input
             onChange={(event) => {
               setCommandQuery(event.target.value);
               setCommandOpen(true);
             }}
+            onClick={() => setCommandOpen(true)}
             onFocus={() => setCommandOpen(true)}
             placeholder="Search tools, indicators, styles, intervals"
             value={commandQuery}
