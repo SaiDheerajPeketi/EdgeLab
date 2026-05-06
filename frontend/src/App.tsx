@@ -129,9 +129,8 @@ export default function App() {
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
+  const [chartSettingsPanelOpen, setChartSettingsPanelOpen] = useState(false);
   const [chartSettingsOpenSignal, setChartSettingsOpenSignal] = useState(0);
-  const [collapseToolsAfterSettingsClose, setCollapseToolsAfterSettingsClose] =
-    useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "tape" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
@@ -536,21 +535,16 @@ export default function App() {
   }
 
   function toggleChartTools() {
-    setCollapseToolsAfterSettingsClose(false);
     setChartToolsOpen((value) => !value);
   }
 
   function openChartSettings() {
-    setCollapseToolsAfterSettingsClose(!chartToolsOpen);
-    setChartToolsOpen(true);
+    setChartSettingsPanelOpen(true);
     setChartSettingsOpenSignal((value) => value + 1);
   }
 
   function handleChartSettingsClose() {
-    if (collapseToolsAfterSettingsClose) {
-      setChartToolsOpen(false);
-    }
-    setCollapseToolsAfterSettingsClose(false);
+    setChartSettingsPanelOpen(false);
   }
 
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
@@ -701,7 +695,7 @@ export default function App() {
                 Tools
               </button>
               <button
-                className="workspace-tab inline-flex items-center justify-center gap-2"
+                className={`workspace-tab inline-flex items-center justify-center gap-2 ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`}
                 onClick={openChartSettings}
                 type="button"
               >
@@ -804,7 +798,7 @@ export default function App() {
                   onToggleOrderPane={toggleOrderPanel}
                   showOrderToggle={isChartFullscreen}
                 />
-                {chartToolsOpen && (
+                {(chartToolsOpen || chartSettingsPanelOpen) && (
                   <ChartToolbar
                     chartSettings={chartSettings}
                     chartStyle={chartStyle}
@@ -840,6 +834,7 @@ export default function App() {
                     smoothCandles={smoothCandles}
                     sourceTimeframe={sourceTimeframe}
                     timeframe={effectiveTimeframe}
+                    toolsOpen={chartToolsOpen}
                   />
                 )}
                 <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>

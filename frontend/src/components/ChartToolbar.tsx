@@ -92,6 +92,7 @@ type Props = {
   smoothCandles: boolean;
   sourceTimeframe: ChartTimeframe | null;
   timeframe: ChartTimeframe;
+  toolsOpen?: boolean;
 };
 
 const FALLBACK_SETTING: IndicatorSettings = {
@@ -158,6 +159,7 @@ export function ChartToolbar({
   settingsOpenSignal = 0,
   sourceTimeframe,
   timeframe,
+  toolsOpen = true,
 }: Props) {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -207,6 +209,14 @@ export function ChartToolbar({
   }, [settingsOpenSignal]);
 
   useEffect(() => {
+    if (toolsOpen) {
+      return;
+    }
+    setCommandOpen(false);
+    setIndicatorMenuOpen(false);
+  }, [toolsOpen]);
+
+  useEffect(() => {
     if (settingsOpen) {
       settingsWasOpenRef.current = true;
       return;
@@ -226,6 +236,49 @@ export function ChartToolbar({
     }
     setCommandOpen(true);
     commandInputRef.current?.focus();
+  }
+
+  const settingsPanel = settingsOpen ? (
+    <ChartSettingsPanel
+      indicatorInstances={indicatorInstances}
+      onClose={() => setSettingsOpen(false)}
+      onDeletePreset={(name) => {
+        setSettingsPresets(deleteChartSettingsPreset(name));
+        if (normalizeChartSettingsPresetName(name) === settingsPresetName) {
+          setSettingsPresetName("Default");
+        }
+      }}
+      onLoadPreset={(name) => {
+        const preset = settingsPresets.find((item) => item.name === name);
+        if (!preset) {
+          return;
+        }
+        setSettingsPresetName(preset.name);
+        onChartSettingsChange(preset.settings);
+      }}
+      onPresetNameChange={setSettingsPresetName}
+      onRemoveIndicator={onRemoveIndicator}
+      onReset={onChartSettingsReset}
+      onSavePreset={() => {
+        const nextPresets = saveChartSettingsPreset(settingsPresetName, chartSettings);
+        setSettingsPresets(nextPresets);
+        setSettingsPresetName(normalizeChartSettingsPresetName(settingsPresetName));
+        setSettingsOpen(false);
+      }}
+      onSettingsChange={onChartSettingsChange}
+      onUpdateIndicatorSettings={onUpdateIndicatorSettings}
+      presetName={settingsPresetName}
+      presets={settingsPresets}
+      settings={chartSettings}
+    />
+  ) : null;
+
+  if (!toolsOpen) {
+    return (
+      <div ref={settingsRef} className="chart-settings-host">
+        {settingsPanel}
+      </div>
+    );
   }
 
   return (
@@ -502,40 +555,7 @@ export function ChartToolbar({
               </span>
             )}
           </button>
-          {settingsOpen && (
-            <ChartSettingsPanel
-              indicatorInstances={indicatorInstances}
-              onClose={() => setSettingsOpen(false)}
-              onDeletePreset={(name) => {
-                setSettingsPresets(deleteChartSettingsPreset(name));
-                if (normalizeChartSettingsPresetName(name) === settingsPresetName) {
-                  setSettingsPresetName("Default");
-                }
-              }}
-              onLoadPreset={(name) => {
-                const preset = settingsPresets.find((item) => item.name === name);
-                if (!preset) {
-                  return;
-                }
-                setSettingsPresetName(preset.name);
-                onChartSettingsChange(preset.settings);
-              }}
-              onPresetNameChange={setSettingsPresetName}
-              onRemoveIndicator={onRemoveIndicator}
-              onReset={onChartSettingsReset}
-              onSavePreset={() => {
-                const nextPresets = saveChartSettingsPreset(settingsPresetName, chartSettings);
-                setSettingsPresets(nextPresets);
-                setSettingsPresetName(normalizeChartSettingsPresetName(settingsPresetName));
-                setSettingsOpen(false);
-              }}
-              onSettingsChange={onChartSettingsChange}
-              onUpdateIndicatorSettings={onUpdateIndicatorSettings}
-              presetName={settingsPresetName}
-              presets={settingsPresets}
-              settings={chartSettings}
-            />
-          )}
+          {settingsPanel}
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">
