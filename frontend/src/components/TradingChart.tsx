@@ -45,6 +45,7 @@ import {
   atrSeries,
   bucketTime,
   buildIndicatorDefinitions,
+  DEFAULT_FIB_BACKGROUND_OPACITY,
   DEFAULT_FIB_LEVELS,
   defaultRiskRewardStopPoint,
   indicatorDisplayName,
@@ -74,6 +75,7 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
 const DRAWING_PRESETS_KEY = "edgelab.drawing-presets.v1";
+const FIB_PRESETS_KEY = "edgelab.fib-presets.v1";
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 
 type Props = {
@@ -129,6 +131,14 @@ type DrawingPreset = {
   lineWidth?: number;
   name: string;
   tool: LabelableDrawingTool;
+  updatedAt: string;
+};
+
+type FibPreset = {
+  extendRight: boolean;
+  id: string;
+  levels: FibLevel[];
+  name: string;
   updatedAt: string;
 };
 
@@ -1439,6 +1449,9 @@ function FibLevelEditor({
   const levels = normalizeFibLevels(drawing.fibLevels, drawing.color);
   const priceStart = drawing.points[0]?.price ?? 0;
   const priceRange = (drawing.points[1]?.price ?? priceStart) - priceStart;
+  const [presets, setPresets] = useState<FibPreset[]>(() => loadFibPresets());
+  const [presetName, setPresetName] = useState("");
+  const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   function updateLevel(levelId: string, patch: Partial<FibLevel>) {
     onChange({
@@ -1466,22 +1479,83 @@ function FibLevelEditor({
       id: `fib-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       value: nextValue,
       color: nextFibLevelColor(levels),
+      backgroundOpacity: DEFAULT_FIB_BACKGROUND_OPACITY,
       label: formatFibLevelInput(nextValue),
+      lineStyle: "dashed",
       visible: true,
     };
     onChange({ fibLevels: [...levels, nextLevel].sort((left, right) => left.value - right.value) });
+  }
+
+  function savePreset() {
+    const preset = makeFibPreset({
+      extendRight: drawing.fibExtendRight !== false,
+      levels,
+      name: presetName,
+    });
+    const nextPresets = [
+      preset,
+      ...presets.filter(
+        (item) => normalizePresetName(item.name) !== normalizePresetName(preset.name),
+      ),
+    ].slice(0, 24);
+    setPresets(nextPresets);
+    saveFibPresets(nextPresets);
+    setPresetName(preset.name);
+  }
+
+  function applyPreset(presetId: string) {
+    const preset = presets.find((item) => item.id === presetId);
+    if (!preset) {
+      return;
+    }
+    onChange({
+      fibExtendRight: preset.extendRight,
+      fibLevels: normalizeFibLevels(preset.levels, drawing.color),
+    });
+    setPresetName(preset.name);
   }
 
   return (
     <div className="fib-level-editor">
       <div className="fib-level-editor-header">
         <span>Fib Levels</span>
-        <div className="flex items-center gap-1">
+        <div className="fib-preset-controls">
+          <input
+            aria-label="Fib preset name"
+            className="fib-preset-name"
+            onChange={(event) => setPresetName(event.target.value)}
+            placeholder="Preset name"
+            value={presetName}
+          />
+          <ThemedSelect
+            ariaLabel="Fib presets"
+            className="h-7 w-36"
+            disabled={presets.length === 0}
+            menuClassName="w-56"
+            onChange={applyPreset}
+            options={presets.map((preset) => ({
+              label: preset.name,
+              sublabel: `${preset.levels.length} levels`,
+              value: preset.id,
+            }))}
+            placeholder={presets.length === 0 ? "No presets" : "Apply"}
+            value=""
+          />
           <button
+            className="fib-icon-button"
+            onClick={savePreset}
+            title="Save fib preset"
+            type="button"
+          >
+            <Save size={12} />
+          </button>
+          <button
+            className="fib-icon-button"
             onClick={() =>
               onChange({
                 fibExtendRight: true,
-                fibLevels: DEFAULT_FIB_LEVELS.map((level) => ({ ...level })),
+                fibLevels: normalizeFibLevels(DEFAULT_FIB_LEVELS, drawing.color),
               })
             }
             title="Reset default levels"
@@ -1489,7 +1563,7 @@ function FibLevelEditor({
           >
             <RotateCcw size={12} />
           </button>
-          <button onClick={addLevel} title="Add level" type="button">
+          <button className="fib-icon-button" onClick={addLevel} title="Add level" type="button">
             <Plus size={13} />
           </button>
         </div>
@@ -1537,9 +1611,40 @@ function FibLevelEditor({
                 type="number"
                 value={formatFibLevelInput(level.value)}
               />
+              <ThemedSelect
+                ariaLabel="Fib level line style"
+                className="fib-level-style"
+                menuClassName="w-28"
+                onChange={(value) =>
+                  updateLevel(level.id, { lineStyle: value as DrawingLineStyle })
+                }
+                options={lineStyles.map((style) => ({
+                  label: <LineStylePreview style={style} />,
+                  sublabel: style,
+                  value: style,
+                }))}
+                value={level.lineStyle ?? "solid"}
+              />
+              <label className="fib-level-opacity">
+                <span>BG {Math.round((level.backgroundOpacity ?? DEFAULT_FIB_BACKGROUND_OPACITY) * 100)}%</span>
+                <input
+                  aria-label="Fib background opacity"
+                  max={24}
+                  min={0}
+                  onChange={(event) =>
+                    updateLevel(level.id, {
+                      backgroundOpacity: Number(event.target.value) / 100,
+                    })
+                  }
+                  step={1}
+                  type="range"
+                  value={Math.round((level.backgroundOpacity ?? DEFAULT_FIB_BACKGROUND_OPACITY) * 100)}
+                />
+              </label>
               <span className="fib-level-price">{formatPrice(price)}</span>
               <button
                 aria-label="Remove fib level"
+                className="fib-level-remove-button"
                 disabled={levels.length <= 1}
                 onClick={() =>
                   onChange({ fibLevels: levels.filter((item) => item.id !== level.id) })
@@ -2119,7 +2224,10 @@ function renderDrawing(
           }
           return (
             <rect
-              fill={colorWithOpacity(next.color, isSelected ? 0.075 : 0.045)}
+              fill={colorWithOpacity(
+                next.color,
+                next.backgroundOpacity ?? DEFAULT_FIB_BACKGROUND_OPACITY,
+              )}
               height={bandHeight}
               key={`${drawing.id}-${level.id}-band`}
               pointerEvents="none"
@@ -2134,6 +2242,7 @@ function renderDrawing(
           const price = priceStart + priceRange * level.value;
           const levelLabel = level.label?.trim() || formatFibLevelInput(level.value);
           const text = `${levelLabel}  ${formatPrice(price)}`;
+          const levelLineStyle = level.lineStyle ?? "solid";
           const labelY = clamp(
             y - labelHeight / 2,
             4,
@@ -2143,7 +2252,8 @@ function renderDrawing(
             <g key={level.id}>
               <line
                 stroke={level.color}
-                strokeDasharray={strokeDasharray}
+                strokeDasharray={lineStyleDasharray(levelLineStyle)}
+                strokeLinecap={levelLineStyle === "dotted" ? "round" : "butt"}
                 strokeOpacity={isSelected || level.value === 0 || level.value === 1 ? 0.95 : 0.72}
                 strokeWidth={
                   level.value === 0 || level.value === 1
@@ -2696,6 +2806,76 @@ function saveDrawingPresets(presets: DrawingPreset[]) {
   window.localStorage.setItem(DRAWING_PRESETS_KEY, JSON.stringify(presets));
 }
 
+function loadFibPresets(): FibPreset[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(FIB_PRESETS_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((preset): FibPreset | null => {
+        if (typeof preset !== "object" || preset == null) {
+          return null;
+        }
+        const candidate = preset as Partial<FibPreset>;
+        if (
+          typeof candidate.id !== "string" ||
+          typeof candidate.name !== "string" ||
+          typeof candidate.updatedAt !== "string" ||
+          !Array.isArray(candidate.levels)
+        ) {
+          return null;
+        }
+        return {
+          extendRight: candidate.extendRight !== false,
+          id: candidate.id,
+          levels: normalizeFibLevels(candidate.levels),
+          name: candidate.name.trim().slice(0, 48) || "Fib preset",
+          updatedAt: candidate.updatedAt,
+        };
+      })
+      .filter((preset): preset is FibPreset => preset != null)
+      .slice(0, 24);
+  } catch {
+    return [];
+  }
+}
+
+function saveFibPresets(presets: FibPreset[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(FIB_PRESETS_KEY, JSON.stringify(presets));
+}
+
+function makeFibPreset({
+  extendRight,
+  levels,
+  name,
+}: {
+  extendRight: boolean;
+  levels: FibLevel[];
+  name: string;
+}): FibPreset {
+  const normalizedLevels = normalizeFibLevels(levels);
+  const presetName =
+    name.trim().slice(0, 48) ||
+    `Fib ${normalizedLevels.length} levels ${new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  return {
+    extendRight,
+    id: `fib-${normalizePresetName(presetName)}-${Date.now().toString(36)}`,
+    levels: normalizedLevels.map((level) => ({ ...level })),
+    name: presetName,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function makeDrawingPreset(drawing: ChartDrawing): DrawingPreset {
   const tool = isLabelableDrawingTool(drawing.tool) ? drawing.tool : "trendline";
   const label = drawing.label?.trim() ?? "";
@@ -2979,7 +3159,11 @@ function makeDrawing(
 }
 
 function drawingStrokeDasharray(drawing: ChartDrawing) {
-  switch (drawing.lineStyle) {
+  return lineStyleDasharray(drawing.lineStyle);
+}
+
+function lineStyleDasharray(style: DrawingLineStyle | undefined) {
+  switch (style) {
     case "dotted":
       return "2 4";
     case "dashed":

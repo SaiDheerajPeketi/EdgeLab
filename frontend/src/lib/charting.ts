@@ -92,7 +92,9 @@ export type FibLevel = {
   id: string;
   value: number;
   color: string;
+  backgroundOpacity?: number;
   label?: string;
+  lineStyle?: DrawingLineStyle;
   visible?: boolean;
 };
 
@@ -128,16 +130,18 @@ export type MacdData = {
   signal: LineData[];
 };
 
+export const DEFAULT_FIB_BACKGROUND_OPACITY = 0.055;
+
 export const DEFAULT_FIB_LEVELS: FibLevel[] = [
-  { id: "0", value: 0, color: "#f8fafc", label: "0" },
-  { id: "0236", value: 0.236, color: "#38bdf8", label: "0.236" },
-  { id: "0382", value: 0.382, color: "#22c55e", label: "0.382" },
-  { id: "05", value: 0.5, color: "#fbbf24", label: "0.5" },
-  { id: "0618", value: 0.618, color: "#f59e0b", label: "0.618" },
-  { id: "0786", value: 0.786, color: "#f472b6", label: "0.786" },
-  { id: "1", value: 1, color: "#f8fafc", label: "1" },
-  { id: "1272", value: 1.272, color: "#a78bfa", label: "1.272" },
-  { id: "1618", value: 1.618, color: "#fb7185", label: "1.618" },
+  { id: "0", value: 0, color: "#f8fafc", backgroundOpacity: 0.035, label: "0", lineStyle: "solid" },
+  { id: "0236", value: 0.236, color: "#38bdf8", backgroundOpacity: 0.045, label: "0.236", lineStyle: "solid" },
+  { id: "0382", value: 0.382, color: "#22c55e", backgroundOpacity: 0.052, label: "0.382", lineStyle: "solid" },
+  { id: "05", value: 0.5, color: "#fbbf24", backgroundOpacity: 0.058, label: "0.5", lineStyle: "solid" },
+  { id: "0618", value: 0.618, color: "#f59e0b", backgroundOpacity: 0.066, label: "0.618", lineStyle: "solid" },
+  { id: "0786", value: 0.786, color: "#f472b6", backgroundOpacity: 0.052, label: "0.786", lineStyle: "solid" },
+  { id: "1", value: 1, color: "#f8fafc", backgroundOpacity: 0.035, label: "1", lineStyle: "solid" },
+  { id: "1272", value: 1.272, color: "#a78bfa", backgroundOpacity: 0.045, label: "1.272", lineStyle: "dashed" },
+  { id: "1618", value: 1.618, color: "#fb7185", backgroundOpacity: 0.045, label: "1.618", lineStyle: "dashed" },
 ];
 
 export const INDICATORS: Array<{
@@ -381,10 +385,19 @@ export function normalizeFibLevels(
           typeof candidate.color === "string" && candidate.color.trim().length > 0
             ? candidate.color
             : fallbackColor,
+        backgroundOpacity:
+          typeof candidate.backgroundOpacity === "number" &&
+          Number.isFinite(candidate.backgroundOpacity)
+            ? clampFibBackgroundOpacity(candidate.backgroundOpacity)
+            : DEFAULT_FIB_BACKGROUND_OPACITY,
         label:
           typeof candidate.label === "string"
             ? candidate.label.trim().slice(0, 24)
             : undefined,
+        lineStyle:
+          candidate.lineStyle === "dashed" || candidate.lineStyle === "dotted"
+            ? candidate.lineStyle
+            : "solid",
         visible: candidate.visible !== false,
       };
     })
@@ -398,6 +411,10 @@ export function normalizeFibLevels(
 
 function clampFibValue(value: number) {
   return Math.min(4.236, Math.max(-2, value));
+}
+
+function clampFibBackgroundOpacity(value: number) {
+  return Math.min(0.24, Math.max(0, value));
 }
 
 export function isRiskRewardTool(

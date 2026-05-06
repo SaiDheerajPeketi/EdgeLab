@@ -714,15 +714,27 @@ button:disabled {
   }
 
   .fib-level-editor {
-    @apply grid w-[min(520px,calc(100vw-48px))] gap-2 rounded border border-cyan-300/15 bg-black/25 p-2;
+    @apply grid w-[min(780px,calc(100vw-48px))] gap-2 rounded border border-cyan-300/15 bg-black/25 p-2;
   }
 
   .fib-level-editor-header {
-    @apply flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500;
+    @apply flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500;
   }
 
-  .fib-level-editor-header button {
+  .fib-level-editor-header .fib-icon-button {
     @apply grid h-7 w-7 place-items-center rounded border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .fib-preset-controls {
+    @apply flex min-w-0 flex-wrap items-center justify-end gap-1;
+  }
+
+  .fib-preset-name {
+    @apply h-7 w-32 rounded border border-white/10 bg-black/30 px-2 text-xs font-semibold normal-case tracking-normal text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
+  }
+
+  .fib-preset-controls .themed-select-trigger {
+    @apply min-h-0 px-2 text-xs normal-case tracking-normal;
   }
 
   .fib-level-extend {
@@ -738,7 +750,7 @@ button:disabled {
   }
 
   .fib-level-row {
-    @apply grid grid-cols-[18px_116px_72px_minmax(0,1fr)_24px] items-center gap-2 rounded bg-white/[0.03] px-2 py-1;
+    @apply grid min-w-[720px] grid-cols-[18px_116px_72px_92px_136px_minmax(92px,1fr)_24px] items-center gap-2 rounded bg-white/[0.03] px-2 py-1;
   }
 
   .fib-level-row > input[type="checkbox"] {
@@ -757,11 +769,27 @@ button:disabled {
     @apply h-7 rounded border border-white/10 bg-black/30 px-2 text-xs font-bold tabular-nums text-slate-100 outline-none focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/20;
   }
 
+  .fib-level-style {
+    @apply h-7;
+  }
+
+  .fib-level-style .themed-select-trigger {
+    @apply min-h-0 px-2;
+  }
+
+  .fib-level-opacity {
+    @apply flex h-7 min-w-0 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-[10px] font-bold tabular-nums text-slate-400;
+  }
+
+  .fib-level-opacity input {
+    @apply h-1.5 w-16 cursor-pointer appearance-none rounded-full bg-white/10 accent-cyan-300;
+  }
+
   .fib-level-price {
     @apply truncate text-right text-[10px] font-bold tabular-nums text-slate-400;
   }
 
-  .fib-level-row button {
+  .fib-level-remove-button {
     @apply grid h-6 w-6 place-items-center rounded text-slate-500 transition hover:bg-rose-300/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-35;
   }
 
