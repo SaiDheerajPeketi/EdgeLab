@@ -7,7 +7,7 @@ import {
   SkipForward,
   StepForward,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 
@@ -16,6 +16,16 @@ type Props = {
   onToggleOrderPane: () => void;
   showOrderToggle?: boolean;
 };
+
+const CUSTOM_SPEED_VALUE = "custom";
+const MIN_CUSTOM_BARS_PER_SECOND = 0.1;
+const MAX_CUSTOM_BARS_PER_SECOND = 50;
+const SPEED_PRESETS = [
+  { label: "0.5x", value: "900" },
+  { label: "1x", value: "450" },
+  { label: "2.5x", value: "180" },
+  { label: "5x", value: "80" },
+];
 
 export function ReplayController({
   isOrderPaneOpen,
@@ -36,13 +46,45 @@ export function ReplayController({
   } = useBacktestStore();
   const [jumpOffset, setJumpOffset] = useState("");
   const [jumpTime, setJumpTime] = useState("");
+  const [customSpeed, setCustomSpeed] = useState(() =>
+    formatBarsPerSecond(msToBarsPerSecond(speedMs)),
+  );
+  const customSpeedRef = useRef<HTMLInputElement | null>(null);
   const currentOffset = state?.session.current_offset ?? 0;
   const currentTimestamp =
     state?.current_candle?.timestamp ?? state?.session.start_at ?? null;
+  const selectedSpeedValue = useMemo(
+    () =>
+      SPEED_PRESETS.some((preset) => Number(preset.value) === speedMs)
+        ? String(speedMs)
+        : CUSTOM_SPEED_VALUE,
+    [speedMs],
+  );
 
   useEffect(() => {
     setJumpTime(toReplayInputValue(currentTimestamp));
   }, [currentTimestamp]);
+
+  useEffect(() => {
+    setCustomSpeed(formatBarsPerSecond(msToBarsPerSecond(speedMs)));
+  }, [speedMs]);
+
+  function handlePresetSpeedChange(value: string) {
+    if (value === CUSTOM_SPEED_VALUE) {
+      window.requestAnimationFrame(() => customSpeedRef.current?.focus());
+      return;
+    }
+    setSpeed(Number(value));
+  }
+
+  function handleCustomSpeedChange(value: string) {
+    setCustomSpeed(value);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return;
+    }
+    setSpeed(barsPerSecondToMs(parsed));
+  }
 
   return (
     <section className="rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
@@ -97,16 +139,33 @@ export function ReplayController({
 
           <ThemedSelect
             ariaLabel="Replay speed"
-            className="h-10 w-28"
-            onChange={(value) => setSpeed(Number(value))}
+            className="h-10 w-32"
+            onChange={handlePresetSpeedChange}
             options={[
-              { label: "0.5x", value: "900" },
-              { label: "1x", value: "450" },
-              { label: "2.5x", value: "180" },
-              { label: "5x", value: "80" },
+              ...SPEED_PRESETS,
+              {
+                label: "Custom",
+                sublabel: `${MIN_CUSTOM_BARS_PER_SECOND}-${MAX_CUSTOM_BARS_PER_SECOND} bars/s`,
+                value: CUSTOM_SPEED_VALUE,
+              },
             ]}
-            value={String(speedMs)}
+            value={selectedSpeedValue}
           />
+          <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-500">
+            <input
+              aria-label="Custom replay speed in bars per second"
+              className="w-16 bg-transparent text-right text-sm font-semibold text-slate-100 outline-none"
+              inputMode="decimal"
+              max={MAX_CUSTOM_BARS_PER_SECOND}
+              min={MIN_CUSTOM_BARS_PER_SECOND}
+              onChange={(event) => handleCustomSpeedChange(event.target.value)}
+              ref={customSpeedRef}
+              step="0.1"
+              type="number"
+              value={customSpeed}
+            />
+            bars/s
+          </label>
           <span className="rounded-md bg-white/5 px-3 py-2 text-sm text-slate-400">
             Bar {currentOffset.toLocaleString()}
           </span>
@@ -159,4 +218,26 @@ function toReplayInputValue(value: string | null) {
 
 function toDatasetTimestamp(value: string) {
   return value.length === 16 ? `${value}:00` : value;
+}
+
+function msToBarsPerSecond(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return msToBarsPerSecond(450);
+  }
+  return 1000 / value;
+}
+
+function barsPerSecondToMs(value: number) {
+  const clamped = Math.min(
+    MAX_CUSTOM_BARS_PER_SECOND,
+    Math.max(MIN_CUSTOM_BARS_PER_SECOND, value),
+  );
+  return Math.round(1000 / clamped);
+}
+
+function formatBarsPerSecond(value: number) {
+  if (!Number.isFinite(value)) {
+    return "1";
+  }
+  return Number(value.toFixed(value >= 10 ? 1 : 2)).toString();
 }
