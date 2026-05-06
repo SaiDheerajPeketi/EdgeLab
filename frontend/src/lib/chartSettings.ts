@@ -5,7 +5,11 @@ export type ChartVisibilityMode = "hidden" | "value" | "valueLine";
 export type ChartVisualSettings = {
   backgroundColor: string;
   barChangeValues: boolean;
+  bodyDownColor: string;
+  bodyUpColor: string;
   bodyVisible: boolean;
+  borderDownColor: string;
+  borderUpColor: string;
   borderVisible: boolean;
   candleDownColor: string;
   candleUpColor: string;
@@ -35,6 +39,8 @@ export type ChartVisualSettings = {
   volume: boolean;
   watermark: "hidden" | "symbol" | "text";
   watermarkText: string;
+  wickDownColor: string;
+  wickUpColor: string;
   wickVisible: boolean;
 };
 
@@ -47,7 +53,11 @@ export type ChartSettingsPreset = {
 export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   backgroundColor: "#0D1117",
   barChangeValues: true,
+  bodyDownColor: "#FB7185",
+  bodyUpColor: "#22C55E",
   bodyVisible: true,
+  borderDownColor: "#FB7185",
+  borderUpColor: "#22C55E",
   borderVisible: false,
   candleDownColor: "#FB7185",
   candleUpColor: "#22C55E",
@@ -77,6 +87,8 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   volume: true,
   watermark: "hidden",
   watermarkText: "EdgeLab",
+  wickDownColor: "#FB7185",
+  wickUpColor: "#22C55E",
   wickVisible: true,
 };
 
@@ -86,17 +98,32 @@ export function sanitizeChartVisualSettings(
   settings?: Partial<ChartVisualSettings> | null,
 ): ChartVisualSettings {
   const candidate = settings ?? {};
+  const legacyDownColor = sanitizeHex(candidate.candleDownColor, DEFAULT_CHART_VISUAL_SETTINGS.candleDownColor);
+  const legacyUpColor = sanitizeHex(candidate.candleUpColor, DEFAULT_CHART_VISUAL_SETTINGS.candleUpColor);
+  const bodyDownColor = sanitizeHex(candidate.bodyDownColor, legacyDownColor);
+  const bodyUpColor = sanitizeHex(candidate.bodyUpColor, legacyUpColor);
+  const borderDownColor = sanitizeHex(candidate.borderDownColor, bodyDownColor);
+  const borderUpColor = sanitizeHex(candidate.borderUpColor, bodyUpColor);
+  const wickDownColor = sanitizeHex(candidate.wickDownColor, bodyDownColor);
+  const wickUpColor = sanitizeHex(candidate.wickUpColor, bodyUpColor);
+
   return {
     ...DEFAULT_CHART_VISUAL_SETTINGS,
     ...candidate,
     backgroundColor: sanitizeHex(candidate.backgroundColor, DEFAULT_CHART_VISUAL_SETTINGS.backgroundColor),
-    candleDownColor: sanitizeHex(candidate.candleDownColor, DEFAULT_CHART_VISUAL_SETTINGS.candleDownColor),
-    candleUpColor: sanitizeHex(candidate.candleUpColor, DEFAULT_CHART_VISUAL_SETTINGS.candleUpColor),
+    bodyDownColor,
+    bodyUpColor,
+    borderDownColor,
+    borderUpColor,
+    candleDownColor: bodyDownColor,
+    candleUpColor: bodyUpColor,
     crosshairColor: sanitizeHex(candidate.crosshairColor, DEFAULT_CHART_VISUAL_SETTINGS.crosshairColor),
     gridColor: sanitizeHex(candidate.gridColor, DEFAULT_CHART_VISUAL_SETTINGS.gridColor),
     pricePrecision: clampInteger(candidate.pricePrecision, 0, 8, DEFAULT_CHART_VISUAL_SETTINGS.pricePrecision),
     textColor: sanitizeHex(candidate.textColor, DEFAULT_CHART_VISUAL_SETTINGS.textColor),
     textSize: clampInteger(candidate.textSize, 10, 18, DEFAULT_CHART_VISUAL_SETTINGS.textSize),
+    wickDownColor,
+    wickUpColor,
   };
 }
 

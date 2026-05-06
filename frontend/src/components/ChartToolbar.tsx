@@ -746,31 +746,35 @@ function ChartSettingsPanel({
                   }
                 />
                 <CandleColorSetting
-                  checked={settings.bodyVisible}
-                  downColor={settings.candleDownColor}
+                  downColor={settings.bodyDownColor}
                   label="Body"
-                  onCheckedChange={(bodyVisible) => updateSettings({ bodyVisible })}
-                  onDownColorChange={(candleDownColor) => updateSettings({ candleDownColor })}
-                  onUpColorChange={(candleUpColor) => updateSettings({ candleUpColor })}
-                  upColor={settings.candleUpColor}
+                  onDownColorChange={(bodyDownColor) =>
+                    updateSettings({ bodyDownColor, candleDownColor: bodyDownColor })
+                  }
+                  onUpColorChange={(bodyUpColor) =>
+                    updateSettings({ bodyUpColor, candleUpColor: bodyUpColor })
+                  }
+                  onVisibleChange={(bodyVisible) => updateSettings({ bodyVisible })}
+                  upColor={settings.bodyUpColor}
+                  visible={settings.bodyVisible}
                 />
                 <CandleColorSetting
-                  checked={settings.borderVisible}
-                  downColor={settings.candleDownColor}
+                  downColor={settings.borderDownColor}
                   label="Borders"
-                  onCheckedChange={(borderVisible) => updateSettings({ borderVisible })}
-                  onDownColorChange={(candleDownColor) => updateSettings({ candleDownColor })}
-                  onUpColorChange={(candleUpColor) => updateSettings({ candleUpColor })}
-                  upColor={settings.candleUpColor}
+                  onDownColorChange={(borderDownColor) => updateSettings({ borderDownColor })}
+                  onUpColorChange={(borderUpColor) => updateSettings({ borderUpColor })}
+                  onVisibleChange={(borderVisible) => updateSettings({ borderVisible })}
+                  upColor={settings.borderUpColor}
+                  visible={settings.borderVisible}
                 />
                 <CandleColorSetting
-                  checked={settings.wickVisible}
-                  downColor={settings.candleDownColor}
+                  downColor={settings.wickDownColor}
                   label="Wick"
-                  onCheckedChange={(wickVisible) => updateSettings({ wickVisible })}
-                  onDownColorChange={(candleDownColor) => updateSettings({ candleDownColor })}
-                  onUpColorChange={(candleUpColor) => updateSettings({ candleUpColor })}
-                  upColor={settings.candleUpColor}
+                  onDownColorChange={(wickDownColor) => updateSettings({ wickDownColor })}
+                  onUpColorChange={(wickUpColor) => updateSettings({ wickUpColor })}
+                  onVisibleChange={(wickVisible) => updateSettings({ wickVisible })}
+                  upColor={settings.wickUpColor}
+                  visible={settings.wickVisible}
                 />
                 <NumberSetting
                   label="Precision"
@@ -1103,25 +1107,40 @@ function SettingToggle({
 }
 
 function CandleColorSetting({
-  checked,
   downColor,
   label,
-  onCheckedChange,
   onDownColorChange,
+  onVisibleChange,
   onUpColorChange,
   upColor,
+  visible,
 }: {
-  checked: boolean;
   downColor: string;
   label: string;
-  onCheckedChange: (value: boolean) => void;
   onDownColorChange: (value: string) => void;
+  onVisibleChange: (value: boolean) => void;
   onUpColorChange: (value: string) => void;
   upColor: string;
+  visible: boolean;
 }) {
   return (
     <div className="chart-settings-candle-row">
-      <SettingToggle checked={checked} label={label} onChange={onCheckedChange} />
+      <div className="flex min-h-9 items-center gap-2 rounded-md border border-white/[0.07] bg-white/[0.025] px-3 text-xs font-semibold text-slate-300">
+        <button
+          aria-label={`${visible ? "Hide" : "Show"} ${label}`}
+          className={`grid h-6 w-6 place-items-center rounded border transition ${
+            visible
+              ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+              : "border-white/10 bg-black/20 text-slate-500 hover:text-slate-200"
+          }`}
+          onClick={() => onVisibleChange(!visible)}
+          title={`${visible ? "Hide" : "Show"} ${label}`}
+          type="button"
+        >
+          {visible ? <Eye size={13} /> : <EyeOff size={13} />}
+        </button>
+        <span>{label}</span>
+      </div>
       <div className="chart-settings-color-pair">
         <ThemedColorPicker
           ariaLabel={`${label} up color`}

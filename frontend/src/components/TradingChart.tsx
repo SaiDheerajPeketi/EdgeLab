@@ -234,11 +234,11 @@ export function TradingChart({
           value: bar.volume,
           color:
             bar.close >= bar.open
-              ? colorWithOpacity(chartSettings.candleUpColor, 0.22)
-              : colorWithOpacity(chartSettings.candleDownColor, 0.24),
+              ? colorWithOpacity(chartSettings.bodyUpColor, 0.22)
+              : colorWithOpacity(chartSettings.bodyDownColor, 0.24),
         }),
       ),
-    [chartSettings.candleDownColor, chartSettings.candleUpColor, displayBars],
+    [chartSettings.bodyDownColor, chartSettings.bodyUpColor, displayBars],
   );
 
   const indicatorDefinitions = useMemo(
@@ -572,20 +572,20 @@ export function TradingChart({
       },
     });
     candlesRef.current?.applyOptions({
-      borderDownColor: chartSettings.candleDownColor,
-      borderUpColor: chartSettings.candleUpColor,
+      borderDownColor: chartSettings.borderDownColor,
+      borderUpColor: chartSettings.borderUpColor,
       borderVisible: chartSettings.borderVisible,
       downColor: chartSettings.bodyVisible
-        ? chartSettings.candleDownColor
-        : colorWithOpacity(chartSettings.candleDownColor, 0.08),
+        ? chartSettings.bodyDownColor
+        : colorWithOpacity(chartSettings.bodyDownColor, 0.08),
       lastValueVisible: chartSettings.symbolLine !== "hidden",
       priceFormat,
       priceLineVisible: chartSettings.symbolLine === "valueLine",
       upColor: chartSettings.bodyVisible
-        ? chartSettings.candleUpColor
-        : colorWithOpacity(chartSettings.candleUpColor, 0.08),
-      wickDownColor: chartSettings.candleDownColor,
-      wickUpColor: chartSettings.candleUpColor,
+        ? chartSettings.bodyUpColor
+        : colorWithOpacity(chartSettings.bodyUpColor, 0.08),
+      wickDownColor: chartSettings.wickDownColor,
+      wickUpColor: chartSettings.wickUpColor,
       wickVisible: chartSettings.wickVisible,
     });
     lineRef.current?.applyOptions({
@@ -679,16 +679,16 @@ export function TradingChart({
       "#94a3b8",
     );
     const extremes = highLowRange(displayBars);
-    addSettingLine(extremes.high, "High", chartSettings.highLowLabels, chartSettings.candleUpColor);
-    addSettingLine(extremes.low, "Low", chartSettings.highLowLabels, chartSettings.candleDownColor);
+    addSettingLine(extremes.high, "High", chartSettings.highLowLabels, chartSettings.bodyUpColor);
+    addSettingLine(extremes.low, "Low", chartSettings.highLowLabels, chartSettings.bodyDownColor);
 
     return () => {
       settingPriceLinesRef.current.forEach((line) => series.removePriceLine(line));
       settingPriceLinesRef.current = [];
     };
   }, [
-    chartSettings.candleDownColor,
-    chartSettings.candleUpColor,
+    chartSettings.bodyDownColor,
+    chartSettings.bodyUpColor,
     chartSettings.highLowLabels,
     chartSettings.previousDayClose,
     displayBars,
@@ -1299,12 +1299,14 @@ function applyCandleVisualSettings(
     const isUp = settings.colorBarsByPreviousClose && previousBar
       ? sourceBar.close >= previousBar.close
       : sourceBar.close >= sourceBar.open;
-    const color = isUp ? settings.candleUpColor : settings.candleDownColor;
+    const bodyColor = isUp ? settings.bodyUpColor : settings.bodyDownColor;
+    const borderColor = isUp ? settings.borderUpColor : settings.borderDownColor;
+    const wickColor = isUp ? settings.wickUpColor : settings.wickDownColor;
     return {
       ...candle,
-      borderColor: color,
-      color: settings.bodyVisible ? color : colorWithOpacity(color, 0.08),
-      wickColor: color,
+      borderColor,
+      color: settings.bodyVisible ? bodyColor : colorWithOpacity(bodyColor, 0.08),
+      wickColor,
     };
   });
 }
