@@ -744,6 +744,8 @@ export function TradingChart({
     });
   }
 
+  const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+
   return (
     <section className="chart-stage">
       <div className="chart-stage-header">
@@ -828,6 +830,7 @@ export function TradingChart({
       <div className="chart-canvas-grid">
         <DrawingRail
           activeTool={drawingTool}
+          clearableDrawingsCount={unlockedDrawingsCount}
           drawingsCount={drawings.length}
           onClearDrawings={onClearDrawings}
           onToolChange={onDrawingToolChange}
@@ -959,11 +962,13 @@ function OhlcvValue({
 
 function DrawingRail({
   activeTool,
+  clearableDrawingsCount,
   drawingsCount,
   onClearDrawings,
   onToolChange,
 }: {
   activeTool: DrawingTool;
+  clearableDrawingsCount: number;
   drawingsCount: number;
   onClearDrawings: () => void;
   onToolChange: (tool: DrawingTool) => void;
@@ -1004,15 +1009,19 @@ function DrawingRail({
       <div className="my-1 h-px w-8 bg-white/10" />
       <button
         className="drawing-rail-button"
-        disabled={drawingsCount === 0}
+        disabled={clearableDrawingsCount === 0}
         onClick={onClearDrawings}
-        title="Clear drawings"
+        title={
+          clearableDrawingsCount === 0 && drawingsCount > 0
+            ? "Unlock drawings to clear them"
+            : "Clear unlocked drawings"
+        }
         type="button"
       >
         <Trash2 size={16} />
-        {drawingsCount > 0 && (
+        {clearableDrawingsCount > 0 && (
           <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-cyan-300 px-1 text-[10px] font-bold text-ink-950">
-            {drawingsCount}
+            {clearableDrawingsCount}
           </span>
         )}
       </button>
@@ -1227,6 +1236,7 @@ function FloatingDrawingToolbar({
     drawing.tool === "rectangle" ||
     drawing.tool === "longPosition" ||
     drawing.tool === "shortPosition";
+  const canDelete = !drawing.locked;
   const isFib = drawing.tool === "fib";
   const canLabel = drawing.tool === "text" || isLabelableDrawingTool(drawing.tool);
   const drawingPresets = isLabelableDrawingTool(drawing.tool)
@@ -1404,8 +1414,13 @@ function FloatingDrawingToolbar({
       </button>
       <button
         className="chart-object-floating-button danger"
-        onClick={onDelete}
-        title="Delete drawing"
+        disabled={!canDelete}
+        onClick={() => {
+          if (canDelete) {
+            onDelete();
+          }
+        }}
+        title={canDelete ? "Delete drawing" : "Unlock drawing to delete"}
         type="button"
       >
         <X size={14} />

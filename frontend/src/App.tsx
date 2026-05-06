@@ -203,7 +203,7 @@ export default function App() {
 
       if (event.ctrlKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        setDrawings((currentDrawings) => currentDrawings.slice(0, -1));
+        removeLastUnlockedDrawing();
         return;
       }
 
@@ -277,12 +277,12 @@ export default function App() {
           break;
         case "Delete":
         case "Backspace":
-          setDrawings((currentDrawings) =>
-            selectedDrawingId
-              ? currentDrawings.filter((drawing) => drawing.id !== selectedDrawingId)
-              : currentDrawings.slice(0, -1),
-          );
-          setSelectedDrawingId(null);
+          event.preventDefault();
+          if (selectedDrawingId) {
+            deleteDrawing(selectedDrawingId);
+          } else {
+            removeLastUnlockedDrawing();
+          }
           break;
         default:
           break;
@@ -291,7 +291,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, selectedDrawingId, setPlaying, state, stepForward]);
+  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, state, stepForward]);
 
   useEffect(() => {
     function syncNativeFullscreen() {
@@ -385,16 +385,31 @@ export default function App() {
   }
 
   function clearDrawings() {
-    setDrawings([]);
-    setSelectedDrawingId(null);
-    persistChartLayoutWithDrawings([]);
+    const nextDrawings = drawings.filter((drawing) => drawing.locked);
+    setDrawings(nextDrawings);
+    if (!nextDrawings.some((drawing) => drawing.id === selectedDrawingId)) {
+      setSelectedDrawingId(null);
+    }
+    persistChartLayoutWithDrawings(nextDrawings);
   }
 
   function deleteDrawing(drawingId: string) {
+    const targetDrawing = drawings.find((drawing) => drawing.id === drawingId);
+    if (!targetDrawing || targetDrawing.locked) {
+      return;
+    }
     const nextDrawings = drawings.filter((drawing) => drawing.id !== drawingId);
     setDrawings(nextDrawings);
     setSelectedDrawingId(null);
     persistChartLayoutWithDrawings(nextDrawings);
+  }
+
+  function removeLastUnlockedDrawing() {
+    const drawing = [...drawings].reverse().find((item) => !item.locked);
+    if (!drawing) {
+      return;
+    }
+    deleteDrawing(drawing.id);
   }
 
   function toggleChartFullscreen() {
@@ -525,6 +540,8 @@ export default function App() {
     setLayersPanelOpen(false);
     setWorkspacePanel("none");
   }
+
+  const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
@@ -747,6 +764,7 @@ export default function App() {
                 {chartToolsOpen && (
                   <ChartToolbar
                     chartStyle={chartStyle}
+                    clearableDrawingsCount={unlockedDrawingsCount}
                     drawingTool={drawingTool}
                     drawingsCount={drawings.length}
                     indicatorInstances={indicatorInstances}

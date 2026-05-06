@@ -51,6 +51,7 @@ import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   chartStyle: ChartStyle;
+  clearableDrawingsCount: number;
   drawingTool: DrawingTool;
   drawingsCount: number;
   indicatorInstances: ChartIndicatorInstance[];
@@ -115,6 +116,7 @@ const CHART_STYLES: Array<{
 
 export function ChartToolbar({
   chartStyle,
+  clearableDrawingsCount,
   drawingTool,
   drawingsCount,
   indicatorInstances,
@@ -275,10 +277,15 @@ export function ChartToolbar({
           <button
             className="chart-mode-button"
             onClick={onClearDrawings}
-            disabled={drawingsCount === 0}
+            disabled={clearableDrawingsCount === 0}
+            title={
+              clearableDrawingsCount === 0 && drawingsCount > 0
+                ? "Unlock drawings to clear them"
+                : "Clear unlocked drawings"
+            }
             type="button"
           >
-            Clear {drawingsCount}
+            Clear {clearableDrawingsCount}
           </button>
           <button
             className="chart-mode-button chart-mode-primary"
@@ -370,13 +377,17 @@ export function ChartToolbar({
           })}
           <button
             className="studio-tool-button"
-            disabled={drawingsCount === 0}
+            disabled={clearableDrawingsCount === 0}
             onClick={onClearDrawings}
-            title="Clear all drawings"
+            title={
+              clearableDrawingsCount === 0 && drawingsCount > 0
+                ? "Unlock drawings to clear them"
+                : "Clear unlocked drawings"
+            }
             type="button"
           >
             <Trash2 size={14} />
-            <span>{drawingsCount}</span>
+            <span>{clearableDrawingsCount}</span>
           </button>
         </div>
 

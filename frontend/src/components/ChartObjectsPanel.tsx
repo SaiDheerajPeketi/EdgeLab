@@ -94,6 +94,8 @@ export function ChartObjectsPanel({
   selectedDrawingId,
   smoothCandles,
 }: Props) {
+  const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+
   return (
     <aside className="chart-side-panel">
       <div className="border-b border-white/10 px-4 py-3">
@@ -239,9 +241,13 @@ export function ChartObjectsPanel({
             </span>
             <button
               className="icon-button h-8 w-8"
-              disabled={drawings.length === 0}
+              disabled={unlockedDrawingsCount === 0}
               onClick={onClearDrawings}
-              title="Clear drawings"
+              title={
+                unlockedDrawingsCount === 0 && drawings.length > 0
+                  ? "Unlock drawings to clear them"
+                  : "Clear unlocked drawings"
+              }
               type="button"
             >
               <Trash2 size={14} />
@@ -320,6 +326,7 @@ function DrawingHoverControls({
   );
   const lineStyle = drawing.lineStyle ?? "solid";
   const lineWidth = drawing.lineWidth ?? 2;
+  const canDelete = !drawing.locked;
 
   return (
     <div
@@ -442,7 +449,13 @@ function DrawingHoverControls({
       </div>
       <button
         className="control-button h-9 border-rose-300/30 bg-rose-300/10 text-xs text-rose-100"
-        onClick={onDelete}
+        disabled={!canDelete}
+        onClick={() => {
+          if (canDelete) {
+            onDelete();
+          }
+        }}
+        title={canDelete ? "Delete drawing" : "Unlock drawing to delete"}
         type="button"
       >
         <X size={14} />
