@@ -43,6 +43,7 @@ import {
   type IndicatorSettings,
   type IndicatorSettingsMap,
 } from "../lib/charting";
+import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
@@ -300,21 +301,17 @@ export function ChartToolbar({
 
       <div className="layout-manager-strip">
         <span className="study-manager-label">Layouts</span>
-        <select
-          className="input-control h-8 max-w-44 text-xs"
+        <ThemedSelect
+          ariaLabel="Saved layouts"
+          className="h-8 w-44"
           disabled={layoutNames.length === 0}
-          onChange={(event) => onLoadLayout(event.target.value)}
+          onChange={onLoadLayout}
+          options={[
+            { disabled: true, label: "Saved layouts", value: "" },
+            ...layoutNames.map((name) => ({ label: name, value: name })),
+          ]}
           value={layoutNames.includes(layoutName) ? layoutName : ""}
-        >
-          <option value="" disabled>
-            Saved layouts
-          </option>
-          {layoutNames.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
+        />
         <input
           className="input-control h-8 max-w-56 text-xs"
           onChange={(event) => onLayoutNameChange(event.target.value)}

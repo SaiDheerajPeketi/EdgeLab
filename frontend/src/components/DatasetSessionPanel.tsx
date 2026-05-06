@@ -9,6 +9,7 @@ import type {
   Playbook,
 } from "../lib/api";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
+import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   datasets: DatasetCatalog | null;
@@ -167,32 +168,32 @@ export function DatasetSessionPanel({
       >
         <label className="form-field">
           <span>Instrument</span>
-          <select
-            className="input-control h-10"
-            onChange={(event) => setInstrumentId(event.target.value)}
+          <ThemedSelect
+            ariaLabel="Instrument"
+            className="h-10"
+            onChange={setInstrumentId}
+            options={instruments.map((instrument) => ({
+              label: instrument.name,
+              sublabel: instrument.symbol,
+              value: instrument.id,
+            }))}
             value={selectedInstrument?.id ?? ""}
-          >
-            {instruments.map((instrument) => (
-              <option key={instrument.id} value={instrument.id}>
-                {instrument.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
         <label className="form-field hidden xl:block">
           <span>Timeframe</span>
-          <select
-            className="input-control h-10"
-            onChange={(event) => setTimeframe(event.target.value)}
+          <ThemedSelect
+            ariaLabel="Dataset timeframe"
+            className="h-10"
+            onChange={setTimeframe}
+            options={(selectedInstrument?.timeframes ?? []).map((item) => ({
+              label: item.timeframe,
+              sublabel: `${item.rows.toLocaleString()} bars`,
+              value: item.timeframe,
+            }))}
             value={selectedTimeframe?.timeframe ?? ""}
-          >
-            {selectedInstrument?.timeframes.map((item) => (
-              <option key={item.timeframe} value={item.timeframe}>
-                {item.timeframe} · {item.rows.toLocaleString()} bars
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
         <label className="form-field">
@@ -217,18 +218,19 @@ export function DatasetSessionPanel({
 
         <label className="form-field">
           <span>Playbook</span>
-          <select
-            className="input-control h-10 min-w-36"
-            onChange={(event) => setPlaybookId(event.target.value)}
+          <ThemedSelect
+            ariaLabel="Session playbook"
+            className="h-10 min-w-36"
+            onChange={setPlaybookId}
+            options={[
+              { label: "Unlinked", value: "" },
+              ...playbooks.map((playbook) => ({
+                label: playbook.name,
+                value: String(playbook.id),
+              })),
+            ]}
             value={playbookId}
-          >
-            <option value="">Unlinked</option>
-            {playbooks.map((playbook) => (
-              <option key={playbook.id} value={playbook.id}>
-                {playbook.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
         <label className="form-field xl:col-span-2">

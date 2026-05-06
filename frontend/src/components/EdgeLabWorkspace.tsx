@@ -51,6 +51,7 @@ import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
 import type { WorkspaceView } from "../lib/workspace";
+import { ThemedSelect } from "./ThemedSelect";
 import { TradeLog } from "./TradeLog";
 
 type WorkspacePageView = Exclude<WorkspaceView, "backtest" | "sessions">;
@@ -535,10 +536,14 @@ function AccountsPage({ aggregate, datasets, sessions }: SharedPageProps) {
             </label>
             <label className="form-field">
               Type
-              <select className="input-control h-10 normal-case tracking-normal" defaultValue="Manual">
-                <option>Manual</option>
-                <option>CSV Upload</option>
-              </select>
+              <ThemedSelect
+                className="h-10"
+                defaultValue="Manual"
+                options={[
+                  { label: "Manual", value: "Manual" },
+                  { label: "CSV Upload", value: "CSV Upload" },
+                ]}
+              />
             </label>
             <label className="form-field">
               Starting balance
@@ -546,10 +551,14 @@ function AccountsPage({ aggregate, datasets, sessions }: SharedPageProps) {
             </label>
             <label className="form-field">
               Currency
-              <select className="input-control h-10 normal-case tracking-normal" defaultValue="USD">
-                <option>USD</option>
-                <option>INR</option>
-              </select>
+              <ThemedSelect
+                className="h-10"
+                defaultValue="USD"
+                options={[
+                  { label: "USD", value: "USD" },
+                  { label: "INR", value: "INR" },
+                ]}
+              />
             </label>
             <div className="flex justify-end gap-2 pt-2">
               <button className="control-button" onClick={() => setModalOpen(false)} type="button">
@@ -663,9 +672,11 @@ function TradeViewPage({
           {["Symbol", "Direction", "Strategy", "Tags", "Date range"].map((label) => (
             <label className="form-field" key={label}>
               {label}
-              <select className="input-control h-10 normal-case tracking-normal">
-                <option>All {label.toLowerCase()}</option>
-              </select>
+              <ThemedSelect
+                className="h-10"
+                defaultValue="ALL"
+                options={[{ label: `All ${label.toLowerCase()}`, value: "ALL" }]}
+              />
             </label>
           ))}
         </div>
@@ -851,14 +862,18 @@ function JournalSessionsPage({
             </label>
             <label className="form-field">
               Playbook rules
-              <select className="input-control h-10 normal-case tracking-normal" onChange={(event) => setPlaybookId(event.target.value)} value={playbookId}>
-                <option value="">No playbook</option>
-                {playbooks.map((playbook) => (
-                  <option key={playbook.id} value={playbook.id}>
-                    {playbook.name}
-                  </option>
-                ))}
-              </select>
+              <ThemedSelect
+                className="h-10"
+                onChange={setPlaybookId}
+                options={[
+                  { label: "No playbook", value: "" },
+                  ...playbooks.map((playbook) => ({
+                    label: playbook.name,
+                    value: String(playbook.id),
+                  })),
+                ]}
+                value={playbookId}
+              />
             </label>
             <label className="form-field">
               Starting balance
@@ -1285,18 +1300,26 @@ function JournalSettingsPage(_: JournalPageProps) {
           </label>
           <label className="form-field">
             Commission mode
-            <select className="input-control h-10 normal-case tracking-normal" defaultValue="Manual entry">
-              <option>Manual entry</option>
-              <option>Flat per trade</option>
-              <option>Percent of notional</option>
-            </select>
+            <ThemedSelect
+              className="h-10"
+              defaultValue="Manual entry"
+              options={[
+                { label: "Manual entry", value: "Manual entry" },
+                { label: "Flat per trade", value: "Flat per trade" },
+                { label: "Percent of notional", value: "Percent of notional" },
+              ]}
+            />
           </label>
           <label className="form-field">
             Journal import source
-            <select className="input-control h-10 normal-case tracking-normal" defaultValue="Manual">
-              <option>Manual</option>
-              <option>Broker CSV</option>
-            </select>
+            <ThemedSelect
+              className="h-10"
+              defaultValue="Manual"
+              options={[
+                { label: "Manual", value: "Manual" },
+                { label: "Broker CSV", value: "Broker CSV" },
+              ]}
+            />
           </label>
         </div>
       </FeatureCard>
@@ -1377,11 +1400,16 @@ function LiveTradeForm({
       <form className="mt-4 grid gap-3" onSubmit={submitTrade}>
         <label className="form-field">
           Live session
-          <select className="input-control h-10 normal-case tracking-normal" onChange={(event) => setSessionId(event.target.value)} value={sessionId}>
-            {sessions.map((session) => (
-              <option key={session.id} value={session.id}>{session.name}</option>
-            ))}
-          </select>
+          <ThemedSelect
+            className="h-10"
+            onChange={setSessionId}
+            options={sessions.map((session) => ({
+              label: session.name,
+              sublabel: session.instrument,
+              value: String(session.id),
+            }))}
+            value={sessionId}
+          />
         </label>
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -2238,25 +2266,37 @@ function SettingsPage({ datasets }: SharedPageProps) {
             </label>
             <label className="form-field">
               Default currency
-              <select className="input-control h-10 normal-case tracking-normal" defaultValue="USD">
-                <option>USD</option>
-                <option>INR</option>
-              </select>
+              <ThemedSelect
+                className="h-10"
+                defaultValue="USD"
+                options={[
+                  { label: "USD", value: "USD" },
+                  { label: "INR", value: "INR" },
+                ]}
+              />
             </label>
             <label className="form-field">
               Commission mode
-              <select className="input-control h-10 normal-case tracking-normal" defaultValue="Flat">
-                <option>Flat</option>
-                <option>Percent of position</option>
-              </select>
+              <ThemedSelect
+                className="h-10"
+                defaultValue="Flat"
+                options={[
+                  { label: "Flat", value: "Flat" },
+                  { label: "Percent of position", value: "Percent of position" },
+                ]}
+              />
             </label>
             <label className="form-field">
               Auto-save interval
-              <select className="input-control h-10 normal-case tracking-normal" defaultValue="Every 5 candles">
-                <option>Every candle</option>
-                <option>Every 5 candles</option>
-                <option>Manual only</option>
-              </select>
+              <ThemedSelect
+                className="h-10"
+                defaultValue="Every 5 candles"
+                options={[
+                  { label: "Every candle", value: "Every candle" },
+                  { label: "Every 5 candles", value: "Every 5 candles" },
+                  { label: "Manual only", value: "Manual only" },
+                ]}
+              />
             </label>
           </div>
           <div className="mt-5 rounded-md border border-white/10 bg-black/20 p-3">

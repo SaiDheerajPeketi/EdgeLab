@@ -26,6 +26,7 @@ import type {
 import { formatMoney, formatPercent } from "../lib/format";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
+import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   datasets: DatasetCatalog | null;
@@ -505,17 +506,16 @@ export function SessionGateway({
             <div className="session-form-grid">
               <label className="form-field">
                 <span>Playbook</span>
-                <select
-                  className="input-control h-11"
-                  onChange={(event) => setPlaybookId(event.target.value)}
+                <ThemedSelect
+                  ariaLabel="Session playbook"
+                  className="h-11"
+                  onChange={setPlaybookId}
+                  options={playbooks.map((playbook) => ({
+                    label: playbook.name,
+                    value: String(playbook.id),
+                  }))}
                   value={playbookId}
-                >
-                  {playbooks.map((playbook) => (
-                    <option key={playbook.id} value={playbook.id}>
-                      {playbook.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
               <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-400 xl:col-span-2">
                 <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">

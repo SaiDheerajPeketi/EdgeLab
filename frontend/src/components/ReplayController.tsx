@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useBacktestStore } from "../store/backtestStore";
+import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   isOrderPaneOpen: boolean;
@@ -94,16 +95,18 @@ export function ReplayController({
             <RotateCcw size={17} />
           </button>
 
-          <select
-            className="input-control h-10 w-28"
-            value={speedMs}
-            onChange={(event) => setSpeed(Number(event.target.value))}
-          >
-            <option value={900}>0.5x</option>
-            <option value={450}>1x</option>
-            <option value={180}>2.5x</option>
-            <option value={80}>5x</option>
-          </select>
+          <ThemedSelect
+            ariaLabel="Replay speed"
+            className="h-10 w-28"
+            onChange={(value) => setSpeed(Number(value))}
+            options={[
+              { label: "0.5x", value: "900" },
+              { label: "1x", value: "450" },
+              { label: "2.5x", value: "180" },
+              { label: "5x", value: "80" },
+            ]}
+            value={String(speedMs)}
+          />
           <span className="rounded-md bg-white/5 px-3 py-2 text-sm text-slate-400">
             Bar {currentOffset.toLocaleString()}
           </span>

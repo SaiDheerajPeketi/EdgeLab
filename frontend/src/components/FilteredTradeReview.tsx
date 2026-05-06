@@ -3,6 +3,7 @@ import { Activity, Filter, Gauge, Sigma, Target, TrendingDown, TrendingUp, X } f
 import type { LucideIcon } from "lucide-react";
 import type { Trade } from "../lib/api";
 import { formatMoney, formatPercent } from "../lib/format";
+import { ThemedSelect } from "./ThemedSelect";
 import { TradeLog } from "./TradeLog";
 
 type Props = {
@@ -170,17 +171,16 @@ function FilterSelect({
   return (
     <label className="form-field">
       {label}
-      <select
-        className="input-control h-10 normal-case tracking-normal"
-        onChange={(event) => onChange(event.target.value)}
+      <ThemedSelect
+        ariaLabel={label}
+        className="h-10"
+        onChange={onChange}
+        options={options.map((option) => ({
+          label: option === "ALL" ? `All ${label.toLowerCase()}` : option,
+          value: option,
+        }))}
         value={value}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option === "ALL" ? `All ${label.toLowerCase()}` : option}
-          </option>
-        ))}
-      </select>
+      />
     </label>
   );
 }

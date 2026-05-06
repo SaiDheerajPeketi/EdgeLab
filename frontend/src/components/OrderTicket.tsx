@@ -5,6 +5,7 @@ import type { ChartDrawing } from "../lib/charting";
 import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
+import { ThemedSelect } from "./ThemedSelect";
 
 const RISK_BASE_STORAGE_KEY = "edgelab.order-risk-base.v1";
 type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
@@ -314,18 +315,19 @@ export function OrderTicket({
           </label>
           <label className="form-field">
             <span>Playbook</span>
-            <select
-              className="input-control h-10"
-              onChange={(event) => setPlaybookId(event.target.value)}
+            <ThemedSelect
+              ariaLabel="Order playbook"
+              className="h-10"
+              onChange={setPlaybookId}
+              options={[
+                { label: "None", value: "" },
+                ...playbooks.map((playbook) => ({
+                  label: playbook.name,
+                  value: String(playbook.id),
+                })),
+              ]}
               value={playbookId}
-            >
-              <option value="">None</option>
-              {playbooks.map((playbook) => (
-                <option key={playbook.id} value={playbook.id}>
-                  {playbook.name}
-                </option>
-              ))}
-            </select>
+            />
           </label>
         </div>
 

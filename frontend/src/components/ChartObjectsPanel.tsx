@@ -32,6 +32,7 @@ import {
   type IndicatorSettingsMap,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
+import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   activeIndicators: ChartIndicatorId[];
@@ -317,17 +318,17 @@ function DrawingHoverControls({
         </label>
         <label className="object-setting-field">
           <span>Line</span>
-          <select
-            className="input-control h-9"
-            onChange={(event) =>
-              onChange({ lineStyle: event.target.value as DrawingLineStyle })
-            }
+          <ThemedSelect
+            ariaLabel="Drawing line style"
+            className="h-9"
+            onChange={(value) => onChange({ lineStyle: value as DrawingLineStyle })}
+            options={[
+              { label: "Solid", value: "solid" },
+              { label: "Dashed", value: "dashed" },
+              { label: "Dotted", value: "dotted" },
+            ]}
             value={lineStyle}
-          >
-            <option value="solid">Solid</option>
-            <option value="dashed">Dashed</option>
-            <option value="dotted">Dotted</option>
-          </select>
+          />
         </label>
       </div>
 
