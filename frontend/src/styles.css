@@ -163,6 +163,19 @@ button:disabled {
     @apply font-mono text-xs font-bold tracking-normal text-slate-100;
   }
 
+  .themed-color-popover-field {
+    @apply grid gap-1 rounded border border-white/[0.07] bg-black/25 p-2;
+  }
+
+  .themed-color-popover-field span {
+    @apply text-[9px] font-black uppercase tracking-[0.18em] text-slate-600;
+  }
+
+  .themed-color-popover-field input {
+    @apply h-8 w-full rounded border border-cyan-300/15 bg-[#02060a] px-2 font-mono text-xs font-bold uppercase tracking-normal text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-2 focus:ring-cyan-300/15;
+    color-scheme: dark;
+  }
+
   .themed-color-group {
     @apply grid gap-1.5 rounded border border-white/[0.06] bg-white/[0.025] p-1.5;
   }

@@ -125,6 +125,18 @@ export function ThemedColorPicker({
     }
   }
 
+  function handleDraftChange(nextRawValue: string) {
+    if (disabled) {
+      return;
+    }
+    const nextValue = sanitizeHexDraft(nextRawValue);
+    setDraft(nextValue);
+    const normalized = normalizeHexColor(nextValue, { allowShorthand: false });
+    if (normalized) {
+      onChange(normalized);
+    }
+  }
+
   return (
     <div
       aria-disabled={disabled}
@@ -148,17 +160,7 @@ export function ThemedColorPicker({
         className="themed-color-hex"
         disabled={disabled}
         onBlur={handleDraftBlur}
-        onChange={(event) => {
-          if (disabled) {
-            return;
-          }
-          const nextValue = sanitizeHexDraft(event.target.value);
-          setDraft(nextValue);
-          const normalized = normalizeHexColor(nextValue, { allowShorthand: false });
-          if (normalized) {
-            onChange(normalized);
-          }
-        }}
+        onChange={(event) => handleDraftChange(event.target.value)}
         onFocus={() => setIsEditing(true)}
         onKeyDown={handleDraftKeyDown}
         spellCheck={false}
@@ -185,6 +187,18 @@ export function ThemedColorPicker({
               <strong>{normalizedValue}</strong>
             </div>
           </div>
+          <label className="themed-color-popover-field">
+            <span>Hex</span>
+            <input
+              aria-label={`${ariaLabel} selected color hex code`}
+              onBlur={handleDraftBlur}
+              onChange={(event) => handleDraftChange(event.target.value)}
+              onFocus={() => setIsEditing(true)}
+              onKeyDown={handleDraftKeyDown}
+              spellCheck={false}
+              value={draft}
+            />
+          </label>
           {COLOR_PALETTES.map((palette) => (
             <div className="themed-color-group" key={palette.label}>
               <div className="themed-color-section-title">{palette.label}</div>
