@@ -34,6 +34,7 @@ export type ChartVisualSettings = {
   symbolLine: ChartVisibilityMode;
   textColor: string;
   textSize: number;
+  timeScaleBorderVisible: boolean;
   timeHoursFormat: "12-hour" | "24-hour";
   title: boolean;
   volume: boolean;
@@ -82,6 +83,7 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   symbolLine: "valueLine",
   textColor: "#A8B3C7",
   textSize: 12,
+  timeScaleBorderVisible: true,
   timeHoursFormat: "24-hour",
   title: true,
   volume: true,
@@ -123,6 +125,12 @@ export function sanitizeChartVisualSettings(
     sessionBreakColor: sanitizeHex(candidate.sessionBreakColor, DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakColor),
     textColor: sanitizeHex(candidate.textColor, DEFAULT_CHART_VISUAL_SETTINGS.textColor),
     textSize: clampInteger(candidate.textSize, 10, 18, DEFAULT_CHART_VISUAL_SETTINGS.textSize),
+    timeScaleBorderVisible:
+      typeof candidate.timeScaleBorderVisible === "boolean"
+        ? candidate.timeScaleBorderVisible
+        : typeof candidate.priceScaleBorderVisible === "boolean"
+          ? candidate.priceScaleBorderVisible
+          : DEFAULT_CHART_VISUAL_SETTINGS.timeScaleBorderVisible,
     wickDownColor,
     wickUpColor,
   };

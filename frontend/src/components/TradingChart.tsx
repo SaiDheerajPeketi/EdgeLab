@@ -559,7 +559,7 @@ export function TradingChart({
       },
       timeScale: {
         borderColor: colorWithOpacity(chartSettings.textColor, 0.16),
-        borderVisible: chartSettings.priceScaleBorderVisible,
+        borderVisible: chartSettings.timeScaleBorderVisible,
       },
       watermark: {
         color: colorWithOpacity(chartSettings.textColor, 0.08),

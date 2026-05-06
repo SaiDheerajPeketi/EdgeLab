@@ -853,7 +853,7 @@ function ChartSettingsPanel({
                 />
                 <SettingToggle
                   checked={settings.priceScaleBorderVisible}
-                  label="Scale border"
+                  label="Price scale border"
                   onChange={(priceScaleBorderVisible) =>
                     updateSettings({ priceScaleBorderVisible })
                   }
@@ -899,6 +899,13 @@ function ChartSettingsPanel({
               </SettingsSection>
 
               <SettingsSection title="Time scale">
+                <SettingToggle
+                  checked={settings.timeScaleBorderVisible}
+                  label="Time scale border"
+                  onChange={(timeScaleBorderVisible) =>
+                    updateSettings({ timeScaleBorderVisible })
+                  }
+                />
                 <SettingToggle
                   checked={settings.dayOfWeekLabels}
                   label="Day of week on labels"
