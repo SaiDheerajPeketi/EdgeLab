@@ -829,11 +829,23 @@ button:disabled {
   }
 
   .chart-study-pill {
-    @apply inline-flex h-6 min-w-0 items-center gap-1.5 rounded border border-transparent px-1.5 text-[11px] text-slate-400;
+    @apply inline-flex h-6 min-w-0 items-center gap-1.5 rounded border border-transparent bg-transparent px-1.5 text-[11px] text-slate-400 transition hover:border-cyan-300/20 hover:bg-cyan-300/10 hover:text-cyan-100;
   }
 
   .chart-study-pill strong {
     @apply font-semibold tabular-nums text-slate-200;
+  }
+
+  .chart-study-pill-active {
+    @apply border-cyan-300/30 bg-cyan-300/15 text-cyan-100;
+  }
+
+  .indicator-pane-title {
+    @apply max-w-[60%] truncate rounded border border-transparent bg-transparent px-1.5 py-1 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 transition hover:border-cyan-300/20 hover:bg-cyan-300/10 hover:text-cyan-100;
+  }
+
+  .indicator-pane-title-active {
+    @apply border-cyan-300/30 bg-cyan-300/15 text-cyan-100;
   }
 
   .chart-canvas-grid {
@@ -888,6 +900,30 @@ button:disabled {
 
   .chart-object-floating-toolbar {
     @apply pointer-events-auto absolute z-30 flex max-w-[calc(100%-24px)] flex-wrap items-center gap-1.5 rounded-md border border-white/10 bg-[#070b10]/95 px-2 py-1.5 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+  }
+
+  .indicator-floating-toolbar {
+    @apply max-w-[min(720px,calc(100%-24px))];
+  }
+
+  .indicator-floating-title {
+    @apply flex h-8 max-w-44 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-100;
+  }
+
+  .indicator-floating-title span:last-child {
+    @apply truncate;
+  }
+
+  .indicator-floating-grid {
+    @apply flex items-center gap-1;
+  }
+
+  .indicator-floating-number {
+    @apply grid h-8 min-w-14 grid-cols-[auto_42px] items-center gap-1 rounded border border-white/10 bg-black/20 px-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500;
+  }
+
+  .indicator-floating-number input {
+    @apply h-6 rounded border border-white/10 bg-[#0d141c] px-1 text-right text-xs font-semibold normal-case tracking-normal text-slate-100 outline-none transition focus:border-cyan-300/50 focus:ring-1 focus:ring-cyan-300/25;
   }
 
   .chart-object-floating-label-input {

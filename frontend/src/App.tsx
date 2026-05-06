@@ -937,7 +937,9 @@ export default function App() {
                       onClearDrawings={clearDrawings}
                       onDeleteDrawing={deleteDrawing}
                       onDrawingToolChange={setDrawingTool}
+                      onRemoveIndicator={removeIndicator}
                       onSelectDrawing={setSelectedDrawingId}
+                      onToggleIndicatorVisibility={toggleIndicatorVisibility}
                       onUpdateDrawing={(updatedDrawing) =>
                         setDrawings((currentDrawings) =>
                           currentDrawings.map((drawing) =>
@@ -945,6 +947,7 @@ export default function App() {
                           ),
                         )
                       }
+                      onUpdateIndicatorSettings={updateIndicatorSettings}
                       orders={orders}
                       position={position}
                       selectedDrawingId={selectedDrawingId}

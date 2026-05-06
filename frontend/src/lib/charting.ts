@@ -69,6 +69,8 @@ export type IndicatorSettings = {
   signalPeriod?: number;
   signalColor?: string;
   histogramColor?: string;
+  lineStyle?: DrawingLineStyle;
+  lineWidth?: number;
 };
 
 export type IndicatorSettingsMap = Record<ChartIndicatorKind, IndicatorSettings>;
@@ -118,6 +120,7 @@ export type ChartDrawing = {
 
 export type IndicatorDefinition = {
   id: string;
+  sourceId: string;
   label: string;
   color: string;
   data: LineData[];
@@ -595,75 +598,91 @@ export function buildIndicatorDefinitions(
     }
     const config = mergeIndicatorSettings(instance.kind, instance.settings);
     const label = indicatorDisplayName({ ...instance, settings: config });
+    const lineStyle = indicatorLineStyle(config.lineStyle);
+    const lineWidth = indicatorLineWidth(config.lineWidth, 2);
+    const channelLineWidth = indicatorLineWidth(config.lineWidth, 1);
 
     if (instance.kind === "ema") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: emaSeries(bars, config.period),
-        lineWidth: 2,
+        lineStyle,
+        lineWidth,
       });
     }
 
     if (instance.kind === "sma") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: smaSeries(bars, config.period),
-        lineWidth: 2,
+        lineStyle,
+        lineWidth,
       });
     }
 
     if (instance.kind === "wma") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: wmaSeries(bars, config.period),
-        lineWidth: 2,
+        lineStyle,
+        lineWidth,
       });
     }
 
     if (instance.kind === "dema") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: demaSeries(bars, config.period),
-        lineWidth: 2,
+        lineStyle,
+        lineWidth,
       });
     }
 
     if (instance.kind === "tema") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: temaSeries(bars, config.period),
-        lineWidth: 2,
+        lineStyle,
+        lineWidth,
       });
     }
 
     if (instance.kind === "hma") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: hmaSeries(bars, config.period),
-        lineWidth: 2,
+        lineStyle,
+        lineWidth,
       });
     }
 
     if (instance.kind === "vwap") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: vwapSeries(bars),
-        lineWidth: 2,
-        lineStyle: 2,
+        lineWidth,
+        lineStyle: config.lineStyle ? lineStyle : 2,
       });
     }
 
@@ -672,27 +691,30 @@ export function buildIndicatorDefinitions(
       definitions.push(
         {
           id: `${instance.id}-upper`,
+          sourceId: instance.id,
           label: `${label} Upper`,
           color: config.color,
           data: bands.map((band) => ({ time: band.time, value: band.upper })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
         {
           id: `${instance.id}-mid`,
+          sourceId: instance.id,
           label: `${label} Mid`,
           color: config.color,
           data: bands.map((band) => ({ time: band.time, value: band.middle })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
         {
           id: `${instance.id}-lower`,
+          sourceId: instance.id,
           label: `${label} Lower`,
           color: config.color,
           data: bands.map((band) => ({ time: band.time, value: band.lower })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
       );
     }
@@ -702,27 +724,30 @@ export function buildIndicatorDefinitions(
       definitions.push(
         {
           id: `${instance.id}-upper`,
+          sourceId: instance.id,
           label: `${label} High`,
           color: config.color,
           data: channel.map((band) => ({ time: band.time, value: band.upper })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
         {
           id: `${instance.id}-mid`,
+          sourceId: instance.id,
           label: `${label} Mid`,
           color: config.color,
           data: channel.map((band) => ({ time: band.time, value: band.middle })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
         {
           id: `${instance.id}-lower`,
+          sourceId: instance.id,
           label: `${label} Low`,
           color: config.color,
           data: channel.map((band) => ({ time: band.time, value: band.lower })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
       );
     }
@@ -732,26 +757,30 @@ export function buildIndicatorDefinitions(
       definitions.push(
         {
           id: `${instance.id}-upper`,
+          sourceId: instance.id,
           label: `${label} Upper`,
           color: config.color,
           data: channel.map((band) => ({ time: band.time, value: band.upper })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
         {
           id: `${instance.id}-mid`,
+          sourceId: instance.id,
           label: `${label} Mid`,
           color: config.color,
           data: channel.map((band) => ({ time: band.time, value: band.middle })),
-          lineWidth: 1,
+          lineWidth: channelLineWidth,
+          lineStyle,
         },
         {
           id: `${instance.id}-lower`,
+          sourceId: instance.id,
           label: `${label} Lower`,
           color: config.color,
           data: channel.map((band) => ({ time: band.time, value: band.lower })),
-          lineWidth: 1,
-          lineStyle: 2,
+          lineWidth: channelLineWidth,
+          lineStyle: config.lineStyle ? lineStyle : 2,
         },
       );
     }
@@ -759,16 +788,42 @@ export function buildIndicatorDefinitions(
     if (instance.kind === "supertrend") {
       definitions.push({
         id: instance.id,
+        sourceId: instance.id,
         label,
         color: config.color,
         data: superTrendSeries(bars, config.period, config.stdDev ?? 3),
-        lineWidth: 2,
-        lineStyle: 1,
+        lineWidth,
+        lineStyle: config.lineStyle ? lineStyle : 1,
       });
     }
   }
 
   return definitions;
+}
+
+function indicatorLineWidth(width: number | undefined, fallback: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
+  if (typeof width !== "number" || !Number.isFinite(width)) {
+    return fallback;
+  }
+  const rounded = Math.round(width);
+  if (rounded <= 1) {
+    return 1;
+  }
+  if (rounded >= 4) {
+    return 4;
+  }
+  return rounded as 1 | 2 | 3 | 4;
+}
+
+function indicatorLineStyle(style: DrawingLineStyle | undefined): 0 | 1 | 2 {
+  switch (style) {
+    case "dotted":
+      return 1;
+    case "dashed":
+      return 2;
+    default:
+      return 0;
+  }
 }
 
 export function rsiSeries(bars: Candle[], period = 14): LineData[] {

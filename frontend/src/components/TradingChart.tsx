@@ -61,6 +61,7 @@ import {
   toCandles,
   type ChartDrawing,
   type ChartIndicatorInstance,
+  type IndicatorSettings,
   type ChartStyle,
   type ChartTimeframe,
   type DrawingLineStyle,
@@ -92,8 +93,11 @@ type Props = {
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
+  onRemoveIndicator: (instanceId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
+  onToggleIndicatorVisibility: (instanceId: string) => void;
   onUpdateDrawing: (drawing: ChartDrawing) => void;
+  onUpdateIndicatorSettings: (instanceId: string, settings: Partial<IndicatorSettings>) => void;
   orders: Order[];
   position: Position | null;
   selectedDrawingId: string | null;
@@ -176,8 +180,11 @@ export function TradingChart({
   onClearDrawings,
   onDeleteDrawing,
   onDrawingToolChange,
+  onRemoveIndicator,
   onSelectDrawing,
+  onToggleIndicatorVisibility,
   onUpdateDrawing,
+  onUpdateIndicatorSettings,
   orders,
   position,
   selectedDrawingId,
@@ -186,6 +193,7 @@ export function TradingChart({
   datasetTimeframe,
   timeframe,
 }: Props) {
+  const stageRef = useRef<HTMLElement | null>(null);
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -201,7 +209,10 @@ export function TradingChart({
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
+  const [indicatorToolbarPosition, setIndicatorToolbarPosition] =
+    useState<{ x: number; y: number } | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
+  const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
 
   const displayBars = useMemo(
     () => aggregateBars(bars, timeframe),
@@ -269,6 +280,8 @@ export function TradingChart({
             data: rsiSeries(displayBars, settings.period),
             id: indicator.id,
             label: indicatorDisplayName({ ...indicator, settings }),
+            lineStyle: defaultIndicatorLineStyle(indicator.kind, settings),
+            lineWidth: indicatorPanelLineWidth(settings.lineWidth, 2),
           };
         }),
     [displayBars, visibleIndicatorInstances],
@@ -291,6 +304,8 @@ export function TradingChart({
             histogramColor: settings.histogramColor ?? "#94a3b8",
             id: indicator.id,
             label: indicatorDisplayName({ ...indicator, settings }),
+            lineStyle: defaultIndicatorLineStyle(indicator.kind, settings),
+            lineWidth: indicatorPanelLineWidth(settings.lineWidth, 2),
             signalColor: settings.signalColor ?? "#f59e0b",
           };
         }),
@@ -308,6 +323,8 @@ export function TradingChart({
             data: atrSeries(displayBars, settings.period),
             id: indicator.id,
             label: indicatorDisplayName({ ...indicator, settings }),
+            lineStyle: defaultIndicatorLineStyle(indicator.kind, settings),
+            lineWidth: indicatorPanelLineWidth(settings.lineWidth, 2),
           };
         }),
     [displayBars, visibleIndicatorInstances],
@@ -324,6 +341,8 @@ export function TradingChart({
             data: momentumSeries(displayBars, settings.period),
             id: indicator.id,
             label: indicatorDisplayName({ ...indicator, settings }),
+            lineStyle: defaultIndicatorLineStyle(indicator.kind, settings),
+            lineWidth: indicatorPanelLineWidth(settings.lineWidth, 2),
           };
         }),
     [displayBars, visibleIndicatorInstances],
@@ -331,12 +350,38 @@ export function TradingChart({
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
   );
+  const overlayIndicatorPills = useMemo(
+    () =>
+      visibleIndicatorInstances
+        .filter((indicator) => isOverlayIndicatorKind(indicator.kind))
+        .map((indicator) => {
+          const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          const definition = activeOverlayIndicators.find(
+            (item) => item.sourceId === indicator.id,
+          );
+          return {
+            color: settings.color,
+            data: definition?.data ?? [],
+            id: indicator.id,
+            label: indicatorDisplayName({ ...indicator, settings }),
+          };
+        })
+        .filter((indicator) => indicator.data.length > 0),
+    [activeOverlayIndicators, visibleIndicatorInstances],
+  );
   const isDrawingPlacementMode = drawingTool !== "cursor" && drawingTool !== "crosshair";
   const drawingLayerCapturesPointer =
     dragState != null || isDrawingPlacementMode || selectedDrawingId != null;
   const selectedDrawing = useMemo(
     () => drawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,
     [drawings, selectedDrawingId],
+  );
+  const selectedIndicator = useMemo(
+    () =>
+      selectedIndicatorId
+        ? indicatorInstances.find((indicator) => indicator.id === selectedIndicatorId) ?? null
+        : null,
+    [indicatorInstances, selectedIndicatorId],
   );
   const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
   const headerPriceTone = candleChangeTone(activeHeaderCandle);
@@ -950,10 +995,39 @@ export function TradingChart({
     });
   }
 
+  function openIndicatorToolbar(
+    indicatorId: string,
+    event: MouseEvent<HTMLElement>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const stage = stageRef.current;
+    if (!stage) {
+      return;
+    }
+    const stageRect = stage.getBoundingClientRect();
+    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const x = clamp(triggerRect.left - stageRect.left, 12, Math.max(12, stageRect.width - 360));
+    const y = clamp(triggerRect.bottom - stageRect.top + 8, 12, Math.max(12, stageRect.height - 220));
+    setSelectedIndicatorId(indicatorId);
+    setIndicatorToolbarPosition({ x, y });
+    onSelectDrawing(null);
+  }
+
+  useEffect(() => {
+    if (
+      selectedIndicatorId &&
+      !indicatorInstances.some((indicator) => indicator.id === selectedIndicatorId)
+    ) {
+      setSelectedIndicatorId(null);
+      setIndicatorToolbarPosition(null);
+    }
+  }, [indicatorInstances, selectedIndicatorId]);
+
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
 
   return (
-    <section className="chart-stage">
+    <section className="chart-stage" ref={stageRef}>
       <div className="chart-stage-header">
         <div className="min-w-0">
           <div className="min-w-0 flex-1">
@@ -985,8 +1059,13 @@ export function TradingChart({
             )}
             {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
               <div className="chart-study-row">
-                {activeOverlayIndicators.slice(0, 5).map((indicator) => (
-                  <span className="chart-study-pill" key={indicator.id}>
+                {overlayIndicatorPills.slice(0, 5).map((indicator) => (
+                  <button
+                    className={`chart-study-pill ${selectedIndicatorId === indicator.id ? "chart-study-pill-active" : ""}`}
+                    key={indicator.id}
+                    onClick={(event) => openIndicatorToolbar(indicator.id, event)}
+                    type="button"
+                  >
                     <span
                       className="h-2 w-2 rounded-sm"
                       style={{ backgroundColor: indicator.color }}
@@ -995,11 +1074,16 @@ export function TradingChart({
                     {chartSettings.indicatorValues && (
                       <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
                     )}
-                  </span>
+                  </button>
                 ))}
                 {rsiStudies.map((study) =>
                   study.data.length > 0 ? (
-                    <span className="chart-study-pill" key={`header-${study.id}`}>
+                    <button
+                      className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                      key={`header-${study.id}`}
+                      onClick={(event) => openIndicatorToolbar(study.id, event)}
+                      type="button"
+                    >
                       <span
                         className="h-2 w-2 rounded-sm"
                         style={{ backgroundColor: study.color }}
@@ -1008,11 +1092,16 @@ export function TradingChart({
                       {chartSettings.indicatorValues && (
                         <strong>{latestIndicatorValue(study.data)?.toFixed(2) ?? "—"}</strong>
                       )}
-                    </span>
+                    </button>
                   ) : null,
                 )}
                 {macdStudies.map((study) => (
-                  <span className="chart-study-pill" key={`header-${study.id}`}>
+                  <button
+                    className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                    key={`header-${study.id}`}
+                    onClick={(event) => openIndicatorToolbar(study.id, event)}
+                    type="button"
+                  >
                     <span
                       className="h-2 w-2 rounded-sm"
                       style={{ backgroundColor: study.color }}
@@ -1021,11 +1110,16 @@ export function TradingChart({
                     {chartSettings.indicatorValues && (
                       <strong>{latestIndicatorValue(study.data.macd)?.toFixed(5) ?? "—"}</strong>
                     )}
-                  </span>
+                  </button>
                 ))}
                 {atrStudies.map((study) =>
                   study.data.length > 0 ? (
-                    <span className="chart-study-pill" key={`header-${study.id}`}>
+                    <button
+                      className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                      key={`header-${study.id}`}
+                      onClick={(event) => openIndicatorToolbar(study.id, event)}
+                      type="button"
+                    >
                       <span
                         className="h-2 w-2 rounded-sm"
                         style={{ backgroundColor: study.color }}
@@ -1034,12 +1128,17 @@ export function TradingChart({
                       {chartSettings.indicatorValues && (
                         <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
                       )}
-                    </span>
+                    </button>
                   ) : null,
                 )}
                 {momentumStudies.map((study) =>
                   study.data.length > 0 ? (
-                    <span className="chart-study-pill" key={`header-${study.id}`}>
+                    <button
+                      className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                      key={`header-${study.id}`}
+                      onClick={(event) => openIndicatorToolbar(study.id, event)}
+                      type="button"
+                    >
                       <span
                         className="h-2 w-2 rounded-sm"
                         style={{ backgroundColor: study.color }}
@@ -1048,7 +1147,7 @@ export function TradingChart({
                       {chartSettings.indicatorValues && (
                         <strong>{latestIndicatorValue(study.data)?.toFixed(5) ?? "—"}</strong>
                       )}
-                    </span>
+                    </button>
                   ) : null,
                 )}
               </div>
@@ -1119,6 +1218,10 @@ export function TradingChart({
               data={study.data}
               key={study.id}
               label={study.label}
+              lineStyle={study.lineStyle}
+              lineWidth={study.lineWidth}
+              onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
+              selected={selectedIndicatorId === study.id}
             />
           ))}
           {macdStudies.map((study) => (
@@ -1128,6 +1231,10 @@ export function TradingChart({
               histogramColor={study.histogramColor}
               key={study.id}
               label={study.label}
+              lineStyle={study.lineStyle}
+              lineWidth={study.lineWidth}
+              onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
+              selected={selectedIndicatorId === study.id}
               signalColor={study.signalColor}
             />
           ))}
@@ -1137,6 +1244,10 @@ export function TradingChart({
               data={study.data}
               key={study.id}
               label={study.label}
+              lineStyle={study.lineStyle}
+              lineWidth={study.lineWidth}
+              onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
+              selected={selectedIndicatorId === study.id}
               valueDigits={5}
             />
           ))}
@@ -1146,12 +1257,34 @@ export function TradingChart({
               data={study.data}
               key={study.id}
               label={study.label}
+              lineStyle={study.lineStyle}
+              lineWidth={study.lineWidth}
+              onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
+              selected={selectedIndicatorId === study.id}
               valueDigits={5}
               zeroLine
             />
           ))}
         </div>
       </div>
+
+      {selectedIndicator && indicatorToolbarPosition && (
+        <FloatingIndicatorToolbar
+          indicator={selectedIndicator}
+          onChange={(settings) => onUpdateIndicatorSettings(selectedIndicator.id, settings)}
+          onClose={() => {
+            setSelectedIndicatorId(null);
+            setIndicatorToolbarPosition(null);
+          }}
+          onRemove={() => {
+            onRemoveIndicator(selectedIndicator.id);
+            setSelectedIndicatorId(null);
+            setIndicatorToolbarPosition(null);
+          }}
+          onToggleVisibility={() => onToggleIndicatorVisibility(selectedIndicator.id)}
+          position={indicatorToolbarPosition}
+        />
+      )}
 
       {drawingTool !== "cursor" && drawingTool !== "crosshair" && (
         <div className="absolute left-20 top-20 z-20 rounded-md border border-cyan-300/20 bg-ink-950/95 px-3 py-2 text-xs text-cyan-100 shadow-panel">
@@ -1492,10 +1625,18 @@ function RsiPanel({
   color,
   data,
   label,
+  lineStyle,
+  lineWidth,
+  onOpenSettings,
+  selected,
 }: {
   color: string;
   data: LineData[];
   label: string;
+  lineStyle: DrawingLineStyle;
+  lineWidth: number;
+  onOpenSettings: (event: MouseEvent<HTMLElement>) => void;
+  selected: boolean;
 }) {
   const visible = data.slice(-160);
   const path = toRsiPath(visible, 960, 96);
@@ -1504,7 +1645,13 @@ function RsiPanel({
   return (
     <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+        <button
+          className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`}
+          onClick={onOpenSettings}
+          type="button"
+        >
+          {label}
+        </button>
         <span style={{ color }}>{latest == null ? "—" : latest.toFixed(1)}</span>
       </div>
       <div className="h-24 overflow-hidden rounded-md bg-black/20">
@@ -1512,7 +1659,14 @@ function RsiPanel({
           <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
             <path d="M 0 28.8 L 960 28.8" stroke="rgba(34, 197, 94, 0.26)" strokeWidth="1" />
             <path d="M 0 67.2 L 960 67.2" stroke="rgba(251, 113, 133, 0.26)" strokeWidth="1" />
-            <path d={path} fill="none" stroke={color} strokeWidth="2" />
+            <path
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeDasharray={lineStyleDasharray(lineStyle)}
+              strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
+              strokeWidth={lineWidth}
+            />
           </svg>
         ) : (
           <div className="grid h-full place-items-center text-xs text-slate-500">
@@ -1529,12 +1683,20 @@ function MacdPanel({
   data,
   histogramColor,
   label,
+  lineStyle,
+  lineWidth,
+  onOpenSettings,
+  selected,
   signalColor,
 }: {
   color: string;
   data: MacdData;
   histogramColor: string;
   label: string;
+  lineStyle: DrawingLineStyle;
+  lineWidth: number;
+  onOpenSettings: (event: MouseEvent<HTMLElement>) => void;
+  selected: boolean;
   signalColor: string;
 }) {
   const visibleMacd = data.macd.slice(-160);
@@ -1552,7 +1714,13 @@ function MacdPanel({
   return (
     <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+        <button
+          className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`}
+          onClick={onOpenSettings}
+          type="button"
+        >
+          {label}
+        </button>
         <span className="text-slate-300">
           {latest == null ? "—" : Number(latest).toFixed(5)} / {signalLatest == null ? "—" : Number(signalLatest).toFixed(5)}
         </span>
@@ -1577,8 +1745,22 @@ function MacdPanel({
                 />
               );
             })}
-            <path d={toOscillatorPath(visibleMacd, 960, 112, maxAbs)} fill="none" stroke={color} strokeWidth="2" />
-            <path d={toOscillatorPath(visibleSignal, 960, 112, maxAbs)} fill="none" stroke={signalColor} strokeWidth="2" />
+            <path
+              d={toOscillatorPath(visibleMacd, 960, 112, maxAbs)}
+              fill="none"
+              stroke={color}
+              strokeDasharray={lineStyleDasharray(lineStyle)}
+              strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
+              strokeWidth={lineWidth}
+            />
+            <path
+              d={toOscillatorPath(visibleSignal, 960, 112, maxAbs)}
+              fill="none"
+              stroke={signalColor}
+              strokeDasharray={lineStyleDasharray(lineStyle)}
+              strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
+              strokeWidth={Math.max(1, lineWidth - 0.25)}
+            />
           </svg>
         ) : (
           <div className="grid h-full place-items-center text-xs text-slate-500">
@@ -1594,12 +1776,20 @@ function StudyLinePanel({
   color,
   data,
   label,
+  lineStyle,
+  lineWidth,
+  onOpenSettings,
+  selected,
   valueDigits = 2,
   zeroLine = false,
 }: {
   color: string;
   data: LineData[];
   label: string;
+  lineStyle: DrawingLineStyle;
+  lineWidth: number;
+  onOpenSettings: (event: MouseEvent<HTMLElement>) => void;
+  selected: boolean;
   valueDigits?: number;
   zeroLine?: boolean;
 }) {
@@ -1611,9 +1801,13 @@ function StudyLinePanel({
   return (
     <div className="border-t border-white/10 bg-ink-950 px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-semibold uppercase tracking-[0.16em] text-slate-500">
+        <button
+          className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`}
+          onClick={onOpenSettings}
+          type="button"
+        >
           {label}
-        </span>
+        </button>
         <span className="text-slate-300">
           {latest == null ? "—" : latest.toFixed(valueDigits)}
         </span>
@@ -1632,7 +1826,9 @@ function StudyLinePanel({
               }
               fill="none"
               stroke={color}
-              strokeWidth="2"
+              strokeDasharray={lineStyleDasharray(lineStyle)}
+              strokeLinecap={lineStyle === "dotted" ? "round" : "butt"}
+              strokeWidth={lineWidth}
             />
           </svg>
         ) : (
@@ -1642,6 +1838,190 @@ function StudyLinePanel({
         )}
       </div>
     </div>
+  );
+}
+
+function FloatingIndicatorToolbar({
+  indicator,
+  onChange,
+  onClose,
+  onRemove,
+  onToggleVisibility,
+  position,
+}: {
+  indicator: ChartIndicatorInstance;
+  onChange: (settings: Partial<IndicatorSettings>) => void;
+  onClose: () => void;
+  onRemove: () => void;
+  onToggleVisibility: () => void;
+  position: { x: number; y: number };
+}) {
+  const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+  const lineStyle = defaultIndicatorLineStyle(indicator.kind, settings);
+  const lineWidth = defaultIndicatorLineWidth(indicator.kind, settings);
+  const isMacd = indicator.kind === "macd";
+  const isVwap = indicator.kind === "vwap";
+  const hasDeviation =
+    indicator.kind === "bb" || indicator.kind === "keltner" || indicator.kind === "supertrend";
+  const isVisible = indicator.visible !== false;
+  const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
+
+  const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+  };
+
+  return (
+    <div
+      className="chart-object-floating-toolbar indicator-floating-toolbar"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={stopToolbarEvent}
+      role="group"
+      style={{ left: position.x, top: position.y }}
+    >
+      <div className="indicator-floating-title">
+        <span
+          className="h-2.5 w-2.5 rounded-sm"
+          style={{ backgroundColor: settings.color }}
+        />
+        <span>{indicatorDisplayName({ ...indicator, settings })}</span>
+      </div>
+
+      <ThemedColorPicker
+        ariaLabel="Indicator color"
+        className="chart-object-floating-picker"
+        compact
+        onChange={(color) => onChange({ color })}
+        value={settings.color}
+      />
+
+      {isMacd ? (
+        <div className="indicator-floating-grid">
+          <IndicatorNumberInput
+            label="Fast"
+            onChange={(value) => onChange({ fastPeriod: Math.max(1, Math.round(value)) })}
+            value={settings.fastPeriod ?? 12}
+          />
+          <IndicatorNumberInput
+            label="Slow"
+            onChange={(value) => onChange({ slowPeriod: Math.max(1, Math.round(value)) })}
+            value={settings.slowPeriod ?? 26}
+          />
+          <IndicatorNumberInput
+            label="Sig"
+            onChange={(value) => onChange({ signalPeriod: Math.max(1, Math.round(value)) })}
+            value={settings.signalPeriod ?? 9}
+          />
+          <ThemedColorPicker
+            ariaLabel="Signal color"
+            className="chart-object-floating-picker"
+            compact
+            onChange={(signalColor) => onChange({ signalColor })}
+            value={settings.signalColor ?? "#f59e0b"}
+          />
+          <ThemedColorPicker
+            ariaLabel="Histogram color"
+            className="chart-object-floating-picker"
+            compact
+            onChange={(histogramColor) => onChange({ histogramColor })}
+            value={settings.histogramColor ?? "#94a3b8"}
+          />
+        </div>
+      ) : !isVwap ? (
+        <IndicatorNumberInput
+          label="Period"
+          onChange={(value) => onChange({ period: Math.max(1, Math.round(value)) })}
+          value={settings.period}
+        />
+      ) : null}
+
+      {hasDeviation && (
+        <IndicatorNumberInput
+          label={indicator.kind === "supertrend" ? "Mult" : "Dev"}
+          min={0.1}
+          onChange={(value) => onChange({ stdDev: Math.max(0.1, Number(value.toFixed(2))) })}
+          step={0.1}
+          value={settings.stdDev ?? (indicator.kind === "supertrend" ? 3 : 2)}
+        />
+      )}
+
+      <div className="chart-object-floating-style" role="group">
+        {lineStyles.map((style) => (
+          <button
+            className={lineStyle === style ? "active" : ""}
+            key={style}
+            onClick={() => onChange({ lineStyle: style })}
+            title={`${style} line`}
+            type="button"
+          >
+            <LineStylePreview style={style} />
+          </button>
+        ))}
+      </div>
+
+      <label className="chart-object-floating-width" title="Line width">
+        <span>{lineWidth}px</span>
+        <input
+          max={4}
+          min={1}
+          onChange={(event) => onChange({ lineWidth: Number(event.target.value) })}
+          step={1}
+          type="range"
+          value={lineWidth}
+        />
+      </label>
+
+      <button
+        className={`chart-object-floating-button ${isVisible ? "active" : ""}`}
+        onClick={onToggleVisibility}
+        title={isVisible ? "Hide indicator" : "Show indicator"}
+        type="button"
+      >
+        {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+      </button>
+      <button
+        className="chart-object-floating-button danger"
+        onClick={onRemove}
+        title="Remove indicator"
+        type="button"
+      >
+        <Trash2 size={14} />
+      </button>
+      <button
+        className="chart-object-floating-button"
+        onClick={onClose}
+        title="Close indicator controls"
+        type="button"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+function IndicatorNumberInput({
+  label,
+  min = 1,
+  onChange,
+  step = 1,
+  value,
+}: {
+  label: string;
+  min?: number;
+  onChange: (value: number) => void;
+  step?: number;
+  value: number;
+}) {
+  return (
+    <label className="indicator-floating-number">
+      <span>{label}</span>
+      <input
+        min={min}
+        onChange={(event) => onChange(Number(event.target.value) || min)}
+        step={step}
+        type="number"
+        value={value}
+      />
+    </label>
   );
 }
 
@@ -3604,6 +3984,50 @@ function makeDrawing(
 
 function drawingStrokeDasharray(drawing: ChartDrawing) {
   return lineStyleDasharray(drawing.lineStyle);
+}
+
+function defaultIndicatorLineStyle(
+  kind: ChartIndicatorInstance["kind"],
+  settings: IndicatorSettings,
+): DrawingLineStyle {
+  if (settings.lineStyle) {
+    return settings.lineStyle;
+  }
+  if (kind === "vwap" || kind === "bb" || kind === "donchian" || kind === "supertrend") {
+    return kind === "supertrend" ? "dotted" : "dashed";
+  }
+  return "solid";
+}
+
+function defaultIndicatorLineWidth(
+  kind: ChartIndicatorInstance["kind"],
+  settings: IndicatorSettings,
+) {
+  const fallback = kind === "bb" || kind === "donchian" || kind === "keltner" ? 1 : 2;
+  return indicatorPanelLineWidth(settings.lineWidth, fallback);
+}
+
+function indicatorPanelLineWidth(width: number | undefined, fallback: number) {
+  if (typeof width !== "number" || !Number.isFinite(width)) {
+    return fallback;
+  }
+  return clamp(Math.round(width), 1, 4);
+}
+
+function isOverlayIndicatorKind(kind: ChartIndicatorInstance["kind"]) {
+  return (
+    kind === "bb" ||
+    kind === "dema" ||
+    kind === "donchian" ||
+    kind === "ema" ||
+    kind === "hma" ||
+    kind === "keltner" ||
+    kind === "sma" ||
+    kind === "supertrend" ||
+    kind === "tema" ||
+    kind === "vwap" ||
+    kind === "wma"
+  );
 }
 
 function lineStyleDasharray(style: DrawingLineStyle | undefined) {
