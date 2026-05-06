@@ -1160,12 +1160,12 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((drawing): drawing is ChartDrawing => {
+  return value.flatMap((drawing): ChartDrawing[] => {
     if (typeof drawing !== "object" || drawing == null) {
-      return false;
+      return [];
     }
     const candidate = drawing as Partial<ChartDrawing>;
-    return (
+    const isValid =
       typeof candidate.id === "string" &&
       [
         "fib",
@@ -1198,8 +1198,18 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
           Number.isFinite(point.price) &&
           (point.logical == null ||
             (typeof point.logical === "number" && Number.isFinite(point.logical))),
-      )
-    );
+      );
+
+    if (!isValid) {
+      return [];
+    }
+
+    const normalized = candidate as ChartDrawing;
+    return [
+      normalized.tool === "measure" && normalized.lineStyle === "dashed"
+        ? { ...normalized, lineStyle: "solid" }
+        : normalized,
+    ];
   });
 }
 

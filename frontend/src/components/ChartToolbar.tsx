@@ -18,6 +18,10 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   TvCrosshairIcon,
@@ -142,6 +146,7 @@ export function ChartToolbar({
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const commandInputRef = useRef<HTMLInputElement | null>(null);
   const commandRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
@@ -152,7 +157,7 @@ export function ChartToolbar({
   }
 
   useEffect(() => {
-    function closeOnOutsideClick(event: globalThis.MouseEvent) {
+    function closeOnOutsideClick(event: globalThis.PointerEvent) {
       const target = event.target as Node;
       if (menuRef.current && !menuRef.current.contains(target)) {
         setIndicatorMenuOpen(false);
@@ -165,9 +170,19 @@ export function ChartToolbar({
       }
     }
 
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
   }, []);
+
+  function openCommandSearch(
+    event?: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>,
+  ) {
+    if ((event?.target as HTMLElement | undefined)?.closest(".chart-command-menu")) {
+      return;
+    }
+    setCommandOpen(true);
+    commandInputRef.current?.focus();
+  }
 
   return (
     <section className="chart-studio-toolbar">
@@ -189,16 +204,19 @@ export function ChartToolbar({
         <div
           ref={commandRef}
           className="chart-command-box"
-          onPointerDown={() => setCommandOpen(true)}
+          onClickCapture={openCommandSearch}
+          onPointerDownCapture={openCommandSearch}
         >
           <Command size={15} className="text-cyan-200" />
           <input
+            ref={commandInputRef}
             onChange={(event) => {
               setCommandQuery(event.target.value);
               setCommandOpen(true);
             }}
             onClick={() => setCommandOpen(true)}
             onFocus={() => setCommandOpen(true)}
+            onPointerDown={() => setCommandOpen(true)}
             placeholder="Search tools, indicators, styles, intervals"
             value={commandQuery}
           />

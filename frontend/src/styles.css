@@ -77,10 +77,17 @@ button:disabled {
   }
 
   .themed-select-trigger {
-    @apply flex h-full min-h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-white/10 bg-ink-950 px-3 text-left text-sm text-slate-100 outline-none transition hover:border-cyan-300/25 hover:bg-[#0b1118] focus:border-cyan-300/50 focus:ring-2 focus:ring-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply flex h-full min-h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-cyan-300/15 bg-[#060a0f] px-3 text-left text-sm text-slate-100 outline-none transition hover:border-cyan-300/35 hover:bg-[#0b1118] focus:border-cyan-300/50 focus:ring-2 focus:ring-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50;
     background-image:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.038), transparent),
-      linear-gradient(90deg, rgba(50, 211, 238, 0.035), transparent 48%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.065), transparent),
+      linear-gradient(90deg, rgba(50, 211, 238, 0.06), transparent 48%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.025),
+      0 8px 24px rgba(0, 0, 0, 0.16);
+  }
+
+  .themed-select-open .themed-select-trigger {
+    @apply border-cyan-300/45 text-cyan-50 ring-2 ring-cyan-300/15;
   }
 
   .themed-select-value {
@@ -92,15 +99,18 @@ button:disabled {
   }
 
   .themed-select-menu {
-    @apply absolute top-full z-[80] mt-2 grid max-h-72 min-w-full overflow-auto rounded-md border border-cyan-300/15 p-1.5 shadow-panel backdrop-blur-sm;
-    background-color: rgb(7 11 16 / 0.985);
+    @apply absolute top-full z-[80] mt-2 grid max-h-72 min-w-full overflow-auto rounded-md border border-cyan-300/25 p-1.5 shadow-panel backdrop-blur-sm;
+    background-color: rgb(5 9 14 / 0.992);
     background-image:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent),
-      linear-gradient(90deg, rgba(50, 211, 238, 0.075), transparent 52%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent),
+      linear-gradient(90deg, rgba(50, 211, 238, 0.10), transparent 52%);
+    box-shadow:
+      0 24px 70px rgba(0, 0, 0, 0.58),
+      0 0 0 1px rgba(50, 211, 238, 0.05);
   }
 
   .themed-select-option {
-    @apply flex min-h-9 w-full min-w-0 items-center gap-3 rounded-md border border-transparent px-2.5 py-2 text-left text-sm font-semibold text-slate-300 transition hover:border-cyan-300/20 hover:bg-cyan-300/10 hover:text-white disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:border-transparent disabled:hover:bg-transparent;
+    @apply flex min-h-9 w-full min-w-0 items-center gap-3 rounded-md border border-transparent px-2.5 py-2 text-left text-sm font-semibold text-slate-300 transition hover:border-cyan-300/25 hover:bg-cyan-300/10 hover:text-white disabled:cursor-not-allowed disabled:text-slate-500 disabled:hover:border-transparent disabled:hover:bg-black/10;
   }
 
   .themed-select-option-active {

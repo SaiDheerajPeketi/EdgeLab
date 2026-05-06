@@ -112,7 +112,7 @@ export function ThemedSelect({
   }
 
   return (
-    <div className={`themed-select ${className}`} ref={rootRef}>
+    <div className={`themed-select ${open ? "themed-select-open" : ""} ${className}`} ref={rootRef}>
       <button
         aria-expanded={open}
         aria-haspopup="listbox"
