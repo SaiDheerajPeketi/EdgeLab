@@ -121,7 +121,7 @@ export default function App() {
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
-  const [workspacePanel, setWorkspacePanel] = useState<"none" | "orders" | "review" | "results">("none");
+  const [workspacePanel, setWorkspacePanel] = useState<"none" | "tape" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
@@ -652,11 +652,11 @@ export default function App() {
                 </button>
               )}
               <button
-                className={`workspace-tab ${workspacePanel === "orders" ? "workspace-tab-active" : ""}`}
-                onClick={() => setWorkspacePanel((value) => value === "orders" ? "none" : "orders")}
+                className={`workspace-tab ${workspacePanel === "tape" ? "workspace-tab-active" : ""}`}
+                onClick={() => setWorkspacePanel((value) => value === "tape" ? "none" : "tape")}
                 type="button"
               >
-                Orders
+                Tape
               </button>
               <button
                 className={`workspace-tab ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
@@ -858,7 +858,7 @@ export default function App() {
                 )}
               </div>
 
-            {workspacePanel === "orders" && (
+            {workspacePanel === "tape" && (
               <section className="focus-bottom-panel">
                 <PositionPanel position={position} />
                 <PendingOrders orders={orders} />
