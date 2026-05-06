@@ -50,6 +50,7 @@ import {
   isIndicatorKind,
   mergeIndicatorSettings,
   nextIndicatorInstanceColor,
+  normalizeFibLevels,
 } from "./lib/charting";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
@@ -1252,6 +1253,8 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       (candidate.fillOpacity == null ||
         (typeof candidate.fillOpacity === "number" &&
           Number.isFinite(candidate.fillOpacity))) &&
+      (candidate.fibExtendRight == null ||
+        typeof candidate.fibExtendRight === "boolean") &&
       (candidate.label == null || typeof candidate.label === "string") &&
       (candidate.lineStyle == null ||
         ["solid", "dashed", "dotted"].includes(candidate.lineStyle)) &&
@@ -1274,7 +1277,14 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       return [];
     }
 
-    const normalized = candidate as ChartDrawing;
+    const normalized =
+      candidate.tool === "fib"
+        ? ({
+            ...candidate,
+            fibExtendRight: candidate.fibExtendRight !== false,
+            fibLevels: normalizeFibLevels(candidate.fibLevels, candidate.color),
+          } as ChartDrawing)
+        : (candidate as ChartDrawing);
     return [
       normalized.tool === "measure" && normalized.lineStyle === "dashed"
         ? { ...normalized, lineStyle: "solid" }

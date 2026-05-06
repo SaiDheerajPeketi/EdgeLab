@@ -3,6 +3,8 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  Plus,
+  RotateCcw,
   Trash2,
   UnlockKeyhole,
   X,
@@ -42,6 +44,7 @@ import {
   atrSeries,
   bucketTime,
   buildIndicatorDefinitions,
+  DEFAULT_FIB_LEVELS,
   defaultRiskRewardStopPoint,
   indicatorDisplayName,
   isRiskRewardTool,
@@ -51,6 +54,7 @@ import {
   momentumSeries,
   normalizeRiskRewardDrawing,
   normalizeRiskRewardPoints,
+  normalizeFibLevels,
   rsiSeries,
   toCandles,
   type ChartDrawing,
@@ -60,6 +64,7 @@ import {
   type DrawingLineStyle,
   type DrawingPoint,
   type DrawingTool,
+  type FibLevel,
   type MacdData,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
@@ -1190,6 +1195,7 @@ function FloatingDrawingToolbar({
     drawing.tool === "rectangle" ||
     drawing.tool === "longPosition" ||
     drawing.tool === "shortPosition";
+  const isFib = drawing.tool === "fib";
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
@@ -1269,6 +1275,13 @@ function FloatingDrawingToolbar({
         </label>
       )}
 
+      {isFib && (
+        <FibLevelEditor
+          drawing={drawing}
+          onChange={onChange}
+        />
+      )}
+
       <button
         className={`chart-object-floating-button ${drawing.visible === false ? "" : "active"}`}
         onClick={() => onChange({ visible: drawing.visible === false })}
@@ -1297,6 +1310,134 @@ function FloatingDrawingToolbar({
   );
 }
 
+function FibLevelEditor({
+  drawing,
+  onChange,
+}: {
+  drawing: ChartDrawing;
+  onChange: (patch: Partial<ChartDrawing>) => void;
+}) {
+  const levels = normalizeFibLevels(drawing.fibLevels, drawing.color);
+  const priceStart = drawing.points[0]?.price ?? 0;
+  const priceRange = (drawing.points[1]?.price ?? priceStart) - priceStart;
+
+  function updateLevel(levelId: string, patch: Partial<FibLevel>) {
+    onChange({
+      fibLevels: levels
+        .map((level) =>
+          level.id === levelId
+            ? {
+                ...level,
+                ...patch,
+                value:
+                  patch.value == null || !Number.isFinite(patch.value)
+                    ? level.value
+                    : Math.min(4.236, Math.max(-2, patch.value)),
+              }
+            : level,
+        )
+        .sort((left, right) => left.value - right.value),
+    });
+  }
+
+  function addLevel() {
+    const last = levels.at(-1);
+    const nextValue = Math.min(4.236, Number(((last?.value ?? 1) + 0.236).toFixed(3)));
+    const nextLevel: FibLevel = {
+      id: `fib-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      value: nextValue,
+      color: nextFibLevelColor(levels),
+      label: formatFibLevelInput(nextValue),
+      visible: true,
+    };
+    onChange({ fibLevels: [...levels, nextLevel].sort((left, right) => left.value - right.value) });
+  }
+
+  return (
+    <div className="fib-level-editor">
+      <div className="fib-level-editor-header">
+        <span>Fib Levels</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() =>
+              onChange({
+                fibExtendRight: true,
+                fibLevels: DEFAULT_FIB_LEVELS.map((level) => ({ ...level })),
+              })
+            }
+            title="Reset default levels"
+            type="button"
+          >
+            <RotateCcw size={12} />
+          </button>
+          <button onClick={addLevel} title="Add level" type="button">
+            <Plus size={13} />
+          </button>
+        </div>
+      </div>
+
+      <label className="fib-level-extend">
+        <input
+          checked={drawing.fibExtendRight !== false}
+          onChange={(event) => onChange({ fibExtendRight: event.target.checked })}
+          type="checkbox"
+        />
+        Extend lines right
+      </label>
+
+      <div className="fib-level-grid">
+        {levels.map((level) => {
+          const price = priceStart + priceRange * level.value;
+          return (
+            <div className="fib-level-row" key={level.id}>
+              <input
+                aria-label={`${level.label ?? level.value} visible`}
+                checked={level.visible !== false}
+                onChange={(event) =>
+                  updateLevel(level.id, { visible: event.target.checked })
+                }
+                type="checkbox"
+              />
+              <input
+                aria-label={`${level.label ?? level.value} color`}
+                className="fib-level-color"
+                onChange={(event) => updateLevel(level.id, { color: event.target.value })}
+                type="color"
+                value={level.color}
+              />
+              <input
+                aria-label="Fib ratio"
+                className="fib-level-value"
+                onChange={(event) =>
+                  updateLevel(level.id, {
+                    label: event.target.value,
+                    value: Number(event.target.value),
+                  })
+                }
+                step="0.001"
+                type="number"
+                value={formatFibLevelInput(level.value)}
+              />
+              <span className="fib-level-price">{formatPrice(price)}</span>
+              <button
+                aria-label="Remove fib level"
+                disabled={levels.length <= 1}
+                onClick={() =>
+                  onChange({ fibLevels: levels.filter((item) => item.id !== level.id) })
+                }
+                title="Remove level"
+                type="button"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function LineStylePreview({ style }: { style: DrawingLineStyle }) {
   const dashArray =
     style === "dashed" ? "7 5" : style === "dotted" ? "1 4" : undefined;
@@ -1320,6 +1461,18 @@ function LineStylePreview({ style }: { style: DrawingLineStyle }) {
       />
     </svg>
   );
+}
+
+function nextFibLevelColor(levels: FibLevel[]) {
+  const usedColors = new Set(levels.map((level) => level.color.toLowerCase()));
+  return (
+    DEFAULT_FIB_LEVELS.find((level) => !usedColors.has(level.color.toLowerCase()))
+      ?.color ?? "#32d3ee"
+  );
+}
+
+function formatFibLevelInput(value: number) {
+  return Number(value.toFixed(3)).toString();
 }
 
 function buildDrawingElements({
@@ -1766,11 +1919,26 @@ function renderDrawing(
   }
 
   if (drawing.tool === "fib") {
-    const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-    const top = first.y;
-    const range = second.y - first.y;
+    const levels = normalizeFibLevels(drawing.fibLevels, color).filter(
+      (level) => level.visible !== false,
+    );
+    const yStart = first.y;
+    const yRange = second.y - first.y;
+    const priceStart = drawing.points[0].price;
+    const priceRange = drawing.points[1].price - drawing.points[0].price;
     const left = Math.min(first.x, second.x);
-    const right = Math.max(first.x, second.x);
+    const anchorRight = Math.max(first.x, second.x);
+    const right = drawing.fibExtendRight === false ? anchorRight : width;
+    const labelWidth = 154;
+    const labelHeight = 20;
+    const labelX = clamp(right - labelWidth - 8, left + 8, Math.max(left + 8, width - labelWidth - 8));
+    const lineRight = Math.max(left, labelX - 6);
+    const bandLevels = levels
+      .map((level) => ({
+        ...level,
+        y: yStart + yRange * level.value,
+      }))
+      .sort((a, b) => a.y - b.y);
     return (
       <g key={drawing.id}>
         <rect
@@ -1780,26 +1948,86 @@ function renderDrawing(
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
           pointerEvents={hitTargetPointerEvents}
-          width={Math.abs(second.x - first.x) + 20}
+          width={Math.max(0, right - left) + 20}
           x={left - 10}
           y={Math.min(first.y, second.y) - 10}
         />
-        {levels.map((level) => {
-          const y = top + range * level;
+        <line
+          stroke={color}
+          strokeDasharray="3 4"
+          strokeOpacity={isSelected ? 0.65 : 0.36}
+          strokeWidth={1}
+          x1={first.x}
+          x2={second.x}
+          y1={first.y}
+          y2={second.y}
+        />
+        {bandLevels.slice(0, -1).map((level, index) => {
+          const next = bandLevels[index + 1];
+          const bandY = Math.min(level.y, next.y);
+          const bandHeight = Math.abs(next.y - level.y);
+          if (bandHeight < 2) {
+            return null;
+          }
           return (
-            <g key={level}>
+            <rect
+              fill={colorWithOpacity(next.color, isSelected ? 0.075 : 0.045)}
+              height={bandHeight}
+              key={`${drawing.id}-${level.id}-band`}
+              pointerEvents="none"
+              width={Math.max(0, lineRight - left)}
+              x={left}
+              y={bandY}
+            />
+          );
+        })}
+        {levels.map((level) => {
+          const y = yStart + yRange * level.value;
+          const price = priceStart + priceRange * level.value;
+          const levelLabel = level.label?.trim() || formatFibLevelInput(level.value);
+          const text = `${levelLabel}  ${formatPrice(price)}`;
+          const labelY = clamp(
+            y - labelHeight / 2,
+            4,
+            Math.max(4, y + labelHeight / 2),
+          );
+          return (
+            <g key={level.id}>
               <line
-                stroke={color}
+                stroke={level.color}
                 strokeDasharray={strokeDasharray}
-                strokeOpacity={isSelected || level === 0 || level === 1 ? 0.9 : 0.55}
-                strokeWidth={level === 0 || level === 1 ? selectedStrokeWidth : Math.max(1, selectedStrokeWidth - 0.75)}
+                strokeOpacity={isSelected || level.value === 0 || level.value === 1 ? 0.95 : 0.72}
+                strokeWidth={
+                  level.value === 0 || level.value === 1
+                    ? selectedStrokeWidth
+                    : Math.max(1, selectedStrokeWidth - 0.75)
+                }
                 x1={left}
-                x2={right}
+                x2={lineRight}
                 y1={y}
                 y2={y}
               />
-              <text fill={color} fontSize="10" x={right + 6} y={y - 3}>
-                {(level * 100).toFixed(1)}%
+              <rect
+                fill="rgba(8, 12, 17, 0.92)"
+                height={labelHeight}
+                rx={4}
+                stroke={level.color}
+                strokeOpacity={isSelected ? 0.72 : 0.42}
+                width={labelWidth}
+                x={labelX}
+                y={labelY}
+              />
+              <text
+                fill={level.color}
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+                fontSize="10"
+                fontWeight="800"
+                lengthAdjust="spacingAndGlyphs"
+                textLength={labelWidth - 14}
+                x={labelX + 7}
+                y={labelY + 13}
+              >
+                {text}
               </text>
             </g>
           );
@@ -2279,6 +2507,9 @@ function makeDrawing(
     id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     tool,
     color: DRAWING_COLORS[tool],
+    fibExtendRight: tool === "fib" ? true : undefined,
+    fibLevels:
+      tool === "fib" ? DEFAULT_FIB_LEVELS.map((level) => ({ ...level })) : undefined,
     fillOpacity: tool === "rectangle" ? 0.16 : undefined,
     lineStyle: "solid",
     lineWidth: tool === "horizontal" ? 1.5 : 2,

@@ -88,10 +88,20 @@ export type DrawingPoint = {
   price: number;
 };
 
+export type FibLevel = {
+  id: string;
+  value: number;
+  color: string;
+  label?: string;
+  visible?: boolean;
+};
+
 export type ChartDrawing = {
   id: string;
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
   color: string;
+  fibExtendRight?: boolean;
+  fibLevels?: FibLevel[];
   fillOpacity?: number;
   lineStyle?: DrawingLineStyle;
   lineWidth?: number;
@@ -116,6 +126,18 @@ export type MacdData = {
   macd: LineData[];
   signal: LineData[];
 };
+
+export const DEFAULT_FIB_LEVELS: FibLevel[] = [
+  { id: "0", value: 0, color: "#f8fafc", label: "0" },
+  { id: "0236", value: 0.236, color: "#38bdf8", label: "0.236" },
+  { id: "0382", value: 0.382, color: "#22c55e", label: "0.382" },
+  { id: "05", value: 0.5, color: "#fbbf24", label: "0.5" },
+  { id: "0618", value: 0.618, color: "#f59e0b", label: "0.618" },
+  { id: "0786", value: 0.786, color: "#f472b6", label: "0.786" },
+  { id: "1", value: 1, color: "#f8fafc", label: "1" },
+  { id: "1272", value: 1.272, color: "#a78bfa", label: "1.272" },
+  { id: "1618", value: 1.618, color: "#fb7185", label: "1.618" },
+];
 
 export const INDICATORS: Array<{
   id: ChartIndicatorKind;
@@ -329,6 +351,52 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
 
 function createIndicatorInstanceId(kind: ChartIndicatorKind) {
   return `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function normalizeFibLevels(
+  levels?: unknown,
+  fallbackColor = "#22c55e",
+): FibLevel[] {
+  if (!Array.isArray(levels)) {
+    return DEFAULT_FIB_LEVELS.map((level) => ({ ...level }));
+  }
+
+  const clean = levels
+    .map((level, index): FibLevel | null => {
+      if (typeof level !== "object" || level == null) {
+        return null;
+      }
+      const candidate = level as Partial<FibLevel>;
+      if (typeof candidate.value !== "number" || !Number.isFinite(candidate.value)) {
+        return null;
+      }
+      return {
+        id:
+          typeof candidate.id === "string" && candidate.id.trim().length > 0
+            ? candidate.id.trim().slice(0, 48)
+            : `custom-${index}`,
+        value: clampFibValue(candidate.value),
+        color:
+          typeof candidate.color === "string" && candidate.color.trim().length > 0
+            ? candidate.color
+            : fallbackColor,
+        label:
+          typeof candidate.label === "string"
+            ? candidate.label.trim().slice(0, 24)
+            : undefined,
+        visible: candidate.visible !== false,
+      };
+    })
+    .filter((level): level is FibLevel => level != null)
+    .sort((left, right) => left.value - right.value);
+
+  return clean.length > 0
+    ? clean
+    : DEFAULT_FIB_LEVELS.map((level) => ({ ...level }));
+}
+
+function clampFibValue(value: number) {
+  return Math.min(4.236, Math.max(-2, value));
 }
 
 export function isRiskRewardTool(
