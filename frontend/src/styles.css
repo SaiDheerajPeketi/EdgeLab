@@ -288,7 +288,7 @@ button:disabled {
   }
 
   .backtest-focus-header {
-    @apply sticky top-3 z-[90] rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
+    @apply sticky top-3 z-30 rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
     background-image:
       linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 42%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
@@ -705,7 +705,7 @@ button:disabled {
   }
 
   .focus-side-drawer {
-    @apply fixed inset-y-0 left-0 z-50 grid w-[min(392px,calc(100vw-16px))] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
+    @apply fixed inset-y-0 left-0 z-[110] grid w-[min(392px,calc(100vw-16px))] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   .focus-side-drawer-body {
@@ -762,7 +762,7 @@ button:disabled {
   }
 
   .chart-fullscreen-dock {
-    @apply fixed inset-y-0 left-0 z-[65] grid w-[min(392px,calc(100vw-16px))] animate-[slideInLeft_160ms_ease-out] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
+    @apply fixed inset-y-0 left-0 z-[110] grid w-[min(392px,calc(100vw-16px))] animate-[slideInLeft_160ms_ease-out] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   .chart-fullscreen-dock-header {
