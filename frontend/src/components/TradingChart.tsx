@@ -1539,33 +1539,58 @@ function toLightweightDateFormat(format: ChartVisualSettings["dateFormat"]) {
   return "dd MMM 'yy";
 }
 
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function formatChartTime(time: Time, settings: ChartVisualSettings) {
   const date = timeToDate(time);
   if (!date) {
     return String(time);
   }
-  const options: Intl.DateTimeFormatOptions = {
+  const timeOptions: Intl.DateTimeFormatOptions = {
     hour: "2-digit",
     hour12: settings.timeHoursFormat === "12-hour",
     minute: "2-digit",
-    month: "short",
   };
-  if (settings.dayOfWeekLabels) {
-    options.weekday = "short";
-  }
+  const timeLabel = new Intl.DateTimeFormat(undefined, timeOptions).format(date);
+  return `${formatChartDateLabel(date, settings)} ${timeLabel}`;
+}
+
+function formatChartDateLabel(date: Date, settings: ChartVisualSettings) {
+  const weekday = settings.dayOfWeekLabels
+    ? `${WEEKDAY_LABELS[date.getDay()]} `
+    : "";
+  const day = padDatePart(date.getDate());
+  const month = MONTH_LABELS[date.getMonth()];
+  const year = date.getFullYear();
+
   if (settings.dateFormat === "yyyy-MM-dd") {
-    options.year = "numeric";
-    options.month = "2-digit";
-    options.day = "2-digit";
-  } else {
-    options.day = "2-digit";
-    if (settings.dateFormat === "MMM dd yyyy") {
-      options.year = "numeric";
-    } else {
-      options.year = "2-digit";
-    }
+    return `${weekday}${year}-${padDatePart(date.getMonth() + 1)}-${day}`;
   }
-  return new Intl.DateTimeFormat(undefined, options).format(date);
+
+  if (settings.dateFormat === "MMM dd yyyy") {
+    return `${weekday}${month} ${day} ${year}`;
+  }
+
+  return `${weekday}${day} ${month} '${String(year).slice(-2)}`;
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
 }
 
 function timeToDate(time: Time) {
