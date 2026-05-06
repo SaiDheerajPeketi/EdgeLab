@@ -48,8 +48,10 @@ import {
 } from "../lib/charting";
 import {
   deleteChartSettingsPreset,
+  loadActiveChartSettingsPresetName,
   loadChartSettingsPresets,
   normalizeChartSettingsPresetName,
+  persistActiveChartSettingsPresetName,
   saveChartSettingsPreset,
   type ChartLineStyle,
   type ChartSettingsPreset,
@@ -165,10 +167,13 @@ export function ChartToolbar({
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsPresetName, setSettingsPresetName] = useState("Default");
   const [settingsPresets, setSettingsPresets] = useState<ChartSettingsPreset[]>(() =>
     loadChartSettingsPresets(),
   );
+  const [settingsPresetName, setSettingsPresetName] = useState(() => {
+    const presets = loadChartSettingsPresets();
+    return loadActiveChartSettingsPresetName(presets) ?? "Default";
+  });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const commandRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -178,6 +183,17 @@ export function ChartToolbar({
   function selectChartStyle(style: ChartStyle) {
     onChartStyleChange(style);
     onSmoothCandlesChange(style === "heikinAshi");
+  }
+
+  function refreshSettingsPresets(preferredName?: string | null) {
+    const nextPresets = loadChartSettingsPresets();
+    const nextName =
+      preferredName && nextPresets.some((preset) => preset.name === preferredName)
+        ? preferredName
+        : loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
+    setSettingsPresets(nextPresets);
+    setSettingsPresetName(nextName);
+    return nextPresets;
   }
 
   useEffect(() => {
@@ -209,6 +225,7 @@ export function ChartToolbar({
 
     setCommandOpen(false);
     setIndicatorMenuOpen(false);
+    refreshSettingsPresets();
     setSettingsOpen(true);
   }, [settingsOpenSignal, toolsOpen]);
 
@@ -248,26 +265,32 @@ export function ChartToolbar({
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
       onDeletePreset={(name) => {
-        setSettingsPresets(deleteChartSettingsPreset(name));
-        if (normalizeChartSettingsPresetName(name) === settingsPresetName) {
-          setSettingsPresetName("Default");
-        }
+        const nextPresets = deleteChartSettingsPreset(name);
+        const nextName =
+          normalizeChartSettingsPresetName(name) === settingsPresetName
+            ? loadActiveChartSettingsPresetName(nextPresets) ?? "Default"
+            : settingsPresetName;
+        setSettingsPresets(nextPresets);
+        setSettingsPresetName(nextName);
       }}
       onLoadPreset={(name) => {
-        const preset = settingsPresets.find((item) => item.name === name);
+        const nextPresets = refreshSettingsPresets(name);
+        const preset = nextPresets.find((item) => item.name === name);
         if (!preset) {
           return;
         }
         setSettingsPresetName(preset.name);
+        persistActiveChartSettingsPresetName(preset.name);
         onChartSettingsChange(preset.settings);
       }}
       onPresetNameChange={setSettingsPresetName}
       onRemoveIndicator={onRemoveIndicator}
       onReset={onChartSettingsReset}
       onSavePreset={() => {
-        const nextPresets = saveChartSettingsPreset(settingsPresetName, chartSettings);
+        const presetName = normalizeChartSettingsPresetName(settingsPresetName);
+        const nextPresets = saveChartSettingsPreset(presetName, chartSettings);
         setSettingsPresets(nextPresets);
-        setSettingsPresetName(normalizeChartSettingsPresetName(settingsPresetName));
+        setSettingsPresetName(presetName);
         setSettingsOpen(false);
       }}
       onSettingsChange={onChartSettingsChange}

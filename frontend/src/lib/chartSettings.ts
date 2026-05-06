@@ -100,6 +100,8 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
 };
 
 export const CHART_SETTINGS_PRESETS_KEY = "edgelab.chart-settings-presets.v1";
+export const ACTIVE_CHART_SETTINGS_PRESET_KEY =
+  "edgelab.active-chart-settings-preset.v1";
 
 export function sanitizeChartVisualSettings(
   settings?: Partial<ChartVisualSettings> | null,
@@ -197,6 +199,7 @@ export function saveChartSettingsPreset(
     ...loadChartSettingsPresets().filter((preset) => preset.name !== presetName),
   ].slice(0, 24);
   persistChartSettingsPresets(nextPresets);
+  persistActiveChartSettingsPresetName(presetName);
   return nextPresets;
 }
 
@@ -206,12 +209,43 @@ export function deleteChartSettingsPreset(name: string): ChartSettingsPreset[] {
     (preset) => preset.name !== presetName,
   );
   persistChartSettingsPresets(nextPresets);
+  if (loadActiveChartSettingsPresetName() === presetName) {
+    persistActiveChartSettingsPresetName(nextPresets[0]?.name ?? null);
+  }
   return nextPresets;
 }
 
 export function normalizeChartSettingsPresetName(name: string) {
   const normalized = name.trim().replace(/\s+/g, " ");
   return normalized || "Default";
+}
+
+export function loadActiveChartSettingsPresetName(
+  presets = loadChartSettingsPresets(),
+) {
+  if (typeof window === "undefined") {
+    return presets[0]?.name ?? null;
+  }
+  const storedName = window.localStorage.getItem(ACTIVE_CHART_SETTINGS_PRESET_KEY);
+  const normalizedName = storedName ? normalizeChartSettingsPresetName(storedName) : "";
+  if (normalizedName && presets.some((preset) => preset.name === normalizedName)) {
+    return normalizedName;
+  }
+  return presets[0]?.name ?? null;
+}
+
+export function persistActiveChartSettingsPresetName(name: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (!name) {
+    window.localStorage.removeItem(ACTIVE_CHART_SETTINGS_PRESET_KEY);
+    return;
+  }
+  window.localStorage.setItem(
+    ACTIVE_CHART_SETTINGS_PRESET_KEY,
+    normalizeChartSettingsPresetName(name),
+  );
 }
 
 function persistChartSettingsPresets(presets: ChartSettingsPreset[]) {
