@@ -22,7 +22,10 @@ type Props = {
   isOrderPaneOpen: boolean;
   onToggleOrderPane: () => void;
   showOrderToggle?: boolean;
+  timeHoursFormat?: TimeHoursFormat;
 };
+
+type TimeHoursFormat = "12-hour" | "24-hour";
 
 const CUSTOM_SPEED_VALUE = "custom";
 const MIN_CUSTOM_BARS_PER_SECOND = 0.1;
@@ -38,6 +41,7 @@ export function ReplayController({
   isOrderPaneOpen,
   onToggleOrderPane,
   showOrderToggle = true,
+  timeHoursFormat = "24-hour",
 }: Props) {
   const {
     state,
@@ -198,6 +202,7 @@ export function ReplayController({
             currentTimestamp={currentTimestamp}
             disabled={!state}
             onChange={setJumpTime}
+            timeHoursFormat={timeHoursFormat}
             value={jumpTime}
           />
           <button
@@ -218,11 +223,13 @@ function ReplayDateTimePicker({
   currentTimestamp,
   disabled,
   onChange,
+  timeHoursFormat,
   value,
 }: {
   currentTimestamp: string | null;
   disabled: boolean;
   onChange: (value: string) => void;
+  timeHoursFormat: TimeHoursFormat;
   value: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -349,8 +356,27 @@ function ReplayDateTimePicker({
     setOpen(false);
   }
 
+  function handleDraftHourChange(value: string) {
+    if (timeHoursFormat === "12-hour") {
+      setDraftHour(to24Hour(clampTimePart(value, 12, 1), hourPeriod(draftHour)));
+      return;
+    }
+    setDraftHour(clampTimePart(value, 23));
+  }
+
+  function togglePeriod(nextPeriod: "AM" | "PM") {
+    if (nextPeriod === hourPeriod(draftHour)) {
+      return;
+    }
+    setDraftHour(nextPeriod === "PM" ? draftHour + 12 : draftHour - 12);
+  }
+
   const cells = calendarCells(viewYear, viewMonth);
-  const displayValue = selected ? formatPickerDisplay(selected) : "Select replay date";
+  const displayValue = selected
+    ? formatPickerDisplay(selected, timeHoursFormat)
+    : "Select replay date";
+  const is12Hour = timeHoursFormat === "12-hour";
+  const currentPeriod = hourPeriod(draftHour);
 
   return (
     <div className="replay-date-picker" ref={containerRef}>
@@ -428,7 +454,7 @@ function ReplayDateTimePicker({
             })}
           </div>
 
-          <div className="replay-time-row">
+          <div className={`replay-time-row ${is12Hour ? "replay-time-row-12" : ""}`}>
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
               <Clock3 size={13} />
               Time
@@ -436,11 +462,11 @@ function ReplayDateTimePicker({
             <label>
               <span>HH</span>
               <input
-                max={23}
-                min={0}
-                onChange={(event) => setDraftHour(clampTimePart(event.target.value, 23))}
+                max={is12Hour ? 12 : 23}
+                min={is12Hour ? 1 : 0}
+                onChange={(event) => handleDraftHourChange(event.target.value)}
                 type="number"
-                value={String(draftHour).padStart(2, "0")}
+                value={formatHourInputValue(draftHour, timeHoursFormat)}
               />
             </label>
             <label>
@@ -453,6 +479,20 @@ function ReplayDateTimePicker({
                 value={String(draftMinute).padStart(2, "0")}
               />
             </label>
+            {is12Hour && (
+              <div className="replay-period-toggle" aria-label="Time period">
+                {(["AM", "PM"] as const).map((period) => (
+                  <button
+                    className={period === currentPeriod ? "replay-period-toggle-active" : ""}
+                    key={period}
+                    onClick={() => togglePeriod(period)}
+                    type="button"
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="replay-date-actions">
@@ -573,16 +613,42 @@ function formatReplayDateTime(
   return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
 }
 
-function formatPickerDisplay(parts: ReplayDateParts) {
-  return `${pad2(parts.day)} ${MONTH_NAMES[parts.month - 1].slice(0, 3)} '${String(parts.year).slice(-2)} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
+function formatPickerDisplay(parts: ReplayDateParts, timeHoursFormat: TimeHoursFormat) {
+  const time =
+    timeHoursFormat === "12-hour"
+      ? `${formatHourInputValue(parts.hour, timeHoursFormat)}:${pad2(parts.minute)} ${hourPeriod(parts.hour)}`
+      : `${pad2(parts.hour)}:${pad2(parts.minute)}`;
+  return `${pad2(parts.day)} ${MONTH_NAMES[parts.month - 1].slice(0, 3)} '${String(parts.year).slice(-2)} ${time}`;
 }
 
-function clampTimePart(value: string, max: number) {
+function formatHourInputValue(hour: number, timeHoursFormat: TimeHoursFormat) {
+  if (timeHoursFormat === "12-hour") {
+    return pad2(to12Hour(hour));
+  }
+  return pad2(hour);
+}
+
+function hourPeriod(hour: number): "AM" | "PM" {
+  return hour >= 12 ? "PM" : "AM";
+}
+
+function to12Hour(hour: number) {
+  return hour % 12 || 12;
+}
+
+function to24Hour(hour: number, period: "AM" | "PM") {
+  if (period === "AM") {
+    return hour === 12 ? 0 : hour;
+  }
+  return hour === 12 ? 12 : hour + 12;
+}
+
+function clampTimePart(value: string, max: number, min = 0) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    return 0;
+    return min;
   }
-  return Math.min(max, Math.max(0, Math.round(parsed)));
+  return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
 function pad2(value: number) {

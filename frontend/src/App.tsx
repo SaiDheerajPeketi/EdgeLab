@@ -881,6 +881,7 @@ export default function App() {
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
                   showOrderToggle={isChartFullscreen}
+                  timeHoursFormat={chartSettings.timeHoursFormat}
                 />
                 {(chartToolsOpen || chartSettingsPanelOpen) && (
                   <ChartToolbar

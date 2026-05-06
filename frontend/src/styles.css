@@ -132,6 +132,10 @@ button:disabled {
     @apply grid grid-cols-[minmax(0,1fr)_88px_88px] items-center gap-2 rounded-md border border-white/10 bg-black/20 p-2;
   }
 
+  .replay-time-row-12 {
+    @apply grid-cols-[minmax(0,1fr)_72px_72px_74px];
+  }
+
   .replay-time-row label {
     @apply grid grid-cols-[22px_minmax(42px,1fr)] items-center gap-2 rounded border border-white/10 bg-[#0d141c] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500;
   }
@@ -141,10 +145,30 @@ button:disabled {
     appearance: textfield;
   }
 
+  .replay-time-row-12 label {
+    @apply grid-cols-[18px_minmax(34px,1fr)] gap-1 px-1.5;
+  }
+
+  .replay-time-row-12 input {
+    @apply min-w-[34px];
+  }
+
   .replay-time-row input::-webkit-inner-spin-button,
   .replay-time-row input::-webkit-outer-spin-button {
     -webkit-appearance: none;
     margin: 0;
+  }
+
+  .replay-period-toggle {
+    @apply grid h-10 grid-cols-2 overflow-hidden rounded border border-white/10 bg-[#0d141c] p-1;
+  }
+
+  .replay-period-toggle button {
+    @apply rounded text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 transition hover:bg-white/10 hover:text-slate-200;
+  }
+
+  .replay-period-toggle-active {
+    @apply bg-cyan-300/15 text-cyan-100 shadow-inner;
   }
 
   .replay-date-actions {
