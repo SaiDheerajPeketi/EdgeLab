@@ -93,7 +93,7 @@ export function ReplayController({
   }
 
   return (
-    <section className="rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
+    <section className="replay-controller-bar rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           {showOrderToggle && (

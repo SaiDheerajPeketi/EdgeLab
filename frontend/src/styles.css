@@ -85,7 +85,7 @@ button:disabled {
   }
 
   .replay-date-popover {
-    @apply absolute right-0 top-full z-[120] mt-2 grid w-[min(340px,calc(100vw-32px))] gap-3 rounded-md border border-cyan-300/20 bg-[#05090e]/95 p-3 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply absolute right-0 top-full z-[200] mt-2 grid w-[min(340px,calc(100vw-32px))] gap-3 rounded-md border border-cyan-300/20 bg-[#05090e]/95 p-3 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent),
       linear-gradient(90deg, rgba(50, 211, 238, 0.12), transparent 58%);
@@ -185,7 +185,7 @@ button:disabled {
   }
 
   .themed-color-popover {
-    @apply absolute left-0 top-full z-[120] mt-2 grid w-64 gap-2 rounded-md border border-cyan-300/20 bg-[#05090e]/95 p-2.5 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply absolute left-0 top-full z-[200] mt-2 grid w-64 gap-2 rounded-md border border-cyan-300/20 bg-[#05090e]/95 p-2.5 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent),
       linear-gradient(90deg, rgba(50, 211, 238, 0.12), transparent 58%);
@@ -308,7 +308,7 @@ button:disabled {
   }
 
   .themed-select-menu {
-    @apply absolute top-full z-[80] mt-2 grid max-h-72 min-w-full overflow-auto rounded-md border border-cyan-300/25 p-1.5 shadow-panel backdrop-blur-sm;
+    @apply absolute top-full z-[200] mt-2 grid max-h-72 min-w-full overflow-auto rounded-md border border-cyan-300/25 p-1.5 shadow-panel backdrop-blur-sm;
     background-color: rgb(5 9 14 / 0.992);
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent),
@@ -354,7 +354,7 @@ button:disabled {
   }
 
   .backtest-focus-header {
-    @apply relative rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
+    @apply relative z-[1] rounded-md border border-white/10 bg-[#080c11]/95 px-3 py-3 shadow-panel backdrop-blur;
     background-image:
       linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 42%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
@@ -510,7 +510,7 @@ button:disabled {
   }
 
   .chart-command-menu {
-    @apply absolute left-0 top-full z-50 mt-2 grid max-h-[440px] w-[min(520px,calc(100vw-48px))] overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
+    @apply absolute left-0 top-full z-[190] mt-2 grid max-h-[440px] w-[min(520px,calc(100vw-48px))] overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
     background-color: rgb(7 11 16 / 0.98);
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
@@ -582,7 +582,7 @@ button:disabled {
   }
 
   .chart-dropdown-panel {
-    @apply absolute top-full z-50 mt-2 grid max-h-[520px] gap-2 overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
+    @apply absolute top-full z-[190] mt-2 grid max-h-[520px] gap-2 overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
     background-color: rgb(7 11 16 / 0.98);
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
@@ -598,7 +598,7 @@ button:disabled {
   }
 
   .chart-settings-popover {
-    @apply fixed z-50 grid grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply fixed z-[190] grid grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
     --chart-settings-popover-top: clamp(132px, 12vh, 156px);
     left: max(16px, calc(50vw - 430px));
     top: var(--chart-settings-popover-top);
@@ -771,8 +771,12 @@ button:disabled {
     isolation: isolate;
   }
 
+  .replay-controller-bar {
+    @apply relative z-[1];
+  }
+
   .focus-side-drawer {
-    @apply fixed inset-y-0 left-0 z-[110] grid w-[min(392px,calc(100vw-16px))] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
+    @apply fixed inset-y-0 left-0 z-[220] grid w-[min(392px,calc(100vw-16px))] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   .focus-side-drawer-body {
@@ -796,7 +800,7 @@ button:disabled {
   }
 
   .chart-fullscreen-actionbar {
-    @apply fixed right-4 top-4 z-[70] flex items-center gap-2 rounded-md border border-white/10 bg-[#070b10]/90 p-1.5 shadow-panel backdrop-blur;
+    @apply fixed right-4 top-4 z-[230] flex items-center gap-2 rounded-md border border-white/10 bg-[#070b10]/90 p-1.5 shadow-panel backdrop-blur;
   }
 
   .chart-fullscreen-action {
@@ -830,7 +834,7 @@ button:disabled {
   }
 
   .chart-fullscreen-dock {
-    @apply fixed inset-y-0 left-0 z-[110] grid w-[min(392px,calc(100vw-16px))] animate-[slideInLeft_160ms_ease-out] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
+    @apply fixed inset-y-0 left-0 z-[220] grid w-[min(392px,calc(100vw-16px))] animate-[slideInLeft_160ms_ease-out] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-r-md border-r border-white/10 bg-[#070b10]/95 p-3 shadow-panel backdrop-blur;
   }
 
   .chart-fullscreen-dock-header {
