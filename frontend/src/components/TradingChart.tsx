@@ -135,6 +135,7 @@ type DrawingPreset = {
 };
 
 type FibPreset = {
+  extendLeft: boolean;
   extendRight: boolean;
   id: string;
   levels: FibLevel[];
@@ -1489,6 +1490,7 @@ function FibLevelEditor({
 
   function savePreset() {
     const preset = makeFibPreset({
+      extendLeft: drawing.fibExtendLeft === true,
       extendRight: drawing.fibExtendRight !== false,
       levels,
       name: presetName,
@@ -1510,6 +1512,7 @@ function FibLevelEditor({
       return;
     }
     onChange({
+      fibExtendLeft: preset.extendLeft,
       fibExtendRight: preset.extendRight,
       fibLevels: normalizeFibLevels(preset.levels, drawing.color),
     });
@@ -1554,6 +1557,7 @@ function FibLevelEditor({
             className="fib-icon-button"
             onClick={() =>
               onChange({
+                fibExtendLeft: false,
                 fibExtendRight: true,
                 fibLevels: normalizeFibLevels(DEFAULT_FIB_LEVELS, drawing.color),
               })
@@ -1569,14 +1573,25 @@ function FibLevelEditor({
         </div>
       </div>
 
-      <label className="fib-level-extend">
-        <input
-          checked={drawing.fibExtendRight !== false}
-          onChange={(event) => onChange({ fibExtendRight: event.target.checked })}
-          type="checkbox"
-        />
-        Extend lines right
-      </label>
+      <div className="fib-extend-row">
+        <span>Horizontal extend</span>
+        <label className="fib-level-extend">
+          <input
+            checked={drawing.fibExtendLeft === true}
+            onChange={(event) => onChange({ fibExtendLeft: event.target.checked })}
+            type="checkbox"
+          />
+          Left
+        </label>
+        <label className="fib-level-extend">
+          <input
+            checked={drawing.fibExtendRight !== false}
+            onChange={(event) => onChange({ fibExtendRight: event.target.checked })}
+            type="checkbox"
+          />
+          Right
+        </label>
+      </div>
 
       <div className="fib-level-grid">
         {levels.map((level) => {
@@ -2179,13 +2194,16 @@ function renderDrawing(
     const yRange = second.y - first.y;
     const priceStart = drawing.points[0].price;
     const priceRange = drawing.points[1].price - drawing.points[0].price;
-    const left = Math.min(first.x, second.x);
+    const anchorLeft = Math.min(first.x, second.x);
     const anchorRight = Math.max(first.x, second.x);
-    const right = drawing.fibExtendRight === false ? anchorRight : width;
+    const lineLeft = drawing.fibExtendLeft === true ? 0 : anchorLeft;
+    const lineEnd = drawing.fibExtendRight === false ? anchorRight : width;
     const labelWidth = 154;
     const labelHeight = 20;
-    const labelX = clamp(right - labelWidth - 8, left + 8, Math.max(left + 8, width - labelWidth - 8));
-    const lineRight = Math.max(left, labelX - 6);
+    const maxLabelX = Math.max(8, width - labelWidth - 8);
+    const labelMinX = Math.min(lineLeft + 8, maxLabelX);
+    const labelX = clamp(lineEnd - labelWidth - 8, labelMinX, maxLabelX);
+    const lineRight = Math.max(lineLeft, Math.min(lineEnd, labelX - 6));
     const bandLevels = levels
       .map((level) => ({
         ...level,
@@ -2201,8 +2219,8 @@ function renderDrawing(
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
           pointerEvents={hitTargetPointerEvents}
-          width={Math.max(0, right - left) + 20}
-          x={left - 10}
+          width={Math.max(0, lineEnd - lineLeft) + 20}
+          x={lineLeft - 10}
           y={Math.min(first.y, second.y) - 10}
         />
         <line
@@ -2231,8 +2249,8 @@ function renderDrawing(
               height={bandHeight}
               key={`${drawing.id}-${level.id}-band`}
               pointerEvents="none"
-              width={Math.max(0, lineRight - left)}
-              x={left}
+              width={Math.max(0, lineRight - lineLeft)}
+              x={lineLeft}
               y={bandY}
             />
           );
@@ -2260,7 +2278,7 @@ function renderDrawing(
                     ? selectedStrokeWidth
                     : Math.max(1, selectedStrokeWidth - 0.75)
                 }
-                x1={left}
+                x1={lineLeft}
                 x2={lineRight}
                 y1={y}
                 y2={y}
@@ -2830,6 +2848,7 @@ function loadFibPresets(): FibPreset[] {
           return null;
         }
         return {
+          extendLeft: candidate.extendLeft === true,
           extendRight: candidate.extendRight !== false,
           id: candidate.id,
           levels: normalizeFibLevels(candidate.levels),
@@ -2852,10 +2871,12 @@ function saveFibPresets(presets: FibPreset[]) {
 }
 
 function makeFibPreset({
+  extendLeft,
   extendRight,
   levels,
   name,
 }: {
+  extendLeft: boolean;
   extendRight: boolean;
   levels: FibLevel[];
   name: string;
@@ -2868,6 +2889,7 @@ function makeFibPreset({
       minute: "2-digit",
     })}`;
   return {
+    extendLeft,
     extendRight,
     id: `fib-${normalizePresetName(presetName)}-${Date.now().toString(36)}`,
     levels: normalizedLevels.map((level) => ({ ...level })),
@@ -3140,6 +3162,7 @@ function makeDrawing(
     id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     tool,
     color: DRAWING_COLORS[tool],
+    fibExtendLeft: tool === "fib" ? false : undefined,
     fibExtendRight: tool === "fib" ? true : undefined,
     fibLevels:
       tool === "fib" ? DEFAULT_FIB_LEVELS.map((level) => ({ ...level })) : undefined,

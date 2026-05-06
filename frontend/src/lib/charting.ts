@@ -102,6 +102,7 @@ export type ChartDrawing = {
   id: string;
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
   color: string;
+  fibExtendLeft?: boolean;
   fibExtendRight?: boolean;
   fibLevels?: FibLevel[];
   fillOpacity?: number;

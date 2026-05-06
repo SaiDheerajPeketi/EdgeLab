@@ -1271,6 +1271,8 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       (candidate.fillOpacity == null ||
         (typeof candidate.fillOpacity === "number" &&
           Number.isFinite(candidate.fillOpacity))) &&
+      (candidate.fibExtendLeft == null ||
+        typeof candidate.fibExtendLeft === "boolean") &&
       (candidate.fibExtendRight == null ||
         typeof candidate.fibExtendRight === "boolean") &&
       (candidate.label == null || typeof candidate.label === "string") &&
@@ -1302,6 +1304,7 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       candidate.tool === "fib"
         ? ({
             ...candidate,
+            fibExtendLeft: candidate.fibExtendLeft === true,
             fibExtendRight: candidate.fibExtendRight !== false,
             fibLevels: normalizeFibLevels(candidate.fibLevels, candidate.color),
           } as ChartDrawing)
