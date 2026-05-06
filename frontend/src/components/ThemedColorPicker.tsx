@@ -47,12 +47,15 @@ export function ThemedColorPicker({
     [value],
   );
   const [draft, setDraft] = useState(normalizedValue);
+  const [isEditing, setIsEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setDraft(normalizedValue);
-  }, [normalizedValue]);
+    if (!isEditing) {
+      setDraft(normalizedValue);
+    }
+  }, [isEditing, normalizedValue]);
 
   useEffect(() => {
     if (!open) {
@@ -84,11 +87,13 @@ export function ThemedColorPicker({
       return;
     }
     setDraft(normalized);
+    setIsEditing(false);
     onChange(normalized);
   }
 
   function handleDraftBlur() {
     const normalized = normalizeHexColor(draft);
+    setIsEditing(false);
     if (normalized) {
       applyColor(normalized);
       return;
@@ -102,6 +107,7 @@ export function ThemedColorPicker({
     }
     if (event.key === "Escape") {
       setDraft(normalizedValue);
+      setIsEditing(false);
       event.currentTarget.blur();
     }
   }
@@ -127,13 +133,14 @@ export function ThemedColorPicker({
         className="themed-color-hex"
         onBlur={handleDraftBlur}
         onChange={(event) => {
-          const nextValue = event.target.value.toUpperCase();
+          const nextValue = sanitizeHexDraft(event.target.value);
           setDraft(nextValue);
-          const normalized = normalizeHexColor(nextValue);
+          const normalized = normalizeHexColor(nextValue, { allowShorthand: false });
           if (normalized) {
             onChange(normalized);
           }
         }}
+        onFocus={() => setIsEditing(true)}
         onKeyDown={handleDraftKeyDown}
         spellCheck={false}
         value={draft}
@@ -189,13 +196,24 @@ export function ThemedColorPicker({
   );
 }
 
-function normalizeHexColor(value: string | undefined) {
+function sanitizeHexDraft(value: string) {
+  const trimmed = value.trim().toUpperCase();
+  const hasHash = trimmed.startsWith("#");
+  const hex = trimmed.replace(/#/g, "").replace(/[^\dA-F]/g, "").slice(0, 6);
+  return `${hasHash ? "#" : ""}${hex}`;
+}
+
+function normalizeHexColor(
+  value: string | undefined,
+  options: { allowShorthand?: boolean } = {},
+) {
+  const { allowShorthand = true } = options;
   const raw = value?.trim();
   if (!raw) {
     return null;
   }
   const withoutHash = raw.startsWith("#") ? raw.slice(1) : raw;
-  if (/^[\da-f]{3}$/i.test(withoutHash)) {
+  if (allowShorthand && /^[\da-f]{3}$/i.test(withoutHash)) {
     return `#${withoutHash
       .split("")
       .map((char) => char + char)
