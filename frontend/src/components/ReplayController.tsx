@@ -13,7 +13,8 @@ import {
   StepForward,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 
@@ -225,7 +226,15 @@ function ReplayDateTimePicker({
   value: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [popoverPosition, setPopoverPosition] = useState<{
+    left: number;
+    maxHeight: number;
+    top: number;
+    width: number;
+  } | null>(null);
   const selected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
   const [viewYear, setViewYear] = useState(() => selected?.year ?? new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => selected?.month ?? new Date().getMonth() + 1);
@@ -248,7 +257,11 @@ function ReplayDateTimePicker({
       if (!open || !containerRef.current) {
         return;
       }
-      if (!containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !containerRef.current.contains(target) &&
+        !popoverRef.current?.contains(target)
+      ) {
         setOpen(false);
       }
     }
@@ -264,6 +277,44 @@ function ReplayDateTimePicker({
     return () => {
       document.removeEventListener("pointerdown", closeOnOutside);
       document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) {
+      return;
+    }
+
+    function syncPopoverPosition() {
+      const trigger = triggerRef.current;
+      if (!trigger) {
+        return;
+      }
+      const rect = trigger.getBoundingClientRect();
+      const margin = 12;
+      const width = Math.min(340, window.innerWidth - margin * 2);
+      const left = Math.min(
+        Math.max(margin, rect.right - width),
+        window.innerWidth - width - margin,
+      );
+      const top = Math.min(
+        rect.bottom + 10,
+        Math.max(margin, window.innerHeight - 430),
+      );
+      setPopoverPosition({
+        left,
+        maxHeight: Math.max(280, window.innerHeight - top - margin),
+        top,
+        width,
+      });
+    }
+
+    syncPopoverPosition();
+    window.addEventListener("resize", syncPopoverPosition);
+    window.addEventListener("scroll", syncPopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", syncPopoverPosition);
+      window.removeEventListener("scroll", syncPopoverPosition, true);
     };
   }, [open]);
 
@@ -307,14 +358,24 @@ function ReplayDateTimePicker({
         className="replay-date-trigger"
         disabled={disabled}
         onClick={openPicker}
+        ref={triggerRef}
         type="button"
       >
         <CalendarDays size={15} />
         <span>{displayValue}</span>
       </button>
 
-      {open && (
-        <div className="replay-date-popover">
+      {open && popoverPosition && createPortal(
+        <div
+          className="replay-date-popover replay-date-popover-floating"
+          ref={popoverRef}
+          style={{
+            left: popoverPosition.left,
+            maxHeight: popoverPosition.maxHeight,
+            top: popoverPosition.top,
+            width: popoverPosition.width,
+          }}
+        >
           <div className="replay-date-popover-header">
             <button
               className="replay-date-icon-button"
@@ -408,7 +469,8 @@ function ReplayDateTimePicker({
               Set
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
