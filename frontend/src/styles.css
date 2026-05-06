@@ -506,11 +506,36 @@ button:disabled {
   }
 
   .chart-settings-popover {
-    @apply absolute left-0 top-full z-50 mt-2 grid w-[min(860px,calc(100vw-40px))] max-h-[min(760px,calc(100vh-130px))] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply fixed z-50 grid grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    --chart-settings-popover-top: clamp(72px, 8vh, 112px);
+    left: max(16px, calc(50vw - 430px));
+    top: var(--chart-settings-popover-top);
+    width: min(860px, calc(100vw - 32px));
+    max-height: calc(100vh - var(--chart-settings-popover-top) - 16px);
     background-color: rgb(7 11 16 / 0.98);
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent),
       linear-gradient(90deg, rgba(50, 211, 238, 0.065), transparent 48%);
+  }
+
+  @media (max-width: 720px) {
+    .chart-settings-popover {
+      --chart-settings-popover-top: 64px;
+      left: 12px;
+      width: calc(100vw - 24px);
+    }
+
+    .chart-settings-body {
+      @apply grid-cols-1;
+    }
+
+    .chart-settings-nav {
+      @apply flex overflow-x-auto border-b border-r-0;
+    }
+
+    .chart-settings-nav-button {
+      @apply shrink-0;
+    }
   }
 
   .chart-settings-header {
