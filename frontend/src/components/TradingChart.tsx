@@ -1024,6 +1024,33 @@ export function TradingChart({
     }
   }, [indicatorInstances, selectedIndicatorId]);
 
+  useEffect(() => {
+    if (!selectedIndicatorId) {
+      return;
+    }
+
+    function closeIndicatorToolbarOnOutsideClick(event: globalThis.PointerEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) {
+        return;
+      }
+      if (
+        target.closest(".indicator-floating-toolbar") ||
+        target.closest(".chart-study-pill") ||
+        target.closest(".indicator-pane-title") ||
+        target.closest(".themed-color-popover")
+      ) {
+        return;
+      }
+      setSelectedIndicatorId(null);
+      setIndicatorToolbarPosition(null);
+    }
+
+    document.addEventListener("pointerdown", closeIndicatorToolbarOnOutsideClick);
+    return () =>
+      document.removeEventListener("pointerdown", closeIndicatorToolbarOnOutsideClick);
+  }, [selectedIndicatorId]);
+
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
 
   return (
