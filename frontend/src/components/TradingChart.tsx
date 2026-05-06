@@ -122,6 +122,13 @@ const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
   text: "#f8fafc",
 };
 
+const RECTANGLE_EDGE_HANDLE = {
+  left: -1,
+  right: -2,
+  top: -3,
+  bottom: -4,
+} as const;
+
 export function TradingChart({
   bars,
   chartStyle,
@@ -1911,7 +1918,16 @@ function renderDrawing(
               x={x - 4}
               y={y - 4}
             />
-            {!isLocked && renderAnchors(drawing, [first, second], options)}
+            {!isLocked && (
+              <>
+                {renderRectangleEdgeHandles(
+                  drawing,
+                  { bottom: y + rectHeight, left: x, right: x + rectWidth, top: y },
+                  options,
+                )}
+                {renderAnchors(drawing, [first, second], options)}
+              </>
+            )}
           </>
         )}
       </g>
@@ -2063,6 +2079,85 @@ function renderDrawing(
         y2={second.y}
       />
       {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
+    </g>
+  );
+}
+
+function renderRectangleEdgeHandles(
+  drawing: ChartDrawing,
+  box: { bottom: number; left: number; right: number; top: number },
+  options: {
+    onDragStart: (
+      drawing: ChartDrawing,
+      mode: DragState["mode"],
+      pointIndex: number | null,
+      event: MouseEvent<SVGElement>,
+    ) => void;
+  },
+) {
+  const midX = (box.left + box.right) / 2;
+  const midY = (box.top + box.bottom) / 2;
+  const handles = [
+    {
+      cursor: "ew-resize",
+      height: Math.max(24, box.bottom - box.top - 20),
+      id: RECTANGLE_EDGE_HANDLE.left,
+      width: 12,
+      x: box.left - 6,
+      y: box.top + 10,
+    },
+    {
+      cursor: "ew-resize",
+      height: Math.max(24, box.bottom - box.top - 20),
+      id: RECTANGLE_EDGE_HANDLE.right,
+      width: 12,
+      x: box.right - 6,
+      y: box.top + 10,
+    },
+    {
+      cursor: "ns-resize",
+      height: 12,
+      id: RECTANGLE_EDGE_HANDLE.top,
+      width: Math.max(24, box.right - box.left - 20),
+      x: box.left + 10,
+      y: box.top - 6,
+    },
+    {
+      cursor: "ns-resize",
+      height: 12,
+      id: RECTANGLE_EDGE_HANDLE.bottom,
+      width: Math.max(24, box.right - box.left - 20),
+      x: box.left + 10,
+      y: box.bottom - 6,
+    },
+  ];
+
+  return (
+    <g>
+      {handles.map((handle) => (
+        <rect
+          cursor={handle.cursor}
+          fill={drawing.color}
+          fillOpacity="0.12"
+          height={handle.height}
+          key={`${drawing.id}-edge-${handle.id}`}
+          onMouseDown={(event) =>
+            options.onDragStart(drawing, "anchor", handle.id, event)
+          }
+          pointerEvents="all"
+          rx={4}
+          stroke={drawing.color}
+          strokeOpacity="0.36"
+          strokeWidth={1}
+          width={handle.width}
+          x={handle.x}
+          y={handle.y}
+        />
+      ))}
+      <circle cx={box.left} cy={midY} fill={drawing.color} opacity={0.9} r={3.5} />
+      <circle cx={box.right} cy={midY} fill={drawing.color} opacity={0.9} r={3.5} />
+      <circle cx={midX} cy={box.top} fill={drawing.color} opacity={0.9} r={3.5} />
+      <circle cx={midX} cy={box.bottom} fill={drawing.color} opacity={0.9} r={3.5} />
     </g>
   );
 }
@@ -2455,6 +2550,9 @@ function moveDrawing(
   bars: Candle[] = [],
 ): ChartDrawing | null {
   if (dragState.mode === "anchor" && dragState.pointIndex != null) {
+    if (dragState.drawing.tool === "rectangle" && dragState.pointIndex < 0) {
+      return resizeRectangleAxisLocked(dragState, point);
+    }
     const points = dragState.originalPoints.map((originalPoint, index) =>
       index === dragState.pointIndex ? point : originalPoint,
     );
@@ -2487,6 +2585,52 @@ function moveDrawing(
 
 function normalizeDraggedDrawing(drawing: ChartDrawing): ChartDrawing {
   return isRiskRewardTool(drawing.tool) ? normalizeRiskRewardDrawing(drawing) : drawing;
+}
+
+function resizeRectangleAxisLocked(
+  dragState: DragState,
+  point: DrawingPoint,
+): ChartDrawing {
+  const firstPixel = dragState.originalPixels[0];
+  const secondPixel = dragState.originalPixels[1];
+  if (!firstPixel || !secondPixel) {
+    return dragState.drawing;
+  }
+
+  const leftIndex = firstPixel.x <= secondPixel.x ? 0 : 1;
+  const rightIndex = leftIndex === 0 ? 1 : 0;
+  const topIndex = firstPixel.y <= secondPixel.y ? 0 : 1;
+  const bottomIndex = topIndex === 0 ? 1 : 0;
+  const targetIndex =
+    dragState.pointIndex === RECTANGLE_EDGE_HANDLE.left
+      ? leftIndex
+      : dragState.pointIndex === RECTANGLE_EDGE_HANDLE.right
+      ? rightIndex
+      : dragState.pointIndex === RECTANGLE_EDGE_HANDLE.top
+      ? topIndex
+      : bottomIndex;
+
+  const points = dragState.originalPoints.map((originalPoint, index) => {
+    if (index !== targetIndex) {
+      return originalPoint;
+    }
+    if (
+      dragState.pointIndex === RECTANGLE_EDGE_HANDLE.left ||
+      dragState.pointIndex === RECTANGLE_EDGE_HANDLE.right
+    ) {
+      return {
+        ...originalPoint,
+        logical: point.logical,
+        time: point.time,
+      };
+    }
+    return {
+      ...originalPoint,
+      price: point.price,
+    };
+  });
+
+  return { ...dragState.drawing, points };
 }
 
 function makeDrawing(
