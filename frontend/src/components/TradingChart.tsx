@@ -226,19 +226,25 @@ export function TradingChart({
       ),
     [displayBars],
   );
+  const hasVolumeData = useMemo(
+    () => displayBars.some(hasRenderableVolume),
+    [displayBars],
+  );
   const volumeData = useMemo(
     () =>
-      displayBars.map(
-        (bar): HistogramData => ({
-          time: bar.time as UTCTimestamp,
-          value: bar.volume,
-          color:
-            bar.close >= bar.open
-              ? colorWithOpacity(chartSettings.bodyUpColor, 0.22)
-              : colorWithOpacity(chartSettings.bodyDownColor, 0.24),
-        }),
-      ),
-    [chartSettings.bodyDownColor, chartSettings.bodyUpColor, displayBars],
+      hasVolumeData
+        ? displayBars.map(
+            (bar): HistogramData => ({
+              time: bar.time as UTCTimestamp,
+              value: bar.volume,
+              color:
+                bar.close >= bar.open
+                  ? colorWithOpacity(chartSettings.bodyUpColor, 0.22)
+                  : colorWithOpacity(chartSettings.bodyDownColor, 0.24),
+            }),
+          )
+        : [],
+    [chartSettings.bodyDownColor, chartSettings.bodyUpColor, displayBars, hasVolumeData],
   );
 
   const indicatorDefinitions = useMemo(
@@ -598,9 +604,9 @@ export function TradingChart({
       priceFormat,
       priceLineVisible: chartSettings.symbolLine === "valueLine",
     });
-    volumeRef.current?.applyOptions({ visible: chartSettings.volume });
+    volumeRef.current?.applyOptions({ visible: chartSettings.volume && hasVolumeData });
     setPlotVersion((value) => value + 1);
-  }, [chartSettings, symbol]);
+  }, [chartSettings, hasVolumeData, symbol]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -938,12 +944,12 @@ export function TradingChart({
             )}
             {(chartSettings.chartValues ||
               chartSettings.barChangeValues ||
-              chartSettings.volume) && (
+              (chartSettings.volume && hasVolumeData)) && (
               <OhlcvStrip
                 candle={activeHeaderCandle}
                 showChange={chartSettings.barChangeValues}
                 showOhlc={chartSettings.chartValues}
-                showVolume={chartSettings.volume}
+                showVolume={chartSettings.volume && hasVolumeData}
                 tone={headerPriceTone}
               />
             )}
@@ -1144,8 +1150,7 @@ function OhlcvStrip({
     candle == null || candle.open === 0
       ? null
       : ((candle.close - candle.open) / candle.open) * 100;
-  const hasVolume =
-    candle != null && Number.isFinite(candle.volume) && candle.volume > 0;
+  const hasVolume = hasRenderableVolume(candle);
 
   return (
     <div className="chart-ohlcv-row">
@@ -1160,7 +1165,7 @@ function OhlcvStrip({
           <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
         </>
       )}
-      {showVolume && hasVolume && (
+      {showVolume && hasVolume && candle != null && (
         <OhlcvValue label="Vol" value={formatCompactNumber(candle.volume)} />
       )}
       {showChange && (
@@ -1170,6 +1175,10 @@ function OhlcvStrip({
       )}
     </div>
   );
+}
+
+function hasRenderableVolume(candle: Pick<Candle, "volume"> | null | undefined) {
+  return candle != null && Number.isFinite(candle.volume) && candle.volume > 0;
 }
 
 function OhlcvValue({
