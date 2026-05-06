@@ -811,10 +811,6 @@ button:disabled {
     @apply relative min-h-[568px] overflow-hidden bg-[#0b1017];
   }
 
-  .chart-plus-button {
-    @apply absolute right-3 top-3 z-20 grid h-8 w-8 place-items-center rounded-md border border-cyan-300/20 bg-[#070b10]/85 text-cyan-100 shadow-panel backdrop-blur transition hover:bg-cyan-300/15;
-  }
-
   .chart-container-surface {
     @apply h-[568px] min-w-0;
   }

@@ -1046,16 +1046,6 @@ export function TradingChart({
               className="chart-container-surface"
               style={{ backgroundColor: chartSettings.backgroundColor }}
             />
-            {chartSettings.plusButton && (
-              <button
-                className="chart-plus-button"
-                onClick={() => onDrawingToolChange("cursor")}
-                title="Quick action"
-                type="button"
-              >
-                <Plus size={15} />
-              </button>
-            )}
             <div
               className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode ? "cursor-crosshair" : "cursor-default"}`}
               onMouseDown={handleDrawingClick}

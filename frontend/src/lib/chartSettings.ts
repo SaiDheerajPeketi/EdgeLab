@@ -22,7 +22,6 @@ export type ChartVisualSettings = {
   indicatorTitles: boolean;
   indicatorValues: boolean;
   noOverlappingLabels: boolean;
-  plusButton: boolean;
   previousDayClose: ChartVisibilityMode;
   pricePrecision: number;
   priceScaleBorderVisible: boolean;
@@ -65,7 +64,6 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   indicatorTitles: true,
   indicatorValues: true,
   noOverlappingLabels: true,
-  plusButton: true,
   previousDayClose: "hidden",
   pricePrecision: 5,
   priceScaleBorderVisible: true,

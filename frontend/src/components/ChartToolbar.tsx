@@ -931,11 +931,6 @@ function ChartSettingsPanel({
                     updateSettings({ countdownToBarClose })
                   }
                 />
-                <SettingToggle
-                  checked={settings.plusButton}
-                  label="Plus button"
-                  onChange={(plusButton) => updateSettings({ plusButton })}
-                />
               </SettingsSection>
             </>
           )}
