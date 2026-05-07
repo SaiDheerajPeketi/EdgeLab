@@ -54,6 +54,7 @@ class DatasetResolution:
     symbol: str
     currency: str | None
     timezone: str | None
+    pnl_multiplier: float
     stored: bool
 
 
@@ -223,6 +224,8 @@ class DatasetCatalogService:
             timezone = payload.timezone.strip()
             validate_timezone(timezone)
             asset.timezone = timezone
+        if payload.pnl_multiplier is not None:
+            asset.pnl_multiplier = float(payload.pnl_multiplier)
         asset.updated_at = utcnow()
         db.commit()
         return self._catalog_from_store(db)
@@ -250,6 +253,7 @@ class DatasetCatalogService:
                     symbol=asset.symbol if asset else self._symbol_from_asset_id(stored.asset_id),
                     currency=asset.currency if asset else None,
                     timezone=asset.timezone if asset else None,
+                    pnl_multiplier=asset.pnl_multiplier if asset else 1.0,
                     stored=stored_ready,
                 )
             if not path.exists():
@@ -261,6 +265,7 @@ class DatasetCatalogService:
                 symbol=self._symbol_from_file(path, instrument),
                 currency=None,
                 timezone=None,
+                pnl_multiplier=1.0,
                 stored=False,
             )
 
@@ -292,6 +297,7 @@ class DatasetCatalogService:
                     symbol=asset.symbol,
                     currency=asset.currency,
                     timezone=asset.timezone,
+                    pnl_multiplier=asset.pnl_multiplier,
                     stored=stored_ready,
                 )
         raise FileNotFoundError(f"No imported dataset found for {instrument} {timeframe}")
@@ -438,6 +444,7 @@ class DatasetCatalogService:
                 folder_path=str(directory),
                 currency="USD",
                 timezone="UTC",
+                pnl_multiplier=1.0,
             )
             db.add(asset)
             db.flush()
@@ -689,6 +696,7 @@ class DatasetCatalogService:
                     symbol=asset.symbol,
                     currency=asset.currency,
                     timezone=asset.timezone,
+                    pnl_multiplier=asset.pnl_multiplier,
                     folder_path=asset.folder_path,
                     updated_at=asset.updated_at,
                     timeframes=timeframe_reads,

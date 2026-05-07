@@ -33,6 +33,7 @@ def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
         assert response.catalog.instruments[0].id == "EUR_USD"
         assert response.catalog.instruments[0].currency == "USD"
         assert response.catalog.instruments[0].timezone == "UTC"
+        assert response.catalog.instruments[0].pnl_multiplier == 1
         assert response.catalog.instruments[0].timeframes[0].timeframe == "M1"
         assert response.catalog.instruments[0].timeframes[0].rows == 2
         assert response.catalog.instruments[0].timeframes[0].imported is True
@@ -43,11 +44,12 @@ def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
         updated = service.update_asset(
             db,
             "EUR_USD",
-            DatasetAssetUpdate(currency="eur", timezone="Europe/London"),
+            DatasetAssetUpdate(currency="eur", timezone="Europe/London", pnl_multiplier=100),
         )
 
         assert updated.instruments[0].currency == "EUR"
         assert updated.instruments[0].timezone == "Europe/London"
+        assert updated.instruments[0].pnl_multiplier == 100
 
 
 def test_refresh_skips_unchanged_files_after_initial_import(tmp_path):

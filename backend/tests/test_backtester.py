@@ -62,6 +62,32 @@ def test_long_market_order_closes_at_take_profit(tmp_path: Path):
     assert state.trades[0].r_multiple == pytest.approx(2)
 
 
+def test_pnl_multiplier_calibrates_session_pnl_without_changing_r(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(
+        db,
+        BacktestCreate(initial_offset=0, currency="INR", pnl_multiplier=10),
+    )
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert state.session.currency == "INR"
+    assert state.session.pnl_multiplier == pytest.approx(10)
+    assert state.metrics.net_pnl == pytest.approx(400)
+    assert state.trades[0].realized_pnl == pytest.approx(400)
+    assert state.trades[0].r_multiple == pytest.approx(2)
+
+
 def test_short_market_order_uses_short_pnl(tmp_path: Path):
     service, db = make_service(tmp_path, DEFAULT_ROWS)
     state = service.create_session(db, BacktestCreate(initial_offset=0))
@@ -189,6 +215,27 @@ def test_risk_percent_sizes_order_from_stop_distance(tmp_path: Path):
 
     assert state.position is not None
     assert state.position.quantity == pytest.approx(500)
+
+
+def test_risk_percent_sizing_uses_pnl_multiplier(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(
+        db,
+        BacktestCreate(initial_offset=0, initial_balance=100_000, pnl_multiplier=10),
+    )
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            risk_percent=1,
+            stop_loss=98,
+        ),
+    )
+
+    assert state.position is not None
+    assert state.position.quantity == pytest.approx(50)
 
 
 def test_risk_percent_base_can_use_initial_or_current_balance(tmp_path: Path):

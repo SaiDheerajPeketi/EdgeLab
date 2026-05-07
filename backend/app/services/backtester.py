@@ -51,6 +51,7 @@ class BacktestService:
         symbol = payload.symbol
         currency = payload.currency
         timestamp_timezone = payload.timezone
+        pnl_multiplier = payload.pnl_multiplier
         stored_market_data = None
         if self.dataset_catalog is not None and (
             payload.csv_path or payload.instrument or payload.timeframe
@@ -67,6 +68,7 @@ class BacktestService:
             symbol = resolution.symbol
             currency = currency or resolution.currency
             timestamp_timezone = timestamp_timezone or resolution.timezone
+            pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
             if resolution.stored and instrument and timeframe:
                 stored_market_data = self.dataset_catalog.market_data_for_dataset(
                     instrument,
@@ -99,6 +101,7 @@ class BacktestService:
             csv_path=str(csv_path),
             currency=currency,
             timezone=timestamp_timezone,
+            pnl_multiplier=pnl_multiplier or 1.0,
             strategy_name=payload.strategy_name,
             playbook_id=payload.playbook_id,
             start_at=payload.start_timestamp,
@@ -592,11 +595,7 @@ class BacktestService:
         price: float,
         quantity: float,
     ) -> float:
-        realized = (
-            (price - position.avg_price) * quantity
-            if position.side == "LONG"
-            else (position.avg_price - price) * quantity
-        )
+        realized = self._price_pnl(session, position.avg_price, price, quantity, position.side)
         trade = self._open_trade_for_position(db, session.id, position.side)
         if trade:
             trade.realized_pnl += realized
@@ -604,7 +603,7 @@ class BacktestService:
             trade.exit_time = candle.timestamp
             trade.exit_offset = session.current_offset
             trade.exit_price = price
-            trade.r_multiple = self._trade_r_multiple(trade)
+            trade.r_multiple = self._trade_r_multiple(session, trade)
             if trade.remaining_quantity <= 1e-9:
                 trade.status = "CLOSED"
 
@@ -620,6 +619,42 @@ class BacktestService:
             position.strategy_name = None
             position.playbook_id = None
         return realized
+
+    def _price_pnl(
+        self,
+        session: BacktestSession,
+        entry_price: float,
+        exit_price: float,
+        quantity: float,
+        side: str,
+    ) -> float:
+        raw = (
+            (exit_price - entry_price) * quantity
+            if side == "LONG"
+            else (entry_price - exit_price) * quantity
+        )
+        return raw * self._pnl_multiplier(session)
+
+    def _pnl_multiplier(self, session: BacktestSession) -> float:
+        multiplier = session.pnl_multiplier or 1.0
+        return multiplier if multiplier > 0 else 1.0
+
+    def _price_risk_value(
+        self,
+        session: BacktestSession,
+        entry_price: float,
+        stop_loss: float,
+        quantity: float,
+    ) -> float:
+        return abs(entry_price - stop_loss) * quantity * self._pnl_multiplier(session)
+
+    def _price_risk_per_unit(
+        self,
+        session: BacktestSession,
+        entry_price: float,
+        stop_loss: float,
+    ) -> float:
+        return abs(entry_price - stop_loss) * self._pnl_multiplier(session)
 
     def _trigger_price(self, order: Order, candle: Candle) -> float | None:
         if order.status != OPEN_ORDER:
@@ -691,7 +726,7 @@ class BacktestService:
             raise HTTPException(status_code=400, detail="quantity or risk_percent is required")
         equity = self._risk_sizing_equity(session, payload.risk_base or "CURRENT_BALANCE")
         risk_amount = equity * (payload.risk_percent / 100)
-        risk_per_unit = abs(reference_price - payload.stop_loss)
+        risk_per_unit = self._price_risk_per_unit(session, reference_price, payload.stop_loss)
         if risk_per_unit <= 0:
             raise HTTPException(status_code=400, detail="stop_loss must differ from entry price")
         return risk_amount / risk_per_unit
@@ -709,7 +744,7 @@ class BacktestService:
             raise HTTPException(status_code=400, detail="quantity or risk_percent is required")
         equity = self._risk_sizing_equity(session)
         risk_amount = equity * (order.risk_percent / 100)
-        risk_per_unit = abs(price - order.stop_loss)
+        risk_per_unit = self._price_risk_per_unit(session, price, order.stop_loss)
         if risk_per_unit <= 0:
             raise HTTPException(status_code=400, detail="stop_loss must differ from entry price")
         return risk_amount / risk_per_unit
@@ -779,17 +814,13 @@ class BacktestService:
         )
         return risk if risk > 0 else None
 
-    def _trade_r_multiple(self, trade: Trade) -> float | None:
+    def _trade_r_multiple(self, session: BacktestSession, trade: Trade) -> float | None:
         if trade.stop_loss is None or trade.quantity <= 0:
             return None
-        risk = (
-            trade.entry_price - trade.stop_loss
-            if trade.side == "LONG"
-            else trade.stop_loss - trade.entry_price
-        )
+        risk = self._price_risk_value(session, trade.entry_price, trade.stop_loss, trade.quantity)
         if risk <= 0:
             return None
-        return trade.realized_pnl / (risk * trade.quantity)
+        return trade.realized_pnl / risk
 
     def _position_read(
         self,
@@ -802,10 +833,12 @@ class BacktestService:
             return None
         unrealized = 0.0
         if candle and position.quantity > 0:
-            unrealized = (
-                (candle.close - position.avg_price) * position.quantity
-                if position.side == "LONG"
-                else (position.avg_price - candle.close) * position.quantity
+            unrealized = self._price_pnl(
+                session,
+                position.avg_price,
+                candle.close,
+                position.quantity,
+                position.side,
             )
         return PositionRead(
             id=position.id,

@@ -21,6 +21,7 @@ class BacktestSession(Base):
     csv_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(12), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    pnl_multiplier: Mapped[float] = mapped_column(Float, default=1.0)
     strategy_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     playbook_id: Mapped[int | None] = mapped_column(ForeignKey("playbooks.id"), nullable=True)
     start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -59,6 +60,7 @@ class DatasetAsset(Base):
     folder_path: Mapped[str] = mapped_column(Text, nullable=False)
     currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
     timezone: Mapped[str] = mapped_column(String(80), default="UTC", nullable=False)
+    pnl_multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

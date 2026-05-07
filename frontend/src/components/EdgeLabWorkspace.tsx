@@ -75,7 +75,7 @@ type Props = {
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   onUpdateDatasetAsset: (
     assetId: string,
-    payload: { currency?: string | null; timezone?: string | null },
+    payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   playbooks: Playbook[];
@@ -173,6 +173,35 @@ type LiveTradeInput = {
 
 const LIVE_JOURNAL_STORAGE_KEY = "edgelab.live-journal.v1";
 const LIVE_EMOTIONS = ["Calm", "Confident", "Focused", "Fearful", "Impulsive", "Frustrated", "Other"] as const;
+const CURRENCY_OPTIONS = [
+  "USD",
+  "EUR",
+  "GBP",
+  "INR",
+  "JPY",
+  "AUD",
+  "CAD",
+  "CHF",
+  "NZD",
+  "SGD",
+  "HKD",
+  "AED",
+].map((currency) => ({ label: currency, value: currency }));
+const TIMEZONE_OPTIONS = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Zurich",
+  "Asia/Kolkata",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Asia/Hong_Kong",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+].map((timezone) => ({ label: timezone, value: timezone }));
 
 export function EdgeLabWorkspace({
   activeSession,
@@ -293,7 +322,7 @@ type SharedPageProps = {
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   onUpdateDatasetAsset: (
     assetId: string,
-    payload: { currency?: string | null; timezone?: string | null },
+    payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   openTrades: Trade[];
@@ -2367,12 +2396,12 @@ function BacktestDataSettings({
   onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
   onUpdateDatasetAsset: (
     assetId: string,
-    payload: { currency?: string | null; timezone?: string | null },
+    payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
 }) {
   const [rootPath, setRootPath] = useState(datasets?.root ?? "");
-  const [assetDrafts, setAssetDrafts] = useState<Record<string, { currency: string; timezone: string }>>({});
+  const [assetDrafts, setAssetDrafts] = useState<Record<string, { currency: string; pnlMultiplier: string; timezone: string }>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [savingRoot, setSavingRoot] = useState(false);
@@ -2384,10 +2413,11 @@ function BacktestDataSettings({
 
   useEffect(() => {
     setAssetDrafts((current) => {
-      const next: Record<string, { currency: string; timezone: string }> = {};
+      const next: Record<string, { currency: string; pnlMultiplier: string; timezone: string }> = {};
       for (const instrument of datasets?.instruments ?? []) {
         next[instrument.id] = current[instrument.id] ?? {
           currency: instrument.currency ?? "USD",
+          pnlMultiplier: String(instrument.pnl_multiplier ?? 1),
           timezone: instrument.timezone ?? "UTC",
         };
       }
@@ -2433,11 +2463,12 @@ function BacktestDataSettings({
     }
   }
 
-  function updateDraft(assetId: string, field: "currency" | "timezone", value: string) {
+  function updateDraft(assetId: string, field: "currency" | "pnlMultiplier" | "timezone", value: string) {
     setAssetDrafts((current) => ({
       ...current,
       [assetId]: {
         currency: current[assetId]?.currency ?? "USD",
+        pnlMultiplier: current[assetId]?.pnlMultiplier ?? "1",
         timezone: current[assetId]?.timezone ?? "UTC",
         [field]: value,
       },
@@ -2449,10 +2480,16 @@ function BacktestDataSettings({
     if (!draft) {
       return;
     }
+    const pnlMultiplier = Number(draft.pnlMultiplier);
+    if (!Number.isFinite(pnlMultiplier) || pnlMultiplier <= 0) {
+      setStatus("Calibration must be greater than 0");
+      return;
+    }
     setSavingAssetId(assetId);
     try {
       await onUpdateDatasetAsset(assetId, {
         currency: draft.currency.trim() || null,
+        pnl_multiplier: pnlMultiplier,
         timezone: draft.timezone.trim() || null,
       });
       setStatus(`${formatMarketSymbol(symbol)} metadata saved`);
@@ -2514,6 +2551,7 @@ function BacktestDataSettings({
           {(datasets?.instruments ?? []).map((instrument) => {
             const draft = assetDrafts[instrument.id] ?? {
               currency: instrument.currency ?? "USD",
+              pnlMultiplier: String(instrument.pnl_multiplier ?? 1),
               timezone: instrument.timezone ?? "UTC",
             };
             return (
@@ -2538,23 +2576,37 @@ function BacktestDataSettings({
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]">
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,160px)_minmax(0,1fr)_minmax(0,170px)_auto]">
                   <label className="form-field">
                     <span>Currency</span>
-                    <input
-                      className="input-control h-10 uppercase"
-                      maxLength={12}
-                      onChange={(event) => updateDraft(instrument.id, "currency", event.target.value)}
+                    <ThemedSelect
+                      className="h-10"
+                      onChange={(value) => updateDraft(instrument.id, "currency", value)}
+                      options={selectOptionsWithValue(CURRENCY_OPTIONS, draft.currency)}
+                      portal
                       value={draft.currency}
                     />
                   </label>
                   <label className="form-field">
                     <span>Timestamp Timezone</span>
-                    <input
-                      className="input-control h-10 normal-case tracking-normal"
-                      onChange={(event) => updateDraft(instrument.id, "timezone", event.target.value)}
-                      placeholder="UTC, America/New_York, Asia/Kolkata"
+                    <ThemedSelect
+                      className="h-10"
+                      menuClassName="max-w-[360px]"
+                      onChange={(value) => updateDraft(instrument.id, "timezone", value)}
+                      options={selectOptionsWithValue(TIMEZONE_OPTIONS, draft.timezone)}
+                      portal
                       value={draft.timezone}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>P&L Calibration</span>
+                    <input
+                      className="input-control h-10"
+                      min="0.000001"
+                      onChange={(event) => updateDraft(instrument.id, "pnlMultiplier", event.target.value)}
+                      step="0.000001"
+                      type="number"
+                      value={draft.pnlMultiplier}
                     />
                   </label>
                   <button
@@ -2584,6 +2636,16 @@ function BacktestDataSettings({
 function formatDatasetTimeframeLabel(timeframe: DatasetTimeframe) {
   const rows = timeframe.rows > 0 ? timeframe.rows.toLocaleString() : "Rows on import";
   return `${timeframe.timeframe} · ${rows} · ${timeframe.imported ? "Imported" : "CSV"}`;
+}
+
+function selectOptionsWithValue(
+  options: Array<{ label: string; value: string }>,
+  value: string,
+) {
+  if (!value || options.some((option) => option.value === value)) {
+    return options;
+  }
+  return [{ label: value, value }, ...options];
 }
 
 function formatDatasetRefreshSummary(summary: DatasetRefreshResponse["summary"]) {

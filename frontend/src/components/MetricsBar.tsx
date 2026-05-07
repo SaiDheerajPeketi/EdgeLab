@@ -2,14 +2,15 @@ import { Activity, BarChart3, Gauge, Sigma, Target, TrendingUp } from "lucide-re
 import type { Metrics } from "../lib/api";
 
 type Props = {
+  currency?: string;
   metrics: Metrics | null;
 };
 
-export function MetricsBar({ metrics }: Props) {
+export function MetricsBar({ currency = "USD", metrics }: Props) {
   const stats = [
     {
       label: "Net PnL",
-      value: money(metrics?.net_pnl ?? 0),
+      value: money(metrics?.net_pnl ?? 0, currency),
       icon: TrendingUp,
       tone: (metrics?.net_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300",
     },
@@ -70,10 +71,10 @@ export function MetricsBar({ metrics }: Props) {
   );
 }
 
-function money(value: number) {
+function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }

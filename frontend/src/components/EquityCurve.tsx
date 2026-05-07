@@ -1,10 +1,11 @@
 import type { Metrics } from "../lib/api";
 
 type Props = {
+  currency?: string;
   metrics: Metrics | null;
 };
 
-export function EquityCurve({ metrics }: Props) {
+export function EquityCurve({ currency = "USD", metrics }: Props) {
   const points = metrics?.equity_curve ?? [];
   const path = toPath(points.map((point) => point.equity), 472, 150);
 
@@ -13,7 +14,7 @@ export function EquityCurve({ metrics }: Props) {
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-white">Equity Curve</h2>
         <span className="text-xs text-slate-500">
-          DD {money(metrics?.max_drawdown ?? 0)}
+          DD {money(metrics?.max_drawdown ?? 0, currency)}
         </span>
       </div>
       <div className="h-[150px] overflow-hidden rounded-md bg-ink-950">
@@ -60,10 +61,10 @@ function toPath(values: number[], width: number, height: number) {
     .join(" ");
 }
 
-function money(value: number) {
+function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }

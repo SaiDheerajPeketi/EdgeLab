@@ -63,12 +63,22 @@ def _migrate_sqlite_columns() -> None:
                     "csv_path": "TEXT",
                     "currency": "VARCHAR(12)",
                     "timezone": "VARCHAR(80)",
+                    "pnl_multiplier": "FLOAT DEFAULT 1.0 NOT NULL",
                     "strategy_name": "VARCHAR(120)",
                     "playbook_id": "INTEGER",
                     "start_at": "DATETIME",
                     "end_at": "DATETIME",
                     "start_offset": "INTEGER DEFAULT 0 NOT NULL",
                     "end_offset": "INTEGER",
+                },
+            )
+        if "dataset_assets" in tables:
+            _add_missing_columns(
+                connection,
+                inspector,
+                "dataset_assets",
+                {
+                    "pnl_multiplier": "FLOAT DEFAULT 1.0 NOT NULL",
                 },
             )
         if "dataset_timeframes" in tables:

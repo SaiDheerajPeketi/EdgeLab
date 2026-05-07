@@ -54,6 +54,7 @@ class DatasetInstrument(BaseModel):
     symbol: str
     currency: str = "USD"
     timezone: str = "UTC"
+    pnl_multiplier: float = 1.0
     folder_path: str | None = None
     updated_at: datetime | None = None
     timeframes: list[DatasetTimeframe]
@@ -98,6 +99,7 @@ class DatasetSettingsUpdate(BaseModel):
 class DatasetAssetUpdate(BaseModel):
     currency: str | None = Field(default=None, min_length=1, max_length=12)
     timezone: str | None = Field(default=None, min_length=1, max_length=80)
+    pnl_multiplier: float | None = Field(default=None, gt=0)
 
 
 class PlaybookCreate(BaseModel):
@@ -121,6 +123,7 @@ class BacktestCreate(BaseModel):
     csv_path: str | None = None
     currency: str | None = None
     timezone: str | None = None
+    pnl_multiplier: float | None = Field(default=None, gt=0)
     strategy_name: str | None = None
     playbook_id: int | None = None
     start_timestamp: datetime | None = None
@@ -140,6 +143,7 @@ class BacktestSessionRead(BaseModel):
     csv_path: str | None = None
     currency: str | None = None
     timezone: str | None = None
+    pnl_multiplier: float = 1.0
     strategy_name: str | None = None
     playbook_id: int | None = None
     start_at: datetime | None = None

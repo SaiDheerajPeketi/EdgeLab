@@ -22,6 +22,7 @@ import {
 
 type Props = {
   activeSessionId: number | null;
+  currency?: string;
   sessions: BacktestSession[];
   trades: Trade[];
   onInspectTrade?: (trade: Trade) => void;
@@ -63,6 +64,7 @@ type SessionResultRow = {
 
 export function ResultsPanel({
   activeSessionId,
+  currency = "USD",
   sessions,
   trades,
   onInspectTrade,
@@ -137,7 +139,7 @@ export function ResultsPanel({
                   : "border-rose-300/25 bg-rose-300/10 text-rose-200"
               }`}
             >
-              {formatMoney(allAggregate.netPnl)}
+              {formatMoney(allAggregate.netPnl, currency)}
             </span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -168,7 +170,7 @@ export function ResultsPanel({
               icon={TrendingDown}
               label="Max Drawdown"
               tone="text-rose-200"
-              value={formatMoney(allAggregate.maxDrawdown)}
+              value={formatMoney(allAggregate.maxDrawdown, currency)}
             />
             <ResultMetric
               icon={TrendingUp}
@@ -198,15 +200,16 @@ export function ResultsPanel({
           </div>
           <EquitySparkline trades={closedTrades} />
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-            <SidePill label="Long PnL" value={allAggregate.longPnl} />
-            <SidePill label="Short PnL" value={allAggregate.shortPnl} />
+            <SidePill currency={currency} label="Long PnL" value={allAggregate.longPnl} />
+            <SidePill currency={currency} label="Short PnL" value={allAggregate.shortPnl} />
           </div>
         </div>
       </div>
 
-      {view === "session" && <SessionResults rows={sessionRows} activeSessionId={activeSessionId} />}
+      {view === "session" && <SessionResults currency={currency} rows={sessionRows} activeSessionId={activeSessionId} />}
       {view === "trades" && (
         <TradeResults
+          currency={currency}
           onInspectTrade={onInspectTrade}
           sessionById={sessionById}
           trades={closedTrades}
@@ -266,9 +269,11 @@ function ResultMetric({
 
 function SessionResults({
   activeSessionId,
+  currency,
   rows,
 }: {
   activeSessionId: number | null;
+  currency: string;
   rows: SessionResultRow[];
 }) {
   const sessionCount = new Set(rows.map((row) => row.sessions[0]?.id).filter(Boolean)).size;
@@ -317,7 +322,7 @@ function SessionResults({
                     {row.aggregate.totalTrades}
                   </td>
                   <td className={`px-3 py-3 font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
-                    {formatMoney(row.aggregate.netPnl)}
+                    {formatMoney(row.aggregate.netPnl, currency)}
                   </td>
                   <td className="px-3 py-3 tabular-nums">
                     {formatPercent(row.aggregate.winRate)}
@@ -351,10 +356,12 @@ function SessionResults({
 }
 
 function TradeResults({
+  currency,
   onInspectTrade,
   sessionById,
   trades,
 }: {
+  currency: string;
   onInspectTrade?: (trade: Trade) => void;
   sessionById: Map<number, BacktestSession>;
   trades: Trade[];
@@ -417,7 +424,7 @@ function TradeResults({
                     {formatPrice(trade.exit_price)}
                   </td>
                   <td className={`px-3 py-3 font-semibold ${toneForNumber(trade.realized_pnl)}`}>
-                    {formatMoney(trade.realized_pnl)}
+                    {formatMoney(trade.realized_pnl, currency)}
                   </td>
                   <td className={`px-3 py-3 tabular-nums ${toneForNumber(trade.r_multiple)}`}>
                     {formatOptionalNumber(trade.r_multiple)}
@@ -444,14 +451,14 @@ function TradeResults({
   );
 }
 
-function SidePill({ label, value }: { label: string; value: number }) {
+function SidePill({ currency, label, value }: { currency: string; label: string; value: number }) {
   return (
     <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
       <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
         {label}
       </div>
       <div className={`mt-1 text-sm font-semibold ${toneForNumber(value)}`}>
-        {formatMoney(value)}
+        {formatMoney(value, currency)}
       </div>
     </div>
   );

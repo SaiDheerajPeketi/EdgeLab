@@ -2,10 +2,11 @@ import type { Execution } from "../lib/api";
 import { formatPrice } from "../lib/format";
 
 type Props = {
+  currency?: string;
   executions: Execution[];
 };
 
-export function ExecutionTape({ executions }: Props) {
+export function ExecutionTape({ currency = "USD", executions }: Props) {
   return (
     <section className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel">
       <div className="mb-3 flex items-center justify-between">
@@ -22,7 +23,7 @@ export function ExecutionTape({ executions }: Props) {
               {execution.quantity.toLocaleString()} @ {formatPrice(execution.price)}
             </span>
             <span className={execution.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"}>
-              {execution.realized_pnl === 0 ? "—" : money(execution.realized_pnl)}
+              {execution.realized_pnl === 0 ? "—" : money(execution.realized_pnl, currency)}
             </span>
           </div>
         ))}
@@ -36,10 +37,10 @@ export function ExecutionTape({ executions }: Props) {
   );
 }
 
-function money(value: number) {
+function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }

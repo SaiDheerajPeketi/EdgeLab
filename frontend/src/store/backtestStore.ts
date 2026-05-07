@@ -60,7 +60,7 @@ type BacktestStore = {
   refreshDatasetStatus: () => Promise<DatasetRefreshStatus>;
   updateDatasetAsset: (
     assetId: string,
-    payload: { currency?: string | null; timezone?: string | null },
+    payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   updateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   refreshResults: () => Promise<void>;

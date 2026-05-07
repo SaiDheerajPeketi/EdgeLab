@@ -4,10 +4,11 @@ import { formatPrice } from "../lib/format";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
+  currency?: string;
   position: Position | null;
 };
 
-export function PositionPanel({ position }: Props) {
+export function PositionPanel({ currency = "USD", position }: Props) {
   const placeOrder = useBacktestStore((store) => store.placeOrder);
   const isFlat = !position || position.side === "FLAT" || position.quantity <= 0;
   const closeSide = position?.side === "LONG" ? "SELL" : "BUY";
@@ -44,7 +45,7 @@ export function PositionPanel({ position }: Props) {
             <Metric label="Avg" value={formatPrice(position.avg_price)} />
             <Metric
               label="Unrealized"
-              value={money(position.unrealized_pnl)}
+              value={money(position.unrealized_pnl, currency)}
               tone={position.unrealized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"}
             />
             <Metric label="SL" value={formatPrice(position.stop_loss)} />
@@ -84,10 +85,10 @@ function Metric({ label, value, tone = "text-slate-100" }: { label: string; valu
   );
 }
 
-function money(value: number) {
+function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }

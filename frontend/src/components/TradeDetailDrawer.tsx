@@ -15,6 +15,7 @@ import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
   trade: Trade;
+  currency?: string;
   executions: Execution[];
   onClose: () => void;
   onJournal: (trade: Trade) => void;
@@ -23,6 +24,7 @@ type Props = {
 
 export function TradeDetailDrawer({
   trade,
+  currency = "USD",
   executions,
   onClose,
   onJournal,
@@ -188,7 +190,7 @@ export function TradeDetailDrawer({
           <Metric label="Exit Date/Time" value={formatDateTime(trade.exit_time)} />
           <Metric label="Entry" value={formatPrice(trade.entry_price)} />
           <Metric label="Exit" value={formatPrice(trade.exit_price)} />
-          <Metric label="PnL" value={money(trade.realized_pnl)} tone={trade.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"} />
+          <Metric label="PnL" value={money(trade.realized_pnl, currency)} tone={trade.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"} />
           <Metric label="R" value={trade.r_multiple?.toFixed(2) ?? "—"} />
           <Metric label="Qty" value={trade.quantity.toLocaleString()} />
           <Metric label="Remaining" value={trade.remaining_quantity.toLocaleString()} />
@@ -356,10 +358,10 @@ function Metric({ label, value, tone = "text-slate-100" }: { label: string; valu
   );
 }
 
-function money(value: number) {
+function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }

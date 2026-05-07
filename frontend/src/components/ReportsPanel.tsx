@@ -2,18 +2,19 @@ import type { Metrics } from "../lib/api";
 import { EquityCurve } from "./EquityCurve";
 
 type Props = {
+  currency?: string;
   metrics: Metrics | null;
 };
 
-export function ReportsPanel({ metrics }: Props) {
+export function ReportsPanel({ currency = "USD", metrics }: Props) {
   return (
     <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
-      <EquityCurve metrics={metrics} />
+      <EquityCurve currency={currency} metrics={metrics} />
       <div className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel">
         <h2 className="mb-3 text-sm font-semibold text-white">Backtest Report</h2>
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <Metric label="Best" value={money(metrics?.best_trade ?? 0)} tone="text-emerald-300" />
-          <Metric label="Worst" value={money(metrics?.worst_trade ?? 0)} tone="text-rose-300" />
+          <Metric label="Best" value={money(metrics?.best_trade ?? 0, currency)} tone="text-emerald-300" />
+          <Metric label="Worst" value={money(metrics?.worst_trade ?? 0, currency)} tone="text-rose-300" />
           <Metric label="Win Streak" value={String(metrics?.longest_win_streak ?? 0)} />
           <Metric label="Loss Streak" value={String(metrics?.longest_loss_streak ?? 0)} />
         </div>
@@ -24,7 +25,7 @@ export function ReportsPanel({ metrics }: Props) {
                 <span className={row.side === "LONG" ? "text-emerald-300" : "text-rose-300"}>
                   {row.side}
                 </span>
-                <span>{money(row.net_pnl)}</span>
+                <span>{money(row.net_pnl, currency)}</span>
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {row.trades} trades · {(row.win_rate * 100).toFixed(1)}% win
@@ -41,7 +42,7 @@ export function ReportsPanel({ metrics }: Props) {
               <div className="flex justify-between gap-3">
                 <span className="font-semibold text-slate-100">{row.strategy_name}</span>
                 <span className={row.net_pnl >= 0 ? "text-emerald-300" : "text-rose-300"}>
-                  {money(row.net_pnl)}
+                  {money(row.net_pnl, currency)}
                 </span>
               </div>
               <div className="mt-1 text-xs text-slate-500">
@@ -68,7 +69,7 @@ export function ReportsPanel({ metrics }: Props) {
               }`}
             >
               <div>{day.date}</div>
-              <div className="mt-1 font-semibold">{money(day.pnl)}</div>
+              <div className="mt-1 font-semibold">{money(day.pnl, currency)}</div>
             </div>
           ))}
           {(metrics?.calendar.length ?? 0) === 0 && (
@@ -91,10 +92,10 @@ function Metric({ label, value, tone = "text-slate-100" }: { label: string; valu
   );
 }
 
-function money(value: number) {
+function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }

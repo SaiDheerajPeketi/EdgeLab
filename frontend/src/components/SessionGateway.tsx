@@ -172,6 +172,7 @@ export function SessionGateway({
         timeframe: selectedTimeframe.timeframe,
         csv_path: selectedTimeframe.csv_path,
         currency: selectedInstrument.currency,
+        pnl_multiplier: selectedInstrument.pnl_multiplier,
         timezone: selectedInstrument.timezone,
         strategy_name: strategy.trim(),
         playbook_id: attachedPlaybookId,

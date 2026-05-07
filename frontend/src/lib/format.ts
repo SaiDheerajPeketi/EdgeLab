@@ -26,10 +26,10 @@ export function formatDateTime(value: string | null | undefined) {
   });
 }
 
-export function formatMoney(value: number | null | undefined) {
+export function formatMoney(value: number | null | undefined, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value ?? 0);
 }

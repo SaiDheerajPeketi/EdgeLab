@@ -34,6 +34,7 @@ export type DatasetInstrument = {
   symbol: string;
   currency: string;
   timezone: string;
+  pnl_multiplier: number;
   folder_path: string | null;
   updated_at: string | null;
   timeframes: DatasetTimeframe[];
@@ -101,6 +102,7 @@ export type BacktestSession = {
   csv_path: string | null;
   currency: string | null;
   timezone: string | null;
+  pnl_multiplier: number;
   strategy_name: string | null;
   playbook_id: number | null;
   start_at: string | null;
@@ -261,6 +263,7 @@ export type BacktestCreatePayload = {
   csv_path?: string | null;
   currency?: string | null;
   timezone?: string | null;
+  pnl_multiplier?: number | null;
   strategy_name?: string | null;
   playbook_id?: number | null;
   start_timestamp?: string | null;
@@ -323,7 +326,7 @@ export function patchDatasetSettings(payload: { root_path: string }) {
 
 export function patchDatasetAsset(
   assetId: string,
-  payload: { currency?: string | null; timezone?: string | null },
+  payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
 ) {
   return request<DatasetCatalog>(`/datasets/assets/${encodeURIComponent(assetId)}`, {
     method: "PATCH",

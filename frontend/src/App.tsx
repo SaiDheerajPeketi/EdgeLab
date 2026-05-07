@@ -414,6 +414,7 @@ export default function App() {
   const executions = state?.executions ?? [];
   const trades = state?.trades ?? [];
   const position = state?.position ?? null;
+  const sessionCurrency = state?.session.currency ?? "USD";
   const pendingOrders = orders.filter((order) => order.status === "PENDING").length;
   const savedLayoutLabel =
     chartLayoutSavedAt == null
@@ -718,7 +719,7 @@ export default function App() {
           </div>
         </div>
         <div className="hidden gap-2 xl:flex">
-          <HeaderStat label="Realized" value={money(state?.session.realized_pnl ?? 0)} tone={(state?.session.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} />
+          <HeaderStat label="Realized" value={money(state?.session.realized_pnl ?? 0, sessionCurrency)} tone={(state?.session.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} />
           <HeaderStat label="Position" value={position && position.side !== "FLAT" && position.quantity > 0 ? position.side : "Flat"} tone={position?.side === "LONG" ? "text-emerald-300" : position?.side === "SHORT" ? "text-rose-300" : "text-slate-300"} />
           <HeaderStat label="Pending" value={String(pendingOrders)} />
         </div>
@@ -908,7 +909,7 @@ export default function App() {
                     playbooks={playbooks}
                     riskRewardDrawing={latestRiskRewardDrawing}
                   />
-                  <PositionPanel position={position} />
+                  <PositionPanel currency={sessionCurrency} position={position} />
                 </div>
               </aside>
             )}
@@ -1065,7 +1066,7 @@ export default function App() {
                         playbooks={playbooks}
                         riskRewardDrawing={latestRiskRewardDrawing}
                       />
-                      <PositionPanel position={position} />
+                      <PositionPanel currency={sessionCurrency} position={position} />
                     </div>
                   </div>
                 )}
@@ -1073,9 +1074,9 @@ export default function App() {
 
             {workspacePanel === "tape" && (
               <section className="focus-bottom-panel">
-                <PositionPanel position={position} />
+                <PositionPanel currency={sessionCurrency} position={position} />
                 <PendingOrders orders={orders} />
-                <ExecutionTape executions={executions} />
+                <ExecutionTape currency={sessionCurrency} executions={executions} />
               </section>
             )}
 
@@ -1094,6 +1095,7 @@ export default function App() {
               <section className="min-w-0 space-y-4">
                 <ResultsPanel
                   activeSessionId={state?.session.id ?? null}
+                  currency={sessionCurrency}
                   onInspectTrade={setReviewTrade}
                   sessions={state?.session ? [state.session] : []}
                   trades={trades}
@@ -1107,8 +1109,8 @@ export default function App() {
                       {state?.session.name ?? "Current replay"}
                     </div>
                   </div>
-                  <MetricsBar metrics={metrics} />
-                  <ReportsPanel metrics={metrics} />
+                  <MetricsBar currency={sessionCurrency} metrics={metrics} />
+                  <ReportsPanel currency={sessionCurrency} metrics={metrics} />
                 </div>
               </section>
             )}
@@ -1128,6 +1130,7 @@ export default function App() {
 
       {reviewTrade && (
         <TradeDetailDrawer
+          currency={sessionCurrency}
           executions={executions}
           onClose={() => setReviewTrade(null)}
           onJournal={(trade) => {
@@ -1567,10 +1570,10 @@ function HeaderStat({
   );
 }
 
-function money(value: number) {
+function money(value: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(value);
 }
