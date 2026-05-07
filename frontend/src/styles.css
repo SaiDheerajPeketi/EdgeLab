@@ -73,11 +73,15 @@ button:disabled {
   }
 
   .replay-date-picker {
-    @apply relative min-w-0;
+    @apply relative min-w-0 shrink-0;
   }
 
   .replay-date-trigger {
     @apply inline-flex h-10 w-52 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-ink-950 px-3 text-left text-sm font-semibold text-slate-100 outline-none transition hover:border-cyan-300/35 hover:bg-[#0b1118] focus:border-cyan-300/50 focus:ring-2 focus:ring-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .replay-date-trigger-12 {
+    @apply w-64;
   }
 
   .replay-date-trigger span {

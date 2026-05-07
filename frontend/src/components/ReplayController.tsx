@@ -396,7 +396,7 @@ function ReplayDateTimePicker({
   return (
     <div className="replay-date-picker" ref={containerRef}>
       <button
-        className="replay-date-trigger"
+        className={`replay-date-trigger ${is12Hour ? "replay-date-trigger-12" : ""}`}
         disabled={disabled}
         onClick={openPicker}
         ref={triggerRef}
