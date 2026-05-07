@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   Eye,
   EyeOff,
+  Layers,
   LockKeyhole,
   Magnet,
   Plus,
@@ -254,6 +255,8 @@ export function TradingChart({
   const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
   const [indicatorToolbarPosition, setIndicatorToolbarPosition] =
     useState<{ x: number; y: number } | null>(null);
+  const [chartContextMenuPosition, setChartContextMenuPosition] =
+    useState<{ x: number; y: number } | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
@@ -475,6 +478,8 @@ export function TradingChart({
         )
       : null;
 
+  const removableDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+
   useEffect(() => {
     barsRef.current = displayBars;
   }, [displayBars]);
@@ -490,6 +495,29 @@ export function TradingChart({
       cancelScheduledMagnetCrosshair();
     };
   }, []);
+
+  useEffect(() => {
+    if (!chartContextMenuPosition) {
+      return;
+    }
+
+    function closeMenu() {
+      setChartContextMenuPosition(null);
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeMenu();
+      }
+    }
+
+    window.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("keydown", closeMenuOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("keydown", closeMenuOnEscape);
+    };
+  }, [chartContextMenuPosition]);
 
   useEffect(() => {
     if (!chartContainerRef.current) {
@@ -951,6 +979,10 @@ export function TradingChart({
 
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     event.stopPropagation();
+    if (event.button !== 0) {
+      return;
+    }
+    setChartContextMenuPosition(null);
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
       const indicatorPoint = pixelFromClient(
         event.clientX,
@@ -1121,6 +1153,42 @@ export function TradingChart({
     clearMagnetCrosshair();
   }
 
+  function handleChartContextMenu(event: MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const frame = chartFrameRef.current;
+    if (!frame) {
+      return;
+    }
+    const rect = frame.getBoundingClientRect();
+    const menuWidth = 256;
+    const menuHeight = 152;
+    setChartContextMenuPosition({
+      x: clamp(event.clientX - rect.left, 8, Math.max(8, rect.width - menuWidth - 8)),
+      y: clamp(event.clientY - rect.top, 8, Math.max(8, rect.height - menuHeight - 8)),
+    });
+    setDrawingToolbarOpen(false);
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
+  }
+
+  function runChartContextMenuAction(action: () => void) {
+    action();
+    setChartContextMenuPosition(null);
+  }
+
+  function resetChartView() {
+    chartRef.current?.timeScale().fitContent();
+    candlesRef.current?.priceScale().applyOptions({ autoScale: true });
+    areaRef.current?.priceScale().applyOptions({ autoScale: true });
+    lineRef.current?.priceScale().applyOptions({ autoScale: true });
+    setPlotVersion((value) => value + 1);
+  }
+
+  function removeAllIndicators() {
+    indicatorInstances.forEach((indicator) => onRemoveIndicator(indicator.id));
+  }
+
   function scheduleMagnetCrosshair(point: DrawingPoint) {
     pendingCrosshairPointRef.current = point;
     if (crosshairFrameRef.current != null) {
@@ -1165,6 +1233,9 @@ export function TradingChart({
   ) {
     event.preventDefault();
     event.stopPropagation();
+    if (event.button !== 0) {
+      return;
+    }
     beginDrawingDrag(drawing, mode, pointIndex, event.clientX, event.clientY);
   }
 
@@ -1414,7 +1485,7 @@ export function TradingChart({
       document.removeEventListener("pointerdown", closeIndicatorToolbarOnOutsideClick);
   }, [selectedIndicatorId]);
 
-  const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+  const unlockedDrawingsCount = removableDrawingsCount;
 
   return (
     <section className="chart-stage" ref={stageRef}>
@@ -1565,6 +1636,7 @@ export function TradingChart({
           <div
             ref={chartFrameRef}
             className="chart-frame"
+            onContextMenu={handleChartContextMenu}
             onMouseDown={handleDrawingClick}
             onMouseLeave={handleMagnetCrosshairLeave}
             onMouseMove={handleMagnetCrosshairMove}
@@ -1622,6 +1694,49 @@ export function TradingChart({
                 }}
                 position={floatingToolbarPosition}
               />
+            )}
+            {chartContextMenuPosition && (
+              <div
+                className="chart-context-menu"
+                onClick={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
+                onPointerDown={(event) => event.stopPropagation()}
+                role="menu"
+                style={{
+                  left: chartContextMenuPosition.x,
+                  top: chartContextMenuPosition.y,
+                }}
+              >
+                <button
+                  className="chart-context-menu-row"
+                  onClick={() => runChartContextMenuAction(resetChartView)}
+                  role="menuitem"
+                  type="button"
+                >
+                  <RotateCcw size={17} />
+                  <span>Reset chart view</span>
+                </button>
+                <button
+                  className="chart-context-menu-row"
+                  disabled={removableDrawingsCount === 0}
+                  onClick={() => runChartContextMenuAction(onClearDrawings)}
+                  role="menuitem"
+                  type="button"
+                >
+                  <Trash2 size={17} />
+                  <span>Remove drawings</span>
+                </button>
+                <button
+                  className="chart-context-menu-row"
+                  disabled={indicatorInstances.length === 0}
+                  onClick={() => runChartContextMenuAction(removeAllIndicators)}
+                  role="menuitem"
+                  type="button"
+                >
+                  <Layers size={17} />
+                  <span>Remove indicators</span>
+                </button>
+              </div>
             )}
           </div>
           {rsiStudies.map((study) => (
