@@ -14,6 +14,7 @@ if (!(await isHttpUp("http://127.0.0.1:3001/api/health"))) {
 
 const pythonApi = await checkHttpService("http://127.0.0.1:8000", [
   "/api/health",
+  "/api/app-storage/edgelab/drawing-presets.v1",
   "/api/backtests/latest",
   "/api/playbooks",
 ]);

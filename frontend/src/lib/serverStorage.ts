@@ -29,29 +29,38 @@ export async function loadAppStorageItem<T>(
 ): Promise<T> {
   const combinedKey = storageKey(namespace, key);
   const versionAtStart = mutationVersions.get(combinedKey) ?? 0;
+  const localValue = readLocalStorageValue<T>(key);
   try {
     const item = await getAppStorageItem<T>(namespace, key);
     if ((mutationVersions.get(combinedKey) ?? 0) !== versionAtStart) {
       return getCachedAppStorageItem(key, fallback, namespace);
     }
+    if (item.value != null) {
+      const serverUpdatedAt = parseTimestamp(item.updated_at);
+      if (localValue != null && localValue.updatedAt > serverUpdatedAt) {
+        setCachedValue(namespace, key, localValue.value);
+        void saveAppStorageItem(key, localValue.value, namespace);
+        return localValue.value;
+      }
+      setCachedValue(namespace, key, item.value);
+      writeLocalStorageValue(key, item.value, serverUpdatedAt);
+      return item.value;
+    }
     if (item.value == null) {
-      const legacyValue = readLegacyStorageValue<T>(key);
-      if (legacyValue !== null) {
-        setCachedValue(namespace, key, legacyValue);
-        void saveAppStorageItem(key, legacyValue, namespace);
-        removeLegacyStorageValue(key);
-        return legacyValue;
+      if (localValue != null) {
+        setCachedValue(namespace, key, localValue.value);
+        void saveAppStorageItem(key, localValue.value, namespace);
+        return localValue.value;
       }
     }
-    const value = item.value == null ? fallback : item.value;
-    setCachedValue(namespace, key, value);
-    return value;
+    setCachedValue(namespace, key, fallback);
+    return fallback;
   } catch {
     const cachedValue = getCachedAppStorageItem(key, fallback, namespace);
     if (cachedValue !== fallback) {
       return cachedValue;
     }
-    return readLegacyStorageValue<T>(key) ?? fallback;
+    return localValue?.value ?? fallback;
   }
 }
 
@@ -63,12 +72,14 @@ export async function saveAppStorageItem<T>(
   const combinedKey = storageKey(namespace, key);
   mutationVersions.set(combinedKey, (mutationVersions.get(combinedKey) ?? 0) + 1);
   setCachedValue(namespace, key, value);
+  writeLocalStorageValue(key, value, Date.now());
   const previousWrite = writeQueues.get(combinedKey) ?? Promise.resolve();
   const nextWrite = previousWrite
     .catch(() => undefined)
     .then(async () => {
       try {
-        await putAppStorageItem(namespace, key, value);
+        const item = await putAppStorageItem(namespace, key, value);
+        writeLocalStorageValue(key, value, parseTimestamp(item.updated_at) || Date.now());
       } catch {
         // Keep the UI responsive; a later successful save will replace the server value.
       }
@@ -106,7 +117,7 @@ function setCachedValue<T>(namespace: string, key: string, value: T) {
   listeners.get(combinedKey)?.forEach((listener) => listener(value));
 }
 
-function readLegacyStorageValue<T>(key: string): T | null {
+function readLocalStorageValue<T>(key: string): { updatedAt: number; value: T } | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -118,24 +129,55 @@ function readLegacyStorageValue<T>(key: string): T | null {
   if (raw == null) {
     return null;
   }
+  let value: T;
   if (legacyStoresPlainString(key)) {
-    return raw as T;
+    value = raw as T;
+  } else {
+    try {
+      value = JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
   }
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
+  return {
+    updatedAt: parseTimestamp(window.localStorage.getItem(localStorageUpdatedAtKey(legacyKey))),
+    value,
+  };
 }
 
-function removeLegacyStorageValue(key: string) {
+function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number) {
   if (typeof window === "undefined") {
     return;
   }
   const legacyKey = legacyStorageKeyFor(key);
-  if (legacyKey) {
-    window.localStorage.removeItem(legacyKey);
+  if (!legacyKey) {
+    return;
   }
+  if (legacyStoresPlainString(key)) {
+    window.localStorage.setItem(legacyKey, String(value ?? ""));
+  } else {
+    window.localStorage.setItem(legacyKey, JSON.stringify(value));
+  }
+  window.localStorage.setItem(localStorageUpdatedAtKey(legacyKey), String(updatedAt || Date.now()));
+}
+
+function localStorageUpdatedAtKey(key: string) {
+  return `${key}.__updatedAt`;
+}
+
+function parseTimestamp(value: string | number | null | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (!value) {
+    return 0;
+  }
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? date : 0;
 }
 
 function legacyStorageKeyFor(key: string) {
