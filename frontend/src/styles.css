@@ -1148,6 +1148,14 @@ button:disabled {
     @apply min-h-0 px-2 text-xs;
   }
 
+  .drawing-preset-delete-button {
+    @apply inline-flex h-7 items-center gap-1 rounded px-2 text-xs font-semibold text-rose-200 transition hover:bg-rose-300/15 hover:text-rose-100;
+  }
+
+  .drawing-preset-delete-button:disabled {
+    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-rose-200;
+  }
+
   .chart-object-floating-picker {
     @apply h-8;
   }
@@ -1233,6 +1241,14 @@ button:disabled {
 
   .fib-level-editor-header .fib-icon-button:disabled {
     @apply cursor-not-allowed opacity-40 hover:border-white/10 hover:bg-white/5 hover:text-slate-400;
+  }
+
+  .fib-preset-delete-button {
+    @apply inline-flex h-7 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-xs font-semibold text-rose-200 transition hover:border-rose-300/20 hover:bg-rose-300/15 hover:text-rose-100;
+  }
+
+  .fib-preset-delete-button:disabled {
+    @apply cursor-not-allowed opacity-40 hover:border-white/10 hover:bg-white/5 hover:text-rose-200;
   }
 
   .fib-preset-controls {

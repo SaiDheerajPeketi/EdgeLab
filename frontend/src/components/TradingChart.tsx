@@ -2962,13 +2962,14 @@ function FloatingDrawingToolbar({
             <Save size={14} />
           </button>
           <button
-            className="chart-object-floating-button danger"
+            className="drawing-preset-delete-button"
             disabled={!selectedPreset}
             onClick={deleteSelectedPreset}
             title={selectedPreset ? `Delete ${selectedPreset.name}` : "Select a preset to delete"}
             type="button"
           >
             <Trash2 size={14} />
+            Delete
           </button>
         </div>
       )}
@@ -3266,13 +3267,14 @@ function FibLevelEditor({
             <Save size={12} />
           </button>
           <button
-            className="fib-icon-button danger"
+            className="fib-preset-delete-button"
             disabled={!selectedPreset}
             onClick={deleteSelectedPreset}
             title={selectedPreset ? `Delete ${selectedPreset.name}` : "Select a fib preset to delete"}
             type="button"
           >
             <Trash2 size={12} />
+            Delete
           </button>
           <button
             className="fib-icon-button"
