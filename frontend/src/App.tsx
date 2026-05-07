@@ -71,6 +71,7 @@ const ACTIVE_CHART_LAYOUT_KEY = "edgelab.active-chart-layout.v1";
 const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
+type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
 const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
   "atr14",
   "bb20",
@@ -162,6 +163,7 @@ export default function App() {
     );
   });
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("crosshair");
+  const lastNeutralDrawingToolRef = useRef<NeutralDrawingTool>("crosshair");
   const [magnetMode, setMagnetMode] = useState<MagnetMode>(() => {
     const saved = loadChartLayout();
     return sanitizeMagnetMode(saved?.magnetMode);
@@ -179,6 +181,18 @@ export default function App() {
     const saved = loadChartLayout();
     return saved?.smoothCandles ?? false;
   });
+
+  function changeDrawingTool(tool: DrawingTool) {
+    if (tool === "cursor" || tool === "crosshair") {
+      lastNeutralDrawingToolRef.current = tool;
+    }
+    setDrawingTool(tool);
+  }
+
+  function returnToNeutralDrawingTool() {
+    setDrawingTool(lastNeutralDrawingToolRef.current);
+  }
+
   const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
   const effectiveTimeframe = coerceTimeframeToSource(timeframe, sourceTimeframe);
 
@@ -316,32 +330,32 @@ export default function App() {
           break;
         case "h":
         case "H":
-          setDrawingTool("horizontal");
+          changeDrawingTool("horizontal");
           break;
         case "t":
         case "T":
-          setDrawingTool("trendline");
+          changeDrawingTool("trendline");
           break;
         case "r":
         case "R":
-          setDrawingTool("rectangle");
+          changeDrawingTool("rectangle");
           break;
         case "f":
         case "F":
-          setDrawingTool("fib");
+          changeDrawingTool("fib");
           break;
         case "l":
         case "L":
-          setDrawingTool("text");
+          changeDrawingTool("text");
           break;
         case "m":
         case "M":
-          setDrawingTool("measure");
+          changeDrawingTool("measure");
           break;
         case "Escape":
           event.preventDefault();
-          if (drawingTool !== "crosshair") {
-            setDrawingTool("crosshair");
+          if (drawingTool !== "cursor" && drawingTool !== "crosshair") {
+            returnToNeutralDrawingTool();
             setSelectedDrawingId(null);
             break;
           }
@@ -919,7 +933,7 @@ export default function App() {
                     onClearDrawings={clearDrawings}
                     layoutName={layoutName}
                     layoutNames={availableLayouts}
-                    onDrawingToolChange={setDrawingTool}
+                    onDrawingToolChange={changeDrawingTool}
                     onDeleteLayout={deleteNamedChartLayout}
                     onLayoutNameChange={setLayoutName}
                     onLoadLayout={loadNamedChartLayout}
@@ -952,13 +966,14 @@ export default function App() {
                       executions={executions}
                       indicatorInstances={indicatorInstances}
                       magnetMode={magnetMode}
+                      neutralDrawingTool={lastNeutralDrawingToolRef.current}
                       onAddDrawing={(drawing) => {
                         setDrawings((currentDrawings) => [...currentDrawings, drawing]);
                         setSelectedDrawingId(drawing.id);
                       }}
                       onClearDrawings={clearDrawings}
                       onDeleteDrawing={deleteDrawing}
-                      onDrawingToolChange={setDrawingTool}
+                      onDrawingToolChange={changeDrawingTool}
                       onMagnetModeChange={setMagnetMode}
                       onRemoveIndicator={removeIndicator}
                       onSelectDrawing={setSelectedDrawingId}

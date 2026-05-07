@@ -94,6 +94,7 @@ type Props = {
   executions: Execution[];
   indicatorInstances: ChartIndicatorInstance[];
   magnetMode: MagnetMode;
+  neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
@@ -195,6 +196,7 @@ export function TradingChart({
   executions,
   indicatorInstances,
   magnetMode,
+  neutralDrawingTool,
   onAddDrawing,
   onClearDrawings,
   onDeleteDrawing,
@@ -957,13 +959,13 @@ export function TradingChart({
 
     if (drawingTool === "horizontal") {
       onAddDrawing(makeDrawing("horizontal", [point]));
-      onDrawingToolChange("crosshair");
+      onDrawingToolChange(neutralDrawingTool);
       return;
     }
 
     if (drawingTool === "text") {
       onAddDrawing(makeDrawing("text", [point], "Text"));
-      onDrawingToolChange("crosshair");
+      onDrawingToolChange(neutralDrawingTool);
       setDraftDrawing(null);
       setHoverPoint(null);
       return;
@@ -975,7 +977,7 @@ export function TradingChart({
     }
 
     onAddDrawing(makeDrawing(drawingTool, [draftDrawing.point, point]));
-    onDrawingToolChange("crosshair");
+    onDrawingToolChange(neutralDrawingTool);
     setDraftDrawing(null);
     setHoverPoint(null);
   }
