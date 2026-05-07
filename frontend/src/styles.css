@@ -1072,7 +1072,7 @@ button:disabled {
   }
 
   .chart-container-surface {
-    @apply h-[568px] min-w-0;
+    @apply absolute inset-0 min-h-[568px] min-w-0;
   }
 
   .chart-object-floating-toolbar {
