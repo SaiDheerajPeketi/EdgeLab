@@ -6,6 +6,8 @@ type Listener<T> = (value: T | null) => void;
 
 const memoryCache = new Map<string, unknown>();
 const listeners = new Map<string, Set<Listener<unknown>>>();
+const mutationVersions = new Map<string, number>();
+const writeQueues = new Map<string, Promise<void>>();
 
 function storageKey(namespace: string, key: string) {
   return `${namespace}:${key}`;
@@ -25,13 +27,18 @@ export async function loadAppStorageItem<T>(
   fallback: T,
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<T> {
+  const combinedKey = storageKey(namespace, key);
+  const versionAtStart = mutationVersions.get(combinedKey) ?? 0;
   try {
     const item = await getAppStorageItem<T>(namespace, key);
+    if ((mutationVersions.get(combinedKey) ?? 0) !== versionAtStart) {
+      return getCachedAppStorageItem(key, fallback, namespace);
+    }
     if (item.value == null) {
       const legacyValue = readLegacyStorageValue<T>(key);
       if (legacyValue !== null) {
         setCachedValue(namespace, key, legacyValue);
-        await putAppStorageItem(namespace, key, legacyValue);
+        void saveAppStorageItem(key, legacyValue, namespace);
         removeLegacyStorageValue(key);
         return legacyValue;
       }
@@ -53,12 +60,26 @@ export async function saveAppStorageItem<T>(
   value: T,
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<T> {
+  const combinedKey = storageKey(namespace, key);
+  mutationVersions.set(combinedKey, (mutationVersions.get(combinedKey) ?? 0) + 1);
   setCachedValue(namespace, key, value);
-  try {
-    await putAppStorageItem(namespace, key, value);
-  } catch {
-    // Keep the UI responsive; a later successful save will replace the server value.
-  }
+  const previousWrite = writeQueues.get(combinedKey) ?? Promise.resolve();
+  const nextWrite = previousWrite
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await putAppStorageItem(namespace, key, value);
+      } catch {
+        // Keep the UI responsive; a later successful save will replace the server value.
+      }
+    });
+  writeQueues.set(combinedKey, nextWrite);
+  void nextWrite.finally(() => {
+    if (writeQueues.get(combinedKey) === nextWrite) {
+      writeQueues.delete(combinedKey);
+    }
+  });
+  await nextWrite;
   return value;
 }
 

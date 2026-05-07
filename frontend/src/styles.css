@@ -1177,7 +1177,7 @@ button:disabled {
   }
 
   .preset-apply-delete {
-    @apply inline-flex min-h-10 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-rose-200 transition hover:bg-rose-300/15 hover:text-rose-100;
+    @apply grid min-h-10 w-9 shrink-0 place-items-center rounded text-rose-200 transition hover:bg-rose-300/15 hover:text-rose-100;
   }
 
   .chart-object-floating-picker {

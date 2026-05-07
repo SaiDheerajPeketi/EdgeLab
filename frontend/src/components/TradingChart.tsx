@@ -2918,6 +2918,7 @@ function PresetApplyDropdown({
                   {selected && <Check className="shrink-0 text-cyan-100" size={13} />}
                 </button>
                 <button
+                  aria-label={`Delete ${item.name}`}
                   className="preset-apply-delete"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -2930,7 +2931,6 @@ function PresetApplyDropdown({
                   type="button"
                 >
                   <Trash2 size={12} />
-                  Delete
                 </button>
               </div>
             );
