@@ -52,6 +52,10 @@ export type DatasetRefreshResponse = {
   };
 };
 
+export type DatasetSettings = {
+  root_path: string;
+};
+
 export type BarsResponse = {
   offset: number;
   limit: number;
@@ -288,6 +292,13 @@ export function refreshDatasets() {
   return request<DatasetRefreshResponse>("/datasets/refresh", {
     method: "POST",
     body: JSON.stringify({}),
+  });
+}
+
+export function patchDatasetSettings(payload: { root_path: string }) {
+  return request<DatasetCatalog>("/datasets/settings", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
   });
 }
 

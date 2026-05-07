@@ -74,6 +74,14 @@ class DatasetRefreshResponse(BaseModel):
     summary: DatasetRefreshSummary
 
 
+class DatasetSettingsRead(BaseModel):
+    root_path: str
+
+
+class DatasetSettingsUpdate(BaseModel):
+    root_path: str = Field(min_length=1)
+
+
 class DatasetAssetUpdate(BaseModel):
     currency: str | None = Field(default=None, min_length=1, max_length=12)
     timezone: str | None = Field(default=None, min_length=1, max_length=80)

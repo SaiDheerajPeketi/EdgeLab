@@ -26,6 +26,7 @@ import {
   getTrades,
   jumpBacktest,
   patchDatasetAsset,
+  patchDatasetSettings,
   patchBacktestOrder,
   patchJournal,
   postBacktestOrder,
@@ -58,6 +59,7 @@ type BacktestStore = {
     assetId: string,
     payload: { currency?: string | null; timezone?: string | null },
   ) => Promise<void>;
+  updateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   refreshResults: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
@@ -167,6 +169,18 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       set({ datasets, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  updateDatasetSettings: async (payload) => {
+    set({ isLoading: true, error: null });
+    try {
+      const datasets = await patchDatasetSettings(payload);
+      set({ datasets, isLoading: false, error: null });
+    } catch (error) {
+      set({ error: toErrorMessage(error), isLoading: false });
+      throw error;
     }
   },
 

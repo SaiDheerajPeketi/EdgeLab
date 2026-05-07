@@ -8,13 +8,15 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import DatasetAsset, DatasetCandle, DatasetTimeframe, utcnow
+from app.models import DatasetAsset, DatasetCandle, DatasetSettings, DatasetTimeframe, utcnow
 from app.schemas import (
     DatasetAssetUpdate,
     DatasetCatalogResponse,
     DatasetInstrument,
     DatasetRefreshResponse,
     DatasetRefreshSummary,
+    DatasetSettingsRead,
+    DatasetSettingsUpdate,
     DatasetTimeframe as DatasetTimeframeRead,
 )
 from app.services.stored_market_data import (
@@ -54,11 +56,28 @@ class DatasetResolution:
 
 class DatasetCatalogService:
     def __init__(self, root: Path, session_factory: sessionmaker):
-        self.root = root
+        self.default_root = root
         self.session_factory = session_factory
         self._lock = Lock()
 
     def list_catalog(self, db: Session) -> DatasetCatalogResponse:
+        return self._catalog_from_store(db)
+
+    def get_settings(self, db: Session) -> DatasetSettingsRead:
+        return DatasetSettingsRead(root_path=str(self._root_path(db)))
+
+    def update_settings(
+        self,
+        db: Session,
+        payload: DatasetSettingsUpdate,
+    ) -> DatasetCatalogResponse:
+        root_path = Path(payload.root_path).expanduser()
+        if not root_path.is_absolute():
+            raise ValueError("Dataset root path must be absolute")
+        settings = self._settings_row(db)
+        settings.root_path = str(root_path)
+        settings.updated_at = utcnow()
+        db.commit()
         return self._catalog_from_store(db)
 
     def refresh_catalog(self, db: Session) -> DatasetRefreshResponse:
@@ -181,7 +200,8 @@ class DatasetCatalogService:
         return self.market_data_for_dataset(asset_id, timeframe)
 
     def _scan_and_upsert(self, db: Session) -> DatasetRefreshSummary:
-        if not self.root.exists():
+        root = self._root_path(db)
+        if not root.exists():
             return DatasetRefreshSummary(assets=0, timeframes=0, candles=0)
 
         seen_assets: set[str] = set()
@@ -189,7 +209,7 @@ class DatasetCatalogService:
         imported_timeframes = 0
         imported_candles = 0
 
-        for directory in sorted(item for item in self.root.iterdir() if item.is_dir()):
+        for directory in sorted(item for item in root.iterdir() if item.is_dir()):
             asset_id = directory.name
             seen_assets.add(asset_id)
             asset = db.get(DatasetAsset, asset_id)
@@ -386,7 +406,18 @@ class DatasetCatalogService:
                     timeframes=timeframe_reads,
                 )
             )
-        return DatasetCatalogResponse(root=str(self.root), instruments=instruments)
+        return DatasetCatalogResponse(root=str(self._root_path(db)), instruments=instruments)
+
+    def _root_path(self, db: Session) -> Path:
+        return Path(self._settings_row(db).root_path)
+
+    def _settings_row(self, db: Session) -> DatasetSettings:
+        settings = db.get(DatasetSettings, 1)
+        if settings is None:
+            settings = DatasetSettings(id=1, root_path=str(self.default_root))
+            db.add(settings)
+            db.flush()
+        return settings
 
     def _timeframe_from_file(self, csv_path: Path) -> str | None:
         suffix = csv_path.stem.split("_")[-1]

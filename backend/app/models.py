@@ -105,6 +105,14 @@ class DatasetCandle(Base):
     volume: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
 
+class DatasetSettings(Base):
+    __tablename__ = "dataset_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class Playbook(Base):
     __tablename__ = "playbooks"
 

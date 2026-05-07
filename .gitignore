@@ -9,6 +9,7 @@ __pycache__/
 **/__pycache__/
 *.pyc
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
 frontend/node_modules/

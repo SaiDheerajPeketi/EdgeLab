@@ -14,6 +14,8 @@ from app.schemas import (
     DatasetCatalogResponse,
     DatasetMeta,
     DatasetRefreshResponse,
+    DatasetSettingsRead,
+    DatasetSettingsUpdate,
     JournalUpdate,
     MetricsResponse,
     OrderCreate,
@@ -58,6 +60,26 @@ def datasets(db: Session = Depends(get_db)) -> DatasetCatalogResponse:
     try:
         return dataset_catalog.list_catalog(db)
     except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/datasets/settings", response_model=DatasetSettingsRead)
+def dataset_settings(db: Session = Depends(get_db)) -> DatasetSettingsRead:
+    try:
+        return dataset_catalog.get_settings(db)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/datasets/settings", response_model=DatasetCatalogResponse)
+def update_dataset_settings(
+    payload: DatasetSettingsUpdate,
+    db: Session = Depends(get_db),
+) -> DatasetCatalogResponse:
+    try:
+        return dataset_catalog.update_settings(db, payload)
+    except (FileNotFoundError, ValueError) as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

@@ -125,6 +125,7 @@ export default function App() {
     newSession,
     refreshDatasets,
     updateDatasetAsset,
+    updateDatasetSettings,
     jumpToOffset,
     setPlaying,
     stepForward,
@@ -832,6 +833,9 @@ export default function App() {
               }}
               onResumeSession={resumeSessionFromGateway}
               onCreatePlaybook={createPlaybook}
+              onRefreshDatasets={refreshDatasets}
+              onUpdateDatasetAsset={updateDatasetAsset}
+              onUpdateDatasetSettings={updateDatasetSettings}
               playbooks={playbooks}
               sessions={resultSessions}
               trades={resultTrades}
@@ -850,8 +854,6 @@ export default function App() {
                 isLoading={isLoading}
                 onCreateSession={createSessionFromGateway}
                 onCreatePlaybook={createPlaybook}
-                onRefreshDatasets={refreshDatasets}
-                onUpdateDatasetAsset={updateDatasetAsset}
                 onResumeSession={resumeSessionFromGateway}
                 playbooks={playbooks}
                 session={state?.session ?? null}

@@ -20,6 +20,7 @@ import {
   Filter,
   FolderPlus,
   Gauge,
+  Globe2,
   Grid2X2,
   Info,
   LineChart,
@@ -29,6 +30,8 @@ import {
   PieChart,
   PlaySquare,
   Plus,
+  RefreshCw,
+  Save,
   Search,
   Settings,
   Share2,
@@ -64,7 +67,13 @@ type Props = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
+  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
+  onUpdateDatasetAsset: (
+    assetId: string,
+    payload: { currency?: string | null; timezone?: string | null },
+  ) => Promise<void>;
+  onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   playbooks: Playbook[];
   sessions: BacktestSession[];
   trades: Trade[];
@@ -169,7 +178,10 @@ export function EdgeLabWorkspace({
   onCreatePlaybook,
   onNavigateBacktest,
   onNavigateSessions,
+  onRefreshDatasets,
   onResumeSession,
+  onUpdateDatasetAsset,
+  onUpdateDatasetSettings,
   playbooks,
   sessions,
   trades,
@@ -210,7 +222,10 @@ export function EdgeLabWorkspace({
     onCreatePlaybook,
     onNavigateBacktest,
     onNavigateSessions,
+    onRefreshDatasets,
     onResumeSession,
+    onUpdateDatasetAsset,
+    onUpdateDatasetSettings,
     openTrades,
     playbooks,
     sessionById,
@@ -267,7 +282,13 @@ type SharedPageProps = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
+  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
+  onUpdateDatasetAsset: (
+    assetId: string,
+    payload: { currency?: string | null; timezone?: string | null },
+  ) => Promise<void>;
+  onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   openTrades: Trade[];
   playbooks: Playbook[];
   sessionById: Map<number, BacktestSession>;
@@ -2216,27 +2237,32 @@ function PlaybookRuleTextArea({
   );
 }
 
-function SettingsPage({ datasets }: SharedPageProps) {
+function SettingsPage({
+  datasets,
+  onRefreshDatasets,
+  onUpdateDatasetAsset,
+  onUpdateDatasetSettings,
+}: SharedPageProps) {
   const sections = [
     "Profile",
     "Security",
     "Subscription",
     "Accounts",
+    "Data imports",
     "PT / SL settings",
     "Commissions & fees",
     "Trade settings",
     "Global settings",
     "Tags management",
-    "Import history",
     "Log history",
   ];
-  const [active, setActive] = useState("Global settings");
+  const [active, setActive] = useState("Data imports");
 
   return (
     <PageScaffold
-      eyebrow="Settings"
-      title="Workspace Settings"
-      description="Self-hosted settings for chart defaults, risk, commissions, tags, and import history."
+      eyebrow="Backtest Settings"
+      title="Backtest Settings"
+      description="Data import, replay defaults, risk, commissions, tags, and local workspace settings for backtesting."
     >
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <FeatureCard className="p-2">
@@ -2259,66 +2285,287 @@ function SettingsPage({ datasets }: SharedPageProps) {
             <CardLabel icon={SlidersHorizontal} label={active} />
             <span className="status-pill">Self-Hosted - Unlimited</span>
           </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <label className="form-field">
-              Default risk %
-              <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
-            </label>
-            <label className="form-field">
-              Default currency
-              <ThemedSelect
-                className="h-10"
-                defaultValue="USD"
-                options={[
-                  { label: "USD", value: "USD" },
-                  { label: "INR", value: "INR" },
-                ]}
-              />
-            </label>
-            <label className="form-field">
-              Commission mode
-              <ThemedSelect
-                className="h-10"
-                defaultValue="Flat"
-                options={[
-                  { label: "Flat", value: "Flat" },
-                  { label: "Percent of position", value: "Percent of position" },
-                ]}
-              />
-            </label>
-            <label className="form-field">
-              Auto-save interval
-              <ThemedSelect
-                className="h-10"
-                defaultValue="Every 5 candles"
-                options={[
-                  { label: "Every candle", value: "Every candle" },
-                  { label: "Every 5 candles", value: "Every 5 candles" },
-                  { label: "Manual only", value: "Manual only" },
-                ]}
-              />
-            </label>
-          </div>
-          <div className="mt-5 rounded-md border border-white/10 bg-black/20 p-3">
-            <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Import history</div>
-            <div className="mt-3 grid gap-2">
-              {(datasets?.instruments ?? []).flatMap((instrument) =>
-                instrument.timeframes.map((timeframe) => (
-                  <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={timeframe.csv_path}>
-                    <span className="min-w-0 truncate text-slate-300">
-                      {instrument.name} - {timeframe.timeframe}
-                    </span>
-                    <span className="shrink-0 text-xs text-slate-500">
-                      {timeframe.rows.toLocaleString()} candles
-                    </span>
-                  </div>
-                )),
-              )}
-            </div>
-          </div>
+          {active === "Data imports" ? (
+            <BacktestDataSettings
+              datasets={datasets}
+              onRefreshDatasets={onRefreshDatasets}
+              onUpdateDatasetAsset={onUpdateDatasetAsset}
+              onUpdateDatasetSettings={onUpdateDatasetSettings}
+            />
+          ) : (
+            <BacktestGeneralSettings />
+          )}
         </FeatureCard>
       </div>
     </PageScaffold>
+  );
+}
+
+function BacktestGeneralSettings() {
+  return (
+    <div className="mt-5 grid gap-4 md:grid-cols-2">
+      <label className="form-field">
+        Default risk %
+        <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
+      </label>
+      <label className="form-field">
+        Default currency
+        <ThemedSelect
+          className="h-10"
+          defaultValue="USD"
+          options={[
+            { label: "USD", value: "USD" },
+            { label: "INR", value: "INR" },
+          ]}
+        />
+      </label>
+      <label className="form-field">
+        Commission mode
+        <ThemedSelect
+          className="h-10"
+          defaultValue="Flat"
+          options={[
+            { label: "Flat", value: "Flat" },
+            { label: "Percent of position", value: "Percent of position" },
+          ]}
+        />
+      </label>
+      <label className="form-field">
+        Auto-save interval
+        <ThemedSelect
+          className="h-10"
+          defaultValue="Every 5 candles"
+          options={[
+            { label: "Every candle", value: "Every candle" },
+            { label: "Every 5 candles", value: "Every 5 candles" },
+            { label: "Manual only", value: "Manual only" },
+          ]}
+        />
+      </label>
+    </div>
+  );
+}
+
+function BacktestDataSettings({
+  datasets,
+  onRefreshDatasets,
+  onUpdateDatasetAsset,
+  onUpdateDatasetSettings,
+}: {
+  datasets: DatasetCatalog | null;
+  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
+  onUpdateDatasetAsset: (
+    assetId: string,
+    payload: { currency?: string | null; timezone?: string | null },
+  ) => Promise<void>;
+  onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
+}) {
+  const [rootPath, setRootPath] = useState(datasets?.root ?? "");
+  const [assetDrafts, setAssetDrafts] = useState<Record<string, { currency: string; timezone: string }>>({});
+  const [status, setStatus] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingRoot, setSavingRoot] = useState(false);
+  const [savingAssetId, setSavingAssetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRootPath(datasets?.root ?? "");
+  }, [datasets?.root]);
+
+  useEffect(() => {
+    setAssetDrafts((current) => {
+      const next: Record<string, { currency: string; timezone: string }> = {};
+      for (const instrument of datasets?.instruments ?? []) {
+        next[instrument.id] = current[instrument.id] ?? {
+          currency: instrument.currency ?? "USD",
+          timezone: instrument.timezone ?? "UTC",
+        };
+      }
+      return next;
+    });
+  }, [datasets?.instruments]);
+
+  async function saveRoot() {
+    const trimmed = rootPath.trim();
+    if (!trimmed) {
+      setStatus("Root path is required");
+      return;
+    }
+    setSavingRoot(true);
+    try {
+      await onUpdateDatasetSettings({ root_path: trimmed });
+      setStatus("Dataset root saved");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save dataset root");
+    } finally {
+      setSavingRoot(false);
+    }
+  }
+
+  async function refreshData() {
+    const trimmed = rootPath.trim();
+    setRefreshing(true);
+    try {
+      if (trimmed && trimmed !== datasets?.root) {
+        await onUpdateDatasetSettings({ root_path: trimmed });
+      }
+      const summary = await onRefreshDatasets();
+      if (summary) {
+        setStatus(
+          `${summary.assets} assets, ${summary.timeframes} timeframes, ${summary.candles.toLocaleString()} candles imported`,
+        );
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not refresh datasets");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function updateDraft(assetId: string, field: "currency" | "timezone", value: string) {
+    setAssetDrafts((current) => ({
+      ...current,
+      [assetId]: {
+        currency: current[assetId]?.currency ?? "USD",
+        timezone: current[assetId]?.timezone ?? "UTC",
+        [field]: value,
+      },
+    }));
+  }
+
+  async function saveAsset(assetId: string, symbol: string) {
+    const draft = assetDrafts[assetId];
+    if (!draft) {
+      return;
+    }
+    setSavingAssetId(assetId);
+    try {
+      await onUpdateDatasetAsset(assetId, {
+        currency: draft.currency.trim() || null,
+        timezone: draft.timezone.trim() || null,
+      });
+      setStatus(`${formatMarketSymbol(symbol)} metadata saved`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save asset metadata");
+    } finally {
+      setSavingAssetId(null);
+    }
+  }
+
+  return (
+    <div className="mt-5 grid gap-4">
+      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
+          <label className="form-field min-w-0 flex-1">
+            <span>Datasets root folder</span>
+            <input
+              className="input-control h-10 normal-case tracking-normal"
+              onChange={(event) => setRootPath(event.target.value)}
+              placeholder="/absolute/path/to/datasets"
+              value={rootPath}
+            />
+          </label>
+          <button
+            className="control-button h-10 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+            disabled={savingRoot}
+            onClick={saveRoot}
+            type="button"
+          >
+            {savingRoot ? <RefreshCw size={15} className="animate-spin" /> : <Save size={15} />}
+            Save Root
+          </button>
+          <button
+            className="control-button h-10 border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20"
+            disabled={refreshing}
+            onClick={refreshData}
+            type="button"
+          >
+            <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
+            Refresh Data
+          </button>
+        </div>
+        <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-slate-500">
+          <FolderPlus size={14} />
+          <span className="truncate">Place asset folders directly under this root, with timeframe CSV files inside each folder.</span>
+        </div>
+        {status && <div className="mt-3 text-xs font-semibold text-cyan-100">{status}</div>}
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+            <Database size={14} />
+            Imported assets
+          </div>
+          <span className="status-pill">{datasets?.instruments.length ?? 0} assets</span>
+        </div>
+        <div className="mt-3 grid gap-3">
+          {(datasets?.instruments ?? []).map((instrument) => {
+            const draft = assetDrafts[instrument.id] ?? {
+              currency: instrument.currency ?? "USD",
+              timezone: instrument.timezone ?? "UTC",
+            };
+            return (
+              <div className="rounded-md border border-white/10 bg-white/5 p-3" key={instrument.id}>
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="session-instrument-badge">{symbolBadge(instrument.symbol)}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-white">
+                        {formatMarketSymbol(instrument.symbol)}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {instrument.folder_path ?? instrument.name}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    {instrument.timeframes.map((timeframe) => (
+                      <span className="rounded border border-white/10 bg-black/20 px-2 py-1" key={timeframe.csv_path}>
+                        {timeframe.timeframe} · {timeframe.rows.toLocaleString()}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]">
+                  <label className="form-field">
+                    <span>Currency</span>
+                    <input
+                      className="input-control h-10 uppercase"
+                      maxLength={12}
+                      onChange={(event) => updateDraft(instrument.id, "currency", event.target.value)}
+                      value={draft.currency}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Timestamp Timezone</span>
+                    <input
+                      className="input-control h-10 normal-case tracking-normal"
+                      onChange={(event) => updateDraft(instrument.id, "timezone", event.target.value)}
+                      placeholder="UTC, America/New_York, Asia/Kolkata"
+                      value={draft.timezone}
+                    />
+                  </label>
+                  <button
+                    className="control-button h-10 self-end"
+                    disabled={savingAssetId === instrument.id}
+                    onClick={() => saveAsset(instrument.id, instrument.symbol)}
+                    type="button"
+                  >
+                    {savingAssetId === instrument.id ? <RefreshCw size={15} className="animate-spin" /> : <Globe2 size={15} />}
+                    Save Asset
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {(datasets?.instruments.length ?? 0) === 0 && (
+            <div className="rounded-md border border-white/10 bg-white/5 px-3 py-4 text-sm text-slate-500">
+              No imported assets yet. Set the root folder and refresh data.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
