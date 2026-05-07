@@ -23,6 +23,7 @@ export function PositionPanel({ currency = "USD", position }: Props) {
       quantity: position.quantity * fraction,
       reduce_only: true,
       strategy_name: position.strategy_name,
+      playbook_id: position.playbook_id,
     });
   }
 

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
+  ArrowDownToLine,
+  ArrowUpToLine,
   Check,
   ChevronDown,
   Eye,
@@ -110,6 +112,7 @@ type Props = {
   neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
+  onClosePositionFraction: (fraction: number) => void;
   onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onMagnetModeChange: (mode: MagnetMode) => void;
@@ -123,6 +126,7 @@ type Props = {
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   symbol?: string;
+  currency?: string;
   datasetTimeframe?: string | null;
   timeframe: ChartTimeframe;
 };
@@ -232,6 +236,7 @@ export function TradingChart({
   neutralDrawingTool,
   onAddDrawing,
   onClearDrawings,
+  onClosePositionFraction,
   onDeleteDrawing,
   onDrawingToolChange,
   onMagnetModeChange,
@@ -245,6 +250,7 @@ export function TradingChart({
   selectedDrawingId,
   showOrderOverlays,
   symbol = "EURUSD",
+  currency = "USD",
   datasetTimeframe,
   timeframe,
 }: Props) {
@@ -271,6 +277,7 @@ export function TradingChart({
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
+  const [positionActionsOpen, setPositionActionsOpen] = useState(false);
   const snappedCrosshairRef = useRef<string | null>(null);
   const pendingCrosshairPointRef = useRef<DrawingPoint | null>(null);
   const crosshairFrameRef = useRef<number | null>(null);
@@ -455,6 +462,7 @@ export function TradingChart({
         : null,
     [indicatorInstances, selectedIndicatorId],
   );
+  const activePosition = isOpenPosition(position) ? position : null;
   const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
   const headerPriceTone = candleChangeTone(activeHeaderCandle);
   const drawingElements = buildDrawingElements({
@@ -488,6 +496,15 @@ export function TradingChart({
           candlesRef.current,
         )
       : null;
+  const positionOverlayPosition =
+    activePosition && showOrderOverlays
+      ? positionOverlayFromPrice(
+          activePosition.avg_price,
+          chartFrameRef.current,
+          chartRef.current,
+          candlesRef.current,
+        )
+      : null;
 
   const removableDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
 
@@ -500,6 +517,12 @@ export function TradingChart({
       clearMagnetCrosshair();
     }
   }, [effectiveCrosshairVisible, isDrawingPlacementMode, magnetMode]);
+
+  useEffect(() => {
+    if (!activePosition || !showOrderOverlays) {
+      setPositionActionsOpen(false);
+    }
+  }, [activePosition, showOrderOverlays]);
 
   useEffect(() => {
     return () => {
@@ -529,6 +552,23 @@ export function TradingChart({
       window.removeEventListener("keydown", closeMenuOnEscape);
     };
   }, [chartContextMenuPosition]);
+
+  useEffect(() => {
+    if (!positionActionsOpen) {
+      return;
+    }
+
+    function closePositionActions(event: globalThis.PointerEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".chart-position-overlay")) {
+        return;
+      }
+      setPositionActionsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closePositionActions);
+    return () => document.removeEventListener("pointerdown", closePositionActions);
+  }, [positionActionsOpen]);
 
   useEffect(() => {
     if (!chartContainerRef.current) {
@@ -918,8 +958,7 @@ export function TradingChart({
     if (!series) {
       return;
     }
-    priceLinesRef.current.forEach((line) => series.removePriceLine(line));
-    priceLinesRef.current = [];
+    clearOrderPriceLines(series);
 
     if (!showOrderOverlays) {
       return;
@@ -946,10 +985,15 @@ export function TradingChart({
       );
     };
 
-    if (position && position.side !== "FLAT" && position.quantity > 0) {
-      addLine(position.avg_price, "#a8b3c7", `${position.side} avg`, 0);
-      addLine(position.stop_loss, "#fb7185", "SL", 2);
-      addLine(position.take_profit, "#22c55e", "TP", 2);
+    if (activePosition) {
+      addLine(
+        activePosition.avg_price,
+        "#a8b3c7",
+        `Open ${formatMoney(activePosition.unrealized_pnl, currency)}`,
+        0,
+      );
+      addLine(activePosition.stop_loss, "#fb7185", "SL", 2);
+      addLine(activePosition.take_profit, "#22c55e", "TP", 2);
     }
 
     orders
@@ -965,7 +1009,8 @@ export function TradingChart({
         addLine(order.stop_loss, "#fb7185", `${orderLabel} SL`, 1);
         addLine(order.take_profit, "#22c55e", `${orderLabel} TP`, 1);
       });
-  }, [orders, position, showOrderOverlays]);
+    return () => clearOrderPriceLines(series);
+  }, [activePosition, currency, orders, showOrderOverlays]);
 
   useEffect(() => {
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
@@ -1228,6 +1273,17 @@ export function TradingChart({
 
   function removeAllIndicators() {
     indicatorInstances.forEach((indicator) => onRemoveIndicator(indicator.id));
+  }
+
+  function clearOrderPriceLines(series: ISeriesApi<"Candlestick">) {
+    priceLinesRef.current.forEach((line) => {
+      try {
+        series.removePriceLine(line);
+      } catch {
+        // Price lines can already be detached during chart teardown.
+      }
+    });
+    priceLinesRef.current = [];
   }
 
   function scheduleMagnetCrosshair(point: DrawingPoint) {
@@ -1737,6 +1793,20 @@ export function TradingChart({
                 position={floatingToolbarPosition}
               />
             )}
+            {activePosition && positionOverlayPosition && showOrderOverlays && (
+              <PositionLineOverlay
+                currency={currency}
+                open={positionActionsOpen}
+                onCloseFraction={(fraction) => {
+                  onClosePositionFraction(fraction);
+                  setPositionActionsOpen(false);
+                }}
+                onToggleOpen={() => setPositionActionsOpen((value) => !value)}
+                position={activePosition}
+                x={positionOverlayPosition.x}
+                y={positionOverlayPosition.y}
+              />
+            )}
             {chartContextMenuPosition && (
               <div
                 className="chart-context-menu"
@@ -1958,6 +2028,62 @@ function OhlcvValue({
       <span>{label}</span>
       <strong className={tone}>{value}</strong>
     </span>
+  );
+}
+
+function PositionLineOverlay({
+  currency,
+  onCloseFraction,
+  onToggleOpen,
+  open,
+  position,
+  x,
+  y,
+}: {
+  currency: string;
+  onCloseFraction: (fraction: number) => void;
+  onToggleOpen: () => void;
+  open: boolean;
+  position: Position;
+  x: number;
+  y: number;
+}) {
+  const pnlTone = position.unrealized_pnl >= 0 ? "text-emerald-200" : "text-rose-200";
+
+  return (
+    <div
+      className="chart-position-overlay"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      style={{ left: x, top: y }}
+    >
+      <button
+        className="chart-position-chip"
+        onClick={onToggleOpen}
+        title="Position quick actions"
+        type="button"
+      >
+        <span className="chart-position-side">{position.side}</span>
+        <strong className={pnlTone}>{formatMoney(position.unrealized_pnl, currency)}</strong>
+      </button>
+      {open && (
+        <div className="chart-position-actions">
+          <button onClick={() => onCloseFraction(0.25)} type="button">
+            <ArrowDownToLine size={14} />
+            25%
+          </button>
+          <button onClick={() => onCloseFraction(0.5)} type="button">
+            <ArrowDownToLine size={14} />
+            50%
+          </button>
+          <button onClick={() => onCloseFraction(1)} type="button">
+            <ArrowUpToLine size={14} />
+            Close
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3629,6 +3755,31 @@ function chartPlotHeight(chart: IChartApi, frame: HTMLDivElement | null) {
     return frame ? Math.min(frame.clientHeight, paneHeight) : paneHeight;
   }
   return frame?.clientHeight ?? 0;
+}
+
+function positionOverlayFromPrice(
+  price: number,
+  frame: HTMLDivElement | null,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+) {
+  if (!frame || !chart || !series) {
+    return null;
+  }
+  const y = series.priceToCoordinate(price);
+  if (y == null) {
+    return null;
+  }
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  return {
+    x: clamp(plotWidth - 220, 12, Math.max(12, plotWidth - 96)),
+    y: clamp(y, 22, Math.max(22, plotHeight - 22)),
+  };
+}
+
+function isOpenPosition(position: Position | null | undefined): position is Position {
+  return position != null && position.side !== "FLAT" && position.quantity > 1e-9;
 }
 
 function hitTestDrawingAtPoint({
@@ -5963,6 +6114,14 @@ function formatCompactNumber(value: number) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 2,
     notation: "compact",
+  }).format(value);
+}
+
+function formatMoney(value: number, currency: string) {
+  return new Intl.NumberFormat("en-US", {
+    currency,
+    maximumFractionDigits: 2,
+    style: "currency",
   }).format(value);
 }
 

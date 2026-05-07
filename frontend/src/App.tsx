@@ -137,6 +137,7 @@ export default function App() {
     updateDatasetAsset,
     updateDatasetSettings,
     jumpToOffset,
+    placeOrder,
     setPlaying,
     stepForward,
   } = useBacktestStore();
@@ -481,6 +482,21 @@ export default function App() {
           minute: "2-digit",
         })}`;
   const latestRiskRewardDrawing = findLatestRiskRewardDrawing(drawings);
+
+  function closePositionFraction(fraction: number) {
+    if (!position || position.side === "FLAT" || position.quantity <= 0) {
+      return;
+    }
+    void placeOrder({
+      side: position.side === "LONG" ? "SELL" : "BUY",
+      order_type: "MARKET",
+      quantity: position.quantity * fraction,
+      reduce_only: true,
+      strategy_name: position.strategy_name,
+      playbook_id: position.playbook_id,
+    });
+  }
+
   function navigateWorkspace(view: WorkspaceView) {
     setActiveWorkspace(view);
     if (view === "sessions") {
@@ -1052,6 +1068,7 @@ export default function App() {
                         setSelectedDrawingId(drawing.id);
                       }}
                       onClearDrawings={clearDrawings}
+                      onClosePositionFraction={closePositionFraction}
                       onDeleteDrawing={deleteDrawing}
                       onDrawingToolChange={changeDrawingTool}
                       onMagnetModeChange={setMagnetMode}
@@ -1071,6 +1088,7 @@ export default function App() {
                       selectedDrawingId={selectedDrawingId}
                       showOrderOverlays={showOrderOverlays}
                       symbol={state?.session.symbol}
+                      currency={sessionCurrency}
                       datasetTimeframe={state?.session.timeframe}
                       timeframe={effectiveTimeframe}
                     />
