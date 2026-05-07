@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -25,7 +26,7 @@ from app.schemas import (
     TradeRead,
 )
 from app.services.backtester import BacktestService, list_latest_session
-from app.services.datasets import DatasetCatalogService
+from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 
@@ -34,6 +35,19 @@ router = APIRouter()
 market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
+
+
+def dataset_error_response(exc: Exception) -> HTTPException:
+    if isinstance(exc, DatasetRefreshInProgress):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, OperationalError) and "database is locked" in str(exc).lower():
+        return HTTPException(
+            status_code=409,
+            detail="Dataset database is busy. Wait for the active refresh to finish, then try again.",
+        )
+    if isinstance(exc, (FileNotFoundError, ValueError)):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=500, detail="Dataset operation failed")
 
 
 @router.get("/health")
@@ -59,16 +73,16 @@ def market_data_meta(
 def datasets(db: Session = Depends(get_db)) -> DatasetCatalogResponse:
     try:
         return dataset_catalog.list_catalog(db)
-    except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.get("/datasets/settings", response_model=DatasetSettingsRead)
 def dataset_settings(db: Session = Depends(get_db)) -> DatasetSettingsRead:
     try:
         return dataset_catalog.get_settings(db)
-    except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.patch("/datasets/settings", response_model=DatasetCatalogResponse)
@@ -78,18 +92,18 @@ def update_dataset_settings(
 ) -> DatasetCatalogResponse:
     try:
         return dataset_catalog.update_settings(db, payload)
-    except (FileNotFoundError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise dataset_error_response(exc) from exc
 
 
 @router.post("/datasets/refresh", response_model=DatasetRefreshResponse)
 def refresh_datasets(db: Session = Depends(get_db)) -> DatasetRefreshResponse:
     try:
         return dataset_catalog.refresh_catalog(db)
-    except (FileNotFoundError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise dataset_error_response(exc) from exc
 
 
 @router.patch("/datasets/assets/{asset_id}", response_model=DatasetCatalogResponse)
@@ -100,9 +114,9 @@ def update_dataset_asset(
 ) -> DatasetCatalogResponse:
     try:
         return dataset_catalog.update_asset(db, asset_id, payload)
-    except (FileNotFoundError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise dataset_error_response(exc) from exc
 
 
 @router.get("/market-data/bars", response_model=BarsResponse)

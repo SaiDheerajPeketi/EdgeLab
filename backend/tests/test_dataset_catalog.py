@@ -5,7 +5,7 @@ from app.db import Base
 from app.models import DatasetAsset, DatasetCandle, DatasetTimeframe
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
-from app.services.datasets import DatasetCatalogService
+from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 
 
 def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
@@ -103,3 +103,22 @@ def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):
         assert refreshed.summary.assets == 1
         assert refreshed.catalog.root == str(second_root)
         assert refreshed.catalog.instruments[0].id == "ES"
+
+
+def test_dataset_refresh_rejects_concurrent_runs(tmp_path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(tmp_path, session_factory)
+
+    with session_factory() as db:
+        service._lock.acquire()
+        try:
+            try:
+                service.refresh_catalog(db)
+            except DatasetRefreshInProgress as exc:
+                assert "already running" in str(exc)
+            else:
+                raise AssertionError("Expected DatasetRefreshInProgress")
+        finally:
+            service._lock.release()

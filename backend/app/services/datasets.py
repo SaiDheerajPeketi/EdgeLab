@@ -54,6 +54,10 @@ class DatasetResolution:
     stored: bool
 
 
+class DatasetRefreshInProgress(RuntimeError):
+    pass
+
+
 class DatasetCatalogService:
     def __init__(self, root: Path, session_factory: sessionmaker):
         self.default_root = root
@@ -71,6 +75,8 @@ class DatasetCatalogService:
         db: Session,
         payload: DatasetSettingsUpdate,
     ) -> DatasetCatalogResponse:
+        if self._lock.locked():
+            raise DatasetRefreshInProgress("Dataset refresh is running. Try again after it completes.")
         root_path = Path(payload.root_path).expanduser()
         if not root_path.is_absolute():
             raise ValueError("Dataset root path must be absolute")
@@ -81,13 +87,17 @@ class DatasetCatalogService:
         return self._catalog_from_store(db)
 
     def refresh_catalog(self, db: Session) -> DatasetRefreshResponse:
-        with self._lock:
+        if not self._lock.acquire(blocking=False):
+            raise DatasetRefreshInProgress("Dataset refresh is already running.")
+        try:
             summary = self._scan_and_upsert(db)
             db.commit()
             return DatasetRefreshResponse(
                 catalog=self._catalog_from_store(db),
                 summary=summary,
             )
+        finally:
+            self._lock.release()
 
     def update_asset(
         self,
@@ -95,6 +105,8 @@ class DatasetCatalogService:
         asset_id: str,
         payload: DatasetAssetUpdate,
     ) -> DatasetCatalogResponse:
+        if self._lock.locked():
+            raise DatasetRefreshInProgress("Dataset refresh is running. Try again after it completes.")
         asset = db.get(DatasetAsset, asset_id)
         if asset is None:
             raise FileNotFoundError(f"Dataset asset not found: {asset_id}")

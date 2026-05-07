@@ -159,7 +159,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return response.summary;
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
-      return null;
+      throw error;
     }
   },
 
