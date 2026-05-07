@@ -897,7 +897,7 @@ button:disabled {
   }
 
   .chart-fullscreen-actionbar {
-    @apply fixed right-4 top-4 z-[230] flex items-center gap-2 rounded-md border border-white/10 bg-[#070b10]/90 p-1.5 shadow-panel backdrop-blur;
+    @apply sticky top-3 z-[230] flex justify-self-end items-center gap-2 rounded-md border border-white/10 bg-[#070b10]/90 p-1.5 shadow-panel backdrop-blur;
   }
 
   .chart-fullscreen-action {
@@ -921,7 +921,7 @@ button:disabled {
   }
 
   .chart-fullscreen-shell .chart-stage {
-    min-height: calc(100vh - 96px);
+    min-height: calc(100vh - 168px);
   }
 
   .chart-fullscreen-shell .chart-frame,

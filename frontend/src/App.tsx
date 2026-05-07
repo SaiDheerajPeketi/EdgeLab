@@ -7,6 +7,7 @@ import {
   Clock3,
   Database,
   Maximize2,
+  Minimize2,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
@@ -1000,13 +1001,60 @@ export default function App() {
                 }
                 ref={chartShellRef}
               >
-                {backtestFocusHeader}
+                {!isChartFullscreen && backtestFocusHeader}
+                {isChartFullscreen && (
+                  <div className="chart-fullscreen-actionbar">
+                    <button
+                      className={`chart-fullscreen-action ${fullscreenOrderPanelOpen ? "chart-fullscreen-action-active" : ""}`}
+                      onClick={() => setFullscreenOrderPanelOpen((value) => !value)}
+                      type="button"
+                    >
+                      {fullscreenOrderPanelOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+                      Ticket
+                    </button>
+                    <button
+                      className={`chart-fullscreen-action ${layersPanelOpen ? "chart-fullscreen-action-active" : ""}`}
+                      onClick={() => setLayersPanelOpen((value) => !value)}
+                      type="button"
+                    >
+                      {layersPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+                      Objects
+                    </button>
+                    <button
+                      className={`chart-fullscreen-action ${chartToolsOpen ? "chart-fullscreen-action-active" : ""}`}
+                      data-chart-header-control="tools"
+                      onClick={handleChartToolsClick}
+                      onPointerDown={handleChartToolsPointerDown}
+                      type="button"
+                    >
+                      <PencilRuler size={15} />
+                      Tools
+                    </button>
+                    <button
+                      className={`chart-fullscreen-action ${chartSettingsPanelOpen ? "chart-fullscreen-action-active" : ""}`}
+                      data-chart-header-control="settings"
+                      onClick={openChartSettings}
+                      type="button"
+                    >
+                      <Palette size={15} />
+                      Settings
+                    </button>
+                    <button
+                      className="chart-fullscreen-action"
+                      onClick={exitChartFullscreen}
+                      type="button"
+                    >
+                      <Minimize2 size={15} />
+                      Exit
+                    </button>
+                  </div>
+                )}
                 <ReplayController
                   dateFormat={chartSettings.dateFormat}
                   dayOfWeekLabels={chartSettings.dayOfWeekLabels}
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onToggleOrderPane={toggleOrderPanel}
-                  showOrderToggle={isChartFullscreen}
+                  showOrderToggle={false}
                   timeHoursFormat={chartSettings.timeHoursFormat}
                 />
                 {(chartToolsOpen || chartSettingsPanelOpen) && (
