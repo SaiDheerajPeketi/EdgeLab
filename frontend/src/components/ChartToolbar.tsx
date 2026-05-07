@@ -823,6 +823,35 @@ function ChartSettingsPanel({
         </nav>
 
         <div className="chart-settings-content">
+          <section className="chart-settings-template-switcher">
+            <div className="min-w-0">
+              <div className="chart-settings-section-title">Templates</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {presets.length > 0
+                  ? "Switch chart settings without changing drawings or indicators."
+                  : "Save the current settings to create your first template."}
+              </div>
+            </div>
+            {presets.length > 0 ? (
+              <div className="chart-settings-template-list">
+                {presets.map((preset) => {
+                  const active = preset.name === presetName;
+                  return (
+                    <button
+                      className={`chart-settings-template-chip ${active ? "chart-settings-template-chip-active" : ""}`}
+                      key={preset.name}
+                      onClick={() => onLoadPreset(preset.name)}
+                      type="button"
+                    >
+                      <span className="truncate">{preset.name}</span>
+                      <span>{active ? "Active" : "Use"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+
           {activeTab === "symbol" && (
             <>
               <SettingsSection title="Visibility">
@@ -1138,29 +1167,29 @@ function ChartSettingsPanel({
       </div>
 
       <div className="chart-settings-footer">
-        <span className="study-manager-label">Template</span>
-        <ThemedSelect
-          ariaLabel="Settings templates"
-          className="h-8 w-44"
-          onChange={onLoadPreset}
-          options={
-            presets.length > 0
-              ? [
-                  { disabled: true, label: "Saved templates", value: "" },
-                  ...presets.map((preset) => ({
+        <div className="chart-settings-template-control">
+          <span className="study-manager-label">Active Template</span>
+          <ThemedSelect
+            ariaLabel="Settings templates"
+            className="h-8 w-56"
+            onChange={onLoadPreset}
+            options={
+              presets.length > 0
+                ? presets.map((preset) => ({
                     label: preset.name,
                     sublabel: new Date(preset.updatedAt).toLocaleDateString(),
                     value: preset.name,
-                  })),
-                ]
-              : [{ disabled: true, label: "No saved templates", value: "" }]
-          }
-          value={presets.some((preset) => preset.name === presetName) ? presetName : ""}
-        />
+                  }))
+                : [{ disabled: true, label: "No saved templates", value: "" }]
+            }
+            placeholder="Choose template"
+            value={presets.some((preset) => preset.name === presetName) ? presetName : ""}
+          />
+        </div>
         <input
-          className="input-control h-8 min-w-32 flex-1 text-xs"
+          className="input-control h-8 min-w-40 flex-1 text-xs"
           onChange={(event) => onPresetNameChange(event.target.value)}
-          placeholder="Template name"
+          placeholder="Save as template"
           value={presetName}
         />
         <button
@@ -1175,7 +1204,7 @@ function ChartSettingsPanel({
           type="button"
         >
           <Save size={13} />
-          Save
+          Save Template
         </button>
         <button
           className="studio-tool-button"

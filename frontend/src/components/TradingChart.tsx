@@ -225,6 +225,7 @@ export function TradingChart({
     useState<{ x: number; y: number } | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
+  const snappedCrosshairRef = useRef<string | null>(null);
 
   const displayBars = useMemo(
     () => aggregateBars(bars, timeframe),
@@ -424,6 +425,13 @@ export function TradingChart({
   useEffect(() => {
     barsRef.current = displayBars;
   }, [displayBars]);
+
+  useEffect(() => {
+    if (magnetMode === "off" || !chartSettings.crosshairVisible) {
+      chartRef.current?.clearCrosshairPosition();
+      snappedCrosshairRef.current = null;
+    }
+  }, [chartSettings.crosshairVisible, magnetMode]);
 
   useEffect(() => {
     if (!chartContainerRef.current) {
@@ -955,6 +963,60 @@ export function TradingChart({
     );
   }
 
+  function handleMagnetCrosshairMove(event: MouseEvent<HTMLDivElement>) {
+    if (magnetMode === "off" || !chartSettings.crosshairVisible) {
+      return;
+    }
+
+    const pixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
+    if (!pixel) {
+      return;
+    }
+    const point = pointFromPixel(
+      pixel.x,
+      pixel.y,
+      chartFrameRef.current,
+      chartRef.current,
+      candlesRef.current,
+      barsRef.current,
+    );
+    const snap = point
+      ? resolveOhlcSnapPoint(
+          point,
+          pixel,
+          chartRef.current,
+          candlesRef.current,
+          barsRef.current,
+          magnetMode,
+        )
+      : null;
+
+    if (!snap || !chartRef.current || !candlesRef.current) {
+      chartRef.current?.clearCrosshairPosition();
+      snappedCrosshairRef.current = null;
+      return;
+    }
+
+    const signature = `${snap.time}:${snap.price}`;
+    if (snappedCrosshairRef.current === signature) {
+      return;
+    }
+    snappedCrosshairRef.current = signature;
+    chartRef.current.setCrosshairPosition(
+      snap.price,
+      snap.time as UTCTimestamp,
+      candlesRef.current,
+    );
+  }
+
+  function handleMagnetCrosshairLeave() {
+    if (snappedCrosshairRef.current == null) {
+      return;
+    }
+    chartRef.current?.clearCrosshairPosition();
+    snappedCrosshairRef.current = null;
+  }
+
   function startDrawingDrag(
     drawing: ChartDrawing,
     mode: DragState["mode"],
@@ -1218,6 +1280,8 @@ export function TradingChart({
           <div
             ref={chartFrameRef}
             className="chart-frame"
+            onMouseLeave={handleMagnetCrosshairLeave}
+            onMouseMove={handleMagnetCrosshairMove}
             style={{ backgroundColor: chartSettings.backgroundColor }}
           >
             <div
@@ -3860,7 +3924,7 @@ function pointFromClient(
   if (!point || magnetMode === "off") {
     return point;
   }
-  return snapPointToOhlc(point, pixel, chart, series, bars, magnetMode);
+  return resolveOhlcSnapPoint(point, pixel, chart, series, bars, magnetMode) ?? point;
 }
 
 function pixelFromClient(
@@ -3930,22 +3994,22 @@ function pixelFromPoint(
   return { x, y };
 }
 
-function snapPointToOhlc(
+function resolveOhlcSnapPoint(
   point: DrawingPoint,
   cursorPixel: { x: number; y: number },
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
   bars: Candle[],
   magnetMode: MagnetMode,
-): DrawingPoint {
-  if (!chart || !series || bars.length === 0) {
-    return point;
+): DrawingPoint | null {
+  if (magnetMode === "off" || !chart || !series || bars.length === 0) {
+    return null;
   }
 
   const index = nearestBarIndexForPoint(point, bars);
   const bar = bars[index];
   if (!bar) {
-    return point;
+    return null;
   }
 
   const logical = index;
@@ -3953,7 +4017,7 @@ function snapPointToOhlc(
     chart.timeScale().logicalToCoordinate(logical as Logical) ??
     chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp);
   if (x == null) {
-    return point;
+    return null;
   }
 
   const candidates: OhlcSnapCandidate[] = [];
@@ -3974,11 +4038,11 @@ function snapPointToOhlc(
 
   const best = candidates.sort((left, right) => left.distance - right.distance)[0];
   if (!best) {
-    return point;
+    return null;
   }
 
   if (magnetMode === "weak" && best.distance > WEAK_MAGNET_THRESHOLD_PX) {
-    return point;
+    return null;
   }
 
   return best.point;
