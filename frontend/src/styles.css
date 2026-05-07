@@ -449,7 +449,7 @@ button:disabled {
   }
 
   .session-step {
-    @apply flex min-w-0 items-start gap-3 border-t border-white/10 pt-5 first:border-t-0 first:pt-0;
+    @apply flex min-w-0 flex-wrap items-start gap-3 border-t border-white/10 pt-5 first:border-t-0 first:pt-0;
   }
 
   .session-step-number {

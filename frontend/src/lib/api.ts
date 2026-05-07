@@ -24,18 +24,32 @@ export type DatasetTimeframe = {
   rows: number;
   first_timestamp: string | null;
   last_timestamp: string | null;
+  imported_at: string | null;
 };
 
 export type DatasetInstrument = {
   id: string;
   name: string;
   symbol: string;
+  currency: string;
+  timezone: string;
+  folder_path: string | null;
+  updated_at: string | null;
   timeframes: DatasetTimeframe[];
 };
 
 export type DatasetCatalog = {
   root: string;
   instruments: DatasetInstrument[];
+};
+
+export type DatasetRefreshResponse = {
+  catalog: DatasetCatalog;
+  summary: {
+    assets: number;
+    timeframes: number;
+    candles: number;
+  };
 };
 
 export type BarsResponse = {
@@ -66,6 +80,8 @@ export type BacktestSession = {
   instrument: string | null;
   timeframe: string | null;
   csv_path: string | null;
+  currency: string | null;
+  timezone: string | null;
   strategy_name: string | null;
   playbook_id: number | null;
   start_at: string | null;
@@ -224,6 +240,8 @@ export type BacktestCreatePayload = {
   instrument?: string | null;
   timeframe?: string | null;
   csv_path?: string | null;
+  currency?: string | null;
+  timezone?: string | null;
   strategy_name?: string | null;
   playbook_id?: number | null;
   start_timestamp?: string | null;
@@ -264,6 +282,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getDatasets() {
   return request<DatasetCatalog>("/datasets");
+}
+
+export function refreshDatasets() {
+  return request<DatasetRefreshResponse>("/datasets/refresh", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function patchDatasetAsset(
+  assetId: string,
+  payload: { currency?: string | null; timezone?: string | null },
+) {
+  return request<DatasetCatalog>(`/datasets/assets/${encodeURIComponent(assetId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function getMeta(sessionId?: number) {

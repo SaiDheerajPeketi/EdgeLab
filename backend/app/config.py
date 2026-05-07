@@ -10,11 +10,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True)
 class Settings:
     csv_path: Path = Path(
-        os.getenv("TRADEZELLA_CSV_PATH", PROJECT_ROOT / "EURUSD_M1.csv")
+        os.getenv("EDGELAB_CSV_PATH", PROJECT_ROOT / "EURUSD_M1.csv")
     )
     datasets_root: Path = Path(
         os.getenv(
-            "TRADEZELLA_DATASETS_ROOT",
+            "EDGELAB_DATASETS_ROOT",
             "/Users/speketi/Projects/Backtest/Datasets/Preprocessed",
         )
     )
@@ -29,7 +29,7 @@ class Settings:
         ).split(",")
         if origin.strip()
     )
-    cache_market_data: bool = os.getenv("TRADEZELLA_CACHE_MARKET_DATA", "1") != "0"
+    cache_market_data: bool = os.getenv("EDGELAB_CACHE_MARKET_DATA", "1") != "0"
 
 
 settings = Settings()

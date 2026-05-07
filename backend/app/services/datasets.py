@@ -1,8 +1,27 @@
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.schemas import DatasetCatalogResponse, DatasetInstrument, DatasetMeta, DatasetTimeframe
-from app.services.market_data import MarketDataService
+import pandas as pd
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models import DatasetAsset, DatasetCandle, DatasetTimeframe, utcnow
+from app.schemas import (
+    DatasetAssetUpdate,
+    DatasetCatalogResponse,
+    DatasetInstrument,
+    DatasetRefreshResponse,
+    DatasetRefreshSummary,
+    DatasetTimeframe as DatasetTimeframeRead,
+)
+from app.services.stored_market_data import (
+    SOURCE_TIMESTAMP_FORMAT,
+    StoredMarketDataService,
+    parse_source_timestamp,
+)
 
 
 TIMEFRAME_ORDER = {
@@ -17,100 +36,380 @@ TIMEFRAME_ORDER = {
     "Monthly": 43200,
 }
 
+REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
+INSERT_BATCH_SIZE = 1_000
+CSV_CHUNK_SIZE = 50_000
+
+
+@dataclass(frozen=True)
+class DatasetResolution:
+    csv_path: Path
+    instrument: str | None
+    timeframe: str | None
+    symbol: str
+    currency: str | None
+    timezone: str | None
+    stored: bool
+
 
 class DatasetCatalogService:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, session_factory: sessionmaker):
         self.root = root
-        self._cache: DatasetCatalogResponse | None = None
+        self.session_factory = session_factory
         self._lock = Lock()
 
-    def list_catalog(self, refresh: bool = False) -> DatasetCatalogResponse:
-        if self._cache is not None and not refresh:
-            return self._cache
+    def list_catalog(self, db: Session) -> DatasetCatalogResponse:
+        return self._catalog_from_store(db)
 
+    def refresh_catalog(self, db: Session) -> DatasetRefreshResponse:
         with self._lock:
-            if self._cache is None or refresh:
-                self._cache = self._scan()
-        return self._cache
+            summary = self._scan_and_upsert(db)
+            db.commit()
+            return DatasetRefreshResponse(
+                catalog=self._catalog_from_store(db),
+                summary=summary,
+            )
 
-    def resolve_csv(
+    def update_asset(
         self,
+        db: Session,
+        asset_id: str,
+        payload: DatasetAssetUpdate,
+    ) -> DatasetCatalogResponse:
+        asset = db.get(DatasetAsset, asset_id)
+        if asset is None:
+            raise FileNotFoundError(f"Dataset asset not found: {asset_id}")
+        if payload.currency is not None:
+            asset.currency = payload.currency.strip().upper()
+        if payload.timezone is not None:
+            timezone = payload.timezone.strip()
+            validate_timezone(timezone)
+            asset.timezone = timezone
+        asset.updated_at = utcnow()
+        db.commit()
+        return self._catalog_from_store(db)
+
+    def resolve_dataset(
+        self,
+        db: Session,
         *,
         csv_path: str | None = None,
         instrument: str | None = None,
         timeframe: str | None = None,
-    ) -> tuple[Path, str | None, str | None, str]:
+    ) -> DatasetResolution:
         if csv_path:
             path = Path(csv_path).expanduser()
+            stored = db.scalar(
+                select(DatasetTimeframe).where(DatasetTimeframe.csv_path == str(path))
+            )
+            if stored is not None:
+                asset = db.get(DatasetAsset, stored.asset_id)
+                return DatasetResolution(
+                    csv_path=Path(stored.csv_path),
+                    instrument=stored.asset_id,
+                    timeframe=stored.timeframe,
+                    symbol=asset.symbol if asset else self._symbol_from_asset_id(stored.asset_id),
+                    currency=asset.currency if asset else None,
+                    timezone=asset.timezone if asset else None,
+                    stored=True,
+                )
             if not path.exists():
                 raise FileNotFoundError(f"Dataset CSV not found: {path}")
-            symbol = self._symbol_from_file(path)
-            return path, instrument, timeframe, symbol
+            return DatasetResolution(
+                csv_path=path,
+                instrument=instrument,
+                timeframe=timeframe,
+                symbol=self._symbol_from_file(path, instrument),
+                currency=None,
+                timezone=None,
+                stored=False,
+            )
 
         if not instrument or not timeframe:
             raise ValueError("instrument and timeframe are required when csv_path is not provided")
 
         wanted_instrument = normalize_key(instrument)
         wanted_timeframe = normalize_timeframe(timeframe)
-        catalog = self.list_catalog()
-        for item in catalog.instruments:
-            if normalize_key(item.id) != wanted_instrument and normalize_key(item.name) != wanted_instrument:
+        rows = db.scalars(select(DatasetAsset)).all()
+        for asset in rows:
+            if (
+                normalize_key(asset.id) != wanted_instrument
+                and normalize_key(asset.name) != wanted_instrument
+                and normalize_key(asset.symbol) != wanted_instrument
+            ):
                 continue
-            for candidate in item.timeframes:
-                if normalize_timeframe(candidate.timeframe) == wanted_timeframe:
-                    return Path(candidate.csv_path), item.id, candidate.timeframe, item.symbol
-        raise FileNotFoundError(f"No dataset found for {instrument} {timeframe}")
+            dataset_timeframe = db.scalar(
+                select(DatasetTimeframe).where(
+                    DatasetTimeframe.asset_id == asset.id,
+                    DatasetTimeframe.timeframe == wanted_timeframe,
+                )
+            )
+            if dataset_timeframe is not None:
+                return DatasetResolution(
+                    csv_path=Path(dataset_timeframe.csv_path),
+                    instrument=asset.id,
+                    timeframe=dataset_timeframe.timeframe,
+                    symbol=asset.symbol,
+                    currency=asset.currency,
+                    timezone=asset.timezone,
+                    stored=True,
+                )
+        raise FileNotFoundError(f"No imported dataset found for {instrument} {timeframe}")
 
-    def _scan(self) -> DatasetCatalogResponse:
-        instruments: list[DatasetInstrument] = []
+    def market_data_for_dataset(self, asset_id: str, timeframe: str) -> StoredMarketDataService:
+        return StoredMarketDataService(asset_id, timeframe, self.session_factory)
+
+    def stored_market_data_for(
+        self,
+        asset_id: str | None,
+        timeframe: str | None,
+        csv_path: str | None = None,
+    ) -> StoredMarketDataService | None:
+        if not asset_id or not timeframe:
+            return None
+        with self.session_factory() as db:
+            stored = db.scalar(
+                select(DatasetTimeframe).where(
+                    DatasetTimeframe.asset_id == asset_id,
+                    DatasetTimeframe.timeframe == timeframe,
+                )
+            )
+        if stored is None:
+            return None
+        if csv_path is not None and stored.csv_path != csv_path:
+            return None
+        return self.market_data_for_dataset(asset_id, timeframe)
+
+    def _scan_and_upsert(self, db: Session) -> DatasetRefreshSummary:
         if not self.root.exists():
-            return DatasetCatalogResponse(root=str(self.root), instruments=[])
+            return DatasetRefreshSummary(assets=0, timeframes=0, candles=0)
+
+        seen_assets: set[str] = set()
+        imported_assets = 0
+        imported_timeframes = 0
+        imported_candles = 0
 
         for directory in sorted(item for item in self.root.iterdir() if item.is_dir()):
-            timeframes: list[DatasetTimeframe] = []
-            symbol = directory.name.replace("_", "")
+            asset_id = directory.name
+            seen_assets.add(asset_id)
+            asset = db.get(DatasetAsset, asset_id)
+            if asset is None:
+                asset = DatasetAsset(
+                    id=asset_id,
+                    name=directory.name.replace("_", "/"),
+                    symbol=self._symbol_from_asset_id(asset_id),
+                    folder_path=str(directory),
+                    currency="USD",
+                    timezone="UTC",
+                )
+                db.add(asset)
+                db.flush()
+            else:
+                asset.name = directory.name.replace("_", "/")
+                asset.symbol = self._symbol_from_asset_id(asset_id)
+                asset.folder_path = str(directory)
+            imported_assets += 1
+
+            seen_timeframes: set[str] = set()
             for csv_path in sorted(directory.glob("*.csv")):
                 timeframe = self._timeframe_from_file(csv_path)
                 if timeframe is None:
                     continue
-                metadata = self._metadata(csv_path)
-                symbol = self._symbol_from_file(csv_path) or symbol
-                timeframes.append(
-                    DatasetTimeframe(
-                        timeframe=timeframe,
-                        csv_path=str(csv_path),
-                        rows=metadata.rows,
-                        first_timestamp=metadata.first_timestamp,
-                        last_timestamp=metadata.last_timestamp,
-                    )
-                )
-            if timeframes:
-                timeframes.sort(key=lambda item: TIMEFRAME_ORDER.get(item.timeframe, 999999))
-                instruments.append(
-                    DatasetInstrument(
-                        id=directory.name,
-                        name=directory.name.replace("_", "/"),
-                        symbol=symbol,
-                        timeframes=timeframes,
-                    )
-                )
+                seen_timeframes.add(timeframe)
+                imported_timeframes += 1
+                imported_candles += self._upsert_timeframe(db, asset, timeframe, csv_path)
 
+            for stale_timeframe in list(asset.timeframes):
+                if stale_timeframe.timeframe not in seen_timeframes:
+                    db.execute(
+                        delete(DatasetCandle).where(
+                            DatasetCandle.asset_id == asset.id,
+                            DatasetCandle.timeframe == stale_timeframe.timeframe,
+                        )
+                    )
+                    db.delete(stale_timeframe)
+
+        for stale_asset in db.scalars(select(DatasetAsset)).all():
+            if stale_asset.id in seen_assets:
+                continue
+            db.execute(delete(DatasetCandle).where(DatasetCandle.asset_id == stale_asset.id))
+            db.delete(stale_asset)
+
+        return DatasetRefreshSummary(
+            assets=imported_assets,
+            timeframes=imported_timeframes,
+            candles=imported_candles,
+        )
+
+    def _upsert_timeframe(
+        self,
+        db: Session,
+        asset: DatasetAsset,
+        timeframe: str,
+        csv_path: Path,
+    ) -> int:
+        stat = csv_path.stat()
+        existing = db.scalar(
+            select(DatasetTimeframe).where(
+                DatasetTimeframe.asset_id == asset.id,
+                DatasetTimeframe.timeframe == timeframe,
+            )
+        )
+        unchanged = (
+            existing is not None
+            and existing.csv_path == str(csv_path)
+            and existing.file_size == stat.st_size
+            and existing.file_mtime_ns == stat.st_mtime_ns
+            and existing.rows > 0
+        )
+        if unchanged:
+            existing.updated_at = utcnow()
+            return 0
+
+        db.execute(
+            delete(DatasetCandle).where(
+                DatasetCandle.asset_id == asset.id,
+                DatasetCandle.timeframe == timeframe,
+            )
+        )
+        rows, first_timestamp, last_timestamp = self._import_candles(
+            db,
+            asset_id=asset.id,
+            timeframe=timeframe,
+            csv_path=csv_path,
+        )
+        if existing is None:
+            existing = DatasetTimeframe(asset_id=asset.id, timeframe=timeframe, csv_path=str(csv_path))
+            db.add(existing)
+        existing.csv_path = str(csv_path)
+        existing.rows = rows
+        existing.first_timestamp = first_timestamp
+        existing.last_timestamp = last_timestamp
+        existing.file_size = stat.st_size
+        existing.file_mtime_ns = stat.st_mtime_ns
+        existing.imported_at = utcnow()
+        existing.updated_at = utcnow()
+        return rows
+
+    def _import_candles(
+        self,
+        db: Session,
+        *,
+        asset_id: str,
+        timeframe: str,
+        csv_path: Path,
+    ) -> tuple[int, str | None, str | None]:
+        rows = 0
+        first_timestamp = None
+        last_timestamp = None
+        for chunk in pd.read_csv(csv_path, chunksize=CSV_CHUNK_SIZE):
+            missing = [column for column in REQUIRED_COLUMNS if column not in chunk.columns]
+            if missing:
+                raise ValueError(f"CSV is missing required columns: {', '.join(missing)}")
+
+            parsed_timestamps = pd.to_datetime(chunk["Timestamp"], format="mixed", errors="coerce")
+            normalized = parsed_timestamps.dt.strftime(SOURCE_TIMESTAMP_FORMAT)
+            normalized = normalized.where(parsed_timestamps.notna(), None)
+            valid = chunk.assign(_timestamp=normalized).dropna(subset=["_timestamp"])
+            if valid.empty:
+                continue
+
+            records = []
+            for row in valid[["_timestamp", "Open", "High", "Low", "Close", "Volume"]].to_dict(
+                "records"
+            ):
+                records.append(
+                    {
+                        "asset_id": asset_id,
+                        "timeframe": timeframe,
+                        "timestamp": str(row["_timestamp"]),
+                        "open": float(row["Open"]),
+                        "high": float(row["High"]),
+                        "low": float(row["Low"]),
+                        "close": float(row["Close"]),
+                        "volume": float(row["Volume"]),
+                    }
+                )
+            for start in range(0, len(records), INSERT_BATCH_SIZE):
+                batch = records[start : start + INSERT_BATCH_SIZE]
+                statement = sqlite_insert(DatasetCandle).values(batch)
+                statement = statement.on_conflict_do_update(
+                    index_elements=["asset_id", "timeframe", "timestamp"],
+                    set_={
+                        "open": statement.excluded.open,
+                        "high": statement.excluded.high,
+                        "low": statement.excluded.low,
+                        "close": statement.excluded.close,
+                        "volume": statement.excluded.volume,
+                    },
+                )
+                db.execute(statement)
+
+            rows += len(records)
+            first_timestamp = first_timestamp or records[0]["timestamp"]
+            last_timestamp = records[-1]["timestamp"]
+
+        return rows, first_timestamp, last_timestamp
+
+    def _catalog_from_store(self, db: Session) -> DatasetCatalogResponse:
+        instruments: list[DatasetInstrument] = []
+        assets = db.scalars(select(DatasetAsset).order_by(DatasetAsset.name.asc())).all()
+        for asset in assets:
+            timeframes = db.scalars(
+                select(DatasetTimeframe).where(DatasetTimeframe.asset_id == asset.id)
+            ).all()
+            timeframe_reads = [
+                DatasetTimeframeRead(
+                    timeframe=item.timeframe,
+                    csv_path=item.csv_path,
+                    rows=item.rows,
+                    first_timestamp=parse_source_timestamp(item.first_timestamp, asset.timezone),
+                    last_timestamp=parse_source_timestamp(item.last_timestamp, asset.timezone),
+                    imported_at=item.imported_at,
+                )
+                for item in sorted(
+                    timeframes,
+                    key=lambda row: TIMEFRAME_ORDER.get(row.timeframe, 999999),
+                )
+            ]
+            if not timeframe_reads:
+                continue
+            instruments.append(
+                DatasetInstrument(
+                    id=asset.id,
+                    name=asset.name,
+                    symbol=asset.symbol,
+                    currency=asset.currency,
+                    timezone=asset.timezone,
+                    folder_path=asset.folder_path,
+                    updated_at=asset.updated_at,
+                    timeframes=timeframe_reads,
+                )
+            )
         return DatasetCatalogResponse(root=str(self.root), instruments=instruments)
-
-    def _metadata(self, csv_path: Path) -> DatasetMeta:
-        return MarketDataService(csv_path, cache=False).get_metadata()
 
     def _timeframe_from_file(self, csv_path: Path) -> str | None:
         suffix = csv_path.stem.split("_")[-1]
-        return suffix if suffix in TIMEFRAME_ORDER else None
+        return normalize_timeframe(suffix) if normalize_timeframe(suffix) in TIMEFRAME_ORDER else None
 
-    def _symbol_from_file(self, csv_path: Path) -> str:
-        parts = csv_path.stem.split("_")
-        return parts[0] if parts else csv_path.stem
+    def _symbol_from_asset_id(self, asset_id: str) -> str:
+        return asset_id.replace("_", "").replace("/", "").upper()
+
+    def _symbol_from_file(self, csv_path: Path, fallback: str | None = None) -> str:
+        if fallback:
+            return self._symbol_from_asset_id(fallback)
+        return self._symbol_from_asset_id(csv_path.parent.name or csv_path.stem)
+
+
+def validate_timezone(value: str) -> None:
+    try:
+        ZoneInfo(value or "UTC")
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"Unknown timestamp timezone: {value}") from exc
 
 
 def normalize_key(value: str) -> str:
-    return value.replace("/", "_").upper()
+    return value.replace("/", "_").replace(" ", "_").upper()
 
 
 def normalize_timeframe(value: str) -> str:
@@ -140,4 +439,5 @@ def normalize_timeframe(value: str) -> str:
         "1MO": "Monthly",
         "Monthly": "Monthly",
     }
-    return aliases.get(value, aliases.get(value.upper(), value))
+    normalized = aliases.get(value, aliases.get(value.upper(), value))
+    return normalized.upper() if normalized.upper() in TIMEFRAME_ORDER else normalized

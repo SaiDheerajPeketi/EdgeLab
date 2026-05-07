@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
@@ -10,8 +10,10 @@ from app.schemas import (
     BacktestSessionRead,
     BacktestState,
     BarsResponse,
+    DatasetAssetUpdate,
     DatasetCatalogResponse,
     DatasetMeta,
+    DatasetRefreshResponse,
     JournalUpdate,
     MetricsResponse,
     OrderCreate,
@@ -28,7 +30,7 @@ from app.services.metrics import get_metrics
 
 router = APIRouter()
 market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
-dataset_catalog = DatasetCatalogService(settings.datasets_root)
+dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
 
 
@@ -52,10 +54,32 @@ def market_data_meta(
 
 
 @router.get("/datasets", response_model=DatasetCatalogResponse)
-def datasets(refresh: bool = Query(default=False)) -> DatasetCatalogResponse:
+def datasets(db: Session = Depends(get_db)) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.list_catalog(refresh=refresh)
+        return dataset_catalog.list_catalog(db)
     except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/datasets/refresh", response_model=DatasetRefreshResponse)
+def refresh_datasets(db: Session = Depends(get_db)) -> DatasetRefreshResponse:
+    try:
+        return dataset_catalog.refresh_catalog(db)
+    except (FileNotFoundError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/datasets/assets/{asset_id}", response_model=DatasetCatalogResponse)
+def update_dataset_asset(
+    asset_id: str,
+    payload: DatasetAssetUpdate,
+    db: Session = Depends(get_db),
+) -> DatasetCatalogResponse:
+    try:
+        return dataset_catalog.update_asset(db, asset_id, payload)
+    except (FileNotFoundError, ValueError) as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

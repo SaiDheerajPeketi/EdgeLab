@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -19,6 +19,8 @@ class BacktestSession(Base):
     instrument: Mapped[str | None] = mapped_column(String(80), nullable=True)
     timeframe: Mapped[str | None] = mapped_column(String(20), nullable=True)
     csv_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(80), nullable=True)
     strategy_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     playbook_id: Mapped[int | None] = mapped_column(ForeignKey("playbooks.id"), nullable=True)
     start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -46,6 +48,61 @@ class BacktestSession(Base):
     position: Mapped["Position | None"] = relationship(
         back_populates="session", cascade="all, delete-orphan", uselist=False
     )
+
+
+class DatasetAsset(Base):
+    __tablename__ = "dataset_assets"
+
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    folder_path: Mapped[str] = mapped_column(Text, nullable=False)
+    currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), default="UTC", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    timeframes: Mapped[list["DatasetTimeframe"]] = relationship(
+        back_populates="asset", cascade="all, delete-orphan"
+    )
+
+
+class DatasetTimeframe(Base):
+    __tablename__ = "dataset_timeframes"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "timeframe", name="uq_dataset_timeframes_asset_timeframe"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("dataset_assets.id"), index=True)
+    timeframe: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    csv_path: Mapped[str] = mapped_column(Text, nullable=False)
+    rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_timestamp: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_timestamp: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    file_mtime_ns: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    asset: Mapped[DatasetAsset] = relationship(back_populates="timeframes")
+
+
+class DatasetCandle(Base):
+    __tablename__ = "dataset_candles"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "timeframe", "timestamp", name="uq_dataset_candles_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("dataset_assets.id"), index=True)
+    timeframe: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    timestamp: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    open: Mapped[float] = mapped_column(Float, nullable=False)
+    high: Mapped[float] = mapped_column(Float, nullable=False)
+    low: Mapped[float] = mapped_column(Float, nullable=False)
+    close: Mapped[float] = mapped_column(Float, nullable=False)
+    volume: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
 
 class Playbook(Base):

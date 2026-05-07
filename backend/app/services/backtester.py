@@ -49,16 +49,34 @@ class BacktestService:
         instrument = payload.instrument
         timeframe = payload.timeframe
         symbol = payload.symbol
+        currency = payload.currency
+        timestamp_timezone = payload.timezone
+        stored_market_data = None
         if self.dataset_catalog is not None and (
             payload.csv_path or payload.instrument or payload.timeframe
         ):
-            csv_path, instrument, timeframe, symbol = self.dataset_catalog.resolve_csv(
+            resolution = self.dataset_catalog.resolve_dataset(
+                db,
                 csv_path=payload.csv_path,
                 instrument=payload.instrument,
                 timeframe=payload.timeframe,
             )
+            csv_path = resolution.csv_path
+            instrument = resolution.instrument
+            timeframe = resolution.timeframe
+            symbol = resolution.symbol
+            currency = currency or resolution.currency
+            timestamp_timezone = timestamp_timezone or resolution.timezone
+            if resolution.stored and instrument and timeframe:
+                stored_market_data = self.dataset_catalog.market_data_for_dataset(
+                    instrument,
+                    timeframe,
+                )
 
-        market_data = self.market_data_for_path(str(csv_path))
+        market_data = stored_market_data or self.market_data_for_path(
+            str(csv_path),
+            timestamp_timezone or "UTC",
+        )
         metadata = market_data.get_metadata()
         start_offset = payload.initial_offset
         if payload.start_timestamp is not None:
@@ -79,6 +97,8 @@ class BacktestService:
             instrument=instrument,
             timeframe=timeframe,
             csv_path=str(csv_path),
+            currency=currency,
+            timezone=timestamp_timezone,
             strategy_name=payload.strategy_name,
             playbook_id=payload.playbook_id,
             start_at=payload.start_timestamp,
@@ -812,15 +832,28 @@ class BacktestService:
         return self._session_or_404(db, session_id)
 
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
-        return self.market_data_for_path(session.csv_path or str(self.market_data.csv_path))
+        if self.dataset_catalog is not None:
+            stored_market_data = self.dataset_catalog.stored_market_data_for(
+                session.instrument,
+                session.timeframe,
+                session.csv_path,
+            )
+            if stored_market_data is not None:
+                return stored_market_data
+        return self.market_data_for_path(
+            session.csv_path or str(self.market_data.csv_path),
+            session.timezone or "UTC",
+        )
 
-    def market_data_for_path(self, csv_path: str) -> MarketDataService:
-        if csv_path not in self._market_data_cache:
-            self._market_data_cache[csv_path] = MarketDataService(
+    def market_data_for_path(self, csv_path: str, timestamp_timezone: str = "UTC") -> MarketDataService:
+        cache_key = f"{csv_path}::{timestamp_timezone or 'UTC'}"
+        if cache_key not in self._market_data_cache:
+            self._market_data_cache[cache_key] = MarketDataService(
                 Path(csv_path),
                 cache=self.market_data.cache,
+                timestamp_timezone=timestamp_timezone or "UTC",
             )
-        return self._market_data_cache[csv_path]
+        return self._market_data_cache[cache_key]
 
     def _order_or_404(self, db: Session, session_id: int, order_id: int) -> Order:
         order = db.scalar(

@@ -6,6 +6,7 @@ import {
   Candle,
   DatasetCatalog,
   DatasetMeta,
+  DatasetRefreshResponse,
   JournalPayload,
   OrderPayload,
   OrderUpdatePayload,
@@ -24,10 +25,12 @@ import {
   getPlaybooks,
   getTrades,
   jumpBacktest,
+  patchDatasetAsset,
   patchBacktestOrder,
   patchJournal,
   postBacktestOrder,
   postPlaybook,
+  refreshDatasets as refreshDatasetsApi,
 } from "../lib/api";
 
 const WINDOW_SIZE = 1500;
@@ -50,6 +53,11 @@ type BacktestStore = {
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   loadInitial: () => Promise<void>;
   refreshPlaybooks: () => Promise<void>;
+  refreshDatasets: () => Promise<DatasetRefreshResponse["summary"] | null>;
+  updateDatasetAsset: (
+    assetId: string,
+    payload: { currency?: string | null; timezone?: string | null },
+  ) => Promise<void>;
   refreshResults: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
@@ -136,6 +144,27 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       const playbooks = await getPlaybooks();
       set({ playbooks, error: null });
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+    }
+  },
+
+  refreshDatasets: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await refreshDatasetsApi();
+      set({ datasets: response.catalog, isLoading: false, error: null });
+      return response.summary;
+    } catch (error) {
+      set({ error: toErrorMessage(error), isLoading: false });
+      return null;
+    }
+  },
+
+  updateDatasetAsset: async (assetId, payload) => {
+    try {
+      const datasets = await patchDatasetAsset(assetId, payload);
+      set({ datasets, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
     }

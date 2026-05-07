@@ -48,6 +48,8 @@ def _migrate_sqlite_columns() -> None:
         "instrument": "VARCHAR(80)",
         "timeframe": "VARCHAR(20)",
         "csv_path": "TEXT",
+        "currency": "VARCHAR(12)",
+        "timezone": "VARCHAR(80)",
         "strategy_name": "VARCHAR(120)",
         "playbook_id": "INTEGER",
         "start_at": "DATETIME",

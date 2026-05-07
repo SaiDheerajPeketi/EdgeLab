@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
@@ -14,9 +15,10 @@ DEFAULT_WARMUP = 120
 
 
 class MarketDataService:
-    def __init__(self, csv_path: Path, cache: bool = True):
+    def __init__(self, csv_path: Path, cache: bool = True, timestamp_timezone: str = "UTC"):
         self.csv_path = csv_path
         self.cache = cache
+        self.timestamp_timezone = timestamp_timezone or "UTC"
         self._frame: pd.DataFrame | None = None
         self._metadata: DatasetMeta | None = None
         self._lock = Lock()
@@ -112,9 +114,9 @@ class MarketDataService:
         return response.bars[0] if response.bars else None
 
     def find_offset_at_or_after(self, timestamp: datetime) -> int | None:
+        target = pd.Timestamp(self._to_source_naive(timestamp))
         if self.cache:
             frame = self._get_frame()
-            target = pd.Timestamp(timestamp.replace(tzinfo=None))
             positions = frame["Timestamp"].searchsorted(target, side="left")
             if positions >= len(frame):
                 return None
@@ -129,7 +131,6 @@ class MarketDataService:
                 date_format="mixed",
             )
         ):
-            target = pd.Timestamp(timestamp.replace(tzinfo=None))
             positions = frame["Timestamp"].searchsorted(target, side="left")
             if positions < len(frame):
                 return chunk_index * chunk_size + int(positions)
@@ -172,7 +173,7 @@ class MarketDataService:
         else:
             dt = self._parse_timestamp(timestamp)
 
-        epoch = int(dt.replace(tzinfo=timezone.utc).timestamp())
+        epoch = int(self._local_to_utc(dt).timestamp())
         return Candle(
             time=epoch,
             timestamp=dt,
@@ -210,6 +211,24 @@ class MarketDataService:
             return datetime.strptime(text, DATE_FORMAT)
         except ValueError:
             return datetime.strptime(text, "%Y-%m-%d")
+
+    def _local_to_utc(self, value: datetime) -> datetime:
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc)
+        try:
+            source_timezone = ZoneInfo(self.timestamp_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timestamp timezone: {self.timestamp_timezone}") from exc
+        return value.replace(tzinfo=source_timezone).astimezone(timezone.utc)
+
+    def _to_source_naive(self, value: datetime) -> datetime:
+        try:
+            source_timezone = ZoneInfo(self.timestamp_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timestamp timezone: {self.timestamp_timezone}") from exc
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(source_timezone).replace(tzinfo=None)
 
     def _count_data_rows(self) -> int:
         with self.csv_path.open("rb") as handle:

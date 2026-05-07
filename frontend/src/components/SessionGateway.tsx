@@ -7,9 +7,11 @@ import {
   CheckCircle2,
   Database,
   FileText,
+  Globe2,
   PlayCircle,
   RefreshCw,
   RotateCcw,
+  Save,
   Target,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -33,6 +35,11 @@ type Props = {
   isLoading: boolean;
   onCreateSession: (payload: BacktestCreatePayload) => Promise<void>;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
+  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
+  onUpdateDatasetAsset: (
+    assetId: string,
+    payload: { currency?: string | null; timezone?: string | null },
+  ) => Promise<void>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   playbooks: Playbook[];
   session: BacktestSession | null;
@@ -47,6 +54,8 @@ export function SessionGateway({
   isLoading,
   onCreateSession,
   onCreatePlaybook,
+  onRefreshDatasets,
+  onUpdateDatasetAsset,
   onResumeSession,
   playbooks,
   session,
@@ -69,6 +78,11 @@ export function SessionGateway({
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selectedStrategyName, setSelectedStrategyName] = useState<string | null>(null);
+  const [assetCurrency, setAssetCurrency] = useState("");
+  const [assetTimezone, setAssetTimezone] = useState("");
+  const [assetSaving, setAssetSaving] = useState(false);
+  const [datasetRefreshing, setDatasetRefreshing] = useState(false);
+  const [datasetStatus, setDatasetStatus] = useState<string | null>(null);
 
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
@@ -115,6 +129,11 @@ export function SessionGateway({
     setStartDate(defaultReplayStartValue(selectedTimeframe));
     setEndDate(toLocalInputValue(selectedTimeframe.last_timestamp));
   }, [selectedTimeframe?.csv_path]);
+
+  useEffect(() => {
+    setAssetCurrency(selectedInstrument?.currency ?? "USD");
+    setAssetTimezone(selectedInstrument?.timezone ?? "UTC");
+  }, [selectedInstrument?.id, selectedInstrument?.currency, selectedInstrument?.timezone]);
 
   useEffect(() => {
     if (playbooks.length > 0 && !playbookId) {
@@ -171,6 +190,8 @@ export function SessionGateway({
         instrument: selectedInstrument.id,
         timeframe: selectedTimeframe.timeframe,
         csv_path: selectedTimeframe.csv_path,
+        currency: selectedInstrument.currency,
+        timezone: selectedInstrument.timezone,
         strategy_name: strategy.trim(),
         playbook_id: attachedPlaybookId,
         start_timestamp: startDate ? new Date(startDate).toISOString() : null,
@@ -179,6 +200,37 @@ export function SessionGateway({
       });
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleRefreshDatasets() {
+    setDatasetRefreshing(true);
+    setDatasetStatus(null);
+    try {
+      const summary = await onRefreshDatasets();
+      if (summary) {
+        setDatasetStatus(
+          `${summary.assets} assets, ${summary.timeframes} timeframes, ${summary.candles.toLocaleString()} candles imported`,
+        );
+      }
+    } finally {
+      setDatasetRefreshing(false);
+    }
+  }
+
+  async function handleSaveAssetMetadata() {
+    if (!selectedInstrument) {
+      return;
+    }
+    setAssetSaving(true);
+    try {
+      await onUpdateDatasetAsset(selectedInstrument.id, {
+        currency: assetCurrency.trim() || null,
+        timezone: assetTimezone.trim() || null,
+      });
+      setDatasetStatus(`${formatMarketSymbol(selectedInstrument.symbol)} metadata saved`);
+    } finally {
+      setAssetSaving(false);
     }
   }
 
@@ -393,6 +445,15 @@ export function SessionGateway({
               Pick the instrument, timeframe, and replay date range before opening the chart.
             </p>
           </div>
+          <button
+            className="control-button ml-auto h-9 border-cyan-300/30 bg-cyan-300/10 px-3 text-xs text-cyan-100 hover:bg-cyan-300/20"
+            disabled={datasetRefreshing || isLoading}
+            onClick={handleRefreshDatasets}
+            type="button"
+          >
+            <RefreshCw size={14} className={datasetRefreshing ? "animate-spin" : ""} />
+            Refresh Data
+          </button>
         </div>
         <div className="space-y-3">
           <div className="session-instrument-grid">
@@ -434,6 +495,50 @@ export function SessionGateway({
                   {item.timeframe}
                 </button>
               ))}
+            </div>
+          )}
+
+          {selectedInstrument && (
+            <div className="grid gap-3 rounded-md border border-white/10 bg-black/20 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+              <label className="form-field">
+                <span>Asset Currency</span>
+                <input
+                  className="input-control h-11 uppercase"
+                  maxLength={12}
+                  onChange={(event) => setAssetCurrency(event.target.value)}
+                  value={assetCurrency}
+                />
+              </label>
+              <label className="form-field">
+                <span>Timestamp Timezone</span>
+                <input
+                  className="input-control h-11 normal-case tracking-normal"
+                  onChange={(event) => setAssetTimezone(event.target.value)}
+                  placeholder="UTC, America/New_York, Asia/Kolkata"
+                  value={assetTimezone}
+                />
+              </label>
+              <button
+                className="control-button h-11 self-end border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+                disabled={assetSaving}
+                onClick={handleSaveAssetMetadata}
+                type="button"
+              >
+                {assetSaving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                Save Asset
+              </button>
+              <div className="flex min-w-0 items-center gap-2 text-xs text-slate-500 xl:col-span-3">
+                <Globe2 size={14} />
+                <span className="truncate">
+                  {selectedInstrument.folder_path ?? datasets?.root ?? "Imported dataset"}
+                </span>
+                {datasetStatus && (
+                  <>
+                    <span>·</span>
+                    <span className="text-cyan-100">{datasetStatus}</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

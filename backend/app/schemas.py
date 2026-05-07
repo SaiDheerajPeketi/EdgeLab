@@ -44,18 +44,39 @@ class DatasetTimeframe(BaseModel):
     rows: int
     first_timestamp: datetime | None
     last_timestamp: datetime | None
+    imported_at: datetime | None = None
 
 
 class DatasetInstrument(BaseModel):
     id: str
     name: str
     symbol: str
+    currency: str = "USD"
+    timezone: str = "UTC"
+    folder_path: str | None = None
+    updated_at: datetime | None = None
     timeframes: list[DatasetTimeframe]
 
 
 class DatasetCatalogResponse(BaseModel):
     root: str
     instruments: list[DatasetInstrument]
+
+
+class DatasetRefreshSummary(BaseModel):
+    assets: int
+    timeframes: int
+    candles: int
+
+
+class DatasetRefreshResponse(BaseModel):
+    catalog: DatasetCatalogResponse
+    summary: DatasetRefreshSummary
+
+
+class DatasetAssetUpdate(BaseModel):
+    currency: str | None = Field(default=None, min_length=1, max_length=12)
+    timezone: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class PlaybookCreate(BaseModel):
@@ -77,6 +98,8 @@ class BacktestCreate(BaseModel):
     instrument: str | None = None
     timeframe: str | None = None
     csv_path: str | None = None
+    currency: str | None = None
+    timezone: str | None = None
     strategy_name: str | None = None
     playbook_id: int | None = None
     start_timestamp: datetime | None = None
@@ -94,6 +117,8 @@ class BacktestSessionRead(BaseModel):
     instrument: str | None = None
     timeframe: str | None = None
     csv_path: str | None = None
+    currency: str | None = None
+    timezone: str | None = None
     strategy_name: str | None = None
     playbook_id: int | None = None
     start_at: datetime | None = None

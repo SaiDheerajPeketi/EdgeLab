@@ -123,6 +123,8 @@ export default function App() {
     loadSession,
     loadInitial,
     newSession,
+    refreshDatasets,
+    updateDatasetAsset,
     jumpToOffset,
     setPlaying,
     stepForward,
@@ -848,6 +850,8 @@ export default function App() {
                 isLoading={isLoading}
                 onCreateSession={createSessionFromGateway}
                 onCreatePlaybook={createPlaybook}
+                onRefreshDatasets={refreshDatasets}
+                onUpdateDatasetAsset={updateDatasetAsset}
                 onResumeSession={resumeSessionFromGateway}
                 playbooks={playbooks}
                 session={state?.session ?? null}
