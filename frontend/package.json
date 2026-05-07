@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1 --force",
     "build": "tsc -b && vite build",
+    "postbuild": "node ../scripts/purge-vite-cache.js",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
