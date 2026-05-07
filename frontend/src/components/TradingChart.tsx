@@ -937,13 +937,13 @@ export function TradingChart({
 
     if (drawingTool === "horizontal") {
       onAddDrawing(makeDrawing("horizontal", [point]));
-      onDrawingToolChange("cursor");
+      onDrawingToolChange("crosshair");
       return;
     }
 
     if (drawingTool === "text") {
       onAddDrawing(makeDrawing("text", [point], "Text"));
-      onDrawingToolChange("cursor");
+      onDrawingToolChange("crosshair");
       setDraftDrawing(null);
       setHoverPoint(null);
       return;
@@ -955,7 +955,7 @@ export function TradingChart({
     }
 
     onAddDrawing(makeDrawing(drawingTool, [draftDrawing.point, point]));
-    onDrawingToolChange("cursor");
+    onDrawingToolChange("crosshair");
     setDraftDrawing(null);
     setHoverPoint(null);
   }

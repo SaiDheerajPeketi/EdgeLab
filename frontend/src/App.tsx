@@ -161,7 +161,7 @@ export default function App() {
       saved?.indicatorSettings,
     );
   });
-  const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>("crosshair");
   const [magnetMode, setMagnetMode] = useState<MagnetMode>(() => {
     const saved = loadChartLayout();
     return sanitizeMagnetMode(saved?.magnetMode);
@@ -340,8 +340,8 @@ export default function App() {
           break;
         case "Escape":
           event.preventDefault();
-          if (drawingTool !== "cursor") {
-            setDrawingTool("cursor");
+          if (drawingTool !== "crosshair") {
+            setDrawingTool("crosshair");
             setSelectedDrawingId(null);
             break;
           }
