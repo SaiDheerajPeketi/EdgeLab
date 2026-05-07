@@ -1,5 +1,10 @@
 import { Check, ChevronDown } from "lucide-react";
-import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import type {
+  KeyboardEvent,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -53,6 +58,7 @@ export function ThemedSelect({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const selectedValue = value ?? internalValue;
   const selectedOption = options.find((option) => option.value === selectedValue);
+  const portalHost = portal ? currentPortalHost() : null;
 
   useEffect(() => {
     if (value == null) {
@@ -147,6 +153,15 @@ export function ThemedSelect({
     choose(nextValue);
   }
 
+  function handleTriggerPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (disabled || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.focus({ preventScroll: true });
+    setOpen((current) => !current);
+  }
+
   function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (disabled) {
       return;
@@ -223,8 +238,8 @@ export function ThemedSelect({
         aria-label={ariaLabel}
         className="themed-select-trigger"
         disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
         onKeyDown={handleTriggerKeyDown}
+        onPointerDown={handleTriggerPointerDown}
         type="button"
       >
         <span className={`themed-select-value ${selectedOption ? "" : "text-slate-500"}`}>
@@ -233,7 +248,11 @@ export function ThemedSelect({
         <ChevronDown className={`themed-select-chevron ${open ? "rotate-180" : ""}`} size={15} />
       </button>
 
-      {portal ? floatingPosition && menu && createPortal(menu, document.body) : menu}
+      {portal ? floatingPosition && menu && portalHost && createPortal(menu, portalHost) : menu}
     </div>
   );
+}
+
+function currentPortalHost() {
+  return document.fullscreenElement ?? document.body;
 }

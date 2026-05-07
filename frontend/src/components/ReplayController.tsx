@@ -393,6 +393,7 @@ function ReplayDateTimePicker({
     : "Select replay date";
   const is12Hour = timeHoursFormat === "12-hour";
   const currentPeriod = hourPeriod(draftHour);
+  const portalHost = currentPortalHost();
 
   return (
     <div className="replay-date-picker" ref={containerRef}>
@@ -526,10 +527,14 @@ function ReplayDateTimePicker({
             </button>
           </div>
         </div>,
-        document.body,
+        portalHost,
       )}
     </div>
   );
+}
+
+function currentPortalHost() {
+  return document.fullscreenElement ?? document.body;
 }
 
 function toReplayInputValue(value: string | null) {
