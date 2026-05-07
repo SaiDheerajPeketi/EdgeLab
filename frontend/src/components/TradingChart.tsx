@@ -69,6 +69,7 @@ import {
   type DrawingTool,
   type FibLevel,
   type MacdData,
+  type MagnetMode,
 } from "../lib/charting";
 import type { ChartVisualSettings } from "../lib/chartSettings";
 import { formatPrice } from "../lib/format";
@@ -80,6 +81,7 @@ const DRAWING_PRESETS_KEY = "edgelab.drawing-presets.v1";
 const FIB_PRESETS_KEY = "edgelab.fib-presets.v1";
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
+const WEAK_MAGNET_THRESHOLD_PX = 14;
 
 type Props = {
   bars: Candle[];
@@ -89,6 +91,7 @@ type Props = {
   drawings: ChartDrawing[];
   executions: Execution[];
   indicatorInstances: ChartIndicatorInstance[];
+  magnetMode: MagnetMode;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
@@ -124,6 +127,11 @@ type DragState = {
   pointIndex: number | null;
   startPixel: { x: number; y: number };
   startPoint: DrawingPoint;
+};
+
+type OhlcSnapCandidate = {
+  distance: number;
+  point: DrawingPoint;
 };
 
 type LabelableDrawingTool = "horizontal" | "rectangle" | "trendline";
@@ -176,6 +184,7 @@ export function TradingChart({
   drawings,
   executions,
   indicatorInstances,
+  magnetMode,
   onAddDrawing,
   onClearDrawings,
   onDeleteDrawing,
@@ -864,6 +873,7 @@ export function TradingChart({
       chartRef.current,
       candlesRef.current,
       barsRef.current,
+      magnetMode,
     );
     if (!point) {
       return;
@@ -896,6 +906,7 @@ export function TradingChart({
 
   function handleDrawingMove(event: MouseEvent<HTMLDivElement>) {
     if (dragState) {
+      const dragMagnetMode = dragState.mode === "anchor" ? magnetMode : "off";
       const point = pointFromClient(
         event.clientX,
         event.clientY,
@@ -903,6 +914,7 @@ export function TradingChart({
         chartRef.current,
         candlesRef.current,
         barsRef.current,
+        dragMagnetMode,
       );
       const pixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
       if (!point || !pixel) {
@@ -935,6 +947,7 @@ export function TradingChart({
         chartRef.current,
         candlesRef.current,
         barsRef.current,
+        magnetMode,
       ),
     );
   }
@@ -3791,12 +3804,17 @@ function pointFromClient(
   chart: IChartApi | null,
   series: ISeriesApi<"Candlestick"> | null,
   bars: Candle[] = [],
+  magnetMode: MagnetMode = "off",
 ): DrawingPoint | null {
   const pixel = pixelFromClient(clientX, clientY, frame);
   if (!pixel) {
     return null;
   }
-  return pointFromPixel(pixel.x, pixel.y, frame, chart, series, bars);
+  const point = pointFromPixel(pixel.x, pixel.y, frame, chart, series, bars);
+  if (!point || magnetMode === "off") {
+    return point;
+  }
+  return snapPointToOhlc(point, pixel, chart, series, bars, magnetMode);
 }
 
 function pixelFromClient(
@@ -3864,6 +3882,77 @@ function pixelFromPoint(
     return null;
   }
   return { x, y };
+}
+
+function snapPointToOhlc(
+  point: DrawingPoint,
+  cursorPixel: { x: number; y: number },
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+  bars: Candle[],
+  magnetMode: MagnetMode,
+): DrawingPoint {
+  if (!chart || !series || bars.length === 0) {
+    return point;
+  }
+
+  const index = nearestBarIndexForPoint(point, bars);
+  const bar = bars[index];
+  if (!bar) {
+    return point;
+  }
+
+  const logical = index;
+  const x =
+    chart.timeScale().logicalToCoordinate(logical as Logical) ??
+    chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp);
+  if (x == null) {
+    return point;
+  }
+
+  const candidates: OhlcSnapCandidate[] = [];
+  for (const price of [bar.open, bar.high, bar.low, bar.close]) {
+    const y = series.priceToCoordinate(price);
+    if (y == null) {
+      continue;
+    }
+    candidates.push({
+      distance: Math.hypot(cursorPixel.x - x, cursorPixel.y - y),
+      point: {
+        logical,
+        price,
+        time: bar.time,
+      },
+    });
+  }
+
+  const best = candidates.sort((left, right) => left.distance - right.distance)[0];
+  if (!best) {
+    return point;
+  }
+
+  if (magnetMode === "weak" && best.distance > WEAK_MAGNET_THRESHOLD_PX) {
+    return point;
+  }
+
+  return best.point;
+}
+
+function nearestBarIndexForPoint(point: DrawingPoint, bars: Candle[]) {
+  if (Number.isFinite(point.logical)) {
+    return clamp(Math.round(point.logical ?? 0), 0, bars.length - 1);
+  }
+
+  let nearestIndex = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  bars.forEach((bar, index) => {
+    const distance = Math.abs(bar.time - point.time);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+  return nearestIndex;
 }
 
 function estimateTimeFromLogical(logical: number, bars: Candle[]) {

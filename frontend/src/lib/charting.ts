@@ -60,6 +60,7 @@ export type DrawingTool =
   | "shortPosition"
   | "text";
 export type DrawingLineStyle = "solid" | "dashed" | "dotted";
+export type MagnetMode = "off" | "weak" | "strong";
 export type IndicatorSettings = {
   color: string;
   period: number;

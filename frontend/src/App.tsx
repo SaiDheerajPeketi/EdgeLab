@@ -43,6 +43,7 @@ import type {
   ChartTimeframe,
   DrawingTool,
   IndicatorSettings,
+  MagnetMode,
 } from "./lib/charting";
 import {
   createIndicatorInstance,
@@ -161,6 +162,10 @@ export default function App() {
     );
   });
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("cursor");
+  const [magnetMode, setMagnetMode] = useState<MagnetMode>(() => {
+    const saved = loadChartLayout();
+    return sanitizeMagnetMode(saved?.magnetMode);
+  });
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
     const saved = loadChartLayout();
@@ -540,6 +545,7 @@ export default function App() {
       chartStyle,
       drawings: sanitizeDrawings(nextDrawings),
       indicatorInstances: sanitizeIndicatorInstances(indicatorInstances),
+      magnetMode,
       settingsDefaultsVersion: CHART_SETTINGS_DEFAULTS_VERSION,
       showOrderOverlays,
       smoothCandles,
@@ -578,6 +584,7 @@ export default function App() {
     setChartStyle(sanitizeChartStyle(layout.chartStyle));
     setChartSettings(sanitizeChartVisualSettings(layout.chartSettings));
     setDrawings(sanitizeDrawings(layout.drawings));
+    setMagnetMode(sanitizeMagnetMode(layout.magnetMode));
     setShowOrderOverlays(layout.showOrderOverlays ?? true);
     setSmoothCandles(layout.smoothCandles ?? false);
     setTimeframe(coerceTimeframeToSource(sanitizeTimeframe(layout.timeframe), sourceTimeframe));
@@ -909,6 +916,8 @@ export default function App() {
                     onDeleteLayout={deleteNamedChartLayout}
                     onLayoutNameChange={setLayoutName}
                     onLoadLayout={loadNamedChartLayout}
+                    magnetMode={magnetMode}
+                    onMagnetModeChange={setMagnetMode}
                     onSaveLayout={saveChartLayout}
                     onTimeframeChange={changeTimeframe}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
@@ -935,6 +944,7 @@ export default function App() {
                       drawings={drawings}
                       executions={executions}
                       indicatorInstances={indicatorInstances}
+                      magnetMode={magnetMode}
                       onAddDrawing={(drawing) => {
                         setDrawings((currentDrawings) => [...currentDrawings, drawing]);
                         setSelectedDrawingId(drawing.id);
@@ -1099,6 +1109,7 @@ type StoredChartLayout = {
   drawings: ChartDrawing[];
   indicatorInstances: ChartIndicatorInstance[];
   indicatorSettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>>;
+  magnetMode: MagnetMode;
   settingsDefaultsVersion?: number;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
@@ -1299,6 +1310,10 @@ function deleteChartLayoutRecord(name: string) {
 function normalizeLayoutName(name: string) {
   const trimmed = name.trim();
   return trimmed.length > 0 ? trimmed.slice(0, 48) : "Default";
+}
+
+function sanitizeMagnetMode(value: unknown): MagnetMode {
+  return value === "weak" || value === "strong" ? value : "off";
 }
 
 function sanitizeIndicatorInstances(

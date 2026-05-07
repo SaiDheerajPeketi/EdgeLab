@@ -8,6 +8,7 @@ import {
   EyeOff,
   Layers,
   LineChart,
+  Magnet,
   Save,
   Search,
   Settings2,
@@ -45,6 +46,7 @@ import {
   type ChartTimeframe,
   type DrawingTool,
   type IndicatorSettings,
+  type MagnetMode,
 } from "../lib/charting";
 import {
   deleteChartSettingsPreset,
@@ -69,6 +71,7 @@ type Props = {
   indicatorInstances: ChartIndicatorInstance[];
   layoutName: string;
   layoutNames: string[];
+  magnetMode: MagnetMode;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onChartSettingsChange: (settings: ChartVisualSettings) => void;
   onChartSettingsReset: () => void;
@@ -78,6 +81,7 @@ type Props = {
   onDrawingToolChange: (tool: DrawingTool) => void;
   onLayoutNameChange: (name: string) => void;
   onLoadLayout: (name: string) => void;
+  onMagnetModeChange: (mode: MagnetMode) => void;
   onSaveLayout: () => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
   onRemoveIndicator: (instanceId: string) => void;
@@ -120,6 +124,28 @@ const DRAWING_TOOLS: Array<{
   { icon: TvTextIcon, label: "Text", shortcut: "L", tool: "text" },
 ];
 
+const MAGNET_MODES: Array<{
+  description: string;
+  id: MagnetMode;
+  label: string;
+}> = [
+  {
+    description: "Freehand drawing anchors",
+    id: "off",
+    label: "Off",
+  },
+  {
+    description: "Snap only near candle OHLC",
+    id: "weak",
+    label: "Weak",
+  },
+  {
+    description: "Always snap to nearest candle OHLC",
+    id: "strong",
+    label: "Strong",
+  },
+];
+
 const CHART_STYLES: Array<{
   icon: LucideIcon;
   id: ChartStyle;
@@ -140,6 +166,7 @@ export function ChartToolbar({
   indicatorInstances,
   layoutName,
   layoutNames,
+  magnetMode,
   onAddIndicator,
   onChartSettingsChange,
   onChartSettingsReset,
@@ -149,6 +176,7 @@ export function ChartToolbar({
   onDrawingToolChange,
   onLayoutNameChange,
   onLoadLayout,
+  onMagnetModeChange,
   onSaveLayout,
   onTimeframeChange,
   onRemoveIndicator,
@@ -355,6 +383,7 @@ export function ChartToolbar({
                 setCommandQuery("");
               }}
               onDrawingToolChange={onDrawingToolChange}
+              onMagnetModeChange={onMagnetModeChange}
               onTimeframeChange={onTimeframeChange}
               onAddIndicator={onAddIndicator}
               query={commandQuery}
@@ -516,6 +545,24 @@ export function ChartToolbar({
             <Trash2 size={14} />
             <span>{clearableDrawingsCount}</span>
           </button>
+        </div>
+
+        <div className="magnet-mode-strip" aria-label="Magnet mode">
+          <span className="magnet-mode-label">
+            <Magnet size={13} />
+            Magnet
+          </span>
+          {MAGNET_MODES.map((mode) => (
+            <button
+              className={`magnet-mode-button ${magnetMode === mode.id ? "magnet-mode-button-active" : ""}`}
+              key={mode.id}
+              onClick={() => onMagnetModeChange(mode.id)}
+              title={mode.description}
+              type="button"
+            >
+              {mode.label}
+            </button>
+          ))}
         </div>
 
         <div ref={menuRef} className="relative">
@@ -1329,6 +1376,7 @@ function CommandMenu({
   onChartStyleChange,
   onClose,
   onDrawingToolChange,
+  onMagnetModeChange,
   onTimeframeChange,
   onAddIndicator,
   query,
@@ -1338,6 +1386,7 @@ function CommandMenu({
   onChartStyleChange: (style: ChartStyle) => void;
   onClose: () => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
+  onMagnetModeChange: (mode: MagnetMode) => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   query: string;
@@ -1393,6 +1442,14 @@ function CommandMenu({
       label: style.label,
       run: () => onChartStyleChange(style.id),
       type: "Style",
+    })),
+    ...MAGNET_MODES.map((mode) => ({
+      description: mode.description,
+      icon: Magnet,
+      id: `magnet-${mode.id}`,
+      label: `${mode.label} Magnet`,
+      run: () => onMagnetModeChange(mode.id),
+      type: "Drawing",
     })),
   ];
   const visibleCommands = commands
