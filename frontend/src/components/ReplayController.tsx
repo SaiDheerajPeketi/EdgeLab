@@ -165,6 +165,7 @@ export function ReplayController({
                 value: CUSTOM_SPEED_VALUE,
               },
             ]}
+            portal
             value={selectedSpeedValue}
           />
           <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-500">

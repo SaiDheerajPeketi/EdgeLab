@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type ThemedSelectOption = {
   disabled?: boolean;
@@ -19,6 +20,7 @@ type Props = {
   onChange?: (value: string) => void;
   options: ThemedSelectOption[];
   placeholder?: ReactNode;
+  portal?: boolean;
   value?: string;
 };
 
@@ -32,6 +34,7 @@ export function ThemedSelect({
   onChange,
   options,
   placeholder = "Select",
+  portal = false,
   value,
 }: Props) {
   const fallbackValue = useMemo(
@@ -40,6 +43,13 @@ export function ThemedSelect({
   );
   const [internalValue, setInternalValue] = useState(fallbackValue);
   const [open, setOpen] = useState(false);
+  const [floatingPosition, setFloatingPosition] = useState<{
+    left: number;
+    maxHeight: number;
+    top: number;
+    width: number;
+  } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const selectedValue = value ?? internalValue;
   const selectedOption = options.find((option) => option.value === selectedValue);
@@ -56,7 +66,11 @@ export function ThemedSelect({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -73,6 +87,44 @@ export function ThemedSelect({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !portal || !rootRef.current) {
+      return;
+    }
+
+    function syncFloatingPosition() {
+      const root = rootRef.current;
+      if (!root) {
+        return;
+      }
+      const rect = root.getBoundingClientRect();
+      const margin = 12;
+      const width = Math.max(rect.width, 180);
+      const left = Math.min(
+        Math.max(margin, rect.left),
+        window.innerWidth - width - margin,
+      );
+      const top = Math.min(
+        rect.bottom + 8,
+        Math.max(margin, window.innerHeight - 300),
+      );
+      setFloatingPosition({
+        left,
+        maxHeight: Math.max(160, window.innerHeight - top - margin),
+        top,
+        width,
+      });
+    }
+
+    syncFloatingPosition();
+    window.addEventListener("resize", syncFloatingPosition);
+    window.addEventListener("scroll", syncFloatingPosition, true);
+    return () => {
+      window.removeEventListener("resize", syncFloatingPosition);
+      window.removeEventListener("scroll", syncFloatingPosition, true);
+    };
+  }, [open, portal]);
 
   function choose(nextValue: string) {
     const nextOption = options.find((option) => option.value === nextValue);
@@ -120,6 +172,49 @@ export function ThemedSelect({
     }
   }
 
+  const menu = open && !disabled ? (
+    <div
+      className={`themed-select-menu ${portal ? "themed-select-menu-floating" : align === "right" ? "right-0" : "left-0"} ${menuClassName}`}
+      ref={menuRef}
+      role="listbox"
+      style={
+        portal && floatingPosition
+          ? {
+              left: floatingPosition.left,
+              maxHeight: floatingPosition.maxHeight,
+              top: floatingPosition.top,
+              width: floatingPosition.width,
+            }
+          : undefined
+      }
+    >
+      {options.map((option) => {
+        const selected = option.value === selectedValue;
+        return (
+          <button
+            aria-selected={selected}
+            className={`themed-select-option ${selected ? "themed-select-option-active" : ""}`}
+            disabled={option.disabled}
+            key={option.value}
+            onClick={(event) => handleOptionClick(event, option.value)}
+            role="option"
+            type="button"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{option.label}</span>
+              {option.sublabel && (
+                <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                  {option.sublabel}
+                </span>
+              )}
+            </span>
+            {selected && <Check className="shrink-0 text-cyan-100" size={14} />}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   return (
     <div className={`themed-select ${open ? "themed-select-open" : ""} ${className}`} ref={rootRef}>
       <button
@@ -138,37 +233,7 @@ export function ThemedSelect({
         <ChevronDown className={`themed-select-chevron ${open ? "rotate-180" : ""}`} size={15} />
       </button>
 
-      {open && !disabled && (
-        <div
-          className={`themed-select-menu ${align === "right" ? "right-0" : "left-0"} ${menuClassName}`}
-          role="listbox"
-        >
-          {options.map((option) => {
-            const selected = option.value === selectedValue;
-            return (
-              <button
-                aria-selected={selected}
-                className={`themed-select-option ${selected ? "themed-select-option-active" : ""}`}
-                disabled={option.disabled}
-                key={option.value}
-                onClick={(event) => handleOptionClick(event, option.value)}
-                role="option"
-                type="button"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{option.label}</span>
-                  {option.sublabel && (
-                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                      {option.sublabel}
-                    </span>
-                  )}
-                </span>
-                {selected && <Check className="shrink-0 text-cyan-100" size={14} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {portal ? floatingPosition && menu && createPortal(menu, document.body) : menu}
     </div>
   );
 }
