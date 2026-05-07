@@ -194,7 +194,7 @@ const CURRENCY_OPTIONS = [
   "HKD",
   "AED",
 ].map((currency) => ({ label: currency, value: currency }));
-const TIMEZONE_OPTIONS = [
+const TIMEZONE_IDS = [
   "UTC",
   "America/New_York",
   "America/Chicago",
@@ -208,7 +208,8 @@ const TIMEZONE_OPTIONS = [
   "Asia/Hong_Kong",
   "Asia/Tokyo",
   "Australia/Sydney",
-].map((timezone) => ({ label: timezone, value: timezone }));
+];
+const TIMEZONE_OPTIONS = TIMEZONE_IDS.map(timezoneOption);
 
 export function EdgeLabWorkspace({
   activeSession,
@@ -2646,7 +2647,11 @@ function BacktestDataSettings({
                       className="h-10"
                       menuClassName="max-w-[360px]"
                       onChange={(value) => updateDraft(instrument.id, "timezone", value)}
-                      options={selectOptionsWithValue(TIMEZONE_OPTIONS, draft.timezone)}
+                      options={selectOptionsWithValue(
+                        TIMEZONE_OPTIONS,
+                        draft.timezone,
+                        timezoneOption,
+                      )}
                       portal
                       value={draft.timezone}
                     />
@@ -2692,13 +2697,73 @@ function formatDatasetTimeframeLabel(timeframe: DatasetTimeframe) {
 }
 
 function selectOptionsWithValue(
-  options: Array<{ label: string; value: string }>,
+  options: Array<{ label: string; sublabel?: string; value: string }>,
   value: string,
+  makeMissingOption: (value: string) => { label: string; sublabel?: string; value: string } = (
+    nextValue,
+  ) => ({ label: nextValue, value: nextValue }),
 ) {
   if (!value || options.some((option) => option.value === value)) {
     return options;
   }
-  return [{ label: value, value }, ...options];
+  return [makeMissingOption(value), ...options];
+}
+
+function timezoneOption(timezone: string) {
+  return {
+    label: `${formatTimezoneOffset(timezone)} · ${formatTimezoneDisplayName(timezone)}`,
+    sublabel: timezone,
+    value: timezone,
+  };
+}
+
+function formatTimezoneOffset(timezone: string, date = new Date()) {
+  const offsetMinutes = timezoneOffsetMinutes(timezone, date);
+  if (offsetMinutes == null) {
+    return "UTC";
+  }
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = Math.floor(absoluteMinutes / 60);
+  const minutes = absoluteMinutes % 60;
+  return minutes === 0
+    ? `UTC${sign}${hours}`
+    : `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatTimezoneDisplayName(timezone: string) {
+  const parts = timezone.split("/");
+  return (parts.at(-1) ?? timezone).replace(/_/g, " ");
+}
+
+function timezoneOffsetMinutes(timezone: string, date: Date) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      month: "2-digit",
+      second: "2-digit",
+      timeZone: timezone,
+      year: "numeric",
+    }).formatToParts(date);
+    const valueByType = new Map(parts.map((part) => [part.type, part.value]));
+    const asUtc = Date.UTC(
+      Number(valueByType.get("year")),
+      Number(valueByType.get("month")) - 1,
+      Number(valueByType.get("day")),
+      Number(valueByType.get("hour")),
+      Number(valueByType.get("minute")),
+      Number(valueByType.get("second")),
+    );
+    if (!Number.isFinite(asUtc)) {
+      return null;
+    }
+    return Math.round((asUtc - date.getTime()) / 60000);
+  } catch {
+    return null;
+  }
 }
 
 function formatDatasetRefreshSummary(summary: DatasetRefreshResponse["summary"]) {
