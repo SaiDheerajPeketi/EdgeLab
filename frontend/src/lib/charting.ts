@@ -145,8 +145,8 @@ export const DEFAULT_FIB_LEVELS: FibLevel[] = [
   { id: "0618", value: 0.618, color: "#f59e0b", backgroundOpacity: 0.066, label: "0.618", lineStyle: "solid" },
   { id: "0786", value: 0.786, color: "#f472b6", backgroundOpacity: 0.052, label: "0.786", lineStyle: "solid" },
   { id: "1", value: 1, color: "#f8fafc", backgroundOpacity: 0.035, label: "1", lineStyle: "solid" },
-  { id: "1272", value: 1.272, color: "#a78bfa", backgroundOpacity: 0.045, label: "1.272", lineStyle: "dashed" },
-  { id: "1618", value: 1.618, color: "#fb7185", backgroundOpacity: 0.045, label: "1.618", lineStyle: "dashed" },
+  { id: "1272", value: 1.272, color: "#a78bfa", backgroundOpacity: 0.045, label: "1.272", lineStyle: "solid" },
+  { id: "1618", value: 1.618, color: "#fb7185", backgroundOpacity: 0.045, label: "1.618", lineStyle: "solid" },
 ];
 
 export const INDICATORS: Array<{
