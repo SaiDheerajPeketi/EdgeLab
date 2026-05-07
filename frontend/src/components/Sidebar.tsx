@@ -97,7 +97,7 @@ export function Sidebar({
 
   return (
     <aside
-      className={`edge-sidebar hidden h-screen shrink-0 overflow-y-auto overscroll-contain border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:sticky lg:top-0 lg:flex lg:flex-col ${
+      className={`edge-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen shrink-0 overflow-y-auto overscroll-contain border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:flex lg:flex-col ${
         compact ? "w-[76px] items-center" : "w-[244px]"
       }`}
       onBlur={(event) => {

@@ -874,6 +874,11 @@ export default function App() {
           collapsed={sidebarCollapsed}
           onNavigate={navigateWorkspace}
         />
+        <div
+          aria-hidden="true"
+          className="hidden shrink-0 lg:block"
+          style={{ width: sidebarCollapsed ? 76 : 244 }}
+        />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
             <EdgeLabWorkspace
