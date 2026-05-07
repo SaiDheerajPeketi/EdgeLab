@@ -397,9 +397,14 @@ export function TradingChart({
         .filter((indicator) => indicator.data.length > 0),
     [activeOverlayIndicators, visibleIndicatorInstances],
   );
-  const isDrawingPlacementMode = drawingTool !== "cursor" && drawingTool !== "crosshair";
+  const isCursorTool = drawingTool === "cursor";
+  const isCrosshairTool = drawingTool === "crosshair";
+  const isDrawingPlacementMode = !isCursorTool && !isCrosshairTool;
+  const effectiveCrosshairVisible =
+    isCrosshairTool || (chartSettings.crosshairVisible && !isCursorTool);
+  const drawingObjectsInteractive = isCursorTool;
   const drawingLayerCapturesPointer =
-    dragState != null || isDrawingPlacementMode || selectedDrawingId != null;
+    dragState != null || isDrawingPlacementMode || isCursorTool;
   const selectedDrawing = useMemo(
     () => drawings.find((drawing) => drawing.id === selectedDrawingId) ?? null,
     [drawings, selectedDrawingId],
@@ -422,7 +427,7 @@ export function TradingChart({
     onDeleteDrawing,
     onDragStart: startDrawingDrag,
     onSelectDrawing: selectDrawingFromChart,
-    interactive: !isDrawingPlacementMode,
+    interactive: drawingObjectsInteractive,
     selectedDrawingId,
     series: candlesRef.current,
     version: plotVersion,
@@ -447,10 +452,20 @@ export function TradingChart({
   }, [displayBars]);
 
   useEffect(() => {
-    if (magnetMode === "off" || !chartSettings.crosshairVisible) {
+    if (magnetMode === "off" || !effectiveCrosshairVisible) {
       clearMagnetCrosshair();
     }
-  }, [chartSettings.crosshairVisible, magnetMode]);
+  }, [effectiveCrosshairVisible, magnetMode]);
+
+  useEffect(() => {
+    if (!isCrosshairTool) {
+      return;
+    }
+    onSelectDrawing(null);
+    setDrawingToolbarOpen(false);
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
+  }, [isCrosshairTool, onSelectDrawing]);
 
   useEffect(() => {
     return () => {
@@ -625,18 +640,16 @@ export function TradingChart({
     const primaryPriceScaleId = primaryPriceScaleIdForPlacement(chartSettings.scalePlacement);
     chartRef.current?.applyOptions({
       crosshair: {
-        mode: chartSettings.crosshairVisible
-          ? CrosshairMode.Normal
-          : CrosshairMode.Hidden,
+        mode: effectiveCrosshairVisible ? CrosshairMode.Normal : CrosshairMode.Hidden,
         horzLine: {
           color: chartSettings.crosshairColor,
-          labelVisible: chartSettings.crosshairVisible,
-          visible: chartSettings.crosshairVisible,
+          labelVisible: effectiveCrosshairVisible,
+          visible: effectiveCrosshairVisible,
         },
         vertLine: {
           color: chartSettings.crosshairColor,
-          labelVisible: chartSettings.crosshairVisible,
-          visible: chartSettings.crosshairVisible,
+          labelVisible: effectiveCrosshairVisible,
+          visible: effectiveCrosshairVisible,
         },
       },
       grid: {
@@ -718,7 +731,7 @@ export function TradingChart({
     });
     volumeRef.current?.applyOptions({ visible: chartSettings.volume && hasVolumeData });
     setPlotVersion((value) => value + 1);
-  }, [chartSettings, hasVolumeData, symbol]);
+  }, [chartSettings, effectiveCrosshairVisible, hasVolumeData, symbol]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -1000,7 +1013,7 @@ export function TradingChart({
   }
 
   function handleMagnetCrosshairMove(event: MouseEvent<HTMLDivElement>) {
-    if (magnetMode === "off" || !chartSettings.crosshairVisible) {
+    if (magnetMode === "off" || !effectiveCrosshairVisible) {
       return;
     }
 
@@ -1380,7 +1393,7 @@ export function TradingChart({
               style={{ backgroundColor: chartSettings.backgroundColor }}
             />
             <div
-              className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode ? "cursor-crosshair" : "cursor-default"}`}
+              className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode || isCrosshairTool ? "cursor-crosshair" : "cursor-default"}`}
               onMouseDown={handleDrawingClick}
               onMouseLeave={stopDrawingDrag}
               onMouseMove={handleDrawingMove}
@@ -1411,7 +1424,7 @@ export function TradingChart({
                 </g>
               </svg>
             </div>
-            {selectedDrawing && floatingToolbarPosition && !isDrawingPlacementMode && (
+            {selectedDrawing && floatingToolbarPosition && isCursorTool && (
               <FloatingDrawingToolbar
                 drawing={selectedDrawing}
                 onChange={updateSelectedDrawing}
@@ -1595,8 +1608,8 @@ function DrawingRail({
     label: string;
     tool: DrawingTool;
   }> = [
-    { icon: TvCursorIcon, label: "Cursor", tool: "cursor" },
-    { icon: TvCrosshairIcon, label: "Crosshair", tool: "crosshair" },
+    { icon: TvCursorIcon, label: "Cursor: select and edit drawings", tool: "cursor" },
+    { icon: TvCrosshairIcon, label: "Crosshair: inspect candles", tool: "crosshair" },
     { icon: TvTrendLineIcon, label: "Trendline", tool: "trendline" },
     { icon: TvHorizontalLineIcon, label: "Horizontal level", tool: "horizontal" },
     { icon: TvRectangleIcon, label: "Rectangle zone", tool: "rectangle" },

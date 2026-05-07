@@ -112,8 +112,8 @@ const DRAWING_TOOLS: Array<{
   shortcut?: string;
   tool: DrawingTool;
 }> = [
-  { icon: TvCursorIcon, label: "Cursor", tool: "cursor" },
-  { icon: TvCrosshairIcon, label: "Crosshair", tool: "crosshair" },
+  { icon: TvCursorIcon, label: "Select", tool: "cursor" },
+  { icon: TvCrosshairIcon, label: "Inspect", tool: "crosshair" },
   { icon: TvTrendLineIcon, label: "Trend", shortcut: "T", tool: "trendline" },
   { icon: TvHorizontalLineIcon, label: "H-Line", shortcut: "H", tool: "horizontal" },
   { icon: TvRectangleIcon, label: "Zone", shortcut: "R", tool: "rectangle" },
