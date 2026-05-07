@@ -3,17 +3,19 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  ClipboardCheck,
   Clock3,
   Database,
   Maximize2,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  PencilRuler,
   Radio,
   LineChart,
-  Settings2,
-  SlidersHorizontal,
+  ScrollText,
   WalletCards,
 } from "lucide-react";
 import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
@@ -753,7 +755,7 @@ export default function App() {
           onPointerDown={handleChartToolsPointerDown}
           type="button"
         >
-          <SlidersHorizontal size={14} />
+          <PencilRuler size={14} />
           Tools
         </button>
         <button
@@ -762,7 +764,7 @@ export default function App() {
           onClick={openChartSettings}
           type="button"
         >
-          <Settings2 size={14} />
+          <Palette size={14} />
           Settings
         </button>
         {!isChartFullscreen && (
@@ -776,17 +778,19 @@ export default function App() {
           </button>
         )}
         <button
-          className={`workspace-tab ${workspacePanel === "tape" ? "workspace-tab-active" : ""}`}
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${workspacePanel === "tape" ? "workspace-tab-active" : ""}`}
           onClick={() => setWorkspacePanel((value) => value === "tape" ? "none" : "tape")}
           type="button"
         >
+          <ScrollText size={14} />
           Orders Tape
         </button>
         <button
-          className={`workspace-tab ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
+          className={`workspace-tab inline-flex items-center justify-center gap-2 ${workspacePanel === "review" ? "workspace-tab-active" : ""}`}
           onClick={() => setWorkspacePanel((value) => value === "review" ? "none" : "review")}
           type="button"
         >
+          <ClipboardCheck size={14} />
           Review
         </button>
         <button
