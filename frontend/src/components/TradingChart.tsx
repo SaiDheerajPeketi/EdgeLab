@@ -941,10 +941,10 @@ export function TradingChart({
     }
   }, [selectedDrawingId]);
 
-  function addDrawingAndOpenToolbar(drawing: ChartDrawing) {
+  function addDrawingAndMaybeOpenToolbar(drawing: ChartDrawing) {
     onAddDrawing(drawing);
     onSelectDrawing(drawing.id);
-    setDrawingToolbarOpen(true);
+    setDrawingToolbarOpen(shouldAutoOpenDrawingToolbar(drawing));
     setSelectedIndicatorId(null);
     setIndicatorToolbarPosition(null);
   }
@@ -1003,13 +1003,13 @@ export function TradingChart({
     }
 
     if (drawingTool === "horizontal" || drawingTool === "vertical") {
-      addDrawingAndOpenToolbar(makeDrawing(drawingTool, [point]));
+      addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, [point]));
       onDrawingToolChange(neutralDrawingTool);
       return;
     }
 
     if (drawingTool === "text") {
-      addDrawingAndOpenToolbar(makeDrawing("text", [point], "Text"));
+      addDrawingAndMaybeOpenToolbar(makeDrawing("text", [point], "Text"));
       onDrawingToolChange(neutralDrawingTool);
       setDraftDrawing(null);
       setHoverPoint(null);
@@ -1021,7 +1021,7 @@ export function TradingChart({
       return;
     }
 
-    addDrawingAndOpenToolbar(makeDrawing(drawingTool, [draftDrawing.point, point]));
+    addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, [draftDrawing.point, point]));
     onDrawingToolChange(neutralDrawingTool);
     setDraftDrawing(null);
     setHoverPoint(null);
@@ -1217,6 +1217,7 @@ export function TradingChart({
 
   function stopDrawingDrag() {
     if (dragState && drawingDragMovedRef.current) {
+      setDrawingToolbarOpen(shouldAutoOpenDrawingToolbar(dragState.drawing));
       suppressNextDrawingClickRef.current = true;
       window.setTimeout(() => {
         suppressNextDrawingClickRef.current = false;
@@ -1235,7 +1236,6 @@ export function TradingChart({
     event.stopPropagation();
     if (suppressNextDrawingClickRef.current) {
       suppressNextDrawingClickRef.current = false;
-      setDrawingToolbarOpen(false);
       return;
     }
     onSelectDrawing(drawingId);
@@ -4790,6 +4790,10 @@ function isFillableDrawingTool(
   tool: ChartDrawing["tool"] | DrawingTool,
 ): tool is FillableDrawingTool {
   return tool === "rectangle" || tool === "longPosition" || tool === "shortPosition";
+}
+
+function shouldAutoOpenDrawingToolbar(drawing: ChartDrawing) {
+  return drawing.tool !== "fib";
 }
 
 function positionRewardColor(drawing: ChartDrawing) {
