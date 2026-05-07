@@ -958,7 +958,7 @@ button:disabled {
   }
 
   .chart-stage {
-    @apply relative min-h-[700px] min-w-0 overflow-hidden rounded-md border border-white/10 bg-[#080c11] shadow-panel;
+    @apply relative grid min-h-[700px] min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-white/10 bg-[#080c11] shadow-panel;
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 90px),
       linear-gradient(90deg, rgba(50, 211, 238, 0.035), transparent 36%);
@@ -1027,7 +1027,7 @@ button:disabled {
   }
 
   .chart-canvas-grid {
-    @apply grid min-w-0 grid-cols-[56px_minmax(0,1fr)];
+    @apply grid min-h-0 min-w-0 grid-cols-[56px_minmax(0,1fr)];
   }
 
   .chart-canvas-grid-rail-right {
@@ -1046,8 +1046,12 @@ button:disabled {
     grid-row: 1;
   }
 
+  .chart-plot-column {
+    @apply min-h-0;
+  }
+
   .drawing-rail {
-    @apply flex min-h-[568px] flex-col items-center gap-2 border-r border-white/10 bg-black/25 px-2 py-3;
+    @apply flex h-full min-h-[568px] flex-col items-center gap-2 border-r border-white/10 bg-black/25 px-2 py-3;
   }
 
   .drawing-rail-button {
@@ -1077,11 +1081,11 @@ button:disabled {
   }
 
   .chart-frame {
-    @apply relative min-h-[568px] overflow-hidden bg-[#0b1017];
+    @apply relative h-full min-h-[568px] overflow-hidden bg-[#0b1017];
   }
 
   .chart-container-surface {
-    @apply absolute inset-0 min-h-[568px] min-w-0;
+    @apply absolute inset-0 min-h-0 min-w-0;
   }
 
   .chart-object-floating-toolbar {

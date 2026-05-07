@@ -133,6 +133,12 @@ type DragState = {
   startPoint: DrawingPoint;
 };
 
+type DrawingHit = {
+  drawing: ChartDrawing;
+  mode: DragState["mode"];
+  pointIndex: number | null;
+};
+
 type OhlcSnapCandidate = {
   distance: number;
   point: DrawingPoint;
@@ -402,10 +408,11 @@ export function TradingChart({
   );
   const isCursorTool = drawingTool === "cursor";
   const isCrosshairTool = drawingTool === "crosshair";
+  const isNeutralTool = isCursorTool || isCrosshairTool;
   const isDrawingPlacementMode = !isCursorTool && !isCrosshairTool;
   const effectiveCrosshairVisible =
     isCrosshairTool || (chartSettings.crosshairVisible && !isCursorTool);
-  const drawingObjectsInteractive = isCursorTool;
+  const drawingObjectsInteractive = isNeutralTool;
   const drawingLayerCapturesPointer =
     dragState != null || isDrawingPlacementMode || isCursorTool;
   const selectedDrawing = useMemo(
@@ -459,16 +466,6 @@ export function TradingChart({
       clearMagnetCrosshair();
     }
   }, [effectiveCrosshairVisible, magnetMode]);
-
-  useEffect(() => {
-    if (!isCrosshairTool) {
-      return;
-    }
-    onSelectDrawing(null);
-    setDrawingToolbarOpen(false);
-    setSelectedIndicatorId(null);
-    setIndicatorToolbarPosition(null);
-  }, [isCrosshairTool, onSelectDrawing]);
 
   useEffect(() => {
     return () => {
@@ -927,12 +924,34 @@ export function TradingChart({
   }, [selectedDrawingId]);
 
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
+    event.stopPropagation();
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
       const indicatorPoint = pixelFromClient(
         event.clientX,
         event.clientY,
         chartFrameRef.current,
       );
+      const drawingHit = indicatorPoint
+        ? hitTestDrawingAtPoint({
+            chart: chartRef.current,
+            drawings,
+            frame: chartFrameRef.current,
+            point: indicatorPoint,
+            selectedDrawingId,
+            series: candlesRef.current,
+          })
+        : null;
+      if (drawingHit) {
+        event.preventDefault();
+        beginDrawingDrag(
+          drawingHit.drawing,
+          drawingHit.mode,
+          drawingHit.pointIndex,
+          event.clientX,
+          event.clientY,
+        );
+        return;
+      }
       const indicatorHit = indicatorPoint ? hitTestOverlayIndicator(indicatorPoint) : null;
       if (indicatorHit) {
         openIndicatorToolbarAtFramePoint(indicatorHit.indicatorId, indicatorHit.point);
@@ -1120,14 +1139,24 @@ export function TradingChart({
   ) {
     event.preventDefault();
     event.stopPropagation();
+    beginDrawingDrag(drawing, mode, pointIndex, event.clientX, event.clientY);
+  }
+
+  function beginDrawingDrag(
+    drawing: ChartDrawing,
+    mode: DragState["mode"],
+    pointIndex: number | null,
+    clientX: number,
+    clientY: number,
+  ) {
     drawingDragMovedRef.current = false;
     suppressNextDrawingClickRef.current = false;
     setDrawingToolbarOpen(false);
     setSelectedIndicatorId(null);
     setIndicatorToolbarPosition(null);
     const point = pointFromClient(
-      event.clientX,
-      event.clientY,
+      clientX,
+      clientY,
       chartFrameRef.current,
       chartRef.current,
       candlesRef.current,
@@ -1141,7 +1170,7 @@ export function TradingChart({
       setDrawingToolbarOpen(true);
       return;
     }
-    const startPixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
+    const startPixel = pixelFromClient(clientX, clientY, chartFrameRef.current);
     if (!startPixel) {
       return;
     }
@@ -1166,6 +1195,8 @@ export function TradingChart({
       window.setTimeout(() => {
         suppressNextDrawingClickRef.current = false;
       }, 0);
+    } else if (dragState) {
+      setDrawingToolbarOpen(true);
     }
     setDragState(null);
   }
@@ -1280,6 +1311,23 @@ export function TradingChart({
       if (!param.point) {
         return;
       }
+      if (isNeutralTool) {
+        const drawingHit = hitTestDrawingAtPoint({
+          chart,
+          drawings,
+          frame: chartFrameRef.current,
+          point: param.point,
+          selectedDrawingId,
+          series: candlesRef.current,
+        });
+        if (drawingHit) {
+          onSelectDrawing(drawingHit.drawing.id);
+          setDrawingToolbarOpen(true);
+          setSelectedIndicatorId(null);
+          setIndicatorToolbarPosition(null);
+          return;
+        }
+      }
       const indicatorIdFromSeries = sourceIndicatorIdForSeries(
         param.hoveredSeries,
         activeOverlayIndicators,
@@ -1289,6 +1337,12 @@ export function TradingChart({
         ? { indicatorId: indicatorIdFromSeries, point: param.point }
         : hitTestOverlayIndicator(param.point);
       if (!hit) {
+        if (isNeutralTool) {
+          onSelectDrawing(null);
+          setDrawingToolbarOpen(false);
+          setSelectedIndicatorId(null);
+          setIndicatorToolbarPosition(null);
+        }
         return;
       }
       openIndicatorToolbarAtFramePoint(hit.indicatorId, hit.point);
@@ -1296,7 +1350,15 @@ export function TradingChart({
 
     chart.subscribeClick(handleChartClick);
     return () => chart.unsubscribeClick(handleChartClick);
-  }, [activeOverlayIndicators, dragState, isDrawingPlacementMode]);
+  }, [
+    activeOverlayIndicators,
+    dragState,
+    drawings,
+    isDrawingPlacementMode,
+    isNeutralTool,
+    onSelectDrawing,
+    selectedDrawingId,
+  ]);
 
   useEffect(() => {
     if (!selectedIndicatorId) {
@@ -1477,8 +1539,10 @@ export function TradingChart({
           <div
             ref={chartFrameRef}
             className="chart-frame"
+            onMouseDown={handleDrawingClick}
             onMouseLeave={handleMagnetCrosshairLeave}
             onMouseMove={handleMagnetCrosshairMove}
+            onMouseUp={stopDrawingDrag}
             style={{ backgroundColor: chartSettings.backgroundColor }}
           >
             <div
@@ -1488,7 +1552,6 @@ export function TradingChart({
             />
             <div
               className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode || isCrosshairTool ? "cursor-crosshair" : "cursor-default"}`}
-              onMouseDown={handleDrawingClick}
               onMouseLeave={stopDrawingDrag}
               onMouseMove={handleDrawingMove}
               onMouseUp={stopDrawingDrag}
@@ -1518,7 +1581,7 @@ export function TradingChart({
                 </g>
               </svg>
             </div>
-            {selectedDrawing && floatingToolbarPosition && isCursorTool && (
+            {selectedDrawing && floatingToolbarPosition && isNeutralTool && (
               <FloatingDrawingToolbar
                 drawing={selectedDrawing}
                 onChange={updateSelectedDrawing}
@@ -2057,7 +2120,7 @@ function findNearestOverlayIndicator({
     if (!series || definition.data.length === 0) {
       continue;
     }
-    const threshold = Math.max(8, (definition.lineWidth ?? 2) + 5);
+    const threshold = Math.max(14, (definition.lineWidth ?? 2) + 10);
     let previous: { x: number; y: number } | null = null;
 
     for (const dataPoint of definition.data) {
@@ -3132,6 +3195,224 @@ function chartPlotWidth(chart: IChartApi, frame: HTMLDivElement) {
     return Math.min(frame.clientWidth, timeScaleWidth);
   }
   return frame.clientWidth;
+}
+
+function hitTestDrawingAtPoint({
+  chart,
+  drawings,
+  frame,
+  point,
+  selectedDrawingId,
+  series,
+}: {
+  chart: IChartApi | null;
+  drawings: ChartDrawing[];
+  frame: HTMLDivElement | null;
+  point: { x: number; y: number };
+  selectedDrawingId: string | null;
+  series: ISeriesApi<"Candlestick"> | null;
+}): DrawingHit | null {
+  if (!chart || !series || !frame) {
+    return null;
+  }
+  const width = chartPlotWidth(chart, frame);
+  const threshold = 10;
+  const toPixel = (drawingPoint: DrawingPoint) =>
+    pixelFromPoint(drawingPoint, chart, series);
+
+  for (const drawing of [...drawings].reverse()) {
+    if (drawing.visible === false) {
+      continue;
+    }
+    const normalizedDrawing = normalizeRiskRewardDrawing(drawing);
+    const pixels = normalizedDrawing.points.map(toPixel);
+    const selected = drawing.id === selectedDrawingId;
+
+    if (selected) {
+      const anchorIndex = pixels.findIndex(
+        (pixel) => pixel && Math.hypot(point.x - pixel.x, point.y - pixel.y) <= 12,
+      );
+      if (anchorIndex >= 0) {
+        return { drawing, mode: "anchor", pointIndex: anchorIndex };
+      }
+    }
+
+    const first = pixels[0];
+    if (!first) {
+      continue;
+    }
+
+    if (drawing.tool === "horizontal") {
+      if (point.x >= 0 && point.x <= width && Math.abs(point.y - first.y) <= threshold) {
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
+    if (drawing.tool === "text") {
+      const textLines = normalizeTextLines(drawing.label);
+      const labelMetrics = textLabelMetrics(textLines);
+      const labelX = first.x + 14;
+      const labelY = first.y - labelMetrics.height - 16;
+      const labelBox = {
+        bottom: labelY + labelMetrics.height + 8,
+        left: Math.min(first.x - 8, labelX),
+        right: labelX + labelMetrics.width + 8,
+        top: labelY - 8,
+      };
+      if (
+        pointInsideBox(point, labelBox) ||
+        Math.hypot(point.x - first.x, point.y - first.y) <= threshold
+      ) {
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
+    const second = pixels[1];
+    if (!second) {
+      continue;
+    }
+
+    if (drawing.tool === "rectangle") {
+      const box = normalizePixelBox(first, second);
+      if (pointInsideBox(point, expandBox(box, threshold))) {
+        if (selected) {
+          const edgeHit = rectangleEdgeHit(point, box, threshold);
+          if (edgeHit != null) {
+            return { drawing, mode: "anchor", pointIndex: edgeHit };
+          }
+        }
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
+    if (drawing.tool === "fib") {
+      const anchorLeft = Math.min(first.x, second.x);
+      const anchorRight = Math.max(first.x, second.x);
+      const lineLeft = drawing.fibExtendLeft === true ? 0 : anchorLeft;
+      const lineEnd = drawing.fibExtendRight === false ? anchorRight : width;
+      const levels = normalizeFibLevels(drawing.fibLevels, drawing.color).filter(
+        (level) => level.visible !== false,
+      );
+      const levelHit = levels.some((level) => {
+        const y = first.y + (second.y - first.y) * level.value;
+        return (
+          point.x >= lineLeft - threshold &&
+          point.x <= lineEnd + threshold &&
+          Math.abs(point.y - y) <= threshold
+        );
+      });
+      if (
+        levelHit ||
+        pointSegmentDistance(point, first, second) <= threshold ||
+        pointInsideBox(
+          point,
+          expandBox(
+            {
+              bottom: Math.max(first.y, second.y),
+              left: Math.min(lineLeft, lineEnd),
+              right: Math.max(lineLeft, lineEnd),
+              top: Math.min(first.y, second.y),
+            },
+            threshold,
+          ),
+        )
+      ) {
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
+    if (drawing.tool === "longPosition" || drawing.tool === "shortPosition") {
+      const third = pixels[2];
+      if (!third) {
+        continue;
+      }
+      const box = expandBox(
+        {
+          bottom: Math.max(first.y, second.y, third.y),
+          left: Math.min(first.x, second.x, third.x) - 16,
+          right: Math.max(first.x, second.x, third.x) + 32,
+          top: Math.min(first.y, second.y, third.y) - 12,
+        },
+        threshold,
+      );
+      if (pointInsideBox(point, box)) {
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
+    if (pointSegmentDistance(point, first, second) <= threshold) {
+      return { drawing, mode: "body", pointIndex: null };
+    }
+  }
+
+  return null;
+}
+
+function normalizePixelBox(
+  first: { x: number; y: number },
+  second: { x: number; y: number },
+) {
+  return {
+    bottom: Math.max(first.y, second.y),
+    left: Math.min(first.x, second.x),
+    right: Math.max(first.x, second.x),
+    top: Math.min(first.y, second.y),
+  };
+}
+
+function expandBox(
+  box: { bottom: number; left: number; right: number; top: number },
+  padding: number,
+) {
+  return {
+    bottom: box.bottom + padding,
+    left: box.left - padding,
+    right: box.right + padding,
+    top: box.top - padding,
+  };
+}
+
+function pointInsideBox(
+  point: { x: number; y: number },
+  box: { bottom: number; left: number; right: number; top: number },
+) {
+  return (
+    point.x >= box.left &&
+    point.x <= box.right &&
+    point.y >= box.top &&
+    point.y <= box.bottom
+  );
+}
+
+function rectangleEdgeHit(
+  point: { x: number; y: number },
+  box: { bottom: number; left: number; right: number; top: number },
+  threshold: number,
+) {
+  const nearLeft = Math.abs(point.x - box.left) <= threshold;
+  const nearRight = Math.abs(point.x - box.right) <= threshold;
+  const nearTop = Math.abs(point.y - box.top) <= threshold;
+  const nearBottom = Math.abs(point.y - box.bottom) <= threshold;
+  const withinY = point.y >= box.top - threshold && point.y <= box.bottom + threshold;
+  const withinX = point.x >= box.left - threshold && point.x <= box.right + threshold;
+  if (nearLeft && withinY) {
+    return RECTANGLE_EDGE_HANDLE.left;
+  }
+  if (nearRight && withinY) {
+    return RECTANGLE_EDGE_HANDLE.right;
+  }
+  if (nearTop && withinX) {
+    return RECTANGLE_EDGE_HANDLE.top;
+  }
+  if (nearBottom && withinX) {
+    return RECTANGLE_EDGE_HANDLE.bottom;
+  }
+  return null;
 }
 
 function horizontalPriceLabelGeometry(label: string, plotWidth: number, y: number) {
