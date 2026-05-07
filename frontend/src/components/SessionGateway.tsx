@@ -23,6 +23,7 @@ import type {
   PlaybookPayload,
   Trade,
 } from "../lib/api";
+import { currencyForSession, currencyForSessions } from "../lib/currency";
 import { formatMoney, formatPercent } from "../lib/format";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
@@ -285,7 +286,10 @@ export function SessionGateway({
                   </div>
                 </div>
                 <div className={`shrink-0 text-sm font-semibold ${toneForNumber(group.aggregate.netPnl)}`}>
-                  {formatMoney(group.aggregate.netPnl)}
+                  {formatMoney(
+                    group.aggregate.netPnl,
+                    currencyForSessions(group.sessions.map((row) => row.session), datasets),
+                  )}
                 </div>
               </div>
 
@@ -321,7 +325,7 @@ export function SessionGateway({
                     <span className="flex items-center justify-between gap-3 sm:justify-end">
                       <span className="text-right">
                         <span className={`block text-sm font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
-                          {formatMoney(row.aggregate.netPnl)}
+                          {formatMoney(row.aggregate.netPnl, currencyForSession(row.session, datasets))}
                         </span>
                         <span className="block text-xs text-slate-500">
                           {row.aggregate.closedTrades} trades · {formatPercent(row.aggregate.winRate)}
@@ -344,6 +348,7 @@ export function SessionGateway({
         {selectedStrategyGroup && (
           <StrategyDetails
             activeSessionId={session?.id ?? null}
+            datasets={datasets}
             group={selectedStrategyGroup}
             onResumeSession={onResumeSession}
           />
@@ -732,10 +737,12 @@ function GatewayMetric({ label, value }: { label: string; value: string }) {
 
 function StrategyDetails({
   activeSessionId,
+  datasets,
   group,
   onResumeSession,
 }: {
   activeSessionId: number | null;
+  datasets: DatasetCatalog | null;
   group: GatewayStrategyGroup;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
 }) {
@@ -759,6 +766,10 @@ function StrategyDetails({
   const filteredAggregate = useMemo(
     () => aggregateGatewayTrades(filteredRows.flatMap((row) => row.trades)),
     [filteredRows],
+  );
+  const filteredCurrency = currencyForSessions(
+    filteredRows.map((row) => row.session),
+    datasets,
   );
   const allSessionsSelected = selectedSessionIds.length === 0;
 
@@ -785,7 +796,7 @@ function StrategyDetails({
           </p>
         </div>
         <div className={`text-xl font-semibold ${toneForNumber(filteredAggregate.netPnl)}`}>
-          {formatMoney(filteredAggregate.netPnl)}
+          {formatMoney(filteredAggregate.netPnl, filteredCurrency)}
         </div>
       </div>
 
@@ -870,7 +881,7 @@ function StrategyDetails({
                   {row.aggregate.closedTrades}
                 </td>
                 <td className={`px-3 py-3 font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
-                  {formatMoney(row.aggregate.netPnl)}
+                  {formatMoney(row.aggregate.netPnl, currencyForSession(row.session, datasets))}
                 </td>
                 <td className="px-3 py-3 tabular-nums text-slate-300">
                   {formatPercent(row.aggregate.winRate)}

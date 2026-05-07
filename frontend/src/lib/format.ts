@@ -1,3 +1,5 @@
+import { normalizeCurrencyCode } from "./currency";
+
 export function formatPrice(
   value: number | null | undefined,
   options: { precision?: number } = {},
@@ -38,11 +40,19 @@ export function formatDateTime(value: string | null | undefined) {
 }
 
 export function formatMoney(value: number | null | undefined, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value ?? 0);
+  const currencyCode = normalizeCurrencyCode(currency);
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      maximumFractionDigits: 2,
+    }).format(value ?? 0);
+  } catch {
+    return `${currencyCode} ${new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    }).format(value ?? 0)}`;
+  }
 }
 
 export function formatPercent(value: number | null | undefined) {

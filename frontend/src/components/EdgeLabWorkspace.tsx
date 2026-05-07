@@ -53,6 +53,7 @@ import type {
   PlaybookPayload,
   Trade,
 } from "../lib/api";
+import { currencyForSession, currencyForSessions } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import {
   getCachedAppStorageItem,
@@ -250,11 +251,16 @@ export function EdgeLabWorkspace({
     () => groupByStrategy(sessions, trades, sessionById),
     [sessionById, sessions, trades],
   );
+  const currency = currencyForSessions(
+    activeSession ? [activeSession] : sessions,
+    datasets,
+  );
 
   const shared = {
     activeSession,
     aggregate,
     closedTrades,
+    currency,
     datasets,
     days,
     onEditTrade,
@@ -316,6 +322,7 @@ type SharedPageProps = {
   activeSession: BacktestSession | null;
   aggregate: Aggregate;
   closedTrades: Trade[];
+  currency: string;
   datasets: DatasetCatalog | null;
   days: DayGroup[];
   onEditTrade: (trade: Trade) => void;
@@ -342,6 +349,8 @@ type SharedPageProps = {
 function DashboardPage({
   aggregate,
   closedTrades,
+  currency,
+  datasets,
   days,
   onInspectTrade,
   onNavigateSessions,
@@ -382,7 +391,7 @@ function DashboardPage({
             <span className="status-pill">{latestDay?.label ?? "No trade day"}</span>
           </div>
           <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(latestDay?.aggregate.netPnl)}`}>
-            {formatMoney(latestDay?.aggregate.netPnl ?? 0)}
+            {formatMoney(latestDay?.aggregate.netPnl ?? 0, currency)}
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <CompactMetric label="Trades" value={String(latestDay?.aggregate.totalTrades ?? 0)} />
@@ -420,7 +429,10 @@ function DashboardPage({
                   </span>
                 </span>
                 <span className={`shrink-0 text-sm font-semibold ${toneForNumber(trade.realized_pnl)}`}>
-                  {formatMoney(trade.realized_pnl ?? 0)}
+                  {formatMoney(
+                    trade.realized_pnl ?? 0,
+                    currencyForSession(sessionById.get(trade.session_id), datasets),
+                  )}
                 </span>
               </button>
             ))}
@@ -441,7 +453,7 @@ function DashboardPage({
             </button>
           </div>
           <div className="mt-6 text-4xl font-semibold tabular-nums text-white">
-            {formatMoney(accountBalance)}
+            {formatMoney(accountBalance, currency)}
           </div>
           <p className="mt-3 text-sm text-slate-500">
             Simulated from starting balance plus closed replay trade P&L.
@@ -466,9 +478,9 @@ function DashboardPage({
               </button>
             </div>
           </div>
-          <CalendarHeatmap days={days} />
+          <CalendarHeatmap currency={currency} days={days} />
           <div className="mt-4 grid gap-2 md:grid-cols-4">
-            <CompactMetric label="Month P&L" value={formatMoney(aggregate.netPnl)} tone={toneForNumber(aggregate.netPnl)} />
+            <CompactMetric label="Month P&L" value={formatMoney(aggregate.netPnl, currency)} tone={toneForNumber(aggregate.netPnl)} />
             <CompactMetric label="Trading days" value={String(days.length)} />
             <CompactMetric label="Win rate" value={formatPercent(aggregate.winRate)} />
             <CompactMetric label="Profit factor" value={formatRatio(aggregate.profitFactor)} />
@@ -480,7 +492,7 @@ function DashboardPage({
             <AreaSparkline values={drawdownValues(closedTrades)} height={220} tone="rose" />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown)} tone="text-rose-300" />
+            <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown, currency)} tone="text-rose-300" />
             <CompactMetric label="Recovery" value={formatRatio(aggregate.recoveryFactor)} />
           </div>
         </FeatureCard>
@@ -489,7 +501,7 @@ function DashboardPage({
   );
 }
 
-function AccountsPage({ aggregate, datasets, sessions }: SharedPageProps) {
+function AccountsPage({ aggregate, currency, datasets, sessions }: SharedPageProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [accounts, setAccounts] = useState(() => [
     {
@@ -549,7 +561,7 @@ function AccountsPage({ aggregate, datasets, sessions }: SharedPageProps) {
                   <td className="px-3 py-4">{account.broker}</td>
                   <td className="px-3 py-4">
                     <button className="font-semibold text-cyan-100" type="button">
-                      {formatMoney(account.balance + aggregate.netPnl)}
+                      {formatMoney(account.balance + aggregate.netPnl, currency)}
                     </button>
                   </td>
                   <td className="px-3 py-4 text-slate-500">{formatDateTime(account.updated)}</td>
@@ -638,7 +650,7 @@ function AccountsPage({ aggregate, datasets, sessions }: SharedPageProps) {
   );
 }
 
-function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
+function DayViewPage({ currency, datasets, days, onInspectTrade, sessionById }: SharedPageProps) {
   const [mode, setMode] = useState<"day" | "week">("day");
   const visibleDays = days.length > 0 ? days : [];
 
@@ -662,7 +674,7 @@ function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
                 <div>
                   <div className="text-sm font-semibold text-white">{day.label}</div>
                   <div className={`mt-1 text-sm font-semibold ${toneForNumber(day.aggregate.netPnl)}`}>
-                    Net P&L {formatMoney(day.aggregate.netPnl)}
+                    Net P&L {formatMoney(day.aggregate.netPnl, currency)}
                   </div>
                 </div>
                 <button className="control-button h-9" type="button">
@@ -674,7 +686,7 @@ function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
                 <AreaSparkline values={cumulativeValues(day.trades)} height={150} />
                 <div className="grid grid-cols-2 gap-2">
                   <CompactMetric label="Total trades" value={String(day.aggregate.totalTrades)} />
-                  <CompactMetric label="Gross P&L" value={formatMoney(day.aggregate.netPnl)} tone={toneForNumber(day.aggregate.netPnl)} />
+                  <CompactMetric label="Gross P&L" value={formatMoney(day.aggregate.netPnl, currency)} tone={toneForNumber(day.aggregate.netPnl)} />
                   <CompactMetric label="Winners" value={String(day.aggregate.wins)} tone="text-emerald-300" />
                   <CompactMetric label="Losers" value={String(day.aggregate.losses)} tone="text-rose-300" />
                   <CompactMetric label="Win rate" value={formatPercent(day.aggregate.winRate)} />
@@ -693,7 +705,10 @@ function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
                       {tradeSymbol(trade, sessionById)} - {trade.side} - {formatDateTime(trade.entry_time)}
                     </span>
                     <span className={toneForNumber(trade.realized_pnl)}>
-                      {formatMoney(trade.realized_pnl)}
+                      {formatMoney(
+                        trade.realized_pnl,
+                        currencyForSession(sessionById.get(trade.session_id), datasets),
+                      )}
                     </span>
                   </button>
                 ))}
@@ -705,7 +720,7 @@ function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
         <FeatureCard>
           <CardLabel icon={CalendarDays} label="Calendar navigator" />
           <div className="mt-4">
-            <CalendarHeatmap compact days={days} />
+            <CalendarHeatmap compact currency={currency} days={days} />
           </div>
         </FeatureCard>
       </div>
@@ -715,6 +730,7 @@ function DayViewPage({ days, onInspectTrade, sessionById }: SharedPageProps) {
 
 function TradeViewPage({
   closedTrades,
+  currency,
   onEditTrade,
   onInspectTrade,
 }: SharedPageProps) {
@@ -743,7 +759,12 @@ function TradeViewPage({
             </label>
           ))}
         </div>
-        <TradeLog trades={closedTrades} onEdit={onEditTrade} onInspect={onInspectTrade} />
+        <TradeLog
+          currency={currency}
+          trades={closedTrades}
+          onEdit={onEditTrade}
+          onInspect={onInspectTrade}
+        />
       </FeatureCard>
     </PageScaffold>
   );
@@ -1199,14 +1220,17 @@ function JournalReportsPage({
           </FeatureCard>
           <FeatureCard>
             <CardLabel icon={BarChart3} label="Live P&L by day" />
-            <BarBreakdown rows={days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
+            <BarBreakdown
+              currency="USD"
+              rows={days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
+            />
           </FeatureCard>
           <FeatureCard className="xl:col-span-2">
-            <StatsGrid aggregate={aggregate} />
+            <StatsGrid aggregate={aggregate} currency="USD" />
           </FeatureCard>
         </div>
       )}
-      {tab === "overview" && <FeatureCard><StatsGrid aggregate={aggregate} /></FeatureCard>}
+      {tab === "overview" && <FeatureCard><StatsGrid aggregate={aggregate} currency="USD" /></FeatureCard>}
       {tab === "daytime" && <ReportBreakdown leftTitle="Live net P&L by hour" rightTitle="Live win % by hour" rows={hourRows} />}
       {tab === "risk" && <ReportBreakdown leftTitle="Live net P&L by R multiple" rightTitle="Live win % by R bucket" rows={rRows} />}
       {tab === "strategies" && (
@@ -1658,6 +1682,7 @@ function LiveTradeTable({
 
 function NotebookPage({
   closedTrades,
+  datasets,
   onInspectTrade,
   sessionById,
 }: SharedPageProps) {
@@ -1719,7 +1744,10 @@ function NotebookPage({
                   <span className="text-xs text-slate-500">{tradeStrategyName(trade, sessionById.get(trade.session_id))}</span>
                 </span>
                 <span className={`shrink-0 text-xs font-semibold ${toneForNumber(trade.realized_pnl)}`}>
-                  {formatMoney(trade.realized_pnl)}
+                  {formatMoney(
+                    trade.realized_pnl,
+                    currencyForSession(sessionById.get(trade.session_id), datasets),
+                  )}
                 </span>
               </button>
             ))}
@@ -1746,13 +1774,23 @@ function NotebookPage({
               <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
                 <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Trade summary</div>
                 <div className={`mt-2 text-3xl font-semibold ${toneForNumber(selectedTrade.realized_pnl)}`}>
-                  {formatMoney(selectedTrade.realized_pnl)}
+                  {formatMoney(
+                    selectedTrade.realized_pnl,
+                    currencyForSession(sessionById.get(selectedTrade.session_id), datasets),
+                  )}
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-4">
                   <CompactMetric label="Side" value={selectedTrade.side} />
                   <CompactMetric label="Volume" value={formatCompactNumber(selectedTrade.quantity)} />
                   <CompactMetric label="R multiple" value={formatOptionalNumber(selectedTrade.r_multiple)} />
-                  <CompactMetric label="Gross P&L" value={formatMoney(selectedTrade.realized_pnl)} tone={toneForNumber(selectedTrade.realized_pnl)} />
+                  <CompactMetric
+                    label="Gross P&L"
+                    value={formatMoney(
+                      selectedTrade.realized_pnl,
+                      currencyForSession(sessionById.get(selectedTrade.session_id), datasets),
+                    )}
+                    tone={toneForNumber(selectedTrade.realized_pnl)}
+                  />
                 </div>
                 <button className="control-button mt-4 workspace-tab-active" onClick={() => onInspectTrade(selectedTrade)} type="button">
                   View trade details
@@ -1772,6 +1810,7 @@ function NotebookPage({
 function ReportsPage({
   aggregate,
   closedTrades,
+  currency,
   days,
   sessionById,
   strategies,
@@ -1823,7 +1862,7 @@ function ReportsPage({
             <BarBreakdown rows={days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
           </FeatureCard>
           <FeatureCard className="xl:col-span-2">
-            <StatsGrid aggregate={aggregate} />
+            <StatsGrid aggregate={aggregate} currency={currency} />
           </FeatureCard>
         </div>
       )}
@@ -1833,18 +1872,19 @@ function ReportsPage({
           <FeatureCard>
             <CardLabel icon={Gauge} label="Your stats" />
             <div className="mt-4 grid gap-2">
-              <CompactMetric label="Best month" value={formatMoney(bestMonth(closedTrades).pnl)} tone="text-emerald-300" />
-              <CompactMetric label="Lowest month" value={formatMoney(worstMonth(closedTrades).pnl)} tone="text-rose-300" />
+              <CompactMetric label="Best month" value={formatMoney(bestMonth(closedTrades).pnl, currency)} tone="text-emerald-300" />
+              <CompactMetric label="Lowest month" value={formatMoney(worstMonth(closedTrades).pnl, currency)} tone="text-rose-300" />
             </div>
           </FeatureCard>
           <FeatureCard>
-            <StatsGrid aggregate={aggregate} />
+            <StatsGrid aggregate={aggregate} currency={currency} />
           </FeatureCard>
         </div>
       )}
 
       {tab === "daytime" && (
         <ReportBreakdown
+          currency={currency}
           leftTitle="Net P&L by hour"
           rightTitle="Win % by hour"
           rows={hourRows}
@@ -1854,19 +1894,21 @@ function ReportsPage({
       {tab === "risk" && (
         <div className="grid gap-4">
           <ReportBreakdown
+            currency={currency}
             leftTitle="Net P&L by R multiple"
             rightTitle="Win % by R bucket"
             rows={rRows}
           />
           <FeatureCard>
             <CardLabel icon={Grid2X2} label="R-multiple cross analysis" />
-            <CrossAnalysis rows={rRows} sessionById={sessionById} trades={closedTrades} />
+            <CrossAnalysis currency={currency} rows={rRows} sessionById={sessionById} trades={closedTrades} />
           </FeatureCard>
         </div>
       )}
 
       {tab === "tags" && (
         <ReportBreakdown
+          currency={currency}
           leftTitle="Net P&L by tag"
           rightTitle="Win % by tag"
           rows={tagRows}
@@ -1877,18 +1919,18 @@ function ReportsPage({
         <div className="grid gap-4 xl:grid-cols-2">
           <FeatureCard>
             <CardLabel icon={TrendingUp} label={`Wins (${aggregate.wins} trades matched)`} />
-            <StatsGrid aggregate={aggregateTrades(closedTrades.filter((trade) => trade.realized_pnl > 0))} />
+            <StatsGrid aggregate={aggregateTrades(closedTrades.filter((trade) => trade.realized_pnl > 0))} currency={currency} />
           </FeatureCard>
           <FeatureCard>
             <CardLabel icon={TrendingDown} label={`Losses (${aggregate.losses} trades matched)`} />
-            <StatsGrid aggregate={aggregateTrades(closedTrades.filter((trade) => trade.realized_pnl < 0))} />
+            <StatsGrid aggregate={aggregateTrades(closedTrades.filter((trade) => trade.realized_pnl < 0))} currency={currency} />
           </FeatureCard>
         </div>
       )}
 
       {tab === "calendar" && (
         <FeatureCard>
-          <CalendarHeatmap days={days} />
+          <CalendarHeatmap currency={currency} days={days} />
         </FeatureCard>
       )}
 
@@ -1896,7 +1938,7 @@ function ReportsPage({
         <div className="grid gap-3">
           <InsightCard
             title="Monthly recap"
-            body={closedTrades.length > 0 ? `Net ${formatMoney(aggregate.netPnl)} across ${closedTrades.length} closed backtest trades. Best trade ${formatMoney(aggregate.largestWin ?? 0)}, worst trade ${formatMoney(aggregate.largestLoss ?? 0)}.` : "Backtest reports will appear here after your first closed replay trade."}
+            body={closedTrades.length > 0 ? `Net ${formatMoney(aggregate.netPnl, currency)} across ${closedTrades.length} closed backtest trades. Best trade ${formatMoney(aggregate.largestWin ?? 0, currency)}, worst trade ${formatMoney(aggregate.largestLoss ?? 0, currency)}.` : "Backtest reports will appear here after your first closed replay trade."}
           />
           <InsightCard
             title="Strategy pattern"
@@ -1909,6 +1951,7 @@ function ReportsPage({
 }
 
 function StrategiesPage({
+  currency,
   onNavigateSessions,
   onResumeSession,
   strategies,
@@ -1966,9 +2009,9 @@ function StrategiesPage({
                   <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
                   <td className="px-3 py-4">{strategy.sessions.length}</td>
                   <td className="px-3 py-4">0</td>
-                  <td className="px-3 py-4 text-rose-300">{formatMoney(strategy.aggregate.averageLoss)}</td>
-                  <td className="px-3 py-4 text-emerald-300">{formatMoney(strategy.aggregate.averageWin)}</td>
-                  <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl)}</td>
+                  <td className="px-3 py-4 text-rose-300">{formatMoney(strategy.aggregate.averageLoss, currency)}</td>
+                  <td className="px-3 py-4 text-emerald-300">{formatMoney(strategy.aggregate.averageWin, currency)}</td>
+                  <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl, currency)}</td>
                   <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
                 </tr>
               ))}
@@ -1987,7 +2030,7 @@ function StrategiesPage({
                 Compare session outcomes, win rate, R-multiple, and drawdown for this strategy only.
               </p>
               <div className="mt-4 grid gap-2 md:grid-cols-3">
-                <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl)} tone={toneForNumber(selected.aggregate.netPnl)} />
+                <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl, currency)} tone={toneForNumber(selected.aggregate.netPnl)} />
                 <CompactMetric label="Win rate" value={formatPercent(selected.aggregate.winRate)} />
                 <CompactMetric label="Profit factor" value={formatRatio(selected.aggregate.profitFactor)} />
               </div>
@@ -2028,6 +2071,7 @@ type PlaybookUsageSession = {
 };
 
 function BacktestPlaybooksPage({
+  currency,
   onCreatePlaybook,
   playbooks,
   sessions,
@@ -2045,6 +2089,7 @@ function BacktestPlaybooksPage({
         emptyMessage="Create a playbook here, then attach it when creating a backtesting session or placing an order."
         onCreatePlaybook={onCreatePlaybook}
         playbooks={playbooks}
+        currency={currency}
         sessions={sessions}
         trades={trades}
       />
@@ -2055,6 +2100,7 @@ function BacktestPlaybooksPage({
 function PlaybookRuleLibrary({
   contextLabel,
   createLabel,
+  currency = "USD",
   emptyMessage,
   onCreatePlaybook,
   playbooks,
@@ -2063,6 +2109,7 @@ function PlaybookRuleLibrary({
 }: {
   contextLabel: "Backtesting" | "Journal";
   createLabel: string;
+  currency?: string;
   emptyMessage: string;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook> | Playbook;
   playbooks: Playbook[];
@@ -2217,7 +2264,7 @@ function PlaybookRuleLibrary({
                 </div>
 
                 <div className="mt-4 grid gap-2 md:grid-cols-4">
-                  <CompactMetric label="Net P&L" value={formatMoney(selectedUsage.aggregate.netPnl)} tone={toneForNumber(selectedUsage.aggregate.netPnl)} />
+                  <CompactMetric label="Net P&L" value={formatMoney(selectedUsage.aggregate.netPnl, currency)} tone={toneForNumber(selectedUsage.aggregate.netPnl)} />
                   <CompactMetric label="Win rate" value={formatPercent(selectedUsage.aggregate.winRate)} />
                   <CompactMetric label="Avg R" value={formatOptionalNumber(selectedUsage.aggregate.averageR)} />
                   <CompactMetric label="Profit factor" value={formatRatio(selectedUsage.aggregate.profitFactor)} />
@@ -2896,23 +2943,23 @@ function RichTextEditorStub() {
   );
 }
 
-function StatsGrid({ aggregate }: { aggregate: Aggregate }) {
+function StatsGrid({ aggregate, currency }: { aggregate: Aggregate; currency: string }) {
   const rows = [
-    ["Total P&L", formatMoney(aggregate.netPnl), toneForNumber(aggregate.netPnl)],
+    ["Total P&L", formatMoney(aggregate.netPnl, currency), toneForNumber(aggregate.netPnl)],
     ["Open trades", "0", "text-slate-100"],
-    ["Average winning trade", formatMoney(aggregate.averageWin), "text-emerald-300"],
-    ["Average losing trade", formatMoney(aggregate.averageLoss), "text-rose-300"],
+    ["Average winning trade", formatMoney(aggregate.averageWin, currency), "text-emerald-300"],
+    ["Average losing trade", formatMoney(aggregate.averageLoss, currency), "text-rose-300"],
     ["Total number of trades", String(aggregate.totalTrades), "text-slate-100"],
     ["Number of winning trades", String(aggregate.wins), "text-emerald-300"],
     ["Number of losing trades", String(aggregate.losses), "text-rose-300"],
     ["Number of break even trades", String(aggregate.breakeven), "text-slate-100"],
-    ["Max drawdown", formatMoney(aggregate.maxDrawdown), "text-rose-300"],
+    ["Max drawdown", formatMoney(aggregate.maxDrawdown, currency), "text-rose-300"],
     ["Profit factor", formatRatio(aggregate.profitFactor), "text-amber-100"],
     ["Average R", formatOptionalNumber(aggregate.averageR), toneForNumber(aggregate.averageR)],
     ["Average hold", formatMinutes(aggregate.averageHoldMinutes), "text-slate-100"],
-    ["Total commissions", formatMoney(aggregate.totalCommissions), "text-slate-100"],
-    ["Largest win", formatMoney(aggregate.largestWin ?? 0), "text-emerald-300"],
-    ["Largest loss", formatMoney(aggregate.largestLoss ?? 0), "text-rose-300"],
+    ["Total commissions", formatMoney(aggregate.totalCommissions, currency), "text-slate-100"],
+    ["Largest win", formatMoney(aggregate.largestWin ?? 0, currency), "text-emerald-300"],
+    ["Largest loss", formatMoney(aggregate.largestLoss ?? 0, currency), "text-rose-300"],
     ["Recovery factor", formatRatio(aggregate.recoveryFactor), "text-slate-100"],
   ];
 
@@ -2929,10 +2976,12 @@ function StatsGrid({ aggregate }: { aggregate: Aggregate }) {
 }
 
 function ReportBreakdown({
+  currency = "USD",
   leftTitle,
   rightTitle,
   rows,
 }: {
+  currency?: string;
   leftTitle: string;
   rightTitle: string;
   rows: Array<{ aggregate: Aggregate; label: string }>;
@@ -2940,15 +2989,18 @@ function ReportBreakdown({
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-4">
-        <InsightMetric title="Best performing" row={bestRow(rows)} />
-        <InsightMetric title="Least performing" row={worstRow(rows)} />
-        <InsightMetric title="Most active" row={mostActiveRow(rows)} />
-        <InsightMetric title="Best win rate" row={bestWinRateRow(rows)} />
+        <InsightMetric currency={currency} title="Best performing" row={bestRow(rows)} />
+        <InsightMetric currency={currency} title="Least performing" row={worstRow(rows)} />
+        <InsightMetric currency={currency} title="Most active" row={mostActiveRow(rows)} />
+        <InsightMetric currency={currency} title="Best win rate" row={bestWinRateRow(rows)} />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <FeatureCard>
           <CardLabel icon={LineChart} label={leftTitle} />
-          <BarBreakdown rows={rows.map((row) => ({ label: row.label, value: row.aggregate.netPnl }))} />
+          <BarBreakdown
+            currency={currency}
+            rows={rows.map((row) => ({ label: row.label, value: row.aggregate.netPnl }))}
+          />
         </FeatureCard>
         <FeatureCard>
           <CardLabel icon={PieChart} label={rightTitle} />
@@ -2960,9 +3012,11 @@ function ReportBreakdown({
 }
 
 function InsightMetric({
+  currency = "USD",
   row,
   title,
 }: {
+  currency?: string;
   row: { aggregate: Aggregate; label: string } | null;
   title: string;
 }) {
@@ -2971,7 +3025,7 @@ function InsightMetric({
       <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{title}</div>
       <div className="mt-2 truncate text-lg font-semibold text-white">{row?.label ?? "-"}</div>
       <div className={`mt-1 text-sm font-semibold ${toneForNumber(row?.aggregate.netPnl)}`}>
-        {formatMoney(row?.aggregate.netPnl ?? 0)}
+        {formatMoney(row?.aggregate.netPnl ?? 0, currency)}
       </div>
       <div className="mt-1 text-xs text-slate-500">{row?.aggregate.totalTrades ?? 0} trades</div>
     </FeatureCard>
@@ -2987,7 +3041,15 @@ function InsightCard({ body, title }: { body: string; title: string }) {
   );
 }
 
-function CalendarHeatmap({ compact = false, days }: { compact?: boolean; days: DayGroup[] }) {
+function CalendarHeatmap({
+  compact = false,
+  currency = "USD",
+  days,
+}: {
+  compact?: boolean;
+  currency?: string;
+  days: DayGroup[];
+}) {
   const cells = buildMonthCells(days);
   return (
     <div className="min-w-0">
@@ -3018,7 +3080,7 @@ function CalendarHeatmap({ compact = false, days }: { compact?: boolean; days: D
           >
             <div>{cell.day ?? ""}</div>
             {!compact && cell.day != null && cell.trades > 0 && (
-              <div className="mt-1 truncate font-semibold">{formatMoney(cell.pnl)}</div>
+              <div className="mt-1 truncate font-semibold">{formatMoney(cell.pnl, currency)}</div>
             )}
           </div>
         ))}
@@ -3057,9 +3119,11 @@ function AreaSparkline({
 }
 
 function BarBreakdown({
+  currency = "USD",
   percent = false,
   rows,
 }: {
+  currency?: string;
   percent?: boolean;
   rows: Array<{ label: string; value: number }>;
 }) {
@@ -3076,7 +3140,7 @@ function BarBreakdown({
             />
           </div>
           <span className={`text-right font-semibold tabular-nums ${toneForNumber(row.value)}`}>
-            {percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value)}
+            {percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}
           </span>
         </div>
       ))}
@@ -3086,10 +3150,12 @@ function BarBreakdown({
 }
 
 function CrossAnalysis({
+  currency = "USD",
   rows,
   sessionById,
   trades,
 }: {
+  currency?: string;
   rows: Array<{ aggregate: Aggregate; label: string }>;
   sessionById: Map<number, BacktestSession>;
   trades: Trade[];
@@ -3116,7 +3182,7 @@ function CrossAnalysis({
                   .reduce((sum, trade) => sum + trade.realized_pnl, 0);
                 return (
                   <td className={`px-3 py-2 font-semibold ${toneForNumber(pnl)}`} key={symbol}>
-                    {formatMoney(pnl)}
+                    {formatMoney(pnl, currency)}
                   </td>
                 );
               })}

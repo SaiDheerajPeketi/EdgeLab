@@ -1,14 +1,15 @@
 import { Edit3 } from "lucide-react";
 import type { Trade } from "../lib/api";
-import { formatDateTime, formatPrice } from "../lib/format";
+import { formatDateTime, formatMoney, formatPrice } from "../lib/format";
 
 type Props = {
+  currency?: string;
   trades: Trade[];
   onEdit: (trade: Trade) => void;
   onInspect: (trade: Trade) => void;
 };
 
-export function TradeLog({ trades, onEdit, onInspect }: Props) {
+export function TradeLog({ currency = "USD", trades, onEdit, onInspect }: Props) {
   return (
     <section className="min-w-0 rounded-md border border-white/10 bg-ink-850 shadow-panel">
       <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
@@ -65,7 +66,7 @@ export function TradeLog({ trades, onEdit, onInspect }: Props) {
                     (trade.realized_pnl ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"
                   }`}
                 >
-                  {trade.realized_pnl == null ? "—" : money(trade.realized_pnl)}
+                  {trade.realized_pnl == null ? "—" : formatMoney(trade.realized_pnl, currency)}
                 </td>
                 <td className="px-3 py-3 text-slate-200">
                   {trade.r_multiple == null ? "—" : trade.r_multiple.toFixed(2)}
@@ -103,12 +104,4 @@ export function TradeLog({ trades, onEdit, onInspect }: Props) {
       </div>
     </section>
   );
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
 }

@@ -65,6 +65,7 @@ import {
   sanitizeChartVisualSettings,
   type ChartVisualSettings,
 } from "./lib/chartSettings";
+import { currencyForSession } from "./lib/currency";
 import {
   getCachedAppStorageItem,
   loadAppStorageItem,
@@ -470,7 +471,7 @@ export default function App() {
   const executions = state?.executions ?? [];
   const trades = state?.trades ?? [];
   const position = state?.position ?? null;
-  const sessionCurrency = state?.session.currency ?? "USD";
+  const sessionCurrency = currencyForSession(state?.session ?? null, datasets);
   const pendingOrders = orders.filter((order) => order.status === "PENDING").length;
   const savedLayoutLabel =
     chartLayoutSavedAt == null
