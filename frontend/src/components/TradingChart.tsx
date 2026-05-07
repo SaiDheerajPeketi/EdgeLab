@@ -62,6 +62,7 @@ import {
   toCandles,
   type ChartDrawing,
   type ChartIndicatorInstance,
+  type IndicatorDefinition,
   type IndicatorSettings,
   type ChartStyle,
   type ChartTimeframe,
@@ -752,7 +753,10 @@ export function TradingChart({
       if (!indicatorRefs.current[indicator.id]) {
         indicatorRefs.current[indicator.id] = chart.addLineSeries({
           color: indicator.color,
-          lineWidth: indicator.lineWidth ?? 2,
+          lineWidth: selectedIndicatorLineWidth(
+            indicator.lineWidth,
+            indicator.sourceId === selectedIndicatorId,
+          ),
           lineStyle: indicator.lineStyle ?? 0,
           priceLineVisible: false,
           lastValueVisible: chartSettings.indicatorValues,
@@ -768,7 +772,10 @@ export function TradingChart({
         color: indicator.color,
         lastValueVisible: chartSettings.indicatorValues,
         lineStyle: indicator.lineStyle ?? 0,
-        lineWidth: indicator.lineWidth ?? 2,
+        lineWidth: selectedIndicatorLineWidth(
+          indicator.lineWidth,
+          indicator.sourceId === selectedIndicatorId,
+        ),
         priceFormat: priceFormatFromPrecision(chartSettings.pricePrecision),
         priceScaleId: primaryPriceScaleId,
       });
@@ -779,6 +786,7 @@ export function TradingChart({
     chartSettings.pricePrecision,
     chartSettings.scalePlacement,
     indicatorDefinitions,
+    selectedIndicatorId,
   ]);
 
   useEffect(() => {
@@ -918,8 +926,20 @@ export function TradingChart({
 
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
+      const indicatorPoint = pixelFromClient(
+        event.clientX,
+        event.clientY,
+        chartFrameRef.current,
+      );
+      const indicatorHit = indicatorPoint ? hitTestOverlayIndicator(indicatorPoint) : null;
+      if (indicatorHit) {
+        openIndicatorToolbarAtFramePoint(indicatorHit.indicatorId, indicatorHit.point);
+        return;
+      }
       onSelectDrawing(null);
       setDrawingToolbarOpen(false);
+      setSelectedIndicatorId(null);
+      setIndicatorToolbarPosition(null);
       return;
     }
     const point = pointFromClient(
@@ -1187,12 +1207,55 @@ export function TradingChart({
     }
     const stageRect = stage.getBoundingClientRect();
     const triggerRect = event.currentTarget.getBoundingClientRect();
-    const x = clamp(triggerRect.left - stageRect.left, 12, Math.max(12, stageRect.width - 360));
-    const y = clamp(triggerRect.bottom - stageRect.top + 8, 12, Math.max(12, stageRect.height - 220));
+    const x = triggerRect.left - stageRect.left;
+    const y = triggerRect.bottom - stageRect.top + 8;
+    openIndicatorToolbarAtStagePoint(indicatorId, x, y);
+  }
+
+  function openIndicatorToolbarAtStagePoint(indicatorId: string, x: number, y: number) {
     setSelectedIndicatorId(indicatorId);
-    setIndicatorToolbarPosition({ x, y });
+    setIndicatorToolbarPosition(clampIndicatorToolbarPosition({ x, y }));
     onSelectDrawing(null);
     setDrawingToolbarOpen(false);
+  }
+
+  function openIndicatorToolbarAtFramePoint(
+    indicatorId: string,
+    point: { x: number; y: number },
+  ) {
+    const stage = stageRef.current;
+    const frame = chartFrameRef.current;
+    if (!stage || !frame) {
+      return;
+    }
+    const stageRect = stage.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    openIndicatorToolbarAtStagePoint(
+      indicatorId,
+      frameRect.left - stageRect.left + point.x + 12,
+      frameRect.top - stageRect.top + point.y - 18,
+    );
+  }
+
+  function clampIndicatorToolbarPosition(position: { x: number; y: number }) {
+    const stage = stageRef.current;
+    if (!stage) {
+      return position;
+    }
+    return {
+      x: clamp(position.x, 12, Math.max(12, stage.clientWidth - 360)),
+      y: clamp(position.y, 12, Math.max(12, stage.clientHeight - 96)),
+    };
+  }
+
+  function hitTestOverlayIndicator(point: { x: number; y: number }) {
+    return findNearestOverlayIndicator({
+      chart: chartRef.current,
+      definitions: activeOverlayIndicators,
+      frame: chartFrameRef.current,
+      point,
+      seriesById: indicatorRefs.current,
+    });
   }
 
   useEffect(() => {
@@ -1204,6 +1267,34 @@ export function TradingChart({
       setIndicatorToolbarPosition(null);
     }
   }, [indicatorInstances, selectedIndicatorId]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || isDrawingPlacementMode || dragState != null) {
+      return;
+    }
+
+    function handleChartClick(param: MouseEventParams<Time>) {
+      if (!param.point) {
+        return;
+      }
+      const indicatorIdFromSeries = sourceIndicatorIdForSeries(
+        param.hoveredSeries,
+        activeOverlayIndicators,
+        indicatorRefs.current,
+      );
+      const hit = indicatorIdFromSeries
+        ? { indicatorId: indicatorIdFromSeries, point: param.point }
+        : hitTestOverlayIndicator(param.point);
+      if (!hit) {
+        return;
+      }
+      openIndicatorToolbarAtFramePoint(hit.indicatorId, hit.point);
+    }
+
+    chart.subscribeClick(handleChartClick);
+    return () => chart.unsubscribeClick(handleChartClick);
+  }, [activeOverlayIndicators, dragState, isDrawingPlacementMode]);
 
   useEffect(() => {
     if (!selectedIndicatorId) {
@@ -1219,6 +1310,7 @@ export function TradingChart({
         target.closest(".indicator-floating-toolbar") ||
         target.closest(".chart-study-pill") ||
         target.closest(".indicator-pane-title") ||
+        target.closest(".indicator-pane-plot") ||
         target.closest(".themed-color-popover")
       ) {
         return;
@@ -1506,6 +1598,9 @@ export function TradingChart({
             setSelectedIndicatorId(null);
             setIndicatorToolbarPosition(null);
           }}
+          onPositionChange={(position) =>
+            setIndicatorToolbarPosition(clampIndicatorToolbarPosition(position))
+          }
           onToggleVisibility={() => onToggleIndicatorVisibility(selectedIndicator.id)}
           position={indicatorToolbarPosition}
         />
@@ -1912,6 +2007,106 @@ function buildSessionBreakElements(
   });
 }
 
+function sourceIndicatorIdForSeries(
+  hoveredSeries: unknown,
+  definitions: IndicatorDefinition[],
+  seriesById: Record<string, ISeriesApi<"Line">>,
+) {
+  if (!hoveredSeries) {
+    return null;
+  }
+  const definitionId = Object.entries(seriesById).find(
+    ([, series]) => series === hoveredSeries,
+  )?.[0];
+  if (!definitionId) {
+    return null;
+  }
+  return definitions.find((definition) => definition.id === definitionId)?.sourceId ?? null;
+}
+
+function findNearestOverlayIndicator({
+  chart,
+  definitions,
+  frame,
+  point,
+  seriesById,
+}: {
+  chart: IChartApi | null;
+  definitions: IndicatorDefinition[];
+  frame: HTMLDivElement | null;
+  point: { x: number; y: number };
+  seriesById: Record<string, ISeriesApi<"Line">>;
+}) {
+  if (!chart || !frame || definitions.length === 0) {
+    return null;
+  }
+
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = frame.clientHeight;
+  if (point.x < 0 || point.y < 0 || point.x > plotWidth || point.y > plotHeight) {
+    return null;
+  }
+
+  let nearest: { distance: number; indicatorId: string; point: { x: number; y: number } } | null =
+    null;
+
+  for (const definition of definitions) {
+    const series = seriesById[definition.id];
+    if (!series || definition.data.length === 0) {
+      continue;
+    }
+    const threshold = Math.max(8, (definition.lineWidth ?? 2) + 5);
+    let previous: { x: number; y: number } | null = null;
+
+    for (const dataPoint of definition.data) {
+      const value = Number(dataPoint.value);
+      if (!Number.isFinite(value)) {
+        previous = null;
+        continue;
+      }
+      const x = chart.timeScale().timeToCoordinate(dataPoint.time);
+      const y = series.priceToCoordinate(value);
+      if (x == null || y == null) {
+        previous = null;
+        continue;
+      }
+      const current = { x, y };
+      if (x >= -24 && x <= plotWidth + 24 && y >= -24 && y <= plotHeight + 24) {
+        const distanceToPoint = Math.hypot(point.x - x, point.y - y);
+        const distanceToSegment = previous
+          ? pointSegmentDistance(point, previous, current)
+          : distanceToPoint;
+        const distance = Math.min(distanceToPoint, distanceToSegment);
+        if (distance <= threshold && (!nearest || distance < nearest.distance)) {
+          nearest = {
+            distance,
+            indicatorId: definition.sourceId,
+            point: current,
+          };
+        }
+      }
+      previous = current;
+    }
+  }
+
+  return nearest;
+}
+
+function pointSegmentDistance(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+}
+
 function RsiPanel({
   color,
   data,
@@ -1945,7 +2140,10 @@ function RsiPanel({
         </button>
         <span style={{ color }}>{latest == null ? "—" : latest.toFixed(1)}</span>
       </div>
-      <div className="h-24 overflow-hidden rounded-md bg-black/20">
+      <div
+        className={`indicator-pane-plot h-24 ${selected ? "indicator-pane-plot-active" : ""}`}
+        onClick={onOpenSettings}
+      >
         {visible.length > 1 ? (
           <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
             <path d="M 0 28.8 L 960 28.8" stroke="rgba(34, 197, 94, 0.26)" strokeWidth="1" />
@@ -2016,7 +2214,10 @@ function MacdPanel({
           {latest == null ? "—" : Number(latest).toFixed(5)} / {signalLatest == null ? "—" : Number(signalLatest).toFixed(5)}
         </span>
       </div>
-      <div className="h-28 overflow-hidden rounded-md bg-black/20">
+      <div
+        className={`indicator-pane-plot h-28 ${selected ? "indicator-pane-plot-active" : ""}`}
+        onClick={onOpenSettings}
+      >
         {visibleMacd.length > 1 ? (
           <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 112">
             <path d="M 0 56 L 960 56" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
@@ -2103,7 +2304,10 @@ function StudyLinePanel({
           {latest == null ? "—" : latest.toFixed(valueDigits)}
         </span>
       </div>
-      <div className="h-24 overflow-hidden rounded-md bg-black/20">
+      <div
+        className={`indicator-pane-plot h-24 ${selected ? "indicator-pane-plot-active" : ""}`}
+        onClick={onOpenSettings}
+      >
         {visible.length > 1 ? (
           <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 960 96">
             {zeroLine && (
@@ -2137,6 +2341,7 @@ function FloatingIndicatorToolbar({
   onChange,
   onClose,
   onRemove,
+  onPositionChange,
   onToggleVisibility,
   position,
 }: {
@@ -2144,6 +2349,7 @@ function FloatingIndicatorToolbar({
   onChange: (settings: Partial<IndicatorSettings>) => void;
   onClose: () => void;
   onRemove: () => void;
+  onPositionChange: (position: { x: number; y: number }) => void;
   onToggleVisibility: () => void;
   position: { x: number; y: number };
 }) {
@@ -2161,6 +2367,29 @@ function FloatingIndicatorToolbar({
     event.stopPropagation();
   };
 
+  const startToolbarDrag = (event: MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startClientX = event.clientX;
+    const startClientY = event.clientY;
+    const startX = position.x;
+    const startY = position.y;
+
+    const moveToolbar = (moveEvent: globalThis.MouseEvent) => {
+      onPositionChange({
+        x: startX + moveEvent.clientX - startClientX,
+        y: startY + moveEvent.clientY - startClientY,
+      });
+    };
+    const stopToolbarDrag = () => {
+      document.removeEventListener("mousemove", moveToolbar);
+      document.removeEventListener("mouseup", stopToolbarDrag);
+    };
+
+    document.addEventListener("mousemove", moveToolbar);
+    document.addEventListener("mouseup", stopToolbarDrag);
+  };
+
   return (
     <div
       className="chart-object-floating-toolbar indicator-floating-toolbar"
@@ -2169,7 +2398,11 @@ function FloatingIndicatorToolbar({
       role="group"
       style={{ left: position.x, top: position.y }}
     >
-      <div className="indicator-floating-title">
+      <div
+        className="indicator-floating-title indicator-floating-title-draggable"
+        onMouseDown={startToolbarDrag}
+        title="Drag indicator controls"
+      >
         <span
           className="h-2.5 w-2.5 rounded-sm"
           style={{ backgroundColor: settings.color }}
@@ -4479,6 +4712,27 @@ function defaultIndicatorLineStyle(
     return kind === "supertrend" ? "dotted" : "dashed";
   }
   return "solid";
+}
+
+function selectedIndicatorLineWidth(
+  width: IndicatorDefinition["lineWidth"],
+  selected: boolean,
+): 1 | 2 | 3 | 4 {
+  return lightweightIndicatorLineWidth((width ?? 2) + (selected ? 1 : 0));
+}
+
+function lightweightIndicatorLineWidth(width: number): 1 | 2 | 3 | 4 {
+  const rounded = Math.round(width);
+  if (rounded <= 1) {
+    return 1;
+  }
+  if (rounded === 2) {
+    return 2;
+  }
+  if (rounded === 3) {
+    return 3;
+  }
+  return 4;
 }
 
 function defaultIndicatorLineWidth(
