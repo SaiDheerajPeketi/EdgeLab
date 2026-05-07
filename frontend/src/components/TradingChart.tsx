@@ -226,6 +226,8 @@ export function TradingChart({
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
   const snappedCrosshairRef = useRef<string | null>(null);
+  const pendingCrosshairPointRef = useRef<DrawingPoint | null>(null);
+  const crosshairFrameRef = useRef<number | null>(null);
 
   const displayBars = useMemo(
     () => aggregateBars(bars, timeframe),
@@ -428,10 +430,15 @@ export function TradingChart({
 
   useEffect(() => {
     if (magnetMode === "off" || !chartSettings.crosshairVisible) {
-      chartRef.current?.clearCrosshairPosition();
-      snappedCrosshairRef.current = null;
+      clearMagnetCrosshair();
     }
   }, [chartSettings.crosshairVisible, magnetMode]);
+
+  useEffect(() => {
+    return () => {
+      cancelScheduledMagnetCrosshair();
+    };
+  }, []);
 
   useEffect(() => {
     if (!chartContainerRef.current) {
@@ -980,41 +987,65 @@ export function TradingChart({
       candlesRef.current,
       barsRef.current,
     );
-    const snap = point
-      ? resolveOhlcSnapPoint(
-          point,
-          pixel,
-          chartRef.current,
-          candlesRef.current,
-          barsRef.current,
-          magnetMode,
-        )
-      : null;
-
-    if (!snap || !chartRef.current || !candlesRef.current) {
-      chartRef.current?.clearCrosshairPosition();
-      snappedCrosshairRef.current = null;
+    if (!point) {
+      clearMagnetCrosshair();
       return;
     }
 
-    const signature = `${snap.time}:${snap.price}`;
-    if (snappedCrosshairRef.current === signature) {
-      return;
-    }
-    snappedCrosshairRef.current = signature;
-    chartRef.current.setCrosshairPosition(
-      snap.price,
-      snap.time as UTCTimestamp,
+    const snap = resolveOhlcSnapPoint(
+      point,
+      pixel,
+      chartRef.current,
       candlesRef.current,
+      barsRef.current,
+      magnetMode,
     );
+    const crosshairPoint = snap ?? (magnetMode === "weak" ? point : null);
+    if (!crosshairPoint) {
+      clearMagnetCrosshair();
+      return;
+    }
+    scheduleMagnetCrosshair(crosshairPoint);
   }
 
   function handleMagnetCrosshairLeave() {
-    if (snappedCrosshairRef.current == null) {
+    clearMagnetCrosshair();
+  }
+
+  function scheduleMagnetCrosshair(point: DrawingPoint) {
+    pendingCrosshairPointRef.current = point;
+    if (crosshairFrameRef.current != null) {
       return;
     }
+    crosshairFrameRef.current = window.requestAnimationFrame(() => {
+      crosshairFrameRef.current = null;
+      const target = pendingCrosshairPointRef.current;
+      if (!target || !chartRef.current || !candlesRef.current) {
+        return;
+      }
+      const signature = `${target.time}:${target.price}`;
+      chartRef.current.setCrosshairPosition(
+        target.price,
+        target.time as UTCTimestamp,
+        candlesRef.current,
+      );
+      snappedCrosshairRef.current = signature;
+    });
+  }
+
+  function clearMagnetCrosshair() {
+    cancelScheduledMagnetCrosshair();
     chartRef.current?.clearCrosshairPosition();
     snappedCrosshairRef.current = null;
+  }
+
+  function cancelScheduledMagnetCrosshair() {
+    pendingCrosshairPointRef.current = null;
+    if (crosshairFrameRef.current == null) {
+      return;
+    }
+    window.cancelAnimationFrame(crosshairFrameRef.current);
+    crosshairFrameRef.current = null;
   }
 
   function startDrawingDrag(

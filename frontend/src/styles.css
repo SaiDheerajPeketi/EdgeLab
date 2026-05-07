@@ -791,8 +791,12 @@ button:disabled {
     @apply flex min-w-0 flex-wrap items-center gap-2 border-t border-white/10 bg-black/20 p-2;
   }
 
-  .chart-settings-template-control {
-    @apply flex min-w-0 flex-wrap items-center gap-2;
+  .chart-settings-template-status {
+    @apply inline-flex h-8 min-w-0 items-center gap-2 rounded-md border border-cyan-300/15 bg-cyan-300/5 px-2.5 text-xs text-slate-400;
+  }
+
+  .chart-settings-template-status strong {
+    @apply max-w-48 truncate text-cyan-100;
   }
 
   .indicator-chip {

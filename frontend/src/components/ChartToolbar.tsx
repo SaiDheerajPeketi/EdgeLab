@@ -1167,24 +1167,9 @@ function ChartSettingsPanel({
       </div>
 
       <div className="chart-settings-footer">
-        <div className="chart-settings-template-control">
-          <span className="study-manager-label">Active Template</span>
-          <ThemedSelect
-            ariaLabel="Settings templates"
-            className="h-8 w-56"
-            onChange={onLoadPreset}
-            options={
-              presets.length > 0
-                ? presets.map((preset) => ({
-                    label: preset.name,
-                    sublabel: new Date(preset.updatedAt).toLocaleDateString(),
-                    value: preset.name,
-                  }))
-                : [{ disabled: true, label: "No saved templates", value: "" }]
-            }
-            placeholder="Choose template"
-            value={presets.some((preset) => preset.name === presetName) ? presetName : ""}
-          />
+        <div className="chart-settings-template-status">
+          <span className="study-manager-label">Template</span>
+          <strong>{presets.some((preset) => preset.name === presetName) ? presetName : "Unsaved"}</strong>
         </div>
         <input
           className="input-control h-8 min-w-40 flex-1 text-xs"
