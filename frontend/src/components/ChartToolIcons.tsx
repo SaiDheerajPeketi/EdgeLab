@@ -59,10 +59,9 @@ export function TvTrendLineIcon(props: SVGProps<SVGSVGElement> & { size?: number
 export function TvHorizontalLineIcon(props: SVGProps<SVGSVGElement> & { size?: number | string }) {
   return (
     <IconFrame {...props}>
-      <path d="M4 12h16" />
-      <path d="M7 8h10" opacity="0.35" />
-      <path d="M7 16h10" opacity="0.35" />
-      <path d="M18 9v6" />
+      <path d="M3 12h18" />
+      <path d="M6 8h12" opacity="0.28" />
+      <path d="M6 16h12" opacity="0.28" />
     </IconFrame>
   );
 }
