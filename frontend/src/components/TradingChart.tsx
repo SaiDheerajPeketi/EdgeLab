@@ -1172,7 +1172,12 @@ export function TradingChart({
     setIndicatorToolbarPosition(null);
   }
 
-  function runChartContextMenuAction(action: () => void) {
+  function runChartContextMenuAction(
+    action: () => void,
+    event?: MouseEvent<HTMLElement>,
+  ) {
+    event?.preventDefault();
+    event?.stopPropagation();
     action();
     setChartContextMenuPosition(null);
   }
@@ -1700,6 +1705,8 @@ export function TradingChart({
                 className="chart-context-menu"
                 onClick={(event) => event.stopPropagation()}
                 onContextMenu={(event) => event.preventDefault()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onMouseUp={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
                 role="menu"
                 style={{
@@ -1709,7 +1716,11 @@ export function TradingChart({
               >
                 <button
                   className="chart-context-menu-row"
-                  onClick={() => runChartContextMenuAction(resetChartView)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onMouseDown={(event) => runChartContextMenuAction(resetChartView, event)}
                   role="menuitem"
                   type="button"
                 >
@@ -1719,7 +1730,11 @@ export function TradingChart({
                 <button
                   className="chart-context-menu-row"
                   disabled={removableDrawingsCount === 0}
-                  onClick={() => runChartContextMenuAction(onClearDrawings)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onMouseDown={(event) => runChartContextMenuAction(onClearDrawings, event)}
                   role="menuitem"
                   type="button"
                 >
@@ -1729,7 +1744,11 @@ export function TradingChart({
                 <button
                   className="chart-context-menu-row"
                   disabled={indicatorInstances.length === 0}
-                  onClick={() => runChartContextMenuAction(removeAllIndicators)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onMouseDown={(event) => runChartContextMenuAction(removeAllIndicators, event)}
                   role="menuitem"
                   type="button"
                 >
