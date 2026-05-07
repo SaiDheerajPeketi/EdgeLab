@@ -225,9 +225,12 @@ export function TradingChart({
     useState<{ x: number; y: number } | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
+  const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
   const snappedCrosshairRef = useRef<string | null>(null);
   const pendingCrosshairPointRef = useRef<DrawingPoint | null>(null);
   const crosshairFrameRef = useRef<number | null>(null);
+  const drawingDragMovedRef = useRef(false);
+  const suppressNextDrawingClickRef = useRef(false);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -411,7 +414,7 @@ export function TradingChart({
     hoverPoint,
     onDeleteDrawing,
     onDragStart: startDrawingDrag,
-    onSelectDrawing,
+    onSelectDrawing: selectDrawingFromChart,
     interactive: !isDrawingPlacementMode,
     selectedDrawingId,
     series: candlesRef.current,
@@ -423,7 +426,7 @@ export function TradingChart({
       : 0;
   const drawingPlotHeight = chartFrameRef.current?.clientHeight ?? 0;
   const floatingToolbarPosition =
-    selectedDrawing && !isDrawingPlacementMode
+    selectedDrawing && drawingToolbarOpen && !isDrawingPlacementMode && dragState == null
       ? toolbarPositionFromDrawing(
           selectedDrawing,
           chartFrameRef.current,
@@ -887,9 +890,16 @@ export function TradingChart({
     }
   }, [drawingTool]);
 
+  useEffect(() => {
+    if (!selectedDrawingId) {
+      setDrawingToolbarOpen(false);
+    }
+  }, [selectedDrawingId]);
+
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
       onSelectDrawing(null);
+      setDrawingToolbarOpen(false);
       return;
     }
     const point = pointFromClient(
@@ -945,6 +955,10 @@ export function TradingChart({
       const pixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
       if (!point || !pixel) {
         return;
+      }
+      if (Math.hypot(pixel.x - dragState.startPixel.x, pixel.y - dragState.startPixel.y) > 3) {
+        drawingDragMovedRef.current = true;
+        suppressNextDrawingClickRef.current = true;
       }
       const nextDrawing = moveDrawing(
         dragState,
@@ -1064,6 +1078,11 @@ export function TradingChart({
   ) {
     event.preventDefault();
     event.stopPropagation();
+    drawingDragMovedRef.current = false;
+    suppressNextDrawingClickRef.current = false;
+    setDrawingToolbarOpen(false);
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
     const point = pointFromClient(
       event.clientX,
       event.clientY,
@@ -1077,6 +1096,7 @@ export function TradingChart({
     }
     if (drawing.locked) {
       onSelectDrawing(drawing.id);
+      setDrawingToolbarOpen(true);
       return;
     }
     const startPixel = pixelFromClient(event.clientX, event.clientY, chartFrameRef.current);
@@ -1099,7 +1119,30 @@ export function TradingChart({
   }
 
   function stopDrawingDrag() {
+    if (dragState && drawingDragMovedRef.current) {
+      suppressNextDrawingClickRef.current = true;
+      window.setTimeout(() => {
+        suppressNextDrawingClickRef.current = false;
+      }, 0);
+    }
     setDragState(null);
+  }
+
+  function selectDrawingFromChart(
+    drawingId: string,
+    event: MouseEvent<SVGElement>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (suppressNextDrawingClickRef.current) {
+      suppressNextDrawingClickRef.current = false;
+      setDrawingToolbarOpen(false);
+      return;
+    }
+    onSelectDrawing(drawingId);
+    setDrawingToolbarOpen(true);
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
   }
 
   function updateSelectedDrawing(patch: Partial<ChartDrawing>) {
@@ -1129,6 +1172,7 @@ export function TradingChart({
     setSelectedIndicatorId(indicatorId);
     setIndicatorToolbarPosition({ x, y });
     onSelectDrawing(null);
+    setDrawingToolbarOpen(false);
   }
 
   useEffect(() => {
@@ -1367,6 +1411,7 @@ export function TradingChart({
                 onDelete={() => {
                   onDeleteDrawing(selectedDrawing.id);
                   onSelectDrawing(null);
+                  setDrawingToolbarOpen(false);
                 }}
                 position={floatingToolbarPosition}
               />
@@ -2766,7 +2811,7 @@ function buildDrawingElements({
     pointIndex: number | null,
     event: MouseEvent<SVGElement>,
   ) => void;
-  onSelectDrawing: (drawingId: string | null) => void;
+  onSelectDrawing: (drawingId: string, event: MouseEvent<SVGElement>) => void;
   interactive: boolean;
   selectedDrawingId: string | null;
   series: ISeriesApi<"Candlestick"> | null;
@@ -2866,7 +2911,7 @@ function renderDrawing(
       pointIndex: number | null,
       event: MouseEvent<SVGElement>,
     ) => void;
-    onSelectDrawing: (drawingId: string | null) => void;
+    onSelectDrawing: (drawingId: string, event: MouseEvent<SVGElement>) => void;
     interactive: boolean;
     selected: boolean;
   },
@@ -2891,8 +2936,7 @@ function renderDrawing(
     if (!options.interactive) {
       return;
     }
-    event.stopPropagation();
-    options.onSelectDrawing(drawing.id);
+    options.onSelectDrawing(drawing.id, event);
   };
 
   if (drawing.tool === "horizontal") {
@@ -3522,7 +3566,7 @@ function renderAnchors(
       pointIndex: number | null,
       event: MouseEvent<SVGElement>,
     ) => void;
-    onSelectDrawing: (drawingId: string | null) => void;
+    onSelectDrawing: (drawingId: string, event: MouseEvent<SVGElement>) => void;
     selected: boolean;
   },
 ) {
@@ -3582,7 +3626,7 @@ function renderPositionDrawing(
       pointIndex: number | null,
       event: MouseEvent<SVGElement>,
     ) => void;
-    onSelectDrawing: (drawingId: string | null) => void;
+    onSelectDrawing: (drawingId: string, event: MouseEvent<SVGElement>) => void;
     interactive: boolean;
     selected: boolean;
   },
@@ -3626,8 +3670,7 @@ function renderPositionDrawing(
     if (!options.interactive) {
       return;
     }
-    event.stopPropagation();
-    options.onSelectDrawing(drawing.id);
+    options.onSelectDrawing(drawing.id, event);
   };
 
   return (
