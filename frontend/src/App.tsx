@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Clock3,
   Database,
   Maximize2,
@@ -722,7 +723,7 @@ export default function App() {
           }}
           type="button"
         >
-          <Database size={14} />
+          <ArrowLeft size={14} />
           Sessions
         </button>
         <button
