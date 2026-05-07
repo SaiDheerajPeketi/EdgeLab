@@ -937,6 +937,14 @@ export function TradingChart({
     }
   }, [selectedDrawingId]);
 
+  function addDrawingAndOpenToolbar(drawing: ChartDrawing) {
+    onAddDrawing(drawing);
+    onSelectDrawing(drawing.id);
+    setDrawingToolbarOpen(true);
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
+  }
+
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     event.stopPropagation();
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
@@ -991,13 +999,13 @@ export function TradingChart({
     }
 
     if (drawingTool === "horizontal") {
-      onAddDrawing(makeDrawing("horizontal", [point]));
+      addDrawingAndOpenToolbar(makeDrawing("horizontal", [point]));
       onDrawingToolChange(neutralDrawingTool);
       return;
     }
 
     if (drawingTool === "text") {
-      onAddDrawing(makeDrawing("text", [point], "Text"));
+      addDrawingAndOpenToolbar(makeDrawing("text", [point], "Text"));
       onDrawingToolChange(neutralDrawingTool);
       setDraftDrawing(null);
       setHoverPoint(null);
@@ -1009,7 +1017,7 @@ export function TradingChart({
       return;
     }
 
-    onAddDrawing(makeDrawing(drawingTool, [draftDrawing.point, point]));
+    addDrawingAndOpenToolbar(makeDrawing(drawingTool, [draftDrawing.point, point]));
     onDrawingToolChange(neutralDrawingTool);
     setDraftDrawing(null);
     setHoverPoint(null);
