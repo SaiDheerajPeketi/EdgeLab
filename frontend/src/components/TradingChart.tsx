@@ -12,7 +12,6 @@ import {
   Save,
   Trash2,
   UnlockKeyhole,
-  X,
 } from "lucide-react";
 import {
   CrosshairMode,
@@ -1856,10 +1855,6 @@ export function TradingChart({
         <FloatingIndicatorToolbar
           indicator={selectedIndicator}
           onChange={(settings) => onUpdateIndicatorSettings(selectedIndicator.id, settings)}
-          onClose={() => {
-            setSelectedIndicatorId(null);
-            setIndicatorToolbarPosition(null);
-          }}
           onRemove={() => {
             onRemoveIndicator(selectedIndicator.id);
             setSelectedIndicatorId(null);
@@ -2625,7 +2620,6 @@ function StudyLinePanel({
 function FloatingIndicatorToolbar({
   indicator,
   onChange,
-  onClose,
   onRemove,
   onPositionChange,
   onToggleVisibility,
@@ -2633,7 +2627,6 @@ function FloatingIndicatorToolbar({
 }: {
   indicator: ChartIndicatorInstance;
   onChange: (settings: Partial<IndicatorSettings>) => void;
-  onClose: () => void;
   onRemove: () => void;
   onPositionChange: (position: { x: number; y: number }) => void;
   onToggleVisibility: () => void;
@@ -2795,14 +2788,6 @@ function FloatingIndicatorToolbar({
         type="button"
       >
         <Trash2 size={14} />
-      </button>
-      <button
-        className="chart-object-floating-button"
-        onClick={onClose}
-        title="Close indicator controls"
-        type="button"
-      >
-        <X size={14} />
       </button>
     </div>
   );
@@ -3224,7 +3209,7 @@ function FloatingDrawingToolbar({
         title={canDelete ? "Delete drawing" : "Unlock drawing to delete"}
         type="button"
       >
-        <X size={14} />
+        <Trash2 size={14} />
       </button>
     </div>
   );
