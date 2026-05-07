@@ -86,6 +86,10 @@ const FIB_PRESETS_KEY = "edgelab.fib-presets.v1";
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 const WEAK_MAGNET_THRESHOLD_PX = 14;
+const DEFAULT_REPLAY_BAR_SPACING = 6;
+const DEFAULT_REPLAY_RIGHT_OFFSET = 8;
+const MIN_RESET_REPLAY_BARS = 96;
+const MAX_RESET_REPLAY_BARS = 320;
 
 type Props = {
   bars: Candle[];
@@ -1183,11 +1187,36 @@ export function TradingChart({
   }
 
   function resetChartView() {
-    chartRef.current?.timeScale().fitContent();
+    resetReplayChartViewport();
     candlesRef.current?.priceScale().applyOptions({ autoScale: true });
     areaRef.current?.priceScale().applyOptions({ autoScale: true });
     lineRef.current?.priceScale().applyOptions({ autoScale: true });
     setPlotVersion((value) => value + 1);
+  }
+
+  function resetReplayChartViewport() {
+    const chart = chartRef.current;
+    if (!chart || displayBars.length === 0) {
+      return;
+    }
+
+    const plotWidth =
+      chartFrameRef.current && chartPlotWidth(chart, chartFrameRef.current) > 0
+        ? chartPlotWidth(chart, chartFrameRef.current)
+        : chart.paneSize().width;
+    const visibleBars = clamp(
+      Math.round(plotWidth / DEFAULT_REPLAY_BAR_SPACING),
+      MIN_RESET_REPLAY_BARS,
+      MAX_RESET_REPLAY_BARS,
+    );
+    const latestLogical = displayBars.length - 1;
+    const to = latestLogical + DEFAULT_REPLAY_RIGHT_OFFSET;
+    const from = Math.max(0, to - visibleBars);
+
+    chart.timeScale().setVisibleLogicalRange({
+      from: from as Logical,
+      to: to as Logical,
+    });
   }
 
   function removeAllIndicators() {
