@@ -3296,8 +3296,10 @@ function hitTestDrawingAtPoint({
       const levels = normalizeFibLevels(drawing.fibLevels, drawing.color).filter(
         (level) => level.visible !== false,
       );
-      const levelHit = levels.some((level) => {
-        const y = first.y + (second.y - first.y) * level.value;
+      const visibleLevelYs = levels.map((level) => first.y + (second.y - first.y) * level.value);
+      const hitTop = Math.min(first.y, second.y, ...visibleLevelYs);
+      const hitBottom = Math.max(first.y, second.y, ...visibleLevelYs);
+      const levelHit = visibleLevelYs.some((y) => {
         return (
           point.x >= lineLeft - threshold &&
           point.x <= lineEnd + threshold &&
@@ -3311,10 +3313,10 @@ function hitTestDrawingAtPoint({
           point,
           expandBox(
             {
-              bottom: Math.max(first.y, second.y),
+              bottom: hitBottom,
               left: Math.min(lineLeft, lineEnd),
               right: Math.max(lineLeft, lineEnd),
-              top: Math.min(first.y, second.y),
+              top: hitTop,
             },
             threshold,
           ),
@@ -3817,18 +3819,21 @@ function renderDrawing(
         y: yStart + yRange * level.value,
       }))
       .sort((a, b) => a.y - b.y);
+    const visibleLevelYs = bandLevels.map((level) => level.y);
+    const hitTop = Math.min(first.y, second.y, ...visibleLevelYs);
+    const hitBottom = Math.max(first.y, second.y, ...visibleLevelYs);
     return (
       <g key={drawing.id}>
         <rect
           cursor={isLocked ? "default" : "move"}
           fill="transparent"
-          height={Math.abs(second.y - first.y) + 20}
+          height={hitBottom - hitTop + 20}
           onClick={handleSelect}
           onMouseDown={handleBodyDown}
           pointerEvents={hitTargetPointerEvents}
           width={Math.max(0, lineEnd - lineLeft) + 20}
           x={lineLeft - 10}
-          y={Math.min(first.y, second.y) - 10}
+          y={hitTop - 10}
         />
         <line
           stroke={color}
