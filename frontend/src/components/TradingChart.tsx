@@ -1554,6 +1554,7 @@ export function TradingChart({
               (chartSettings.volume && hasVolumeData)) && (
               <OhlcvStrip
                 candle={activeHeaderCandle}
+                pricePrecision={chartSettings.pricePrecision}
                 showChange={chartSettings.barChangeValues}
                 showOhlc={chartSettings.chartValues}
                 showVolume={chartSettings.volume && hasVolumeData}
@@ -1884,12 +1885,14 @@ export function TradingChart({
 
 function OhlcvStrip({
   candle,
+  pricePrecision,
   showChange,
   showOhlc,
   showVolume,
   tone,
 }: {
   candle: Candle | null;
+  pricePrecision: number;
   showChange: boolean;
   showOhlc: boolean;
   showVolume: boolean;
@@ -1908,10 +1911,26 @@ function OhlcvStrip({
       </span>
       {showOhlc && (
         <>
-          <OhlcvValue label="O" value={formatPrice(candle?.open)} tone={tone} />
-          <OhlcvValue label="H" value={formatPrice(candle?.high)} tone={tone} />
-          <OhlcvValue label="L" value={formatPrice(candle?.low)} tone={tone} />
-          <OhlcvValue label="C" value={formatPrice(candle?.close)} tone={tone} />
+          <OhlcvValue
+            label="O"
+            tone={tone}
+            value={formatPrice(candle?.open, { precision: pricePrecision })}
+          />
+          <OhlcvValue
+            label="H"
+            tone={tone}
+            value={formatPrice(candle?.high, { precision: pricePrecision })}
+          />
+          <OhlcvValue
+            label="L"
+            tone={tone}
+            value={formatPrice(candle?.low, { precision: pricePrecision })}
+          />
+          <OhlcvValue
+            label="C"
+            tone={tone}
+            value={formatPrice(candle?.close, { precision: pricePrecision })}
+          />
         </>
       )}
       {showVolume && hasVolume && candle != null && (

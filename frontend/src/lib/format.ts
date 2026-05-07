@@ -1,6 +1,17 @@
-export function formatPrice(value: number | null | undefined) {
+export function formatPrice(
+  value: number | null | undefined,
+  options: { precision?: number } = {},
+) {
   if (value == null || !Number.isFinite(value)) {
     return "—";
+  }
+  if (options.precision != null && Number.isFinite(options.precision)) {
+    const precision = Math.max(0, Math.min(12, Math.round(options.precision)));
+    return new Intl.NumberFormat("en-US", {
+      useGrouping: false,
+      minimumFractionDigits: precision,
+      maximumFractionDigits: precision,
+    }).format(value);
   }
   return new Intl.NumberFormat("en-US", {
     useGrouping: false,
