@@ -136,7 +136,14 @@ type OhlcSnapCandidate = {
   point: DrawingPoint;
 };
 
-type LabelableDrawingTool = "horizontal" | "rectangle" | "trendline";
+type LabelableDrawingTool =
+  | "horizontal"
+  | "rectangle"
+  | "trendline"
+  | "longPosition"
+  | "shortPosition";
+
+type FillableDrawingTool = "rectangle" | "longPosition" | "shortPosition";
 
 type DrawingPreset = {
   id: string;
@@ -2314,14 +2321,14 @@ function FloatingDrawingToolbar({
     (drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY) * 100,
   );
   const [presets, setPresets] = useState<DrawingPreset[]>(() => loadDrawingPresets());
-  const canFill =
-    drawing.tool === "rectangle" ||
-    drawing.tool === "longPosition" ||
-    drawing.tool === "shortPosition";
+  const canFill = isFillableDrawingTool(drawing.tool);
   const canDelete = !drawing.locked;
   const isFib = drawing.tool === "fib";
   const canLabel = drawing.tool === "text" || isLabelableDrawingTool(drawing.tool);
-  const hasRenderedLabel = drawing.tool === "text" || Boolean(drawing.label?.trim());
+  const hasRenderedLabel =
+    drawing.tool === "text" ||
+    Boolean(drawing.label?.trim()) ||
+    isRiskRewardTool(drawing.tool);
   const drawingPresets = isLabelableDrawingTool(drawing.tool)
     ? presets.filter((preset) => preset.tool === drawing.tool)
     : [];
@@ -2353,7 +2360,7 @@ function FloatingDrawingToolbar({
     }
     onChange({
       color: preset.color,
-      fillOpacity: drawing.tool === "rectangle" ? preset.fillOpacity : drawing.fillOpacity,
+      fillOpacity: canFill ? preset.fillOpacity ?? drawing.fillOpacity : drawing.fillOpacity,
       label: preset.label,
       labelBackgroundOpacity: preset.labelBackgroundOpacity,
       lineStyle: preset.lineStyle,
@@ -3637,14 +3644,19 @@ function renderPositionDrawing(
   const strokeWidth = drawingStrokeWidth(drawing, isSelected);
   const hitTargetPointerEvents = options.interactive ? "all" : "none";
   const dash = drawingStrokeDasharray(drawing);
-  const fillOpacity = drawing.fillOpacity ?? 0.16;
+  const lineCap = drawing.lineStyle === "dotted" ? "round" : "butt";
+  const fillOpacity = clamp(drawing.fillOpacity ?? 0.16, 0, 0.6);
+  const accentColor = drawing.color;
+  const rewardColor = "#22c55e";
+  const riskColor = "#fb7185";
   const entryPrice = drawing.points[0].price;
   const targetPrice = drawing.points[1].price;
   const stopPrice = drawing.points[2].price;
   const reward = Math.abs(targetPrice - entryPrice);
   const left = Math.min(first.x, second.x, stop.x);
   const right = Math.max(first.x, second.x, stop.x);
-  const boxWidth = Math.max(72, right - left);
+  const boxRight = clamp(Math.max(right, left + 72), left + 24, Math.max(left + 24, width - 4));
+  const boxWidth = Math.max(24, boxRight - left);
   const targetTop = Math.min(first.y, second.y);
   const targetHeight = Math.abs(second.y - first.y);
   const stopTop = Math.min(first.y, stop.y);
@@ -3653,8 +3665,12 @@ function renderPositionDrawing(
   const ratio = risk === 0 ? 0 : reward / risk;
   const hitTop = Math.min(first.y, second.y, stop.y);
   const hitBottom = Math.max(first.y, second.y, stop.y);
-  const labelX = Math.min(width - 204, right + 10);
-  const labelY = clamp(hitTop, 10, Math.max(10, hitBottom - 46));
+  const labelText = [
+    compactDrawingLabel(drawing.label) ?? (isLong ? "Long position" : "Short position"),
+    `RR ${ratio.toFixed(2)}`,
+  ].join(" · ");
+  const labelX = boxRight + 10;
+  const labelY = clamp(hitTop, 10, Math.max(10, hitBottom - 32));
 
   const handleBodyDown = (event: MouseEvent<SVGElement>) => {
     if (!options.interactive) {
@@ -3687,9 +3703,9 @@ function renderPositionDrawing(
         y={hitTop - 12}
       />
       <rect
-        fill={`rgba(34, 197, 94, ${fillOpacity})`}
+        fill={colorWithOpacity(rewardColor, fillOpacity)}
         height={targetHeight}
-        stroke="#22c55e"
+        stroke={rewardColor}
         strokeDasharray={dash}
         strokeOpacity={isSelected ? 0.95 : 0.65}
         strokeWidth={strokeWidth}
@@ -3698,9 +3714,9 @@ function renderPositionDrawing(
         y={targetTop}
       />
       <rect
-        fill={`rgba(251, 113, 133, ${fillOpacity})`}
+        fill={colorWithOpacity(riskColor, fillOpacity)}
         height={stopHeight}
-        stroke="#fb7185"
+        stroke={riskColor}
         strokeDasharray={dash}
         strokeOpacity={isSelected ? 0.95 : 0.65}
         strokeWidth={strokeWidth}
@@ -3708,35 +3724,127 @@ function renderPositionDrawing(
         x={left}
         y={stopTop}
       />
-      <line stroke="#e2e8f0" strokeDasharray="4 4" strokeWidth={strokeWidth} x1={left} x2={right} y1={first.y} y2={first.y} />
-      <line stroke="#22c55e" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={second.y} y2={second.y} />
-      <line stroke="#fb7185" strokeDasharray="6 5" strokeWidth={strokeWidth} x1={left} x2={right} y1={stop.y} y2={stop.y} />
-      <text fill="#dbeafe" fontSize="10" fontWeight="800" x={left + 8} y={first.y - 7}>
-        ENTRY {formatPrice(entryPrice)}
-      </text>
-      <text fill="#bbf7d0" fontSize="10" fontWeight="800" x={left + 8} y={second.y - 7}>
-        TP {formatPrice(targetPrice)}
-      </text>
-      <text fill="#fecdd3" fontSize="10" fontWeight="800" x={left + 8} y={stop.y - 7}>
-        SL {formatPrice(stopPrice)}
-      </text>
+      <line
+        stroke={accentColor}
+        strokeDasharray={dash}
+        strokeLinecap={lineCap}
+        strokeOpacity={isSelected ? 1 : 0.88}
+        strokeWidth={strokeWidth}
+        x1={left}
+        x2={boxRight}
+        y1={first.y}
+        y2={first.y}
+      />
+      <line
+        stroke={rewardColor}
+        strokeDasharray={dash}
+        strokeLinecap={lineCap}
+        strokeOpacity={isSelected ? 1 : 0.82}
+        strokeWidth={strokeWidth}
+        x1={left}
+        x2={boxRight}
+        y1={second.y}
+        y2={second.y}
+      />
+      <line
+        stroke={riskColor}
+        strokeDasharray={dash}
+        strokeLinecap={lineCap}
+        strokeOpacity={isSelected ? 1 : 0.82}
+        strokeWidth={strokeWidth}
+        x1={left}
+        x2={boxRight}
+        y1={stop.y}
+        y2={stop.y}
+      />
+      {renderPositionPriceTag({
+        color: accentColor,
+        id: `${drawing.id}-entry`,
+        label: "Entry",
+        plotWidth: width,
+        price: entryPrice,
+        x: left + 8,
+        y: first.y,
+      })}
+      {renderPositionPriceTag({
+        color: rewardColor,
+        id: `${drawing.id}-target`,
+        label: "TP",
+        plotWidth: width,
+        price: targetPrice,
+        x: left + 8,
+        y: second.y,
+      })}
+      {renderPositionPriceTag({
+        color: riskColor,
+        id: `${drawing.id}-stop`,
+        label: "SL",
+        plotWidth: width,
+        price: stopPrice,
+        x: left + 8,
+        y: stop.y,
+      })}
+      {renderDrawingLabel({
+        backgroundOpacity: drawing.labelBackgroundOpacity,
+        color: accentColor,
+        id: `${drawing.id}-label`,
+        label: labelText,
+        plotWidth: width,
+        x: labelX,
+        y: labelY,
+      })}
+      {isSelected && !isLocked && renderAnchors(drawing, [first, second, stop], options)}
+    </g>
+  );
+}
+
+function renderPositionPriceTag({
+  color,
+  id,
+  label,
+  plotWidth,
+  price,
+  x,
+  y,
+}: {
+  color: string;
+  id: string;
+  label: string;
+  plotWidth: number;
+  price: number;
+  x: number;
+  y: number;
+}) {
+  const text = `${label} ${formatPrice(price)}`;
+  const labelWidth = clamp(Math.ceil(text.length * 6.7 + 18), 72, 156);
+  const labelX = clamp(x, 6, Math.max(6, plotWidth - labelWidth - 6));
+  const labelY = Math.max(4, y - 25);
+  const squeeze = text.length * 6.7 > labelWidth - 18;
+
+  return (
+    <g key={id} pointerEvents="none">
       <rect
-        fill="rgba(8, 12, 17, 0.95)"
-        height={44}
-        rx={5}
-        stroke={isLong ? "#22c55e" : "#fb7185"}
-        strokeOpacity="0.72"
-        width={192}
+        fill="rgba(8, 12, 17, 0.9)"
+        height={20}
+        rx={4}
+        stroke={color}
+        strokeOpacity="0.46"
+        width={labelWidth}
         x={labelX}
         y={labelY}
       />
-      <text fill={isLong ? "#bbf7d0" : "#fecdd3"} fontSize="11" fontWeight="900" x={labelX + 10} y={labelY + 17}>
-        {isLong ? "LONG" : "SHORT"} POSITION
+      <text
+        fill={color}
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+        fontSize="10"
+        fontWeight="800"
+        lengthAdjust={squeeze ? "spacingAndGlyphs" : undefined}
+        textLength={squeeze ? labelWidth - 14 : undefined}
+        x={labelX + 7}
+        y={labelY + 13}
+      >
+        {text}
       </text>
-      <text fill="#cbd5e1" fontSize="10" fontWeight="700" x={labelX + 10} y={labelY + 33}>
-        RR {ratio.toFixed(2)} · Risk {formatPrice(risk)}
-      </text>
-      {isSelected && !isLocked && renderAnchors(drawing, [first, second, stop], options)}
     </g>
   );
 }
@@ -3824,7 +3932,19 @@ function drawingLabelBackgroundFill(opacity: number | undefined) {
 function isLabelableDrawingTool(
   tool: ChartDrawing["tool"] | DrawingTool,
 ): tool is LabelableDrawingTool {
-  return tool === "horizontal" || tool === "rectangle" || tool === "trendline";
+  return (
+    tool === "horizontal" ||
+    tool === "rectangle" ||
+    tool === "trendline" ||
+    tool === "longPosition" ||
+    tool === "shortPosition"
+  );
+}
+
+function isFillableDrawingTool(
+  tool: ChartDrawing["tool"] | DrawingTool,
+): tool is FillableDrawingTool {
+  return tool === "rectangle" || tool === "longPosition" || tool === "shortPosition";
 }
 
 function loadDrawingPresets(): DrawingPreset[] {
@@ -3975,7 +4095,7 @@ function makeDrawingPreset(drawing: ChartDrawing): DrawingPreset {
   return {
     id: `${tool}-${normalizePresetName(name)}-${Date.now().toString(36)}`,
     color: drawing.color,
-    fillOpacity: tool === "rectangle" ? drawing.fillOpacity ?? 0.16 : undefined,
+    fillOpacity: isFillableDrawingTool(tool) ? drawing.fillOpacity ?? 0.16 : undefined,
     label,
     labelBackgroundOpacity: drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY,
     lineStyle: drawing.lineStyle ?? "solid",
@@ -3998,6 +4118,10 @@ function presetToolName(tool: LabelableDrawingTool) {
       return "Rectangle";
     case "trendline":
       return "Trendline";
+    case "longPosition":
+      return "Long position";
+    case "shortPosition":
+      return "Short position";
   }
 }
 
@@ -4312,7 +4436,7 @@ function makeDrawing(
     fibExtendRight: tool === "fib" ? true : undefined,
     fibLevels:
       tool === "fib" ? DEFAULT_FIB_LEVELS.map((level) => ({ ...level })) : undefined,
-    fillOpacity: tool === "rectangle" ? 0.16 : undefined,
+    fillOpacity: isFillableDrawingTool(tool) ? 0.16 : undefined,
     labelBackgroundOpacity:
       tool === "text" || isLabelableDrawingTool(tool)
         ? DEFAULT_LABEL_BACKGROUND_OPACITY
