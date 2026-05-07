@@ -113,6 +113,8 @@ export type ChartDrawing = {
   lineWidth?: number;
   locked?: boolean;
   points: DrawingPoint[];
+  rewardColor?: string;
+  riskColor?: string;
   label?: string;
   labelBackgroundOpacity?: number;
   createdAt: string;

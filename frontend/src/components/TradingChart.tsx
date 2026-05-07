@@ -162,6 +162,8 @@ type DrawingPreset = {
   lineStyle?: DrawingLineStyle;
   lineWidth?: number;
   name: string;
+  rewardColor?: string;
+  riskColor?: string;
   tool: LabelableDrawingTool;
   updatedAt: string;
 };
@@ -192,6 +194,16 @@ const RECTANGLE_EDGE_HANDLE = {
   top: -3,
   bottom: -4,
 } as const;
+
+const POSITION_HANDLE = {
+  topLeft: -11,
+  topRight: -12,
+  bottomLeft: -13,
+  bottomRight: -14,
+} as const;
+
+const POSITION_REWARD_COLOR = "#22c55e";
+const POSITION_RISK_COLOR = "#fb7185";
 
 export function TradingChart({
   bars,
@@ -2635,6 +2647,7 @@ function FloatingDrawingToolbar({
   const canFill = isFillableDrawingTool(drawing.tool);
   const canDelete = !drawing.locked;
   const isFib = drawing.tool === "fib";
+  const isPositionTool = isRiskRewardTool(drawing.tool);
   const canLabel = drawing.tool === "text" || isLabelableDrawingTool(drawing.tool);
   const hasRenderedLabel =
     drawing.tool === "text" ||
@@ -2676,6 +2689,8 @@ function FloatingDrawingToolbar({
       labelBackgroundOpacity: preset.labelBackgroundOpacity,
       lineStyle: preset.lineStyle,
       lineWidth: preset.lineWidth,
+      rewardColor: isPositionTool ? preset.rewardColor ?? drawing.rewardColor : drawing.rewardColor,
+      riskColor: isPositionTool ? preset.riskColor ?? drawing.riskColor : drawing.riskColor,
     });
   }
 
@@ -2724,13 +2739,48 @@ function FloatingDrawingToolbar({
         </div>
       )}
 
-      <ThemedColorPicker
-        ariaLabel="Drawing color"
-        className="chart-object-floating-picker"
-        compact
-        onChange={(color) => onChange({ color })}
-        value={drawing.color}
-      />
+      {isPositionTool ? (
+        <div className="position-color-controls" aria-label="Position colors">
+          <label className="position-color-control">
+            <span>Entry</span>
+            <ThemedColorPicker
+              ariaLabel="Entry color"
+              className="chart-object-floating-picker"
+              compact
+              onChange={(color) => onChange({ color })}
+              value={drawing.color}
+            />
+          </label>
+          <label className="position-color-control">
+            <span>Target</span>
+            <ThemedColorPicker
+              ariaLabel="Target color"
+              className="chart-object-floating-picker"
+              compact
+              onChange={(rewardColor) => onChange({ rewardColor })}
+              value={positionRewardColor(drawing)}
+            />
+          </label>
+          <label className="position-color-control">
+            <span>Stop</span>
+            <ThemedColorPicker
+              ariaLabel="Stop color"
+              className="chart-object-floating-picker"
+              compact
+              onChange={(riskColor) => onChange({ riskColor })}
+              value={positionRiskColor(drawing)}
+            />
+          </label>
+        </div>
+      ) : (
+        <ThemedColorPicker
+          ariaLabel="Drawing color"
+          className="chart-object-floating-picker"
+          compact
+          onChange={(color) => onChange({ color })}
+          value={drawing.color}
+        />
+      )}
 
       <div className="chart-object-floating-style" role="group">
         {lineStyles.map((style) => (
@@ -3332,12 +3382,19 @@ function hitTestDrawingAtPoint({
       if (!third) {
         continue;
       }
+      const positionBox = positionBoxGeometry(first, second, third, width);
+      if (selected) {
+        const positionHandle = positionCornerHit(point, positionBox, threshold + 2);
+        if (positionHandle != null) {
+          return { drawing, mode: "anchor", pointIndex: positionHandle };
+        }
+      }
       const box = expandBox(
         {
-          bottom: Math.max(first.y, second.y, third.y),
-          left: Math.min(first.x, second.x, third.x) - 16,
-          right: Math.max(first.x, second.x, third.x) + 32,
-          top: Math.min(first.y, second.y, third.y) - 12,
+          bottom: positionBox.hitBottom,
+          left: positionBox.left - 16,
+          right: positionBox.boxRight + 32,
+          top: positionBox.hitTop - 12,
         },
         threshold,
       );
@@ -3415,6 +3472,23 @@ function rectangleEdgeHit(
     return RECTANGLE_EDGE_HANDLE.bottom;
   }
   return null;
+}
+
+function positionCornerHit(
+  point: { x: number; y: number },
+  box: ReturnType<typeof positionBoxGeometry>,
+  threshold: number,
+) {
+  const corners = [
+    { id: POSITION_HANDLE.topLeft, x: box.left, y: box.hitTop },
+    { id: POSITION_HANDLE.topRight, x: box.boxRight, y: box.hitTop },
+    { id: POSITION_HANDLE.bottomLeft, x: box.left, y: box.hitBottom },
+    { id: POSITION_HANDLE.bottomRight, x: box.boxRight, y: box.hitBottom },
+  ];
+  const hit = corners.find(
+    (corner) => Math.hypot(point.x - corner.x, point.y - corner.y) <= threshold,
+  );
+  return hit?.id ?? null;
 }
 
 function horizontalPriceLabelGeometry(label: string, plotWidth: number, y: number) {
@@ -4181,24 +4255,20 @@ function renderPositionDrawing(
   const lineCap = drawing.lineStyle === "dotted" ? "round" : "butt";
   const fillOpacity = clamp(drawing.fillOpacity ?? 0.16, 0, 0.6);
   const accentColor = drawing.color;
-  const rewardColor = "#22c55e";
-  const riskColor = "#fb7185";
+  const rewardColor = positionRewardColor(drawing);
+  const riskColor = positionRiskColor(drawing);
   const entryPrice = drawing.points[0].price;
   const targetPrice = drawing.points[1].price;
   const stopPrice = drawing.points[2].price;
   const reward = Math.abs(targetPrice - entryPrice);
-  const left = Math.min(first.x, second.x, stop.x);
-  const right = Math.max(first.x, second.x, stop.x);
-  const boxRight = clamp(Math.max(right, left + 72), left + 24, Math.max(left + 24, width - 4));
-  const boxWidth = Math.max(24, boxRight - left);
+  const box = positionBoxGeometry(first, second, stop, width);
+  const { boxRight, boxWidth, hitBottom, hitTop, left } = box;
   const targetTop = Math.min(first.y, second.y);
   const targetHeight = Math.abs(second.y - first.y);
   const stopTop = Math.min(first.y, stop.y);
   const stopHeight = Math.abs(stop.y - first.y);
   const risk = Math.abs(entryPrice - stopPrice);
   const ratio = risk === 0 ? 0 : reward / risk;
-  const hitTop = Math.min(first.y, second.y, stop.y);
-  const hitBottom = Math.max(first.y, second.y, stop.y);
   const labelText = [
     compactDrawingLabel(drawing.label) ?? (isLong ? "Long position" : "Short position"),
     `RR ${ratio.toFixed(2)}`,
@@ -4327,7 +4397,106 @@ function renderPositionDrawing(
         x: labelX,
         y: labelY,
       })}
-      {isSelected && !isLocked && renderAnchors(drawing, [first, second, stop], options)}
+      {isSelected && !isLocked && (
+        <>
+          {renderPositionCornerHandles(drawing, box, options)}
+          {renderAnchors(drawing, [first, second, stop], options)}
+        </>
+      )}
+    </g>
+  );
+}
+
+function positionBoxGeometry(
+  first: { x: number; y: number },
+  second: { x: number; y: number },
+  stop: { x: number; y: number },
+  width: number,
+) {
+  const left = Math.min(first.x, second.x, stop.x);
+  const right = Math.max(first.x, second.x, stop.x);
+  const boxRight = clamp(Math.max(right, left + 72), left + 24, Math.max(left + 24, width - 4));
+  const hitTop = Math.min(first.y, second.y, stop.y);
+  const hitBottom = Math.max(first.y, second.y, stop.y);
+  return {
+    boxRight,
+    boxWidth: Math.max(24, boxRight - left),
+    hitBottom,
+    hitTop,
+    left,
+  };
+}
+
+function renderPositionCornerHandles(
+  drawing: ChartDrawing,
+  box: ReturnType<typeof positionBoxGeometry>,
+  options: {
+    onDragStart: (
+      drawing: ChartDrawing,
+      mode: DragState["mode"],
+      pointIndex: number | null,
+      event: MouseEvent<SVGElement>,
+    ) => void;
+  },
+) {
+  const handles = [
+    {
+      cursor: "nwse-resize",
+      id: POSITION_HANDLE.topLeft,
+      x: box.left,
+      y: box.hitTop,
+    },
+    {
+      cursor: "nesw-resize",
+      id: POSITION_HANDLE.topRight,
+      x: box.boxRight,
+      y: box.hitTop,
+    },
+    {
+      cursor: "nesw-resize",
+      id: POSITION_HANDLE.bottomLeft,
+      x: box.left,
+      y: box.hitBottom,
+    },
+    {
+      cursor: "nwse-resize",
+      id: POSITION_HANDLE.bottomRight,
+      x: box.boxRight,
+      y: box.hitBottom,
+    },
+  ];
+
+  return (
+    <g>
+      {handles.map((handle) => (
+        <g
+          cursor={handle.cursor}
+          key={`${drawing.id}-position-handle-${handle.id}`}
+          onMouseDown={(event) =>
+            options.onDragStart(drawing, "anchor", handle.id, event)
+          }
+          pointerEvents="all"
+        >
+          <rect
+            fill="transparent"
+            height={22}
+            width={22}
+            x={handle.x - 11}
+            y={handle.y - 11}
+          />
+          <rect
+            fill="#05070a"
+            height={9}
+            rx={2}
+            stroke={drawing.color}
+            strokeOpacity={0.95}
+            strokeWidth={1.5}
+            width={9}
+            x={handle.x - 4.5}
+            y={handle.y - 4.5}
+          />
+        </g>
+      ))}
     </g>
   );
 }
@@ -4401,7 +4570,7 @@ function toolbarPositionFromDrawing(
     return null;
   }
 
-  const toolbarWidth = drawing.tool === "text" ? 380 : 332;
+  const toolbarWidth = drawing.tool === "text" ? 380 : isRiskRewardTool(drawing.tool) ? 680 : 332;
   const toolbarHeight =
     drawing.tool === "rectangle" ||
     drawing.tool === "longPosition" ||
@@ -4481,6 +4650,14 @@ function isFillableDrawingTool(
   return tool === "rectangle" || tool === "longPosition" || tool === "shortPosition";
 }
 
+function positionRewardColor(drawing: ChartDrawing) {
+  return drawing.rewardColor?.trim() || POSITION_REWARD_COLOR;
+}
+
+function positionRiskColor(drawing: ChartDrawing) {
+  return drawing.riskColor?.trim() || POSITION_RISK_COLOR;
+}
+
 function loadDrawingPresets(): DrawingPreset[] {
   if (typeof window === "undefined") {
     return [];
@@ -4530,6 +4707,14 @@ function loadDrawingPresets(): DrawingPreset[] {
               ? clamp(candidate.lineWidth, 1, 6)
               : 2,
           name: candidate.name.slice(0, 48),
+          rewardColor:
+            typeof candidate.rewardColor === "string"
+              ? candidate.rewardColor
+              : undefined,
+          riskColor:
+            typeof candidate.riskColor === "string"
+              ? candidate.riskColor
+              : undefined,
           tool: candidate.tool,
           updatedAt: candidate.updatedAt,
         };
@@ -4635,6 +4820,8 @@ function makeDrawingPreset(drawing: ChartDrawing): DrawingPreset {
     lineStyle: drawing.lineStyle ?? "solid",
     lineWidth: drawing.lineWidth ?? 2,
     name,
+    rewardColor: isRiskRewardTool(tool) ? positionRewardColor(drawing) : undefined,
+    riskColor: isRiskRewardTool(tool) ? positionRiskColor(drawing) : undefined,
     tool,
     updatedAt: new Date().toISOString(),
   };
@@ -4868,6 +5055,12 @@ function moveDrawing(
     if (dragState.drawing.tool === "rectangle" && dragState.pointIndex < 0) {
       return resizeRectangleAxisLocked(dragState, point);
     }
+    if (
+      isRiskRewardTool(dragState.drawing.tool) &&
+      isPositionResizeHandle(dragState.pointIndex)
+    ) {
+      return resizePositionFromHandle(dragState, pixel, frame, chart, series, bars);
+    }
     const points = dragState.originalPoints.map((originalPoint, index) =>
       index === dragState.pointIndex ? point : originalPoint,
     );
@@ -4900,6 +5093,61 @@ function moveDrawing(
 
 function normalizeDraggedDrawing(drawing: ChartDrawing): ChartDrawing {
   return isRiskRewardTool(drawing.tool) ? normalizeRiskRewardDrawing(drawing) : drawing;
+}
+
+function isPositionResizeHandle(pointIndex: number) {
+  return Object.values(POSITION_HANDLE).some((handle) => handle === pointIndex);
+}
+
+function resizePositionFromHandle(
+  dragState: DragState,
+  pixel: { x: number; y: number },
+  frame: HTMLDivElement | null,
+  chart: IChartApi | null,
+  series: ISeriesApi<"Candlestick"> | null,
+  bars: Candle[] = [],
+): ChartDrawing {
+  const originalPixels = dragState.originalPixels;
+  if (originalPixels.length < 3 || originalPixels.some((item) => item == null)) {
+    return dragState.drawing;
+  }
+  const pixels = originalPixels as Array<{ x: number; y: number }>;
+  const minX = Math.min(...pixels.map((item) => item.x));
+  const maxX = Math.max(...pixels.map((item) => item.x));
+  const minY = Math.min(...pixels.map((item) => item.y));
+  const maxY = Math.max(...pixels.map((item) => item.y));
+  const handle = dragState.pointIndex;
+  const isLeftHandle =
+    handle === POSITION_HANDLE.topLeft || handle === POSITION_HANDLE.bottomLeft;
+  const isRightHandle =
+    handle === POSITION_HANDLE.topRight || handle === POSITION_HANDLE.bottomRight;
+  const isTopHandle =
+    handle === POSITION_HANDLE.topLeft || handle === POSITION_HANDLE.topRight;
+  const isBottomHandle =
+    handle === POSITION_HANDLE.bottomLeft || handle === POSITION_HANDLE.bottomRight;
+  const horizontalEdge = isLeftHandle ? minX : isRightHandle ? maxX : null;
+  const horizontalIndexes =
+    horizontalEdge == null
+      ? []
+      : pixels
+          .map((item, index) => (Math.abs(item.x - horizontalEdge) <= 2 ? index : -1))
+          .filter((index) => index >= 0);
+  const verticalIndex =
+    isTopHandle
+      ? pixels.findIndex((item) => Math.abs(item.y - minY) <= 2)
+      : isBottomHandle
+      ? pixels.findIndex((item) => Math.abs(item.y - maxY) <= 2)
+      : -1;
+
+  const points = dragState.originalPoints.map((originalPoint, index) => {
+    const originalPixel = pixels[index];
+    const nextX = horizontalIndexes.includes(index) ? pixel.x : originalPixel.x;
+    const nextY = index === verticalIndex ? pixel.y : originalPixel.y;
+    const nextPoint = pointFromPixel(nextX, nextY, frame, chart, series, bars);
+    return nextPoint ?? originalPoint;
+  });
+
+  return normalizeDraggedDrawing({ ...dragState.drawing, points });
 }
 
 function resizeRectangleAxisLocked(
@@ -4979,6 +5227,8 @@ function makeDrawing(
     lineWidth: tool === "horizontal" ? 1.5 : 2,
     locked: false,
     points: normalizedPoints,
+    rewardColor: isRiskRewardTool(tool) ? POSITION_REWARD_COLOR : undefined,
+    riskColor: isRiskRewardTool(tool) ? POSITION_RISK_COLOR : undefined,
     label,
     createdAt: new Date().toISOString(),
     visible: true,

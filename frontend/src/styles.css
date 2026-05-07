@@ -1136,6 +1136,31 @@ button:disabled {
     @apply h-8;
   }
 
+  .position-color-controls {
+    @apply flex h-8 items-center gap-1 rounded border border-white/10 bg-black/20 p-0.5;
+  }
+
+  .position-color-control {
+    @apply flex h-7 items-center gap-1 rounded bg-white/[0.03] pl-1.5 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500;
+  }
+
+  .position-color-control .themed-color-picker {
+    @apply h-7 border-0 bg-transparent p-0 shadow-none;
+    background-image: none;
+  }
+
+  .position-color-control .themed-color-swatch {
+    @apply h-6 w-6;
+  }
+
+  .position-color-control .themed-color-swatch span {
+    @apply h-4 w-4;
+  }
+
+  .position-color-control .themed-color-hex {
+    @apply h-6 w-[68px] px-1.5 text-[9px];
+  }
+
   .chart-object-floating-style {
     @apply flex h-8 items-center gap-0.5 rounded border border-white/10 bg-black/20 p-0.5;
   }

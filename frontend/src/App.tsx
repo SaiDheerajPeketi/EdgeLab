@@ -1497,6 +1497,8 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       (candidate.lineWidth == null ||
         (typeof candidate.lineWidth === "number" && Number.isFinite(candidate.lineWidth))) &&
       (candidate.locked == null || typeof candidate.locked === "boolean") &&
+      (candidate.rewardColor == null || typeof candidate.rewardColor === "string") &&
+      (candidate.riskColor == null || typeof candidate.riskColor === "string") &&
       (candidate.visible == null || typeof candidate.visible === "boolean") &&
       Array.isArray(candidate.points) &&
       candidate.points.every(
