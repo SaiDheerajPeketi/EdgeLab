@@ -430,7 +430,7 @@ export function SessionGateway({
                   className={`timeframe-button ${selectedTimeframe?.timeframe === item.timeframe ? "timeframe-button-active" : ""}`}
                   key={item.timeframe}
                   onClick={() => setTimeframe(item.timeframe)}
-                  title={`${item.rows.toLocaleString()} bars`}
+                  title={`${formatTimeframeRows(item)} · ${item.imported ? "Imported" : "CSV direct"}`}
                   type="button"
                 >
                   {item.timeframe}
@@ -982,6 +982,10 @@ function defaultReplayStartValue(timeframe: DatasetTimeframe) {
   const contextBars = Math.min(300, Math.max(timeframe.rows - 1, 0));
   const contextMs = contextBars * timeframeSeconds(timeframe.timeframe) * 1000;
   return toLocalInputValue(new Date(firstDate.getTime() + contextMs).toISOString());
+}
+
+function formatTimeframeRows(timeframe: DatasetTimeframe) {
+  return timeframe.rows > 0 ? `${timeframe.rows.toLocaleString()} bars` : "Rows counted on start";
 }
 
 function timeframeSeconds(timeframe: string) {

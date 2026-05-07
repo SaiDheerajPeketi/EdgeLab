@@ -24,6 +24,7 @@ export type DatasetTimeframe = {
   rows: number;
   first_timestamp: string | null;
   last_timestamp: string | null;
+  imported: boolean;
   imported_at: string | null;
 };
 
@@ -50,6 +51,20 @@ export type DatasetRefreshResponse = {
     timeframes: number;
     candles: number;
   };
+  status: DatasetRefreshStatus | null;
+};
+
+export type DatasetRefreshStatus = {
+  running: boolean;
+  current: string | null;
+  summary: {
+    assets: number;
+    timeframes: number;
+    candles: number;
+  };
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
 };
 
 export type DatasetSettings = {
@@ -293,6 +308,10 @@ export function refreshDatasets() {
     method: "POST",
     body: JSON.stringify({}),
   });
+}
+
+export function getDatasetRefreshStatus() {
+  return request<DatasetRefreshStatus>("/datasets/refresh/status");
 }
 
 export function patchDatasetSettings(payload: { root_path: string }) {

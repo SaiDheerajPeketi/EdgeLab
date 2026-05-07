@@ -848,9 +848,10 @@ class BacktestService:
     def market_data_for_path(self, csv_path: str, timestamp_timezone: str = "UTC") -> MarketDataService:
         cache_key = f"{csv_path}::{timestamp_timezone or 'UTC'}"
         if cache_key not in self._market_data_cache:
+            cache = self.market_data.cache and Path(csv_path) == self.market_data.csv_path
             self._market_data_cache[cache_key] = MarketDataService(
                 Path(csv_path),
-                cache=self.market_data.cache,
+                cache=cache,
                 timestamp_timezone=timestamp_timezone or "UTC",
             )
         return self._market_data_cache[cache_key]

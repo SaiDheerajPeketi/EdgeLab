@@ -7,6 +7,7 @@ import {
   DatasetCatalog,
   DatasetMeta,
   DatasetRefreshResponse,
+  DatasetRefreshStatus,
   JournalPayload,
   OrderPayload,
   OrderUpdatePayload,
@@ -19,6 +20,7 @@ import {
   getBars,
   getBacktest,
   getBacktests,
+  getDatasetRefreshStatus,
   getDatasets,
   getLatestBacktest,
   getMeta,
@@ -54,7 +56,8 @@ type BacktestStore = {
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   loadInitial: () => Promise<void>;
   refreshPlaybooks: () => Promise<void>;
-  refreshDatasets: () => Promise<DatasetRefreshResponse["summary"] | null>;
+  refreshDatasets: () => Promise<DatasetRefreshResponse>;
+  refreshDatasetStatus: () => Promise<DatasetRefreshStatus>;
   updateDatasetAsset: (
     assetId: string,
     payload: { currency?: string | null; timezone?: string | null },
@@ -156,9 +159,25 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       const response = await refreshDatasetsApi();
       set({ datasets: response.catalog, isLoading: false, error: null });
-      return response.summary;
+      return response;
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
+      throw error;
+    }
+  },
+
+  refreshDatasetStatus: async () => {
+    try {
+      const status = await getDatasetRefreshStatus();
+      if (!status.running) {
+        const datasets = await getDatasets().catch(() => null);
+        if (datasets) {
+          set({ datasets });
+        }
+      }
+      return status;
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
       throw error;
     }
   },

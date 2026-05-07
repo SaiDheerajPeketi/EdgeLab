@@ -50,26 +50,40 @@ def _migrate_sqlite_columns() -> None:
         return
 
     inspector = inspect(engine)
-    if "backtest_sessions" not in inspector.get_table_names():
-        return
-
-    existing = {column["name"] for column in inspector.get_columns("backtest_sessions")}
-    additions = {
-        "instrument": "VARCHAR(80)",
-        "timeframe": "VARCHAR(20)",
-        "csv_path": "TEXT",
-        "currency": "VARCHAR(12)",
-        "timezone": "VARCHAR(80)",
-        "strategy_name": "VARCHAR(120)",
-        "playbook_id": "INTEGER",
-        "start_at": "DATETIME",
-        "end_at": "DATETIME",
-        "start_offset": "INTEGER DEFAULT 0 NOT NULL",
-        "end_offset": "INTEGER",
-    }
+    tables = set(inspector.get_table_names())
     with engine.begin() as connection:
-        for column, definition in additions.items():
-            if column not in existing:
-                connection.execute(
-                    text(f"ALTER TABLE backtest_sessions ADD COLUMN {column} {definition}")
-                )
+        if "backtest_sessions" in tables:
+            _add_missing_columns(
+                connection,
+                inspector,
+                "backtest_sessions",
+                {
+                    "instrument": "VARCHAR(80)",
+                    "timeframe": "VARCHAR(20)",
+                    "csv_path": "TEXT",
+                    "currency": "VARCHAR(12)",
+                    "timezone": "VARCHAR(80)",
+                    "strategy_name": "VARCHAR(120)",
+                    "playbook_id": "INTEGER",
+                    "start_at": "DATETIME",
+                    "end_at": "DATETIME",
+                    "start_offset": "INTEGER DEFAULT 0 NOT NULL",
+                    "end_offset": "INTEGER",
+                },
+            )
+        if "dataset_timeframes" in tables:
+            _add_missing_columns(
+                connection,
+                inspector,
+                "dataset_timeframes",
+                {
+                    "imported": "BOOLEAN DEFAULT 1 NOT NULL",
+                },
+            )
+
+
+def _add_missing_columns(connection, inspector, table_name: str, additions: dict[str, str]) -> None:
+    existing = {column["name"] for column in inspector.get_columns(table_name)}
+    for column, definition in additions.items():
+        if column not in existing:
+            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}"))

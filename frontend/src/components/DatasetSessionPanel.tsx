@@ -136,7 +136,7 @@ export function DatasetSessionPanel({
                 className={`timeframe-button ${selectedTimeframe?.timeframe === item.timeframe ? "timeframe-button-active" : ""}`}
                 key={item.timeframe}
                 onClick={() => setTimeframe(item.timeframe)}
-                title={`${item.rows.toLocaleString()} bars`}
+                title={`${formatTimeframeRows(item)} · ${item.imported ? "Imported" : "CSV direct"}`}
                 type="button"
               >
                 {item.timeframe}
@@ -189,7 +189,7 @@ export function DatasetSessionPanel({
             onChange={setTimeframe}
             options={(selectedInstrument?.timeframes ?? []).map((item) => ({
               label: item.timeframe,
-              sublabel: `${item.rows.toLocaleString()} bars`,
+              sublabel: formatTimeframeRows(item),
               value: item.timeframe,
             }))}
             value={selectedTimeframe?.timeframe ?? ""}
@@ -302,6 +302,10 @@ function defaultReplayStartValue(timeframe: DatasetTimeframe) {
   const contextBars = Math.min(300, Math.max(timeframe.rows - 1, 0));
   const contextMs = contextBars * timeframeSeconds(timeframe.timeframe) * 1000;
   return toLocalInputValue(new Date(firstDate.getTime() + contextMs).toISOString());
+}
+
+function formatTimeframeRows(timeframe: DatasetTimeframe) {
+  return timeframe.rows > 0 ? `${timeframe.rows.toLocaleString()} bars` : "Rows counted on start";
 }
 
 function timeframeSeconds(timeframe: string) {

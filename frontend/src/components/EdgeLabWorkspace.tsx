@@ -46,6 +46,9 @@ import {
 import type {
   BacktestSession,
   DatasetCatalog,
+  DatasetRefreshResponse,
+  DatasetRefreshStatus,
+  DatasetTimeframe,
   Playbook,
   PlaybookPayload,
   Trade,
@@ -67,7 +70,8 @@ type Props = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
-  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
+  onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
+  onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   onUpdateDatasetAsset: (
     assetId: string,
@@ -179,6 +183,7 @@ export function EdgeLabWorkspace({
   onNavigateBacktest,
   onNavigateSessions,
   onRefreshDatasets,
+  onGetDatasetRefreshStatus,
   onResumeSession,
   onUpdateDatasetAsset,
   onUpdateDatasetSettings,
@@ -223,6 +228,7 @@ export function EdgeLabWorkspace({
     onNavigateBacktest,
     onNavigateSessions,
     onRefreshDatasets,
+    onGetDatasetRefreshStatus,
     onResumeSession,
     onUpdateDatasetAsset,
     onUpdateDatasetSettings,
@@ -282,7 +288,8 @@ type SharedPageProps = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
-  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
+  onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
+  onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   onUpdateDatasetAsset: (
     assetId: string,
@@ -2240,6 +2247,7 @@ function PlaybookRuleTextArea({
 function SettingsPage({
   datasets,
   onRefreshDatasets,
+  onGetDatasetRefreshStatus,
   onUpdateDatasetAsset,
   onUpdateDatasetSettings,
 }: SharedPageProps) {
@@ -2289,6 +2297,7 @@ function SettingsPage({
             <BacktestDataSettings
               datasets={datasets}
               onRefreshDatasets={onRefreshDatasets}
+              onGetDatasetRefreshStatus={onGetDatasetRefreshStatus}
               onUpdateDatasetAsset={onUpdateDatasetAsset}
               onUpdateDatasetSettings={onUpdateDatasetSettings}
             />
@@ -2349,11 +2358,13 @@ function BacktestGeneralSettings() {
 function BacktestDataSettings({
   datasets,
   onRefreshDatasets,
+  onGetDatasetRefreshStatus,
   onUpdateDatasetAsset,
   onUpdateDatasetSettings,
 }: {
   datasets: DatasetCatalog | null;
-  onRefreshDatasets: () => Promise<{ assets: number; timeframes: number; candles: number } | null>;
+  onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
+  onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
   onUpdateDatasetAsset: (
     assetId: string,
     payload: { currency?: string | null; timezone?: string | null },
@@ -2408,11 +2419,12 @@ function BacktestDataSettings({
       if (trimmed && trimmed !== datasets?.root) {
         await onUpdateDatasetSettings({ root_path: trimmed });
       }
-      const summary = await onRefreshDatasets();
-      if (summary) {
-        setStatus(
-          `${summary.assets} assets, ${summary.timeframes} timeframes, ${summary.candles.toLocaleString()} candles imported`,
-        );
+      const response = await onRefreshDatasets();
+      if (response.status?.running) {
+        setStatus(formatDatasetRefreshStatus(response.status));
+        await pollDatasetRefreshStatus(onGetDatasetRefreshStatus, setStatus);
+      } else {
+        setStatus(formatDatasetRefreshSummary(response.summary));
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not refresh datasets");
@@ -2494,7 +2506,7 @@ function BacktestDataSettings({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
             <Database size={14} />
-            Imported assets
+            Available assets
           </div>
           <span className="status-pill">{datasets?.instruments.length ?? 0} assets</span>
         </div>
@@ -2521,7 +2533,7 @@ function BacktestDataSettings({
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     {instrument.timeframes.map((timeframe) => (
                       <span className="rounded border border-white/10 bg-black/20 px-2 py-1" key={timeframe.csv_path}>
-                        {timeframe.timeframe} · {timeframe.rows.toLocaleString()}
+                        {formatDatasetTimeframeLabel(timeframe)}
                       </span>
                     ))}
                   </div>
@@ -2560,13 +2572,47 @@ function BacktestDataSettings({
           })}
           {(datasets?.instruments.length ?? 0) === 0 && (
             <div className="rounded-md border border-white/10 bg-white/5 px-3 py-4 text-sm text-slate-500">
-              No imported assets yet. Set the root folder and refresh data.
+              No assets found yet. Set the root folder and refresh data.
             </div>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+function formatDatasetTimeframeLabel(timeframe: DatasetTimeframe) {
+  const rows = timeframe.rows > 0 ? timeframe.rows.toLocaleString() : "Rows on import";
+  return `${timeframe.timeframe} · ${rows} · ${timeframe.imported ? "Imported" : "CSV"}`;
+}
+
+function formatDatasetRefreshSummary(summary: DatasetRefreshResponse["summary"]) {
+  return `${summary.assets} assets, ${summary.timeframes} timeframes, ${summary.candles.toLocaleString()} candles imported`;
+}
+
+function formatDatasetRefreshStatus(status: DatasetRefreshStatus) {
+  if (status.error) {
+    return status.error;
+  }
+  if (!status.running) {
+    return formatDatasetRefreshSummary(status.summary);
+  }
+  const current = status.current ? ` · ${status.current}` : "";
+  return `Import running${current} · ${status.summary.candles.toLocaleString()} candles imported`;
+}
+
+async function pollDatasetRefreshStatus(
+  getStatus: () => Promise<DatasetRefreshStatus>,
+  setStatus: (value: string) => void,
+) {
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const status = await getStatus();
+    setStatus(formatDatasetRefreshStatus(status));
+    if (!status.running) {
+      return;
+    }
+  }
 }
 
 function DashboardFilters({ onClose }: { onClose: () => void }) {

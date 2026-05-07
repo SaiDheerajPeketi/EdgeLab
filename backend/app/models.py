@@ -82,6 +82,7 @@ class DatasetTimeframe(Base):
     last_timestamp: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     file_mtime_ns: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    imported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

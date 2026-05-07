@@ -34,6 +34,8 @@ def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
         assert response.catalog.instruments[0].currency == "USD"
         assert response.catalog.instruments[0].timezone == "UTC"
         assert response.catalog.instruments[0].timeframes[0].timeframe == "M1"
+        assert response.catalog.instruments[0].timeframes[0].rows == 2
+        assert response.catalog.instruments[0].timeframes[0].imported is True
         assert db.query(DatasetAsset).count() == 1
         assert db.query(DatasetTimeframe).count() == 1
         assert db.query(DatasetCandle).count() == 2
@@ -103,6 +105,67 @@ def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):
         assert refreshed.summary.assets == 1
         assert refreshed.catalog.root == str(second_root)
         assert refreshed.catalog.instruments[0].id == "ES"
+
+
+def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M5.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n"
+        "2024-01-01 09:35:00,1.25,1.35,1.15,1.3,150\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        catalog = service.list_catalog(db)
+        timeframe = catalog.instruments[0].timeframes[0]
+        resolution = service.resolve_dataset(db, instrument="GBP_USD", timeframe="M5")
+
+        assert catalog.instruments[0].id == "GBP_USD"
+        assert timeframe.csv_path == str(csv_path)
+        assert timeframe.rows == 2
+        assert timeframe.imported is False
+        assert resolution.stored is False
+        assert db.query(DatasetCandle).count() == 0
+
+
+def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch):
+    root = tmp_path / "datasets"
+    asset_dir = root / "XAU_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "XAUUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,2000,2001,1999,2000.5,100\n"
+        "2024-01-01 09:31:00,2001,2002,2000,2001.5,150\n",
+        encoding="utf-8",
+    )
+
+    import app.services.datasets as datasets_module
+
+    monkeypatch.setattr(datasets_module, "CATALOG_ROW_COUNT_MAX_BYTES", 1)
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        catalog = service.list_catalog(db)
+        timeframe = catalog.instruments[0].timeframes[0]
+
+        assert timeframe.rows == 0
+        assert timeframe.first_timestamp is not None
+        assert timeframe.last_timestamp is not None
+        assert timeframe.imported is False
+        assert db.query(DatasetCandle).count() == 0
 
 
 def test_dataset_refresh_rejects_concurrent_runs(tmp_path):

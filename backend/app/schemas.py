@@ -44,6 +44,7 @@ class DatasetTimeframe(BaseModel):
     rows: int
     first_timestamp: datetime | None
     last_timestamp: datetime | None
+    imported: bool = False
     imported_at: datetime | None = None
 
 
@@ -69,9 +70,21 @@ class DatasetRefreshSummary(BaseModel):
     candles: int
 
 
+class DatasetRefreshStatus(BaseModel):
+    running: bool = False
+    current: str | None = None
+    summary: DatasetRefreshSummary = Field(
+        default_factory=lambda: DatasetRefreshSummary(assets=0, timeframes=0, candles=0)
+    )
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+
+
 class DatasetRefreshResponse(BaseModel):
     catalog: DatasetCatalogResponse
     summary: DatasetRefreshSummary
+    status: DatasetRefreshStatus | None = None
 
 
 class DatasetSettingsRead(BaseModel):

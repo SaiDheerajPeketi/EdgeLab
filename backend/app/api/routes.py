@@ -15,6 +15,7 @@ from app.schemas import (
     DatasetCatalogResponse,
     DatasetMeta,
     DatasetRefreshResponse,
+    DatasetRefreshStatus,
     DatasetSettingsRead,
     DatasetSettingsUpdate,
     JournalUpdate,
@@ -100,10 +101,15 @@ def update_dataset_settings(
 @router.post("/datasets/refresh", response_model=DatasetRefreshResponse)
 def refresh_datasets(db: Session = Depends(get_db)) -> DatasetRefreshResponse:
     try:
-        return dataset_catalog.refresh_catalog(db)
+        return dataset_catalog.start_refresh(db)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
+
+
+@router.get("/datasets/refresh/status", response_model=DatasetRefreshStatus)
+def dataset_refresh_status() -> DatasetRefreshStatus:
+    return dataset_catalog.refresh_status()
 
 
 @router.patch("/datasets/assets/{asset_id}", response_model=DatasetCatalogResponse)

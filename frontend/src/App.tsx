@@ -124,6 +124,7 @@ export default function App() {
     loadInitial,
     newSession,
     refreshDatasets,
+    refreshDatasetStatus,
     updateDatasetAsset,
     updateDatasetSettings,
     jumpToOffset,
@@ -834,6 +835,7 @@ export default function App() {
               onResumeSession={resumeSessionFromGateway}
               onCreatePlaybook={createPlaybook}
               onRefreshDatasets={refreshDatasets}
+              onGetDatasetRefreshStatus={refreshDatasetStatus}
               onUpdateDatasetAsset={updateDatasetAsset}
               onUpdateDatasetSettings={updateDatasetSettings}
               playbooks={playbooks}
