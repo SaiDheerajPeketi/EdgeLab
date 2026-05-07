@@ -228,6 +228,9 @@ export function TradingChart({
   const snappedCrosshairRef = useRef<string | null>(null);
   const pendingCrosshairPointRef = useRef<DrawingPoint | null>(null);
   const crosshairFrameRef = useRef<number | null>(null);
+  const drawingClipIdRef = useRef(
+    `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
+  );
 
   const displayBars = useMemo(
     () => aggregateBars(bars, timeframe),
@@ -414,6 +417,11 @@ export function TradingChart({
     series: candlesRef.current,
     version: plotVersion,
   });
+  const drawingPlotWidth =
+    chartRef.current && chartFrameRef.current
+      ? chartPlotWidth(chartRef.current, chartFrameRef.current)
+      : 0;
+  const drawingPlotHeight = chartFrameRef.current?.clientHeight ?? 0;
   const floatingToolbarPosition =
     selectedDrawing && !isDrawingPlacementMode
       ? toolbarPositionFromDrawing(
@@ -1328,16 +1336,28 @@ export function TradingChart({
               onMouseUp={stopDrawingDrag}
             >
               <svg className="h-full w-full overflow-visible pointer-events-none">
-                {chartSettings.sessionBreaks &&
-                  buildSessionBreakElements(
-                    displayBars,
-                    chartFrameRef.current,
-                    chartRef.current,
-                    colorWithOpacity(chartSettings.sessionBreakColor, 0.72),
-                    chartSettings.sessionBreakLineStyle,
-                    chartSettings.sessionBreakLineWidth,
-                  )}
-                {drawingElements}
+                <defs>
+                  <clipPath id={drawingClipIdRef.current}>
+                    <rect
+                      height={Math.max(0, drawingPlotHeight)}
+                      width={Math.max(0, drawingPlotWidth)}
+                      x={0}
+                      y={0}
+                    />
+                  </clipPath>
+                </defs>
+                <g clipPath={`url(#${drawingClipIdRef.current})`}>
+                  {chartSettings.sessionBreaks &&
+                    buildSessionBreakElements(
+                      displayBars,
+                      chartFrameRef.current,
+                      chartRef.current,
+                      colorWithOpacity(chartSettings.sessionBreakColor, 0.72),
+                      chartSettings.sessionBreakLineStyle,
+                      chartSettings.sessionBreakLineWidth,
+                    )}
+                  {drawingElements}
+                </g>
               </svg>
             </div>
             {selectedDrawing && floatingToolbarPosition && !isDrawingPlacementMode && (
