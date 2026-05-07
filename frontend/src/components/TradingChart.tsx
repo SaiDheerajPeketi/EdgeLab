@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
+  Check,
+  ChevronDown,
   Eye,
   EyeOff,
   Layers,
@@ -2814,6 +2816,112 @@ function IndicatorNumberInput({
   );
 }
 
+function PresetApplyDropdown({
+  ariaLabel,
+  className = "",
+  disabled = false,
+  items,
+  onApply,
+  onDelete,
+  placeholder,
+  selectedId,
+}: {
+  ariaLabel: string;
+  className?: string;
+  disabled?: boolean;
+  items: Array<{ id: string; name: string; sublabel: string }>;
+  onApply: (presetId: string) => void;
+  onDelete: (presetId: string) => void;
+  placeholder: string;
+  selectedId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
+  const canOpen = !disabled && items.length > 0;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [open]);
+
+  return (
+    <div className={`preset-apply-dropdown ${open ? "preset-apply-dropdown-open" : ""} ${className}`} ref={rootRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        className="preset-apply-trigger"
+        disabled={!canOpen}
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span>{selectedItem?.name ?? placeholder}</span>
+        <ChevronDown className={open ? "rotate-180" : ""} size={13} />
+      </button>
+
+      {open && canOpen && (
+        <div className="preset-apply-menu" role="listbox">
+          {items.map((item) => {
+            const selected = item.id === selectedId;
+            return (
+              <div
+                aria-selected={selected}
+                className={`preset-apply-row ${selected ? "preset-apply-row-active" : ""}`}
+                key={item.id}
+                role="option"
+              >
+                <button
+                  className="preset-apply-option"
+                  onClick={() => {
+                    onApply(item.id);
+                    setOpen(false);
+                  }}
+                  type="button"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{item.name}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                      {item.sublabel}
+                    </span>
+                  </span>
+                  {selected && <Check className="shrink-0 text-cyan-100" size={13} />}
+                </button>
+                <button
+                  className="preset-apply-delete"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(item.id);
+                    if (items.length <= 1) {
+                      setOpen(false);
+                    }
+                  }}
+                  title={`Delete ${item.name}`}
+                  type="button"
+                >
+                  <Trash2 size={12} />
+                  Delete
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FloatingDrawingToolbar({
   drawing,
   onChange,
@@ -2845,7 +2953,6 @@ function FloatingDrawingToolbar({
   const drawingPresets = isLabelableDrawingTool(drawing.tool)
     ? presets.filter((preset) => preset.tool === drawing.tool)
     : [];
-  const selectedPreset = drawingPresets.find((preset) => preset.id === selectedPresetId) ?? null;
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   useEffect(() => {
@@ -2909,14 +3016,13 @@ function FloatingDrawingToolbar({
     });
   }
 
-  function deleteSelectedPreset() {
-    if (!selectedPreset) {
-      return;
-    }
-    const nextPresets = presets.filter((preset) => preset.id !== selectedPreset.id);
+  function deletePreset(presetId: string) {
+    const nextPresets = presets.filter((preset) => preset.id !== presetId);
     setPresets(nextPresets);
     saveDrawingPresets(nextPresets);
-    setSelectedPresetId("");
+    if (selectedPresetId === presetId) {
+      setSelectedPresetId("");
+    }
   }
 
   return (
@@ -2939,19 +3045,19 @@ function FloatingDrawingToolbar({
 
       {isLabelableDrawingTool(drawing.tool) && (
         <div className="drawing-preset-controls">
-          <ThemedSelect
+          <PresetApplyDropdown
             ariaLabel="Drawing presets"
             className="h-8 w-40"
             disabled={drawingPresets.length === 0}
-            menuClassName="w-56"
-            onChange={applyPreset}
-            options={drawingPresets.map((preset) => ({
-              label: preset.name,
+            items={drawingPresets.map((preset) => ({
+              id: preset.id,
+              name: preset.name,
               sublabel: preset.label || `${preset.lineStyle ?? "solid"} · ${preset.lineWidth ?? 2}px`,
-              value: preset.id,
             }))}
+            onApply={applyPreset}
+            onDelete={deletePreset}
             placeholder={drawingPresets.length === 0 ? "No presets" : "Apply preset"}
-            value={selectedPreset?.id ?? ""}
+            selectedId={selectedPresetId}
           />
           <button
             className="chart-object-floating-button"
@@ -2960,16 +3066,6 @@ function FloatingDrawingToolbar({
             type="button"
           >
             <Save size={14} />
-          </button>
-          <button
-            className="drawing-preset-delete-button"
-            disabled={!selectedPreset}
-            onClick={deleteSelectedPreset}
-            title={selectedPreset ? `Delete ${selectedPreset.name}` : "Select a preset to delete"}
-            type="button"
-          >
-            <Trash2 size={14} />
-            Delete
           </button>
         </div>
       )}
@@ -3128,7 +3224,6 @@ function FibLevelEditor({
   const [presets, setPresets] = useState<FibPreset[]>(() => loadFibPresets());
   const [presetName, setPresetName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("");
-  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
 
   useEffect(() => {
@@ -3221,15 +3316,14 @@ function FibLevelEditor({
     setPresetName(preset.name);
   }
 
-  function deleteSelectedPreset() {
-    if (!selectedPreset) {
-      return;
-    }
-    const nextPresets = presets.filter((preset) => preset.id !== selectedPreset.id);
+  function deletePreset(presetId: string) {
+    const nextPresets = presets.filter((preset) => preset.id !== presetId);
     setPresets(nextPresets);
     saveFibPresets(nextPresets);
-    setPresetName("");
-    setSelectedPresetId("");
+    if (selectedPresetId === presetId) {
+      setPresetName("");
+      setSelectedPresetId("");
+    }
   }
 
   return (
@@ -3244,19 +3338,19 @@ function FibLevelEditor({
             placeholder="Preset name"
             value={presetName}
           />
-          <ThemedSelect
+          <PresetApplyDropdown
             ariaLabel="Fib presets"
             className="h-7 w-36"
             disabled={presets.length === 0}
-            menuClassName="w-56"
-            onChange={applyPreset}
-            options={presets.map((preset) => ({
-              label: preset.name,
+            items={presets.map((preset) => ({
+              id: preset.id,
+              name: preset.name,
               sublabel: `${preset.levels.length} levels`,
-              value: preset.id,
             }))}
+            onApply={applyPreset}
+            onDelete={deletePreset}
             placeholder={presets.length === 0 ? "No presets" : "Apply"}
-            value={selectedPreset?.id ?? ""}
+            selectedId={selectedPresetId}
           />
           <button
             className="fib-icon-button"
@@ -3265,16 +3359,6 @@ function FibLevelEditor({
             type="button"
           >
             <Save size={12} />
-          </button>
-          <button
-            className="fib-preset-delete-button"
-            disabled={!selectedPreset}
-            onClick={deleteSelectedPreset}
-            title={selectedPreset ? `Delete ${selectedPreset.name}` : "Select a fib preset to delete"}
-            type="button"
-          >
-            <Trash2 size={12} />
-            Delete
           </button>
           <button
             className="fib-icon-button"
