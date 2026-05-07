@@ -234,6 +234,15 @@ export function loadActiveChartSettingsPresetName(
   return presets[0]?.name ?? null;
 }
 
+export function loadActiveChartSettingsPreset(
+  presets = loadChartSettingsPresets(),
+) {
+  const activeName = loadActiveChartSettingsPresetName(presets);
+  return activeName
+    ? presets.find((preset) => preset.name === activeName) ?? null
+    : null;
+}
+
 export function persistActiveChartSettingsPresetName(name: string | null) {
   if (typeof window === "undefined") {
     return;

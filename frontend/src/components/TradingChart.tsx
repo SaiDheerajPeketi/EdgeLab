@@ -3,6 +3,7 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  Magnet,
   Plus,
   RotateCcw,
   Save,
@@ -96,6 +97,7 @@ type Props = {
   onClearDrawings: () => void;
   onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
+  onMagnetModeChange: (mode: MagnetMode) => void;
   onRemoveIndicator: (instanceId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicatorVisibility: (instanceId: string) => void;
@@ -189,6 +191,7 @@ export function TradingChart({
   onClearDrawings,
   onDeleteDrawing,
   onDrawingToolChange,
+  onMagnetModeChange,
   onRemoveIndicator,
   onSelectDrawing,
   onToggleIndicatorVisibility,
@@ -1205,7 +1208,9 @@ export function TradingChart({
           activeTool={drawingTool}
           clearableDrawingsCount={unlockedDrawingsCount}
           drawingsCount={drawings.length}
+          magnetMode={magnetMode}
           onClearDrawings={onClearDrawings}
+          onMagnetModeChange={onMagnetModeChange}
           onToolChange={onDrawingToolChange}
         />
 
@@ -1405,13 +1410,17 @@ function DrawingRail({
   activeTool,
   clearableDrawingsCount,
   drawingsCount,
+  magnetMode,
   onClearDrawings,
+  onMagnetModeChange,
   onToolChange,
 }: {
   activeTool: DrawingTool;
   clearableDrawingsCount: number;
   drawingsCount: number;
+  magnetMode: MagnetMode;
   onClearDrawings: () => void;
+  onMagnetModeChange: (mode: MagnetMode) => void;
   onToolChange: (tool: DrawingTool) => void;
 }) {
   const tools: Array<{
@@ -1430,10 +1439,47 @@ function DrawingRail({
     { icon: TvShortPositionIcon, label: "Short position", tool: "shortPosition" },
     { icon: TvTextIcon, label: "Text label", tool: "text" },
   ];
+  const nextMagnetMode: MagnetMode =
+    magnetMode === "off" ? "weak" : magnetMode === "weak" ? "strong" : "off";
+  const magnetLabel =
+    magnetMode === "off"
+      ? "Magnet off. Click for weak magnet"
+      : magnetMode === "weak"
+        ? "Weak magnet. Click for strong magnet"
+        : "Strong magnet. Click to turn magnet off";
 
   return (
     <aside className="drawing-rail">
-      {tools.map((item) => {
+      {tools.slice(0, 2).map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            className={`drawing-rail-button ${activeTool === item.tool ? "drawing-rail-button-active" : ""}`}
+            key={item.tool}
+            onClick={() => onToolChange(item.tool)}
+            title={item.label}
+            type="button"
+          >
+            <Icon size={17} />
+          </button>
+        );
+      })}
+      <div className="my-1 h-px w-8 bg-white/10" />
+      <button
+        className={`drawing-rail-button magnet-rail-button ${magnetMode !== "off" ? "drawing-rail-button-active" : ""}`}
+        onClick={() => onMagnetModeChange(nextMagnetMode)}
+        title={magnetLabel}
+        type="button"
+      >
+        <Magnet size={17} />
+        {magnetMode !== "off" && (
+          <span className="drawing-rail-mode-badge">
+            {magnetMode === "weak" ? "W" : "S"}
+          </span>
+        )}
+      </button>
+      <div className="my-1 h-px w-8 bg-white/10" />
+      {tools.slice(2).map((item) => {
         const Icon = item.icon;
         return (
           <button

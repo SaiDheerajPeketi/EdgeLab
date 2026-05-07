@@ -56,6 +56,7 @@ import {
 } from "./lib/charting";
 import {
   DEFAULT_CHART_VISUAL_SETTINGS,
+  loadActiveChartSettingsPreset,
   sanitizeChartVisualSettings,
   type ChartVisualSettings,
 } from "./lib/chartSettings";
@@ -150,8 +151,7 @@ export default function App() {
     return sanitizeChartStyle(saved?.chartStyle);
   });
   const [chartSettings, setChartSettings] = useState<ChartVisualSettings>(() => {
-    const saved = loadChartLayout();
-    return sanitizeChartVisualSettings(saved?.chartSettings);
+    return loadInitialChartSettings();
   });
   const [indicatorInstances, setIndicatorInstances] = useState<ChartIndicatorInstance[]>(() => {
     const saved = loadChartLayout();
@@ -191,6 +191,13 @@ export default function App() {
       setTimeframe(sourceTimeframe);
     }
   }, [state?.session.id, sourceTimeframe]);
+
+  useEffect(() => {
+    const activeSettingsPreset = loadActiveChartSettingsPreset();
+    if (activeSettingsPreset) {
+      setChartSettings(activeSettingsPreset.settings);
+    }
+  }, [state?.session.id]);
 
   useEffect(() => {
     if (timeframe !== effectiveTimeframe) {
@@ -952,6 +959,7 @@ export default function App() {
                       onClearDrawings={clearDrawings}
                       onDeleteDrawing={deleteDrawing}
                       onDrawingToolChange={setDrawingTool}
+                      onMagnetModeChange={setMagnetMode}
                       onRemoveIndicator={removeIndicator}
                       onSelectDrawing={setSelectedDrawingId}
                       onToggleIndicatorVisibility={toggleIndicatorVisibility}
@@ -1232,6 +1240,15 @@ function loadActiveLayoutName() {
     return "Default";
   }
   return normalizeLayoutName(window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY) ?? "Default");
+}
+
+function loadInitialChartSettings() {
+  const activeSettingsPreset = loadActiveChartSettingsPreset();
+  if (activeSettingsPreset) {
+    return activeSettingsPreset.settings;
+  }
+  const saved = loadChartLayout();
+  return sanitizeChartVisualSettings(saved?.chartSettings);
 }
 
 function loadSavedLayoutNames() {
