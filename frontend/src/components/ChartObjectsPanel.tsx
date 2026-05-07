@@ -20,6 +20,7 @@ import {
   TvShortPositionIcon,
   TvTextIcon,
   TvTrendLineIcon,
+  TvVerticalLineIcon,
   type ChartToolIcon,
 } from "./ChartToolIcons";
 import {
@@ -60,6 +61,7 @@ type Props = {
 const drawingIcons: Record<ChartDrawing["tool"], ChartToolIcon> = {
   fib: TvFibIcon,
   horizontal: TvHorizontalLineIcon,
+  vertical: TvVerticalLineIcon,
   longPosition: TvLongPositionIcon,
   measure: TvMeasureIcon,
   rectangle: TvRectangleIcon,
@@ -260,7 +262,9 @@ export function ChartObjectsPanel({
                         : drawing.locked
                           ? "Locked"
                           : drawing.points.length === 1
-                        ? formatPrice(drawing.points[0].price)
+                        ? drawing.tool === "vertical"
+                          ? formatDrawingTime(drawing.points[0].time)
+                          : formatPrice(drawing.points[0].price)
                         : `${drawing.points.length} anchors`}
                     </span>
                   </span>
@@ -281,6 +285,16 @@ export function ChartObjectsPanel({
       </div>
     </aside>
   );
+}
+
+function formatDrawingTime(time: number) {
+  return new Date(time * 1000).toLocaleString([], {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
 }
 
 function DrawingHoverControls({

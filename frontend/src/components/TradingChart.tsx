@@ -39,6 +39,7 @@ import {
   TvShortPositionIcon,
   TvTextIcon,
   TvTrendLineIcon,
+  TvVerticalLineIcon,
   type ChartToolIcon,
 } from "./ChartToolIcons";
 import {
@@ -146,6 +147,7 @@ type OhlcSnapCandidate = {
 
 type LabelableDrawingTool =
   | "horizontal"
+  | "vertical"
   | "rectangle"
   | "trendline"
   | "longPosition"
@@ -180,6 +182,7 @@ type FibPreset = {
 const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
   trendline: "#32d3ee",
   horizontal: "#f59e0b",
+  vertical: "#38bdf8",
   rectangle: "#a78bfa",
   fib: "#22c55e",
   measure: "#38bdf8",
@@ -442,6 +445,7 @@ export function TradingChart({
   const headerPriceTone = candleChangeTone(activeHeaderCandle);
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
+    chartSettings,
     drawings,
     draftDrawing,
     frame: chartFrameRef.current,
@@ -998,8 +1002,8 @@ export function TradingChart({
       return;
     }
 
-    if (drawingTool === "horizontal") {
-      addDrawingAndOpenToolbar(makeDrawing("horizontal", [point]));
+    if (drawingTool === "horizontal" || drawingTool === "vertical") {
+      addDrawingAndOpenToolbar(makeDrawing(drawingTool, [point]));
       onDrawingToolChange(neutralDrawingTool);
       return;
     }
@@ -1798,6 +1802,7 @@ function DrawingRail({
     { icon: TvCrosshairIcon, label: "Crosshair: inspect candles", tool: "crosshair" },
     { icon: TvTrendLineIcon, label: "Trendline", tool: "trendline" },
     { icon: TvHorizontalLineIcon, label: "Horizontal level", tool: "horizontal" },
+    { icon: TvVerticalLineIcon, label: "Vertical level", tool: "vertical" },
     { icon: TvRectangleIcon, label: "Rectangle zone", tool: "rectangle" },
     { icon: TvFibIcon, label: "Fib retracement", tool: "fib" },
     { icon: TvMeasureIcon, label: "Measure", tool: "measure" },
@@ -3170,6 +3175,7 @@ function formatFibLevelInput(value: number) {
 
 function buildDrawingElements({
   chart,
+  chartSettings,
   drawings,
   draftDrawing,
   frame,
@@ -3182,6 +3188,7 @@ function buildDrawingElements({
   series,
 }: {
   chart: IChartApi | null;
+  chartSettings: ChartVisualSettings;
   drawings: ChartDrawing[];
   draftDrawing: DraftDrawing | null;
   frame: HTMLDivElement | null;
@@ -3204,6 +3211,7 @@ function buildDrawingElements({
   }
 
   const width = chartPlotWidth(chart, frame);
+  const height = chartPlotHeight(chart, frame);
   const toPixel = (point: DrawingPoint) => {
     return pixelFromPoint(point, chart, series);
   };
@@ -3211,7 +3219,7 @@ function buildDrawingElements({
   return (
     <>
       {drawings.filter((drawing) => drawing.visible !== false).map((drawing) =>
-        renderDrawing(drawing, toPixel, width, {
+        renderDrawing(drawing, toPixel, width, height, chartSettings, {
           onDeleteDrawing,
           onDragStart,
           onSelectDrawing,
@@ -3232,6 +3240,8 @@ function buildDrawingElements({
               },
               toPixel,
               width,
+              height,
+              chartSettings,
               {
                 onDeleteDrawing,
                 onDragStart,
@@ -3288,6 +3298,7 @@ function hitTestDrawingAtPoint({
     return null;
   }
   const width = chartPlotWidth(chart, frame);
+  const height = chartPlotHeight(chart, frame);
   const threshold = 10;
   const toPixel = (drawingPoint: DrawingPoint) =>
     pixelFromPoint(drawingPoint, chart, series);
@@ -3316,6 +3327,13 @@ function hitTestDrawingAtPoint({
 
     if (drawing.tool === "horizontal") {
       if (point.x >= 0 && point.x <= width && Math.abs(point.y - first.y) <= threshold) {
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
+    if (drawing.tool === "vertical") {
+      if (point.y >= 0 && point.y <= height && Math.abs(point.x - first.x) <= threshold) {
         return { drawing, mode: "body", pointIndex: null };
       }
       continue;
@@ -3533,10 +3551,37 @@ function horizontalPriceLabelGeometry(label: string, plotWidth: number, y: numbe
   };
 }
 
+function verticalTimeLabelGeometry(
+  label: string,
+  plotWidth: number,
+  plotHeight: number,
+  x: number,
+) {
+  const paddingX = 16;
+  const estimatedTextWidth = label.length * 6.6;
+  const maxWidth = Math.max(72, plotWidth - 16);
+  const labelWidth = clamp(
+    Math.ceil(estimatedTextWidth + paddingX),
+    86,
+    Math.min(190, maxWidth),
+  );
+  const textWidth = Math.max(12, labelWidth - paddingX);
+
+  return {
+    squeeze: estimatedTextWidth > textWidth,
+    textWidth,
+    width: labelWidth,
+    x: clamp(x - labelWidth / 2, 8, Math.max(8, plotWidth - labelWidth - 8)),
+    y: clamp(plotHeight - 26, 4, Math.max(4, plotHeight - 24)),
+  };
+}
+
 function renderDrawing(
   drawing: ChartDrawing,
   toPixel: (point: DrawingPoint) => { x: number; y: number } | null,
   width: number,
+  height: number,
+  chartSettings: ChartVisualSettings,
   options: {
     onDeleteDrawing: (drawingId: string) => void;
     onDragStart: (
@@ -3634,6 +3679,73 @@ function renderDrawing(
           plotWidth: width,
           x: 10,
           y: point.y - 34,
+        })}
+        {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "vertical") {
+    const point = toPixel(drawing.points[0]);
+    if (!point) {
+      return null;
+    }
+    const label = formatChartTime(drawing.points[0].time as UTCTimestamp, chartSettings);
+    const labelGeometry = verticalTimeLabelGeometry(label, width, height, point.x);
+    return (
+      <g key={drawing.id}>
+        <line
+          cursor={isLocked ? "default" : "ew-resize"}
+          onMouseDown={handleBodyDown}
+          onClick={handleSelect}
+          pointerEvents={hitTargetPointerEvents}
+          stroke="transparent"
+          strokeWidth="14"
+          x1={point.x}
+          x2={point.x}
+          y1={0}
+          y2={height}
+        />
+        <line
+          stroke={color}
+          strokeDasharray={strokeDasharray}
+          strokeOpacity={isSelected ? 1 : 0.82}
+          strokeWidth={selectedStrokeWidth}
+          x1={point.x}
+          x2={point.x}
+          y1={0}
+          y2={height}
+        />
+        <rect
+          fill="rgba(8, 12, 17, 0.92)"
+          height={20}
+          rx={4}
+          stroke={color}
+          strokeOpacity="0.55"
+          width={labelGeometry.width}
+          x={labelGeometry.x}
+          y={labelGeometry.y}
+        />
+        <text
+          fill={color}
+          fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+          fontSize="11"
+          fontWeight="700"
+          lengthAdjust={labelGeometry.squeeze ? "spacingAndGlyphs" : undefined}
+          textLength={labelGeometry.squeeze ? labelGeometry.textWidth : undefined}
+          x={labelGeometry.x + 8}
+          y={labelGeometry.y + 14}
+        >
+          {label}
+        </text>
+        {renderDrawingLabel({
+          backgroundOpacity: drawing.labelBackgroundOpacity,
+          color,
+          id: `${drawing.id}-label`,
+          label: drawing.label,
+          plotWidth: width,
+          x: point.x + 10,
+          y: 10,
         })}
         {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
       </g>
@@ -4613,6 +4725,13 @@ function toolbarPositionFromDrawing(
     };
   }
 
+  if (drawing.tool === "vertical") {
+    return {
+      x: clamp(minX - toolbarWidth / 2, 12, maxLeft),
+      y: 12,
+    };
+  }
+
   const rightX = maxX + 14;
   const leftX = minX - toolbarWidth - 14;
   const x = rightX <= maxLeft ? rightX : leftX;
@@ -4659,6 +4778,7 @@ function isLabelableDrawingTool(
 ): tool is LabelableDrawingTool {
   return (
     tool === "horizontal" ||
+    tool === "vertical" ||
     tool === "rectangle" ||
     tool === "trendline" ||
     tool === "longPosition" ||
@@ -4857,6 +4977,8 @@ function presetToolName(tool: LabelableDrawingTool) {
   switch (tool) {
     case "horizontal":
       return "Horizontal";
+    case "vertical":
+      return "Vertical";
     case "rectangle":
       return "Rectangle";
     case "trendline":
@@ -5096,6 +5218,13 @@ function moveDrawing(
   const points = dragState.originalPoints.map((originalPoint, index) => {
     const originalPixel = dragState.originalPixels[index];
     if (!originalPixel) {
+      if (dragState.drawing.tool === "vertical") {
+        return {
+          ...originalPoint,
+          logical: point.logical,
+          time: point.time,
+        };
+      }
       const priceDelta = point.price - dragState.startPoint.price;
       return {
         time: originalPoint.time,
@@ -5104,7 +5233,7 @@ function moveDrawing(
     }
     const moved = pointFromPixel(
       dragState.drawing.tool === "horizontal" ? originalPixel.x : originalPixel.x + xDelta,
-      originalPixel.y + yDelta,
+      dragState.drawing.tool === "vertical" ? originalPixel.y : originalPixel.y + yDelta,
       frame,
       chart,
       series,
@@ -5248,7 +5377,7 @@ function makeDrawing(
         ? DEFAULT_LABEL_BACKGROUND_OPACITY
         : undefined,
     lineStyle: "solid",
-    lineWidth: tool === "horizontal" ? 1.5 : 2,
+    lineWidth: tool === "horizontal" || tool === "vertical" ? 1.5 : 2,
     locked: false,
     points: normalizedPoints,
     rewardColor: isRiskRewardTool(tool) ? POSITION_REWARD_COLOR : undefined,
@@ -5416,6 +5545,8 @@ function toolLabel(tool: DrawingTool) {
       return "a trendline";
     case "horizontal":
       return "a horizontal level";
+    case "vertical":
+      return "a vertical level";
     case "rectangle":
       return "a zone";
     case "fib":

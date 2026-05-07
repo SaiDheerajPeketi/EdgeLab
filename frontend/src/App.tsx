@@ -333,6 +333,10 @@ export default function App() {
         case "H":
           changeDrawingTool("horizontal");
           break;
+        case "v":
+        case "V":
+          changeDrawingTool("vertical");
+          break;
         case "t":
         case "T":
           changeDrawingTool("trendline");
@@ -1473,6 +1477,7 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       [
         "fib",
         "horizontal",
+        "vertical",
         "longPosition",
         "measure",
         "rectangle",

@@ -33,6 +33,7 @@ import {
   TvShortPositionIcon,
   TvTextIcon,
   TvTrendLineIcon,
+  TvVerticalLineIcon,
   type ChartToolIcon,
 } from "./ChartToolIcons";
 import {
@@ -116,6 +117,7 @@ const DRAWING_TOOLS: Array<{
   { icon: TvCrosshairIcon, label: "Inspect", tool: "crosshair" },
   { icon: TvTrendLineIcon, label: "Trend", shortcut: "T", tool: "trendline" },
   { icon: TvHorizontalLineIcon, label: "H-Line", shortcut: "H", tool: "horizontal" },
+  { icon: TvVerticalLineIcon, label: "V-Line", shortcut: "V", tool: "vertical" },
   { icon: TvRectangleIcon, label: "Zone", shortcut: "R", tool: "rectangle" },
   { icon: TvFibIcon, label: "Fib", shortcut: "F", tool: "fib" },
   { icon: TvMeasureIcon, label: "Measure", shortcut: "M", tool: "measure" },

@@ -53,6 +53,7 @@ export type DrawingTool =
   | "crosshair"
   | "trendline"
   | "horizontal"
+  | "vertical"
   | "rectangle"
   | "fib"
   | "measure"

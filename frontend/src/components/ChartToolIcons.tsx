@@ -66,6 +66,16 @@ export function TvHorizontalLineIcon(props: SVGProps<SVGSVGElement> & { size?: n
   );
 }
 
+export function TvVerticalLineIcon(props: SVGProps<SVGSVGElement> & { size?: number | string }) {
+  return (
+    <IconFrame {...props}>
+      <path d="M12 3v18" />
+      <path d="M8 6v12" opacity="0.28" />
+      <path d="M16 6v12" opacity="0.28" />
+    </IconFrame>
+  );
+}
+
 export function TvRectangleIcon(props: SVGProps<SVGSVGElement> & { size?: number | string }) {
   return (
     <IconFrame {...props}>
