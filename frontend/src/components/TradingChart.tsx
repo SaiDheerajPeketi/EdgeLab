@@ -458,7 +458,9 @@ export function TradingChart({
     chartRef.current && chartFrameRef.current
       ? chartPlotWidth(chartRef.current, chartFrameRef.current)
       : 0;
-  const drawingPlotHeight = chartFrameRef.current?.clientHeight ?? 0;
+  const drawingPlotHeight = chartRef.current
+    ? chartPlotHeight(chartRef.current, chartFrameRef.current)
+    : 0;
   const floatingToolbarPosition =
     selectedDrawing && drawingToolbarOpen && !isDrawingPlacementMode && dragState == null
       ? toolbarPositionFromDrawing(
@@ -1563,12 +1565,16 @@ export function TradingChart({
               style={{ backgroundColor: chartSettings.backgroundColor }}
             />
             <div
-              className={`absolute inset-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode || isCrosshairTool ? "cursor-crosshair" : "cursor-default"}`}
+              className={`absolute left-0 top-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode || isCrosshairTool ? "cursor-crosshair" : "cursor-default"}`}
               onMouseLeave={stopDrawingDrag}
               onMouseMove={handleDrawingMove}
               onMouseUp={stopDrawingDrag}
+              style={{
+                height: Math.max(0, drawingPlotHeight),
+                width: Math.max(0, drawingPlotWidth),
+              }}
             >
-              <svg className="h-full w-full overflow-visible pointer-events-none">
+              <svg className="h-full w-full overflow-hidden pointer-events-none">
                 <defs>
                   <clipPath id={drawingClipIdRef.current}>
                     <rect
@@ -2059,7 +2065,7 @@ function buildSessionBreakElements(
   if (!frame || !chart || bars.length < 2) {
     return null;
   }
-  const height = frame.clientHeight;
+  const height = chartPlotHeight(chart, frame);
   return bars.flatMap((bar, index) => {
     if (index === 0 || dayKey(bar.timestamp) === dayKey(bars[index - 1].timestamp)) {
       return [];
@@ -2119,7 +2125,7 @@ function findNearestOverlayIndicator({
   }
 
   const plotWidth = chartPlotWidth(chart, frame);
-  const plotHeight = frame.clientHeight;
+  const plotHeight = chartPlotHeight(chart, frame);
   if (point.x < 0 || point.y < 0 || point.x > plotWidth || point.y > plotHeight) {
     return null;
   }
@@ -3240,11 +3246,19 @@ function buildDrawingElements({
 }
 
 function chartPlotWidth(chart: IChartApi, frame: HTMLDivElement) {
-  const timeScaleWidth = chart.timeScale().width();
-  if (Number.isFinite(timeScaleWidth) && timeScaleWidth > 0) {
-    return Math.min(frame.clientWidth, timeScaleWidth);
+  const paneWidth = chart.paneSize().width;
+  if (Number.isFinite(paneWidth) && paneWidth > 0) {
+    return Math.min(frame.clientWidth, paneWidth);
   }
   return frame.clientWidth;
+}
+
+function chartPlotHeight(chart: IChartApi, frame: HTMLDivElement | null) {
+  const paneHeight = chart.paneSize().height;
+  if (Number.isFinite(paneHeight) && paneHeight > 0) {
+    return frame ? Math.min(frame.clientHeight, paneHeight) : paneHeight;
+  }
+  return frame?.clientHeight ?? 0;
 }
 
 function hitTestDrawingAtPoint({
@@ -4892,8 +4906,10 @@ function pointFromPixel(
   if (!chart || !series || !frame) {
     return null;
   }
-  const clampedX = clamp(x, 0, Math.max(0, frame.clientWidth - 1));
-  const clampedY = clamp(y, 0, Math.max(0, frame.clientHeight - 1));
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  const clampedX = clamp(x, 0, Math.max(0, plotWidth - 1));
+  const clampedY = clamp(y, 0, Math.max(0, plotHeight - 1));
   const logicalValue = chart.timeScale().coordinateToLogical(clampedX);
   const logical = logicalValue == null ? null : Number(logicalValue);
   const time = chart.timeScale().coordinateToTime(clampedX);
