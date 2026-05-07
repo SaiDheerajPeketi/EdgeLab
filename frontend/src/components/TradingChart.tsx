@@ -476,10 +476,10 @@ export function TradingChart({
   }, [displayBars]);
 
   useEffect(() => {
-    if (magnetMode === "off" || !effectiveCrosshairVisible) {
+    if (magnetMode === "off" || !effectiveCrosshairVisible || !isDrawingPlacementMode) {
       clearMagnetCrosshair();
     }
-  }, [effectiveCrosshairVisible, magnetMode]);
+  }, [effectiveCrosshairVisible, isDrawingPlacementMode, magnetMode]);
 
   useEffect(() => {
     return () => {
@@ -1068,7 +1068,7 @@ export function TradingChart({
   }
 
   function handleMagnetCrosshairMove(event: MouseEvent<HTMLDivElement>) {
-    if (magnetMode === "off" || !effectiveCrosshairVisible) {
+    if (magnetMode === "off" || !effectiveCrosshairVisible || !isDrawingPlacementMode) {
       return;
     }
 
