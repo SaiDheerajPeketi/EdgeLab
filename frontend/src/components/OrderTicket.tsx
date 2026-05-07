@@ -1,13 +1,19 @@
 import { Send, ShieldCheck } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { OrderPayload, Playbook } from "../lib/api";
 import type { ChartDrawing } from "../lib/charting";
 import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
+import {
+  getCachedAppStorageItem,
+  loadAppStorageItem,
+  saveAppStorageItem,
+  subscribeAppStorageItem,
+} from "../lib/serverStorage";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 
-const RISK_BASE_STORAGE_KEY = "edgelab.order-risk-base.v1";
+const RISK_BASE_STORAGE_KEY = "order-risk-base.v1";
 type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
 
 type Props = {
@@ -31,6 +37,7 @@ export function OrderTicket({
   const [quantity, setQuantity] = useState("100000");
   const [riskPercent, setRiskPercent] = useState("1");
   const [riskBase, setRiskBase] = useState<RiskBase>(() => loadRiskBase());
+  const riskBaseHydratedRef = useRef(false);
   const [limitPrice, setLimitPrice] = useState("");
   const [stopPrice, setStopPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
@@ -98,7 +105,31 @@ export function OrderTicket({
   }, [state?.session.id, state?.session.playbook_id]);
 
   useEffect(() => {
-    window.localStorage.setItem(RISK_BASE_STORAGE_KEY, riskBase);
+    let active = true;
+    void hydrateRiskBase().then((nextRiskBase) => {
+      if (active) {
+        setRiskBase(nextRiskBase);
+        riskBaseHydratedRef.current = true;
+      }
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      RISK_BASE_STORAGE_KEY,
+      (value) => {
+        setRiskBase(sanitizeRiskBase(value));
+        riskBaseHydratedRef.current = true;
+      },
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!riskBaseHydratedRef.current) {
+      return;
+    }
+    void saveAppStorageItem(RISK_BASE_STORAGE_KEY, riskBase);
   }, [riskBase]);
 
   async function handleSubmit(event: FormEvent) {
@@ -371,11 +402,15 @@ function numberOrNull(value: string) {
 }
 
 function loadRiskBase(): RiskBase {
-  if (typeof window === "undefined") {
-    return "CURRENT_BALANCE";
-  }
-  const saved = window.localStorage.getItem(RISK_BASE_STORAGE_KEY);
-  return saved === "INITIAL_BALANCE" ? "INITIAL_BALANCE" : "CURRENT_BALANCE";
+  return sanitizeRiskBase(getCachedAppStorageItem<unknown>(RISK_BASE_STORAGE_KEY, null));
+}
+
+async function hydrateRiskBase(): Promise<RiskBase> {
+  return sanitizeRiskBase(await loadAppStorageItem<unknown>(RISK_BASE_STORAGE_KEY, null));
+}
+
+function sanitizeRiskBase(value: unknown): RiskBase {
+  return value === "INITIAL_BALANCE" ? "INITIAL_BALANCE" : "CURRENT_BALANCE";
 }
 
 function extractRiskRewardOrderValues(

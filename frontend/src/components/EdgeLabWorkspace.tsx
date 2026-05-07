@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -54,6 +54,12 @@ import type {
   Trade,
 } from "../lib/api";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
+import {
+  getCachedAppStorageItem,
+  loadAppStorageItem,
+  saveAppStorageItem,
+  subscribeAppStorageItem,
+} from "../lib/serverStorage";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
 import type { WorkspaceView } from "../lib/workspace";
@@ -171,7 +177,7 @@ type LiveTradeInput = {
   takeProfit: number | null;
 };
 
-const LIVE_JOURNAL_STORAGE_KEY = "edgelab.live-journal.v1";
+const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
 const LIVE_EMOTIONS = ["Calm", "Confident", "Focused", "Fearful", "Impulsive", "Frustrated", "Other"] as const;
 const CURRENCY_OPTIONS = [
   "USD",
@@ -2635,7 +2641,7 @@ function BacktestDataSettings({
 
 function formatDatasetTimeframeLabel(timeframe: DatasetTimeframe) {
   const rows = timeframe.rows > 0 ? timeframe.rows.toLocaleString() : "Rows on import";
-  return `${timeframe.timeframe} · ${rows} · ${timeframe.imported ? "Imported" : "CSV"}`;
+  return `${timeframe.timeframe} · ${rows} · CSV direct`;
 }
 
 function selectOptionsWithValue(
@@ -2649,7 +2655,7 @@ function selectOptionsWithValue(
 }
 
 function formatDatasetRefreshSummary(summary: DatasetRefreshResponse["summary"]) {
-  return `${summary.assets} assets, ${summary.timeframes} timeframes, ${summary.candles.toLocaleString()} candles imported`;
+  return `${summary.assets} assets, ${summary.timeframes} timeframe CSVs indexed`;
 }
 
 function formatDatasetRefreshStatus(status: DatasetRefreshStatus) {
@@ -2660,7 +2666,7 @@ function formatDatasetRefreshStatus(status: DatasetRefreshStatus) {
     return formatDatasetRefreshSummary(status.summary);
   }
   const current = status.current ? ` · ${status.current}` : "";
-  return `Import running${current} · ${status.summary.candles.toLocaleString()} candles imported`;
+  return `Refresh running${current} · ${status.summary.assets} assets indexed`;
 }
 
 async function pollDatasetRefreshStatus(
@@ -3128,13 +3134,45 @@ function NetworkMark() {
 
 function useLiveJournalData(): LiveJournalController {
   const [data, setData] = useState<LiveJournalData>(() => loadLiveJournalData());
+  const hydratedRef = useRef(false);
+  const lastSyncedJsonRef = useRef("");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    let active = true;
+    void hydrateLiveJournalData().then((nextData) => {
+      if (!active) {
+        return;
+      }
+      lastSyncedJsonRef.current = JSON.stringify(nextData);
+      setData(nextData);
+      hydratedRef.current = true;
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      LIVE_JOURNAL_STORAGE_KEY,
+      (value) => {
+        const nextData = sanitizeLiveJournalData(value);
+        lastSyncedJsonRef.current = JSON.stringify(nextData);
+        setData(nextData);
+        hydratedRef.current = true;
+      },
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) {
       return;
     }
     try {
-      window.localStorage.setItem(LIVE_JOURNAL_STORAGE_KEY, JSON.stringify(data));
+      const nextJson = JSON.stringify(data);
+      if (nextJson === lastSyncedJsonRef.current) {
+        return;
+      }
+      lastSyncedJsonRef.current = nextJson;
+      void saveAppStorageItem(LIVE_JOURNAL_STORAGE_KEY, data);
     } catch {
       // Large uploaded screenshots can exceed browser storage. Keep the UI running.
     }
@@ -3218,16 +3256,17 @@ function useLiveJournalData(): LiveJournalController {
 }
 
 function loadLiveJournalData(): LiveJournalData {
-  if (typeof window === "undefined") {
-    return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
-  }
   try {
-    const raw = window.localStorage.getItem(LIVE_JOURNAL_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return sanitizeLiveJournalData(parsed);
+    return sanitizeLiveJournalData(
+      getCachedAppStorageItem<unknown>(LIVE_JOURNAL_STORAGE_KEY, null),
+    );
   } catch {
     return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
   }
+}
+
+async function hydrateLiveJournalData(): Promise<LiveJournalData> {
+  return sanitizeLiveJournalData(await loadAppStorageItem<unknown>(LIVE_JOURNAL_STORAGE_KEY, null));
 }
 
 function sanitizeLiveJournalData(value: unknown): LiveJournalData {

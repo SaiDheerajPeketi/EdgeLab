@@ -282,6 +282,13 @@ export type JournalPayload = {
   screenshot_url: string | null;
 };
 
+export type AppStorageItem<T = unknown> = {
+  namespace: string;
+  key: string;
+  value: T | null;
+  updated_at: string | null;
+};
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 
@@ -332,6 +339,35 @@ export function patchDatasetAsset(
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export function getAppStorageItem<T = unknown>(namespace: string, key: string) {
+  return request<AppStorageItem<T>>(
+    `/app-storage/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
+  );
+}
+
+export function putAppStorageItem<T = unknown>(
+  namespace: string,
+  key: string,
+  value: T,
+) {
+  return request<AppStorageItem<T>>(
+    `/app-storage/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    },
+  );
+}
+
+export function deleteAppStorageItem(namespace: string, key: string) {
+  return request<AppStorageItem<null>>(
+    `/app-storage/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export function getMeta(sessionId?: number) {

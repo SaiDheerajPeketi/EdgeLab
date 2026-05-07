@@ -3,11 +3,13 @@ import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Execution, Trade } from "../lib/api";
 import { formatDateTime, formatPrice } from "../lib/format";
 import {
+  hydrateStrategyMistakeTags,
   loadStrategyMistakeTags,
   mergeTags,
   parseTagInput,
   persistStrategyMistakeTags,
   strategyTagScope,
+  subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
 import { tradeStrategyName } from "../lib/strategy";
 import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
@@ -67,7 +69,18 @@ export function TradeDetailDrawer({
   }, [trade.id, trade.mistake_tags]);
 
   useEffect(() => {
+    let active = true;
     setStrategyTagOptions(loadStrategyMistakeTags(activeStrategyScope));
+    void hydrateStrategyMistakeTags(activeStrategyScope).then((nextTags) => {
+      if (active) {
+        setStrategyTagOptions(nextTags);
+      }
+    });
+    const unsubscribe = subscribeStrategyMistakeTags(activeStrategyScope, setStrategyTagOptions);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [activeStrategyScope]);
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -91,28 +91,25 @@ class DatasetTimeframe(Base):
     asset: Mapped[DatasetAsset] = relationship(back_populates="timeframes")
 
 
-class DatasetCandle(Base):
-    __tablename__ = "dataset_candles"
-    __table_args__ = (
-        UniqueConstraint("asset_id", "timeframe", "timestamp", name="uq_dataset_candles_key"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    asset_id: Mapped[str] = mapped_column(ForeignKey("dataset_assets.id"), index=True)
-    timeframe: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    timestamp: Mapped[str] = mapped_column(Text, nullable=False, index=True)
-    open: Mapped[float] = mapped_column(Float, nullable=False)
-    high: Mapped[float] = mapped_column(Float, nullable=False)
-    low: Mapped[float] = mapped_column(Float, nullable=False)
-    close: Mapped[float] = mapped_column(Float, nullable=False)
-    volume: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-
-
 class DatasetSettings(Base):
     __tablename__ = "dataset_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class AppStorageItem(Base):
+    __tablename__ = "app_storage"
+    __table_args__ = (
+        UniqueConstraint("namespace", "key", name="uq_app_storage_namespace_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    namespace: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    value: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 

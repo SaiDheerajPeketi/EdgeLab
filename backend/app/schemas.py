@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -100,6 +100,17 @@ class DatasetAssetUpdate(BaseModel):
     currency: str | None = Field(default=None, min_length=1, max_length=12)
     timezone: str | None = Field(default=None, min_length=1, max_length=80)
     pnl_multiplier: float | None = Field(default=None, gt=0)
+
+
+class AppStoragePayload(BaseModel):
+    value: Any = None
+
+
+class AppStorageRead(BaseModel):
+    namespace: str
+    key: str
+    value: Any = None
+    updated_at: datetime | None = None
 
 
 class PlaybookCreate(BaseModel):

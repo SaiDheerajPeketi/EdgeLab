@@ -77,12 +77,18 @@ import {
 } from "../lib/charting";
 import type { ChartVisualSettings } from "../lib/chartSettings";
 import { formatPrice } from "../lib/format";
+import {
+  getCachedAppStorageItem,
+  loadAppStorageItem,
+  saveAppStorageItem,
+  subscribeAppStorageItem,
+} from "../lib/serverStorage";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
-const DRAWING_PRESETS_KEY = "edgelab.drawing-presets.v1";
-const FIB_PRESETS_KEY = "edgelab.fib-presets.v1";
+const DRAWING_PRESETS_KEY = "drawing-presets.v1";
+const FIB_PRESETS_KEY = "fib-presets.v1";
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 const WEAK_MAGNET_THRESHOLD_PX = 14;
@@ -2826,6 +2832,7 @@ function FloatingDrawingToolbar({
     (drawing.labelBackgroundOpacity ?? DEFAULT_LABEL_BACKGROUND_OPACITY) * 100,
   );
   const [presets, setPresets] = useState<DrawingPreset[]>(() => loadDrawingPresets());
+  const [selectedPresetId, setSelectedPresetId] = useState("");
   const canFill = isFillableDrawingTool(drawing.tool);
   const canDelete = !drawing.locked;
   const isFib = drawing.tool === "fib";
@@ -2838,7 +2845,31 @@ function FloatingDrawingToolbar({
   const drawingPresets = isLabelableDrawingTool(drawing.tool)
     ? presets.filter((preset) => preset.tool === drawing.tool)
     : [];
+  const selectedPreset = drawingPresets.find((preset) => preset.id === selectedPresetId) ?? null;
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
+
+  useEffect(() => {
+    let active = true;
+    void hydrateDrawingPresets().then((nextPresets) => {
+      if (active) {
+        setPresets(nextPresets);
+      }
+    });
+    const unsubscribe = subscribeDrawingPresets(setPresets);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPresetId) {
+      return;
+    }
+    if (!drawingPresets.some((preset) => preset.id === selectedPresetId)) {
+      setSelectedPresetId("");
+    }
+  }, [drawing.tool, drawingPresets, selectedPresetId]);
 
   const stopToolbarEvent = (event: MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
@@ -2857,6 +2888,7 @@ function FloatingDrawingToolbar({
     ].slice(0, 36);
     setPresets(nextPresets);
     saveDrawingPresets(nextPresets);
+    setSelectedPresetId(preset.id);
   }
 
   function applyPreset(presetId: string) {
@@ -2864,6 +2896,7 @@ function FloatingDrawingToolbar({
     if (!preset) {
       return;
     }
+    setSelectedPresetId(preset.id);
     onChange({
       color: preset.color,
       fillOpacity: canFill ? preset.fillOpacity ?? drawing.fillOpacity : drawing.fillOpacity,
@@ -2874,6 +2907,16 @@ function FloatingDrawingToolbar({
       rewardColor: isPositionTool ? preset.rewardColor ?? drawing.rewardColor : drawing.rewardColor,
       riskColor: isPositionTool ? preset.riskColor ?? drawing.riskColor : drawing.riskColor,
     });
+  }
+
+  function deleteSelectedPreset() {
+    if (!selectedPreset) {
+      return;
+    }
+    const nextPresets = presets.filter((preset) => preset.id !== selectedPreset.id);
+    setPresets(nextPresets);
+    saveDrawingPresets(nextPresets);
+    setSelectedPresetId("");
   }
 
   return (
@@ -2908,7 +2951,7 @@ function FloatingDrawingToolbar({
               value: preset.id,
             }))}
             placeholder={drawingPresets.length === 0 ? "No presets" : "Apply preset"}
-            value=""
+            value={selectedPreset?.id ?? ""}
           />
           <button
             className="chart-object-floating-button"
@@ -2917,6 +2960,15 @@ function FloatingDrawingToolbar({
             type="button"
           >
             <Save size={14} />
+          </button>
+          <button
+            className="chart-object-floating-button danger"
+            disabled={!selectedPreset}
+            onClick={deleteSelectedPreset}
+            title={selectedPreset ? `Delete ${selectedPreset.name}` : "Select a preset to delete"}
+            type="button"
+          >
+            <Trash2 size={14} />
           </button>
         </div>
       )}
@@ -3074,7 +3126,32 @@ function FibLevelEditor({
   const priceRange = (drawing.points[1]?.price ?? priceStart) - priceStart;
   const [presets, setPresets] = useState<FibPreset[]>(() => loadFibPresets());
   const [presetName, setPresetName] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
   const lineStyles: DrawingLineStyle[] = ["solid", "dashed", "dotted"];
+
+  useEffect(() => {
+    let active = true;
+    void hydrateFibPresets().then((nextPresets) => {
+      if (active) {
+        setPresets(nextPresets);
+      }
+    });
+    const unsubscribe = subscribeFibPresets(setPresets);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPresetId) {
+      return;
+    }
+    if (!presets.some((preset) => preset.id === selectedPresetId)) {
+      setSelectedPresetId("");
+    }
+  }, [presets, selectedPresetId]);
 
   function updateLevel(levelId: string, patch: Partial<FibLevel>) {
     onChange({
@@ -3126,6 +3203,7 @@ function FibLevelEditor({
     setPresets(nextPresets);
     saveFibPresets(nextPresets);
     setPresetName(preset.name);
+    setSelectedPresetId(preset.id);
   }
 
   function applyPreset(presetId: string) {
@@ -3133,12 +3211,24 @@ function FibLevelEditor({
     if (!preset) {
       return;
     }
+    setSelectedPresetId(preset.id);
     onChange({
       fibExtendLeft: preset.extendLeft,
       fibExtendRight: preset.extendRight,
       fibLevels: normalizeFibLevels(preset.levels, drawing.color),
     });
     setPresetName(preset.name);
+  }
+
+  function deleteSelectedPreset() {
+    if (!selectedPreset) {
+      return;
+    }
+    const nextPresets = presets.filter((preset) => preset.id !== selectedPreset.id);
+    setPresets(nextPresets);
+    saveFibPresets(nextPresets);
+    setPresetName("");
+    setSelectedPresetId("");
   }
 
   return (
@@ -3165,7 +3255,7 @@ function FibLevelEditor({
               value: preset.id,
             }))}
             placeholder={presets.length === 0 ? "No presets" : "Apply"}
-            value=""
+            value={selectedPreset?.id ?? ""}
           />
           <button
             className="fib-icon-button"
@@ -3174,6 +3264,15 @@ function FibLevelEditor({
             type="button"
           >
             <Save size={12} />
+          </button>
+          <button
+            className="fib-icon-button danger"
+            disabled={!selectedPreset}
+            onClick={deleteSelectedPreset}
+            title={selectedPreset ? `Delete ${selectedPreset.name}` : "Select a fib preset to delete"}
+            type="button"
+          >
+            <Trash2 size={12} />
           </button>
           <button
             className="fib-icon-button"
@@ -4968,15 +5067,49 @@ function positionRiskColor(drawing: ChartDrawing) {
 }
 
 function loadDrawingPresets(): DrawingPreset[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
+  return sanitizeDrawingPresets(getCachedAppStorageItem<unknown>(DRAWING_PRESETS_KEY, []));
+}
+
+async function hydrateDrawingPresets(): Promise<DrawingPreset[]> {
+  return sanitizeDrawingPresets(await loadAppStorageItem<unknown>(DRAWING_PRESETS_KEY, []));
+}
+
+function subscribeDrawingPresets(listener: (presets: DrawingPreset[]) => void) {
+  return subscribeAppStorageItem<unknown>(
+    DRAWING_PRESETS_KEY,
+    (value) => listener(sanitizeDrawingPresets(value)),
+  );
+}
+
+function saveDrawingPresets(presets: DrawingPreset[]) {
+  void saveAppStorageItem(DRAWING_PRESETS_KEY, presets);
+}
+
+function loadFibPresets(): FibPreset[] {
+  return sanitizeFibPresets(getCachedAppStorageItem<unknown>(FIB_PRESETS_KEY, []));
+}
+
+async function hydrateFibPresets(): Promise<FibPreset[]> {
+  return sanitizeFibPresets(await loadAppStorageItem<unknown>(FIB_PRESETS_KEY, []));
+}
+
+function subscribeFibPresets(listener: (presets: FibPreset[]) => void) {
+  return subscribeAppStorageItem<unknown>(
+    FIB_PRESETS_KEY,
+    (value) => listener(sanitizeFibPresets(value)),
+  );
+}
+
+function saveFibPresets(presets: FibPreset[]) {
+  void saveAppStorageItem(FIB_PRESETS_KEY, presets);
+}
+
+function sanitizeDrawingPresets(value: unknown): DrawingPreset[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(DRAWING_PRESETS_KEY) ?? "[]");
-    if (!Array.isArray(parsed)) {
+    if (!Array.isArray(value)) {
       return [];
     }
-    return parsed
+    return value
       .map((preset): DrawingPreset | null => {
         if (typeof preset !== "object" || preset == null) {
           return null;
@@ -5035,23 +5168,12 @@ function loadDrawingPresets(): DrawingPreset[] {
   }
 }
 
-function saveDrawingPresets(presets: DrawingPreset[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(DRAWING_PRESETS_KEY, JSON.stringify(presets));
-}
-
-function loadFibPresets(): FibPreset[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
+function sanitizeFibPresets(value: unknown): FibPreset[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(FIB_PRESETS_KEY) ?? "[]");
-    if (!Array.isArray(parsed)) {
+    if (!Array.isArray(value)) {
       return [];
     }
-    return parsed
+    return value
       .map((preset): FibPreset | null => {
         if (typeof preset !== "object" || preset == null) {
           return null;
@@ -5079,13 +5201,6 @@ function loadFibPresets(): FibPreset[] {
   } catch {
     return [];
   }
-}
-
-function saveFibPresets(presets: FibPreset[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(FIB_PRESETS_KEY, JSON.stringify(presets));
 }
 
 function makeFibPreset({

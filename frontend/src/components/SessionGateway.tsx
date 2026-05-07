@@ -431,7 +431,7 @@ export function SessionGateway({
                   className={`timeframe-button ${selectedTimeframe?.timeframe === item.timeframe ? "timeframe-button-active" : ""}`}
                   key={item.timeframe}
                   onClick={() => setTimeframe(item.timeframe)}
-                  title={`${formatTimeframeRows(item)} · ${item.imported ? "Imported" : "CSV direct"}`}
+                  title={`${formatTimeframeRows(item)} · CSV direct`}
                   type="button"
                 >
                   {item.timeframe}
@@ -986,7 +986,7 @@ function defaultReplayStartValue(timeframe: DatasetTimeframe) {
 }
 
 function formatTimeframeRows(timeframe: DatasetTimeframe) {
-  return timeframe.rows > 0 ? `${timeframe.rows.toLocaleString()} bars` : "Rows counted on start";
+  return timeframe.rows > 0 ? `${timeframe.rows.toLocaleString()} bars` : "Rows counted on refresh";
 }
 
 function timeframeSeconds(timeframe: string) {

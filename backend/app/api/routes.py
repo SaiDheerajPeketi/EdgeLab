@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import SessionLocal, get_db
+from app.models import AppStorageItem, utcnow
 from app.schemas import (
+    AppStoragePayload,
+    AppStorageRead,
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
@@ -123,6 +127,76 @@ def update_dataset_asset(
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
+
+
+@router.get("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
+def get_app_storage_item(
+    namespace: str,
+    key: str,
+    db: Session = Depends(get_db),
+) -> AppStorageRead:
+    item = db.scalar(
+        select(AppStorageItem).where(
+            AppStorageItem.namespace == namespace,
+            AppStorageItem.key == key,
+        )
+    )
+    if item is None:
+        return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
+    return AppStorageRead(
+        namespace=item.namespace,
+        key=item.key,
+        value=item.value,
+        updated_at=item.updated_at,
+    )
+
+
+@router.put("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
+def put_app_storage_item(
+    namespace: str,
+    key: str,
+    payload: AppStoragePayload,
+    db: Session = Depends(get_db),
+) -> AppStorageRead:
+    item = db.scalar(
+        select(AppStorageItem).where(
+            AppStorageItem.namespace == namespace,
+            AppStorageItem.key == key,
+        )
+    )
+    if item is None:
+        item = AppStorageItem(namespace=namespace, key=key, value=payload.value)
+        db.add(item)
+    else:
+        item.value = payload.value
+        item.updated_at = utcnow()
+    db.commit()
+    db.refresh(item)
+    return AppStorageRead(
+        namespace=item.namespace,
+        key=item.key,
+        value=item.value,
+        updated_at=item.updated_at,
+    )
+
+
+@router.delete("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
+def delete_app_storage_item(
+    namespace: str,
+    key: str,
+    db: Session = Depends(get_db),
+) -> AppStorageRead:
+    item = db.scalar(
+        select(AppStorageItem).where(
+            AppStorageItem.namespace == namespace,
+            AppStorageItem.key == key,
+        )
+    )
+    if item is None:
+        return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
+    db.delete(item)
+    db.commit()
+    return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
 
 
 @router.get("/market-data/bars", response_model=BarsResponse)

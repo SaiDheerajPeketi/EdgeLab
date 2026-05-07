@@ -51,11 +51,13 @@ import {
 } from "../lib/charting";
 import {
   deleteChartSettingsPreset,
+  hydrateChartSettingsPresets,
   loadActiveChartSettingsPresetName,
   loadChartSettingsPresets,
   normalizeChartSettingsPresetName,
   persistActiveChartSettingsPresetName,
   saveChartSettingsPreset,
+  subscribeChartSettingsPresets,
   type ChartLineStyle,
   type ChartSettingsPreset,
   type ChartVisualSettings,
@@ -225,6 +227,29 @@ export function ChartToolbar({
     setSettingsPresetName(nextName);
     return nextPresets;
   }
+
+  useEffect(() => {
+    let active = true;
+    void hydrateChartSettingsPresets().then((nextPresets) => {
+      if (!active) {
+        return;
+      }
+      const nextName = loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
+      setSettingsPresets(nextPresets);
+      setSettingsPresetName(nextName);
+    });
+    const unsubscribe = subscribeChartSettingsPresets((nextPresets) => {
+      const nextName = loadActiveChartSettingsPresetName(nextPresets) ?? "Default";
+      setSettingsPresets(nextPresets);
+      setSettingsPresetName((current) =>
+        nextPresets.some((preset) => preset.name === current) ? current : nextName,
+      );
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     function closeOnOutsideClick(event: globalThis.PointerEvent) {

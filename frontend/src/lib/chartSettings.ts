@@ -102,6 +102,8 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
 export const CHART_SETTINGS_PRESETS_KEY = "edgelab.chart-settings-presets.v1";
 export const ACTIVE_CHART_SETTINGS_PRESET_KEY =
   "edgelab.active-chart-settings-preset.v1";
+const CHART_SETTINGS_PRESETS_STORAGE_KEY = "chart-settings-presets.v1";
+const ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY = "active-chart-settings-preset.v1";
 
 export function sanitizeChartVisualSettings(
   settings?: Partial<ChartVisualSettings> | null,
@@ -157,31 +159,18 @@ function sanitizeLineStyle(value: unknown): ChartLineStyle {
 }
 
 export function loadChartSettingsPresets(): ChartSettingsPreset[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  try {
-    const raw = window.localStorage.getItem(CHART_SETTINGS_PRESETS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== "object" || typeof item.name !== "string") {
-          return null;
-        }
-        return {
-          name: normalizeChartSettingsPresetName(item.name),
-          settings: sanitizeChartVisualSettings(item.settings),
-          updatedAt:
-            typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString(),
-        };
-      })
-      .filter((item): item is ChartSettingsPreset => item != null);
-  } catch {
-    return [];
-  }
+  return sanitizeChartSettingsPresets(
+    getCachedAppStorageItem<unknown>(CHART_SETTINGS_PRESETS_STORAGE_KEY, []),
+  );
+}
+
+export async function hydrateChartSettingsPresets(): Promise<ChartSettingsPreset[]> {
+  const [loaded] = await Promise.all([
+    loadAppStorageItem<unknown>(CHART_SETTINGS_PRESETS_STORAGE_KEY, []),
+    loadAppStorageItem<string | null>(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, null),
+  ]);
+  const presets = sanitizeChartSettingsPresets(loaded);
+  return presets;
 }
 
 export function saveChartSettingsPreset(
@@ -223,10 +212,10 @@ export function normalizeChartSettingsPresetName(name: string) {
 export function loadActiveChartSettingsPresetName(
   presets = loadChartSettingsPresets(),
 ) {
-  if (typeof window === "undefined") {
-    return presets[0]?.name ?? null;
-  }
-  const storedName = window.localStorage.getItem(ACTIVE_CHART_SETTINGS_PRESET_KEY);
+  const storedName = getCachedAppStorageItem<string | null>(
+    ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY,
+    null,
+  );
   const normalizedName = storedName ? normalizeChartSettingsPresetName(storedName) : "";
   if (normalizedName && presets.some((preset) => preset.name === normalizedName)) {
     return normalizedName;
@@ -244,24 +233,47 @@ export function loadActiveChartSettingsPreset(
 }
 
 export function persistActiveChartSettingsPresetName(name: string | null) {
-  if (typeof window === "undefined") {
-    return;
-  }
   if (!name) {
-    window.localStorage.removeItem(ACTIVE_CHART_SETTINGS_PRESET_KEY);
+    void saveAppStorageItem(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, null);
     return;
   }
-  window.localStorage.setItem(
-    ACTIVE_CHART_SETTINGS_PRESET_KEY,
-    normalizeChartSettingsPresetName(name),
+  void saveAppStorageItem(ACTIVE_CHART_SETTINGS_PRESET_STORAGE_KEY, normalizeChartSettingsPresetName(name));
+}
+
+export function subscribeChartSettingsPresets(
+  listener: (presets: ChartSettingsPreset[]) => void,
+) {
+  return subscribeAppStorageItem<unknown>(
+    CHART_SETTINGS_PRESETS_STORAGE_KEY,
+    (value) => listener(sanitizeChartSettingsPresets(value)),
   );
 }
 
 function persistChartSettingsPresets(presets: ChartSettingsPreset[]) {
-  if (typeof window === "undefined") {
-    return;
+  void saveAppStorageItem(CHART_SETTINGS_PRESETS_STORAGE_KEY, presets);
+}
+
+function sanitizeChartSettingsPresets(value: unknown): ChartSettingsPreset[] {
+  try {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => {
+        if (!item || typeof item !== "object" || typeof item.name !== "string") {
+          return null;
+        }
+        return {
+          name: normalizeChartSettingsPresetName(item.name),
+          settings: sanitizeChartVisualSettings(item.settings),
+          updatedAt:
+            typeof item.updatedAt === "string" ? item.updatedAt : new Date().toISOString(),
+        };
+      })
+      .filter((item): item is ChartSettingsPreset => item != null);
+  } catch {
+    return [];
   }
-  window.localStorage.setItem(CHART_SETTINGS_PRESETS_KEY, JSON.stringify(presets));
 }
 
 function sanitizeHex(value: string | undefined, fallback: string) {
@@ -294,3 +306,9 @@ function clampInteger(
   }
   return Math.min(max, Math.max(min, Math.round(value)));
 }
+import {
+  getCachedAppStorageItem,
+  loadAppStorageItem,
+  saveAppStorageItem,
+  subscribeAppStorageItem,
+} from "./serverStorage";

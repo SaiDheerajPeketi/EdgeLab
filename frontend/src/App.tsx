@@ -59,18 +59,26 @@ import {
 } from "./lib/charting";
 import {
   DEFAULT_CHART_VISUAL_SETTINGS,
+  hydrateChartSettingsPresets,
   loadActiveChartSettingsPreset,
+  loadActiveChartSettingsPresetName,
   sanitizeChartVisualSettings,
   type ChartVisualSettings,
 } from "./lib/chartSettings";
+import {
+  getCachedAppStorageItem,
+  loadAppStorageItem,
+  saveAppStorageItem,
+  subscribeAppStorageItem,
+} from "./lib/serverStorage";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import type { WorkspaceView } from "./lib/workspace";
 import { useBacktestStore } from "./store/backtestStore";
 
-const CHART_LAYOUT_KEY = "edgelab.chart-layout.v1";
-const CHART_LAYOUTS_KEY = "edgelab.chart-layouts.v1";
-const ACTIVE_CHART_LAYOUT_KEY = "edgelab.active-chart-layout.v1";
+const CHART_LAYOUT_STORAGE_KEY = "chart-layout.v1";
+const CHART_LAYOUTS_STORAGE_KEY = "chart-layouts.v1";
+const ACTIVE_CHART_LAYOUT_STORAGE_KEY = "active-chart-layout.v1";
 const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
@@ -208,16 +216,64 @@ export default function App() {
   }, [loadInitial]);
 
   useEffect(() => {
+    let active = true;
+    void hydrateChartPersistence().then(() => {
+      if (!active) {
+        return;
+      }
+      const saved = loadChartLayout();
+      if (saved) {
+        applyChartLayout(saved);
+      }
+      setLayoutName(loadActiveLayoutName());
+      setAvailableLayouts(loadSavedLayoutNames());
+      const activeSettingsPreset = loadActiveChartSettingsPreset();
+      if (activeSettingsPreset) {
+        setChartSettings(activeSettingsPreset.settings);
+      }
+    });
+    const unsubscribeLayouts = subscribeAppStorageItem<unknown>(
+      CHART_LAYOUTS_STORAGE_KEY,
+      () => {
+        setAvailableLayouts(loadSavedLayoutNames());
+      },
+    );
+    const unsubscribeActiveLayout = subscribeAppStorageItem<unknown>(
+      ACTIVE_CHART_LAYOUT_STORAGE_KEY,
+      () => {
+        setLayoutName(loadActiveLayoutName());
+      },
+    );
+    return () => {
+      active = false;
+      unsubscribeLayouts();
+      unsubscribeActiveLayout();
+    };
+  }, []);
+
+  useEffect(() => {
     if (sourceTimeframe) {
       setTimeframe(sourceTimeframe);
     }
   }, [state?.session.id, sourceTimeframe]);
 
   useEffect(() => {
-    const activeSettingsPreset = loadActiveChartSettingsPreset();
-    if (activeSettingsPreset) {
-      setChartSettings(activeSettingsPreset.settings);
-    }
+    let active = true;
+    void hydrateChartSettingsPresets().then((presets) => {
+      if (!active) {
+        return;
+      }
+      const activeName = loadActiveChartSettingsPresetName(presets);
+      const activeSettingsPreset = activeName
+        ? presets.find((preset) => preset.name === activeName) ?? null
+        : null;
+      if (activeSettingsPreset) {
+        setChartSettings(activeSettingsPreset.settings);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [state?.session.id]);
 
   useEffect(() => {
@@ -552,8 +608,8 @@ export default function App() {
   function saveChartLayout() {
     const payload = buildChartLayoutPayload(drawings);
     const name = normalizeLayoutName(layoutName);
-    window.localStorage.setItem(CHART_LAYOUT_KEY, JSON.stringify(payload));
-    window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, name);
+    void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, payload);
+    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, name);
     setLayoutName(name);
     setAvailableLayouts(saveNamedChartLayout(name, payload));
     setChartLayoutSavedAt(Date.now());
@@ -565,8 +621,8 @@ export default function App() {
     }
     const payload = buildChartLayoutPayload(nextDrawings);
     const name = normalizeLayoutName(layoutName);
-    window.localStorage.setItem(CHART_LAYOUT_KEY, JSON.stringify(payload));
-    window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, name);
+    void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, payload);
+    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, name);
     setLayoutName(name);
     setAvailableLayouts(saveNamedChartLayout(name, payload));
     setChartLayoutSavedAt(Date.now());
@@ -592,7 +648,7 @@ export default function App() {
       return;
     }
     applyChartLayout(record.layout);
-    window.localStorage.setItem(ACTIVE_CHART_LAYOUT_KEY, record.name);
+    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, record.name);
     setLayoutName(record.name);
     setChartLayoutSavedAt(Date.now());
   }
@@ -602,7 +658,7 @@ export default function App() {
     setAvailableLayouts(nextNames);
     if (normalizeLayoutName(name) === normalizeLayoutName(layoutName)) {
       setLayoutName(nextNames[0] ?? "Default");
-      window.localStorage.removeItem(ACTIVE_CHART_LAYOUT_KEY);
+      void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, nextNames[0] ?? null);
     }
   }
 
@@ -1165,26 +1221,33 @@ type StoredChartLayoutRecord = {
   updatedAt: string;
 };
 
+async function hydrateChartPersistence() {
+  await Promise.all([
+    loadAppStorageItem<unknown>(CHART_LAYOUT_STORAGE_KEY, null),
+    loadAppStorageItem<unknown>(CHART_LAYOUTS_STORAGE_KEY, []),
+    loadAppStorageItem<string | null>(ACTIVE_CHART_LAYOUT_STORAGE_KEY, null),
+    loadAppStorageItem<string | null>(STALE_SINGLE_HORIZONTAL_PURGE_KEY, null),
+    hydrateChartSettingsPresets(),
+  ]);
+}
+
 function loadChartLayout(): Partial<StoredChartLayout> | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
   purgeStaleSingleHorizontalDrawing();
   try {
-    const activeName = window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY);
+    const activeName = getCachedAppStorageItem<string | null>(
+      ACTIVE_CHART_LAYOUT_STORAGE_KEY,
+      null,
+    );
     const activeRecord = activeName ? loadChartLayoutRecord(activeName) : null;
     if (activeRecord) {
       return upgradeStoredChartLayout(activeRecord.layout);
     }
 
-    const raw = window.localStorage.getItem(CHART_LAYOUT_KEY);
-    if (!raw) {
+    const parsed = getCachedAppStorageItem<unknown>(CHART_LAYOUT_STORAGE_KEY, null);
+    if (typeof parsed !== "object" || parsed == null) {
       return null;
     }
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed != null
-      ? upgradeStoredChartLayout(parsed as Partial<StoredChartLayout>)
-      : null;
+    return upgradeStoredChartLayout(parsed as Partial<StoredChartLayout>);
   } catch {
     return null;
   }
@@ -1216,19 +1279,16 @@ function upgradeStoredChartLayout(
 }
 
 function purgeStaleSingleHorizontalDrawing() {
-  if (typeof window === "undefined") {
+  if (getCachedAppStorageItem<string | null>(STALE_SINGLE_HORIZONTAL_PURGE_KEY, null) === "1") {
     return;
   }
-  if (window.localStorage.getItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY) === "1") {
-    return;
-  }
-  window.localStorage.setItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY, "1");
+  void saveAppStorageItem(STALE_SINGLE_HORIZONTAL_PURGE_KEY, "1");
 
   try {
-    const rawLegacyLayout = window.localStorage.getItem(CHART_LAYOUT_KEY);
-    const legacyLayout = rawLegacyLayout
-      ? (JSON.parse(rawLegacyLayout) as Partial<StoredChartLayout>)
-      : null;
+    const legacyLayout = getCachedAppStorageItem<Partial<StoredChartLayout> | null>(
+      CHART_LAYOUT_STORAGE_KEY,
+      null,
+    );
     const records = loadChartLayoutRecords();
     const layouts = [
       legacyLayout,
@@ -1244,25 +1304,20 @@ function purgeStaleSingleHorizontalDrawing() {
     }
 
     if (legacyLayout) {
-      window.localStorage.setItem(
-        CHART_LAYOUT_KEY,
-        JSON.stringify({ ...legacyLayout, drawings: [] }),
-      );
+      void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, { ...legacyLayout, drawings: [] });
     }
 
     if (records.length > 0) {
-      window.localStorage.setItem(
-        CHART_LAYOUTS_KEY,
-        JSON.stringify(
-          records.map((record) => ({
-            ...record,
-            layout: {
-              ...record.layout,
-              drawings: [],
-            },
-            updatedAt: new Date().toISOString(),
-          })),
-        ),
+      void saveAppStorageItem(
+        CHART_LAYOUTS_STORAGE_KEY,
+        records.map((record) => ({
+          ...record,
+          layout: {
+            ...record.layout,
+            drawings: [],
+          },
+          updatedAt: new Date().toISOString(),
+        })),
       );
     }
   } catch {
@@ -1271,10 +1326,9 @@ function purgeStaleSingleHorizontalDrawing() {
 }
 
 function loadActiveLayoutName() {
-  if (typeof window === "undefined") {
-    return "Default";
-  }
-  return normalizeLayoutName(window.localStorage.getItem(ACTIVE_CHART_LAYOUT_KEY) ?? "Default");
+  return normalizeLayoutName(
+    getCachedAppStorageItem<string | null>(ACTIVE_CHART_LAYOUT_STORAGE_KEY, null) ?? "Default",
+  );
 }
 
 function loadInitialChartSettings() {
@@ -1298,12 +1352,8 @@ function loadChartLayoutRecord(name: string) {
 }
 
 function loadChartLayoutRecords(): StoredChartLayoutRecord[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
   try {
-    const raw = window.localStorage.getItem(CHART_LAYOUTS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
+    const parsed = getCachedAppStorageItem<unknown>(CHART_LAYOUTS_STORAGE_KEY, []);
     if (!Array.isArray(parsed)) {
       return [];
     }
@@ -1343,19 +1393,16 @@ function saveNamedChartLayout(name: string, layout: StoredChartLayout) {
     },
     ...records,
   ].slice(0, 12);
-  window.localStorage.setItem(CHART_LAYOUTS_KEY, JSON.stringify(nextRecords));
+  void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords);
   return nextRecords.map((record) => record.name);
 }
 
 function deleteChartLayoutRecord(name: string) {
-  if (typeof window === "undefined") {
-    return [];
-  }
   const normalizedName = normalizeLayoutName(name);
   const nextRecords = loadChartLayoutRecords().filter(
     (record) => normalizeLayoutName(record.name) !== normalizedName,
   );
-  window.localStorage.setItem(CHART_LAYOUTS_KEY, JSON.stringify(nextRecords));
+  void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords);
   return nextRecords.map((record) => record.name);
 }
 

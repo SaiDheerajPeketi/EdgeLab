@@ -4,11 +4,13 @@ import type { Trade } from "../lib/api";
 import { formatDateTime, formatPrice } from "../lib/format";
 import {
   DEFAULT_MISTAKE_TAGS,
+  hydrateStrategyMistakeTags,
   loadStrategyMistakeTags,
   mergeTags,
   parseTagInput,
   persistStrategyMistakeTags,
   strategyTagScope,
+  subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
 import { tradeStrategyName } from "../lib/strategy";
 import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
@@ -47,7 +49,18 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
   );
 
   useEffect(() => {
+    let active = true;
     setStrategyCustomTags(loadStrategyMistakeTags(activeStrategyScope));
+    void hydrateStrategyMistakeTags(activeStrategyScope).then((nextTags) => {
+      if (active) {
+        setStrategyCustomTags(nextTags);
+      }
+    });
+    const unsubscribe = subscribeStrategyMistakeTags(activeStrategyScope, setStrategyCustomTags);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [activeStrategyScope]);
 
   useEffect(() => {

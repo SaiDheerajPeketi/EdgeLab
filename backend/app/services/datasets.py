@@ -1,15 +1,14 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Lock
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
-from sqlalchemy import delete, select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import DatasetAsset, DatasetCandle, DatasetSettings, DatasetTimeframe, utcnow
+from app.models import DatasetAsset, DatasetSettings, DatasetTimeframe, utcnow
 from app.schemas import (
     DatasetAssetUpdate,
     DatasetCatalogResponse,
@@ -21,12 +20,6 @@ from app.schemas import (
     DatasetSettingsUpdate,
     DatasetTimeframe as DatasetTimeframeRead,
 )
-from app.services.stored_market_data import (
-    SOURCE_TIMESTAMP_FORMAT,
-    StoredMarketDataService,
-    parse_source_timestamp,
-)
-
 
 TIMEFRAME_ORDER = {
     "M1": 1,
@@ -41,9 +34,8 @@ TIMEFRAME_ORDER = {
 }
 
 REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
-INSERT_BATCH_SIZE = 1_000
-CSV_CHUNK_SIZE = 50_000
 CATALOG_ROW_COUNT_MAX_BYTES = 25_000_000
+SOURCE_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 @dataclass(frozen=True)
@@ -125,7 +117,7 @@ class DatasetCatalogService:
         if not self._lock.acquire(blocking=False):
             raise DatasetRefreshInProgress("Dataset refresh is already running.")
         try:
-            summary = self._scan_and_upsert(db)
+            summary = self._scan_filesystem_index(db, strict=True, prune_missing=True)
             db.commit()
             return DatasetRefreshResponse(
                 catalog=self._catalog_from_store(db),
@@ -143,31 +135,38 @@ class DatasetCatalogService:
             )
 
         try:
-            summary = self._scan_filesystem_index(db, strict=False, prune_missing=False)
-            db.commit()
             self._set_refresh_state(
                 running=True,
-                current="Starting import",
-                summary=summary,
+                current="Scanning CSV folders",
+                summary=DatasetRefreshSummary(assets=0, timeframes=0, candles=0),
                 started_at=utcnow(),
                 finished_at=None,
                 error=None,
             )
-            Thread(target=self._run_refresh_job, daemon=True).start()
+            summary = self._scan_filesystem_index(db, strict=True, prune_missing=True)
+            db.commit()
+            self._set_refresh_state(
+                running=False,
+                current=None,
+                summary=summary,
+                finished_at=utcnow(),
+                error=None,
+            )
             return DatasetRefreshResponse(
                 catalog=self._catalog_from_store(db),
                 summary=summary,
                 status=self.refresh_status(),
             )
         except Exception:
-            self._lock.release()
             self._set_refresh_state(
                 running=False,
                 current=None,
                 finished_at=utcnow(),
-                error="Dataset refresh could not start",
+                error="Dataset refresh failed",
             )
             raise
+        finally:
+            self._lock.release()
 
     def refresh_status(self) -> DatasetRefreshStatus:
         with self._status_lock:
@@ -184,28 +183,6 @@ class DatasetCatalogService:
         with self._status_lock:
             for key, value in changes.items():
                 setattr(self._refresh_state, key, value)
-
-    def _run_refresh_job(self) -> None:
-        try:
-            with self.session_factory() as db:
-                summary = self._scan_and_upsert(db, track_progress=True)
-                db.commit()
-                self._set_refresh_state(
-                    running=False,
-                    current=None,
-                    summary=summary,
-                    finished_at=utcnow(),
-                    error=None,
-                )
-        except Exception as exc:
-            self._set_refresh_state(
-                running=False,
-                current=None,
-                finished_at=utcnow(),
-                error=str(exc),
-            )
-        finally:
-            self._lock.release()
 
     def update_asset(
         self,
@@ -245,7 +222,6 @@ class DatasetCatalogService:
             )
             if stored is not None:
                 asset = db.get(DatasetAsset, stored.asset_id)
-                stored_ready = bool(stored.imported and stored.rows > 0)
                 return DatasetResolution(
                     csv_path=Path(stored.csv_path),
                     instrument=stored.asset_id,
@@ -254,7 +230,7 @@ class DatasetCatalogService:
                     currency=asset.currency if asset else None,
                     timezone=asset.timezone if asset else None,
                     pnl_multiplier=asset.pnl_multiplier if asset else 1.0,
-                    stored=stored_ready,
+                    stored=False,
                 )
             if not path.exists():
                 raise FileNotFoundError(f"Dataset CSV not found: {path}")
@@ -289,7 +265,6 @@ class DatasetCatalogService:
                 )
             )
             if dataset_timeframe is not None:
-                stored_ready = bool(dataset_timeframe.imported and dataset_timeframe.rows > 0)
                 return DatasetResolution(
                     csv_path=Path(dataset_timeframe.csv_path),
                     instrument=asset.id,
@@ -298,82 +273,9 @@ class DatasetCatalogService:
                     currency=asset.currency,
                     timezone=asset.timezone,
                     pnl_multiplier=asset.pnl_multiplier,
-                    stored=stored_ready,
+                    stored=False,
                 )
-        raise FileNotFoundError(f"No imported dataset found for {instrument} {timeframe}")
-
-    def market_data_for_dataset(self, asset_id: str, timeframe: str) -> StoredMarketDataService:
-        return StoredMarketDataService(asset_id, timeframe, self.session_factory)
-
-    def stored_market_data_for(
-        self,
-        asset_id: str | None,
-        timeframe: str | None,
-        csv_path: str | None = None,
-    ) -> StoredMarketDataService | None:
-        if not asset_id or not timeframe:
-            return None
-        with self.session_factory() as db:
-            stored = db.scalar(
-                select(DatasetTimeframe).where(
-                    DatasetTimeframe.asset_id == asset_id,
-                    DatasetTimeframe.timeframe == timeframe,
-                )
-            )
-        if stored is None:
-            return None
-        if not stored.imported or stored.rows <= 0:
-            return None
-        if csv_path is not None and stored.csv_path != csv_path:
-            return None
-        return self.market_data_for_dataset(asset_id, timeframe)
-
-    def _scan_and_upsert(
-        self,
-        db: Session,
-        *,
-        track_progress: bool = False,
-    ) -> DatasetRefreshSummary:
-        summary = self._scan_filesystem_index(db, strict=True, prune_missing=True)
-        imported_candles = 0
-        timeframes = db.scalars(select(DatasetTimeframe).order_by(DatasetTimeframe.asset_id.asc())).all()
-        for timeframe in sorted(
-            timeframes,
-            key=lambda row: (row.asset_id, TIMEFRAME_ORDER.get(row.timeframe, 999999)),
-        ):
-            asset = db.get(DatasetAsset, timeframe.asset_id)
-            if asset is None:
-                continue
-            if track_progress:
-                self._set_refresh_state(
-                    current=f"{asset.symbol} {timeframe.timeframe}",
-                    summary=DatasetRefreshSummary(
-                        assets=summary.assets,
-                        timeframes=summary.timeframes,
-                        candles=imported_candles,
-                    ),
-                )
-            imported_candles += self._upsert_timeframe(
-                db,
-                asset,
-                timeframe.timeframe,
-                Path(timeframe.csv_path),
-            )
-            db.commit()
-            if track_progress:
-                self._set_refresh_state(
-                    summary=DatasetRefreshSummary(
-                        assets=summary.assets,
-                        timeframes=summary.timeframes,
-                        candles=imported_candles,
-                    ),
-                )
-
-        return DatasetRefreshSummary(
-            assets=summary.assets,
-            timeframes=summary.timeframes,
-            candles=imported_candles,
-        )
+        raise FileNotFoundError(f"No dataset found for {instrument} {timeframe}")
 
     def _scan_filesystem_index(
         self,
@@ -413,19 +315,12 @@ class DatasetCatalogService:
             if prune_missing:
                 for stale_timeframe in list(asset.timeframes):
                     if stale_timeframe.timeframe not in seen_timeframes:
-                        db.execute(
-                            delete(DatasetCandle).where(
-                                DatasetCandle.asset_id == asset.id,
-                                DatasetCandle.timeframe == stale_timeframe.timeframe,
-                            )
-                        )
                         db.delete(stale_timeframe)
 
         if prune_missing:
             for stale_asset in db.scalars(select(DatasetAsset)).all():
                 if stale_asset.id in seen_assets:
                     continue
-                db.execute(delete(DatasetCandle).where(DatasetCandle.asset_id == stale_asset.id))
                 db.delete(stale_asset)
 
         return DatasetRefreshSummary(
@@ -476,6 +371,7 @@ class DatasetCatalogService:
             and existing.file_mtime_ns == stat.st_mtime_ns
         )
         if unchanged:
+            existing.imported = False
             existing.updated_at = utcnow()
             return existing
 
@@ -553,118 +449,6 @@ class DatasetCatalogService:
             line = bytes(reversed(buffer)).decode("utf-8").strip()
             return line or None
 
-    def _upsert_timeframe(
-        self,
-        db: Session,
-        asset: DatasetAsset,
-        timeframe: str,
-        csv_path: Path,
-    ) -> int:
-        stat = csv_path.stat()
-        existing = db.scalar(
-            select(DatasetTimeframe).where(
-                DatasetTimeframe.asset_id == asset.id,
-                DatasetTimeframe.timeframe == timeframe,
-            )
-        )
-        unchanged = (
-            existing is not None
-            and existing.imported
-            and existing.csv_path == str(csv_path)
-            and existing.file_size == stat.st_size
-            and existing.file_mtime_ns == stat.st_mtime_ns
-            and existing.rows > 0
-        )
-        if unchanged:
-            existing.updated_at = utcnow()
-            return 0
-
-        db.execute(
-            delete(DatasetCandle).where(
-                DatasetCandle.asset_id == asset.id,
-                DatasetCandle.timeframe == timeframe,
-            )
-        )
-        rows, first_timestamp, last_timestamp = self._import_candles(
-            db,
-            asset_id=asset.id,
-            timeframe=timeframe,
-            csv_path=csv_path,
-        )
-        if existing is None:
-            existing = DatasetTimeframe(asset_id=asset.id, timeframe=timeframe, csv_path=str(csv_path))
-            db.add(existing)
-        existing.csv_path = str(csv_path)
-        existing.rows = rows
-        existing.first_timestamp = first_timestamp
-        existing.last_timestamp = last_timestamp
-        existing.file_size = stat.st_size
-        existing.file_mtime_ns = stat.st_mtime_ns
-        existing.imported = True
-        existing.imported_at = utcnow()
-        existing.updated_at = utcnow()
-        return rows
-
-    def _import_candles(
-        self,
-        db: Session,
-        *,
-        asset_id: str,
-        timeframe: str,
-        csv_path: Path,
-    ) -> tuple[int, str | None, str | None]:
-        rows = 0
-        first_timestamp = None
-        last_timestamp = None
-        for chunk in pd.read_csv(csv_path, chunksize=CSV_CHUNK_SIZE):
-            missing = [column for column in REQUIRED_COLUMNS if column not in chunk.columns]
-            if missing:
-                raise ValueError(f"CSV is missing required columns: {', '.join(missing)}")
-
-            parsed_timestamps = pd.to_datetime(chunk["Timestamp"], format="mixed", errors="coerce")
-            normalized = parsed_timestamps.dt.strftime(SOURCE_TIMESTAMP_FORMAT)
-            normalized = normalized.where(parsed_timestamps.notna(), None)
-            valid = chunk.assign(_timestamp=normalized).dropna(subset=["_timestamp"])
-            if valid.empty:
-                continue
-
-            records = []
-            for row in valid[["_timestamp", "Open", "High", "Low", "Close", "Volume"]].to_dict(
-                "records"
-            ):
-                records.append(
-                    {
-                        "asset_id": asset_id,
-                        "timeframe": timeframe,
-                        "timestamp": str(row["_timestamp"]),
-                        "open": float(row["Open"]),
-                        "high": float(row["High"]),
-                        "low": float(row["Low"]),
-                        "close": float(row["Close"]),
-                        "volume": float(row["Volume"]),
-                    }
-                )
-            for start in range(0, len(records), INSERT_BATCH_SIZE):
-                batch = records[start : start + INSERT_BATCH_SIZE]
-                statement = sqlite_insert(DatasetCandle).values(batch)
-                statement = statement.on_conflict_do_update(
-                    index_elements=["asset_id", "timeframe", "timestamp"],
-                    set_={
-                        "open": statement.excluded.open,
-                        "high": statement.excluded.high,
-                        "low": statement.excluded.low,
-                        "close": statement.excluded.close,
-                        "volume": statement.excluded.volume,
-                    },
-                )
-                db.execute(statement)
-
-            rows += len(records)
-            first_timestamp = first_timestamp or records[0]["timestamp"]
-            last_timestamp = records[-1]["timestamp"]
-
-        return rows, first_timestamp, last_timestamp
-
     def _catalog_from_store(self, db: Session) -> DatasetCatalogResponse:
         instruments: list[DatasetInstrument] = []
         assets = db.scalars(select(DatasetAsset).order_by(DatasetAsset.name.asc())).all()
@@ -733,6 +517,17 @@ def validate_timezone(value: str) -> None:
         ZoneInfo(value or "UTC")
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"Unknown timestamp timezone: {value}") from exc
+
+
+def parse_source_timestamp(value: str | None, timestamp_timezone: str) -> datetime | None:
+    if not value:
+        return None
+    parsed = datetime.strptime(value, SOURCE_TIMESTAMP_FORMAT)
+    try:
+        source_timezone = ZoneInfo(timestamp_timezone or "UTC")
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"Unknown timestamp timezone: {timestamp_timezone}") from exc
+    return parsed.replace(tzinfo=source_timezone).astimezone(timezone.utc)
 
 
 def normalize_key(value: str) -> str:

@@ -1199,6 +1199,10 @@ button:disabled {
     @apply text-rose-200 hover:bg-rose-300/15 hover:text-rose-100;
   }
 
+  .chart-object-floating-button:disabled {
+    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400;
+  }
+
   .line-preview {
     @apply h-3 w-7;
   }
@@ -1221,6 +1225,14 @@ button:disabled {
 
   .fib-level-editor-header .fib-icon-button {
     @apply grid h-7 w-7 place-items-center rounded border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .fib-level-editor-header .fib-icon-button.danger {
+    @apply text-rose-200 hover:border-rose-300/20 hover:bg-rose-300/15 hover:text-rose-100;
+  }
+
+  .fib-level-editor-header .fib-icon-button:disabled {
+    @apply cursor-not-allowed opacity-40 hover:border-white/10 hover:bg-white/5 hover:text-slate-400;
   }
 
   .fib-preset-controls {

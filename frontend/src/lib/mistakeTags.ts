@@ -1,4 +1,11 @@
-const STORAGE_KEY = "edgelab.strategy-mistake-tags.v1";
+import {
+  getCachedAppStorageItem,
+  loadAppStorageItem,
+  saveAppStorageItem,
+  subscribeAppStorageItem,
+} from "./serverStorage";
+
+const SERVER_STORAGE_KEY = "strategy-mistake-tags.v1";
 
 export const DEFAULT_MISTAKE_TAGS = [
   "FOMO",
@@ -18,6 +25,13 @@ export function loadStrategyMistakeTags(strategyName: string | null | undefined)
   return library[scopeKey(strategyName)] ?? [];
 }
 
+export async function hydrateStrategyMistakeTags(
+  strategyName?: string | null,
+): Promise<string[]> {
+  const library = sanitizeLibrary(await loadAppStorageItem<unknown>(SERVER_STORAGE_KEY, {}));
+  return library[scopeKey(strategyName)] ?? [];
+}
+
 export function persistStrategyMistakeTags(
   strategyName: string | null | undefined,
   tags: string[],
@@ -30,6 +44,16 @@ export function persistStrategyMistakeTags(
   const key = scopeKey(strategyName);
   library[key] = mergeTags(library[key] ?? [], customTags);
   writeLibrary(library);
+}
+
+export function subscribeStrategyMistakeTags(
+  strategyName: string | null | undefined,
+  listener: (tags: string[]) => void,
+) {
+  return subscribeAppStorageItem<unknown>(
+    SERVER_STORAGE_KEY,
+    (value) => listener(sanitizeLibrary(value)[scopeKey(strategyName)] ?? []),
+  );
 }
 
 export function parseTagInput(value: string) {
@@ -63,33 +87,30 @@ function scopeKey(strategyName: string | null | undefined) {
 }
 
 function readLibrary(): Record<string, string[]> {
-  if (typeof window === "undefined") {
-    return {};
-  }
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
-    if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) {
-      return {};
-    }
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
-        .map(([key, values]) => [
-          key,
-          mergeTags(
-            [],
-            values.filter((value): value is string => typeof value === "string"),
-          ),
-        ]),
-    );
+    return sanitizeLibrary(getCachedAppStorageItem<unknown>(SERVER_STORAGE_KEY, {}));
   } catch {
     return {};
   }
 }
 
 function writeLibrary(library: Record<string, string[]>) {
-  if (typeof window === "undefined") {
-    return;
+  void saveAppStorageItem(SERVER_STORAGE_KEY, library);
+}
+
+function sanitizeLibrary(value: unknown): Record<string, string[]> {
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
+    return {};
   }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
+      .map(([key, values]) => [
+        key,
+        mergeTags(
+          [],
+          values.filter((item): item is string => typeof item === "string"),
+        ),
+      ]),
+  );
 }

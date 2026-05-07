@@ -52,7 +52,6 @@ class BacktestService:
         currency = payload.currency
         timestamp_timezone = payload.timezone
         pnl_multiplier = payload.pnl_multiplier
-        stored_market_data = None
         if self.dataset_catalog is not None and (
             payload.csv_path or payload.instrument or payload.timeframe
         ):
@@ -69,13 +68,8 @@ class BacktestService:
             currency = currency or resolution.currency
             timestamp_timezone = timestamp_timezone or resolution.timezone
             pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
-            if resolution.stored and instrument and timeframe:
-                stored_market_data = self.dataset_catalog.market_data_for_dataset(
-                    instrument,
-                    timeframe,
-                )
 
-        market_data = stored_market_data or self.market_data_for_path(
+        market_data = self.market_data_for_path(
             str(csv_path),
             timestamp_timezone or "UTC",
         )
@@ -865,14 +859,6 @@ class BacktestService:
         return self._session_or_404(db, session_id)
 
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
-        if self.dataset_catalog is not None:
-            stored_market_data = self.dataset_catalog.stored_market_data_for(
-                session.instrument,
-                session.timeframe,
-                session.csv_path,
-            )
-            if stored_market_data is not None:
-                return stored_market_data
         return self.market_data_for_path(
             session.csv_path or str(self.market_data.csv_path),
             session.timezone or "UTC",

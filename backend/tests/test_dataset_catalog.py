@@ -2,13 +2,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import DatasetAsset, DatasetCandle, DatasetTimeframe
+from app.models import DatasetAsset, DatasetTimeframe
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 
 
-def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
+def test_refresh_indexes_asset_timeframe_and_allows_metadata_updates(tmp_path):
     root = tmp_path / "datasets"
     asset_dir = root / "EUR_USD"
     asset_dir.mkdir(parents=True)
@@ -29,17 +29,16 @@ def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
 
         assert response.summary.assets == 1
         assert response.summary.timeframes == 1
-        assert response.summary.candles == 2
+        assert response.summary.candles == 0
         assert response.catalog.instruments[0].id == "EUR_USD"
         assert response.catalog.instruments[0].currency == "USD"
         assert response.catalog.instruments[0].timezone == "UTC"
         assert response.catalog.instruments[0].pnl_multiplier == 1
         assert response.catalog.instruments[0].timeframes[0].timeframe == "M1"
         assert response.catalog.instruments[0].timeframes[0].rows == 2
-        assert response.catalog.instruments[0].timeframes[0].imported is True
+        assert response.catalog.instruments[0].timeframes[0].imported is False
         assert db.query(DatasetAsset).count() == 1
         assert db.query(DatasetTimeframe).count() == 1
-        assert db.query(DatasetCandle).count() == 2
 
         updated = service.update_asset(
             db,
@@ -52,7 +51,7 @@ def test_refresh_imports_asset_timeframe_and_allows_metadata_updates(tmp_path):
         assert updated.instruments[0].pnl_multiplier == 100
 
 
-def test_refresh_skips_unchanged_files_after_initial_import(tmp_path):
+def test_refresh_skips_unchanged_files_after_initial_index(tmp_path):
     root = tmp_path / "datasets"
     asset_dir = root / "NQ"
     asset_dir.mkdir(parents=True)
@@ -71,9 +70,8 @@ def test_refresh_skips_unchanged_files_after_initial_import(tmp_path):
         first = service.refresh_catalog(db)
         second = service.refresh_catalog(db)
 
-        assert first.summary.candles == 1
+        assert first.summary.candles == 0
         assert second.summary.candles == 0
-        assert db.query(DatasetCandle).count() == 1
 
 
 def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):
@@ -136,7 +134,6 @@ def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
         assert timeframe.rows == 2
         assert timeframe.imported is False
         assert resolution.stored is False
-        assert db.query(DatasetCandle).count() == 0
 
 
 def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch):
@@ -167,7 +164,6 @@ def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch)
         assert timeframe.first_timestamp is not None
         assert timeframe.last_timestamp is not None
         assert timeframe.imported is False
-        assert db.query(DatasetCandle).count() == 0
 
 
 def test_dataset_refresh_rejects_concurrent_runs(tmp_path):
