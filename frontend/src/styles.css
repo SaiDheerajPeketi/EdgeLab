@@ -907,6 +907,8 @@ button:disabled {
 
   .chart-pane-layout-horizontal-2 {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    height: clamp(680px, calc(100vh - 220px), 860px);
   }
 
   .chart-pane-layout-grid-4 {
@@ -949,7 +951,14 @@ button:disabled {
   }
 
   .chart-pane-layout-horizontal-2 .chart-stage {
-    min-height: 520px;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .chart-pane-layout-horizontal-2 .chart-frame,
+  .chart-pane-layout-horizontal-2 .chart-container-surface,
+  .chart-pane-layout-horizontal-2 .drawing-rail {
+    min-height: 0;
   }
 
   .chart-pane-layout-grid-4 .chart-stage {
@@ -1119,6 +1128,16 @@ button:disabled {
     min-height: 430px;
   }
 
+  .chart-fullscreen-shell .chart-pane-layout-horizontal-2 {
+    height: calc(100vh - 172px);
+    min-height: 620px;
+  }
+
+  .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .chart-stage {
+    height: 100%;
+    min-height: 0;
+  }
+
   .chart-fullscreen-shell .chart-pane-layout-grid-4 .chart-frame,
   .chart-fullscreen-shell .chart-pane-layout-grid-4 .chart-container-surface,
   .chart-fullscreen-shell .chart-pane-layout-grid-4 .drawing-rail {
@@ -1128,7 +1147,7 @@ button:disabled {
   .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .chart-frame,
   .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .chart-container-surface,
   .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .drawing-rail {
-    min-height: 300px;
+    min-height: 0;
   }
 
   .chart-fullscreen-dock {
