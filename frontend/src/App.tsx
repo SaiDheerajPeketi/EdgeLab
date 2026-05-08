@@ -170,6 +170,7 @@ export default function App() {
   const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
     useState(loadOrderLineModificationConfirmation);
   const backtestHeaderRef = useRef<HTMLElement | null>(null);
+  const backtestHeaderActionsRef = useRef<HTMLDivElement | null>(null);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
   const skipNextToolsClickRef = useRef(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
@@ -525,19 +526,19 @@ export default function App() {
       return;
     }
 
-    const header = backtestHeaderRef.current;
-    if (!header || typeof IntersectionObserver === "undefined") {
+    const headerTarget = backtestHeaderActionsRef.current ?? backtestHeaderRef.current;
+    if (!headerTarget || typeof IntersectionObserver === "undefined") {
       setBacktestHeaderVisible(true);
       return;
     }
 
     const observer = new IntersectionObserver(
-      ([entry]) => setBacktestHeaderVisible(entry.isIntersecting),
-      { threshold: 0.01 },
+      ([entry]) => setBacktestHeaderVisible(isEntryMoreThanHalfVisible(entry)),
+      { threshold: [0, 0.5, 1] },
     );
 
-    observer.observe(header);
-    setBacktestHeaderVisible(isElementInViewport(header));
+    observer.observe(headerTarget);
+    setBacktestHeaderVisible(isElementMoreThanHalfVisible(headerTarget));
     return () => observer.disconnect();
   }, [activeWorkspace, isChartFullscreen, sessionGateOpen]);
 
@@ -1003,7 +1004,7 @@ export default function App() {
           <HeaderStat label="Pending" value={String(pendingOrders)} />
         </div>
       </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto">
+      <div className="mt-3 flex gap-2 overflow-x-auto" ref={backtestHeaderActionsRef}>
         <button
           className="workspace-tab inline-flex items-center justify-center gap-2"
           onClick={() => {
@@ -1483,9 +1484,16 @@ export default function App() {
   );
 }
 
-function isElementInViewport(element: HTMLElement) {
+function isEntryMoreThanHalfVisible(entry: IntersectionObserverEntry) {
+  return entry.isIntersecting && entry.intersectionRatio > 0.5;
+}
+
+function isElementMoreThanHalfVisible(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
-  return rect.bottom > 0 && rect.top < window.innerHeight;
+  const visibleTop = Math.max(rect.top, 0);
+  const visibleBottom = Math.min(rect.bottom, window.innerHeight);
+  const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+  return rect.height > 0 && visibleHeight / rect.height > 0.5;
 }
 
 type StoredChartLayout = {
