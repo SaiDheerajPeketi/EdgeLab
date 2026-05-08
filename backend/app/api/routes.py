@@ -15,6 +15,8 @@ from app.schemas import (
     BacktestSessionRead,
     BacktestSessionUpdate,
     BacktestState,
+    BacktestTradeImport,
+    BacktestTradeImportResult,
     BarsResponse,
     DatasetAssetUpdate,
     DatasetCatalogResponse,
@@ -38,6 +40,7 @@ from app.services.backtester import BacktestService, list_latest_session
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
+from app.services.trade_imports import import_trade_csv
 
 
 router = APIRouter()
@@ -243,6 +246,30 @@ def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
     if session is None:
         return backtester.create_session(db, BacktestCreate())
     return backtester.get_state(db, session.id)
+
+
+@router.post("/backtests/import-trades", response_model=BacktestTradeImportResult)
+def import_backtest_trades(
+    payload: BacktestTradeImport,
+    db: Session = Depends(get_db),
+) -> BacktestTradeImportResult:
+    try:
+        try:
+            fallback_rows = market_data.get_metadata().rows
+        except (FileNotFoundError, ValueError):
+            fallback_rows = 1
+        return import_trade_csv(
+            db,
+            payload,
+            fallback_csv_path=market_data.csv_path,
+            fallback_rows=fallback_rows,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/backtests/{session_id}", response_model=BacktestState)

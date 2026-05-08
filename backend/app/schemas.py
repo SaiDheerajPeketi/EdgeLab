@@ -186,6 +186,19 @@ class BacktestSessionRead(BaseModel):
     updated_at: datetime
 
 
+class BacktestTradeImport(BaseModel):
+    account_name: str = Field(default="Imported Backtest", min_length=1, max_length=160)
+    source_name: str | None = Field(default=None, max_length=120)
+    csv_text: str = Field(min_length=1)
+    initial_balance: float = Field(default=100_000.0, gt=0)
+    currency: str | None = Field(default=None, max_length=12)
+    symbol: str | None = Field(default=None, max_length=40)
+    instrument: str | None = Field(default=None, max_length=80)
+    timeframe: str | None = Field(default=None, max_length=20)
+    strategy_name: str | None = Field(default=None, max_length=120)
+    column_mapping: dict[str, str] = Field(default_factory=dict)
+
+
 class PositionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -320,6 +333,15 @@ class TradeRead(BaseModel):
     mistake_tags: list[str]
     emotional_state: str | None
     screenshot_url: str | None
+
+
+class BacktestTradeImportResult(BaseModel):
+    session: BacktestSessionRead
+    trades: list[TradeRead]
+    imported_rows: int
+    skipped_rows: int
+    errors: list[str] = Field(default_factory=list)
+    detected_columns: list[str] = Field(default_factory=list)
 
 
 class JournalUpdate(BaseModel):

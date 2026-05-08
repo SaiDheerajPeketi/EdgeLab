@@ -289,6 +289,28 @@ export type BacktestSessionUpdatePayload = {
   initial_balance?: number;
 };
 
+export type BacktestTradeImportPayload = {
+  account_name: string;
+  source_name?: string | null;
+  csv_text: string;
+  initial_balance?: number;
+  currency?: string | null;
+  symbol?: string | null;
+  instrument?: string | null;
+  timeframe?: string | null;
+  strategy_name?: string | null;
+  column_mapping?: Record<string, string>;
+};
+
+export type BacktestTradeImportResult = {
+  session: BacktestSession;
+  trades: Trade[];
+  imported_rows: number;
+  skipped_rows: number;
+  errors: string[];
+  detected_columns: string[];
+};
+
 export type OrderUpdatePayload = Partial<OrderPayload>;
 
 export type PositionUpdatePayload = {
@@ -426,6 +448,13 @@ export function getBacktests() {
 
 export function createBacktest(payload: BacktestCreatePayload = {}) {
   return request<BacktestState>("/backtests", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function importBacktestTrades(payload: BacktestTradeImportPayload) {
+  return request<BacktestTradeImportResult>("/backtests/import-trades", {
     method: "POST",
     body: JSON.stringify(payload),
   });

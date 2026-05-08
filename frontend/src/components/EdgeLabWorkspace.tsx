@@ -24,6 +24,7 @@ import {
   Eye,
   FileDown,
   FileText,
+  FileUp,
   Filter,
   FolderPlus,
   Gauge,
@@ -59,8 +60,10 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import { importBacktestTrades } from "../lib/api";
 import type {
   BacktestSession,
+  BacktestTradeImportResult,
   DatasetCatalog,
   DatasetRefreshResponse,
   DatasetRefreshStatus,
@@ -894,53 +897,256 @@ function DashboardPage({
   );
 }
 
-function AccountsPage({ aggregate, currency, datasets, sessions }: SharedPageProps) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [accounts, setAccounts] = useState(() => [
-    {
-      id: "manual",
-      balance: sessions[0]?.initial_balance ?? 100000,
-      broker: "Manual",
-      name: "Backtesting Account",
-      type: "Manual",
-      updated: new Date().toISOString(),
-    },
-  ]);
+type ImportMappingField =
+  | "entry_time"
+  | "exit_time"
+  | "side"
+  | "entry_price"
+  | "exit_price"
+  | "quantity"
+  | "realized_pnl"
+  | "symbol"
+  | "strategy_name"
+  | "stop_loss"
+  | "take_profit"
+  | "r_multiple"
+  | "notes"
+  | "tags";
 
-  function addAccount() {
-    setAccounts((current) => [
+type CsvPreview = {
+  headers: string[];
+  rows: Record<string, string>[];
+};
+
+const IMPORT_FIELD_DEFINITIONS: Array<{
+  key: ImportMappingField;
+  label: string;
+  required?: boolean;
+}> = [
+  { key: "entry_time", label: "Entry time", required: true },
+  { key: "exit_time", label: "Exit time" },
+  { key: "side", label: "Side", required: true },
+  { key: "entry_price", label: "Entry price", required: true },
+  { key: "exit_price", label: "Exit price", required: true },
+  { key: "quantity", label: "Quantity", required: true },
+  { key: "realized_pnl", label: "P&L" },
+  { key: "symbol", label: "Symbol" },
+  { key: "strategy_name", label: "Strategy" },
+  { key: "stop_loss", label: "Stop loss" },
+  { key: "take_profit", label: "Take profit" },
+  { key: "r_multiple", label: "R multiple" },
+  { key: "notes", label: "Notes" },
+  { key: "tags", label: "Tags" },
+];
+
+const IMPORT_FIELD_ALIASES: Record<ImportMappingField, string[]> = {
+  entry_time: ["entrytime", "entrydate", "entrydatetime", "opentime", "opendate", "entry"],
+  exit_time: ["exittime", "exitdate", "exitdatetime", "closetime", "closedate", "exit"],
+  side: ["side", "direction", "type", "position", "tradetype", "action", "buysell"],
+  entry_price: ["entryprice", "openprice", "pricein", "entryfill", "avgentry", "entry"],
+  exit_price: ["exitprice", "closeprice", "priceout", "exitfill", "avgexit", "exit"],
+  quantity: ["quantity", "qty", "contracts", "shares", "lots", "volume", "size"],
+  realized_pnl: ["pnl", "pl", "profit", "profitloss", "realizedpnl", "netpnl", "netprofit", "result"],
+  symbol: ["symbol", "ticker", "instrument", "market", "contract", "asset"],
+  strategy_name: ["strategy", "strategyname", "setup", "playbook", "system"],
+  stop_loss: ["stoploss", "stop", "sl", "stopprice"],
+  take_profit: ["takeprofit", "target", "tp", "targetprice"],
+  r_multiple: ["r", "rmultiple", "rvalue", "rr", "riskreward"],
+  notes: ["notes", "note", "comment", "comments", "review"],
+  tags: ["tags", "tag", "mistakes", "mistaketags", "labels"],
+};
+
+const EMPTY_IMPORT_MAPPING = Object.fromEntries(
+  IMPORT_FIELD_DEFINITIONS.map((field) => [field.key, ""]),
+) as Record<ImportMappingField, string>;
+
+function AccountsPage({
+  aggregate,
+  currency,
+  datasets,
+  onResumeSession,
+  sessions,
+  trades,
+}: SharedPageProps) {
+  const refreshResults = useBacktestStore((state) => state.refreshResults);
+  const deleteSession = useBacktestStore((state) => state.deleteSession);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [csvPreview, setCsvPreview] = useState<CsvPreview | null>(null);
+  const [importResult, setImportResult] = useState<BacktestTradeImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
+  const [mapping, setMapping] = useState<Record<ImportMappingField, string>>(EMPTY_IMPORT_MAPPING);
+  const [importForm, setImportForm] = useState({
+    account_name: "Imported Backtest",
+    source_name: "",
+    csv_text: "",
+    initial_balance: "100000",
+    currency,
+    symbol: "",
+    instrument: "",
+    timeframe: "Imported",
+    strategy_name: "",
+  });
+  const tradesBySession = useMemo(() => {
+    const grouped = new Map<number, Trade[]>();
+    for (const trade of trades) {
+      grouped.set(trade.session_id, [...(grouped.get(trade.session_id) ?? []), trade]);
+    }
+    return grouped;
+  }, [trades]);
+  const sessionRows = useMemo(
+    () =>
+      sessions.map((session) => {
+        const sessionTrades = tradesBySession.get(session.id) ?? [];
+        return {
+          aggregate: aggregateTrades(sessionTrades),
+          session,
+          trades: sessionTrades,
+        };
+      }),
+    [sessions, tradesBySession],
+  );
+  const importedSessionCount = sessions.filter((session) => session.timeframe === "Imported").length;
+  const headerOptions = useMemo(
+    () => [
+      { label: "Auto-detect", value: "" },
+      ...(csvPreview?.headers ?? []).map((header) => ({ label: header, value: header })),
+    ],
+    [csvPreview],
+  );
+
+  function updateImportField(field: keyof typeof importForm, value: string) {
+    setImportForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleCsvFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const text = await file.text();
+    setFileName(file.name);
+    setImportResult(null);
+    setImportError(null);
+    setImportForm((current) => ({
       ...current,
-      {
-        id: `account-${current.length + 1}`,
-        balance: 10000,
-        broker: "CSV",
-        name: `CSV Account ${current.length + 1}`,
-        type: "CSV Upload",
-        updated: new Date().toISOString(),
-      },
-    ]);
-    setModalOpen(false);
+      account_name:
+        current.account_name === "Imported Backtest"
+          ? file.name.replace(/\.[^.]+$/, "") || current.account_name
+          : current.account_name,
+      csv_text: text,
+      source_name: current.source_name || inferImportSourceName(file.name),
+    }));
+    const preview = parseCsvPreview(text);
+    setCsvPreview(preview);
+    setMapping(autoDetectImportMapping(preview?.headers ?? []));
+  }
+
+  function handleCsvTextChange(value: string) {
+    setImportResult(null);
+    setImportError(null);
+    updateImportField("csv_text", value);
+    const preview = parseCsvPreview(value);
+    setCsvPreview(preview);
+    setMapping(autoDetectImportMapping(preview?.headers ?? []));
+  }
+
+  async function submitImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!importForm.csv_text.trim()) {
+      setImportError("Choose a CSV file or paste CSV content first.");
+      return;
+    }
+    setIsImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const result = await importBacktestTrades({
+        account_name: importForm.account_name.trim() || "Imported Backtest",
+        source_name: importForm.source_name.trim() || null,
+        csv_text: importForm.csv_text,
+        initial_balance: Number(importForm.initial_balance) || 100000,
+        currency: importForm.currency.trim() || null,
+        symbol: importForm.symbol.trim() || null,
+        instrument: importForm.instrument.trim() || null,
+        timeframe: importForm.timeframe.trim() || "Imported",
+        strategy_name: importForm.strategy_name.trim() || null,
+        column_mapping: cleanImportMapping(mapping),
+      });
+      setImportResult(result);
+      await refreshResults();
+    } catch (error) {
+      setImportError(importErrorMessage(error));
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  async function handleDeleteSession(session: BacktestSession) {
+    const confirmed = window.confirm(`Delete "${session.name}" and all trades in it?`);
+    if (!confirmed) {
+      return;
+    }
+    setDeletingSessionId(session.id);
+    setImportError(null);
+    try {
+      await deleteSession(session.id);
+      await refreshResults();
+    } catch (error) {
+      setImportError(importErrorMessage(error));
+    } finally {
+      setDeletingSessionId(null);
+    }
   }
 
   return (
     <PageScaffold
       eyebrow="Backtest Accounts"
-      title="Simulated Account Management"
-      description="Manual balances and imported CSV sources for replay/backtest sessions. Live brokerage Journal balances are not aggregated here."
+      title="Backtest Accounts & Imports"
+      description="Import completed backtests from external CSV exports, store them as replay sessions, and use them across Results, Trades, Notes, and Reports."
       actions={
         <button className="control-button workspace-tab-active" onClick={() => setModalOpen(true)} type="button">
-          <Plus size={15} />
-          Add new account
+          <FileUp size={15} />
+          Import CSV
         </button>
       }
     >
+      <div className="grid gap-4 lg:grid-cols-4">
+        <FeatureCard>
+          <CompactMetric label="Sessions" value={String(sessions.length)} />
+        </FeatureCard>
+        <FeatureCard>
+          <CompactMetric label="CSV Imports" value={String(importedSessionCount)} />
+        </FeatureCard>
+        <FeatureCard>
+          <CompactMetric label="Closed Trades" value={String(aggregate.totalTrades)} />
+        </FeatureCard>
+        <FeatureCard>
+          <CompactMetric label="Net P&L" value={formatMoney(aggregate.netPnl, currency)} tone={toneForNumber(aggregate.netPnl)} />
+        </FeatureCard>
+      </div>
+
+      {importError && (
+        <div className="rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+          {importError}
+        </div>
+      )}
+
       <FeatureCard>
+        <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <CardLabel icon={WalletCards} label="Backtest accounts" />
+          <span className="status-pill">{sessionRows.length} sessions</span>
+        </div>
         <div className="overflow-auto">
-          <table className="w-full min-w-[860px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
               <tr>
-                <th className="px-3 py-3 font-medium">Account name</th>
-                <th className="px-3 py-3 font-medium">Broker</th>
+                <th className="px-3 py-3 font-medium">Account / Session</th>
+                <th className="px-3 py-3 font-medium">Source</th>
+                <th className="px-3 py-3 font-medium">Trades</th>
+                <th className="px-3 py-3 font-medium">Net P&L</th>
                 <th className="px-3 py-3 font-medium">Balance</th>
                 <th className="px-3 py-3 font-medium">Last update</th>
                 <th className="px-3 py-3 font-medium">Type</th>
@@ -948,99 +1154,381 @@ function AccountsPage({ aggregate, currency, datasets, sessions }: SharedPagePro
               </tr>
             </thead>
             <tbody>
-              {accounts.map((account) => (
-                <tr className="border-t border-white/10 text-slate-300" key={account.id}>
-                  <td className="px-3 py-4 font-semibold text-white">{account.name}</td>
-                  <td className="px-3 py-4">{account.broker}</td>
-                  <td className="px-3 py-4">
-                    <button className="font-semibold text-cyan-100" type="button">
-                      {formatMoney(account.balance + aggregate.netPnl, currency)}
-                    </button>
-                  </td>
-                  <td className="px-3 py-4 text-slate-500">{formatDateTime(account.updated)}</td>
-                  <td className="px-3 py-4">
-                    <span className="status-pill">{account.type}</span>
-                  </td>
-                  <td className="px-3 py-4">
-                    <div className="flex gap-2">
-                      <button className="icon-button h-9 w-9" title="Add balance" type="button">
-                        <Plus size={14} />
-                      </button>
-                      <button className="icon-button h-9 w-9" title="More actions" type="button">
-                        <MoreHorizontal size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {sessionRows.map(({ aggregate: sessionAggregate, session }) => {
+                const rowCurrency = currencyForSession(session, datasets);
+                const isImported = session.timeframe === "Imported";
+                return (
+                  <tr className="border-t border-white/10 text-slate-300" key={session.id}>
+                    <td className="px-3 py-4">
+                      <div className="font-semibold text-white">{session.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {formatMarketSymbol(session.symbol)} · {session.timeframe ?? "Replay"}
+                      </div>
+                    </td>
+                    <td className="px-3 py-4">
+                      <div className="font-semibold text-slate-200">{session.instrument ?? "Replay data"}</div>
+                      <div className="mt-1 text-xs text-slate-500">{sessionStrategyName(session)}</div>
+                    </td>
+                    <td className="px-3 py-4 tabular-nums">{sessionAggregate.totalTrades}</td>
+                    <td className={`px-3 py-4 font-semibold ${toneForNumber(sessionAggregate.netPnl)}`}>
+                      {formatMoney(sessionAggregate.netPnl, rowCurrency)}
+                    </td>
+                    <td className="px-3 py-4 font-semibold text-cyan-100">
+                      {formatMoney(session.initial_balance + sessionAggregate.netPnl, rowCurrency)}
+                    </td>
+                    <td className="px-3 py-4 text-slate-500">{formatDateTime(session.updated_at)}</td>
+                    <td className="px-3 py-4">
+                      <span className="status-pill">{isImported ? "Imported CSV" : "Replay Session"}</span>
+                    </td>
+                    <td className="px-3 py-4">
+                      <div className="flex gap-2">
+                        <button
+                          className="control-button h-9 px-2 text-xs"
+                          onClick={() => void onResumeSession(session.id)}
+                          type="button"
+                        >
+                          <PlaySquare size={14} />
+                          Open
+                        </button>
+                        <button
+                          className="icon-button h-9 w-9 text-rose-200 hover:border-rose-300/30 hover:bg-rose-300/10"
+                          disabled={deletingSessionId === session.id}
+                          onClick={() => void handleDeleteSession(session)}
+                          title="Delete account session"
+                          type="button"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          {sessionRows.length === 0 && (
+            <EmptyState icon={WalletCards} message="Import a backtest CSV or create a replay session to populate accounts." />
+          )}
         </div>
       </FeatureCard>
-      <FeatureCard>
-        <CardLabel icon={Database} label="CSV instruments connected" />
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
-          {(datasets?.instruments ?? []).map((instrument) => (
-            <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3" key={instrument.id}>
-              <div className="flex items-center gap-3">
-                <span className="session-instrument-badge">{symbolBadge(instrument.symbol)}</span>
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold text-white">{instrument.name}</span>
-                  <span className="text-xs text-slate-500">
-                    {instrument.timeframes.length} timeframes
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <FeatureCard>
+          <CardLabel icon={Database} label="CSV instruments connected" />
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            {(datasets?.instruments ?? []).map((instrument) => (
+              <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3" key={instrument.id}>
+                <div className="flex items-center gap-3">
+                  <span className="session-instrument-badge">{symbolBadge(instrument.symbol)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-white">{instrument.name}</span>
+                    <span className="text-xs text-slate-500">
+                      {instrument.timeframes.length} timeframes
+                    </span>
                   </span>
-                </span>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </FeatureCard>
-      {modalOpen && (
-        <ModalFrame title="Add new account" onClose={() => setModalOpen(false)}>
-          <div className="grid gap-3">
-            <label className="form-field">
-              Account name
-              <input className="input-control h-10 normal-case tracking-normal" defaultValue="Manual account" />
-            </label>
-            <label className="form-field">
-              Type
-              <ThemedSelect
-                className="h-10"
-                defaultValue="Manual"
-                options={[
-                  { label: "Manual", value: "Manual" },
-                  { label: "CSV Upload", value: "CSV Upload" },
-                ]}
-              />
-            </label>
-            <label className="form-field">
-              Starting balance
-              <input className="input-control h-10 normal-case tracking-normal" defaultValue="10000" type="number" />
-            </label>
-            <label className="form-field">
-              Currency
-              <ThemedSelect
-                className="h-10"
-                defaultValue="USD"
-                options={[
-                  { label: "USD", value: "USD" },
-                  { label: "INR", value: "INR" },
-                ]}
-              />
-            </label>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="control-button" onClick={() => setModalOpen(false)} type="button">
-                Cancel
-              </button>
-              <button className="control-button workspace-tab-active" onClick={addAccount} type="button">
-                Save account
-              </button>
+            ))}
+            {(datasets?.instruments ?? []).length === 0 && (
+              <EmptyState icon={Database} message="No replay instrument CSVs are indexed yet." />
+            )}
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={FileUp} label="Supported trade CSVs" />
+          <div className="mt-4 grid gap-3 text-sm leading-6 text-slate-400">
+            <p>
+              Importers accept common exports with entry/exit time, side, prices, quantity, and optional P&L, R, tags, notes, stops, and targets.
+            </p>
+            <div className="grid gap-2">
+              {["TradeZella / journal exports", "TradingView strategy tester", "NinjaTrader, Tradovate, broker logs", "Custom spreadsheets with mapped columns"].map((label) => (
+                <div className="flex items-center gap-2 rounded-md border border-white/10 bg-black/20 px-3 py-2" key={label}>
+                  <CheckCircle2 className="text-emerald-300" size={14} />
+                  <span>{label}</span>
+                </div>
+              ))}
             </div>
           </div>
+        </FeatureCard>
+      </div>
+
+      {modalOpen && (
+        <ModalFrame title="Import backtest CSV" onClose={() => setModalOpen(false)}>
+          <form className="grid gap-4" onSubmit={submitImport}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="form-field">
+                Account / session name
+                <input
+                  className="input-control h-10 normal-case tracking-normal"
+                  onChange={(event) => updateImportField("account_name", event.target.value)}
+                  value={importForm.account_name}
+                />
+              </label>
+              <label className="form-field">
+                Source app
+                <input
+                  className="input-control h-10 normal-case tracking-normal"
+                  onChange={(event) => updateImportField("source_name", event.target.value)}
+                  placeholder="TradeZella, TradingView, NinjaTrader"
+                  value={importForm.source_name}
+                />
+              </label>
+              <label className="form-field">
+                Starting balance
+                <input
+                  className="input-control h-10 normal-case tracking-normal"
+                  min="1"
+                  onChange={(event) => updateImportField("initial_balance", event.target.value)}
+                  type="number"
+                  value={importForm.initial_balance}
+                />
+              </label>
+              <label className="form-field">
+                Currency
+                <input
+                  className="input-control h-10 uppercase"
+                  maxLength={12}
+                  onChange={(event) => updateImportField("currency", event.target.value.toUpperCase())}
+                  value={importForm.currency}
+                />
+              </label>
+              <label className="form-field">
+                Symbol fallback
+                <input
+                  className="input-control h-10 normal-case tracking-normal"
+                  onChange={(event) => updateImportField("symbol", event.target.value)}
+                  placeholder="NIFTY50, ES, EURUSD"
+                  value={importForm.symbol}
+                />
+              </label>
+              <label className="form-field">
+                Default strategy
+                <input
+                  className="input-control h-10 normal-case tracking-normal"
+                  onChange={(event) => updateImportField("strategy_name", event.target.value)}
+                  placeholder="Optional"
+                  value={importForm.strategy_name}
+                />
+              </label>
+            </div>
+
+            <label className="form-field">
+              CSV file
+              <input
+                accept=".csv,text/csv"
+                className="input-control h-10 py-2 normal-case tracking-normal file:mr-3 file:rounded file:border-0 file:bg-cyan-300/10 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-cyan-100"
+                onChange={handleCsvFileChange}
+                type="file"
+              />
+            </label>
+
+            <label className="form-field">
+              CSV content
+              <textarea
+                className="input-control min-h-[110px] py-3 normal-case tracking-normal"
+                onChange={(event) => handleCsvTextChange(event.target.value)}
+                placeholder="Paste CSV content here if you do not want to choose a file."
+                value={importForm.csv_text}
+              />
+            </label>
+
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Column mapping</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {fileName || "Auto-detect works for common exports; override any column below."}
+                  </div>
+                </div>
+                {csvPreview && <span className="status-pill">{csvPreview.headers.length} columns</span>}
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {IMPORT_FIELD_DEFINITIONS.map((field) => (
+                  <label className="form-field" key={field.key}>
+                    {field.label}{field.required ? " *" : ""}
+                    <ThemedSelect
+                      className="h-10"
+                      disabled={!csvPreview}
+                      onChange={(value) => setMapping((current) => ({ ...current, [field.key]: value }))}
+                      options={headerOptions}
+                      portal
+                      value={mapping[field.key]}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {csvPreview && (
+              <div className="overflow-auto rounded-md border border-white/10 bg-black/20">
+                <table className="w-full min-w-[720px] text-left text-xs">
+                  <thead className="uppercase tracking-[0.14em] text-slate-500">
+                    <tr>
+                      {csvPreview.headers.slice(0, 7).map((header) => (
+                        <th className="px-3 py-2 font-medium" key={header}>{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvPreview.rows.slice(0, 4).map((row, index) => (
+                      <tr className="border-t border-white/10 text-slate-300" key={index}>
+                        {csvPreview.headers.slice(0, 7).map((header) => (
+                          <td className="max-w-[180px] truncate px-3 py-2" key={header}>{row[header]}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {importError && (
+              <div className="rounded-md border border-rose-400/25 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
+                {importError}
+              </div>
+            )}
+            {importResult && (
+              <div className="rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100">
+                Imported {importResult.imported_rows} trades into {importResult.session.name}
+                {importResult.skipped_rows > 0 ? `, skipped ${importResult.skipped_rows} rows` : ""}.
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <button className="control-button" onClick={() => setModalOpen(false)} type="button">
+                Close
+              </button>
+              <button
+                className="control-button workspace-tab-active"
+                disabled={isImporting || !importForm.csv_text.trim()}
+                type="submit"
+              >
+                <FileUp size={15} />
+                {isImporting ? "Importing..." : "Import trades"}
+              </button>
+            </div>
+          </form>
         </ModalFrame>
       )}
     </PageScaffold>
   );
+}
+
+function cleanImportMapping(mapping: Record<ImportMappingField, string>) {
+  return Object.fromEntries(
+    Object.entries(mapping).filter(([, value]) => value.trim()),
+  );
+}
+
+function autoDetectImportMapping(headers: string[]) {
+  const normalized = new Map(headers.map((header) => [normalizeImportHeader(header), header]));
+  const mapping = { ...EMPTY_IMPORT_MAPPING };
+  for (const field of IMPORT_FIELD_DEFINITIONS) {
+    const match = IMPORT_FIELD_ALIASES[field.key]
+      .map((alias) => normalized.get(alias))
+      .find((header): header is string => Boolean(header));
+    mapping[field.key] = match ?? "";
+  }
+  return mapping;
+}
+
+function parseCsvPreview(text: string): CsvPreview | null {
+  const rows = parseCsvRows(text, 6);
+  const headers = (rows[0] ?? []).map((header) => header.trim()).filter(Boolean);
+  if (headers.length === 0) {
+    return null;
+  }
+  return {
+    headers,
+    rows: rows.slice(1).map((row) =>
+      Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""])),
+    ),
+  };
+}
+
+function parseCsvRows(text: string, maxRows: number) {
+  const delimiter = detectCsvDelimiter(text);
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && char === delimiter) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && next === "\n") {
+        index += 1;
+      }
+      row.push(cell);
+      if (row.some((value) => value.trim())) {
+        rows.push(row);
+      }
+      if (rows.length >= maxRows) {
+        return rows;
+      }
+      row = [];
+      cell = "";
+      continue;
+    }
+    cell += char;
+  }
+
+  row.push(cell);
+  if (row.some((value) => value.trim())) {
+    rows.push(row);
+  }
+  return rows.slice(0, maxRows);
+}
+
+function detectCsvDelimiter(text: string) {
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim()) ?? "";
+  const candidates = [",", ";", "\t", "|"];
+  return candidates
+    .map((delimiter) => ({
+      delimiter,
+      score: firstLine.split(delimiter).length,
+    }))
+    .sort((left, right) => right.score - left.score)[0]?.delimiter ?? ",";
+}
+
+function normalizeImportHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function inferImportSourceName(fileName: string) {
+  const lower = fileName.toLowerCase();
+  if (lower.includes("tradezella")) {
+    return "TradeZella";
+  }
+  if (lower.includes("tradingview")) {
+    return "TradingView";
+  }
+  if (lower.includes("ninjatrader")) {
+    return "NinjaTrader";
+  }
+  if (lower.includes("tradovate")) {
+    return "Tradovate";
+  }
+  return "";
+}
+
+function importErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unexpected import error";
 }
 
 function DayViewPage({
