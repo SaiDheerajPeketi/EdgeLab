@@ -118,6 +118,7 @@ type Props = {
   bars: Candle[];
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
+  confirmOrderLineModifications: boolean;
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
   executions: Execution[];
@@ -139,6 +140,7 @@ type Props = {
   onUpdatePosition: (payload: PositionUpdatePayload) => Promise<void> | void;
   orders: Order[];
   position: Position | null;
+  pnlMultiplier: number;
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   symbol?: string;
@@ -189,6 +191,20 @@ type OrderLineDragTarget =
 type OrderLineDragState = {
   target: OrderLineDragTarget;
   price: number;
+};
+
+type OrderLineModificationDraft = {
+  label: string;
+  nextPrice: number;
+  previousPrice: number;
+  stats: OrderLineModificationStats | null;
+  target: OrderLineDragTarget;
+};
+
+type OrderLineModificationStats = {
+  pnl: number | null;
+  pnlLabel: string;
+  rr: number | null;
 };
 
 type OrderEditLine = {
@@ -271,6 +287,7 @@ export function TradingChart({
   bars,
   chartSettings,
   chartStyle,
+  confirmOrderLineModifications,
   drawingTool,
   drawings,
   executions,
@@ -292,6 +309,7 @@ export function TradingChart({
   onUpdatePosition,
   orders,
   position,
+  pnlMultiplier,
   selectedDrawingId,
   showOrderOverlays,
   symbol = "EURUSD",
@@ -315,6 +333,8 @@ export function TradingChart({
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [orderLineDrag, setOrderLineDrag] = useState<OrderLineDragState | null>(null);
+  const [pendingOrderLineModification, setPendingOrderLineModification] =
+    useState<OrderLineModificationDraft | null>(null);
   const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
   const [indicatorToolbarPosition, setIndicatorToolbarPosition] =
     useState<{ x: number; y: number } | null>(null);
@@ -556,6 +576,19 @@ export function TradingChart({
     () => buildOrderEditLines(activePosition, orders, orderLineDrag),
     [activePosition, orderLineDrag, orders],
   );
+  const orderLineDragPreview = useMemo(
+    () =>
+      orderLineDrag
+        ? buildOrderLineModificationDraft({
+            activePosition,
+            nextPrice: orderLineDrag.price,
+            orders,
+            pnlMultiplier,
+            target: orderLineDrag.target,
+          })
+        : null,
+    [activePosition, orderLineDrag, orders, pnlMultiplier],
+  );
   const orderLineDragActive = orderLineDrag != null;
 
   const removableDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
@@ -602,7 +635,7 @@ export function TradingChart({
       const price = priceFromClientY(event.clientY) ?? current.price;
       event.preventDefault();
       updateOrderLineDrag(null);
-      commitOrderLineDrag(current.target, price);
+      requestOrderLineModification(current.target, price);
     }
 
     document.addEventListener("pointermove", handlePointerMove);
@@ -613,7 +646,15 @@ export function TradingChart({
       document.removeEventListener("pointerup", handlePointerUp);
       document.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [orderLineDragActive, onAmendOrder, onUpdatePosition]);
+  }, [
+    activePosition,
+    confirmOrderLineModifications,
+    orderLineDragActive,
+    orders,
+    pnlMultiplier,
+    onAmendOrder,
+    onUpdatePosition,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1080,7 +1121,7 @@ export function TradingChart({
       addLine(
         activePosition.avg_price,
         "#a8b3c7",
-        `Open ${formatMoney(activePosition.unrealized_pnl, currency)}`,
+        "Open",
         0,
       );
       addLine(activePosition.stop_loss, "#fb7185", "SL", 2);
@@ -1413,7 +1454,40 @@ export function TradingChart({
     return price != null && Number.isFinite(price) && price > 0 ? price : null;
   }
 
-  function commitOrderLineDrag(target: OrderLineDragTarget, price: number) {
+  function requestOrderLineModification(target: OrderLineDragTarget, price: number) {
+    const draft = buildOrderLineModificationDraft({
+      activePosition,
+      nextPrice: price,
+      orders,
+      pnlMultiplier,
+      target,
+    });
+    if (!draft) {
+      applyOrderLineModification(target, price);
+      return;
+    }
+    if (Math.abs(draft.nextPrice - draft.previousPrice) <= 1e-10) {
+      return;
+    }
+    if (confirmOrderLineModifications) {
+      setPendingOrderLineModification(draft);
+      return;
+    }
+    applyOrderLineModification(target, draft.nextPrice);
+  }
+
+  function confirmPendingOrderLineModification() {
+    if (!pendingOrderLineModification) {
+      return;
+    }
+    applyOrderLineModification(
+      pendingOrderLineModification.target,
+      pendingOrderLineModification.nextPrice,
+    );
+    setPendingOrderLineModification(null);
+  }
+
+  function applyOrderLineModification(target: OrderLineDragTarget, price: number) {
     if (!Number.isFinite(price) || price <= 0) {
       return;
     }
@@ -1948,6 +2022,11 @@ export function TradingChart({
                   ) {
                     return null;
                   }
+                  const linePreview =
+                    orderLineDragPreview &&
+                    orderLineTargetsEqual(line.target, orderLineDragPreview.target)
+                      ? orderLineDragPreview.stats
+                      : null;
                   return (
                     <button
                       className="chart-order-edit-row"
@@ -1968,8 +2047,29 @@ export function TradingChart({
                         className="chart-order-edit-label"
                         style={{ borderColor: colorWithOpacity(line.color, 0.58) }}
                       >
-                        <span>{line.label}</span>
-                        <strong>{formatPrice(line.price)}</strong>
+                        <span className="chart-order-edit-label-main">
+                          <span>{line.label}</span>
+                          <strong>{formatPrice(line.price)}</strong>
+                        </span>
+                        {linePreview && (
+                          <span className="chart-order-edit-preview">
+                            <span
+                              className={
+                                linePreview.pnl == null || linePreview.pnl === 0
+                                  ? "text-slate-300"
+                                  : linePreview.pnl > 0
+                                    ? "text-emerald-200"
+                                    : "text-rose-200"
+                              }
+                            >
+                              {linePreview.pnlLabel}{" "}
+                              {linePreview.pnl == null
+                                ? "-"
+                                : formatMoney(linePreview.pnl, currency)}
+                            </span>
+                            <span>{formatRr(linePreview.rr)}</span>
+                          </span>
+                        )}
                       </span>
                     </button>
                   );
@@ -2058,6 +2158,14 @@ export function TradingChart({
                   <span>Remove indicators</span>
                 </button>
               </div>
+            )}
+            {pendingOrderLineModification && (
+              <OrderLineModificationDialog
+                currency={currency}
+                draft={pendingOrderLineModification}
+                onCancel={() => setPendingOrderLineModification(null)}
+                onConfirm={confirmPendingOrderLineModification}
+              />
             )}
           </div>
           {rsiStudies.map((study) => (
@@ -2247,7 +2355,7 @@ function PositionLineOverlay({
 
   return (
     <div
-      className="chart-position-overlay"
+      className={`chart-position-overlay ${open ? "chart-position-overlay-open" : ""}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -2278,6 +2386,58 @@ function PositionLineOverlay({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function OrderLineModificationDialog({
+  currency,
+  draft,
+  onCancel,
+  onConfirm,
+}: {
+  currency: string;
+  draft: OrderLineModificationDraft;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const pnl = draft.stats?.pnl ?? null;
+  const pnlTone =
+    pnl == null || pnl === 0 ? "text-slate-100" : pnl > 0 ? "text-emerald-300" : "text-rose-300";
+
+  return (
+    <div
+      className="chart-order-confirm-backdrop"
+      onClick={onCancel}
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="chart-order-confirm-card" onClick={(event) => event.stopPropagation()}>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200/70">
+            Confirm modification
+          </div>
+          <div className="mt-1 text-base font-semibold text-white">{draft.label}</div>
+        </div>
+        <div className="chart-order-confirm-grid">
+          <span>From</span>
+          <strong>{formatPrice(draft.previousPrice)}</strong>
+          <span>To</span>
+          <strong>{formatPrice(draft.nextPrice)}</strong>
+          <span>{draft.stats?.pnlLabel ?? "P&L"}</span>
+          <strong className={pnlTone}>{pnl == null ? "-" : formatMoney(pnl, currency)}</strong>
+          <span>RR</span>
+          <strong>{formatRr(draft.stats?.rr ?? null)}</strong>
+        </div>
+        <div className="chart-order-confirm-actions">
+          <button onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button className="chart-order-confirm-primary" onClick={onConfirm} type="button">
+            Apply
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4009,6 +4169,148 @@ function buildOrderEditLines(
   return lines;
 }
 
+function buildOrderLineModificationDraft({
+  activePosition,
+  nextPrice,
+  orders,
+  pnlMultiplier,
+  target,
+}: {
+  activePosition: Position | null;
+  nextPrice: number;
+  orders: Order[];
+  pnlMultiplier: number;
+  target: OrderLineDragTarget;
+}): OrderLineModificationDraft | null {
+  if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+    return null;
+  }
+
+  if (target.kind === "position") {
+    if (!activePosition) {
+      return null;
+    }
+    const previousPrice = activePosition[target.field];
+    if (previousPrice == null) {
+      return null;
+    }
+    const nextStopLoss = target.field === "stop_loss" ? nextPrice : activePosition.stop_loss;
+    const nextTakeProfit =
+      target.field === "take_profit" ? nextPrice : activePosition.take_profit;
+    return {
+      label: target.field === "stop_loss" ? "Position SL" : "Position TP",
+      nextPrice,
+      previousPrice,
+      stats: orderLineModificationStats({
+        entryPrice: activePosition.avg_price,
+        modifiedField: target.field,
+        pnlMultiplier,
+        quantity: activePosition.quantity,
+        side: activePosition.side === "SHORT" ? "SHORT" : "LONG",
+        stopLoss: nextStopLoss,
+        takeProfit: nextTakeProfit,
+      }),
+      target,
+    };
+  }
+
+  const order = orders.find((item) => item.id === target.orderId);
+  if (!order) {
+    return null;
+  }
+  const previousPrice = order[target.field];
+  if (previousPrice == null) {
+    return null;
+  }
+  const entryField = pendingOrderEntryField(order);
+  const nextEntryPrice =
+    target.field === "limit_price" || target.field === "stop_price"
+      ? nextPrice
+      : entryField
+        ? order[entryField]
+        : null;
+  if (nextEntryPrice == null) {
+    return null;
+  }
+  const nextStopLoss = target.field === "stop_loss" ? nextPrice : order.stop_loss;
+  const nextTakeProfit = target.field === "take_profit" ? nextPrice : order.take_profit;
+  const side = order.side === "BUY" ? "LONG" : "SHORT";
+
+  return {
+    label: `P#${order.id} ${orderLineFieldLabel(target.field)}`,
+    nextPrice,
+    previousPrice,
+    stats: orderLineModificationStats({
+      entryPrice: nextEntryPrice,
+      modifiedField: target.field,
+      pnlMultiplier,
+      quantity: order.quantity ?? 0,
+      side,
+      stopLoss: nextStopLoss,
+      takeProfit: nextTakeProfit,
+    }),
+    target,
+  };
+}
+
+function orderLineModificationStats({
+  entryPrice,
+  modifiedField,
+  pnlMultiplier,
+  quantity,
+  side,
+  stopLoss,
+  takeProfit,
+}: {
+  entryPrice: number;
+  modifiedField: PendingOrderField | PositionOrderField;
+  pnlMultiplier: number;
+  quantity: number;
+  side: "LONG" | "SHORT";
+  stopLoss: number | null;
+  takeProfit: number | null;
+}): OrderLineModificationStats {
+  const stopPnl =
+    stopLoss == null
+      ? null
+      : projectedPnl(entryPrice, stopLoss, quantity, side, pnlMultiplier);
+  const targetPnl =
+    takeProfit == null
+      ? null
+      : projectedPnl(entryPrice, takeProfit, quantity, side, pnlMultiplier);
+  const risk = stopPnl == null ? null : Math.abs(stopPnl);
+  const rr =
+    risk != null && risk > 0 && targetPnl != null
+      ? targetPnl / risk
+      : null;
+
+  if (modifiedField === "stop_loss") {
+    return { pnl: stopPnl, pnlLabel: "SL P&L", rr };
+  }
+  if (modifiedField === "take_profit") {
+    return { pnl: targetPnl, pnlLabel: "TP P&L", rr };
+  }
+  return {
+    pnl: targetPnl ?? stopPnl,
+    pnlLabel: targetPnl == null ? "SL P&L" : "TP P&L",
+    rr,
+  };
+}
+
+function projectedPnl(
+  entryPrice: number,
+  exitPrice: number,
+  quantity: number,
+  side: "LONG" | "SHORT",
+  pnlMultiplier: number,
+) {
+  if (![entryPrice, exitPrice, quantity, pnlMultiplier].every(Number.isFinite)) {
+    return null;
+  }
+  const direction = side === "LONG" ? 1 : -1;
+  return (exitPrice - entryPrice) * quantity * direction * pnlMultiplier;
+}
+
 function addOrderEditLine(
   lines: OrderEditLine[],
   line: Omit<OrderEditLine, "price"> & { price: number | null | undefined },
@@ -4055,6 +4357,19 @@ function pendingOrderEntryField(order: Order): "limit_price" | "stop_price" | nu
   return null;
 }
 
+function orderLineFieldLabel(field: PendingOrderField | PositionOrderField) {
+  switch (field) {
+    case "limit_price":
+      return "Entry";
+    case "stop_price":
+      return "Entry";
+    case "stop_loss":
+      return "SL";
+    case "take_profit":
+      return "TP";
+  }
+}
+
 function positionOverlayFromPrice(
   price: number,
   frame: HTMLDivElement | null,
@@ -4071,7 +4386,7 @@ function positionOverlayFromPrice(
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
   return {
-    x: clamp(plotWidth - 220, 12, Math.max(12, plotWidth - 96)),
+    x: clamp(plotWidth - 156, 12, Math.max(12, plotWidth - 96)),
     y: clamp(y, 22, Math.max(22, plotHeight - 22)),
   };
 }
@@ -6421,6 +6736,13 @@ function formatMoney(value: number, currency: string) {
     maximumFractionDigits: 2,
     style: "currency",
   }).format(value);
+}
+
+function formatRr(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) {
+    return "RR -";
+  }
+  return `RR ${value.toFixed(2)}`;
 }
 
 function toRsiPath(values: LineData[], width: number, height: number) {

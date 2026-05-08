@@ -66,6 +66,11 @@ import {
   sanitizeChartVisualSettings,
   type ChartVisualSettings,
 } from "./lib/chartSettings";
+import {
+  hydrateOrderLineModificationConfirmation,
+  loadOrderLineModificationConfirmation,
+  subscribeOrderLineModificationConfirmation,
+} from "./lib/backtestSettings";
 import { currencyForSession } from "./lib/currency";
 import {
   getCachedAppStorageItem,
@@ -160,6 +165,8 @@ export default function App() {
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
   const [backtestHeaderVisible, setBacktestHeaderVisible] = useState(true);
   const [replayOverlayOpen, setReplayOverlayOpen] = useState(false);
+  const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
+    useState(loadOrderLineModificationConfirmation);
   const backtestHeaderRef = useRef<HTMLElement | null>(null);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
   const skipNextToolsClickRef = useRef(false);
@@ -222,6 +229,22 @@ export default function App() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateOrderLineModificationConfirmation().then((enabled) => {
+      if (active) {
+        setConfirmOrderLineModifications(enabled);
+      }
+    });
+    const unsubscribe = subscribeOrderLineModificationConfirmation((enabled) => {
+      setConfirmOrderLineModifications(enabled);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1145,6 +1168,7 @@ export default function App() {
                       bars={bars}
                       chartSettings={chartSettings}
                       chartStyle={chartStyle}
+                      confirmOrderLineModifications={confirmOrderLineModifications}
                       drawingTool={drawingTool}
                       drawings={drawings}
                       executions={executions}
@@ -1175,6 +1199,7 @@ export default function App() {
                       onUpdateIndicatorSettings={updateIndicatorSettings}
                       orders={orders}
                       position={position}
+                      pnlMultiplier={state?.session.pnl_multiplier ?? 1}
                       selectedDrawingId={selectedDrawingId}
                       showOrderOverlays={showOrderOverlays}
                       symbol={state?.session.symbol}

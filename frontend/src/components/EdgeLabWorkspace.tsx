@@ -53,6 +53,12 @@ import type {
   PlaybookPayload,
   Trade,
 } from "../lib/api";
+import {
+  hydrateOrderLineModificationConfirmation,
+  loadOrderLineModificationConfirmation,
+  saveOrderLineModificationConfirmation,
+  subscribeOrderLineModificationConfirmation,
+} from "../lib/backtestSettings";
 import { currencyForSession, currencyForSessions } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import {
@@ -2394,8 +2400,49 @@ function SettingsPage({
 }
 
 function BacktestGeneralSettings() {
+  const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
+    useState(loadOrderLineModificationConfirmation);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateOrderLineModificationConfirmation().then((enabled) => {
+      if (active) {
+        setConfirmOrderLineModifications(enabled);
+      }
+    });
+    const unsubscribe = subscribeOrderLineModificationConfirmation((enabled) => {
+      setConfirmOrderLineModifications(enabled);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  function updateConfirmation(enabled: boolean) {
+    setConfirmOrderLineModifications(enabled);
+    void saveOrderLineModificationConfirmation(enabled);
+  }
+
   return (
     <div className="mt-5 grid gap-4 md:grid-cols-2">
+      <label className="md:col-span-2 flex min-w-0 items-center justify-between gap-4 rounded-md border border-white/10 bg-black/20 px-3 py-3">
+        <span className="min-w-0">
+          <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Order line modifications
+          </span>
+          <span className="mt-1 block text-sm font-semibold text-white">
+            Confirm drag changes before applying
+          </span>
+        </span>
+        <input
+          aria-label="Confirm order line modifications"
+          checked={confirmOrderLineModifications}
+          className="h-5 w-5 accent-cyan-300"
+          onChange={(event) => updateConfirmation(event.target.checked)}
+          type="checkbox"
+        />
+      </label>
       <label className="form-field">
         Default risk %
         <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
