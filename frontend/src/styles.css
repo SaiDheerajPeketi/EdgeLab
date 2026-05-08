@@ -827,6 +827,26 @@ button:disabled {
     @apply flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-cyan-300/15 bg-cyan-300/5 p-2 text-xs text-slate-400;
   }
 
+  .chart-pane-layout-strip {
+    @apply flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/25 p-2 text-xs text-slate-400;
+  }
+
+  .chart-pane-layout-buttons {
+    @apply inline-flex h-8 items-center gap-1 rounded border border-white/10 bg-black/25 p-0.5;
+  }
+
+  .chart-pane-layout-button {
+    @apply grid h-7 w-8 place-items-center rounded text-slate-500 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .chart-pane-layout-button-active {
+    @apply bg-white text-ink-950 shadow-sm;
+  }
+
+  .chart-pane-active-label {
+    @apply inline-flex h-8 items-center rounded border border-cyan-300/15 bg-cyan-300/10 px-2 text-xs font-semibold text-cyan-100;
+  }
+
   .study-manager-label {
     @apply mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500;
   }
@@ -869,6 +889,58 @@ button:disabled {
 
   .chart-studio-layout-focus {
     @apply block;
+  }
+
+  .chart-pane-grid {
+    @apply grid min-w-0 gap-3;
+  }
+
+  .chart-pane-layout-single,
+  .chart-pane-layout-horizontal-2 {
+    @apply grid-cols-1;
+  }
+
+  .chart-pane-layout-vertical-2,
+  .chart-pane-layout-grid-4 {
+    @apply grid-cols-1 2xl:grid-cols-2;
+  }
+
+  .chart-pane-shell {
+    @apply min-w-0 rounded-md border border-transparent;
+  }
+
+  .chart-pane-shell-active {
+    @apply border-cyan-300/35 bg-cyan-300/[0.03] shadow-[0_0_0_1px_rgba(50,211,238,0.10),0_18px_48px_rgba(0,0,0,0.18)];
+  }
+
+  .chart-pane-header {
+    @apply flex min-h-9 items-center justify-between gap-3 rounded-t-md border-x border-t border-white/10 bg-[#070b10] px-2 text-xs text-slate-500;
+  }
+
+  .chart-pane-select-button {
+    @apply inline-flex h-7 items-center rounded px-2 text-xs font-semibold text-slate-400 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .chart-pane-select-button-active {
+    @apply bg-cyan-300/15 text-cyan-100;
+  }
+
+  .chart-pane-header + .chart-stage {
+    @apply rounded-t-none;
+  }
+
+  .chart-pane-layout-horizontal-2 .chart-stage {
+    min-height: 520px;
+  }
+
+  .chart-pane-layout-grid-4 .chart-stage {
+    min-height: 460px;
+  }
+
+  .chart-pane-layout-grid-4 .chart-frame,
+  .chart-pane-layout-grid-4 .chart-container-surface,
+  .chart-pane-layout-grid-4 .drawing-rail {
+    min-height: 330px;
   }
 
   .chart-studio-layout-collapsed {
@@ -1021,6 +1093,23 @@ button:disabled {
   .chart-fullscreen-shell .chart-container-surface,
   .chart-fullscreen-shell .drawing-rail {
     min-height: calc(100vh - 230px);
+  }
+
+  .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .chart-stage,
+  .chart-fullscreen-shell .chart-pane-layout-grid-4 .chart-stage {
+    min-height: 430px;
+  }
+
+  .chart-fullscreen-shell .chart-pane-layout-grid-4 .chart-frame,
+  .chart-fullscreen-shell .chart-pane-layout-grid-4 .chart-container-surface,
+  .chart-fullscreen-shell .chart-pane-layout-grid-4 .drawing-rail {
+    min-height: 300px;
+  }
+
+  .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .chart-frame,
+  .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .chart-container-surface,
+  .chart-fullscreen-shell .chart-pane-layout-horizontal-2 .drawing-rail {
+    min-height: 300px;
   }
 
   .chart-fullscreen-dock {

@@ -24,6 +24,8 @@ type Props = {
   isOrderPaneOpen: boolean;
   onTransientOverlayOpenChange?: (open: boolean) => void;
   onToggleOrderPane: () => void;
+  replayStepBars?: number;
+  replayTimeframeLabel?: string | null;
   showOrderToggle?: boolean;
   timeHoursFormat?: TimeHoursFormat;
 };
@@ -47,6 +49,8 @@ export function ReplayController({
   isOrderPaneOpen,
   onTransientOverlayOpenChange,
   onToggleOrderPane,
+  replayStepBars = 1,
+  replayTimeframeLabel = null,
   showOrderToggle = true,
   timeHoursFormat = "24-hour",
 }: Props) {
@@ -138,7 +142,12 @@ export function ReplayController({
           <button
             className="control-button"
             disabled={!state || isStepping}
-            onClick={() => void stepForward(1)}
+            onClick={() => void stepForward(replayStepBars)}
+            title={
+              replayStepBars > 1
+                ? `Advance ${replayStepBars.toLocaleString()} source bars`
+                : "Advance one bar"
+            }
             type="button"
           >
             <SkipForward size={17} />
@@ -147,7 +156,12 @@ export function ReplayController({
           <button
             className="control-button"
             disabled={!state || isStepping}
-            onClick={() => void stepForward(10)}
+            onClick={() => void stepForward(replayStepBars * 10)}
+            title={
+              replayStepBars > 1
+                ? `Advance ${(replayStepBars * 10).toLocaleString()} source bars`
+                : "Advance ten bars"
+            }
             type="button"
           >
             <StepForward size={17} />
@@ -196,6 +210,11 @@ export function ReplayController({
           <span className="rounded-md bg-white/5 px-3 py-2 text-sm text-slate-400">
             Bar {currentOffset.toLocaleString()}
           </span>
+          {replayTimeframeLabel && (
+            <span className="rounded-md border border-cyan-300/15 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">
+              Replay {replayTimeframeLabel}
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

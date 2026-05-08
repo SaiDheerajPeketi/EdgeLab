@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type { SetStateAction } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -54,12 +55,20 @@ import {
   createIndicatorInstance,
   createLegacyIndicatorInstance,
   formatChartTimeframeLabel,
+  getTimeframeSeconds,
   isIndicatorKind,
   mergeIndicatorSettings,
   nextIndicatorInstanceColor,
   normalizeChartTimeframe,
   normalizeFibLevels,
+  TIMEFRAMES,
 } from "./lib/charting";
+import {
+  DEFAULT_CHART_PANE_LAYOUT,
+  chartPaneLayoutById,
+  sanitizeChartPaneLayout,
+  type ChartPaneLayoutId,
+} from "./lib/chartLayouts";
 import {
   DEFAULT_CHART_VISUAL_SETTINGS,
   hydrateChartSettingsPresets,
@@ -100,6 +109,23 @@ type TimeframeShortcutFeedback = {
   status: "ready" | "unavailable" | "invalid";
   timeframe?: ChartTimeframe;
   value: string;
+};
+type ReplayTimeframeOption = {
+  label: string;
+  sublabel?: string;
+  value: ChartTimeframe;
+};
+type ChartPaneState = {
+  chartSettings: ChartVisualSettings;
+  chartStyle: ChartStyle;
+  drawingTool: DrawingTool;
+  drawings: ChartDrawing[];
+  id: string;
+  indicatorInstances: ChartIndicatorInstance[];
+  magnetMode: MagnetMode;
+  showOrderOverlays: boolean;
+  smoothCandles: boolean;
+  timeframe: ChartTimeframe;
 };
 const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
   "atr14",
@@ -176,36 +202,33 @@ export default function App() {
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
-  const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
-    const saved = loadChartLayout();
-    return sanitizeTimeframe(saved?.timeframe);
-  });
-  const [chartStyle, setChartStyle] = useState<ChartStyle>(() => {
-    const saved = loadChartLayout();
-    return sanitizeChartStyle(saved?.chartStyle);
-  });
-  const [chartSettings, setChartSettings] = useState<ChartVisualSettings>(() => {
-    return loadInitialChartSettings();
-  });
-  const [indicatorInstances, setIndicatorInstances] = useState<ChartIndicatorInstance[]>(() => {
-    const saved = loadChartLayout();
-    return sanitizeIndicatorInstances(
-      saved?.indicatorInstances,
-      saved?.activeIndicators,
-      saved?.indicatorSettings,
-    );
-  });
-  const [drawingTool, setDrawingTool] = useState<DrawingTool>("crosshair");
+  const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
+  const [chartPaneLayout, setChartPaneLayout] = useState<ChartPaneLayoutId>(() =>
+    sanitizeChartPaneLayout(loadChartLayout()?.paneLayout),
+  );
+  const [chartPanes, setChartPanes] = useState<ChartPaneState[]>(() =>
+    loadInitialChartPanes(),
+  );
+  const [activeChartPaneId, setActiveChartPaneId] = useState(() => "chart-pane-1");
+  const activeChartPaneIndex = Math.max(
+    0,
+    chartPanes.findIndex((pane) => pane.id === activeChartPaneId),
+  );
+  const activeChartPane = chartPanes[activeChartPaneIndex] ?? chartPanes[0] ?? createDefaultChartPane(0);
+  const activeChartPaneCount = chartPaneLayoutById(chartPaneLayout).panes;
+  const visibleChartPanes = chartPanes.slice(0, activeChartPaneCount);
+  const isMultiChartLayout = visibleChartPanes.length > 1;
+  const chartPaneLayoutDefinition = chartPaneLayoutById(chartPaneLayout);
+  const activeChartPaneLabel = `Pane ${activeChartPaneIndex + 1}`;
+  const timeframe = activeChartPane.timeframe;
+  const chartStyle = activeChartPane.chartStyle;
+  const chartSettings = activeChartPane.chartSettings;
+  const indicatorInstances = activeChartPane.indicatorInstances;
+  const drawingTool = activeChartPane.drawingTool;
   const lastNeutralDrawingToolRef = useRef<NeutralDrawingTool>("crosshair");
-  const [magnetMode, setMagnetMode] = useState<MagnetMode>(() => {
-    const saved = loadChartLayout();
-    return sanitizeMagnetMode(saved?.magnetMode);
-  });
+  const magnetMode = activeChartPane.magnetMode;
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
-  const [drawings, setDrawings] = useState<ChartDrawing[]>(() => {
-    const saved = loadChartLayout();
-    return sanitizeDrawings(saved?.drawings);
-  });
+  const drawings = activeChartPane.drawings;
   const drawingsRef = useRef<ChartDrawing[]>(drawings);
   const drawingUndoStackRef = useRef<ChartDrawing[][]>([]);
   const drawingUndoBatchOpenRef = useRef(false);
@@ -215,14 +238,80 @@ export default function App() {
   const timeframeShortcutTimerRef = useRef<number | null>(null);
   const [drawingUndoDepth, setDrawingUndoDepth] = useState(0);
   const undoShortcutLabel = systemUndoShortcutLabel();
-  const [showOrderOverlays, setShowOrderOverlays] = useState(() => {
-    const saved = loadChartLayout();
-    return saved?.showOrderOverlays ?? true;
-  });
-  const [smoothCandles, setSmoothCandles] = useState(() => {
-    const saved = loadChartLayout();
-    return saved?.smoothCandles ?? false;
-  });
+  const showOrderOverlays = activeChartPane.showOrderOverlays;
+  const smoothCandles = activeChartPane.smoothCandles;
+  const replayTimeframeOptions = useMemo(
+    () => buildReplayTimeframeOptions(visibleChartPanes, sourceTimeframe),
+    [sourceTimeframe, visibleChartPanes],
+  );
+  const [replayTimeframe, setReplayTimeframe] = useState<ChartTimeframe>(() =>
+    loadInitialReplayTimeframe(),
+  );
+  const normalizedReplayTimeframe =
+    replayTimeframeOptions.find((option) => option.value === replayTimeframe)?.value ??
+    replayTimeframeOptions[0]?.value ??
+    effectiveSourceFallbackTimeframe(sourceTimeframe);
+  const replayStepBars = getReplayStepBars(normalizedReplayTimeframe, sourceTimeframe);
+  const playbackStepBars = isMultiChartLayout ? replayStepBars : 1;
+
+  function updateChartPane(
+    paneId: string,
+    updater: (pane: ChartPaneState) => ChartPaneState,
+  ) {
+    setChartPanes((current) =>
+      current.map((pane) => (pane.id === paneId ? updater(pane) : pane)),
+    );
+  }
+
+  function updateActiveChartPane(updater: (pane: ChartPaneState) => ChartPaneState) {
+    updateChartPane(activeChartPane.id, updater);
+  }
+
+  function setPaneField<K extends keyof ChartPaneState>(
+    key: K,
+    action: SetStateAction<ChartPaneState[K]>,
+  ) {
+    updateActiveChartPane((pane) => ({
+      ...pane,
+      [key]: resolveStateAction(action, pane[key]),
+    }));
+  }
+
+  function setTimeframe(action: SetStateAction<ChartTimeframe>) {
+    setPaneField("timeframe", action);
+  }
+
+  function setChartStyle(action: SetStateAction<ChartStyle>) {
+    setPaneField("chartStyle", action);
+  }
+
+  function setChartSettings(action: SetStateAction<ChartVisualSettings>) {
+    setPaneField("chartSettings", action);
+  }
+
+  function setIndicatorInstances(action: SetStateAction<ChartIndicatorInstance[]>) {
+    setPaneField("indicatorInstances", action);
+  }
+
+  function setDrawingTool(action: SetStateAction<DrawingTool>) {
+    setPaneField("drawingTool", action);
+  }
+
+  function setMagnetMode(action: SetStateAction<MagnetMode>) {
+    setPaneField("magnetMode", action);
+  }
+
+  function setDrawings(action: SetStateAction<ChartDrawing[]>) {
+    setPaneField("drawings", action);
+  }
+
+  function setShowOrderOverlays(action: SetStateAction<boolean>) {
+    setPaneField("showOrderOverlays", action);
+  }
+
+  function setSmoothCandles(action: SetStateAction<boolean>) {
+    setPaneField("smoothCandles", action);
+  }
 
   function changeDrawingTool(tool: DrawingTool) {
     if (tool === "cursor" || tool === "crosshair") {
@@ -231,11 +320,20 @@ export default function App() {
     setDrawingTool(tool);
   }
 
+  function changeDrawingToolForPane(paneId: string, tool: DrawingTool) {
+    if (tool === "cursor" || tool === "crosshair") {
+      lastNeutralDrawingToolRef.current = tool;
+    }
+    updateChartPane(paneId, (pane) => ({ ...pane, drawingTool: tool }));
+  }
+
+  function changeMagnetModeForPane(paneId: string, mode: MagnetMode) {
+    updateChartPane(paneId, (pane) => ({ ...pane, magnetMode: mode }));
+  }
+
   function returnToNeutralDrawingTool() {
     setDrawingTool(lastNeutralDrawingToolRef.current);
   }
-
-  const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
   const effectiveTimeframe = coerceTimeframeToSource(timeframe, sourceTimeframe);
 
   useEffect(() => {
@@ -314,7 +412,16 @@ export default function App() {
 
   useEffect(() => {
     if (sourceTimeframe) {
-      setTimeframe(sourceTimeframe);
+      setChartPanes((current) =>
+        current.map((pane, index) => ({
+          ...pane,
+          timeframe:
+            index === 0
+              ? sourceTimeframe
+              : coerceTimeframeToSource(pane.timeframe, sourceTimeframe),
+        })),
+      );
+      setReplayTimeframe(sourceTimeframe);
     }
   }, [state?.session.id, sourceTimeframe]);
 
@@ -344,14 +451,33 @@ export default function App() {
   }, [effectiveTimeframe, timeframe]);
 
   useEffect(() => {
+    const layout = chartPaneLayoutById(chartPaneLayout);
+    if (chartPanes.some((pane) => pane.id === activeChartPaneId) && activeChartPaneIndex < layout.panes) {
+      return;
+    }
+    setActiveChartPaneId(chartPanes[0]?.id ?? "chart-pane-1");
+    setSelectedDrawingId(null);
+    resetDrawingUndoHistory();
+  }, [activeChartPaneId, activeChartPaneIndex, chartPaneLayout, chartPanes]);
+
+  useEffect(() => {
+    if (replayTimeframeOptions.some((option) => option.value === replayTimeframe)) {
+      return;
+    }
+    setReplayTimeframe(
+      replayTimeframeOptions[0]?.value ?? effectiveSourceFallbackTimeframe(sourceTimeframe),
+    );
+  }, [replayTimeframe, replayTimeframeOptions, sourceTimeframe]);
+
+  useEffect(() => {
     if (!isPlaying) {
       return;
     }
     const timer = window.setInterval(() => {
-      void stepForward(1);
+      void stepForward(playbackStepBars);
     }, speedMs);
     return () => window.clearInterval(timer);
-  }, [isPlaying, speedMs, stepForward]);
+  }, [isPlaying, playbackStepBars, speedMs, stepForward]);
 
   useEffect(() => {
     function handleHeaderControlPointerDown(event: PointerEvent) {
@@ -516,12 +642,17 @@ export default function App() {
       switch (event.key) {
         case "ArrowRight":
           event.preventDefault();
-          void stepForward(1);
+          void stepForward(playbackStepBars);
           break;
         case "ArrowLeft":
           event.preventDefault();
           if (state) {
-            void jumpToOffset(Math.max(state.session.start_offset, state.session.current_offset - 1));
+            void jumpToOffset(
+              Math.max(
+                state.session.start_offset,
+                state.session.current_offset - playbackStepBars,
+              ),
+            );
           }
           break;
         case " ":
@@ -601,7 +732,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, state, stepForward, undoLastDrawingChange]);
+  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, playbackStepBars, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, state, stepForward, undoLastDrawingChange]);
 
   useEffect(() => {
     function syncNativeFullscreen() {
@@ -699,6 +830,19 @@ export default function App() {
     );
   }
 
+  function removeIndicatorForPane(paneId: string, instanceId: string) {
+    if (paneId === activeChartPane.id) {
+      removeIndicator(instanceId);
+      return;
+    }
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      indicatorInstances: pane.indicatorInstances.filter(
+        (indicator) => indicator.id !== instanceId,
+      ),
+    }));
+  }
+
   function toggleIndicatorVisibility(instanceId: string) {
     setIndicatorInstances((current) =>
       current.map((indicator) =>
@@ -709,8 +853,54 @@ export default function App() {
     );
   }
 
+  function toggleIndicatorVisibilityForPane(paneId: string, instanceId: string) {
+    if (paneId === activeChartPane.id) {
+      toggleIndicatorVisibility(instanceId);
+      return;
+    }
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      indicatorInstances: pane.indicatorInstances.map((indicator) =>
+        indicator.id === instanceId
+          ? { ...indicator, visible: indicator.visible === false }
+          : indicator,
+      ),
+    }));
+  }
+
   function changeTimeframe(nextTimeframe: ChartTimeframe) {
     setTimeframe(coerceTimeframeToSource(nextTimeframe, sourceTimeframe));
+  }
+
+  function selectChartPane(paneId: string) {
+    if (paneId === activeChartPane.id) {
+      return;
+    }
+    setActiveChartPaneId(paneId);
+    setSelectedDrawingId(null);
+    resetDrawingUndoHistory();
+  }
+
+  function changeChartPaneLayout(nextLayout: ChartPaneLayoutId) {
+    const layout = chartPaneLayoutById(nextLayout);
+    setChartPaneLayout(layout.id);
+    setChartPanes((current) => {
+      const nextPanes = [...current];
+      while (nextPanes.length < layout.panes) {
+        nextPanes.push(
+          createDefaultChartPane(nextPanes.length, activeChartPane, sourceTimeframe),
+        );
+      }
+      return nextPanes;
+    });
+    if (activeChartPaneIndex >= layout.panes) {
+      setActiveChartPaneId("chart-pane-1");
+      setSelectedDrawingId(null);
+      resetDrawingUndoHistory();
+    }
+    if (layout.panes > 1) {
+      setReplayTimeframe(coerceTimeframeToSource(activeChartPane.timeframe, sourceTimeframe));
+    }
   }
 
   function updateIndicatorSettings(
@@ -730,6 +920,31 @@ export default function App() {
           : indicator,
       ),
     );
+  }
+
+  function updateIndicatorSettingsForPane(
+    paneId: string,
+    instanceId: string,
+    settings: Partial<IndicatorSettings>,
+  ) {
+    if (paneId === activeChartPane.id) {
+      updateIndicatorSettings(instanceId, settings);
+      return;
+    }
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      indicatorInstances: pane.indicatorInstances.map((indicator) =>
+        indicator.id === instanceId
+          ? {
+              ...indicator,
+              settings: mergeIndicatorSettings(indicator.kind, {
+                ...indicator.settings,
+                ...settings,
+              }),
+            }
+          : indicator,
+      ),
+    }));
   }
 
   function commitDrawingsChange(
@@ -826,6 +1041,20 @@ export default function App() {
     setSelectedDrawingId(drawing.id);
   }
 
+  function addDrawingToPane(paneId: string, drawing: ChartDrawing) {
+    if (paneId === activeChartPane.id) {
+      addDrawing(drawing);
+      return;
+    }
+    setActiveChartPaneId(paneId);
+    setSelectedDrawingId(drawing.id);
+    const pane = chartPanes.find((item) => item.id === paneId);
+    updateChartPane(paneId, (currentPane) => ({
+      ...currentPane,
+      drawings: sanitizeDrawings([...(pane?.drawings ?? []), drawing]),
+    }));
+  }
+
   function updateDrawing(updatedDrawing: ChartDrawing, coalesceUndo = false) {
     commitDrawingsChange(
       drawingsRef.current.map((drawing) =>
@@ -833,6 +1062,25 @@ export default function App() {
       ),
       { coalesceUndo },
     );
+  }
+
+  function updateDrawingForPane(
+    paneId: string,
+    updatedDrawing: ChartDrawing,
+    coalesceUndo = false,
+  ) {
+    if (paneId === activeChartPane.id) {
+      updateDrawing(updatedDrawing, coalesceUndo);
+      return;
+    }
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      drawings: sanitizeDrawings(
+        pane.drawings.map((drawing) =>
+          drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
+        ),
+      ),
+    }));
   }
 
   function undoLastDrawingChange() {
@@ -871,6 +1119,17 @@ export default function App() {
     }
   }
 
+  function clearDrawingsForPane(paneId: string) {
+    if (paneId === activeChartPane.id) {
+      clearDrawings();
+      return;
+    }
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      drawings: pane.drawings.filter((drawing) => drawing.locked),
+    }));
+  }
+
   function deleteDrawing(drawingId: string) {
     const targetDrawing = drawingsRef.current.find((drawing) => drawing.id === drawingId);
     if (!targetDrawing || targetDrawing.locked) {
@@ -878,6 +1137,26 @@ export default function App() {
     }
     commitDrawingsChange(drawingsRef.current.filter((drawing) => drawing.id !== drawingId));
     setSelectedDrawingId(null);
+  }
+
+  function deleteDrawingForPane(paneId: string, drawingId: string) {
+    if (paneId === activeChartPane.id) {
+      deleteDrawing(drawingId);
+      return;
+    }
+    updateChartPane(paneId, (pane) => {
+      const targetDrawing = pane.drawings.find((drawing) => drawing.id === drawingId);
+      if (!targetDrawing || targetDrawing.locked) {
+        return pane;
+      }
+      return {
+        ...pane,
+        drawings: pane.drawings.filter((drawing) => drawing.id !== drawingId),
+      };
+    });
+    if (selectedDrawingId === drawingId) {
+      setSelectedDrawingId(null);
+    }
   }
 
   function removeLastUnlockedDrawing() {
@@ -949,16 +1228,29 @@ export default function App() {
   }
 
   function buildChartLayoutPayload(nextDrawings: ChartDrawing[]): StoredChartLayout {
+    const panes = chartPanes.map((pane) =>
+      sanitizeChartPaneState(
+        pane.id === activeChartPane.id ? { ...pane, drawings: nextDrawings } : pane,
+      ),
+    );
+    const activePane = panes.find((pane) => pane.id === activeChartPane.id) ?? panes[0];
     return {
-      chartSettings: sanitizeChartVisualSettings(chartSettings),
-      chartStyle,
-      drawings: sanitizeDrawings(nextDrawings),
-      indicatorInstances: sanitizeIndicatorInstances(indicatorInstances),
-      magnetMode,
+      activePaneId: activePane?.id,
+      chartSettings: sanitizeChartVisualSettings(activePane?.chartSettings),
+      chartStyle: sanitizeChartStyle(activePane?.chartStyle),
+      drawings: sanitizeDrawings(activePane?.drawings),
+      indicatorInstances: sanitizeIndicatorInstances(activePane?.indicatorInstances),
+      magnetMode: sanitizeMagnetMode(activePane?.magnetMode),
+      paneLayout: chartPaneLayout,
+      panes,
+      replayTimeframe: normalizedReplayTimeframe,
       settingsDefaultsVersion: CHART_SETTINGS_DEFAULTS_VERSION,
-      showOrderOverlays,
-      smoothCandles,
-      timeframe: effectiveTimeframe,
+      showOrderOverlays: activePane?.showOrderOverlays ?? true,
+      smoothCandles: activePane?.smoothCandles ?? false,
+      timeframe: coerceTimeframeToSource(
+        sanitizeTimeframe(activePane?.timeframe),
+        sourceTimeframe,
+      ),
     };
   }
 
@@ -983,23 +1275,17 @@ export default function App() {
   }
 
   function applyChartLayout(layout: Partial<StoredChartLayout>) {
-    const nextDrawings = cloneDrawingsForHistory(sanitizeDrawings(layout.drawings));
-    setIndicatorInstances(
-      sanitizeIndicatorInstances(
-        layout.indicatorInstances,
-        layout.activeIndicators,
-        layout.indicatorSettings,
-      ),
-    );
-    setChartStyle(sanitizeChartStyle(layout.chartStyle));
-    setChartSettings(sanitizeChartVisualSettings(layout.chartSettings));
-    drawingsRef.current = nextDrawings;
-    setDrawings(nextDrawings);
+    const nextLayout = sanitizeChartPaneLayout(layout.paneLayout);
+    const nextPanes = sanitizeChartPanes(layout);
+    const nextActivePane =
+      nextPanes.find((pane) => pane.id === layout.activePaneId) ?? nextPanes[0];
+    setChartPaneLayout(nextLayout);
+    setChartPanes(nextPanes);
+    setActiveChartPaneId(nextActivePane?.id ?? "chart-pane-1");
+    setReplayTimeframe(sanitizeTimeframe(layout.replayTimeframe ?? nextActivePane?.timeframe));
+    drawingsRef.current = nextActivePane?.drawings ?? [];
     resetDrawingUndoHistory();
-    setMagnetMode(sanitizeMagnetMode(layout.magnetMode));
-    setShowOrderOverlays(layout.showOrderOverlays ?? true);
-    setSmoothCandles(layout.smoothCandles ?? false);
-    setTimeframe(coerceTimeframeToSource(sanitizeTimeframe(layout.timeframe), sourceTimeframe));
+    setSelectedDrawingId(null);
   }
 
   function toggleChartTools() {
@@ -1375,12 +1661,19 @@ export default function App() {
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onTransientOverlayOpenChange={setReplayOverlayOpen}
                   onToggleOrderPane={toggleOrderPanel}
+                  replayStepBars={playbackStepBars}
+                  replayTimeframeLabel={
+                    isMultiChartLayout
+                      ? formatChartTimeframeLabel(normalizedReplayTimeframe)
+                      : null
+                  }
                   showOrderToggle={false}
                   timeHoursFormat={chartSettings.timeHoursFormat}
                 />
                 {(chartToolsOpen || chartSettingsPanelOpen) && (
                   <ChartToolbar
                     key={chartToolsOpen ? "chart-tools" : "chart-settings"}
+                    activePaneLabel={activeChartPaneLabel}
                     chartSettings={chartSettings}
                     chartStyle={chartStyle}
                     clearableDrawingsCount={unlockedDrawingsCount}
@@ -1403,7 +1696,14 @@ export default function App() {
                     onLayoutNameChange={setLayoutName}
                     onLoadLayout={loadNamedChartLayout}
                     magnetMode={magnetMode}
+                    multiChart={isMultiChartLayout}
                     onMagnetModeChange={setMagnetMode}
+                    onPaneLayoutChange={changeChartPaneLayout}
+                    onReplayTimeframeChange={(nextTimeframe) =>
+                      setReplayTimeframe(
+                        coerceTimeframeToSource(nextTimeframe, sourceTimeframe),
+                      )
+                    }
                     onSaveLayout={saveChartLayout}
                     onTimeframeChange={changeTimeframe}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
@@ -1412,6 +1712,9 @@ export default function App() {
                     onSettingsClose={handleChartSettingsClose}
                     onSmoothCandlesChange={setSmoothCandles}
                     orderOverlaysVisible={showOrderOverlays}
+                    paneLayout={chartPaneLayout}
+                    replayTimeframe={normalizedReplayTimeframe}
+                    replayTimeframeOptions={replayTimeframeOptions}
                     savedLabel={savedLayoutLabel}
                     settingsOpenSignal={chartSettingsOpenSignal}
                     smoothCandles={smoothCandles}
@@ -1422,43 +1725,99 @@ export default function App() {
                 )}
                 <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
                   <div className="min-w-0 space-y-3">
-                    <TradingChart
-                      bars={bars}
-                      canUndoDrawingChange={drawingUndoDepth > 0}
-                      chartSettings={chartSettings}
-                      chartStyle={chartStyle}
-                      confirmOrderLineModifications={confirmOrderLineModifications}
-                      drawingTool={drawingTool}
-                      drawings={drawings}
-                      executions={executions}
-                      indicatorInstances={indicatorInstances}
-                      magnetMode={magnetMode}
-                      neutralDrawingTool={lastNeutralDrawingToolRef.current}
-                      onAddDrawing={addDrawing}
-                      onAmendOrder={amendOrder}
-                      onClearDrawings={clearDrawings}
-                      onClosePositionFraction={closePositionFraction}
-                      onDeleteDrawing={deleteDrawing}
-                      onDrawingToolChange={changeDrawingTool}
-                      onMagnetModeChange={setMagnetMode}
-                      onRemoveIndicator={removeIndicator}
-                      onSelectDrawing={setSelectedDrawingId}
-                      onToggleIndicatorVisibility={toggleIndicatorVisibility}
-                      onUpdatePosition={updatePosition}
-                      onUndoDrawingChange={undoLastDrawingChange}
-                      onUpdateDrawing={updateDrawing}
-                      onUpdateIndicatorSettings={updateIndicatorSettings}
-                      orders={orders}
-                      position={position}
-                      pnlMultiplier={state?.session.pnl_multiplier ?? 1}
-                      selectedDrawingId={selectedDrawingId}
-                      showOrderOverlays={showOrderOverlays}
-                      symbol={state?.session.symbol}
-                      currency={sessionCurrency}
-                      datasetTimeframe={state?.session.timeframe}
-                      timeframe={effectiveTimeframe}
-                      undoShortcutLabel={undoShortcutLabel}
-                    />
+                    <div
+                      className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}
+                    >
+                      {visibleChartPanes.map((pane, index) => {
+                        const paneActive = pane.id === activeChartPane.id;
+                        const paneTimeframe = coerceTimeframeToSource(
+                          pane.timeframe,
+                          sourceTimeframe,
+                        );
+                        return (
+                          <div
+                            className={`chart-pane-shell ${
+                              paneActive ? "chart-pane-shell-active" : ""
+                            }`}
+                            key={pane.id}
+                            onPointerDownCapture={() => selectChartPane(pane.id)}
+                          >
+                            {isMultiChartLayout && (
+                              <div className="chart-pane-header">
+                                <button
+                                  className={`chart-pane-select-button ${
+                                    paneActive ? "chart-pane-select-button-active" : ""
+                                  }`}
+                                  onClick={() => selectChartPane(pane.id)}
+                                  type="button"
+                                >
+                                  Pane {index + 1}
+                                </button>
+                                <span>{formatChartTimeframeLabel(paneTimeframe)}</span>
+                              </div>
+                            )}
+                            <TradingChart
+                              bars={bars}
+                              canUndoDrawingChange={paneActive && drawingUndoDepth > 0}
+                              chartSettings={pane.chartSettings}
+                              chartStyle={pane.chartStyle}
+                              confirmOrderLineModifications={confirmOrderLineModifications}
+                              drawingTool={pane.drawingTool}
+                              drawings={pane.drawings}
+                              executions={executions}
+                              indicatorInstances={pane.indicatorInstances}
+                              magnetMode={pane.magnetMode}
+                              neutralDrawingTool={lastNeutralDrawingToolRef.current}
+                              onAddDrawing={(nextDrawing) =>
+                                addDrawingToPane(pane.id, nextDrawing)
+                              }
+                              onAmendOrder={amendOrder}
+                              onClearDrawings={() => clearDrawingsForPane(pane.id)}
+                              onClosePositionFraction={closePositionFraction}
+                              onDeleteDrawing={(drawingId) =>
+                                deleteDrawingForPane(pane.id, drawingId)
+                              }
+                              onDrawingToolChange={(tool) =>
+                                changeDrawingToolForPane(pane.id, tool)
+                              }
+                              onMagnetModeChange={(mode) =>
+                                changeMagnetModeForPane(pane.id, mode)
+                              }
+                              onRemoveIndicator={(instanceId) =>
+                                removeIndicatorForPane(pane.id, instanceId)
+                              }
+                              onSelectDrawing={(drawingId) => {
+                                selectChartPane(pane.id);
+                                setSelectedDrawingId(drawingId);
+                              }}
+                              onToggleIndicatorVisibility={(instanceId) =>
+                                toggleIndicatorVisibilityForPane(pane.id, instanceId)
+                              }
+                              onUpdatePosition={updatePosition}
+                              onUndoDrawingChange={
+                                paneActive ? undoLastDrawingChange : () => selectChartPane(pane.id)
+                              }
+                              onUpdateDrawing={(nextDrawing, coalesceUndo) =>
+                                updateDrawingForPane(pane.id, nextDrawing, coalesceUndo)
+                              }
+                              onUpdateIndicatorSettings={(instanceId, settings) =>
+                                updateIndicatorSettingsForPane(pane.id, instanceId, settings)
+                              }
+                              orders={orders}
+                              position={position}
+                              pnlMultiplier={state?.session.pnl_multiplier ?? 1}
+                              selectedDrawingId={paneActive ? selectedDrawingId : null}
+                              showOrderOverlays={pane.showOrderOverlays}
+                              symbol={state?.session.symbol}
+                              currency={sessionCurrency}
+                              datasetTimeframe={state?.session.timeframe}
+                              timeframe={paneTimeframe}
+                              undoShortcutLabel={undoShortcutLabel}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   {layersPanelOpen ? (
                     <ChartObjectsPanel
@@ -1687,12 +2046,16 @@ function isElementMoreThanHalfVisible(element: HTMLElement) {
 
 type StoredChartLayout = {
   activeIndicators?: ChartIndicatorId[];
+  activePaneId?: string;
   chartSettings?: ChartVisualSettings;
   chartStyle: ChartStyle;
   drawings: ChartDrawing[];
   indicatorInstances: ChartIndicatorInstance[];
   indicatorSettings?: Partial<Record<ChartIndicatorId, Partial<IndicatorSettings>>>;
   magnetMode: MagnetMode;
+  paneLayout?: ChartPaneLayoutId;
+  panes?: ChartPaneState[];
+  replayTimeframe?: ChartTimeframe;
   settingsDefaultsVersion?: number;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
@@ -1822,6 +2185,18 @@ function loadInitialChartSettings() {
   }
   const saved = loadChartLayout();
   return sanitizeChartVisualSettings(saved?.chartSettings);
+}
+
+function loadInitialChartPanes() {
+  return sanitizeChartPanes(loadChartLayout() ?? {});
+}
+
+function loadInitialReplayTimeframe() {
+  const saved = loadChartLayout();
+  const activePane = Array.isArray(saved?.panes)
+    ? saved.panes.find((pane) => pane?.id === saved.activePaneId) ?? saved.panes[0]
+    : null;
+  return sanitizeTimeframe(saved?.replayTimeframe ?? activePane?.timeframe ?? saved?.timeframe);
 }
 
 function loadSavedLayoutNames() {
@@ -1963,6 +2338,174 @@ function sanitizeChartStyle(value: unknown): ChartStyle {
   return VALID_CHART_STYLES.includes(value as ChartStyle)
     ? (value as ChartStyle)
     : "candles";
+}
+
+function sanitizeDrawingTool(value: unknown): DrawingTool {
+  return [
+    "cursor",
+    "crosshair",
+    "fib",
+    "horizontal",
+    "longPosition",
+    "measure",
+    "rectangle",
+    "shortPosition",
+    "text",
+    "trendline",
+    "vertical",
+  ].includes(value as DrawingTool)
+    ? (value as DrawingTool)
+    : "crosshair";
+}
+
+function createDefaultChartPane(
+  index: number,
+  template?: Partial<ChartPaneState> | null,
+  sourceTimeframe?: ChartTimeframe | null,
+): ChartPaneState {
+  const fallbackTimeframe = effectiveSourceFallbackTimeframe(sourceTimeframe ?? null);
+  return {
+    chartSettings: sanitizeChartVisualSettings(template?.chartSettings),
+    chartStyle: sanitizeChartStyle(template?.chartStyle),
+    drawingTool: sanitizeDrawingTool(template?.drawingTool),
+    drawings: [],
+    id: `chart-pane-${index + 1}`,
+    indicatorInstances: sanitizeIndicatorInstances(template?.indicatorInstances),
+    magnetMode: sanitizeMagnetMode(template?.magnetMode),
+    showOrderOverlays: template?.showOrderOverlays ?? true,
+    smoothCandles: template?.smoothCandles ?? false,
+    timeframe: coerceTimeframeToSource(
+      sanitizeTimeframe(template?.timeframe ?? fallbackTimeframe),
+      sourceTimeframe ?? null,
+    ),
+  };
+}
+
+function sanitizeChartPaneState(
+  value: unknown,
+  index = 0,
+  sourceTimeframe: ChartTimeframe | null = null,
+): ChartPaneState {
+  const candidate =
+    typeof value === "object" && value != null
+      ? (value as Partial<ChartPaneState>)
+      : {};
+  const fallback = createDefaultChartPane(index, null, sourceTimeframe);
+  const id =
+    typeof candidate.id === "string" && candidate.id.trim().length > 0
+      ? candidate.id.trim().slice(0, 80)
+      : fallback.id;
+  return {
+    ...fallback,
+    chartSettings: sanitizeChartVisualSettings(candidate.chartSettings),
+    chartStyle: sanitizeChartStyle(candidate.chartStyle),
+    drawingTool: sanitizeDrawingTool(candidate.drawingTool),
+    drawings: sanitizeDrawings(candidate.drawings),
+    id,
+    indicatorInstances: sanitizeIndicatorInstances(candidate.indicatorInstances),
+    magnetMode: sanitizeMagnetMode(candidate.magnetMode),
+    showOrderOverlays: candidate.showOrderOverlays !== false,
+    smoothCandles: candidate.smoothCandles === true,
+    timeframe: coerceTimeframeToSource(
+      sanitizeTimeframe(candidate.timeframe),
+      sourceTimeframe,
+    ),
+  };
+}
+
+function sanitizeChartPanes(
+  layout: Partial<StoredChartLayout>,
+  sourceTimeframe: ChartTimeframe | null = null,
+): ChartPaneState[] {
+  const paneLayout = sanitizeChartPaneLayout(
+    layout.paneLayout ?? DEFAULT_CHART_PANE_LAYOUT,
+  );
+  const paneCount = chartPaneLayoutById(paneLayout).panes;
+  const legacyPane = {
+    chartSettings: layout.chartSettings,
+    chartStyle: layout.chartStyle,
+    drawingTool: "crosshair" as DrawingTool,
+    drawings: layout.drawings,
+    id: "chart-pane-1",
+    indicatorInstances: layout.indicatorInstances,
+    magnetMode: layout.magnetMode,
+    showOrderOverlays: layout.showOrderOverlays,
+    smoothCandles: layout.smoothCandles,
+    timeframe: layout.timeframe,
+  };
+  const rawPanes =
+    Array.isArray(layout.panes) && layout.panes.length > 0
+      ? layout.panes
+      : [legacyPane];
+  const panes = rawPanes.map((pane, index) =>
+    sanitizeChartPaneState(pane, index, sourceTimeframe),
+  );
+  const seenIds = new Set<string>();
+  const uniquePanes = panes.map((pane, index) => {
+    const fallbackId = `chart-pane-${index + 1}`;
+    const id = seenIds.has(pane.id) ? fallbackId : pane.id;
+    seenIds.add(id);
+    return { ...pane, id };
+  });
+
+  while (uniquePanes.length < paneCount) {
+    uniquePanes.push(
+      createDefaultChartPane(uniquePanes.length, uniquePanes[0], sourceTimeframe),
+    );
+  }
+
+  return uniquePanes.slice(0, Math.max(paneCount, uniquePanes.length));
+}
+
+function resolveStateAction<T>(action: SetStateAction<T>, previous: T): T {
+  return typeof action === "function"
+    ? (action as (value: T) => T)(previous)
+    : action;
+}
+
+function effectiveSourceFallbackTimeframe(sourceTimeframe: ChartTimeframe | null) {
+  return sourceTimeframe ?? "1m";
+}
+
+function buildReplayTimeframeOptions(
+  panes: ChartPaneState[],
+  sourceTimeframe: ChartTimeframe | null,
+): ReplayTimeframeOption[] {
+  const source = effectiveSourceFallbackTimeframe(sourceTimeframe);
+  const orderedTimeframes = [
+    source,
+    ...panes.map((pane) => coerceTimeframeToSource(pane.timeframe, sourceTimeframe)),
+    ...TIMEFRAMES.map((timeframe) => timeframe.id),
+  ];
+  const seen = new Set<string>();
+  return orderedTimeframes.flatMap((timeframe) => {
+    const normalized = normalizeChartTimeframe(timeframe);
+    if (!normalized || seen.has(normalized) || !canAggregateTimeframe(normalized, sourceTimeframe)) {
+      return [];
+    }
+    seen.add(normalized);
+    const stepBars = getReplayStepBars(normalized, sourceTimeframe);
+    return [
+      {
+        label: `${formatChartTimeframeLabel(normalized)} bars`,
+        sublabel: stepBars === 1 ? "Source step" : `${stepBars} source bars`,
+        value: normalized,
+      },
+    ];
+  });
+}
+
+function getReplayStepBars(
+  replayTimeframe: ChartTimeframe,
+  sourceTimeframe: ChartTimeframe | null,
+) {
+  if (!sourceTimeframe || !canAggregateTimeframe(replayTimeframe, sourceTimeframe)) {
+    return 1;
+  }
+  return Math.max(
+    1,
+    Math.round(getTimeframeSeconds(replayTimeframe) / getTimeframeSeconds(sourceTimeframe)),
+  );
 }
 
 function toChartTimeframe(value: string | null | undefined): ChartTimeframe | null {

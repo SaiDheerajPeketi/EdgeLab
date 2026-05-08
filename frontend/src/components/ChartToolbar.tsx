@@ -7,13 +7,17 @@ import {
   Command,
   Eye,
   EyeOff,
+  Columns2,
+  Grid2X2,
   Layers,
   LineChart,
   Magnet,
+  Rows2,
   Save,
   Search,
   Settings2,
   SlidersHorizontal,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -66,10 +70,15 @@ import {
   type ChartSettingsPreset,
   type ChartVisualSettings,
 } from "../lib/chartSettings";
+import {
+  CHART_PANE_LAYOUTS,
+  type ChartPaneLayoutId,
+} from "../lib/chartLayouts";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
+  activePaneLabel: string;
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   clearableDrawingsCount: number;
@@ -79,6 +88,7 @@ type Props = {
   layoutName: string;
   layoutNames: string[];
   magnetMode: MagnetMode;
+  multiChart: boolean;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onChartSettingsChange: (settings: ChartVisualSettings) => void;
   onChartSettingsReset: () => void;
@@ -89,6 +99,8 @@ type Props = {
   onLayoutNameChange: (name: string) => void;
   onLoadLayout: (name: string) => void;
   onMagnetModeChange: (mode: MagnetMode) => void;
+  onPaneLayoutChange: (layout: ChartPaneLayoutId) => void;
+  onReplayTimeframeChange: (timeframe: ChartTimeframe) => void;
   onSaveLayout: () => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
   onRemoveIndicator: (instanceId: string) => void;
@@ -100,6 +112,13 @@ type Props = {
   ) => void;
   onSettingsClose?: () => void;
   orderOverlaysVisible: boolean;
+  paneLayout: ChartPaneLayoutId;
+  replayTimeframe: ChartTimeframe;
+  replayTimeframeOptions: Array<{
+    label: string;
+    sublabel?: string;
+    value: ChartTimeframe;
+  }>;
   savedLabel: string | null;
   settingsOpenSignal?: number;
   smoothCandles: boolean;
@@ -165,7 +184,15 @@ const CHART_STYLES: Array<{
   { icon: AreaChart, id: "area", label: "Area" },
 ];
 
+const CHART_PANE_LAYOUT_ICONS: Record<ChartPaneLayoutId, LucideIcon> = {
+  "grid-4": Grid2X2,
+  "horizontal-2": Rows2,
+  single: Square,
+  "vertical-2": Columns2,
+};
+
 export function ChartToolbar({
+  activePaneLabel,
   chartSettings,
   chartStyle,
   clearableDrawingsCount,
@@ -175,6 +202,7 @@ export function ChartToolbar({
   layoutName,
   layoutNames,
   magnetMode,
+  multiChart,
   onAddIndicator,
   onChartSettingsChange,
   onChartSettingsReset,
@@ -185,6 +213,8 @@ export function ChartToolbar({
   onLayoutNameChange,
   onLoadLayout,
   onMagnetModeChange,
+  onPaneLayoutChange,
+  onReplayTimeframeChange,
   onSaveLayout,
   onTimeframeChange,
   onRemoveIndicator,
@@ -193,6 +223,9 @@ export function ChartToolbar({
   onUpdateIndicatorSettings,
   onSettingsClose,
   orderOverlaysVisible,
+  paneLayout,
+  replayTimeframe,
+  replayTimeframeOptions,
   savedLabel,
   settingsOpenSignal = 0,
   sourceTimeframe,
@@ -554,6 +587,39 @@ export function ChartToolbar({
             </button>
           );
         })}
+      </div>
+
+      <div className="chart-pane-layout-strip">
+        <span className="study-manager-label">Chart layout</span>
+        <div className="chart-pane-layout-buttons" aria-label="Chart pane layout">
+          {CHART_PANE_LAYOUTS.map((layout) => {
+            const Icon = CHART_PANE_LAYOUT_ICONS[layout.id];
+            return (
+              <button
+                aria-label={layout.label}
+                className={`chart-pane-layout-button ${
+                  paneLayout === layout.id ? "chart-pane-layout-button-active" : ""
+                }`}
+                key={layout.id}
+                onClick={() => onPaneLayoutChange(layout.id)}
+                title={layout.label}
+                type="button"
+              >
+                <Icon size={14} />
+              </button>
+            );
+          })}
+        </div>
+        <span className="chart-pane-active-label">{activePaneLabel}</span>
+        {multiChart && (
+          <ThemedSelect
+            ariaLabel="Replay timeframe"
+            className="h-8 w-44"
+            onChange={(value) => onReplayTimeframeChange(value)}
+            options={replayTimeframeOptions}
+            value={replayTimeframe}
+          />
+        )}
       </div>
 
       <div className="layout-manager-strip">
