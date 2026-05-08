@@ -892,29 +892,44 @@ button:disabled {
   }
 
   .chart-pane-grid {
-    @apply grid min-w-0 gap-3;
+    @apply grid min-w-0 overflow-hidden rounded-md border border-white/10 bg-white/10;
+    gap: 1px;
   }
 
-  .chart-pane-layout-single,
+  .chart-pane-layout-single {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .chart-pane-layout-vertical-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .chart-pane-layout-horizontal-2 {
-    @apply grid-cols-1;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .chart-pane-layout-vertical-2,
   .chart-pane-layout-grid-4 {
-    @apply grid-cols-1 2xl:grid-cols-2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 760px) {
+    .chart-pane-layout-vertical-2,
+    .chart-pane-layout-grid-4 {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .chart-pane-shell {
-    @apply min-w-0 rounded-md border border-transparent;
+    @apply min-w-0 bg-[#080c11];
   }
 
   .chart-pane-shell-active {
-    @apply border-cyan-300/35 bg-cyan-300/[0.03] shadow-[0_0_0_1px_rgba(50,211,238,0.10),0_18px_48px_rgba(0,0,0,0.18)];
+    @apply shadow-[inset_0_0_0_1px_rgba(50,211,238,0.72),0_0_28px_rgba(50,211,238,0.10)];
   }
 
   .chart-pane-header {
-    @apply flex min-h-9 items-center justify-between gap-3 rounded-t-md border-x border-t border-white/10 bg-[#070b10] px-2 text-xs text-slate-500;
+    @apply flex min-h-8 items-center justify-between gap-3 border-b border-white/10 bg-[#070b10] px-2 text-xs text-slate-500;
   }
 
   .chart-pane-select-button {
@@ -926,7 +941,11 @@ button:disabled {
   }
 
   .chart-pane-header + .chart-stage {
-    @apply rounded-t-none;
+    @apply rounded-none border-0 shadow-none;
+  }
+
+  .chart-pane-grid .chart-stage {
+    @apply rounded-none border-0 shadow-none;
   }
 
   .chart-pane-layout-horizontal-2 .chart-stage {
