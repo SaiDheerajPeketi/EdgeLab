@@ -89,6 +89,7 @@ const CHART_LAYOUTS_STORAGE_KEY = "chart-layouts.v1";
 const ACTIVE_CHART_LAYOUT_STORAGE_KEY = "active-chart-layout.v1";
 const DRAWING_UNDO_LIMIT = 50;
 const DRAWING_UNDO_COALESCE_MS = 350;
+const TIMEFRAME_SHORTCUT_CLEAR_MS = 1200;
 const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
@@ -201,6 +202,8 @@ export default function App() {
   const drawingUndoBatchOpenRef = useRef(false);
   const drawingUndoBatchTimerRef = useRef<number | null>(null);
   const drawingPersistTimerRef = useRef<number | null>(null);
+  const timeframeShortcutBufferRef = useRef("");
+  const timeframeShortcutTimerRef = useRef<number | null>(null);
   const [drawingUndoDepth, setDrawingUndoDepth] = useState(0);
   const undoShortcutLabel = systemUndoShortcutLabel();
   const [showOrderOverlays, setShowOrderOverlays] = useState(() => {
@@ -241,6 +244,9 @@ export default function App() {
       }
       if (drawingPersistTimerRef.current != null) {
         window.clearTimeout(drawingPersistTimerRef.current);
+      }
+      if (timeframeShortcutTimerRef.current != null) {
+        window.clearTimeout(timeframeShortcutTimerRef.current);
       }
     };
   }, []);
@@ -387,6 +393,69 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    function clearTimeframeShortcutBuffer() {
+      timeframeShortcutBufferRef.current = "";
+      if (timeframeShortcutTimerRef.current != null) {
+        window.clearTimeout(timeframeShortcutTimerRef.current);
+        timeframeShortcutTimerRef.current = null;
+      }
+    }
+
+    function scheduleTimeframeShortcutClear() {
+      if (timeframeShortcutTimerRef.current != null) {
+        window.clearTimeout(timeframeShortcutTimerRef.current);
+      }
+      timeframeShortcutTimerRef.current = window.setTimeout(() => {
+        timeframeShortcutBufferRef.current = "";
+        timeframeShortcutTimerRef.current = null;
+      }, TIMEFRAME_SHORTCUT_CLEAR_MS);
+    }
+
+    function handleTimeframeShortcut(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        clearTimeframeShortcutBuffer();
+        return false;
+      }
+      if (event.key.length !== 1) {
+        if (timeframeShortcutBufferRef.current && event.key !== "Shift") {
+          clearTimeframeShortcutBuffer();
+          if (["Backspace", "Delete", "Escape", "Enter"].includes(event.key)) {
+            event.preventDefault();
+            return true;
+          }
+        }
+        return false;
+      }
+
+      if (/^\d$/.test(event.key)) {
+        const currentBuffer = timeframeShortcutBufferRef.current;
+        timeframeShortcutBufferRef.current = `${currentBuffer}${event.key}`.slice(0, 5);
+        scheduleTimeframeShortcutClear();
+        event.preventDefault();
+        return true;
+      }
+
+      if (!timeframeShortcutBufferRef.current) {
+        return false;
+      }
+
+      if (/^[mMhHdDwW]$/.test(event.key)) {
+        const normalized = normalizeChartTimeframe(
+          `${timeframeShortcutBufferRef.current}${event.key}`,
+        );
+        if (normalized && canAggregateTimeframe(normalized, sourceTimeframe)) {
+          changeTimeframe(normalized);
+        }
+        clearTimeframeShortcutBuffer();
+        event.preventDefault();
+        return true;
+      }
+
+      clearTimeframeShortcutBuffer();
+      event.preventDefault();
+      return true;
+    }
+
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const isTyping =
@@ -401,6 +470,10 @@ export default function App() {
       if (isSystemUndoShortcut(event)) {
         event.preventDefault();
         undoLastDrawingChange();
+        return;
+      }
+
+      if (handleTimeframeShortcut(event)) {
         return;
       }
 
@@ -492,7 +565,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, state, stepForward, undoLastDrawingChange]);
+  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, state, stepForward, undoLastDrawingChange]);
 
   useEffect(() => {
     function syncNativeFullscreen() {
