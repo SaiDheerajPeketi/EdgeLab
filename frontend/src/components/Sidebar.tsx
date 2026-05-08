@@ -48,7 +48,7 @@ const sections: Array<{
         ],
         icon: BarChart3,
         label: "Results",
-        primaryId: "dashboard",
+        primaryId: "reports",
       },
       { id: "strategies", label: "Strategies", icon: Target },
       { id: "playbooks", label: "Playbooks", icon: BookOpen },

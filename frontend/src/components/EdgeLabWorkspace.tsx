@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -180,6 +180,11 @@ type DayGroup = {
 };
 
 type DayViewMode = "day" | "week";
+
+type ReportTab = "calendar" | "daytime" | "overview" | "performance" | "recaps" | "risk" | "tags" | "winsLosses";
+type PerformanceDetailTab = "summary" | "days" | "trades";
+type TimeBreakdownMode = "duration" | "hour" | "month" | "weekday";
+type RiskBreakdownMode = "hold" | "quantity" | "rMultiple" | "side";
 
 type DayViewPeriod = {
   aggregate: Aggregate;
@@ -869,7 +874,7 @@ function DashboardPage({
         <FeatureCard>
           <CardLabel icon={TrendingDown} label="Drawdown" />
           <div className="mt-4">
-            <AreaSparkline values={drawdownValues(filteredClosedTrades)} height={220} tone="rose" />
+            <AreaSparkline currency={currency} values={drawdownValues(filteredClosedTrades)} height={220} tone="rose" />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <CompactMetric label="Max DD" value={formatMoney(filteredAggregate.maxDrawdown, currency)} tone="text-rose-300" />
@@ -1175,7 +1180,7 @@ function DayViewPage({
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.58fr)_minmax(280px,0.42fr)]">
-                <AreaSparkline values={cumulativeValues(selectedPeriod.trades)} height={190} />
+                <AreaSparkline currency={currency} values={cumulativeValues(selectedPeriod.trades)} height={190} />
                 <div className="grid grid-cols-2 gap-2">
                   <CompactMetric label="Trades" value={String(selectedPeriod.aggregate.totalTrades)} />
                   <CompactMetric label="Net P&L" value={formatMoney(selectedPeriod.aggregate.netPnl, currency)} tone={toneForNumber(selectedPeriod.aggregate.netPnl)} />
@@ -3856,9 +3861,10 @@ function ReportsPage({
   sessions,
   strategies,
 }: SharedPageProps) {
-  const [tab, setTab] = useState<
-    "calendar" | "daytime" | "overview" | "performance" | "recaps" | "risk" | "tags" | "winsLosses"
-  >("performance");
+  const [tab, setTab] = useState<ReportTab>("performance");
+  const [performanceDetailTab, setPerformanceDetailTab] = useState<PerformanceDetailTab>("summary");
+  const [timeBreakdown, setTimeBreakdown] = useState<TimeBreakdownMode>("weekday");
+  const [riskBreakdown, setRiskBreakdown] = useState<RiskBreakdownMode>("rMultiple");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ResultFilterState>(DEFAULT_RESULT_FILTERS);
   const filteredClosedTrades = useMemo(
@@ -3877,7 +3883,54 @@ function ReportsPage({
   const tagRows = useMemo(() => groupByTag(filteredClosedTrades), [filteredClosedTrades]);
   const rRows = useMemo(() => groupByRMultiple(filteredClosedTrades), [filteredClosedTrades]);
   const hourRows = useMemo(() => groupByHour(filteredClosedTrades), [filteredClosedTrades]);
+  const weekdayRows = useMemo(() => groupByWeekday(filteredClosedTrades), [filteredClosedTrades]);
+  const monthRows = useMemo(() => groupByMonth(filteredClosedTrades), [filteredClosedTrades]);
+  const durationRows = useMemo(() => groupByHoldDuration(filteredClosedTrades), [filteredClosedTrades]);
+  const sideRows = useMemo(() => groupBySide(filteredClosedTrades), [filteredClosedTrades]);
+  const quantityRows = useMemo(() => groupByQuantity(filteredClosedTrades), [filteredClosedTrades]);
+  const dailyPnlRows = useMemo(
+    () => filteredDays.slice().reverse().map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl })),
+    [filteredDays],
+  );
+  const timeRows = timeBreakdown === "weekday"
+    ? weekdayRows
+    : timeBreakdown === "month"
+      ? monthRows
+      : timeBreakdown === "duration"
+        ? durationRows
+        : hourRows;
+  const timeTitle = timeBreakdown === "weekday"
+    ? "Day"
+    : timeBreakdown === "month"
+      ? "Month"
+      : timeBreakdown === "duration"
+        ? "Trade duration"
+        : "Trade time";
+  const riskRows = riskBreakdown === "rMultiple"
+    ? rRows
+    : riskBreakdown === "side"
+      ? sideRows
+      : riskBreakdown === "quantity"
+        ? quantityRows
+        : durationRows;
+  const riskTitle = riskBreakdown === "rMultiple"
+    ? "R multiple"
+    : riskBreakdown === "side"
+      ? "Direction"
+      : riskBreakdown === "quantity"
+        ? "Quantity"
+        : "Hold time";
   const filtersActive = resultFiltersActive(filters);
+  const reportTabs: Array<{ icon: LucideIcon; id: ReportTab; label: string }> = [
+    { icon: LineChart, id: "performance", label: "Performance" },
+    { icon: Globe2, id: "overview", label: "Overview" },
+    { icon: Clock3, id: "daytime", label: "Day & Time" },
+    { icon: Gauge, id: "risk", label: "Risk" },
+    { icon: Target, id: "tags", label: "Tags" },
+    { icon: TrendingUp, id: "winsLosses", label: "Wins/Losses" },
+    { icon: CalendarDays, id: "calendar", label: "Calendar" },
+    { icon: FileText, id: "recaps", label: "Recaps" },
+  ];
 
   function exportMetricsCsv() {
     exportResultsSummaryCsv({
@@ -3930,84 +3983,189 @@ function ReportsPage({
         </div>
       }
     >
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        <CompactMetric label="Visible trades" value={`${filteredClosedTrades.length}/${closedTrades.length}`} />
-        <CompactMetric label="Net P&L" value={formatMoney(filteredAggregate.netPnl, currency)} tone={toneForNumber(filteredAggregate.netPnl)} />
-        <CompactMetric label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
-        <CompactMetric label="Avg R" value={formatOptionalNumber(filteredAggregate.averageR)} />
-        <CompactMetric label="Profit factor" value={formatRatio(filteredAggregate.profitFactor)} />
-      </div>
-      <div className="flex gap-2 overflow-x-auto rounded-md border border-white/10 bg-black/20 p-1">
-        {[
-          ["performance", "Performance"],
-          ["overview", "Overview"],
-          ["daytime", "Day & Time"],
-          ["risk", "Risk"],
-          ["tags", "Tags"],
-          ["winsLosses", "Wins vs Losses"],
-          ["calendar", "Calendar"],
-          ["recaps", "Recaps & Insights"],
-        ].map(([id, label]) => (
-          <TinyTab active={tab === id} key={id} onClick={() => setTab(id as typeof tab)}>
-            {label}
-          </TinyTab>
-        ))}
+      <section className="terminal-panel p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+            {reportTabs.map(({ icon: Icon, id, label }) => (
+              <button
+                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-xs font-semibold transition ${
+                  tab === id ? "bg-cyan-300/10 text-cyan-100 ring-1 ring-cyan-300/20" : "text-slate-400 hover:bg-white/5 hover:text-white"
+                }`}
+                key={id}
+                onClick={() => setTab(id)}
+                type="button"
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="status-pill h-8 px-2 text-[11px]">
+              {filteredClosedTrades.length}/{closedTrades.length} trades
+            </span>
+            {filtersActive && (
+              <button className="control-button h-8 px-2 text-xs" onClick={() => setFilters(DEFAULT_RESULT_FILTERS)} type="button">
+                <RefreshCw size={13} />
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-5">
+        <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, currency)} />
+        <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
+        <ResultMetricCard icon={Target} label="Trades" value={String(filteredAggregate.totalTrades)} />
+        <ResultMetricCard icon={Gauge} label="Avg R" tone={toneForNumber(filteredAggregate.averageR)} value={formatOptionalNumber(filteredAggregate.averageR)} />
+        <ResultMetricCard icon={TrendingDown} label="Max DD" tone="text-rose-300" value={formatMoney(filteredAggregate.maxDrawdown, currency)} />
       </div>
 
       {tab === "performance" && (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
+            <FeatureCard className="overflow-hidden p-0">
+              <MetricChartHeader
+                icon={LineChart}
+                label="Net P&L"
+                meta={`${filteredAggregate.totalTrades} closed trades`}
+                tone={toneForNumber(filteredAggregate.netPnl)}
+                value={formatMoney(filteredAggregate.netPnl, currency)}
+              />
+              <div className="px-4 pb-4">
+                <AreaSparkline currency={currency} height={288} values={cumulativeValues(filteredClosedTrades)} />
+              </div>
+            </FeatureCard>
+            <FeatureCard className="overflow-hidden p-0">
+              <MetricChartHeader
+                icon={BarChart3}
+                label="Daily P&L"
+                meta={`${filteredDays.length} trading days`}
+                tone={toneForNumber(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl)}
+                value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)}
+              />
+              <div className="px-4 pb-4">
+                <BarBreakdown chartHeight={288} currency={currency} maxItems={18} rows={dailyPnlRows} />
+              </div>
+            </FeatureCard>
+          </div>
+
           <FeatureCard>
-            <CardLabel icon={LineChart} label="Net P&L" />
-            <AreaSparkline values={cumulativeValues(filteredClosedTrades)} height={260} />
-          </FeatureCard>
-          <FeatureCard>
-            <CardLabel icon={BarChart3} label="Avg daily win/loss" />
-            <BarBreakdown rows={filteredDays.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
-          </FeatureCard>
-          <FeatureCard className="xl:col-span-2">
-            <StatsGrid aggregate={filteredAggregate} currency={currency} />
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <CardLabel icon={Gauge} label="Performance detail" />
+              <ReportSegmentedTabs
+                active={performanceDetailTab}
+                options={[
+                  { label: "Summary", value: "summary" },
+                  { label: "Days", value: "days" },
+                  { label: "Trades", value: "trades" },
+                ]}
+                onChange={(value) => setPerformanceDetailTab(value as PerformanceDetailTab)}
+              />
+            </div>
+            {performanceDetailTab === "summary" && <StatsGrid aggregate={filteredAggregate} currency={currency} />}
+            {performanceDetailTab === "days" && <ResultsDayTable currency={currency} days={filteredDays} />}
+            {performanceDetailTab === "trades" && <ResultsTradeTable currency={currency} sessionById={sessionById} trades={filteredClosedTrades} />}
           </FeatureCard>
         </div>
       )}
 
       {tab === "overview" && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.45fr)_minmax(0,0.55fr)]">
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <InsightMetric currency={currency} row={bestRow(monthRows)} title="Best month" />
+            <InsightMetric currency={currency} row={worstRow(monthRows)} title="Weakest month" />
+            <InsightMetric currency={currency} row={bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Best day" />
+            <InsightMetric currency={currency} row={worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Weakest day" />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.66fr)_minmax(320px,0.34fr)]">
+            <FeatureCard className="overflow-hidden p-0">
+              <MetricChartHeader
+                icon={LineChart}
+                label="Equity curve"
+                meta="Filtered closed trades"
+                tone={toneForNumber(filteredAggregate.netPnl)}
+                value={formatMoney(filteredAggregate.netPnl, currency)}
+              />
+              <div className="px-4 pb-4">
+                <AreaSparkline currency={currency} height={260} values={cumulativeValues(filteredClosedTrades)} />
+              </div>
+            </FeatureCard>
+            <FeatureCard>
+              <CardLabel icon={Target} label="Top strategies" />
+              <div className="mt-4 grid gap-2">
+                {filteredStrategies.slice(0, 5).map((strategy) => (
+                  <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2" key={strategy.name}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate text-sm font-semibold text-white">{strategy.name}</span>
+                      <span className={`shrink-0 text-sm font-semibold tabular-nums ${toneForNumber(strategy.aggregate.netPnl)}`}>
+                        {formatMoney(strategy.aggregate.netPnl, currency)}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {strategy.aggregate.totalTrades} trades · {formatPercent(strategy.aggregate.winRate)} win rate
+                    </div>
+                  </div>
+                ))}
+                {filteredStrategies.length === 0 && <EmptyState icon={Target} message="No strategies in this filtered scope." />}
+              </div>
+            </FeatureCard>
+          </div>
           <FeatureCard>
-            <CardLabel icon={Gauge} label="Your stats" />
-            <div className="mt-4 grid gap-2">
-              <CompactMetric label="Best month" value={formatMoney(bestMonth(filteredClosedTrades).pnl, currency)} tone="text-emerald-300" />
-              <CompactMetric label="Lowest month" value={formatMoney(worstMonth(filteredClosedTrades).pnl, currency)} tone="text-rose-300" />
-              <CompactMetric label="Best day" value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-emerald-300" />
-              <CompactMetric label="Lowest day" value={formatMoney(worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-rose-300" />
+            <CardLabel icon={Gauge} label="Summary metrics" />
+            <div className="mt-4">
+              <StatsGrid aggregate={filteredAggregate} currency={currency} />
             </div>
-          </FeatureCard>
-          <FeatureCard>
-            <StatsGrid aggregate={filteredAggregate} currency={currency} />
           </FeatureCard>
         </div>
       )}
 
       {tab === "daytime" && (
-        <ReportBreakdown
-          currency={currency}
-          leftTitle="Net P&L by hour"
-          rightTitle="Win % by hour"
-          rows={hourRows}
-        />
+        <div className="grid gap-4">
+          <ReportSegmentedTabs
+            active={timeBreakdown}
+            options={[
+              { label: "Days", value: "weekday" },
+              { label: "Months", value: "month" },
+              { label: "Trade time", value: "hour" },
+              { label: "Trade duration", value: "duration" },
+            ]}
+            onChange={(value) => setTimeBreakdown(value as TimeBreakdownMode)}
+          />
+          <ReportBreakdown
+            currency={currency}
+            leftTitle={`${timeTitle} net P&L`}
+            rightTitle={`${timeTitle} win rate`}
+            rows={timeRows}
+          />
+        </div>
       )}
 
       {tab === "risk" && (
         <div className="grid gap-4">
+          <ReportSegmentedTabs
+            active={riskBreakdown}
+            options={[
+              { label: "R multiples", value: "rMultiple" },
+              { label: "Direction", value: "side" },
+              { label: "Quantity", value: "quantity" },
+              { label: "Hold time", value: "hold" },
+            ]}
+            onChange={(value) => setRiskBreakdown(value as RiskBreakdownMode)}
+          />
           <ReportBreakdown
             currency={currency}
-            leftTitle="Net P&L by R multiple"
-            rightTitle="Win % by R bucket"
-            rows={rRows}
+            leftTitle={`${riskTitle} net P&L`}
+            rightTitle={`${riskTitle} win rate`}
+            rows={riskRows}
           />
-          <FeatureCard>
-            <CardLabel icon={Grid2X2} label="R-multiple cross analysis" />
-            <CrossAnalysis currency={currency} rows={rRows} sessionById={sessionById} trades={filteredClosedTrades} />
-          </FeatureCard>
+          {riskBreakdown === "rMultiple" && (
+            <FeatureCard>
+              <CardLabel icon={Grid2X2} label="R-multiple cross analysis" />
+              <CrossAnalysis currency={currency} rows={rRows} sessionById={sessionById} trades={filteredClosedTrades} />
+            </FeatureCard>
+          )}
         </div>
       )}
 
@@ -4024,19 +4182,43 @@ function ReportsPage({
         <div className="grid gap-4 xl:grid-cols-2">
           <FeatureCard>
             <CardLabel icon={TrendingUp} label={`Wins (${filteredAggregate.wins} trades matched)`} />
-            <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl > 0))} currency={currency} />
+            <div className="mt-4">
+              <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl > 0))} currency={currency} />
+            </div>
           </FeatureCard>
           <FeatureCard>
             <CardLabel icon={TrendingDown} label={`Losses (${filteredAggregate.losses} trades matched)`} />
-            <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl < 0))} currency={currency} />
+            <div className="mt-4">
+              <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl < 0))} currency={currency} />
+            </div>
+          </FeatureCard>
+          <FeatureCard className="xl:col-span-2">
+            <CardLabel icon={ClipboardList} label="Matched trade outcomes" />
+            <div className="mt-4">
+              <ResultsTradeTable currency={currency} sessionById={sessionById} trades={filteredClosedTrades} />
+            </div>
           </FeatureCard>
         </div>
       )}
 
       {tab === "calendar" && (
-        <FeatureCard>
-          <CalendarHeatmap currency={currency} days={filteredDays} />
-        </FeatureCard>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.68fr)_minmax(320px,0.32fr)]">
+          <FeatureCard>
+            <CardLabel icon={CalendarDays} label="Result calendar" />
+            <div className="mt-4">
+              <CalendarHeatmap currency={currency} days={filteredDays} />
+            </div>
+          </FeatureCard>
+          <FeatureCard>
+            <CardLabel icon={Activity} label="Calendar summary" />
+            <div className="mt-4 grid gap-2">
+              <CompactMetric label="Trading days" value={String(filteredDays.length)} />
+              <CompactMetric label="Best day" value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-emerald-300" />
+              <CompactMetric label="Weakest day" value={formatMoney(worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-rose-300" />
+              <CompactMetric label="Avg day" value={formatMoney(filteredDays.length > 0 ? filteredAggregate.netPnl / filteredDays.length : 0, currency)} tone={toneForNumber(filteredDays.length > 0 ? filteredAggregate.netPnl / filteredDays.length : 0)} />
+            </div>
+          </FeatureCard>
+        </div>
       )}
 
       {tab === "recaps" && (
@@ -5656,6 +5838,79 @@ function TinyTab({
   );
 }
 
+function ResultMetricCard({
+  icon: Icon,
+  label,
+  tone = "text-slate-100",
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  tone?: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-white/10 bg-[#090d12] px-3 py-2.5 shadow-panel">
+      <div className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+        <span className="truncate">{label}</span>
+        <Icon className="shrink-0 text-cyan-200/70" size={14} />
+      </div>
+      <div className={`mt-1.5 truncate text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function MetricChartHeader({
+  icon: Icon,
+  label,
+  meta,
+  tone = "text-slate-100",
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  meta: string;
+  tone?: string;
+  value: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <div>
+        <CardLabel icon={Icon} label={label} />
+        <div className="mt-1 text-xs text-slate-500">{meta}</div>
+      </div>
+      <div className={`text-right text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function ReportSegmentedTabs<TValue extends string>({
+  active,
+  onChange,
+  options,
+}: {
+  active: TValue;
+  onChange: (value: TValue) => void;
+  options: Array<{ label: string; value: TValue }>;
+}) {
+  return (
+    <div className="inline-flex max-w-full gap-1 overflow-x-auto rounded-md border border-white/10 bg-black/20 p-1">
+      {options.map((option) => (
+        <button
+          className={`h-8 shrink-0 rounded px-3 text-xs font-semibold transition ${
+            active === option.value ? "bg-cyan-300/10 text-cyan-100 ring-1 ring-cyan-300/20" : "text-slate-400 hover:bg-white/10 hover:text-white"
+          }`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function EmptyState({ icon: Icon, message }: { icon: LucideIcon; message: string }) {
   return (
     <div className="grid min-h-36 place-items-center rounded-md border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
@@ -5665,6 +5920,97 @@ function EmptyState({ icon: Icon, message }: { icon: LucideIcon; message: string
         </div>
         <p className="mt-3 text-sm text-slate-500">{message}</p>
       </div>
+    </div>
+  );
+}
+
+function ResultsDayTable({ currency, days }: { currency: string; days: DayGroup[] }) {
+  if (days.length === 0) {
+    return <EmptyState icon={CalendarDays} message="No day results in this filtered scope." />;
+  }
+  return (
+    <div className="overflow-auto rounded-md border border-white/10 bg-black/20">
+      <table className="w-full min-w-[760px] text-left text-sm">
+        <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+          <tr>
+            <th className="px-3 py-3 font-medium">Day</th>
+            <th className="px-3 py-3 font-medium">Trades</th>
+            <th className="px-3 py-3 font-medium">Net P&L</th>
+            <th className="px-3 py-3 font-medium">Win rate</th>
+            <th className="px-3 py-3 font-medium">Avg R</th>
+            <th className="px-3 py-3 font-medium">Profit factor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {days.map((day) => (
+            <tr className="border-t border-white/10 text-slate-300" key={day.date}>
+              <td className="px-3 py-3 font-semibold text-white">{day.label}</td>
+              <td className="px-3 py-3">{day.aggregate.totalTrades}</td>
+              <td className={`px-3 py-3 font-semibold tabular-nums ${toneForNumber(day.aggregate.netPnl)}`}>
+                {formatMoney(day.aggregate.netPnl, currency)}
+              </td>
+              <td className="px-3 py-3 tabular-nums">{formatPercent(day.aggregate.winRate)}</td>
+              <td className="px-3 py-3 tabular-nums">{formatOptionalNumber(day.aggregate.averageR)}</td>
+              <td className="px-3 py-3 tabular-nums">{formatRatio(day.aggregate.profitFactor)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ResultsTradeTable({
+  currency,
+  sessionById,
+  trades,
+}: {
+  currency: string;
+  sessionById: Map<number, BacktestSession>;
+  trades: Trade[];
+}) {
+  const visibleTrades = trades.slice().sort(compareTradesAscending).reverse().slice(0, 16);
+  if (visibleTrades.length === 0) {
+    return <EmptyState icon={ClipboardList} message="No trades in this filtered scope." />;
+  }
+  return (
+    <div className="overflow-auto rounded-md border border-white/10 bg-black/20">
+      <table className="w-full min-w-[860px] text-left text-sm">
+        <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+          <tr>
+            <th className="px-3 py-3 font-medium">Trade</th>
+            <th className="px-3 py-3 font-medium">Instrument</th>
+            <th className="px-3 py-3 font-medium">Strategy</th>
+            <th className="px-3 py-3 font-medium">Exit time</th>
+            <th className="px-3 py-3 font-medium">Side</th>
+            <th className="px-3 py-3 font-medium">P&L</th>
+            <th className="px-3 py-3 font-medium">R</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleTrades.map((trade) => {
+            const session = sessionById.get(trade.session_id);
+            return (
+              <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
+                <td className="px-3 py-3 font-semibold text-white">#{trade.id}</td>
+                <td className="px-3 py-3">{tradeInstrumentLabel(trade, session)}</td>
+                <td className="px-3 py-3">{tradeStrategyName(trade, session)}</td>
+                <td className="px-3 py-3 text-slate-500">{formatDateTime(trade.exit_time ?? trade.entry_time)}</td>
+                <td className="px-3 py-3">{trade.side}</td>
+                <td className={`px-3 py-3 font-semibold tabular-nums ${toneForNumber(trade.realized_pnl)}`}>
+                  {formatMoney(trade.realized_pnl ?? 0, currency)}
+                </td>
+                <td className="px-3 py-3 tabular-nums">{formatOptionalNumber(trade.r_multiple)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {trades.length > visibleTrades.length && (
+        <div className="border-t border-white/10 px-3 py-2 text-xs text-slate-500">
+          Showing latest {visibleTrades.length} of {trades.length} matched trades.
+        </div>
+      )}
     </div>
   );
 }
@@ -5738,30 +6084,27 @@ function RichTextEditorStub() {
 
 function StatsGrid({ aggregate, currency }: { aggregate: Aggregate; currency: string }) {
   const rows = [
-    ["Total P&L", formatMoney(aggregate.netPnl, currency), toneForNumber(aggregate.netPnl)],
-    ["Open trades", "0", "text-slate-100"],
-    ["Average winning trade", formatMoney(aggregate.averageWin, currency), "text-emerald-300"],
-    ["Average losing trade", formatMoney(aggregate.averageLoss, currency), "text-rose-300"],
-    ["Total number of trades", String(aggregate.totalTrades), "text-slate-100"],
-    ["Number of winning trades", String(aggregate.wins), "text-emerald-300"],
-    ["Number of losing trades", String(aggregate.losses), "text-rose-300"],
-    ["Number of break even trades", String(aggregate.breakeven), "text-slate-100"],
-    ["Max drawdown", formatMoney(aggregate.maxDrawdown, currency), "text-rose-300"],
+    ["Net P&L", formatMoney(aggregate.netPnl, currency), toneForNumber(aggregate.netPnl)],
+    ["Trades", String(aggregate.totalTrades), "text-slate-100"],
+    ["Win rate", formatPercent(aggregate.winRate), "text-slate-100"],
     ["Profit factor", formatRatio(aggregate.profitFactor), "text-amber-100"],
-    ["Average R", formatOptionalNumber(aggregate.averageR), toneForNumber(aggregate.averageR)],
-    ["Average hold", formatMinutes(aggregate.averageHoldMinutes), "text-slate-100"],
-    ["Total commissions", formatMoney(aggregate.totalCommissions, currency), "text-slate-100"],
+    ["Average winner", formatMoney(aggregate.averageWin, currency), "text-emerald-300"],
+    ["Average loser", formatMoney(aggregate.averageLoss, currency), "text-rose-300"],
     ["Largest win", formatMoney(aggregate.largestWin ?? 0, currency), "text-emerald-300"],
     ["Largest loss", formatMoney(aggregate.largestLoss ?? 0, currency), "text-rose-300"],
+    ["Max drawdown", formatMoney(aggregate.maxDrawdown, currency), "text-rose-300"],
+    ["Average R", formatOptionalNumber(aggregate.averageR), toneForNumber(aggregate.averageR)],
+    ["Average hold", formatMinutes(aggregate.averageHoldMinutes), "text-slate-100"],
+    ["Break even", String(aggregate.breakeven), "text-slate-100"],
     ["Recovery factor", formatRatio(aggregate.recoveryFactor), "text-slate-100"],
   ];
 
   return (
-    <div className="grid gap-2 md:grid-cols-2">
+    <div className="grid overflow-hidden rounded-md border border-white/10 bg-white/10 md:grid-cols-2 xl:grid-cols-4">
       {rows.map(([label, value, tone]) => (
-        <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm" key={label}>
-          <span className="text-slate-500">{label}</span>
-          <span className={`font-semibold tabular-nums ${tone}`}>{value}</span>
+        <div className="min-w-0 bg-[#080c11] px-3 py-3" key={label}>
+          <div className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">{label}</div>
+          <div className={`mt-1 truncate text-sm font-semibold tabular-nums ${tone}`}>{value}</div>
         </div>
       ))}
     </div>
@@ -5779,27 +6122,49 @@ function ReportBreakdown({
   rightTitle: string;
   rows: Array<{ aggregate: Aggregate; label: string }>;
 }) {
+  const visibleRows = rows.filter((row) => row.aggregate.totalTrades > 0);
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-4">
-        <InsightMetric currency={currency} title="Best performing" row={bestRow(rows)} />
-        <InsightMetric currency={currency} title="Least performing" row={worstRow(rows)} />
-        <InsightMetric currency={currency} title="Most active" row={mostActiveRow(rows)} />
-        <InsightMetric currency={currency} title="Best win rate" row={bestWinRateRow(rows)} />
+        <InsightMetric currency={currency} title="Best performing" row={bestRow(visibleRows)} />
+        <InsightMetric currency={currency} title="Least performing" row={worstRow(visibleRows)} />
+        <InsightMetric currency={currency} title="Most active" row={mostActiveRow(visibleRows)} />
+        <InsightMetric currency={currency} title="Best win rate" row={bestWinRateRow(visibleRows)} />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <FeatureCard>
-          <CardLabel icon={LineChart} label={leftTitle} />
-          <BarBreakdown
-            currency={currency}
-            rows={rows.map((row) => ({ label: row.label, value: row.aggregate.netPnl }))}
+        <FeatureCard className="overflow-hidden p-0">
+          <MetricChartHeader
+            icon={BarChart3}
+            label={leftTitle}
+            meta={`${visibleRows.length} buckets`}
+            tone={toneForNumber(bestRow(visibleRows)?.aggregate.netPnl)}
+            value={formatMoney(bestRow(visibleRows)?.aggregate.netPnl ?? 0, currency)}
           />
+          <div className="px-4 pb-4">
+            <BarBreakdown
+              chartHeight={270}
+              currency={currency}
+              rows={visibleRows.map((row) => ({ label: row.label, value: row.aggregate.netPnl }))}
+            />
+          </div>
         </FeatureCard>
-        <FeatureCard>
-          <CardLabel icon={PieChart} label={rightTitle} />
-          <BarBreakdown rows={rows.map((row) => ({ label: row.label, value: row.aggregate.winRate * 100 }))} percent />
+        <FeatureCard className="overflow-hidden p-0">
+          <MetricChartHeader
+            icon={PieChart}
+            label={rightTitle}
+            meta="Win percentage"
+            value={formatPercent(bestWinRateRow(visibleRows)?.aggregate.winRate ?? 0)}
+          />
+          <div className="px-4 pb-4">
+            <BarBreakdown
+              chartHeight={270}
+              percent
+              rows={visibleRows.map((row) => ({ label: row.label, value: row.aggregate.winRate * 100 }))}
+            />
+          </div>
         </FeatureCard>
       </div>
+      {visibleRows.length === 0 && <EmptyState icon={BarChart3} message="No breakdown data in this filtered scope." />}
     </div>
   );
 }
@@ -5815,12 +6180,19 @@ function InsightMetric({
 }) {
   return (
     <FeatureCard>
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{title}</div>
-      <div className="mt-2 truncate text-lg font-semibold text-white">{row?.label ?? "-"}</div>
-      <div className={`mt-1 text-sm font-semibold ${toneForNumber(row?.aggregate.netPnl)}`}>
-        {formatMoney(row?.aggregate.netPnl ?? 0, currency)}
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{title}</div>
+        <span className="status-pill h-7 px-2 text-[10px]">{row?.aggregate.totalTrades ?? 0} trades</span>
       </div>
-      <div className="mt-1 text-xs text-slate-500">{row?.aggregate.totalTrades ?? 0} trades</div>
+      <div className="mt-3 truncate text-lg font-semibold text-white">{row?.label ?? "-"}</div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className={`rounded bg-black/30 px-2 py-1 text-sm font-semibold tabular-nums ${toneForNumber(row?.aggregate.netPnl)}`}>
+          {formatMoney(row?.aggregate.netPnl ?? 0, currency)}
+        </span>
+        <span className="rounded bg-black/30 px-2 py-1 text-xs font-semibold text-slate-300">
+          {formatPercent(row?.aggregate.winRate ?? 0)} win
+        </span>
+      </div>
     </FeatureCard>
   );
 }
@@ -6002,26 +6374,102 @@ function CalendarHeatmap({
 }
 
 function AreaSparkline({
+  currency = "USD",
   height = 180,
   tone = "cyan",
   values,
 }: {
+  currency?: string;
   height?: number;
   tone?: "cyan" | "rose";
   values: number[];
 }) {
-  const path = toPath(values, 900, height);
-  const zeroY = zeroLineY(values, height);
-  const stroke = tone === "rose" ? "#fb7185" : "#32d3ee";
-  const fill = tone === "rose" ? "rgba(251, 113, 133, 0.12)" : "rgba(50, 211, 238, 0.12)";
+  const gradientId = useId().replace(/:/g, "");
+  const width = 900;
+  const margin = { bottom: 30, left: 76, right: 18, top: 18 };
+  const domain = chartDomain(values);
+  const points = chartPoints(values, width, height, margin, domain);
+  const path = linePath(points);
+  const zeroY = chartY(0, height, margin, domain);
+  const areaPath = points.length > 1
+    ? `${path} L ${points[points.length - 1].x.toFixed(2)} ${zeroY.toFixed(2)} L ${points[0].x.toFixed(2)} ${zeroY.toFixed(2)} Z`
+    : "";
+  const stroke = tone === "rose" ? "#fb7185" : "#34d399";
+  const glow = tone === "rose" ? "rgba(251, 113, 133, 0.22)" : "rgba(52, 211, 153, 0.22)";
+  const ticks = chartTicks(domain.min, domain.max, 5);
+  const lastPoint = points[points.length - 1];
+  const firstPoint = points[0];
 
   return (
-    <div className="overflow-hidden rounded-md bg-black/20" style={{ height }}>
+    <div className="overflow-hidden rounded-md border border-white/10 bg-black/20" style={{ height }}>
       {values.length > 1 ? (
-        <svg className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 900 ${height}`}>
-          <path d={`M 0 ${zeroY} L 900 ${zeroY}`} stroke="rgba(148, 163, 184, 0.18)" strokeWidth="1" />
-          <path d={`${path} L 900 ${height} L 0 ${height} Z`} fill={fill} />
-          <path d={path} fill="none" stroke={stroke} strokeWidth="2.5" />
+        <svg className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+          <defs>
+            <linearGradient id={`${gradientId}-fill`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={stroke} stopOpacity="0.34" />
+              <stop offset="100%" stopColor={stroke} stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          <rect fill="rgba(2, 6, 23, 0.16)" height={height} width={width} />
+          {ticks.map((tick) => {
+            const y = chartY(tick, height, margin, domain);
+            return (
+              <g key={tick}>
+                <line
+                  stroke="rgba(148, 163, 184, 0.14)"
+                  strokeDasharray="5 7"
+                  strokeWidth="1"
+                  x1={margin.left}
+                  x2={width - margin.right}
+                  y1={y}
+                  y2={y}
+                />
+                <text
+                  fill="rgba(203, 213, 225, 0.58)"
+                  fontSize="11"
+                  fontWeight="600"
+                  textAnchor="end"
+                  x={margin.left - 10}
+                  y={y + 4}
+                >
+                  {formatCompactMoney(tick, currency)}
+                </text>
+              </g>
+            );
+          })}
+          <line
+            stroke="rgba(203, 213, 225, 0.22)"
+            strokeWidth="1"
+            x1={margin.left}
+            x2={width - margin.right}
+            y1={zeroY}
+            y2={zeroY}
+          />
+          <path d={areaPath} fill={`url(#${gradientId}-fill)`} />
+          <path d={path} fill="none" stroke={glow} strokeLinecap="round" strokeWidth="7" />
+          <path d={path} fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
+          {firstPoint && <circle cx={firstPoint.x} cy={firstPoint.y} fill="#0f172a" r="3.5" stroke={stroke} strokeWidth="2" />}
+          {lastPoint && (
+            <>
+              <circle cx={lastPoint.x} cy={lastPoint.y} fill={stroke} r="4" stroke="#020617" strokeWidth="2" />
+              <text
+                fill="rgba(226, 232, 240, 0.82)"
+                fontSize="11"
+                fontWeight="700"
+                textAnchor="end"
+                x={width - margin.right}
+                y={Math.max(margin.top + 12, Math.min(height - margin.bottom, lastPoint.y - 10))}
+              >
+                {formatCompactMoney(values[values.length - 1] ?? 0, currency)}
+              </text>
+            </>
+          )}
+          <text fill="rgba(148, 163, 184, 0.55)" fontSize="11" fontWeight="600" x={margin.left} y={height - 8}>
+            Start
+          </text>
+          <text fill="rgba(148, 163, 184, 0.55)" fontSize="11" fontWeight="600" textAnchor="end" x={width - margin.right} y={height - 8}>
+            Latest
+          </text>
         </svg>
       ) : (
         <div className="grid h-full place-items-center text-sm text-slate-500">No chart data</div>
@@ -6031,32 +6479,86 @@ function AreaSparkline({
 }
 
 function BarBreakdown({
+  chartHeight = 240,
   currency = "USD",
+  maxItems = 14,
   percent = false,
   rows,
 }: {
+  chartHeight?: number;
   currency?: string;
+  maxItems?: number;
   percent?: boolean;
   rows: Array<{ label: string; value: number }>;
 }) {
-  const max = Math.max(1, ...rows.map((row) => Math.abs(row.value)));
+  const visibleRows = rows
+    .filter((row) => Number.isFinite(row.value))
+    .slice(0, maxItems);
+  const rawMin = Math.min(0, ...visibleRows.map((row) => row.value));
+  const rawMax = Math.max(0, ...visibleRows.map((row) => row.value));
+  const domain = percent ? { max: Math.max(100, rawMax), min: 0 } : expandFlatDomain(rawMin, rawMax);
+  const range = domain.max - domain.min || 1;
+  const zeroBottom = ((0 - domain.min) / range) * 100;
+  const ticks = chartTicks(domain.min, domain.max, 5);
+  const minWidth = Math.max(360, visibleRows.length * 58);
+
+  if (visibleRows.length === 0) {
+    return <EmptyState icon={BarChart3} message="No chart data yet." />;
+  }
+
   return (
-    <div className="mt-4 grid gap-2">
-      {rows.slice(0, 14).map((row) => (
-        <div className="grid grid-cols-[110px_minmax(0,1fr)_86px] items-center gap-3 text-xs" key={row.label}>
-          <span className="truncate text-slate-500">{row.label}</span>
-          <div className="h-7 overflow-hidden rounded bg-black/30">
-            <div
-              className={`h-full ${row.value >= 0 ? "bg-emerald-300/35" : "bg-rose-300/35"}`}
-              style={{ width: `${Math.max(2, (Math.abs(row.value) / max) * 100)}%` }}
-            />
+    <div className="mt-4 overflow-x-auto rounded-md border border-white/10 bg-black/20 px-3 py-3">
+      <div className="grid min-w-0 grid-rows-[minmax(0,1fr)_42px]" style={{ height: chartHeight, minWidth }}>
+        <div className="relative">
+          {ticks.map((tick) => {
+            const top = ((domain.max - tick) / range) * 100;
+            return (
+              <div className="absolute left-0 right-0" key={tick} style={{ top: `${top}%` }}>
+                <div className="ml-14 border-t border-dashed border-white/10" />
+                <span className="absolute -top-2 left-0 w-12 text-right text-[10px] font-semibold tabular-nums text-slate-600">
+                  {percent ? `${tick.toFixed(0)}%` : formatCompactMoney(tick, currency)}
+                </span>
+              </div>
+            );
+          })}
+          <div className="absolute left-14 right-0 border-t border-white/20" style={{ bottom: `${zeroBottom}%` }} />
+          <div className="absolute inset-y-0 left-14 right-0 flex items-stretch gap-2">
+            {visibleRows.map((row) => {
+              const heightPercent = row.value === 0 ? 1.5 : Math.max(2, (Math.abs(row.value) / range) * 100);
+              const bottomPercent = row.value >= 0 ? zeroBottom : zeroBottom - heightPercent;
+              return (
+                <div className="relative min-w-10 flex-1" key={row.label}>
+                  <div
+                    className={`absolute left-1/2 w-7 -translate-x-1/2 rounded-t-sm ${
+                      row.value >= 0 ? "bg-emerald-400/70 shadow-[0_0_20px_rgba(52,211,153,0.16)]" : "bg-rose-400/70 shadow-[0_0_20px_rgba(251,113,133,0.14)]"
+                    }`}
+                    style={{
+                      bottom: `${Math.max(0, bottomPercent)}%`,
+                      height: `${Math.min(100, heightPercent)}%`,
+                    }}
+                    title={`${row.label}: ${percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}`}
+                  />
+                </div>
+              );
+            })}
           </div>
-          <span className={`text-right font-semibold tabular-nums ${toneForNumber(row.value)}`}>
-            {percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}
-          </span>
         </div>
-      ))}
-      {rows.length === 0 && <EmptyState icon={BarChart3} message="No breakdown data yet." />}
+        <div className="ml-14 flex gap-2 pt-2">
+          {visibleRows.map((row) => (
+            <div className="min-w-10 flex-1 text-center" key={row.label}>
+              <div className="truncate text-[10px] font-semibold text-slate-500" title={row.label}>
+                {row.label}
+              </div>
+              <div className={`mt-0.5 truncate text-[10px] font-semibold tabular-nums ${toneForNumber(row.value)}`}>
+                {percent ? `${row.value.toFixed(0)}%` : formatCompactMoney(row.value, currency)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {rows.length > visibleRows.length && (
+        <div className="mt-2 text-xs text-slate-600">Showing first {visibleRows.length} of {rows.length} buckets.</div>
+      )}
     </div>
   );
 }
@@ -7005,6 +7507,76 @@ function groupByHour(trades: Trade[]) {
     .map((row) => ({ aggregate: aggregateTrades(row.trades), label: row.label }));
 }
 
+function groupByWeekday(trades: Trade[]) {
+  const labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const rows = labels.map((label) => ({ label, trades: [] as Trade[] }));
+  for (const trade of trades) {
+    const dayIndex = (new Date(trade.entry_time).getDay() + 6) % 7;
+    rows[dayIndex]?.trades.push(trade);
+  }
+  return rows
+    .filter((row) => row.trades.length > 0)
+    .map((row) => ({ aggregate: aggregateTrades(row.trades), label: row.label }));
+}
+
+function groupByMonth(trades: Trade[]) {
+  const grouped = new Map<string, Trade[]>();
+  for (const trade of trades) {
+    const key = (trade.exit_time ?? trade.entry_time).slice(0, 7);
+    grouped.set(key, [...(grouped.get(key) ?? []), trade]);
+  }
+  return Array.from(grouped.entries())
+    .sort(([leftMonth], [rightMonth]) => leftMonth.localeCompare(rightMonth))
+    .map(([month, monthTrades]) => ({
+      aggregate: aggregateTrades(monthTrades),
+      label: dateFromKey(`${month}-01`).toLocaleDateString([], { month: "short", year: "numeric" }),
+    }));
+}
+
+function groupByHoldDuration(trades: Trade[]) {
+  const buckets = [
+    { label: "<15m", max: 15, min: 0 },
+    { label: "15-59m", max: 60, min: 15 },
+    { label: "1-3.9h", max: 240, min: 60 },
+    { label: "4-7.9h", max: 480, min: 240 },
+    { label: "8h+", max: Infinity, min: 480 },
+  ].map((bucket) => ({ ...bucket, trades: [] as Trade[] }));
+  for (const trade of trades) {
+    const duration = holdMinutes(trade);
+    const bucket = buckets.find((item) => duration != null && duration >= item.min && duration < item.max);
+    bucket?.trades.push(trade);
+  }
+  return buckets
+    .filter((bucket) => bucket.trades.length > 0)
+    .map((bucket) => ({ aggregate: aggregateTrades(bucket.trades), label: bucket.label }));
+}
+
+function groupBySide(trades: Trade[]) {
+  return ["LONG", "SHORT"]
+    .map((side) => ({
+      aggregate: aggregateTrades(trades.filter((trade) => trade.side === side)),
+      label: side === "LONG" ? "Long" : "Short",
+    }))
+    .filter((row) => row.aggregate.totalTrades > 0);
+}
+
+function groupByQuantity(trades: Trade[]) {
+  const buckets = [
+    { label: "<1", max: 1, min: 0 },
+    { label: "1-9.9", max: 10, min: 1 },
+    { label: "10-99", max: 100, min: 10 },
+    { label: "100-999", max: 1000, min: 100 },
+    { label: "1K+", max: Infinity, min: 1000 },
+  ].map((bucket) => ({ ...bucket, trades: [] as Trade[] }));
+  for (const trade of trades) {
+    const bucket = buckets.find((item) => trade.quantity >= item.min && trade.quantity < item.max);
+    bucket?.trades.push(trade);
+  }
+  return buckets
+    .filter((bucket) => bucket.trades.length > 0)
+    .map((bucket) => ({ aggregate: aggregateTrades(bucket.trades), label: bucket.label }));
+}
+
 function groupByTag(trades: Trade[]) {
   const grouped = new Map<string, Trade[]>();
   for (const trade of trades) {
@@ -7162,28 +7734,60 @@ function computeMaxDrawdown(trades: Trade[]) {
   return Math.min(...drawdownValues(trades), 0);
 }
 
-function toPath(values: number[], width: number, height: number) {
-  if (values.length < 2) {
-    return "";
+function chartDomain(values: number[]) {
+  return expandFlatDomain(Math.min(0, ...values), Math.max(0, ...values));
+}
+
+function expandFlatDomain(min: number, max: number) {
+  if (min === max) {
+    const padding = Math.max(1, Math.abs(min) * 0.12);
+    return { max: max + padding, min: min - padding };
   }
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 0);
-  const range = max - min || 1;
-  const step = width / (values.length - 1);
-  return values
-    .map((value, index) => {
-      const x = index * step;
-      const y = height - ((value - min) / range) * height;
-      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
+  const padding = (max - min) * 0.08;
+  return { max: max + padding, min: min - padding };
+}
+
+function chartPoints(
+  values: number[],
+  width: number,
+  height: number,
+  margin: { bottom: number; left: number; right: number; top: number },
+  domain: { max: number; min: number },
+) {
+  if (values.length === 0) {
+    return [];
+  }
+  const plotWidth = width - margin.left - margin.right;
+  const step = values.length > 1 ? plotWidth / (values.length - 1) : plotWidth;
+  return values.map((value, index) => ({
+    x: margin.left + index * step,
+    y: chartY(value, height, margin, domain),
+  }));
+}
+
+function chartY(
+  value: number,
+  height: number,
+  margin: { bottom: number; left: number; right: number; top: number },
+  domain: { max: number; min: number },
+) {
+  const plotHeight = height - margin.top - margin.bottom;
+  const range = domain.max - domain.min || 1;
+  return margin.top + ((domain.max - value) / range) * plotHeight;
+}
+
+function linePath(points: Array<{ x: number; y: number }>) {
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
     .join(" ");
 }
 
-function zeroLineY(values: number[], height: number) {
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 0);
-  const range = max - min || 1;
-  return height - ((0 - min) / range) * height;
+function chartTicks(min: number, max: number, count: number) {
+  if (count <= 1 || min === max) {
+    return [min];
+  }
+  const step = (max - min) / (count - 1);
+  return Array.from({ length: count }, (_, index) => min + step * index);
 }
 
 function bestRow(rows: Array<{ aggregate: Aggregate; label: string }>) {
@@ -7282,6 +7886,22 @@ function formatCompactNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 2,
     notation: "compact",
+  }).format(value);
+}
+
+function formatCompactMoney(value: number | null | undefined, currency = "USD") {
+  if (value == null || !Number.isFinite(value)) {
+    return "-";
+  }
+  const absolute = Math.abs(value);
+  if (absolute < 1000) {
+    return formatMoney(value, currency);
+  }
+  return new Intl.NumberFormat("en-US", {
+    currency,
+    maximumFractionDigits: 1,
+    notation: "compact",
+    style: "currency",
   }).format(value);
 }
 
