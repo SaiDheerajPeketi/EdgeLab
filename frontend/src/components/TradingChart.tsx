@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Save,
   Trash2,
+  Undo2,
   UnlockKeyhole,
 } from "lucide-react";
 import {
@@ -117,6 +118,7 @@ const MAX_RESET_REPLAY_BARS = 320;
 
 type Props = {
   bars: Candle[];
+  canUndoDrawingChange: boolean;
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   confirmOrderLineModifications: boolean;
@@ -136,7 +138,8 @@ type Props = {
   onRemoveIndicator: (instanceId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicatorVisibility: (instanceId: string) => void;
-  onUpdateDrawing: (drawing: ChartDrawing) => void;
+  onUndoDrawingChange: () => void;
+  onUpdateDrawing: (drawing: ChartDrawing, coalesceUndo?: boolean) => void;
   onUpdateIndicatorSettings: (instanceId: string, settings: Partial<IndicatorSettings>) => void;
   onUpdatePosition: (payload: PositionUpdatePayload) => Promise<void> | void;
   orders: Order[];
@@ -148,6 +151,7 @@ type Props = {
   currency?: string;
   datasetTimeframe?: string | null;
   timeframe: ChartTimeframe;
+  undoShortcutLabel: string;
 };
 
 type TooltipData = {
@@ -286,6 +290,7 @@ const POSITION_RISK_COLOR = "#fb7185";
 
 export function TradingChart({
   bars,
+  canUndoDrawingChange,
   chartSettings,
   chartStyle,
   confirmOrderLineModifications,
@@ -305,6 +310,7 @@ export function TradingChart({
   onRemoveIndicator,
   onSelectDrawing,
   onToggleIndicatorVisibility,
+  onUndoDrawingChange,
   onUpdateDrawing,
   onUpdateIndicatorSettings,
   onUpdatePosition,
@@ -317,6 +323,7 @@ export function TradingChart({
   currency = "USD",
   datasetTimeframe,
   timeframe,
+  undoShortcutLabel,
 }: Props) {
   const stageRef = useRef<HTMLElement | null>(null);
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
@@ -1298,7 +1305,7 @@ export function TradingChart({
       if (!nextDrawing) {
         return;
       }
-      onUpdateDrawing(nextDrawing);
+      onUpdateDrawing(nextDrawing, true);
       return;
     }
 
@@ -1684,10 +1691,13 @@ export function TradingChart({
     if (!selectedDrawing) {
       return;
     }
-    onUpdateDrawing({
-      ...selectedDrawing,
-      ...patch,
-    });
+    onUpdateDrawing(
+      {
+        ...selectedDrawing,
+        ...patch,
+      },
+      false,
+    );
   }
 
   function openIndicatorToolbar(
@@ -1990,12 +2000,15 @@ export function TradingChart({
       >
         <DrawingRail
           activeTool={drawingTool}
+          canUndoDrawingChange={canUndoDrawingChange}
           clearableDrawingsCount={unlockedDrawingsCount}
           drawingsCount={drawings.length}
           magnetMode={magnetMode}
           onClearDrawings={onClearDrawings}
           onMagnetModeChange={onMagnetModeChange}
           onToolChange={onDrawingToolChange}
+          onUndoDrawingChange={onUndoDrawingChange}
+          undoShortcutLabel={undoShortcutLabel}
         />
 
         <div className="chart-plot-column relative min-w-0">
@@ -2490,20 +2503,26 @@ function OrderLineModificationDialog({
 
 function DrawingRail({
   activeTool,
+  canUndoDrawingChange,
   clearableDrawingsCount,
   drawingsCount,
   magnetMode,
   onClearDrawings,
   onMagnetModeChange,
   onToolChange,
+  onUndoDrawingChange,
+  undoShortcutLabel,
 }: {
   activeTool: DrawingTool;
+  canUndoDrawingChange: boolean;
   clearableDrawingsCount: number;
   drawingsCount: number;
   magnetMode: MagnetMode;
   onClearDrawings: () => void;
   onMagnetModeChange: (mode: MagnetMode) => void;
   onToolChange: (tool: DrawingTool) => void;
+  onUndoDrawingChange: () => void;
+  undoShortcutLabel: string;
 }) {
   const tools: Array<{
     icon: ChartToolIcon;
@@ -2577,6 +2596,19 @@ function DrawingRail({
         );
       })}
       <div className="my-1 h-px w-8 bg-white/10" />
+      <button
+        className="drawing-rail-button"
+        disabled={!canUndoDrawingChange}
+        onClick={onUndoDrawingChange}
+        title={
+          canUndoDrawingChange
+            ? `Undo last drawing change (${undoShortcutLabel})`
+            : `Nothing to undo (${undoShortcutLabel})`
+        }
+        type="button"
+      >
+        <Undo2 size={16} />
+      </button>
       <button
         className="drawing-rail-button"
         disabled={clearableDrawingsCount === 0}

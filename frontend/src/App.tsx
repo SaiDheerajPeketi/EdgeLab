@@ -86,6 +86,8 @@ import { useBacktestStore } from "./store/backtestStore";
 const CHART_LAYOUT_STORAGE_KEY = "chart-layout.v1";
 const CHART_LAYOUTS_STORAGE_KEY = "chart-layouts.v1";
 const ACTIVE_CHART_LAYOUT_STORAGE_KEY = "active-chart-layout.v1";
+const DRAWING_UNDO_LIMIT = 50;
+const DRAWING_UNDO_COALESCE_MS = 350;
 const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
@@ -203,6 +205,13 @@ export default function App() {
     const saved = loadChartLayout();
     return sanitizeDrawings(saved?.drawings);
   });
+  const drawingsRef = useRef<ChartDrawing[]>(drawings);
+  const drawingUndoStackRef = useRef<ChartDrawing[][]>([]);
+  const drawingUndoBatchOpenRef = useRef(false);
+  const drawingUndoBatchTimerRef = useRef<number | null>(null);
+  const drawingPersistTimerRef = useRef<number | null>(null);
+  const [drawingUndoDepth, setDrawingUndoDepth] = useState(0);
+  const undoShortcutLabel = systemUndoShortcutLabel();
   const [showOrderOverlays, setShowOrderOverlays] = useState(() => {
     const saved = loadChartLayout();
     return saved?.showOrderOverlays ?? true;
@@ -229,6 +238,21 @@ export default function App() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    drawingsRef.current = drawings;
+  }, [drawings]);
+
+  useEffect(() => {
+    return () => {
+      if (drawingUndoBatchTimerRef.current != null) {
+        window.clearTimeout(drawingUndoBatchTimerRef.current);
+      }
+      if (drawingPersistTimerRef.current != null) {
+        window.clearTimeout(drawingPersistTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -383,9 +407,9 @@ export default function App() {
         return;
       }
 
-      if (event.ctrlKey && event.key.toLowerCase() === "z") {
+      if (isSystemUndoShortcut(event)) {
         event.preventDefault();
-        removeLastUnlockedDrawing();
+        undoLastDrawingChange();
         return;
       }
 
@@ -477,7 +501,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, state, stepForward]);
+  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, state, stepForward, undoLastDrawingChange]);
 
   useEffect(() => {
     function syncNativeFullscreen() {
@@ -608,28 +632,156 @@ export default function App() {
     );
   }
 
+  function commitDrawingsChange(
+    nextDrawings: ChartDrawing[],
+    options: { coalesceUndo?: boolean; recordUndo?: boolean } = {},
+  ) {
+    const sanitizedDrawings = cloneDrawingsForHistory(sanitizeDrawings(nextDrawings));
+    const currentDrawings = drawingsRef.current;
+    if (drawingCollectionsEqual(currentDrawings, sanitizedDrawings)) {
+      return sanitizedDrawings;
+    }
+
+    if (options.recordUndo !== false) {
+      captureDrawingUndoSnapshot(currentDrawings, options.coalesceUndo === true);
+    } else {
+      closeDrawingUndoBatch();
+    }
+
+    drawingsRef.current = sanitizedDrawings;
+    setDrawings(sanitizedDrawings);
+    if (options.coalesceUndo === true) {
+      scheduleDrawingLayoutPersist(sanitizedDrawings);
+    } else {
+      flushPendingDrawingLayoutPersist();
+      persistChartLayoutWithDrawings(sanitizedDrawings);
+    }
+    return sanitizedDrawings;
+  }
+
+  function captureDrawingUndoSnapshot(snapshot: ChartDrawing[], coalesce: boolean) {
+    if (coalesce && drawingUndoBatchOpenRef.current) {
+      scheduleDrawingUndoBatchClose();
+      return;
+    }
+    if (!coalesce) {
+      closeDrawingUndoBatch();
+    }
+
+    const historyEntry = cloneDrawingsForHistory(snapshot);
+    const stack = drawingUndoStackRef.current;
+    if (stack.length === 0 || !drawingCollectionsEqual(stack[stack.length - 1], historyEntry)) {
+      stack.push(historyEntry);
+      if (stack.length > DRAWING_UNDO_LIMIT) {
+        stack.shift();
+      }
+      setDrawingUndoDepth(stack.length);
+    }
+
+    if (coalesce) {
+      drawingUndoBatchOpenRef.current = true;
+      scheduleDrawingUndoBatchClose();
+    }
+  }
+
+  function scheduleDrawingUndoBatchClose() {
+    if (drawingUndoBatchTimerRef.current != null) {
+      window.clearTimeout(drawingUndoBatchTimerRef.current);
+    }
+    drawingUndoBatchTimerRef.current = window.setTimeout(() => {
+      drawingUndoBatchOpenRef.current = false;
+      drawingUndoBatchTimerRef.current = null;
+    }, DRAWING_UNDO_COALESCE_MS);
+  }
+
+  function closeDrawingUndoBatch() {
+    drawingUndoBatchOpenRef.current = false;
+    if (drawingUndoBatchTimerRef.current != null) {
+      window.clearTimeout(drawingUndoBatchTimerRef.current);
+      drawingUndoBatchTimerRef.current = null;
+    }
+  }
+
+  function scheduleDrawingLayoutPersist(nextDrawings: ChartDrawing[]) {
+    if (drawingPersistTimerRef.current != null) {
+      window.clearTimeout(drawingPersistTimerRef.current);
+    }
+    const persistedDrawings = cloneDrawingsForHistory(nextDrawings);
+    drawingPersistTimerRef.current = window.setTimeout(() => {
+      drawingPersistTimerRef.current = null;
+      persistChartLayoutWithDrawings(persistedDrawings);
+    }, DRAWING_UNDO_COALESCE_MS);
+  }
+
+  function flushPendingDrawingLayoutPersist() {
+    if (drawingPersistTimerRef.current == null) {
+      return;
+    }
+    window.clearTimeout(drawingPersistTimerRef.current);
+    drawingPersistTimerRef.current = null;
+  }
+
+  function addDrawing(drawing: ChartDrawing) {
+    commitDrawingsChange([...drawingsRef.current, drawing]);
+    setSelectedDrawingId(drawing.id);
+  }
+
+  function updateDrawing(updatedDrawing: ChartDrawing, coalesceUndo = false) {
+    commitDrawingsChange(
+      drawingsRef.current.map((drawing) =>
+        drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
+      ),
+      { coalesceUndo },
+    );
+  }
+
+  function undoLastDrawingChange() {
+    closeDrawingUndoBatch();
+    flushPendingDrawingLayoutPersist();
+    const previousDrawings = drawingUndoStackRef.current.pop();
+    setDrawingUndoDepth(drawingUndoStackRef.current.length);
+    if (!previousDrawings) {
+      return;
+    }
+    const restoredDrawings = cloneDrawingsForHistory(previousDrawings);
+    drawingsRef.current = restoredDrawings;
+    setDrawings(restoredDrawings);
+    if (
+      selectedDrawingId &&
+      !restoredDrawings.some((drawing) => drawing.id === selectedDrawingId)
+    ) {
+      setSelectedDrawingId(null);
+    }
+    persistChartLayoutWithDrawings(restoredDrawings);
+  }
+
+  function resetDrawingUndoHistory() {
+    closeDrawingUndoBatch();
+    flushPendingDrawingLayoutPersist();
+    drawingUndoStackRef.current = [];
+    setDrawingUndoDepth(0);
+  }
+
   function clearDrawings() {
-    const nextDrawings = drawings.filter((drawing) => drawing.locked);
-    setDrawings(nextDrawings);
+    const nextDrawings = commitDrawingsChange(
+      drawingsRef.current.filter((drawing) => drawing.locked),
+    );
     if (!nextDrawings.some((drawing) => drawing.id === selectedDrawingId)) {
       setSelectedDrawingId(null);
     }
-    persistChartLayoutWithDrawings(nextDrawings);
   }
 
   function deleteDrawing(drawingId: string) {
-    const targetDrawing = drawings.find((drawing) => drawing.id === drawingId);
+    const targetDrawing = drawingsRef.current.find((drawing) => drawing.id === drawingId);
     if (!targetDrawing || targetDrawing.locked) {
       return;
     }
-    const nextDrawings = drawings.filter((drawing) => drawing.id !== drawingId);
-    setDrawings(nextDrawings);
+    commitDrawingsChange(drawingsRef.current.filter((drawing) => drawing.id !== drawingId));
     setSelectedDrawingId(null);
-    persistChartLayoutWithDrawings(nextDrawings);
   }
 
   function removeLastUnlockedDrawing() {
-    const drawing = [...drawings].reverse().find((item) => !item.locked);
+    const drawing = [...drawingsRef.current].reverse().find((item) => !item.locked);
     if (!drawing) {
       return;
     }
@@ -731,6 +883,7 @@ export default function App() {
   }
 
   function applyChartLayout(layout: Partial<StoredChartLayout>) {
+    const nextDrawings = cloneDrawingsForHistory(sanitizeDrawings(layout.drawings));
     setIndicatorInstances(
       sanitizeIndicatorInstances(
         layout.indicatorInstances,
@@ -740,7 +893,9 @@ export default function App() {
     );
     setChartStyle(sanitizeChartStyle(layout.chartStyle));
     setChartSettings(sanitizeChartVisualSettings(layout.chartSettings));
-    setDrawings(sanitizeDrawings(layout.drawings));
+    drawingsRef.current = nextDrawings;
+    setDrawings(nextDrawings);
+    resetDrawingUndoHistory();
     setMagnetMode(sanitizeMagnetMode(layout.magnetMode));
     setShowOrderOverlays(layout.showOrderOverlays ?? true);
     setSmoothCandles(layout.smoothCandles ?? false);
@@ -1166,6 +1321,7 @@ export default function App() {
                   <div className="min-w-0 space-y-3">
                     <TradingChart
                       bars={bars}
+                      canUndoDrawingChange={drawingUndoDepth > 0}
                       chartSettings={chartSettings}
                       chartStyle={chartStyle}
                       confirmOrderLineModifications={confirmOrderLineModifications}
@@ -1175,10 +1331,7 @@ export default function App() {
                       indicatorInstances={indicatorInstances}
                       magnetMode={magnetMode}
                       neutralDrawingTool={lastNeutralDrawingToolRef.current}
-                      onAddDrawing={(drawing) => {
-                        setDrawings((currentDrawings) => [...currentDrawings, drawing]);
-                        setSelectedDrawingId(drawing.id);
-                      }}
+                      onAddDrawing={addDrawing}
                       onAmendOrder={amendOrder}
                       onClearDrawings={clearDrawings}
                       onClosePositionFraction={closePositionFraction}
@@ -1189,13 +1342,8 @@ export default function App() {
                       onSelectDrawing={setSelectedDrawingId}
                       onToggleIndicatorVisibility={toggleIndicatorVisibility}
                       onUpdatePosition={updatePosition}
-                      onUpdateDrawing={(updatedDrawing) =>
-                        setDrawings((currentDrawings) =>
-                          currentDrawings.map((drawing) =>
-                            drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
-                          ),
-                        )
-                      }
+                      onUndoDrawingChange={undoLastDrawingChange}
+                      onUpdateDrawing={updateDrawing}
                       onUpdateIndicatorSettings={updateIndicatorSettings}
                       orders={orders}
                       position={position}
@@ -1206,6 +1354,7 @@ export default function App() {
                       currency={sessionCurrency}
                       datasetTimeframe={state?.session.timeframe}
                       timeframe={effectiveTimeframe}
+                      undoShortcutLabel={undoShortcutLabel}
                     />
                   </div>
                   {layersPanelOpen ? (
@@ -1219,13 +1368,7 @@ export default function App() {
                       onSelectDrawing={setSelectedDrawingId}
                       onRemoveIndicator={removeIndicator}
                       onToggleIndicatorVisibility={toggleIndicatorVisibility}
-                      onUpdateDrawing={(updatedDrawing) =>
-                        setDrawings((currentDrawings) =>
-                          currentDrawings.map((drawing) =>
-                            drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
-                          ),
-                        )
-                      }
+                      onUpdateDrawing={(updatedDrawing) => updateDrawing(updatedDrawing, false)}
                       onUpdateIndicatorSettings={updateIndicatorSettings}
                       onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                       orderOverlaysVisible={showOrderOverlays}
@@ -1742,6 +1885,42 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
         : normalized,
     ];
   });
+}
+
+function cloneDrawingsForHistory(drawings: ChartDrawing[]) {
+  return drawings.map((drawing) => ({
+    ...drawing,
+    fibLevels: drawing.fibLevels?.map((level) => ({ ...level })),
+    points: drawing.points.map((point) => ({ ...point })),
+  }));
+}
+
+function drawingCollectionsEqual(left: ChartDrawing[], right: ChartDrawing[]) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isSystemUndoShortcut(event: KeyboardEvent) {
+  const isUndoKey = event.key.toLowerCase() === "z";
+  if (!isUndoKey || event.shiftKey || event.altKey) {
+    return false;
+  }
+  return isApplePlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+}
+
+function systemUndoShortcutLabel() {
+  return isApplePlatform() ? "Cmd+Z" : "Ctrl+Z";
+}
+
+function isApplePlatform() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const userAgentDataPlatform =
+    "userAgentData" in navigator
+      ? (navigator.userAgentData as { platform?: string } | undefined)?.platform
+      : undefined;
+  const platform = userAgentDataPlatform ?? navigator.platform ?? "";
+  return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
 function HeaderStat({
