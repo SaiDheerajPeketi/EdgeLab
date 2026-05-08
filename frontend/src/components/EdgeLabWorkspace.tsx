@@ -858,6 +858,7 @@ function TradeViewPage({
   sessionById,
   strategies,
 }: SharedPageProps) {
+  const [sessionFilter, setSessionFilter] = useState("ALL");
   const [instrumentFilter, setInstrumentFilter] = useState("ALL");
   const [sideFilter, setSideFilter] = useState("ALL");
   const [strategyFilter, setStrategyFilter] = useState("ALL");
@@ -866,6 +867,10 @@ function TradeViewPage({
   const [dateTo, setDateTo] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const savedStrategyNames = useBacktestStrategyNames();
+  const sessionOptions = useMemo(
+    () => buildTradeSessionOptions(closedTrades, sessionById),
+    [closedTrades, sessionById],
+  );
   const instrumentOptions = useMemo(
     () => buildTradeInstrumentOptions(closedTrades, sessionById),
     [closedTrades, sessionById],
@@ -893,6 +898,9 @@ function TradeViewPage({
         const session = sessionById.get(trade.session_id);
         const strategyName = tradeStrategyName(trade, session);
         const entryDate = trade.entry_time.slice(0, 10);
+        if (sessionFilter !== "ALL" && String(trade.session_id) !== sessionFilter) {
+          return false;
+        }
         if (instrumentFilter !== "ALL" && tradeInstrumentFilterValue(trade, session) !== instrumentFilter) {
           return false;
         }
@@ -916,10 +924,11 @@ function TradeViewPage({
         }
         return tradeMatchesLogSearch(trade, session, searchTerm, strategyName);
       }),
-    [closedTrades, dateFrom, dateTo, instrumentFilter, searchTerm, sessionById, sideFilter, strategyFilter, tagFilter],
+    [closedTrades, dateFrom, dateTo, instrumentFilter, searchTerm, sessionById, sessionFilter, sideFilter, strategyFilter, tagFilter],
   );
   const filteredAggregate = useMemo(() => aggregateTrades(filteredTrades), [filteredTrades]);
   const filtersActive =
+    sessionFilter !== "ALL" ||
     instrumentFilter !== "ALL" ||
     sideFilter !== "ALL" ||
     strategyFilter !== "ALL" ||
@@ -927,6 +936,7 @@ function TradeViewPage({
     Boolean(dateFrom || dateTo || searchTerm.trim());
 
   function resetFilters() {
+    setSessionFilter("ALL");
     setInstrumentFilter("ALL");
     setSideFilter("ALL");
     setStrategyFilter("ALL");
@@ -954,8 +964,8 @@ function TradeViewPage({
     >
       <FeatureCard>
         <div className="mb-4 grid gap-3">
-          <div className="grid gap-2 lg:grid-cols-[minmax(0,1.1fr)_repeat(3,minmax(150px,0.75fr))]">
-            <label className="form-field">
+          <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.1fr)_repeat(4,minmax(140px,0.7fr))]">
+            <label className="form-field lg:col-span-2 xl:col-span-1">
               Search
               <div className="flex h-10 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-3 text-sm focus-within:border-cyan-300/40 focus-within:ring-2 focus-within:ring-cyan-300/10">
                 <Search className="shrink-0 text-slate-500" size={15} />
@@ -966,6 +976,10 @@ function TradeViewPage({
                   value={searchTerm}
                 />
               </div>
+            </label>
+            <label className="form-field">
+              Session
+              <ThemedSelect className="h-10" onChange={setSessionFilter} options={sessionOptions} portal value={sessionFilter} />
             </label>
             <label className="form-field">
               Instrument
@@ -5271,6 +5285,42 @@ function tradeNoteTags(trade: Trade) {
 function extractInlineNoteTags(notes: string | null | undefined) {
   const matches = richTextToPlainText(notes).match(/#[A-Za-z0-9][A-Za-z0-9_-]*/g);
   return matches?.map((tag) => tag.slice(1)) ?? [];
+}
+
+function buildTradeSessionOptions(
+  trades: Trade[],
+  sessionById: Map<number, BacktestSession>,
+) {
+  const options = new Map<string, { label: string; sublabel?: string; value: string }>();
+  for (const trade of trades) {
+    const value = String(trade.session_id);
+    if (options.has(value)) {
+      continue;
+    }
+    const session = sessionById.get(trade.session_id);
+    options.set(value, {
+      label: session?.name?.trim() || `Session #${trade.session_id}`,
+      sublabel: tradeSessionDetail(trade, session),
+      value,
+    });
+  }
+  return [
+    { label: "All sessions", value: "ALL" },
+    ...Array.from(options.values()).sort((left, right) => left.label.localeCompare(right.label)),
+  ];
+}
+
+function tradeSessionDetail(trade: Trade, session?: BacktestSession) {
+  if (!session) {
+    return tradeInstrumentLabel(trade);
+  }
+  return [
+    tradeInstrumentLabel(trade, session),
+    session.timeframe,
+    session.start_at ? shortDate(session.start_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function buildTradeInstrumentOptions(
