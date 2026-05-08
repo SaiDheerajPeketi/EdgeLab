@@ -3,10 +3,14 @@ import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   ArrowRight,
   BadgeDollarSign,
   BarChart3,
   BookOpen,
+  Bold,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -24,10 +28,13 @@ import {
   Grid2X2,
   Image,
   Info,
+  Italic,
+  Link2,
   LineChart,
   List,
   MoreHorizontal,
   NotebookPen,
+  Palette,
   PieChart,
   PlaySquare,
   Plus,
@@ -38,10 +45,12 @@ import {
   Share2,
   SlidersHorizontal,
   Star,
+  Strikethrough,
   Target,
   TrendingDown,
   TrendingUp,
   Trash2,
+  Underline,
   WalletCards,
   X,
 } from "lucide-react";
@@ -212,6 +221,18 @@ type LiveTradeInput = {
   takeProfit: number | null;
 };
 
+type NotebookAlignMode = "center" | "left" | "right";
+
+type NotebookEditorState = {
+  align: NotebookAlignMode;
+  bold: boolean;
+  color: string | null;
+  italic: boolean;
+  link: boolean;
+  strike: boolean;
+  underline: boolean;
+};
+
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
 const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
 const NOTEBOOK_TEMPLATE_STORAGE_KEY = "notebook-template.v1";
@@ -232,6 +253,33 @@ const DEFAULT_NOTEBOOK_TEMPLATE = [
   "- What needs correction:",
   "- Next action:",
 ].join("\n");
+const DEFAULT_NOTEBOOK_EDITOR_STATE: NotebookEditorState = {
+  align: "left",
+  bold: false,
+  color: null,
+  italic: false,
+  link: false,
+  strike: false,
+  underline: false,
+};
+const NOTE_COLOR_OPTIONS = [
+  { label: "Cyan", value: "#67e8f9" },
+  { label: "Green", value: "#86efac" },
+  { label: "Rose", value: "#fda4af" },
+  { label: "Amber", value: "#fcd34d" },
+  { label: "Slate", value: "#cbd5e1" },
+  { label: "White", value: "#f8fafc" },
+];
+const NOTE_ALIGN_OPTIONS: Array<{
+  command: "justifyCenter" | "justifyLeft" | "justifyRight";
+  icon: LucideIcon;
+  label: string;
+  value: NotebookAlignMode;
+}> = [
+  { command: "justifyLeft", icon: AlignLeft, label: "Left", value: "left" },
+  { command: "justifyCenter", icon: AlignCenter, label: "Center", value: "center" },
+  { command: "justifyRight", icon: AlignRight, label: "Right", value: "right" },
+];
 const LIVE_EMOTIONS = ["Calm", "Confident", "Focused", "Fearful", "Impulsive", "Frustrated", "Other"] as const;
 const CURRENCY_OPTIONS = [
   "USD",
@@ -1752,7 +1800,6 @@ function NotebookPage({
   const [favoriteTradeIds, setFavoriteTradeIds] = useState<number[]>(() =>
     sanitizeFavoriteIds(getCachedAppStorageItem<unknown>(NOTEBOOK_FAVORITES_STORAGE_KEY, [])),
   );
-  const [saveSignal, setSaveSignal] = useState(0);
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(
     closedTrades.at(-1)?.id ?? null,
   );
@@ -1837,18 +1884,6 @@ function NotebookPage({
       eyebrow="Backtest Notebook"
       title="Backtest Trade Notes"
       description="An EdgeLab notebook linked to closed replay trades and session review."
-      actions={
-        selectedTrade ? (
-          <button
-            className="control-button workspace-tab-active"
-            onClick={() => setSaveSignal((value) => value + 1)}
-            type="button"
-          >
-            <Save size={15} />
-            Save note
-          </button>
-        ) : undefined
-      }
     >
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <FeatureCard className="p-0">
@@ -1935,7 +1970,6 @@ function NotebookPage({
               favorite={favoriteTradeIdSet.has(selectedTrade.id)}
               onReplayTrade={onReplayTrade}
               onToggleFavorite={() => toggleFavorite(selectedTrade.id)}
-              saveSignal={saveSignal}
               session={selectedSession}
               trade={selectedTrade}
             />
@@ -1954,7 +1988,6 @@ function NotebookTradeDetail({
   favorite,
   onReplayTrade,
   onToggleFavorite,
-  saveSignal,
   session,
   trade,
 }: {
@@ -1963,16 +1996,21 @@ function NotebookTradeDetail({
   favorite: boolean;
   onReplayTrade: (trade: Trade) => Promise<void> | void;
   onToggleFavorite: () => void;
-  saveSignal: number;
   session: BacktestSession | null;
   trade: Trade;
 }) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
   const noteRef = useRef<HTMLDivElement | null>(null);
   const customTagRef = useRef<HTMLInputElement | null>(null);
-  const saveSignalRef = useRef(saveSignal);
+  const linkInputRef = useRef<HTMLInputElement | null>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
   const [notes, setNotes] = useState(() => normalizeStoredNoteHtml(trade.notes));
   const [noteFocused, setNoteFocused] = useState(false);
+  const [editorState, setEditorState] = useState<NotebookEditorState>(DEFAULT_NOTEBOOK_EDITOR_STATE);
+  const [linkPopoverOpen, setLinkPopoverOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [strategy, setStrategy] = useState(tradeStrategyName(trade, session ?? undefined));
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
@@ -2023,6 +2061,10 @@ function NotebookTradeDetail({
     setSnapshotStatus(trade.screenshot_url ? "ready" : "idle");
     setStatus(null);
     setMoreOpen(false);
+    setLinkPopoverOpen(false);
+    setColorMenuOpen(false);
+    setAlignMenuOpen(false);
+    setEditorState(DEFAULT_NOTEBOOK_EDITOR_STATE);
   }, [session, trade]);
 
   useEffect(() => {
@@ -2085,12 +2127,21 @@ function NotebookTradeDetail({
   }, [currency, trade.id, trade.screenshot_url]);
 
   useEffect(() => {
-    if (saveSignalRef.current === saveSignal) {
+    if (!linkPopoverOpen) {
       return;
     }
-    saveSignalRef.current = saveSignal;
-    void saveDraft();
-  }, [saveSignal]);
+    const frame = requestAnimationFrame(() => linkInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [linkPopoverOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+    const handleSelectionChange = () => updateEditorState();
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
 
   async function regenerateSnapshot() {
     setSnapshotStatus("loading");
@@ -2174,12 +2225,48 @@ function NotebookTradeDetail({
     setMoreOpen(false);
   }
 
+  function clearNote() {
+    if (noteRef.current) {
+      noteRef.current.innerHTML = "";
+    }
+    setNotes("");
+    setNoteFocused(false);
+    setMoreOpen(false);
+    setLinkPopoverOpen(false);
+    setColorMenuOpen(false);
+    setAlignMenuOpen(false);
+    setEditorState(DEFAULT_NOTEBOOK_EDITOR_STATE);
+  }
+
   function handleEditorInput(event: FormEvent<HTMLDivElement>) {
     setNotes(sanitizeRichTextHtml(event.currentTarget.innerHTML));
+    updateEditorState();
   }
 
   function syncNotesFromEditor() {
     setNotes(sanitizeRichTextHtml(noteRef.current?.innerHTML ?? ""));
+    updateEditorState();
+  }
+
+  function saveEditorSelection() {
+    const editor = noteRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    if (!editor || !selection?.rangeCount || !editor.contains(selection.anchorNode)) {
+      return;
+    }
+    savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+  }
+
+  function restoreEditorSelection() {
+    const editor = noteRef.current;
+    const range = savedSelectionRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    if (!editor || !range || !selection) {
+      return;
+    }
+    editor.focus();
+    selection.removeAllRanges();
+    selection.addRange(range);
   }
 
   function focusNoteEditor() {
@@ -2190,6 +2277,7 @@ function NotebookTradeDetail({
     editor.focus();
     const selection = window.getSelection();
     if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      saveEditorSelection();
       return;
     }
     const range = document.createRange();
@@ -2197,12 +2285,14 @@ function NotebookTradeDetail({
     range.collapse(false);
     selection?.removeAllRanges();
     selection?.addRange(range);
+    saveEditorSelection();
   }
 
   function runEditorCommand(command: string, value?: string) {
     if (typeof document === "undefined") {
       return;
     }
+    restoreEditorSelection();
     focusNoteEditor();
     document.execCommand(command, false, value);
     syncNotesFromEditor();
@@ -2213,26 +2303,71 @@ function NotebookTradeDetail({
       setNotes((current) => `${current}${current ? "<br>" : ""}${html}`);
       return;
     }
+    restoreEditorSelection();
     focusNoteEditor();
     document.execCommand("insertHTML", false, html);
     syncNotesFromEditor();
   }
 
+  function updateEditorState() {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+    const editor = noteRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection?.rangeCount || !editor.contains(selection.anchorNode)) {
+      return;
+    }
+    const align = document.queryCommandState("justifyCenter")
+      ? "center"
+      : document.queryCommandState("justifyRight")
+        ? "right"
+        : "left";
+    setEditorState({
+      align,
+      bold: document.queryCommandState("bold"),
+      color: normalizeEditorColor(document.queryCommandValue("foreColor")),
+      italic: document.queryCommandState("italic"),
+      link: Boolean(findEditorAnchor(selection.anchorNode, editor)),
+      strike: document.queryCommandState("strikeThrough"),
+      underline: document.queryCommandState("underline"),
+    });
+  }
+
+  function openLinkPopover() {
+    saveEditorSelection();
+    setLinkUrl("");
+    setLinkPopoverOpen((current) => !current);
+    setColorMenuOpen(false);
+    setAlignMenuOpen(false);
+  }
+
   function applyLink() {
-    if (typeof window === "undefined") {
+    const url = normalizeLinkUrl(linkUrl);
+    if (!url) {
       return;
     }
-    const url = window.prompt("Link URL", "https://");
-    if (!url || url === "https://") {
-      return;
-    }
-    focusNoteEditor();
-    const selectionText = window.getSelection()?.toString();
+    restoreEditorSelection();
+    const selectionText = typeof window === "undefined" ? "" : window.getSelection()?.toString();
     if (selectionText) {
       runEditorCommand("createLink", url);
-      return;
+    } else {
+      insertRichHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>`);
     }
-    insertRichHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>`);
+    setLinkPopoverOpen(false);
+    setLinkUrl("");
+  }
+
+  function applyNoteColor(color: string) {
+    restoreEditorSelection();
+    runEditorCommand("foreColor", color);
+    setColorMenuOpen(false);
+  }
+
+  function applyNoteAlign(command: "justifyCenter" | "justifyLeft" | "justifyRight") {
+    restoreEditorSelection();
+    runEditorCommand(command);
+    setAlignMenuOpen(false);
   }
 
   function applyEditorAction(action: string) {
@@ -2256,16 +2391,8 @@ function NotebookTradeDetail({
         runEditorCommand("strikeThrough");
         break;
       case "Link":
-        applyLink();
+        openLinkPopover();
         break;
-      case "Color":
-        runEditorCommand("foreColor", "#67e8f9");
-        break;
-      case "Align":
-        runEditorCommand("justifyCenter");
-        break;
-      default:
-        runEditorCommand("insertUnorderedList");
     }
   }
 
@@ -2290,7 +2417,7 @@ function NotebookTradeDetail({
             <Star fill={favorite ? "currentColor" : "none"} size={15} />
           </button>
           <button className="icon-button h-9 w-9" onClick={copySummary} title="Copy note summary" type="button">
-            <Share2 size={15} />
+            <Copy size={15} />
           </button>
           <button
             className={`icon-button h-9 w-9 ${moreOpen ? "workspace-tab-active" : ""}`}
@@ -2302,20 +2429,9 @@ function NotebookTradeDetail({
           </button>
           {moreOpen && (
             <div className="absolute right-0 top-11 z-20 grid min-w-44 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
-              <button className="chart-dropdown-row" onClick={copySummary} type="button">
-                <Copy size={14} />
-                Copy summary
-              </button>
-              <button className="chart-dropdown-row" onClick={() => void regenerateSnapshot()} type="button">
-                <RefreshCw size={14} />
-                Regenerate snapshot
-              </button>
               <button
                 className="chart-dropdown-row text-rose-100"
-                onClick={() => {
-                  setNotes("");
-                  setMoreOpen(false);
-                }}
+                onClick={clearNote}
                 type="button"
               >
                 <X size={14} />
@@ -2487,17 +2603,179 @@ function NotebookTradeDetail({
           </section>
 
           <section className="rounded-md border border-white/10 bg-black/20">
-            <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-              {["Templates", "Draft review", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
+            <div className="relative flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
+              {["Templates", "Draft review"].map((item) => (
                 <button
-                  className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white"
+                  className="notebook-editor-button px-2.5"
                   key={item}
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => applyEditorAction(item)}
                   type="button"
                 >
                   {item}
                 </button>
               ))}
+              <span className="mx-1 h-5 w-px bg-white/10" />
+              {[
+                { active: editorState.bold, action: "B", icon: Bold, label: "Bold" },
+                { active: editorState.italic, action: "I", icon: Italic, label: "Italic" },
+                { active: editorState.underline, action: "U", icon: Underline, label: "Underline" },
+                { active: editorState.strike, action: "S", icon: Strikethrough, label: "Strikethrough" },
+              ].map(({ active, action, icon: Icon, label }) => (
+                <button
+                  aria-pressed={active}
+                  className={`notebook-editor-button ${active ? "notebook-editor-button-active" : ""}`}
+                  key={action}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyEditorAction(action)}
+                  title={label}
+                  type="button"
+                >
+                  <Icon size={14} />
+                </button>
+              ))}
+              <button
+                aria-pressed={editorState.link}
+                className={`notebook-editor-button ${editorState.link || linkPopoverOpen ? "notebook-editor-button-active" : ""}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openLinkPopover}
+                title="Link"
+                type="button"
+              >
+                <Link2 size={14} />
+              </button>
+              <div className="relative">
+                <button
+                  className={`notebook-editor-button ${colorMenuOpen ? "notebook-editor-button-active" : ""}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    saveEditorSelection();
+                    setColorMenuOpen((current) => !current);
+                    setAlignMenuOpen(false);
+                    setLinkPopoverOpen(false);
+                  }}
+                  title="Text color"
+                  type="button"
+                >
+                  <Palette size={14} />
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-white/20"
+                    style={{ backgroundColor: editorState.color ?? NOTE_COLOR_OPTIONS[0].value }}
+                  />
+                </button>
+                {colorMenuOpen && (
+                  <div className="notebook-editor-popover left-0 top-9 w-44">
+                    <div className="mb-1 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                      Text color
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {NOTE_COLOR_OPTIONS.map((option) => {
+                        const active = editorState.color === option.value.toLowerCase();
+                        return (
+                          <button
+                            className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs font-semibold ${
+                              active
+                                ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+                                : "border-white/10 text-slate-300 hover:bg-white/10"
+                            }`}
+                            key={option.value}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => applyNoteColor(option.value)}
+                            type="button"
+                          >
+                            <span
+                              className="h-3 w-3 rounded-full border border-white/20"
+                              style={{ backgroundColor: option.value }}
+                            />
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  className={`notebook-editor-button ${alignMenuOpen || editorState.align !== "left" ? "notebook-editor-button-active" : ""}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    saveEditorSelection();
+                    setAlignMenuOpen((current) => !current);
+                    setColorMenuOpen(false);
+                    setLinkPopoverOpen(false);
+                  }}
+                  title="Text alignment"
+                  type="button"
+                >
+                  {editorState.align === "right" ? (
+                    <AlignRight size={14} />
+                  ) : editorState.align === "center" ? (
+                    <AlignCenter size={14} />
+                  ) : (
+                    <AlignLeft size={14} />
+                  )}
+                </button>
+                {alignMenuOpen && (
+                  <div className="notebook-editor-popover left-0 top-9 w-36">
+                    {NOTE_ALIGN_OPTIONS.map((option) => {
+                      const Icon = option.icon;
+                      const active = editorState.align === option.value;
+                      return (
+                        <button
+                          className={`chart-dropdown-row ${active ? "chart-dropdown-row-active" : ""}`}
+                          key={option.value}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyNoteAlign(option.command)}
+                          type="button"
+                        >
+                          <Icon size={14} />
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              {linkPopoverOpen && (
+                <form
+                  className="notebook-editor-popover left-2 top-12 w-[min(340px,calc(100vw-48px))]"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    applyLink();
+                  }}
+                >
+                  <label className="form-field gap-1">
+                    <span>Link URL</span>
+                    <input
+                      className="input-control h-9 normal-case tracking-normal"
+                      onChange={(event) => setLinkUrl(event.target.value)}
+                      placeholder="https://example.com"
+                      ref={linkInputRef}
+                      value={linkUrl}
+                    />
+                  </label>
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button
+                      className="control-button h-8"
+                      onClick={() => {
+                        setLinkPopoverOpen(false);
+                        setLinkUrl("");
+                      }}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="control-button h-8 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+                      disabled={!normalizeLinkUrl(linkUrl)}
+                      type="submit"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
             <div className="relative">
               {isRichTextEmpty(notes) && !noteFocused && (
@@ -2511,6 +2789,14 @@ function NotebookTradeDetail({
                 onBlur={() => setNoteFocused(false)}
                 onFocus={() => setNoteFocused(true)}
                 onInput={handleEditorInput}
+                onKeyUp={() => {
+                  saveEditorSelection();
+                  updateEditorState();
+                }}
+                onMouseUp={() => {
+                  saveEditorSelection();
+                  updateEditorState();
+                }}
                 ref={noteRef}
                 suppressContentEditableWarning
               />
@@ -2599,6 +2885,47 @@ function sameStringList(a: string[], b: string[]) {
     return false;
   }
   return a.every((item, index) => item === b[index]);
+}
+
+function findEditorAnchor(node: Node | null, editor: HTMLElement) {
+  let current = node instanceof Element ? node : node?.parentElement ?? null;
+  while (current && current !== editor) {
+    if (current instanceof HTMLAnchorElement) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function normalizeEditorColor(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith("#")) {
+    return trimmed.length === 4
+      ? `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`
+      : trimmed;
+  }
+  const rgb = trimmed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!rgb) {
+    return trimmed;
+  }
+  return `#${[rgb[1], rgb[2], rgb[3]]
+    .map((part) => Number(part).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function normalizeLinkUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (/^(https?:|mailto:|tel:|#|\/)/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
 }
 
 function normalizeNotebookTemplate(value: unknown) {
@@ -3951,7 +4278,7 @@ function RichTextEditorStub() {
   return (
     <div className="mt-4 rounded-md border border-white/10 bg-black/20">
       <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-        {["Templates", "Draft review", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
+        {["Templates", "Draft review", "B", "I", "U", "S", "Link", "Color", "Align"].map((item) => (
           <button className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white" key={item} type="button">
             {item}
           </button>
