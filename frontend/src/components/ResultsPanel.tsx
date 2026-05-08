@@ -5,7 +5,11 @@ import {
   BarChart3,
   CalendarDays,
   ChevronRight,
+  Copy,
+  FileDown,
   LineChart,
+  NotebookPen,
+  Search,
   Sigma,
   Target,
   TrendingDown,
@@ -13,12 +17,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { BacktestSession, Trade } from "../lib/api";
-import { formatMoney, formatPercent, formatPrice } from "../lib/format";
+import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { formatMarketSymbol } from "../lib/symbols";
-import {
-  sessionStrategyName,
-  tradeStrategyName,
-} from "../lib/strategy";
+import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
 
 type Props = {
   activeSessionId: number | null;
@@ -28,14 +29,18 @@ type Props = {
   onInspectTrade?: (trade: Trade) => void;
 };
 
-type ResultsView = "session" | "trades";
+type ResultsView = "overview" | "trades";
+type TradeOutcomeFilter = "ALL" | "WIN" | "LOSS" | "BREAKEVEN";
 
 type Aggregate = {
   averageHoldMinutes: number | null;
+  averageLoss: number | null;
   averageR: number | null;
+  averageWin: number | null;
   bestTrade: number | null;
   breakevenTrades: number;
   closedTrades: Trade[];
+  expectancy: number | null;
   grossLosses: number;
   grossWins: number;
   largestLoss: number | null;
@@ -53,15 +58,6 @@ type Aggregate = {
   wins: number;
 };
 
-type SessionResultRow = {
-  aggregate: Aggregate;
-  id: string;
-  label: string;
-  sessions: BacktestSession[];
-  subtitle: string;
-  trades: Trade[];
-};
-
 export function ResultsPanel({
   activeSessionId,
   currency = "USD",
@@ -69,153 +65,261 @@ export function ResultsPanel({
   trades,
   onInspectTrade,
 }: Props) {
-  const [view, setView] = useState<ResultsView>("session");
-  const sessionById = useMemo(
-    () => new Map(sessions.map((session) => [session.id, session])),
-    [sessions],
+  const [view, setView] = useState<ResultsView>("overview");
+  const [tradeSearch, setTradeSearch] = useState("");
+  const [outcomeFilter, setOutcomeFilter] = useState<TradeOutcomeFilter>("ALL");
+  const scopedSessions = useMemo(
+    () =>
+      activeSessionId == null
+        ? sessions
+        : sessions.filter((session) => session.id === activeSessionId),
+    [activeSessionId, sessions],
   );
+  const scopedTrades = useMemo(
+    () =>
+      activeSessionId == null
+        ? trades
+        : trades.filter((trade) => trade.session_id === activeSessionId),
+    [activeSessionId, trades],
+  );
+  const sessionById = useMemo(
+    () => new Map(scopedSessions.map((session) => [session.id, session])),
+    [scopedSessions],
+  );
+  const activeSession =
+    (activeSessionId == null ? scopedSessions[0] : sessionById.get(activeSessionId)) ?? null;
   const closedTrades = useMemo(
     () =>
-      trades
+      scopedTrades
         .filter((trade) => trade.status === "CLOSED")
         .slice()
         .sort(compareTradesAscending),
-    [trades],
+    [scopedTrades],
   );
-  const allAggregate = useMemo(() => aggregateTrades(closedTrades, trades), [
-    closedTrades,
-    trades,
-  ]);
-  const sessionRows = useMemo(() => buildSessionRows(sessions, trades), [sessions, trades]);
-  const activeSession = activeSessionId ? sessionById.get(activeSessionId) : null;
+  const aggregate = useMemo(
+    () => aggregateTrades(closedTrades, scopedTrades),
+    [closedTrades, scopedTrades],
+  );
+  const filteredTrades = useMemo(
+    () =>
+      closedTrades.filter((trade) => {
+        const pnl = trade.realized_pnl ?? 0;
+        if (outcomeFilter === "WIN" && pnl <= 0) {
+          return false;
+        }
+        if (outcomeFilter === "LOSS" && pnl >= 0) {
+          return false;
+        }
+        if (outcomeFilter === "BREAKEVEN" && pnl !== 0) {
+          return false;
+        }
+        const search = tradeSearch.trim().toLowerCase();
+        if (!search) {
+          return true;
+        }
+        const session = sessionById.get(trade.session_id);
+        return [
+          String(trade.id),
+          trade.side,
+          tradeStrategyName(trade, session),
+          session?.name,
+          session?.symbol,
+          session?.instrument,
+          trade.mistake_tags.join(" "),
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search));
+      }),
+    [closedTrades, outcomeFilter, sessionById, tradeSearch],
+  );
+  const progress = activeSession ? sessionProgress(activeSession) : null;
+  const sessionLabel = activeSession?.name ?? "Current replay";
+  const sessionMeta = activeSession
+    ? `${formatMarketSymbol(activeSession.symbol)} · ${activeSession.timeframe ?? "M1"} · ${sessionStrategyName(activeSession)}`
+    : "Open a replay session to populate this report.";
+
+  function copySummary() {
+    void copyTextToClipboard(
+      buildResultsSummaryText({
+        aggregate,
+        currency,
+        label: sessionLabel,
+        session: activeSession,
+      }),
+    );
+  }
+
+  function exportCsv() {
+    exportSessionResultsCsv({
+      aggregate,
+      currency,
+      session: activeSession,
+      trades: closedTrades,
+    });
+  }
 
   return (
-    <section className="min-w-0 space-y-4">
-      <div className="terminal-panel px-4 py-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+    <section className="min-w-0 space-y-3">
+      <div className="terminal-panel px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
               <LineChart size={15} />
               Results
             </div>
-            <h2 className="mt-2 text-xl font-semibold text-white">
-              Current Session Results
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              This panel only summarizes the session currently open in replay. Strategy-level
-              comparisons live on the session gateway before you enter the chart.
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-3">
+              <h2 className="truncate text-xl font-semibold text-white">
+                Current Session Results
+              </h2>
+              <span className="status-pill">
+                {closedTrades.length} closed
+              </span>
+              <span className="status-pill">
+                {aggregate.openTrades} open
+              </span>
+              {progress && (
+                <span className="status-pill">
+                  {progress.percent.toFixed(0)}% replayed
+                </span>
+              )}
+            </div>
+            <p className="mt-1 max-w-4xl truncate text-sm text-slate-500">
+              {sessionMeta}
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <ResultTabButton active={view === "session"} onClick={() => setView("session")}>
-              <CalendarDays size={14} />
-              Session
-            </ResultTabButton>
-            <ResultTabButton active={view === "trades"} onClick={() => setView("trades")}>
-              <Activity size={14} />
-              Trades
-            </ResultTabButton>
-          </div>
-        </div>
-      </div>
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
-        <div className="terminal-panel min-w-0 p-4">
-          <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-white">
-                {activeSession?.name ?? "Active Session"}
-              </h3>
-              <div className="mt-1 text-xs text-slate-500">
-                {activeSession
-                  ? `${formatMarketSymbol(activeSession.symbol)} · ${activeSession.timeframe ?? "M1"} · ${activeSession.status}`
-                  : "Open a session to see results"}
-              </div>
-            </div>
-            <span
-              className={`rounded-md border px-2.5 py-1 text-sm font-semibold ${
-                allAggregate.netPnl >= 0
-                  ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-200"
-                  : "border-rose-300/25 bg-rose-300/10 text-rose-200"
-              }`}
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            <button className="control-button h-9 px-3 text-xs" onClick={copySummary} type="button">
+              <Copy size={14} />
+              Copy
+            </button>
+            <button
+              className="control-button h-9 px-3 text-xs"
+              disabled={closedTrades.length === 0}
+              onClick={exportCsv}
+              type="button"
             >
-              {formatMoney(allAggregate.netPnl, currency)}
-            </span>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <ResultMetric
-              icon={Activity}
-              label="Closed Trades"
-              value={String(allAggregate.totalTrades)}
-            />
-            <ResultMetric
-              icon={Target}
-              label="Win Rate"
-              tone="text-cyan-100"
-              value={formatPercent(allAggregate.winRate)}
-            />
-            <ResultMetric
-              icon={Sigma}
-              label="Profit Factor"
-              tone="text-amber-100"
-              value={formatRatio(allAggregate.profitFactor)}
-            />
-            <ResultMetric
-              icon={BarChart3}
-              label="Avg R"
-              tone={toneForNumber(allAggregate.averageR)}
-              value={formatOptionalNumber(allAggregate.averageR)}
-            />
-            <ResultMetric
-              icon={TrendingDown}
-              label="Max Drawdown"
-              tone="text-rose-200"
-              value={formatMoney(allAggregate.maxDrawdown, currency)}
-            />
-            <ResultMetric
-              icon={TrendingUp}
-              label="Recovery"
-              tone="text-emerald-100"
-              value={formatRatio(allAggregate.recoveryFactor)}
-            />
-            <ResultMetric
-              icon={ChevronRight}
-              label="Long / Short"
-              value={`${allAggregate.longTrades} / ${allAggregate.shortTrades}`}
-            />
-            <ResultMetric
-              icon={CalendarDays}
-              label="Avg Hold"
-              value={formatMinutes(allAggregate.averageHoldMinutes)}
-            />
-          </div>
-        </div>
-
-        <div className="terminal-panel min-w-0 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">Session Equity</h3>
-            <span className="text-xs text-slate-500">
-              {activeSession ? `Active: ${activeSession.name}` : "No active session"}
-            </span>
-          </div>
-          <EquitySparkline trades={closedTrades} />
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-            <SidePill currency={currency} label="Long PnL" value={allAggregate.longPnl} />
-            <SidePill currency={currency} label="Short PnL" value={allAggregate.shortPnl} />
+              <FileDown size={14} />
+              CSV
+            </button>
+            <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
+              <ResultTabButton active={view === "overview"} onClick={() => setView("overview")}>
+                <BarChart3 size={14} />
+                Overview
+              </ResultTabButton>
+              <ResultTabButton active={view === "trades"} onClick={() => setView("trades")}>
+                <Activity size={14} />
+                Trades
+              </ResultTabButton>
+            </div>
           </div>
         </div>
       </div>
 
-      {view === "session" && <SessionResults currency={currency} rows={sessionRows} activeSessionId={activeSessionId} />}
-      {view === "trades" && (
+      {view === "overview" ? (
+        <OverviewResults
+          aggregate={aggregate}
+          currency={currency}
+          session={activeSession}
+          trades={closedTrades}
+        />
+      ) : (
         <TradeResults
           currency={currency}
+          filter={outcomeFilter}
+          onFilterChange={setOutcomeFilter}
           onInspectTrade={onInspectTrade}
+          onSearchChange={setTradeSearch}
+          search={tradeSearch}
           sessionById={sessionById}
-          trades={closedTrades}
+          trades={filteredTrades}
+          totalTrades={closedTrades.length}
         />
       )}
     </section>
+  );
+}
+
+function OverviewResults({
+  aggregate,
+  currency,
+  session,
+  trades,
+}: {
+  aggregate: Aggregate;
+  currency: string;
+  session: BacktestSession | null;
+  trades: Trade[];
+}) {
+  return (
+    <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+      <div className="terminal-panel min-w-0 p-4">
+        <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold text-white">
+              {session?.name ?? "Active Session"}
+            </h3>
+            <div className="mt-1 text-xs text-slate-500">
+              {session
+                ? `${formatMarketSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`
+                : "No session is currently active"}
+            </div>
+          </div>
+          <div
+            className={`rounded-md border px-3 py-1.5 text-base font-semibold tabular-nums ${
+              aggregate.netPnl >= 0
+                ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-200"
+                : "border-rose-300/25 bg-rose-300/10 text-rose-200"
+            }`}
+          >
+            {formatMoney(aggregate.netPnl, currency)}
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <ResultMetric icon={Activity} label="Closed Trades" value={String(aggregate.totalTrades)} />
+          <ResultMetric icon={Target} label="Win Rate" tone="text-cyan-100" value={formatPercent(aggregate.winRate)} />
+          <ResultMetric icon={Sigma} label="Profit Factor" tone="text-amber-100" value={formatRatio(aggregate.profitFactor)} />
+          <ResultMetric icon={BarChart3} label="Avg R" tone={toneForNumber(aggregate.averageR)} value={formatOptionalNumber(aggregate.averageR)} />
+          <ResultMetric icon={TrendingDown} label="Max Drawdown" tone="text-rose-200" value={formatMoney(aggregate.maxDrawdown, currency)} />
+          <ResultMetric icon={TrendingUp} label="Recovery" tone="text-emerald-100" value={formatRatio(aggregate.recoveryFactor)} />
+          <ResultMetric icon={ChevronRight} label="Long / Short" value={`${aggregate.longTrades} / ${aggregate.shortTrades}`} />
+          <ResultMetric icon={CalendarDays} label="Avg Hold" value={formatMinutes(aggregate.averageHoldMinutes)} />
+        </div>
+      </div>
+
+      <div className="terminal-panel min-w-0 p-4">
+        <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+          <h3 className="truncate text-base font-semibold text-white">Equity Curve</h3>
+          <span className="shrink-0 text-xs text-slate-500">
+            {trades.length} exits
+          </span>
+        </div>
+        <EquitySparkline trades={trades} />
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <SidePill currency={currency} label="Long P&L" value={aggregate.longPnl} />
+          <SidePill currency={currency} label="Short P&L" value={aggregate.shortPnl} />
+        </div>
+      </div>
+
+      <div className="terminal-panel min-w-0 p-4 xl:col-span-2">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
+          <ResultSummaryCard title="Outcome Mix">
+            <OutcomeBars aggregate={aggregate} />
+          </ResultSummaryCard>
+          <ResultSummaryCard title="Trade Quality">
+            <SummaryLine label="Best trade" tone={toneForNumber(aggregate.bestTrade)} value={formatMoney(aggregate.bestTrade, currency)} />
+            <SummaryLine label="Worst trade" tone={toneForNumber(aggregate.largestLoss)} value={formatMoney(aggregate.largestLoss, currency)} />
+            <SummaryLine label="Expectancy" tone={toneForNumber(aggregate.expectancy)} value={formatMoney(aggregate.expectancy, currency)} />
+          </ResultSummaryCard>
+          <ResultSummaryCard title="Average Result">
+            <SummaryLine label="Average win" tone="text-emerald-300" value={formatMoney(aggregate.averageWin, currency)} />
+            <SummaryLine label="Average loss" tone="text-rose-300" value={formatMoney(aggregate.averageLoss, currency)} />
+            <SummaryLine label="Breakeven trades" value={String(aggregate.breakevenTrades)} />
+          </ResultSummaryCard>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -230,7 +334,7 @@ function ResultTabButton({
 }) {
   return (
     <button
-      className={`workspace-tab inline-flex items-center justify-center gap-2 ${
+      className={`workspace-tab inline-flex h-8 items-center justify-center gap-2 px-3 text-xs ${
         active ? "workspace-tab-active" : ""
       }`}
       onClick={onClick}
@@ -253,7 +357,7 @@ function ResultMetric({
   value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+    <div className="min-w-0 rounded-md border border-white/10 bg-black/20 px-3 py-3">
       <div className="flex items-center justify-between gap-3 text-slate-500">
         <span className="truncate text-[10px] font-bold uppercase tracking-[0.16em]">
           {label}
@@ -267,122 +371,129 @@ function ResultMetric({
   );
 }
 
-function SessionResults({
-  activeSessionId,
-  currency,
-  rows,
+function ResultSummaryCard({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-white/10 bg-black/20 p-3">
+      <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+        {title}
+      </div>
+      <div className="grid gap-2">{children}</div>
+    </div>
+  );
+}
+
+function SummaryLine({
+  label,
+  tone = "text-slate-100",
+  value,
 }: {
-  activeSessionId: number | null;
-  currency: string;
-  rows: SessionResultRow[];
+  label: string;
+  tone?: string;
+  value: string;
 }) {
-  const sessionCount = new Set(rows.map((row) => row.sessions[0]?.id).filter(Boolean)).size;
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
+      <span className="truncate text-slate-500">{label}</span>
+      <span className={`shrink-0 font-semibold tabular-nums ${tone}`}>{value}</span>
+    </div>
+  );
+}
+
+function OutcomeBars({ aggregate }: { aggregate: Aggregate }) {
+  const losses = Math.max(0, aggregate.totalTrades - aggregate.wins - aggregate.breakevenTrades);
+  const rows = [
+    { label: "Wins", value: aggregate.wins, tone: "bg-emerald-300", text: "text-emerald-300" },
+    { label: "Losses", value: losses, tone: "bg-rose-300", text: "text-rose-300" },
+    { label: "Breakeven", value: aggregate.breakevenTrades, tone: "bg-slate-400", text: "text-slate-300" },
+  ];
 
   return (
-    <section className="terminal-panel min-w-0 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-white">Session Results</h3>
-        <span className="text-xs text-slate-500">
-          {sessionCount} session{sessionCount === 1 ? "" : "s"}
-        </span>
-      </div>
-      <div className="overflow-auto">
-        <table className="w-full min-w-[820px] text-left text-sm">
-          <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
-            <tr>
-              <th className="px-3 py-2 font-medium">Session</th>
-              <th className="px-3 py-2 font-medium">Trades</th>
-              <th className="px-3 py-2 font-medium">Net PnL</th>
-              <th className="px-3 py-2 font-medium">Win %</th>
-              <th className="px-3 py-2 font-medium">PF</th>
-              <th className="px-3 py-2 font-medium">Avg R</th>
-              <th className="px-3 py-2 font-medium">Progress</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const session = row.sessions[0];
-              const progress = session ? sessionProgress(session) : null;
-              return (
-                <tr
-                  key={row.id}
-                  className={`border-t border-white/10 text-slate-300 ${
-                    session?.id === activeSessionId ? "bg-cyan-300/5" : ""
-                  }`}
-                >
-                  <td className="px-3 py-3">
-                    <div className="font-semibold text-slate-100">
-                      {row.label}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {row.subtitle}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 tabular-nums">
-                    {row.aggregate.totalTrades}
-                  </td>
-                  <td className={`px-3 py-3 font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
-                    {formatMoney(row.aggregate.netPnl, currency)}
-                  </td>
-                  <td className="px-3 py-3 tabular-nums">
-                    {formatPercent(row.aggregate.winRate)}
-                  </td>
-                  <td className="px-3 py-3 tabular-nums">
-                    {formatRatio(row.aggregate.profitFactor)}
-                  </td>
-                  <td className={`px-3 py-3 tabular-nums ${toneForNumber(row.aggregate.averageR)}`}>
-                    {formatOptionalNumber(row.aggregate.averageR)}
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-cyan-300"
-                        style={{ width: `${progress?.percent ?? 0}%` }}
-                      />
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {progress ? `${progress.percent.toFixed(0)}% · ${session?.status}` : "—"}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {rows.length === 0 && <EmptyResults message="Create a session to see results here" />}
-      </div>
-    </section>
+    <>
+      {rows.map((row) => {
+        const width = aggregate.totalTrades > 0 ? (row.value / aggregate.totalTrades) * 100 : 0;
+        return (
+          <div className="grid gap-1" key={row.label}>
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="text-slate-500">{row.label}</span>
+              <span className={`font-semibold tabular-nums ${row.text}`}>{row.value}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${width}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
 function TradeResults({
   currency,
+  filter,
+  onFilterChange,
   onInspectTrade,
+  onSearchChange,
+  search,
   sessionById,
   trades,
+  totalTrades,
 }: {
   currency: string;
+  filter: TradeOutcomeFilter;
+  onFilterChange: (filter: TradeOutcomeFilter) => void;
   onInspectTrade?: (trade: Trade) => void;
+  onSearchChange: (value: string) => void;
+  search: string;
   sessionById: Map<number, BacktestSession>;
   trades: Trade[];
+  totalTrades: number;
 }) {
   return (
     <section className="terminal-panel min-w-0 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-white">Closed Trades</h3>
-        <span className="text-xs text-slate-500">{trades.length} closed replay exits</span>
+      <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-white">Closed Trades</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Showing {trades.length} of {totalTrades} session exits.
+          </p>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <label className="relative min-w-[220px] max-w-full">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+            <input
+              className="input-control h-9 pl-9 normal-case tracking-normal"
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Search trades"
+              value={search}
+            />
+          </label>
+          <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
+            {(["ALL", "WIN", "LOSS", "BREAKEVEN"] as const).map((option) => (
+              <button
+                className={`workspace-tab h-8 px-3 text-xs ${filter === option ? "workspace-tab-active" : ""}`}
+                key={option}
+                onClick={() => onFilterChange(option)}
+                type="button"
+              >
+                {option === "ALL" ? "All" : option === "BREAKEVEN" ? "Flat" : option[0] + option.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="overflow-auto">
-        <table className="w-full min-w-[960px] text-left text-sm">
+        <table className="w-full min-w-[1040px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-3 py-2 font-medium">Exit</th>
-              <th className="px-3 py-2 font-medium">Session</th>
               <th className="px-3 py-2 font-medium">Strategy</th>
               <th className="px-3 py-2 font-medium">Side</th>
+              <th className="px-3 py-2 font-medium">Qty</th>
               <th className="px-3 py-2 font-medium">Entry</th>
               <th className="px-3 py-2 font-medium">Exit Price</th>
-              <th className="px-3 py-2 font-medium">PnL</th>
+              <th className="px-3 py-2 font-medium">Stop</th>
+              <th className="px-3 py-2 font-medium">Target</th>
+              <th className="px-3 py-2 font-medium">P&L</th>
               <th className="px-3 py-2 font-medium">R</th>
               <th className="px-3 py-2 font-medium" />
             </tr>
@@ -391,20 +502,17 @@ function TradeResults({
             {trades.slice().reverse().map((trade) => {
               const session = sessionById.get(trade.session_id);
               return (
-                <tr key={trade.id} className="border-t border-white/10 text-slate-300">
+                <tr key={trade.id} className="border-t border-white/10 text-slate-300 transition hover:bg-white/[0.03]">
                   <td className="px-3 py-3 text-xs text-slate-500">
-                    {trade.exit_time ? new Date(trade.exit_time).toLocaleString() : "—"}
+                    {formatDateTime(trade.exit_time)}
                   </td>
                   <td className="px-3 py-3">
                     <div className="font-semibold text-slate-100">
-                      {session?.name ?? `Session #${trade.session_id}`}
+                      {tradeStrategyName(trade, session)}
                     </div>
-                    <div className="text-xs text-slate-500">
-                      {session ? formatMarketSymbol(session.symbol) : "—"}
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      #{trade.id}
                     </div>
-                  </td>
-                  <td className="px-3 py-3">
-                    {tradeStrategyName(trade, session)}
                   </td>
                   <td className="px-3 py-3">
                     <span
@@ -417,12 +525,11 @@ function TradeResults({
                       {trade.side}
                     </span>
                   </td>
-                  <td className="px-3 py-3 tabular-nums">
-                    {formatPrice(trade.entry_price)}
-                  </td>
-                  <td className="px-3 py-3 tabular-nums">
-                    {formatPrice(trade.exit_price)}
-                  </td>
+                  <td className="px-3 py-3 tabular-nums">{formatCompactNumber(trade.quantity)}</td>
+                  <td className="px-3 py-3 tabular-nums">{formatPrice(trade.entry_price)}</td>
+                  <td className="px-3 py-3 tabular-nums">{formatPrice(trade.exit_price)}</td>
+                  <td className="px-3 py-3 tabular-nums">{formatPrice(trade.stop_loss)}</td>
+                  <td className="px-3 py-3 tabular-nums">{formatPrice(trade.take_profit)}</td>
                   <td className={`px-3 py-3 font-semibold ${toneForNumber(trade.realized_pnl)}`}>
                     {formatMoney(trade.realized_pnl, currency)}
                   </td>
@@ -432,10 +539,11 @@ function TradeResults({
                   <td className="px-3 py-3 text-right">
                     {onInspectTrade && (
                       <button
-                        className="control-button h-9"
+                        className="control-button h-9 px-3 text-xs"
                         onClick={() => onInspectTrade(trade)}
                         type="button"
                       >
+                        <NotebookPen size={14} />
                         Review
                       </button>
                     )}
@@ -445,7 +553,7 @@ function TradeResults({
             })}
           </tbody>
         </table>
-        {trades.length === 0 && <EmptyResults message="Closed trades will appear here" />}
+        {trades.length === 0 && <EmptyResults message="No matching closed trades in this session." />}
       </div>
     </section>
   );
@@ -457,33 +565,51 @@ function SidePill({ currency, label, value }: { currency: string; label: string;
       <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
         {label}
       </div>
-      <div className={`mt-1 text-sm font-semibold ${toneForNumber(value)}`}>
+      <div className={`mt-1 text-sm font-semibold tabular-nums ${toneForNumber(value)}`}>
         {formatMoney(value, currency)}
       </div>
     </div>
   );
 }
 
-function EquitySparkline({ compact = false, trades }: { compact?: boolean; trades: Trade[] }) {
+function EquitySparkline({ trades }: { trades: Trade[] }) {
   const values = cumulativePnl(trades);
-  const path = toSvgPath(values, 560, compact ? 72 : 150);
-  const zeroY = zeroLineY(values, compact ? 72 : 150);
+  const height = 170;
+  const width = 640;
+  const path = toSvgPath(values, width, height);
+  const zeroY = zeroLineY(values, height);
+  const areaPath = path ? `${path} L ${width} ${height} L 0 ${height} Z` : "";
 
   return (
-    <div className={`overflow-hidden rounded-md bg-[#080c11] ${compact ? "h-[72px]" : "h-[150px]"}`}>
+    <div className="h-[170px] overflow-hidden rounded-md border border-white/10 bg-[#070b10]">
       {values.length > 1 ? (
-        <svg className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 560 ${compact ? 72 : 150}`}>
+        <svg className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+          <defs>
+            <linearGradient id="session-equity-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="rgba(103, 232, 249, 0.22)" />
+              <stop offset="100%" stopColor="rgba(103, 232, 249, 0.02)" />
+            </linearGradient>
+          </defs>
           <path
-            d={`M 0 ${zeroY.toFixed(2)} L 560 ${zeroY.toFixed(2)}`}
+            d={`M 0 ${zeroY.toFixed(2)} L ${width} ${zeroY.toFixed(2)}`}
             fill="none"
             stroke="rgba(148, 163, 184, 0.18)"
             strokeWidth="1"
           />
-          <path d={path} fill="none" stroke="#32d3ee" strokeWidth={compact ? "2" : "2.5"} />
+          <path d={areaPath} fill="url(#session-equity-fill)" />
+          <path
+            d={path}
+            fill="none"
+            stroke="#67e8f9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2.25"
+            vectorEffect="non-scaling-stroke"
+          />
         </svg>
       ) : (
         <div className="grid h-full place-items-center text-sm text-slate-500">
-          No closed trades
+          No closed trades yet
         </div>
       )}
     </div>
@@ -498,47 +624,15 @@ function EmptyResults({ message }: { message: string }) {
   );
 }
 
-function buildSessionRows(sessions: BacktestSession[], trades: Trade[]) {
-  const tradesBySession = new Map<number, Trade[]>();
-  for (const trade of trades) {
-    tradesBySession.set(trade.session_id, [
-      ...(tradesBySession.get(trade.session_id) ?? []),
-      trade,
-    ]);
-  }
-
-  return sessions
-    .map((session) => {
-      const sessionTrades = tradesBySession.get(session.id) ?? [];
-      const baseSubtitle = `${formatMarketSymbol(session.symbol)} · ${session.timeframe ?? "M1"} · ${formatDateRange(session)}`;
-      const closedTrades = sessionTrades.filter((trade) => trade.status === "CLOSED");
-      return {
-        aggregate: aggregateTrades(closedTrades, sessionTrades),
-        id: String(session.id),
-        label: session.name,
-        sessions: [session],
-        subtitle: `${baseSubtitle} · ${sessionStrategyName(session)}`,
-        trades: sessionTrades,
-      };
-    })
-    .sort((a, b) => {
-      return b.sessions[0].id - a.sessions[0].id;
-    });
-}
-
 function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggregate {
   const orderedTrades = closedTrades.slice().sort(compareTradesAscending);
   const netPnl = orderedTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
-  const wins = orderedTrades.filter((trade) => (trade.realized_pnl ?? 0) > 0).length;
+  const winningTrades = orderedTrades.filter((trade) => (trade.realized_pnl ?? 0) > 0);
+  const losingTrades = orderedTrades.filter((trade) => (trade.realized_pnl ?? 0) < 0);
+  const wins = winningTrades.length;
   const breakevenTrades = orderedTrades.filter((trade) => (trade.realized_pnl ?? 0) === 0).length;
-  const grossWins = orderedTrades
-    .filter((trade) => (trade.realized_pnl ?? 0) > 0)
-    .reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
-  const grossLosses = Math.abs(
-    orderedTrades
-      .filter((trade) => (trade.realized_pnl ?? 0) < 0)
-      .reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0),
-  );
+  const grossWins = winningTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
+  const grossLosses = Math.abs(losingTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0));
   const rValues = orderedTrades
     .map((trade) => trade.r_multiple)
     .filter((value): value is number => value != null && Number.isFinite(value));
@@ -559,10 +653,13 @@ function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggre
 
   return {
     averageHoldMinutes: average(holdValues),
+    averageLoss: average(losingTrades.map((trade) => trade.realized_pnl ?? 0)),
     averageR: average(rValues),
+    averageWin: average(winningTrades.map((trade) => trade.realized_pnl ?? 0)),
     bestTrade,
     breakevenTrades,
     closedTrades: orderedTrades,
+    expectancy: orderedTrades.length > 0 ? netPnl / orderedTrades.length : null,
     grossLosses,
     grossWins,
     largestLoss,
@@ -678,6 +775,13 @@ function formatMinutes(value: number | null) {
   return `${(value / 60).toFixed(1)}h`;
 }
 
+function formatCompactNumber(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) {
+    return "—";
+  }
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(value);
+}
+
 function toneForNumber(value: number | null | undefined) {
   if (value == null || value === 0) {
     return "text-slate-100";
@@ -712,4 +816,111 @@ function shortDate(value: string | null | undefined) {
     return value;
   }
   return date.toLocaleDateString();
+}
+
+function buildResultsSummaryText({
+  aggregate,
+  currency,
+  label,
+  session,
+}: {
+  aggregate: Aggregate;
+  currency: string;
+  label: string;
+  session: BacktestSession | null;
+}) {
+  return [
+    label,
+    session ? `${formatMarketSymbol(session.symbol)} ${session.timeframe ?? ""}`.trim() : null,
+    `Net P&L: ${formatMoney(aggregate.netPnl, currency)}`,
+    `Closed trades: ${aggregate.totalTrades}`,
+    `Open trades: ${aggregate.openTrades}`,
+    `Win rate: ${formatPercent(aggregate.winRate)}`,
+    `Profit factor: ${formatRatio(aggregate.profitFactor)}`,
+    `Average R: ${formatOptionalNumber(aggregate.averageR)}`,
+    `Max drawdown: ${formatMoney(aggregate.maxDrawdown, currency)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator === "undefined") {
+    return;
+  }
+  await navigator.clipboard?.writeText(text);
+}
+
+function exportSessionResultsCsv({
+  aggregate,
+  currency,
+  session,
+  trades,
+}: {
+  aggregate: Aggregate;
+  currency: string;
+  session: BacktestSession | null;
+  trades: Trade[];
+}) {
+  const rows: unknown[][] = [
+    ["Section", "Metric", "Value", "Extra"],
+    ["Summary", "Session", session?.name ?? "Current replay", ""],
+    ["Summary", "Symbol", session?.symbol ?? "", ""],
+    ["Summary", "Timeframe", session?.timeframe ?? "", ""],
+    ["Summary", "Currency", currency, ""],
+    ["Summary", "Net P&L", aggregate.netPnl, currency],
+    ["Summary", "Closed trades", aggregate.totalTrades, ""],
+    ["Summary", "Open trades", aggregate.openTrades, ""],
+    ["Summary", "Win rate", `${(aggregate.winRate * 100).toFixed(1)}%`, ""],
+    ["Summary", "Profit factor", formatRatio(aggregate.profitFactor), ""],
+    ["Summary", "Average R", formatOptionalNumber(aggregate.averageR), ""],
+    ["Summary", "Max drawdown", aggregate.maxDrawdown, currency],
+    ["Summary", "Recovery factor", formatRatio(aggregate.recoveryFactor), ""],
+    [],
+    ["Trade ID", "Exit Time", "Side", "Quantity", "Entry", "Exit", "Stop", "Target", "P&L", "R", "Strategy", "Tags"],
+    ...trades.map((trade) => [
+      trade.id,
+      trade.exit_time ?? "",
+      trade.side,
+      trade.quantity,
+      trade.entry_price,
+      trade.exit_price ?? "",
+      trade.stop_loss ?? "",
+      trade.take_profit ?? "",
+      trade.realized_pnl,
+      trade.r_multiple ?? "",
+      tradeStrategyName(trade, session ?? undefined),
+      trade.mistake_tags.join("; "),
+    ]),
+  ];
+
+  downloadTextFile(
+    `session-results-${safeFilePart(session?.name ?? "current")}-${new Date().toISOString().slice(0, 10)}.csv`,
+    rows.map((row) => row.map(csvCell).join(",")).join("\n"),
+    "text/csv;charset=utf-8",
+  );
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadTextFile(filename: string, contents: string, type: string) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const blob = new Blob([contents], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function safeFilePart(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "current";
 }

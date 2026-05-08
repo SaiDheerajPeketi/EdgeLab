@@ -25,13 +25,11 @@ import { ChartToolbar } from "./components/ChartToolbar";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { FilteredTradeReview } from "./components/FilteredTradeReview";
 import { JournalEntryModal } from "./components/JournalEntryModal";
-import { MetricsBar } from "./components/MetricsBar";
 import { OrderTicket } from "./components/OrderTicket";
 import { PendingOrders } from "./components/PendingOrders";
 import { PlaybookBoard } from "./components/PlaybookBoard";
 import { PositionPanel } from "./components/PositionPanel";
 import { ReplayController } from "./components/ReplayController";
-import { ReportsPanel } from "./components/ReportsPanel";
 import { ResultsPanel } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
@@ -782,10 +780,12 @@ export default function App() {
   }, [activeWorkspace, isChartFullscreen, sessionGateOpen]);
 
   const current = state?.current_candle;
-  const metrics = state?.metrics ?? null;
   const orders = state?.orders ?? [];
   const executions = state?.executions ?? [];
   const trades = state?.trades ?? [];
+  const currentSessionTrades = state?.session
+    ? trades.filter((trade) => trade.session_id === state.session.id)
+    : [];
   const position = state?.position ?? null;
   const sessionCurrency = currencyForSession(state?.session ?? null, datasets);
   const currencyForTrade = (trade: Trade) =>
@@ -2039,26 +2039,14 @@ export default function App() {
             )}
 
             {workspacePanel === "results" && (
-              <section className="min-w-0 space-y-4">
+              <section className="min-w-0">
                 <ResultsPanel
                   activeSessionId={state?.session.id ?? null}
                   currency={sessionCurrency}
                   onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
                   sessions={state?.session ? [state.session] : []}
-                  trades={trades}
+                  trades={currentSessionTrades}
                 />
-                <div className="space-y-4">
-                  <div className="terminal-panel px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Active Session Detail
-                    </div>
-                    <div className="mt-1 text-sm font-semibold text-white">
-                      {state?.session.name ?? "Current replay"}
-                    </div>
-                  </div>
-                  <MetricsBar currency={sessionCurrency} metrics={metrics} />
-                  <ReportsPanel currency={sessionCurrency} metrics={metrics} />
-                </div>
               </section>
             )}
           </div>
