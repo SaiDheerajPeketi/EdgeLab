@@ -18,8 +18,8 @@ import {
   Clock3,
   Copy,
   Database,
-  Download,
   Eye,
+  FileDown,
   FileText,
   Filter,
   FolderPlus,
@@ -957,7 +957,7 @@ function TradeViewPage({
       description="Closed replay trades only, with review notes and tagging. Live actual trades belong in the separate Journal scope."
       actions={
         <button className="control-button" disabled={filteredTrades.length === 0} onClick={exportFilteredTradesCsv} type="button">
-          <Download size={15} />
+          <FileDown size={15} />
           Export CSV
         </button>
       }
