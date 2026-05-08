@@ -1747,7 +1747,7 @@ export default function App() {
                         return (
                           <div
                             className={`chart-pane-shell ${
-                              paneActive ? "chart-pane-shell-active" : ""
+                              paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""
                             } ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
                             key={pane.id}
                             onPointerDownCapture={() => selectChartPane(pane.id)}

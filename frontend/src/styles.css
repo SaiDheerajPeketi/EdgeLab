@@ -932,11 +932,11 @@ button:disabled {
   }
 
   .chart-pane-shell-active {
-    @apply z-10 shadow-[0_0_30px_rgba(50,211,238,0.18)];
+    @apply z-10 shadow-[0_0_18px_rgba(50,211,238,0.08)];
   }
 
   .chart-pane-shell-active::after {
-    @apply pointer-events-none absolute inset-0 z-40 border-2 border-cyan-300/80 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16),0_0_26px_rgba(50,211,238,0.24)];
+    @apply pointer-events-none absolute inset-0 z-40 border border-cyan-300/35 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)];
     content: "";
   }
 
@@ -945,7 +945,7 @@ button:disabled {
   }
 
   .chart-pane-shell-active .chart-pane-header {
-    @apply border-cyan-300/40 bg-cyan-300/10 text-cyan-100;
+    @apply border-cyan-300/20 bg-cyan-300/[0.045] text-cyan-100/85;
   }
 
   .chart-pane-select-button {
@@ -957,7 +957,7 @@ button:disabled {
   }
 
   .chart-pane-shell-active .chart-pane-select-button-active {
-    @apply bg-white text-ink-950 shadow-sm;
+    @apply bg-cyan-300/15 text-cyan-50 shadow-none;
   }
 
   .chart-pane-header + .chart-stage {
