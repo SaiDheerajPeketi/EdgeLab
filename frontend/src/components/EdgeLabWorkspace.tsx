@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -1798,6 +1798,7 @@ function NotebookPage({
 }: SharedPageProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "favorites">("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [favoriteTradeIds, setFavoriteTradeIds] = useState<number[]>(() =>
     sanitizeFavoriteIds(getCachedAppStorageItem<unknown>(NOTEBOOK_FAVORITES_STORAGE_KEY, [])),
   );
@@ -1874,12 +1875,6 @@ function NotebookPage({
     void saveAppStorageItem(NOTEBOOK_FAVORITES_STORAGE_KEY, nextIds);
   }
 
-  function selectLatestTrade() {
-    setSearchTerm("");
-    setFilterMode("all");
-    setSelectedTradeId(orderedTrades[0]?.id ?? null);
-  }
-
   return (
     <PageScaffold
       eyebrow="Backtest Notebook"
@@ -1889,7 +1884,7 @@ function NotebookPage({
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <FeatureCard className="p-0">
           <div className="border-b border-white/10 p-3">
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
               <Search size={15} className="text-slate-500" />
               <input
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600"
@@ -1899,14 +1894,32 @@ function NotebookPage({
               />
               <button
                 className={`icon-button h-8 w-8 ${filterMode === "favorites" ? "workspace-tab-active" : ""}`}
-                onClick={() =>
-                  setFilterMode((current) => current === "favorites" ? "all" : "favorites")
-                }
-                title="Filter favorites"
+                onClick={() => setFilterOpen((current) => !current)}
+                title="Filter notes"
                 type="button"
               >
                 <Filter size={14} />
               </button>
+              {filterOpen && (
+                <div className="absolute right-0 top-10 z-20 grid w-40 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
+                  {[
+                    { id: "all", label: "All notes" },
+                    { id: "favorites", label: "Favorites" },
+                  ].map((option) => (
+                    <button
+                      className={`chart-dropdown-row ${filterMode === option.id ? "chart-dropdown-row-active" : ""}`}
+                      key={option.id}
+                      onClick={() => {
+                        setFilterMode(option.id as "all" | "favorites");
+                        setFilterOpen(false);
+                      }}
+                      type="button"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <div className="grid gap-2 p-3">
@@ -1922,14 +1935,6 @@ function NotebookPage({
             />
             <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.16em] text-slate-500">
               Trade Notes
-              <button
-                className="icon-button h-7 w-7"
-                onClick={selectLatestTrade}
-                title="Select latest trade note"
-                type="button"
-              >
-                <Plus size={13} />
-              </button>
             </div>
             {visibleTrades.map((trade) => (
               <button
@@ -2020,8 +2025,8 @@ function NotebookTradeDetail({
   const [snapshotStatus, setSnapshotStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >(trade.screenshot_url ? "ready" : "idle");
+  const [snapshotActionStatus, setSnapshotActionStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [notebookTemplate, setNotebookTemplate] = useState(() =>
     normalizeNotebookTemplate(getCachedAppStorageItem<unknown>(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE)),
@@ -2060,7 +2065,7 @@ function NotebookTradeDetail({
     setCustomTag("");
     setSnapshotUrl(trade.screenshot_url ?? "");
     setSnapshotStatus(trade.screenshot_url ? "ready" : "idle");
-    setStatus(null);
+    setSnapshotActionStatus(null);
     setMoreOpen(false);
     setLinkPopoverOpen(false);
     setColorMenuOpen(false);
@@ -2146,34 +2151,34 @@ function NotebookTradeDetail({
 
   async function regenerateSnapshot() {
     setSnapshotStatus("loading");
-    setStatus(null);
+    setSnapshotActionStatus(null);
     try {
       const snapshot = await createTradeSnapshotDataUrl(trade, currency);
       setSnapshotUrl(snapshot);
       setSnapshotStatus("ready");
-      setStatus("Snapshot regenerated");
+      setSnapshotActionStatus("Snapshot regenerated");
     } catch {
       setSnapshotStatus("error");
-      setStatus("Snapshot could not be generated");
+      setSnapshotActionStatus("Snapshot could not be generated");
     }
   }
 
   async function copySnapshot() {
     const url = snapshotUrl || trade.screenshot_url;
     if (!url) {
-      setStatus("Snapshot is not ready");
+      setSnapshotActionStatus("Snapshot is not ready");
       return;
     }
-    setStatus(null);
+    setSnapshotActionStatus(null);
     try {
       await copyTradeSnapshotToClipboard(url);
-      setStatus("Snapshot copied");
+      setSnapshotActionStatus("Snapshot copied");
     } catch {
       try {
         await navigator.clipboard?.writeText(url);
-        setStatus("Snapshot link copied");
+        setSnapshotActionStatus("Snapshot link copied");
       } catch {
-        setStatus("Snapshot could not be copied");
+        setSnapshotActionStatus("Snapshot could not be copied");
       }
     }
   }
@@ -2213,7 +2218,6 @@ function NotebookTradeDetail({
 
   async function saveDraft() {
     setSaving(true);
-    setStatus(null);
     try {
       await updateJournal(trade.id, {
         emotional_state: emotion || null,
@@ -2223,9 +2227,8 @@ function NotebookTradeDetail({
         strategy_name: strategy || null,
       });
       persistStrategyMistakeTags(activeStrategyScope, tags);
-      setStatus("Saved");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not save note");
+      setSnapshotActionStatus(error instanceof Error ? error.message : "Could not save note");
     } finally {
       setSaving(false);
     }
@@ -2242,7 +2245,6 @@ function NotebookTradeDetail({
       plainNotes ? `Notes:\n${plainNotes}` : null,
     ].filter(Boolean).join("\n");
     void navigator.clipboard?.writeText(summary);
-    setStatus("Copied summary");
     setMoreOpen(false);
   }
 
@@ -2290,6 +2292,12 @@ function NotebookTradeDetail({
     selection.addRange(range);
   }
 
+  function selectionIsInEditor() {
+    const editor = noteRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    return Boolean(editor && selection?.rangeCount && editor.contains(selection.anchorNode));
+  }
+
   function focusNoteEditor() {
     const editor = noteRef.current;
     if (!editor || typeof window === "undefined" || typeof document === "undefined") {
@@ -2314,9 +2322,13 @@ function NotebookTradeDetail({
       return;
     }
     restoreEditorSelection();
-    focusNoteEditor();
+    if (!selectionIsInEditor()) {
+      focusNoteEditor();
+    }
     document.execCommand(command, false, value);
+    saveEditorSelection();
     syncNotesFromEditor();
+    requestAnimationFrame(updateEditorState);
   }
 
   function insertRichHtml(html: string) {
@@ -2325,9 +2337,13 @@ function NotebookTradeDetail({
       return;
     }
     restoreEditorSelection();
-    focusNoteEditor();
+    if (!selectionIsInEditor()) {
+      focusNoteEditor();
+    }
     document.execCommand("insertHTML", false, html);
+    saveEditorSelection();
     syncNotesFromEditor();
+    requestAnimationFrame(updateEditorState);
   }
 
   function updateEditorState() {
@@ -2389,6 +2405,19 @@ function NotebookTradeDetail({
     restoreEditorSelection();
     runEditorCommand(command);
     setAlignMenuOpen(false);
+  }
+
+  function handleEditorClick(event: ReactMouseEvent<HTMLDivElement>) {
+    const editor = noteRef.current;
+    if (!editor || !(event.target instanceof Node)) {
+      return;
+    }
+    const anchor = findEditorAnchor(event.target, editor);
+    if (!anchor?.href) {
+      return;
+    }
+    event.preventDefault();
+    window.open(anchor.href, "_blank", "noopener,noreferrer");
   }
 
   function applyEditorAction(action: string) {
@@ -2489,14 +2518,13 @@ function NotebookTradeDetail({
           </button>
           <button
             className="control-button border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
-            disabled={saving || (!hasChanges && status === "Saved")}
+            disabled={saving || !hasChanges}
             onClick={() => void saveDraft()}
             type="button"
           >
             <Save size={15} />
-            {saving ? "Saving" : hasChanges ? "Save changes" : "Saved"}
+            {saving ? "Saving" : "Save note"}
           </button>
-          {status && status !== "Saved" && <span className="status-pill">{status}</span>}
         </div>
       </div>
 
@@ -2685,30 +2713,31 @@ function NotebookTradeDetail({
                   />
                 </button>
                 {colorMenuOpen && (
-                  <div className="notebook-editor-popover left-0 top-9 w-44">
+                  <div className="notebook-editor-popover left-0 top-9 w-36">
                     <div className="mb-1 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
                       Text color
                     </div>
-                    <div className="grid grid-cols-3 gap-1">
+                    <div className="grid grid-cols-6 gap-1">
                       {NOTE_COLOR_OPTIONS.map((option) => {
                         const active = editorState.color === option.value.toLowerCase();
                         return (
                           <button
-                            className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs font-semibold ${
+                            aria-label={option.label}
+                            className={`grid h-7 w-7 place-items-center rounded-md border ${
                               active
-                                ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
-                                : "border-white/10 text-slate-300 hover:bg-white/10"
+                                ? "border-cyan-300/50 bg-cyan-300/10"
+                                : "border-white/10 hover:bg-white/10"
                             }`}
                             key={option.value}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => applyNoteColor(option.value)}
+                            title={option.label}
                             type="button"
                           >
                             <span
-                              className="h-3 w-3 rounded-full border border-white/20"
+                              className="h-3.5 w-3.5 rounded-full border border-white/20"
                               style={{ backgroundColor: option.value }}
                             />
-                            {option.label}
                           </button>
                         );
                       })}
@@ -2738,7 +2767,7 @@ function NotebookTradeDetail({
                   )}
                 </button>
                 {alignMenuOpen && (
-                  <div className="notebook-editor-popover left-0 top-9 w-36">
+                  <div className="notebook-editor-popover left-0 top-9 w-28">
                     {NOTE_ALIGN_OPTIONS.map((option) => {
                       const Icon = option.icon;
                       const active = editorState.align === option.value;
@@ -2808,6 +2837,7 @@ function NotebookTradeDetail({
                 className="notebook-rich-editor min-h-52 w-full resize-y overflow-auto bg-transparent px-4 py-3 text-sm text-slate-300 outline-none"
                 contentEditable
                 onBlur={() => setNoteFocused(false)}
+                onClick={handleEditorClick}
                 onFocus={() => setNoteFocused(true)}
                 onInput={handleEditorInput}
                 onKeyUp={() => {
@@ -2860,6 +2890,9 @@ function NotebookTradeDetail({
               <div className="grid h-44 place-items-center rounded-md bg-ink-950 text-sm text-slate-500">
                 {snapshotStatus === "error" ? "Snapshot could not be generated" : "Generating snapshot"}
               </div>
+            )}
+            {snapshotActionStatus && (
+              <div className="mt-2 text-xs font-semibold text-cyan-100">{snapshotActionStatus}</div>
             )}
           </section>
 
