@@ -432,8 +432,11 @@ export default function App() {
     function commitTimeframeShortcut(rawValue: string) {
       const feedback = buildTimeframeShortcutFeedback(rawValue, sourceTimeframe);
       if (feedback.status === "ready" && feedback.timeframe) {
-        changeTimeframe(feedback.timeframe);
+        clearTimeframeShortcutBuffer();
+        setTimeframe(coerceTimeframeToSource(feedback.timeframe, sourceTimeframe));
+        return;
       }
+      timeframeShortcutBufferRef.current = "";
       setTimeframeShortcutFeedback(feedback);
       scheduleTimeframeShortcutClear();
     }
