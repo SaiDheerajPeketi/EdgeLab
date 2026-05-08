@@ -14,7 +14,9 @@ import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 
 const RISK_BASE_STORAGE_KEY = "order-risk-base.v1";
+const SIZING_MODE_STORAGE_KEY = "order-sizing-mode.v1";
 type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
+type SizingMode = "quantity" | "risk";
 
 type Props = {
   initialSide?: "BUY" | "SELL" | null;
@@ -33,11 +35,12 @@ export function OrderTicket({
   const placeOrder = useBacktestStore((store) => store.placeOrder);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [orderType, setOrderType] = useState<"MARKET" | "LIMIT" | "STOP">("MARKET");
-  const [sizingMode, setSizingMode] = useState<"quantity" | "risk">("quantity");
+  const [sizingMode, setSizingMode] = useState<SizingMode>(() => loadSizingMode());
   const [quantity, setQuantity] = useState("100000");
   const [riskPercent, setRiskPercent] = useState("1");
   const [riskBase, setRiskBase] = useState<RiskBase>(() => loadRiskBase());
   const riskBaseHydratedRef = useRef(false);
+  const sizingModeHydratedRef = useRef(false);
   const [limitPrice, setLimitPrice] = useState("");
   const [stopPrice, setStopPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
@@ -103,6 +106,34 @@ export function OrderTicket({
   useEffect(() => {
     setPlaybookId(state?.session.playbook_id ? String(state.session.playbook_id) : "");
   }, [state?.session.id, state?.session.playbook_id]);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateSizingMode().then((nextSizingMode) => {
+      if (active) {
+        setSizingMode(nextSizingMode);
+        sizingModeHydratedRef.current = true;
+      }
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      SIZING_MODE_STORAGE_KEY,
+      (value) => {
+        setSizingMode(sanitizeSizingMode(value));
+        sizingModeHydratedRef.current = true;
+      },
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sizingModeHydratedRef.current) {
+      return;
+    }
+    void saveAppStorageItem(SIZING_MODE_STORAGE_KEY, sizingMode);
+  }, [sizingMode]);
 
   useEffect(() => {
     let active = true;
@@ -399,6 +430,18 @@ function numberOrNull(value: string) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function loadSizingMode(): SizingMode {
+  return sanitizeSizingMode(getCachedAppStorageItem<unknown>(SIZING_MODE_STORAGE_KEY, null));
+}
+
+async function hydrateSizingMode(): Promise<SizingMode> {
+  return sanitizeSizingMode(await loadAppStorageItem<unknown>(SIZING_MODE_STORAGE_KEY, null));
+}
+
+function sanitizeSizingMode(value: unknown): SizingMode {
+  return value === "risk" ? "risk" : "quantity";
 }
 
 function loadRiskBase(): RiskBase {

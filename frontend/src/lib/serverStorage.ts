@@ -192,6 +192,7 @@ function legacyStorageKeyFor(key: string) {
     "fib-presets.v1": "edgelab.fib-presets.v1",
     "live-journal.v1": "edgelab.live-journal.v1",
     "order-risk-base.v1": "edgelab.order-risk-base.v1",
+    "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
     "strategy-mistake-tags.v1": "edgelab.strategy-mistake-tags.v1",
   };
   return mappings[key] ?? null;
@@ -202,6 +203,7 @@ function legacyStoresPlainString(key: string) {
     key === "active-chart-layout.v1" ||
     key === "active-chart-settings-preset.v1" ||
     key === "chart-layout-cleared-single-horizontal.v1" ||
-    key === "order-risk-base.v1"
+    key === "order-risk-base.v1" ||
+    key === "order-sizing-mode.v1"
   );
 }
