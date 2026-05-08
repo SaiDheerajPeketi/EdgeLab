@@ -132,6 +132,7 @@ type Props = {
   onNavigateDayView: () => void;
   onNavigateSessions: () => void;
   onNavigateTradeView: () => void;
+  onReturnToBacktestPanel: () => void;
   onReplayTrade: (trade: Trade) => Promise<void> | void;
   onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
   onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
@@ -146,6 +147,7 @@ type Props = {
   trades: Trade[];
   view: WorkspacePageView;
   notebookFocusTradeId: number | null;
+  notebookReturnToBacktestPanel: "review" | "results" | null;
   notebookReturnToDayView: boolean;
   notebookReturnToTradeView: boolean;
 };
@@ -395,6 +397,7 @@ export function EdgeLabWorkspace({
   onNavigateDayView,
   onNavigateSessions,
   onNavigateTradeView,
+  onReturnToBacktestPanel,
   onReplayTrade,
   onRefreshDatasets,
   onGetDatasetRefreshStatus,
@@ -406,6 +409,7 @@ export function EdgeLabWorkspace({
   trades,
   view,
   notebookFocusTradeId,
+  notebookReturnToBacktestPanel,
   notebookReturnToDayView,
   notebookReturnToTradeView,
 }: Props) {
@@ -509,8 +513,10 @@ export function EdgeLabWorkspace({
     strategies,
     trades,
     notebookFocusTradeId,
+    notebookReturnToBacktestPanel,
     notebookReturnToDayView,
     notebookReturnToTradeView,
+    onReturnToBacktestPanel: notebookReturnToBacktestPanel ? onReturnToBacktestPanel : undefined,
     onReturnToDayView: notebookReturnToDayView ? onNavigateDayView : undefined,
     onReturnToTradeView: notebookReturnToTradeView ? returnToTradeView : undefined,
     tradeViewFilters,
@@ -581,6 +587,7 @@ type SharedPageProps = {
     payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
+  onReturnToBacktestPanel?: () => void;
   onReturnToDayView?: () => void;
   onReturnToTradeView?: () => void;
   onTradeViewFiltersChange: Dispatch<SetStateAction<TradeViewFilterState>>;
@@ -593,6 +600,7 @@ type SharedPageProps = {
   strategies: StrategyGroup[];
   trades: Trade[];
   notebookFocusTradeId: number | null;
+  notebookReturnToBacktestPanel: "review" | "results" | null;
   notebookReturnToDayView: boolean;
   notebookReturnToTradeView: boolean;
   tradeViewFilters: TradeViewFilterState;
@@ -2509,6 +2517,8 @@ function NotebookPage({
   closedTrades,
   datasets,
   notebookFocusTradeId,
+  notebookReturnToBacktestPanel,
+  onReturnToBacktestPanel,
   onReturnToDayView,
   onReturnToTradeView,
   onReplayTrade,
@@ -2624,6 +2634,11 @@ function NotebookPage({
           <button className="control-button" onClick={onReturnToDayView} type="button">
             <ArrowLeft size={15} />
             Back to Day View
+          </button>
+        ) : onReturnToBacktestPanel ? (
+          <button className="control-button" onClick={onReturnToBacktestPanel} type="button">
+            <ArrowLeft size={15} />
+            {notebookReturnToBacktestPanel === "results" ? "Back to Results" : "Back to Review"}
           </button>
         ) : undefined
       }

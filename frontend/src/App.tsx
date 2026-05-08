@@ -116,6 +116,7 @@ type ReplayTimeframeOption = {
   sublabel?: string;
   value: ChartTimeframe;
 };
+type NotebookReturnTarget = WorkspaceView | "backtestReview" | "backtestResults" | null;
 type ChartPaneState = {
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
@@ -183,7 +184,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [notebookFocusTradeId, setNotebookFocusTradeId] = useState<number | null>(null);
-  const [notebookReturnTarget, setNotebookReturnTarget] = useState<WorkspaceView | null>(null);
+  const [notebookReturnTarget, setNotebookReturnTarget] = useState<NotebookReturnTarget>(null);
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
   const sidebarCollapsed = true;
@@ -1440,6 +1441,29 @@ export default function App() {
     setWorkspacePanel("none");
   }
 
+  function openTradeNoteFromBacktestPanel(trade: Trade, panel: "review" | "results") {
+    setReviewTrade(null);
+    setEditingTrade(null);
+    setReplayFocusTrade(null);
+    setNotebookFocusTradeId(trade.id);
+    setNotebookReturnTarget(panel === "results" ? "backtestResults" : "backtestReview");
+    setActiveWorkspace("notebook");
+    setSessionGateOpen(false);
+    setLeftPaneOpen(false);
+    setChartToolsOpen(false);
+    setLayersPanelOpen(false);
+    setWorkspacePanel("none");
+  }
+
+  function returnToBacktestPanel() {
+    const returnPanel = notebookReturnTarget === "backtestResults" ? "results" : "review";
+    setNotebookReturnTarget(null);
+    setReplayFocusTrade(null);
+    setActiveWorkspace("backtest");
+    setSessionGateOpen(false);
+    setWorkspacePanel(returnPanel);
+  }
+
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
   const backtestFocusHeader = (
     <header className="backtest-focus-header" ref={backtestHeaderRef}>
@@ -1678,8 +1702,16 @@ export default function App() {
               trades={resultTrades}
               view={activeWorkspace}
               notebookFocusTradeId={notebookFocusTradeId}
+              notebookReturnToBacktestPanel={
+                notebookReturnTarget === "backtestReview"
+                  ? "review"
+                  : notebookReturnTarget === "backtestResults"
+                    ? "results"
+                    : null
+              }
               notebookReturnToDayView={notebookReturnTarget === "dayView"}
               notebookReturnToTradeView={notebookReturnTarget === "tradeView"}
+              onReturnToBacktestPanel={returnToBacktestPanel}
             />
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
@@ -2001,7 +2033,7 @@ export default function App() {
                 <FilteredTradeReview
                   trades={trades}
                   onEdit={setEditingTrade}
-                  onInspect={setReviewTrade}
+                  onInspect={(trade) => openTradeNoteFromBacktestPanel(trade, "review")}
                 />
               </section>
             )}
@@ -2011,7 +2043,7 @@ export default function App() {
                 <ResultsPanel
                   activeSessionId={state?.session.id ?? null}
                   currency={sessionCurrency}
-                  onInspectTrade={setReviewTrade}
+                  onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
                   sessions={state?.session ? [state.session] : []}
                   trades={trades}
                 />
