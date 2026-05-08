@@ -1802,6 +1802,7 @@ function NotebookPage({
   datasets,
   onReplayTrade,
   sessionById,
+  strategies,
 }: SharedPageProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "favorites">("all");
@@ -1819,6 +1820,11 @@ function NotebookPage({
   const orderedTrades = useMemo(
     () => closedTrades.slice().reverse(),
     [closedTrades],
+  );
+  const savedStrategyNames = useBacktestStrategyNames();
+  const strategyOptions = useMemo(
+    () => buildStrategySelectOptions(mergeStrategyGroups(strategies, savedStrategyNames)),
+    [savedStrategyNames, strategies],
   );
   const visibleTrades = useMemo(
     () =>
@@ -1984,6 +1990,7 @@ function NotebookPage({
               onReplayTrade={onReplayTrade}
               onToggleFavorite={() => toggleFavorite(selectedTrade.id)}
               session={selectedSession}
+              strategyOptions={strategyOptions}
               trade={selectedTrade}
             />
           ) : (
@@ -2002,6 +2009,7 @@ function NotebookTradeDetail({
   onReplayTrade,
   onToggleFavorite,
   session,
+  strategyOptions,
   trade,
 }: {
   allTrades: Trade[];
@@ -2010,6 +2018,7 @@ function NotebookTradeDetail({
   onReplayTrade: (trade: Trade) => Promise<void> | void;
   onToggleFavorite: () => void;
   session: BacktestSession | null;
+  strategyOptions: Array<{ label: string; sublabel?: string; value: string }>;
   trade: Trade;
 }) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
@@ -2575,9 +2584,15 @@ function NotebookTradeDetail({
           <div className="grid gap-3 md:grid-cols-2">
             <label className="form-field">
               <span>Strategy</span>
-              <input
-                className="input-control h-10 normal-case tracking-normal"
-                onChange={(event) => setStrategy(event.target.value)}
+              <ThemedSelect
+                className="h-10"
+                onChange={setStrategy}
+                options={selectOptionsWithValue(
+                  strategyOptions,
+                  strategy,
+                  (value) => ({ label: value, sublabel: "Current note value", value }),
+                )}
+                portal
                 value={strategy}
               />
             </label>
@@ -5049,6 +5064,25 @@ function mergeStrategyGroups(strategies: StrategyGroup[], savedNames: string[]):
     }
     return left.name.localeCompare(right.name);
   });
+}
+
+function buildStrategySelectOptions(strategies: StrategyGroup[]) {
+  const options: Array<{ label: string; sublabel?: string; value: string }> = [
+    { label: "Unassigned", sublabel: "No strategy", value: "Unassigned" },
+  ];
+  for (const strategy of strategies) {
+    if (options.some((option) => sameStrategyName(option.value, strategy.name))) {
+      continue;
+    }
+    const sessionLabel = `${strategy.sessions.length} session${strategy.sessions.length === 1 ? "" : "s"}`;
+    const tradeLabel = `${strategy.aggregate.totalTrades} trade${strategy.aggregate.totalTrades === 1 ? "" : "s"}`;
+    options.push({
+      label: strategy.name,
+      sublabel: `${sessionLabel} · ${tradeLabel}`,
+      value: strategy.name,
+    });
+  }
+  return options;
 }
 
 function useLiveJournalData(): LiveJournalController {
