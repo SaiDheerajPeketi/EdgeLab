@@ -23,9 +23,16 @@ type Props = {
   dayOfWeekLabels?: boolean;
   isOrderPaneOpen: boolean;
   onTransientOverlayOpenChange?: (open: boolean) => void;
+  onReplayTimeframeChange?: (timeframe: string) => void;
   onToggleOrderPane: () => void;
   replayStepBars?: number;
+  replayTimeframe?: string | null;
   replayTimeframeLabel?: string | null;
+  replayTimeframeOptions?: Array<{
+    label: string;
+    sublabel?: string;
+    value: string;
+  }>;
   showOrderToggle?: boolean;
   timeHoursFormat?: TimeHoursFormat;
 };
@@ -48,9 +55,12 @@ export function ReplayController({
   dayOfWeekLabels = false,
   isOrderPaneOpen,
   onTransientOverlayOpenChange,
+  onReplayTimeframeChange,
   onToggleOrderPane,
   replayStepBars = 1,
+  replayTimeframe = null,
   replayTimeframeLabel = null,
+  replayTimeframeOptions = [],
   showOrderToggle = true,
   timeHoursFormat = "24-hour",
 }: Props) {
@@ -72,6 +82,7 @@ export function ReplayController({
     formatBarsPerSecond(msToBarsPerSecond(speedMs)),
   );
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [replayTimeframeMenuOpen, setReplayTimeframeMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const customSpeedRef = useRef<HTMLInputElement | null>(null);
   const currentOffset = state?.session.current_offset ?? 0;
@@ -94,9 +105,16 @@ export function ReplayController({
   }, [speedMs]);
 
   useEffect(() => {
-    onTransientOverlayOpenChange?.(datePickerOpen || speedMenuOpen);
+    onTransientOverlayOpenChange?.(
+      datePickerOpen || replayTimeframeMenuOpen || speedMenuOpen,
+    );
     return () => onTransientOverlayOpenChange?.(false);
-  }, [datePickerOpen, onTransientOverlayOpenChange, speedMenuOpen]);
+  }, [
+    datePickerOpen,
+    onTransientOverlayOpenChange,
+    replayTimeframeMenuOpen,
+    speedMenuOpen,
+  ]);
 
   function handlePresetSpeedChange(value: string) {
     if (value === CUSTOM_SPEED_VALUE) {
@@ -211,9 +229,24 @@ export function ReplayController({
             Bar {currentOffset.toLocaleString()}
           </span>
           {replayTimeframeLabel && (
-            <span className="rounded-md border border-cyan-300/15 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">
-              Replay {replayTimeframeLabel}
-            </span>
+            replayTimeframe && replayTimeframeOptions.length > 1 && onReplayTimeframeChange ? (
+              <div className="flex h-10 items-center gap-2 rounded-md border border-cyan-300/15 bg-cyan-300/10 pl-3 pr-1 text-xs font-semibold text-cyan-100">
+                <span>Replay</span>
+                <ThemedSelect
+                  ariaLabel="Replay timeframe"
+                  className="h-8 w-32"
+                  onChange={onReplayTimeframeChange}
+                  onOpenChange={setReplayTimeframeMenuOpen}
+                  options={replayTimeframeOptions}
+                  portal
+                  value={replayTimeframe}
+                />
+              </div>
+            ) : (
+              <span className="rounded-md border border-cyan-300/15 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">
+                Replay {replayTimeframeLabel}
+              </span>
+            )
           )}
         </div>
 

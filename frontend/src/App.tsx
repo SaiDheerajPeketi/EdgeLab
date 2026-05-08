@@ -872,6 +872,17 @@ export default function App() {
     setTimeframe(coerceTimeframeToSource(nextTimeframe, sourceTimeframe));
   }
 
+  function changeReplayTimeframe(nextTimeframe: ChartTimeframe) {
+    const normalized = normalizeChartTimeframe(nextTimeframe);
+    if (
+      !normalized ||
+      !replayTimeframeOptions.some((option) => option.value === normalized)
+    ) {
+      return;
+    }
+    setReplayTimeframe(normalized);
+  }
+
   function selectChartPane(paneId: string) {
     if (paneId === activeChartPane.id) {
       return;
@@ -1661,12 +1672,15 @@ export default function App() {
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
                   onTransientOverlayOpenChange={setReplayOverlayOpen}
                   onToggleOrderPane={toggleOrderPanel}
+                  onReplayTimeframeChange={changeReplayTimeframe}
                   replayStepBars={playbackStepBars}
+                  replayTimeframe={isMultiChartLayout ? normalizedReplayTimeframe : null}
                   replayTimeframeLabel={
                     isMultiChartLayout
                       ? formatChartTimeframeLabel(normalizedReplayTimeframe)
                       : null
                   }
+                  replayTimeframeOptions={replayTimeframeOptions}
                   showOrderToggle={false}
                   timeHoursFormat={chartSettings.timeHoursFormat}
                 />
@@ -1699,11 +1713,7 @@ export default function App() {
                     multiChart={isMultiChartLayout}
                     onMagnetModeChange={setMagnetMode}
                     onPaneLayoutChange={changeChartPaneLayout}
-                    onReplayTimeframeChange={(nextTimeframe) =>
-                      setReplayTimeframe(
-                        coerceTimeframeToSource(nextTimeframe, sourceTimeframe),
-                      )
-                    }
+                    onReplayTimeframeChange={changeReplayTimeframe}
                     onSaveLayout={saveChartLayout}
                     onTimeframeChange={changeTimeframe}
                     onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
