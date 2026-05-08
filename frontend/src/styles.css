@@ -933,6 +933,67 @@ button:disabled {
     @apply bg-cyan-300/15 text-cyan-100;
   }
 
+  .timeframe-shortcut-overlay {
+    @apply pointer-events-none fixed inset-0 z-[260] grid place-items-center px-4;
+  }
+
+  .timeframe-shortcut-dialog {
+    @apply grid w-[min(360px,calc(100vw-32px))] gap-4 rounded-md border border-black/50 bg-[#151515]/95 px-8 py-7 shadow-panel;
+    animation: timeframeShortcutIn 120ms ease-out;
+    box-shadow:
+      0 24px 70px rgba(0, 0, 0, 0.48),
+      0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  }
+
+  .timeframe-shortcut-title {
+    @apply flex items-center justify-center gap-2 text-2xl font-black text-slate-100;
+  }
+
+  .timeframe-shortcut-title svg {
+    @apply mt-1 text-slate-500;
+  }
+
+  .timeframe-shortcut-input {
+    @apply flex h-16 min-w-0 items-center justify-center rounded-md border bg-[#111] px-4 text-center text-2xl font-semibold text-slate-100 transition;
+  }
+
+  .timeframe-shortcut-input-ready {
+    @apply border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45),0_0_18px_rgba(37,99,235,0.20)];
+  }
+
+  .timeframe-shortcut-input-unavailable {
+    @apply border-amber-400/80 shadow-[0_0_0_1px_rgba(251,191,36,0.30)];
+  }
+
+  .timeframe-shortcut-input-invalid {
+    @apply border-rose-400/80 shadow-[0_0_0_1px_rgba(251,113,133,0.30)];
+  }
+
+  .timeframe-shortcut-value {
+    @apply min-w-0 truncate;
+  }
+
+  .timeframe-shortcut-caret {
+    @apply ml-1 h-8 w-px bg-slate-200;
+    animation: timeframeShortcutCaret 900ms steps(2, start) infinite;
+  }
+
+  .timeframe-shortcut-description {
+    @apply min-h-5 text-center text-sm font-semibold;
+  }
+
+  .timeframe-shortcut-description-ready {
+    @apply text-slate-500;
+  }
+
+  .timeframe-shortcut-description-unavailable {
+    @apply text-amber-200/85;
+  }
+
+  .timeframe-shortcut-description-invalid {
+    @apply text-rose-200/85;
+  }
+
   .chart-fullscreen-shell .chart-studio-layout {
     @apply xl:grid-cols-[minmax(0,1fr)_320px];
   }
@@ -979,6 +1040,30 @@ button:disabled {
     to {
       opacity: 1;
       transform: translateX(0);
+    }
+  }
+
+  @keyframes timeframeShortcutIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes timeframeShortcutCaret {
+    0%,
+    45% {
+      opacity: 1;
+    }
+
+    46%,
+    100% {
+      opacity: 0;
     }
   }
 

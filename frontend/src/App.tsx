@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   Clock3,
   Database,
+  Info,
   Maximize2,
   Minimize2,
   Palette,
@@ -53,6 +54,7 @@ import {
   canAggregateTimeframe,
   createIndicatorInstance,
   createLegacyIndicatorInstance,
+  formatChartTimeframeLabel,
   isIndicatorKind,
   mergeIndicatorSettings,
   nextIndicatorInstanceColor,
@@ -94,6 +96,11 @@ const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
 type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
+type TimeframeShortcutFeedback = {
+  description: string;
+  status: "ready" | "unavailable" | "invalid";
+  value: string;
+};
 const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
   "atr14",
   "bb20",
@@ -158,6 +165,8 @@ export default function App() {
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
   const [backtestHeaderVisible, setBacktestHeaderVisible] = useState(true);
   const [replayOverlayOpen, setReplayOverlayOpen] = useState(false);
+  const [timeframeShortcutFeedback, setTimeframeShortcutFeedback] =
+    useState<TimeframeShortcutFeedback | null>(null);
   const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
     useState(loadOrderLineModificationConfirmation);
   const backtestHeaderRef = useRef<HTMLElement | null>(null);
@@ -399,6 +408,7 @@ export default function App() {
         window.clearTimeout(timeframeShortcutTimerRef.current);
         timeframeShortcutTimerRef.current = null;
       }
+      setTimeframeShortcutFeedback(null);
     }
 
     function scheduleTimeframeShortcutClear() {
@@ -408,7 +418,15 @@ export default function App() {
       timeframeShortcutTimerRef.current = window.setTimeout(() => {
         timeframeShortcutBufferRef.current = "";
         timeframeShortcutTimerRef.current = null;
+        setTimeframeShortcutFeedback(null);
       }, TIMEFRAME_SHORTCUT_CLEAR_MS);
+    }
+
+    function showTimeframeShortcutFeedback(rawValue: string) {
+      setTimeframeShortcutFeedback(
+        buildTimeframeShortcutFeedback(rawValue, sourceTimeframe),
+      );
+      scheduleTimeframeShortcutClear();
     }
 
     function handleTimeframeShortcut(event: KeyboardEvent) {
@@ -430,7 +448,7 @@ export default function App() {
       if (/^\d$/.test(event.key)) {
         const currentBuffer = timeframeShortcutBufferRef.current;
         timeframeShortcutBufferRef.current = `${currentBuffer}${event.key}`.slice(0, 5);
-        scheduleTimeframeShortcutClear();
+        showTimeframeShortcutFeedback(timeframeShortcutBufferRef.current);
         event.preventDefault();
         return true;
       }
@@ -440,18 +458,20 @@ export default function App() {
       }
 
       if (/^[mMhHdDwW]$/.test(event.key)) {
-        const normalized = normalizeChartTimeframe(
-          `${timeframeShortcutBufferRef.current}${event.key}`,
-        );
+        const rawValue = `${timeframeShortcutBufferRef.current}${event.key}`;
+        const normalized = normalizeChartTimeframe(rawValue);
         if (normalized && canAggregateTimeframe(normalized, sourceTimeframe)) {
           changeTimeframe(normalized);
         }
-        clearTimeframeShortcutBuffer();
+        timeframeShortcutBufferRef.current = "";
+        showTimeframeShortcutFeedback(rawValue);
         event.preventDefault();
         return true;
       }
 
-      clearTimeframeShortcutBuffer();
+      const invalidValue = `${timeframeShortcutBufferRef.current}${event.key}`;
+      timeframeShortcutBufferRef.current = "";
+      showTimeframeShortcutFeedback(invalidValue);
       event.preventDefault();
       return true;
     }
@@ -1330,6 +1350,9 @@ export default function App() {
               >
                 {!isChartFullscreen && backtestFocusHeader}
                 {chartQuickActionBar}
+                {timeframeShortcutFeedback && (
+                  <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />
+                )}
                 <ReplayController
                   dateFormat={chartSettings.dateFormat}
                   dayOfWeekLabels={chartSettings.dayOfWeekLabels}
@@ -1545,6 +1568,92 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function TimeframeShortcutOverlay({
+  feedback,
+}: {
+  feedback: TimeframeShortcutFeedback;
+}) {
+  return (
+    <div
+      aria-live="polite"
+      className="timeframe-shortcut-overlay"
+      role="status"
+    >
+      <div className="timeframe-shortcut-dialog">
+        <div className="timeframe-shortcut-title">
+          <span>Change interval</span>
+          <Info size={17} />
+        </div>
+        <div className={`timeframe-shortcut-input timeframe-shortcut-input-${feedback.status}`}>
+          <span className="timeframe-shortcut-value">{feedback.value}</span>
+          <span className="timeframe-shortcut-caret" aria-hidden="true" />
+        </div>
+        <div className={`timeframe-shortcut-description timeframe-shortcut-description-${feedback.status}`}>
+          {feedback.description}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function buildTimeframeShortcutFeedback(
+  rawValue: string,
+  sourceTimeframe: ChartTimeframe | null,
+): TimeframeShortcutFeedback {
+  const compactValue = rawValue.trim().replace(/\s+/g, "");
+  const digitsOnly = /^\d+$/.test(compactValue);
+  const candidateValue = digitsOnly ? `${compactValue}m` : compactValue;
+  const normalized = normalizeChartTimeframe(candidateValue);
+
+  if (!normalized) {
+    return {
+      description: "Invalid interval",
+      status: "invalid",
+      value: compactValue,
+    };
+  }
+
+  const value = digitsOnly ? compactValue : formatChartTimeframeLabel(normalized);
+  if (!canAggregateTimeframe(normalized, sourceTimeframe)) {
+    const sourceLabel = sourceTimeframe
+      ? formatChartTimeframeLabel(sourceTimeframe)
+      : "source";
+    return {
+      description: `Unavailable from ${sourceLabel} source`,
+      status: "unavailable",
+      value,
+    };
+  }
+
+  return {
+    description: formatTimeframeShortcutDescription(normalized),
+    status: "ready",
+    value,
+  };
+}
+
+function formatTimeframeShortcutDescription(timeframe: ChartTimeframe) {
+  if (timeframe === "1M") {
+    return "1 month";
+  }
+
+  const match = /^(\d+)(m|H|D|W)$/.exec(timeframe);
+  if (!match) {
+    return formatChartTimeframeLabel(timeframe);
+  }
+
+  const value = Number.parseInt(match[1], 10);
+  const unit =
+    match[2] === "m"
+      ? "minute"
+      : match[2] === "H"
+        ? "hour"
+        : match[2] === "D"
+          ? "day"
+          : "week";
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }
 
 function isEntryMoreThanHalfVisible(entry: IntersectionObserverEntry) {
