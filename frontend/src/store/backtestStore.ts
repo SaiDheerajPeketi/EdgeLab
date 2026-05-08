@@ -15,12 +15,14 @@ import {
   PositionUpdatePayload,
   Playbook,
   PlaybookPayload,
+  PlaybookUpdatePayload,
   Trade,
   TradeStrategyPayload,
   advanceBacktest,
   createBacktest,
   deleteBacktestSession,
   deleteBacktestOrder,
+  deletePlaybook as deletePlaybookApi,
   getBars,
   getBacktest,
   getBacktests,
@@ -36,6 +38,7 @@ import {
   patchBacktestOrder,
   patchBacktestPosition,
   patchJournal,
+  patchPlaybook,
   patchTradeStrategy,
   postBacktestOrder,
   postPlaybook,
@@ -61,6 +64,8 @@ type BacktestStore = {
   speedMs: number;
   error: string | null;
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
+  updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
+  deletePlaybook: (playbookId: number) => Promise<void>;
   loadInitial: () => Promise<void>;
   refreshPlaybooks: () => Promise<void>;
   refreshDatasets: () => Promise<DatasetRefreshResponse>;
@@ -111,6 +116,61 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       error: null,
     }));
     return playbook;
+  },
+
+  updatePlaybook: async (playbookId, payload) => {
+    try {
+      const playbook = await patchPlaybook(playbookId, payload);
+      set((current) => ({
+        playbooks: current.playbooks
+          .map((item) => (item.id === playbook.id ? playbook : item))
+          .sort((left, right) => left.name.localeCompare(right.name)),
+        error: null,
+      }));
+      return playbook;
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  deletePlaybook: async (playbookId) => {
+    try {
+      await deletePlaybookApi(playbookId);
+      set((current) => ({
+        playbooks: current.playbooks.filter((item) => item.id !== playbookId),
+        resultSessions: current.resultSessions.map((session) =>
+          session.playbook_id === playbookId ? { ...session, playbook_id: null } : session,
+        ),
+        resultTrades: current.resultTrades.map((trade) =>
+          trade.playbook_id === playbookId ? { ...trade, playbook_id: null } : trade,
+        ),
+        state: current.state
+          ? {
+              ...current.state,
+              session:
+                current.state.session.playbook_id === playbookId
+                  ? { ...current.state.session, playbook_id: null }
+                  : current.state.session,
+              orders: current.state.orders.map((order) =>
+                order.playbook_id === playbookId ? { ...order, playbook_id: null } : order,
+              ),
+              trades: current.state.trades.map((trade) =>
+                trade.playbook_id === playbookId ? { ...trade, playbook_id: null } : trade,
+              ),
+              position:
+                current.state.position?.playbook_id === playbookId
+                  ? { ...current.state.position, playbook_id: null }
+                  : current.state.position,
+            }
+          : current.state,
+        error: null,
+      }));
+      void get().refreshResults();
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+      throw error;
+    }
   },
 
   loadInitial: async () => {

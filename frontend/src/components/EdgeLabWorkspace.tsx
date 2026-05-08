@@ -65,6 +65,7 @@ import type {
   DatasetTimeframe,
   Playbook,
   PlaybookPayload,
+  PlaybookUpdatePayload,
   Trade,
 } from "../lib/api";
 import {
@@ -123,6 +124,8 @@ type Props = {
   onInspectTrade: (trade: Trade) => void;
   onOpenTradeNote: (trade: Trade) => void;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
+  onUpdatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
+  onDeletePlaybook: (playbookId: number) => Promise<void>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
   onNavigateTradeView: () => void;
@@ -210,6 +213,8 @@ type LiveJournalController = {
   addPlaybook: (payload: PlaybookPayload) => Playbook;
   addSession: (payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) => void;
   addTrade: (payload: LiveTradeInput) => void;
+  updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Playbook | null;
+  deletePlaybook: (playbookId: number) => void;
   data: LiveJournalData;
 };
 
@@ -355,6 +360,8 @@ export function EdgeLabWorkspace({
   onInspectTrade,
   onOpenTradeNote,
   onCreatePlaybook,
+  onUpdatePlaybook,
+  onDeletePlaybook,
   onNavigateBacktest,
   onNavigateSessions,
   onNavigateTradeView,
@@ -434,6 +441,8 @@ export function EdgeLabWorkspace({
     onInspectTrade,
     onOpenTradeNote,
     onCreatePlaybook,
+    onUpdatePlaybook,
+    onDeletePlaybook,
     onNavigateBacktest,
     onNavigateSessions,
     onNavigateTradeView,
@@ -504,6 +513,8 @@ type SharedPageProps = {
   onInspectTrade: (trade: Trade) => void;
   onOpenTradeNote: (trade: Trade) => void;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
+  onUpdatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
+  onDeletePlaybook: (playbookId: number) => Promise<void>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
   onReplayTrade: (trade: Trade) => Promise<void> | void;
@@ -1665,6 +1676,8 @@ function JournalPlaybooksPage({
         createLabel="Create live playbook"
         emptyMessage="Create a Journal playbook to keep live-trading rules separate from strategy metrics."
         onCreatePlaybook={journal.addPlaybook}
+        onDeletePlaybook={journal.deletePlaybook}
+        onUpdatePlaybook={journal.updatePlaybook}
         playbooks={playbooks}
         sessions={sessions}
         trades={closedTrades}
@@ -3903,6 +3916,8 @@ type PlaybookUsageSession = {
 function BacktestPlaybooksPage({
   currency,
   onCreatePlaybook,
+  onDeletePlaybook,
+  onUpdatePlaybook,
   playbooks,
   sessions,
   trades,
@@ -3918,6 +3933,8 @@ function BacktestPlaybooksPage({
         createLabel="Create backtest playbook"
         emptyMessage="Create a playbook here, then attach it when creating a backtesting session or placing an order."
         onCreatePlaybook={onCreatePlaybook}
+        onDeletePlaybook={onDeletePlaybook}
+        onUpdatePlaybook={onUpdatePlaybook}
         playbooks={playbooks}
         currency={currency}
         sessions={sessions}
@@ -3933,6 +3950,8 @@ function PlaybookRuleLibrary({
   currency = "USD",
   emptyMessage,
   onCreatePlaybook,
+  onDeletePlaybook,
+  onUpdatePlaybook,
   playbooks,
   sessions,
   trades,
@@ -3942,21 +3961,27 @@ function PlaybookRuleLibrary({
   currency?: string;
   emptyMessage: string;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook> | Playbook;
+  onDeletePlaybook: (playbookId: number) => Promise<void> | void;
+  onUpdatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook | null> | Playbook | null;
   playbooks: Playbook[];
   sessions: PlaybookUsageSession[];
   trades: Trade[];
 }) {
   const [selectedId, setSelectedId] = useState<number | null>(playbooks[0]?.id ?? null);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [entryRules, setEntryRules] = useState("");
   const [exitRules, setExitRules] = useState("");
   const [riskRules, setRiskRules] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (playbooks.length === 0) {
       setSelectedId(null);
+      setFormMode("create");
       return;
     }
     if (selectedId == null || !playbooks.some((playbook) => playbook.id === selectedId)) {
@@ -3969,30 +3994,82 @@ function PlaybookRuleLibrary({
     ? computePlaybookUsage(selected, sessions, trades)
     : null;
 
+  function resetForm() {
+    setFormMode("create");
+    setName("");
+    setDescription("");
+    setEntryRules("");
+    setExitRules("");
+    setRiskRules("");
+    setActionError(null);
+  }
+
+  function editPlaybook(playbook: Playbook) {
+    const parsedRules = splitPlaybookRules(playbook.rules);
+    setSelectedId(playbook.id);
+    setFormMode("edit");
+    setName(playbook.name);
+    setDescription(playbook.description ?? "");
+    setEntryRules(parsedRules.entry);
+    setExitRules(parsedRules.exit);
+    setRiskRules(parsedRules.risk);
+    setDeleteConfirmId(null);
+    setActionError(null);
+  }
+
   async function submitPlaybook(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) {
       return;
     }
     setSubmitting(true);
+    setActionError(null);
     try {
-      const created = await Promise.resolve(
-        onCreatePlaybook({
-          description: description.trim() || null,
-          name: name.trim(),
-          rules: composePlaybookRules(entryRules, exitRules, riskRules),
-        }),
+      const payload = {
+        description: description.trim() || null,
+        name: name.trim(),
+        rules: composePlaybookRules(entryRules, exitRules, riskRules),
+      };
+      const saved = await Promise.resolve(
+        formMode === "edit" && selected
+          ? onUpdatePlaybook(selected.id, payload)
+          : onCreatePlaybook(payload),
       );
-      setSelectedId(created.id);
-      setName("");
-      setDescription("");
-      setEntryRules("");
-      setExitRules("");
-      setRiskRules("");
+      if (saved) {
+        setSelectedId(saved.id);
+      }
+      resetForm();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not save playbook");
     } finally {
       setSubmitting(false);
     }
   }
+
+  async function deleteSelectedPlaybook() {
+    if (!selected) {
+      return;
+    }
+    if (deleteConfirmId !== selected.id) {
+      setDeleteConfirmId(selected.id);
+      return;
+    }
+    setSubmitting(true);
+    setActionError(null);
+    try {
+      await Promise.resolve(onDeletePlaybook(selected.id));
+      const nextSelection = playbooks.find((playbook) => playbook.id !== selected.id) ?? null;
+      setSelectedId(nextSelection?.id ?? null);
+      setDeleteConfirmId(null);
+      resetForm();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not delete playbook");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const formTitle = formMode === "edit" ? "Edit playbook" : createLabel;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -4011,7 +4088,15 @@ function PlaybookRuleLibrary({
         </FeatureCard>
 
         <FeatureCard>
-          <CardLabel icon={Plus} label={createLabel} />
+          <div className="flex items-center justify-between gap-3">
+            <CardLabel icon={formMode === "edit" ? Pencil : Plus} label={formTitle} />
+            {formMode === "edit" && (
+              <button className="control-button h-8 px-2 text-xs" onClick={resetForm} type="button">
+                <X size={14} />
+                Cancel
+              </button>
+            )}
+          </div>
           <form className="mt-4 grid gap-3" onSubmit={(event) => void submitPlaybook(event)}>
             <label className="form-field">
               Playbook name
@@ -4034,9 +4119,14 @@ function PlaybookRuleLibrary({
             <PlaybookRuleTextArea label="Entry conditions" onChange={setEntryRules} value={entryRules} />
             <PlaybookRuleTextArea label="Exit conditions" onChange={setExitRules} value={exitRules} />
             <PlaybookRuleTextArea label="Risk conditions" onChange={setRiskRules} value={riskRules} />
+            {actionError && (
+              <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">
+                {actionError}
+              </div>
+            )}
             <button className="control-button workspace-tab-active justify-center" disabled={submitting || !name.trim()} type="submit">
-              <Plus size={15} />
-              {submitting ? "Saving..." : "Save playbook"}
+              {formMode === "edit" ? <Save size={15} /> : <Plus size={15} />}
+              {submitting ? "Saving..." : formMode === "edit" ? "Save changes" : "Save playbook"}
             </button>
           </form>
         </FeatureCard>
@@ -4063,7 +4153,10 @@ function PlaybookRuleLibrary({
                         : "border-white/10 bg-black/20 hover:border-cyan-300/25 hover:bg-cyan-300/5"
                     }`}
                     key={playbook.id}
-                    onClick={() => setSelectedId(playbook.id)}
+                    onClick={() => {
+                      setSelectedId(playbook.id);
+                      setDeleteConfirmId(null);
+                    }}
                     type="button"
                   >
                     <div className="truncate font-semibold text-white">{playbook.name}</div>
@@ -4090,7 +4183,22 @@ function PlaybookRuleLibrary({
                       {selected.description || "No description saved."}
                     </p>
                   </div>
-                  <span className="status-pill">{shortDate(selected.created_at)}</span>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <span className="status-pill">{shortDate(selected.created_at)}</span>
+                    <button className="control-button h-9 px-3 text-xs" onClick={() => editPlaybook(selected)} type="button">
+                      <Pencil size={14} />
+                      Edit
+                    </button>
+                    <button
+                      className={`control-button h-9 px-3 text-xs ${deleteConfirmId === selected.id ? "border-rose-300/30 bg-rose-300/10 text-rose-100" : ""}`}
+                      disabled={submitting}
+                      onClick={() => void deleteSelectedPlaybook()}
+                      type="button"
+                    >
+                      <Trash2 size={14} />
+                      {deleteConfirmId === selected.id ? "Confirm" : "Delete"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-2 md:grid-cols-4">
@@ -4132,6 +4240,42 @@ function PlaybookRuleLibrary({
       </FeatureCard>
     </div>
   );
+}
+
+/*
+ * Keep older free-form playbook rules editable even if they were saved before
+ * the sectioned create form existed.
+ */
+function splitPlaybookRules(value: string | null | undefined) {
+  const text = value ?? "";
+  const entry = extractRuleSection(text, "Entry Conditions");
+  const exit = extractRuleSection(text, "Exit Conditions");
+  const risk = extractRuleSection(text, "Risk Conditions");
+  if (entry != null || exit != null || risk != null) {
+    return {
+      entry: normalizeRuleSectionBody(entry),
+      exit: normalizeRuleSectionBody(exit),
+      risk: normalizeRuleSectionBody(risk),
+    };
+  }
+  return {
+    entry: normalizeRuleSectionBody(text),
+    exit: "",
+    risk: "",
+  };
+}
+
+function extractRuleSection(text: string, title: string) {
+  const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(
+    new RegExp(`${escapedTitle}\\s*\\n([\\s\\S]*?)(?=\\n\\n(?:Entry Conditions|Exit Conditions|Risk Conditions)\\s*\\n|$)`, "i"),
+  );
+  return match?.[1] ?? null;
+}
+
+function normalizeRuleSectionBody(value: string | null | undefined) {
+  const trimmed = (value ?? "").trim();
+  return trimmed === "Not defined yet." ? "" : trimmed;
 }
 
 function PlaybookRuleTextArea({
@@ -5642,6 +5786,39 @@ function useLiveJournalData(): LiveJournalController {
     return playbook;
   }
 
+  function updatePlaybook(playbookId: number, payload: PlaybookUpdatePayload) {
+    const existing = data.playbooks.find((playbook) => playbook.id === playbookId);
+    if (!existing) {
+      return null;
+    }
+    const updated: Playbook = {
+      ...existing,
+      description: payload.description ?? null,
+      name: payload.name?.trim() || existing.name,
+      rules: payload.rules ?? null,
+    };
+    setData((current) => ({
+      ...current,
+      playbooks: current.playbooks.map((playbook) =>
+        playbook.id === playbookId ? updated : playbook,
+      ),
+    }));
+    return updated;
+  }
+
+  function deletePlaybook(playbookId: number) {
+    setData((current) => ({
+      ...current,
+      playbooks: current.playbooks.filter((playbook) => playbook.id !== playbookId),
+      sessions: current.sessions.map((session) =>
+        session.playbook_id === playbookId ? { ...session, playbook_id: null } : session,
+      ),
+      trades: current.trades.map((trade) =>
+        trade.playbook_id === playbookId ? { ...trade, playbook_id: null } : trade,
+      ),
+    }));
+  }
+
   function addTrade(payload: LiveTradeInput) {
     setData((current) => {
       const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession();
@@ -5686,7 +5863,7 @@ function useLiveJournalData(): LiveJournalController {
     });
   }
 
-  return { addPlaybook, addSession, addTrade, data };
+  return { addPlaybook, addSession, addTrade, updatePlaybook, deletePlaybook, data };
 }
 
 function loadLiveJournalData(): LiveJournalData {

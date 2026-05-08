@@ -119,6 +119,12 @@ class PlaybookCreate(BaseModel):
     rules: str | None = None
 
 
+class PlaybookUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    rules: str | None = None
+
+
 class PlaybookRead(PlaybookCreate):
     model_config = ConfigDict(from_attributes=True)
 

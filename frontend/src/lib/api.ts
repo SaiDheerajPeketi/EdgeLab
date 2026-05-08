@@ -93,6 +93,12 @@ export type PlaybookPayload = {
   rules?: string | null;
 };
 
+export type PlaybookUpdatePayload = {
+  name?: string;
+  description?: string | null;
+  rules?: string | null;
+};
+
 export type BacktestSession = {
   id: number;
   name: string;
@@ -500,6 +506,19 @@ export function postPlaybook(payload: PlaybookPayload) {
   return request<Playbook>("/playbooks", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function patchPlaybook(playbookId: number, payload: PlaybookUpdatePayload) {
+  return request<Playbook>(`/playbooks/${playbookId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deletePlaybook(playbookId: number) {
+  return request<{ ok: boolean }>(`/playbooks/${playbookId}`, {
+    method: "DELETE",
   });
 }
 

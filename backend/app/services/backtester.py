@@ -20,6 +20,7 @@ from app.schemas import (
     OrderUpdate,
     PlaybookCreate,
     PlaybookRead,
+    PlaybookUpdate,
     PositionRead,
     PositionUpdate,
     TradeRead,
@@ -368,11 +369,14 @@ class BacktestService:
         return [PlaybookRead.model_validate(playbook) for playbook in playbooks]
 
     def create_playbook(self, db: Session, payload: PlaybookCreate) -> PlaybookRead:
-        existing = db.scalar(select(Playbook).where(Playbook.name == payload.name))
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Playbook name is required")
+        existing = db.scalar(select(Playbook).where(Playbook.name == name))
         if existing is not None:
             return PlaybookRead.model_validate(existing)
         playbook = Playbook(
-            name=payload.name,
+            name=name,
             description=payload.description,
             rules=payload.rules,
         )
@@ -380,6 +384,43 @@ class BacktestService:
         db.commit()
         db.refresh(playbook)
         return PlaybookRead.model_validate(playbook)
+
+    def update_playbook(self, db: Session, playbook_id: int, payload: PlaybookUpdate) -> PlaybookRead:
+        playbook = db.get(Playbook, playbook_id)
+        if playbook is None:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+
+        if "name" in payload.model_fields_set and payload.name is not None:
+            name = payload.name.strip()
+            if not name:
+                raise HTTPException(status_code=422, detail="Playbook name is required")
+            existing = db.scalar(
+                select(Playbook).where(Playbook.name == name, Playbook.id != playbook_id)
+            )
+            if existing is not None:
+                raise HTTPException(status_code=409, detail="Playbook name already exists")
+            playbook.name = name
+        if "description" in payload.model_fields_set:
+            playbook.description = payload.description
+        if "rules" in payload.model_fields_set:
+            playbook.rules = payload.rules
+
+        db.commit()
+        db.refresh(playbook)
+        return PlaybookRead.model_validate(playbook)
+
+    def delete_playbook(self, db: Session, playbook_id: int) -> None:
+        playbook = db.get(Playbook, playbook_id)
+        if playbook is None:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+
+        for model in (BacktestSession, Position, Order, Trade):
+            db.query(model).filter(model.playbook_id == playbook_id).update(
+                {model.playbook_id: None},
+                synchronize_session=False,
+            )
+        db.delete(playbook)
+        db.commit()
 
     def list_sessions(self, db: Session) -> list[BacktestSession]:
         return list(

@@ -29,6 +29,7 @@ from app.schemas import (
     OrderUpdate,
     PlaybookCreate,
     PlaybookRead,
+    PlaybookUpdate,
     PositionUpdate,
     TradeRead,
     TradeStrategyUpdate,
@@ -335,6 +336,24 @@ def create_playbook(
     db: Session = Depends(get_db),
 ) -> PlaybookRead:
     return backtester.create_playbook(db, payload)
+
+
+@router.patch("/playbooks/{playbook_id}", response_model=PlaybookRead)
+def update_playbook(
+    playbook_id: int,
+    payload: PlaybookUpdate,
+    db: Session = Depends(get_db),
+) -> PlaybookRead:
+    return backtester.update_playbook(db, playbook_id, payload)
+
+
+@router.delete("/playbooks/{playbook_id}")
+def delete_playbook(
+    playbook_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    backtester.delete_playbook(db, playbook_id)
+    return {"ok": True}
 
 
 @router.get("/trades", response_model=list[TradeRead])

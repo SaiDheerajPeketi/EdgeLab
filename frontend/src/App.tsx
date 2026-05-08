@@ -162,6 +162,8 @@ export default function App() {
     isPlaying,
     speedMs,
     createPlaybook,
+    updatePlaybook,
+    deletePlaybook,
     loadSession,
     loadInitial,
     newSession,
@@ -1659,6 +1661,8 @@ export default function App() {
               onReplayTrade={replayTradeFromNotes}
               onResumeSession={resumeSessionFromGateway}
               onCreatePlaybook={createPlaybook}
+              onUpdatePlaybook={updatePlaybook}
+              onDeletePlaybook={deletePlaybook}
               onRefreshDatasets={refreshDatasets}
               onGetDatasetRefreshStatus={refreshDatasetStatus}
               onUpdateDatasetAsset={updateDatasetAsset}
