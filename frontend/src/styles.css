@@ -923,15 +923,29 @@ button:disabled {
   }
 
   .chart-pane-shell {
-    @apply min-w-0 bg-[#080c11];
+    @apply relative grid min-h-0 min-w-0 overflow-hidden bg-[#080c11];
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .chart-pane-shell-with-header {
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .chart-pane-shell-active {
-    @apply shadow-[inset_0_0_0_1px_rgba(50,211,238,0.72),0_0_28px_rgba(50,211,238,0.10)];
+    @apply z-10 shadow-[0_0_30px_rgba(50,211,238,0.18)];
+  }
+
+  .chart-pane-shell-active::after {
+    @apply pointer-events-none absolute inset-0 z-40 border-2 border-cyan-300/80 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16),0_0_26px_rgba(50,211,238,0.24)];
+    content: "";
   }
 
   .chart-pane-header {
-    @apply flex min-h-8 items-center justify-between gap-3 border-b border-white/10 bg-[#070b10] px-2 text-xs text-slate-500;
+    @apply relative z-20 flex min-h-8 items-center justify-between gap-3 border-b border-white/10 bg-[#070b10] px-2 text-xs text-slate-500;
+  }
+
+  .chart-pane-shell-active .chart-pane-header {
+    @apply border-cyan-300/40 bg-cyan-300/10 text-cyan-100;
   }
 
   .chart-pane-select-button {
@@ -940,6 +954,10 @@ button:disabled {
 
   .chart-pane-select-button-active {
     @apply bg-cyan-300/15 text-cyan-100;
+  }
+
+  .chart-pane-shell-active .chart-pane-select-button-active {
+    @apply bg-white text-ink-950 shadow-sm;
   }
 
   .chart-pane-header + .chart-stage {
