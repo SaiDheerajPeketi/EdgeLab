@@ -896,15 +896,28 @@ button:disabled {
     isolation: isolate;
   }
 
-  .chart-fullscreen-actionbar {
-    @apply sticky top-3 z-[230] flex justify-self-end items-center gap-2 rounded-md border border-white/10 bg-[#070b10]/90 p-1.5 shadow-panel backdrop-blur;
+  .chart-quick-actionbar {
+    @apply flex items-center gap-2 rounded-md border border-white/10 bg-[#070b10]/90 p-1.5 shadow-panel backdrop-blur;
   }
 
-  .chart-fullscreen-action {
+  .chart-quick-actionbar-fullscreen {
+    @apply sticky top-3 z-[230] justify-self-end;
+  }
+
+  .chart-quick-actionbar-floating {
+    @apply fixed right-3 top-3 z-[180] max-w-[calc(100vw-1.5rem)] overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .chart-quick-actionbar-floating::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chart-quick-action {
     @apply inline-flex h-9 items-center justify-center gap-2 rounded px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
   }
 
-  .chart-fullscreen-action-active {
+  .chart-quick-action-active {
     @apply bg-cyan-300/15 text-cyan-100;
   }
 

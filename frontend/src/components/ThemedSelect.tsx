@@ -23,6 +23,7 @@ type Props = {
   disabled?: boolean;
   menuClassName?: string;
   onChange?: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
   options: ThemedSelectOption[];
   placeholder?: ReactNode;
   portal?: boolean;
@@ -37,6 +38,7 @@ export function ThemedSelect({
   disabled = false,
   menuClassName = "",
   onChange,
+  onOpenChange,
   options,
   placeholder = "Select",
   portal = false,
@@ -65,6 +67,15 @@ export function ThemedSelect({
       setInternalValue(fallbackValue);
     }
   }, [fallbackValue, value]);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+    return () => {
+      if (open) {
+        onOpenChange?.(false);
+      }
+    };
+  }, [onOpenChange, open]);
 
   useEffect(() => {
     if (!open) {

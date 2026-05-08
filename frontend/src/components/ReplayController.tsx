@@ -22,6 +22,7 @@ type Props = {
   dateFormat?: ReplayDateFormat;
   dayOfWeekLabels?: boolean;
   isOrderPaneOpen: boolean;
+  onTransientOverlayOpenChange?: (open: boolean) => void;
   onToggleOrderPane: () => void;
   showOrderToggle?: boolean;
   timeHoursFormat?: TimeHoursFormat;
@@ -44,6 +45,7 @@ export function ReplayController({
   dateFormat = "dd MMM yy",
   dayOfWeekLabels = false,
   isOrderPaneOpen,
+  onTransientOverlayOpenChange,
   onToggleOrderPane,
   showOrderToggle = true,
   timeHoursFormat = "24-hour",
@@ -65,6 +67,8 @@ export function ReplayController({
   const [customSpeed, setCustomSpeed] = useState(() =>
     formatBarsPerSecond(msToBarsPerSecond(speedMs)),
   );
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const customSpeedRef = useRef<HTMLInputElement | null>(null);
   const currentOffset = state?.session.current_offset ?? 0;
   const currentTimestamp =
@@ -84,6 +88,11 @@ export function ReplayController({
   useEffect(() => {
     setCustomSpeed(formatBarsPerSecond(msToBarsPerSecond(speedMs)));
   }, [speedMs]);
+
+  useEffect(() => {
+    onTransientOverlayOpenChange?.(datePickerOpen || speedMenuOpen);
+    return () => onTransientOverlayOpenChange?.(false);
+  }, [datePickerOpen, onTransientOverlayOpenChange, speedMenuOpen]);
 
   function handlePresetSpeedChange(value: string) {
     if (value === CUSTOM_SPEED_VALUE) {
@@ -157,6 +166,7 @@ export function ReplayController({
             ariaLabel="Replay speed"
             className="h-10 w-32"
             onChange={handlePresetSpeedChange}
+            onOpenChange={setSpeedMenuOpen}
             options={[
               ...SPEED_PRESETS,
               {
@@ -210,6 +220,7 @@ export function ReplayController({
             dayOfWeekLabels={dayOfWeekLabels}
             disabled={!state}
             onChange={setJumpTime}
+            onOpenChange={setDatePickerOpen}
             timeHoursFormat={timeHoursFormat}
             value={jumpTime}
           />
@@ -233,6 +244,7 @@ function ReplayDateTimePicker({
   dayOfWeekLabels,
   disabled,
   onChange,
+  onOpenChange,
   timeHoursFormat,
   value,
 }: {
@@ -241,6 +253,7 @@ function ReplayDateTimePicker({
   dayOfWeekLabels: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
   timeHoursFormat: TimeHoursFormat;
   value: string;
 }) {
@@ -259,6 +272,15 @@ function ReplayDateTimePicker({
   const [viewMonth, setViewMonth] = useState(() => selected?.month ?? new Date().getMonth() + 1);
   const [draftHour, setDraftHour] = useState(() => selected?.hour ?? 0);
   const [draftMinute, setDraftMinute] = useState(() => selected?.minute ?? 0);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+    return () => {
+      if (open) {
+        onOpenChange?.(false);
+      }
+    };
+  }, [onOpenChange, open]);
 
   useEffect(() => {
     const nextSelected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));

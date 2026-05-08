@@ -156,6 +156,9 @@ export default function App() {
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "tape" | "review" | "results">("none");
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
+  const [backtestHeaderVisible, setBacktestHeaderVisible] = useState(true);
+  const [replayOverlayOpen, setReplayOverlayOpen] = useState(false);
+  const backtestHeaderRef = useRef<HTMLElement | null>(null);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
   const skipNextToolsClickRef = useRef(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
@@ -467,6 +470,28 @@ export default function App() {
     return () => document.removeEventListener("fullscreenchange", syncNativeFullscreen);
   }, []);
 
+  useEffect(() => {
+    if (activeWorkspace !== "backtest" || sessionGateOpen || isChartFullscreen) {
+      setBacktestHeaderVisible(true);
+      return;
+    }
+
+    const header = backtestHeaderRef.current;
+    if (!header || typeof IntersectionObserver === "undefined") {
+      setBacktestHeaderVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setBacktestHeaderVisible(entry.isIntersecting),
+      { threshold: 0.01 },
+    );
+
+    observer.observe(header);
+    setBacktestHeaderVisible(isElementInViewport(header));
+    return () => observer.disconnect();
+  }, [activeWorkspace, isChartFullscreen, sessionGateOpen]);
+
   const current = state?.current_candle;
   const metrics = state?.metrics ?? null;
   const orders = state?.orders ?? [];
@@ -765,7 +790,7 @@ export default function App() {
 
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
   const backtestFocusHeader = (
-    <header className="backtest-focus-header">
+    <header className="backtest-focus-header" ref={backtestHeaderRef}>
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <span className="status-pill text-emerald-100">
           <Radio size={14} />
@@ -883,6 +908,64 @@ export default function App() {
       </div>
     </header>
   );
+  const quickOrderPanelOpen = isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen;
+  const showChartQuickActions =
+    !replayOverlayOpen &&
+    (isChartFullscreen ||
+      (activeWorkspace === "backtest" && !sessionGateOpen && !backtestHeaderVisible));
+  const chartQuickActionBar = showChartQuickActions ? (
+    <div
+      className={`chart-quick-actionbar ${
+        isChartFullscreen
+          ? "chart-quick-actionbar-fullscreen"
+          : "chart-quick-actionbar-floating"
+      }`}
+    >
+      <button
+        className={`chart-quick-action ${quickOrderPanelOpen ? "chart-quick-action-active" : ""}`}
+        onClick={toggleOrderPanel}
+        type="button"
+      >
+        {quickOrderPanelOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+        Ticket
+      </button>
+      <button
+        className={`chart-quick-action ${layersPanelOpen ? "chart-quick-action-active" : ""}`}
+        onClick={() => setLayersPanelOpen((value) => !value)}
+        type="button"
+      >
+        {layersPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+        Objects
+      </button>
+      <button
+        className={`chart-quick-action ${chartToolsOpen ? "chart-quick-action-active" : ""}`}
+        data-chart-header-control="tools"
+        onClick={handleChartToolsClick}
+        onPointerDown={handleChartToolsPointerDown}
+        type="button"
+      >
+        <PencilRuler size={15} />
+        Tools
+      </button>
+      <button
+        className={`chart-quick-action ${chartSettingsPanelOpen ? "chart-quick-action-active" : ""}`}
+        data-chart-header-control="settings"
+        onClick={openChartSettings}
+        type="button"
+      >
+        <Palette size={15} />
+        Settings
+      </button>
+      <button
+        className="chart-quick-action"
+        onClick={isChartFullscreen ? exitChartFullscreen : toggleChartFullscreen}
+        type="button"
+      >
+        {isChartFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        {isChartFullscreen ? "Exit" : "Full Screen"}
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
@@ -1002,57 +1085,12 @@ export default function App() {
                 ref={chartShellRef}
               >
                 {!isChartFullscreen && backtestFocusHeader}
-                {isChartFullscreen && (
-                  <div className="chart-fullscreen-actionbar">
-                    <button
-                      className={`chart-fullscreen-action ${fullscreenOrderPanelOpen ? "chart-fullscreen-action-active" : ""}`}
-                      onClick={() => setFullscreenOrderPanelOpen((value) => !value)}
-                      type="button"
-                    >
-                      {fullscreenOrderPanelOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
-                      Ticket
-                    </button>
-                    <button
-                      className={`chart-fullscreen-action ${layersPanelOpen ? "chart-fullscreen-action-active" : ""}`}
-                      onClick={() => setLayersPanelOpen((value) => !value)}
-                      type="button"
-                    >
-                      {layersPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
-                      Objects
-                    </button>
-                    <button
-                      className={`chart-fullscreen-action ${chartToolsOpen ? "chart-fullscreen-action-active" : ""}`}
-                      data-chart-header-control="tools"
-                      onClick={handleChartToolsClick}
-                      onPointerDown={handleChartToolsPointerDown}
-                      type="button"
-                    >
-                      <PencilRuler size={15} />
-                      Tools
-                    </button>
-                    <button
-                      className={`chart-fullscreen-action ${chartSettingsPanelOpen ? "chart-fullscreen-action-active" : ""}`}
-                      data-chart-header-control="settings"
-                      onClick={openChartSettings}
-                      type="button"
-                    >
-                      <Palette size={15} />
-                      Settings
-                    </button>
-                    <button
-                      className="chart-fullscreen-action"
-                      onClick={exitChartFullscreen}
-                      type="button"
-                    >
-                      <Minimize2 size={15} />
-                      Exit
-                    </button>
-                  </div>
-                )}
+                {chartQuickActionBar}
                 <ReplayController
                   dateFormat={chartSettings.dateFormat}
                   dayOfWeekLabels={chartSettings.dayOfWeekLabels}
                   isOrderPaneOpen={isChartFullscreen ? fullscreenOrderPanelOpen : leftPaneOpen}
+                  onTransientOverlayOpenChange={setReplayOverlayOpen}
                   onToggleOrderPane={toggleOrderPanel}
                   showOrderToggle={false}
                   timeHoursFormat={chartSettings.timeHoursFormat}
@@ -1271,6 +1309,11 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function isElementInViewport(element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight;
 }
 
 type StoredChartLayout = {
