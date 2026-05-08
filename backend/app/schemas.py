@@ -186,6 +186,11 @@ class PositionRead(BaseModel):
     unrealized_pnl: float = 0.0
 
 
+class PositionUpdate(BaseModel):
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
+
+
 class OrderCreate(BaseModel):
     side: OrderSide
     order_type: OrderType = "MARKET"

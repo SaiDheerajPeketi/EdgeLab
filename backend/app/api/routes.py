@@ -28,6 +28,7 @@ from app.schemas import (
     OrderUpdate,
     PlaybookCreate,
     PlaybookRead,
+    PositionUpdate,
     TradeRead,
 )
 from app.services.backtester import BacktestService, list_latest_session
@@ -281,6 +282,15 @@ def amend_order(
     db: Session = Depends(get_db),
 ) -> BacktestState:
     return backtester.update_order(db, session_id, order_id, payload)
+
+
+@router.patch("/backtests/{session_id}/position", response_model=BacktestState)
+def amend_position(
+    session_id: int,
+    payload: PositionUpdate,
+    db: Session = Depends(get_db),
+) -> BacktestState:
+    return backtester.update_position(db, session_id, payload)
 
 
 @router.delete("/backtests/{session_id}/orders/{order_id}", response_model=BacktestState)

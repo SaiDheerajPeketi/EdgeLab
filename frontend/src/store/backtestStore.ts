@@ -11,6 +11,7 @@ import {
   JournalPayload,
   OrderPayload,
   OrderUpdatePayload,
+  PositionUpdatePayload,
   Playbook,
   PlaybookPayload,
   Trade,
@@ -30,6 +31,7 @@ import {
   patchDatasetAsset,
   patchDatasetSettings,
   patchBacktestOrder,
+  patchBacktestPosition,
   patchJournal,
   postBacktestOrder,
   postPlaybook,
@@ -74,6 +76,7 @@ type BacktestStore = {
   setSpeed: (value: number) => void;
   placeOrder: (payload: OrderPayload) => Promise<boolean>;
   amendOrder: (orderId: number, payload: OrderUpdatePayload) => Promise<void>;
+  updatePosition: (payload: PositionUpdatePayload) => Promise<void>;
   cancelOrder: (orderId: number) => Promise<void>;
   updateJournal: (tradeId: number, payload: JournalPayload) => Promise<Trade>;
 };
@@ -381,6 +384,19 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
     try {
       const state = await patchBacktestOrder(sessionId, orderId, payload);
+      set({ state, error: null });
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+    }
+  },
+
+  updatePosition: async (payload) => {
+    const sessionId = get().state?.session.id;
+    if (!sessionId) {
+      return;
+    }
+    try {
+      const state = await patchBacktestPosition(sessionId, payload);
       set({ state, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });

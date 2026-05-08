@@ -20,6 +20,7 @@ from app.schemas import (
     PlaybookCreate,
     PlaybookRead,
     PositionRead,
+    PositionUpdate,
     TradeRead,
 )
 from app.services.datasets import DatasetCatalogService
@@ -211,6 +212,33 @@ class BacktestService:
                 setattr(order, field, value)
         if payload.mistake_tags is not None:
             order.mistake_tags = json.dumps(payload.mistake_tags)
+        db.commit()
+        return self.get_state(db, session.id)
+
+    def update_position(
+        self,
+        db: Session,
+        session_id: int,
+        payload: PositionUpdate,
+    ) -> BacktestState:
+        session = self._session_or_404(db, session_id)
+        position = db.scalar(select(Position).where(Position.session_id == session.id))
+        if position is None or position.quantity <= 0 or position.side == "FLAT":
+            raise HTTPException(status_code=409, detail="Only active positions can be amended")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if "stop_loss" in updates:
+            position.stop_loss = updates["stop_loss"]
+        if "take_profit" in updates:
+            position.take_profit = updates["take_profit"]
+
+        trade = self._open_trade_for_position(db, session.id, position.side)
+        if trade is not None:
+            if "stop_loss" in updates:
+                trade.stop_loss = updates["stop_loss"]
+            if "take_profit" in updates:
+                trade.take_profit = updates["take_profit"]
+
         db.commit()
         return self.get_state(db, session.id)
 

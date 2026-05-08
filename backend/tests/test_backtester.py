@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import BacktestSession, Execution, Order, Position, Trade
-from app.schemas import BacktestAdvanceRequest, BacktestCreate, OrderCreate
+from app.schemas import BacktestAdvanceRequest, BacktestCreate, OrderCreate, PositionUpdate
 from app.services.backtester import BacktestService
 from app.services.market_data import MarketDataService
 
@@ -86,6 +86,40 @@ def test_pnl_multiplier_calibrates_session_pnl_without_changing_r(tmp_path: Path
     assert state.metrics.net_pnl == pytest.approx(400)
     assert state.trades[0].realized_pnl == pytest.approx(400)
     assert state.trades[0].r_multiple == pytest.approx(2)
+
+
+def test_open_position_brackets_can_be_amended(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+        ),
+    )
+
+    state = service.update_position(
+        db,
+        state.session.id,
+        PositionUpdate(stop_loss=99, take_profit=105),
+    )
+
+    assert state.position is not None
+    assert state.position.stop_loss == pytest.approx(99)
+    assert state.position.take_profit == pytest.approx(105)
+    assert state.trades[0].stop_loss == pytest.approx(99)
+    assert state.trades[0].take_profit == pytest.approx(105)
+
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert state.position is not None
+    assert state.position.side == "FLAT"
+    assert state.metrics.net_pnl == pytest.approx(50)
 
 
 def test_short_market_order_uses_short_pnl(tmp_path: Path):

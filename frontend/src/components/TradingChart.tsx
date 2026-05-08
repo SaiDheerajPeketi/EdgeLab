@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -31,7 +38,14 @@ import type {
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import type { Candle, Execution, Order, Position } from "../lib/api";
+import type {
+  Candle,
+  Execution,
+  Order,
+  OrderUpdatePayload,
+  Position,
+  PositionUpdatePayload,
+} from "../lib/api";
 import {
   TvCrosshairIcon,
   TvCursorIcon,
@@ -111,6 +125,7 @@ type Props = {
   magnetMode: MagnetMode;
   neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
   onAddDrawing: (drawing: ChartDrawing) => void;
+  onAmendOrder: (orderId: number, payload: OrderUpdatePayload) => Promise<void> | void;
   onClearDrawings: () => void;
   onClosePositionFraction: (fraction: number) => void;
   onDeleteDrawing: (drawingId: string) => void;
@@ -121,6 +136,7 @@ type Props = {
   onToggleIndicatorVisibility: (instanceId: string) => void;
   onUpdateDrawing: (drawing: ChartDrawing) => void;
   onUpdateIndicatorSettings: (instanceId: string, settings: Partial<IndicatorSettings>) => void;
+  onUpdatePosition: (payload: PositionUpdatePayload) => Promise<void> | void;
   orders: Order[];
   position: Position | null;
   selectedDrawingId: string | null;
@@ -154,6 +170,33 @@ type DrawingHit = {
   drawing: ChartDrawing;
   mode: DragState["mode"];
   pointIndex: number | null;
+};
+
+type PositionOrderField = "stop_loss" | "take_profit";
+type PendingOrderField = "limit_price" | "stop_price" | "stop_loss" | "take_profit";
+
+type OrderLineDragTarget =
+  | {
+      field: PositionOrderField;
+      kind: "position";
+    }
+  | {
+      field: PendingOrderField;
+      kind: "order";
+      orderId: number;
+    };
+
+type OrderLineDragState = {
+  target: OrderLineDragTarget;
+  price: number;
+};
+
+type OrderEditLine = {
+  color: string;
+  key: string;
+  label: string;
+  price: number;
+  target: OrderLineDragTarget;
 };
 
 type OhlcSnapCandidate = {
@@ -235,6 +278,7 @@ export function TradingChart({
   magnetMode,
   neutralDrawingTool,
   onAddDrawing,
+  onAmendOrder,
   onClearDrawings,
   onClosePositionFraction,
   onDeleteDrawing,
@@ -245,6 +289,7 @@ export function TradingChart({
   onToggleIndicatorVisibility,
   onUpdateDrawing,
   onUpdateIndicatorSettings,
+  onUpdatePosition,
   orders,
   position,
   selectedDrawingId,
@@ -269,6 +314,7 @@ export function TradingChart({
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [orderLineDrag, setOrderLineDrag] = useState<OrderLineDragState | null>(null);
   const [hoverPoint, setHoverPoint] = useState<DrawingPoint | null>(null);
   const [indicatorToolbarPosition, setIndicatorToolbarPosition] =
     useState<{ x: number; y: number } | null>(null);
@@ -282,6 +328,7 @@ export function TradingChart({
   const pendingCrosshairPointRef = useRef<DrawingPoint | null>(null);
   const crosshairFrameRef = useRef<number | null>(null);
   const drawingDragMovedRef = useRef(false);
+  const orderLineDragRef = useRef<OrderLineDragState | null>(null);
   const suppressNextDrawingClickRef = useRef(false);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
@@ -505,6 +552,11 @@ export function TradingChart({
           candlesRef.current,
         )
       : null;
+  const orderEditLines = useMemo(
+    () => buildOrderEditLines(activePosition, orders, orderLineDrag),
+    [activePosition, orderLineDrag, orders],
+  );
+  const orderLineDragActive = orderLineDrag != null;
 
   const removableDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
 
@@ -523,6 +575,45 @@ export function TradingChart({
       setPositionActionsOpen(false);
     }
   }, [activePosition, showOrderOverlays]);
+
+  useEffect(() => {
+    if (!orderLineDragActive) {
+      return;
+    }
+
+    function handlePointerMove(event: globalThis.PointerEvent) {
+      const current = orderLineDragRef.current;
+      if (!current) {
+        return;
+      }
+      const price = priceFromClientY(event.clientY);
+      if (price == null) {
+        return;
+      }
+      event.preventDefault();
+      updateOrderLineDrag({ ...current, price });
+    }
+
+    function handlePointerUp(event: globalThis.PointerEvent) {
+      const current = orderLineDragRef.current;
+      if (!current) {
+        return;
+      }
+      const price = priceFromClientY(event.clientY) ?? current.price;
+      event.preventDefault();
+      updateOrderLineDrag(null);
+      commitOrderLineDrag(current.target, price);
+    }
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [orderLineDragActive, onAmendOrder, onUpdatePosition]);
 
   useEffect(() => {
     return () => {
@@ -1286,6 +1377,65 @@ export function TradingChart({
     priceLinesRef.current = [];
   }
 
+  function updateOrderLineDrag(next: OrderLineDragState | null) {
+    orderLineDragRef.current = next;
+    setOrderLineDrag(next);
+  }
+
+  function startOrderLineDrag(
+    target: OrderLineDragTarget,
+    price: number,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setChartContextMenuPosition(null);
+    setDrawingToolbarOpen(false);
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
+    updateOrderLineDrag({ target, price });
+  }
+
+  function priceFromClientY(clientY: number) {
+    const frame = chartFrameRef.current;
+    const chart = chartRef.current;
+    const series = candlesRef.current;
+    if (!frame || !series) {
+      return null;
+    }
+    const rect = frame.getBoundingClientRect();
+    const plotHeight = chart ? chartPlotHeight(chart, frame) : frame.clientHeight;
+    const y = clamp(clientY - rect.top, 0, Math.max(0, plotHeight - 1));
+    const price = series.coordinateToPrice(y);
+    return price != null && Number.isFinite(price) && price > 0 ? price : null;
+  }
+
+  function commitOrderLineDrag(target: OrderLineDragTarget, price: number) {
+    if (!Number.isFinite(price) || price <= 0) {
+      return;
+    }
+
+    if (target.kind === "position") {
+      const payload: PositionUpdatePayload =
+        target.field === "stop_loss" ? { stop_loss: price } : { take_profit: price };
+      void onUpdatePosition(payload);
+      return;
+    }
+
+    const payload: OrderUpdatePayload =
+      target.field === "limit_price"
+        ? { limit_price: price }
+        : target.field === "stop_price"
+          ? { stop_price: price }
+          : target.field === "stop_loss"
+            ? { stop_loss: price }
+            : { take_profit: price };
+    void onAmendOrder(target.orderId, payload);
+  }
+
   function scheduleMagnetCrosshair(point: DrawingPoint) {
     pendingCrosshairPointRef.current = point;
     if (crosshairFrameRef.current != null) {
@@ -1781,6 +1931,51 @@ export function TradingChart({
                 </g>
               </svg>
             </div>
+            {showOrderOverlays && orderEditLines.length > 0 && (
+              <div
+                className="chart-order-edit-layer"
+                style={{
+                  height: Math.max(0, drawingPlotHeight),
+                  width: Math.max(0, drawingPlotWidth),
+                }}
+              >
+                {orderEditLines.map((line) => {
+                  const y = candlesRef.current?.priceToCoordinate(line.price);
+                  if (
+                    y == null ||
+                    y < -12 ||
+                    y > Math.max(0, drawingPlotHeight) + 12
+                  ) {
+                    return null;
+                  }
+                  return (
+                    <button
+                      className="chart-order-edit-row"
+                      key={line.key}
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) =>
+                        startOrderLineDrag(line.target, line.price, event)
+                      }
+                      style={{ top: y }}
+                      title={`Drag ${line.label}`}
+                      type="button"
+                    >
+                      <span
+                        className="chart-order-edit-track"
+                        style={{ backgroundColor: line.color }}
+                      />
+                      <span
+                        className="chart-order-edit-label"
+                        style={{ borderColor: colorWithOpacity(line.color, 0.58) }}
+                      >
+                        <span>{line.label}</span>
+                        <strong>{formatPrice(line.price)}</strong>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {selectedDrawing && floatingToolbarPosition && isNeutralTool && (
               <FloatingDrawingToolbar
                 drawing={selectedDrawing}
@@ -3755,6 +3950,109 @@ function chartPlotHeight(chart: IChartApi, frame: HTMLDivElement | null) {
     return frame ? Math.min(frame.clientHeight, paneHeight) : paneHeight;
   }
   return frame?.clientHeight ?? 0;
+}
+
+function buildOrderEditLines(
+  activePosition: Position | null,
+  orders: Order[],
+  drag: OrderLineDragState | null,
+): OrderEditLine[] {
+  const lines: OrderEditLine[] = [];
+
+  if (activePosition) {
+    addOrderEditLine(lines, {
+      color: "#fb7185",
+      key: "position-stop-loss",
+      label: "SL",
+      price: activePosition.stop_loss,
+      target: { kind: "position", field: "stop_loss" },
+    }, drag);
+    addOrderEditLine(lines, {
+      color: "#22c55e",
+      key: "position-take-profit",
+      label: "TP",
+      price: activePosition.take_profit,
+      target: { kind: "position", field: "take_profit" },
+    }, drag);
+  }
+
+  orders
+    .filter((order) => order.status === "PENDING")
+    .forEach((order) => {
+      const entryField = pendingOrderEntryField(order);
+      const labelPrefix = `P#${order.id}`;
+      if (entryField) {
+        addOrderEditLine(lines, {
+          color: order.side === "BUY" ? "#32d3ee" : "#f59e0b",
+          key: `order-${order.id}-entry`,
+          label: `${labelPrefix} ${order.order_type}`,
+          price: order[entryField],
+          target: { kind: "order", orderId: order.id, field: entryField },
+        }, drag);
+      }
+      addOrderEditLine(lines, {
+        color: "#fb7185",
+        key: `order-${order.id}-stop-loss`,
+        label: `${labelPrefix} SL`,
+        price: order.stop_loss,
+        target: { kind: "order", orderId: order.id, field: "stop_loss" },
+      }, drag);
+      addOrderEditLine(lines, {
+        color: "#22c55e",
+        key: `order-${order.id}-take-profit`,
+        label: `${labelPrefix} TP`,
+        price: order.take_profit,
+        target: { kind: "order", orderId: order.id, field: "take_profit" },
+      }, drag);
+    });
+
+  return lines;
+}
+
+function addOrderEditLine(
+  lines: OrderEditLine[],
+  line: Omit<OrderEditLine, "price"> & { price: number | null | undefined },
+  drag: OrderLineDragState | null,
+) {
+  const price = draggedOrderLinePrice(line.target, line.price, drag);
+  if (price == null || !Number.isFinite(price) || price <= 0) {
+    return;
+  }
+  lines.push({ ...line, price });
+}
+
+function draggedOrderLinePrice(
+  target: OrderLineDragTarget,
+  price: number | null | undefined,
+  drag: OrderLineDragState | null,
+) {
+  return drag && orderLineTargetsEqual(target, drag.target) ? drag.price : price;
+}
+
+function orderLineTargetsEqual(left: OrderLineDragTarget, right: OrderLineDragTarget) {
+  if (left.kind !== right.kind || left.field !== right.field) {
+    return false;
+  }
+  if (left.kind === "position") {
+    return true;
+  }
+  return right.kind === "order" && left.orderId === right.orderId;
+}
+
+function pendingOrderEntryField(order: Order): "limit_price" | "stop_price" | null {
+  if (order.order_type === "LIMIT") {
+    return "limit_price";
+  }
+  if (order.order_type === "STOP") {
+    return "stop_price";
+  }
+  if (order.limit_price != null) {
+    return "limit_price";
+  }
+  if (order.stop_price != null) {
+    return "stop_price";
+  }
+  return null;
 }
 
 function positionOverlayFromPrice(

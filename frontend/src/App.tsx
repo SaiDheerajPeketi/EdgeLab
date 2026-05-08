@@ -138,9 +138,11 @@ export default function App() {
     updateDatasetAsset,
     updateDatasetSettings,
     jumpToOffset,
+    amendOrder,
     placeOrder,
     setPlaying,
     stepForward,
+    updatePosition,
   } = useBacktestStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
@@ -1153,6 +1155,7 @@ export default function App() {
                         setDrawings((currentDrawings) => [...currentDrawings, drawing]);
                         setSelectedDrawingId(drawing.id);
                       }}
+                      onAmendOrder={amendOrder}
                       onClearDrawings={clearDrawings}
                       onClosePositionFraction={closePositionFraction}
                       onDeleteDrawing={deleteDrawing}
@@ -1161,6 +1164,7 @@ export default function App() {
                       onRemoveIndicator={removeIndicator}
                       onSelectDrawing={setSelectedDrawingId}
                       onToggleIndicatorVisibility={toggleIndicatorVisibility}
+                      onUpdatePosition={updatePosition}
                       onUpdateDrawing={(updatedDrawing) =>
                         setDrawings((currentDrawings) =>
                           currentDrawings.map((drawing) =>

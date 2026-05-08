@@ -274,6 +274,11 @@ export type BacktestCreatePayload = {
 
 export type OrderUpdatePayload = Partial<OrderPayload>;
 
+export type PositionUpdatePayload = {
+  stop_loss?: number | null;
+  take_profit?: number | null;
+};
+
 export type JournalPayload = {
   notes: string | null;
   mistake_tags: string[];
@@ -435,6 +440,16 @@ export function patchBacktestOrder(
   payload: OrderUpdatePayload,
 ) {
   return request<BacktestState>(`/backtests/${sessionId}/orders/${orderId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchBacktestPosition(
+  sessionId: number,
+  payload: PositionUpdatePayload,
+) {
+  return request<BacktestState>(`/backtests/${sessionId}/position`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
