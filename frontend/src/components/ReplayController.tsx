@@ -230,11 +230,11 @@ export function ReplayController({
           </span>
           {replayTimeframeLabel && (
             replayTimeframe && replayTimeframeOptions.length > 1 && onReplayTimeframeChange ? (
-              <div className="flex h-10 items-center gap-2 rounded-md border border-cyan-300/15 bg-cyan-300/10 pl-3 pr-1 text-xs font-semibold text-cyan-100">
-                <span>Replay</span>
+              <div className="replay-timeframe-control">
+                <span className="replay-timeframe-label">Replay</span>
                 <ThemedSelect
                   ariaLabel="Replay timeframe"
-                  className="h-8 w-32"
+                  className="replay-timeframe-select h-8 w-28"
                   onChange={onReplayTimeframeChange}
                   onOpenChange={setReplayTimeframeMenuOpen}
                   options={replayTimeframeOptions}
@@ -243,7 +243,7 @@ export function ReplayController({
                 />
               </div>
             ) : (
-              <span className="rounded-md border border-cyan-300/15 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">
+              <span className="replay-timeframe-static">
                 Replay {replayTimeframeLabel}
               </span>
             )
