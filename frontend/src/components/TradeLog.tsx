@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Edit3 } from "lucide-react";
 import type { Trade } from "../lib/api";
 import { formatDateTime, formatMoney, formatPrice } from "../lib/format";
@@ -14,10 +15,36 @@ type Props = {
   trades: Trade[];
   onEdit?: (trade: Trade) => void;
   onInspect: (trade: Trade) => void;
+  onScrollTopChange?: (scrollTop: number) => void;
+  onScrollTopRestored?: () => void;
+  restoreScrollTop?: number | null;
   tradeContext?: (trade: Trade) => TradeLogContext;
 };
 
-export function TradeLog({ currency = "USD", tradeContext, trades, onInspect }: Props) {
+export function TradeLog({
+  currency = "USD",
+  tradeContext,
+  trades,
+  onInspect,
+  onScrollTopChange,
+  onScrollTopRestored,
+  restoreScrollTop,
+}: Props) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (restoreScrollTop == null) {
+      return;
+    }
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    scrollContainer.scrollTop = Math.min(restoreScrollTop, maxScrollTop);
+    onScrollTopRestored?.();
+  }, [onScrollTopRestored, restoreScrollTop, trades.length]);
+
   return (
     <section className="min-w-0 rounded-md border border-white/10 bg-ink-850 shadow-panel">
       <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
@@ -25,7 +52,11 @@ export function TradeLog({ currency = "USD", tradeContext, trades, onInspect }: 
         <span className="text-xs text-slate-400">{trades.length} entries</span>
       </div>
 
-      <div className="max-h-[476px] overflow-auto">
+      <div
+        className="max-h-[476px] overflow-auto"
+        onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
+        ref={scrollContainerRef}
+      >
         <table className="w-full min-w-[980px] text-left text-sm">
           <thead className="sticky top-0 bg-ink-850 text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>

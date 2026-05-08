@@ -380,7 +380,9 @@ export function EdgeLabWorkspace({
 }: Props) {
   const [tradeViewFilters, setTradeViewFilters] = useState<TradeViewFilterState>(DEFAULT_TRADE_VIEW_FILTERS);
   const tradeViewScrollRef = useRef(0);
+  const tradeViewLogScrollRef = useRef(0);
   const pendingTradeViewScrollRestoreRef = useRef<number | null>(null);
+  const pendingTradeViewLogScrollRestoreRef = useRef<number | null>(null);
   const liveJournal = useLiveJournalData();
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
@@ -415,9 +417,17 @@ export function EdgeLabWorkspace({
     }
     const scrollTop = pendingTradeViewScrollRestoreRef.current;
     pendingTradeViewScrollRestoreRef.current = null;
-    window.requestAnimationFrame(() => {
-      window.scrollTo({ top: scrollTop });
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollTop });
+      });
     });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
   }, [view]);
 
   function openTradeNoteFromTradeView(trade: Trade) {
@@ -427,7 +437,16 @@ export function EdgeLabWorkspace({
 
   function returnToTradeView() {
     pendingTradeViewScrollRestoreRef.current = tradeViewScrollRef.current;
+    pendingTradeViewLogScrollRestoreRef.current = tradeViewLogScrollRef.current;
     onNavigateTradeView();
+  }
+
+  function handleTradeViewLogScroll(scrollTop: number) {
+    tradeViewLogScrollRef.current = scrollTop;
+  }
+
+  function clearTradeViewLogScrollRestore() {
+    pendingTradeViewLogScrollRestoreRef.current = null;
   }
 
   const shared = {
@@ -463,6 +482,9 @@ export function EdgeLabWorkspace({
     onReturnToTradeView: notebookReturnToTradeView ? returnToTradeView : undefined,
     tradeViewFilters,
     onTradeViewFiltersChange: setTradeViewFilters,
+    onTradeViewLogScrollChange: handleTradeViewLogScroll,
+    onTradeViewLogScrollRestored: clearTradeViewLogScrollRestore,
+    tradeViewLogScrollTop: pendingTradeViewLogScrollRestoreRef.current,
   };
 
   switch (view) {
@@ -528,6 +550,8 @@ type SharedPageProps = {
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   onReturnToTradeView?: () => void;
   onTradeViewFiltersChange: Dispatch<SetStateAction<TradeViewFilterState>>;
+  onTradeViewLogScrollChange: (scrollTop: number) => void;
+  onTradeViewLogScrollRestored: () => void;
   openTrades: Trade[];
   playbooks: Playbook[];
   sessionById: Map<number, BacktestSession>;
@@ -537,6 +561,7 @@ type SharedPageProps = {
   notebookFocusTradeId: number | null;
   notebookReturnToTradeView: boolean;
   tradeViewFilters: TradeViewFilterState;
+  tradeViewLogScrollTop: number | null;
 };
 
 function DashboardPage({
@@ -926,10 +951,13 @@ function TradeViewPage({
   currency,
   datasets,
   onTradeViewFiltersChange,
+  onTradeViewLogScrollChange,
+  onTradeViewLogScrollRestored,
   onOpenTradeNote,
   sessionById,
   strategies,
   tradeViewFilters,
+  tradeViewLogScrollTop,
 }: SharedPageProps) {
   const {
     dateFrom,
@@ -1109,6 +1137,9 @@ function TradeViewPage({
         </div>
         <TradeLog
           currency={currency}
+          onScrollTopChange={onTradeViewLogScrollChange}
+          onScrollTopRestored={onTradeViewLogScrollRestored}
+          restoreScrollTop={tradeViewLogScrollTop}
           tradeContext={(trade) => buildTradeLogContext(trade, sessionById, datasets)}
           trades={filteredTrades}
           onInspect={onOpenTradeNote}
