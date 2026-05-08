@@ -178,6 +178,7 @@ export default function App() {
   } = useBacktestStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
+  const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
   const sidebarCollapsed = true;
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
@@ -808,10 +809,12 @@ export default function App() {
     setActiveWorkspace(view);
     if (view === "sessions") {
       setPlaying(false);
+      setReplayFocusTrade(null);
       setSessionGateOpen(true);
       return;
     }
     if (view === "backtest") {
+      setReplayFocusTrade(null);
       setSessionGateOpen(false);
     }
   }
@@ -1346,6 +1349,7 @@ export default function App() {
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
     await newSession(payload);
     await loadInitial();
+    setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1358,6 +1362,7 @@ export default function App() {
     if (sessionId) {
       await loadSession(sessionId);
     }
+    setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1370,6 +1375,7 @@ export default function App() {
     setPlaying(false);
     setReviewTrade(null);
     setEditingTrade(null);
+    setReplayFocusTrade(trade);
     setActiveWorkspace("backtest");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1586,10 +1592,12 @@ export default function App() {
               onEditTrade={setEditingTrade}
               onInspectTrade={setReviewTrade}
               onNavigateBacktest={() => {
+                setReplayFocusTrade(null);
                 setActiveWorkspace("backtest");
                 setSessionGateOpen(false);
               }}
               onNavigateSessions={() => {
+                setReplayFocusTrade(null);
                 setActiveWorkspace("sessions");
                 setSessionGateOpen(true);
               }}
@@ -1838,6 +1846,11 @@ export default function App() {
                               orders={orders}
                               position={position}
                               pnlMultiplier={state?.session.pnl_multiplier ?? 1}
+                              replayFocusTrade={
+                                replayFocusTrade?.session_id === state?.session.id
+                                  ? replayFocusTrade
+                                  : null
+                              }
                               selectedDrawingId={paneActive ? selectedDrawingId : null}
                               showOrderOverlays={pane.showOrderOverlays}
                               symbol={state?.session.symbol}

@@ -47,6 +47,7 @@ import type {
   OrderUpdatePayload,
   Position,
   PositionUpdatePayload,
+  Trade,
 } from "../lib/api";
 import {
   TvCrosshairIcon,
@@ -146,6 +147,7 @@ type Props = {
   orders: Order[];
   position: Position | null;
   pnlMultiplier: number;
+  replayFocusTrade?: Trade | null;
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   symbol?: string;
@@ -318,6 +320,7 @@ export function TradingChart({
   orders,
   position,
   pnlMultiplier,
+  replayFocusTrade = null,
   selectedDrawingId,
   showOrderOverlays,
   symbol = "EURUSD",
@@ -1112,18 +1115,29 @@ export function TradingChart({
   useEffect(() => {
     candlesRef.current?.setMarkers(
       showOrderOverlays
-        ? executions
-            .map((execution) => ({
+        ? [
+            ...executions.map((execution) => ({
               time: bucketTime(toUnixTime(execution.timestamp), timeframe) as UTCTimestamp,
               position: execution.side === "BUY" ? ("belowBar" as const) : ("aboveBar" as const),
               color: execution.side === "BUY" ? "#22c55e" : "#fb7185",
               shape: execution.side === "BUY" ? ("arrowUp" as const) : ("arrowDown" as const),
               text: execution.side,
-            }))
-            .sort((left, right) => Number(left.time) - Number(right.time))
+            })),
+            ...(replayFocusTrade
+              ? [
+                  {
+                    time: bucketTime(toUnixTime(replayFocusTrade.entry_time), timeframe) as UTCTimestamp,
+                    position: "belowBar" as const,
+                    color: "#38bdf8",
+                    shape: "circle" as const,
+                    text: `Trade #${replayFocusTrade.id} start`,
+                  },
+                ]
+              : []),
+          ].sort((left, right) => Number(left.time) - Number(right.time))
         : [],
     );
-  }, [executions, showOrderOverlays, timeframe]);
+  }, [executions, replayFocusTrade, showOrderOverlays, timeframe]);
 
   useEffect(() => {
     const series = candlesRef.current;
@@ -1181,8 +1195,19 @@ export function TradingChart({
         addLine(order.stop_loss, "#fb7185", `${orderLabel} SL`, 1);
         addLine(order.take_profit, "#22c55e", `${orderLabel} TP`, 1);
       });
+    if (replayFocusTrade?.session_id) {
+      addLine(
+        replayFocusTrade.entry_price,
+        "#38bdf8",
+        `Trade #${replayFocusTrade.id} Start`,
+        0,
+      );
+      addLine(replayFocusTrade.stop_loss, "#fda4af", `Trade #${replayFocusTrade.id} SL`, 2);
+      addLine(replayFocusTrade.take_profit, "#86efac", `Trade #${replayFocusTrade.id} TP`, 2);
+      addLine(replayFocusTrade.exit_price, "#c084fc", `Trade #${replayFocusTrade.id} Exit`, 2);
+    }
     return () => clearOrderPriceLines(series);
-  }, [activePosition, currency, orders, showOrderOverlays]);
+  }, [activePosition, currency, orders, replayFocusTrade, showOrderOverlays]);
 
   useEffect(() => {
     if (drawingTool === "cursor" || drawingTool === "crosshair") {
