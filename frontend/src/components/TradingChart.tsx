@@ -598,6 +598,30 @@ export function TradingChart({
   }, [displayBars]);
 
   useEffect(() => {
+    let frameId: number | null = null;
+    let previousFingerprint: string | null = null;
+
+    const watchPriceScale = () => {
+      const fingerprint = priceScaleCoordinateFingerprint(
+        candlesRef.current,
+        barsRef.current,
+      );
+      if (fingerprint !== previousFingerprint) {
+        previousFingerprint = fingerprint;
+        setPlotVersion((value) => value + 1);
+      }
+      frameId = window.requestAnimationFrame(watchPriceScale);
+    };
+
+    frameId = window.requestAnimationFrame(watchPriceScale);
+    return () => {
+      if (frameId != null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (magnetMode === "off" || !effectiveCrosshairVisible || !isDrawingPlacementMode) {
       clearMagnetCrosshair();
     }
@@ -6213,6 +6237,34 @@ function pixelFromPoint(
     return null;
   }
   return { x, y };
+}
+
+function priceScaleCoordinateFingerprint(
+  series: ISeriesApi<"Candlestick"> | null,
+  bars: Candle[],
+) {
+  const latest = bars.at(-1);
+  if (!series || !latest || !Number.isFinite(latest.close)) {
+    return null;
+  }
+  const basePrice = latest.close;
+  let comparisonPrice = Number.isFinite(latest.high) ? latest.high : basePrice;
+  if (Math.abs(comparisonPrice - basePrice) <= Number.EPSILON) {
+    comparisonPrice = Number.isFinite(latest.low) ? latest.low : basePrice;
+  }
+  if (Math.abs(comparisonPrice - basePrice) <= Number.EPSILON) {
+    comparisonPrice = basePrice + Math.max(Math.abs(basePrice) * 0.001, 0.00001);
+  }
+  const baseY = series.priceToCoordinate(basePrice);
+  const comparisonY = series.priceToCoordinate(comparisonPrice);
+  if (baseY == null || comparisonY == null) {
+    return null;
+  }
+  return `${roundCoordinate(baseY)}:${roundCoordinate(comparisonY)}`;
+}
+
+function roundCoordinate(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function resolveOhlcSnapPoint(
