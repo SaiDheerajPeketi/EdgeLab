@@ -109,6 +109,7 @@ import {
 } from "../lib/tradeSnapshot";
 import type { WorkspaceView } from "../lib/workspace";
 import { useBacktestStore } from "../store/backtestStore";
+import { ThemedDatePicker } from "./ThemedDatePicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { TradeLog } from "./TradeLog";
 
@@ -879,7 +880,7 @@ function TradeViewPage({
   const tagOptions = useMemo(
     () => [
       { label: "All tags", value: "ALL" },
-      ...uniqueStrings(closedTrades.flatMap((trade) => trade.mistake_tags)).map((tag) => ({
+      ...buildTradeNoteTagOptions(closedTrades).map((tag) => ({
         label: tag,
         value: tag,
       })),
@@ -901,7 +902,7 @@ function TradeViewPage({
         if (strategyFilter !== "ALL" && !sameStrategyName(strategyName, strategyFilter)) {
           return false;
         }
-        if (tagFilter !== "ALL" && !trade.mistake_tags.includes(tagFilter)) {
+        if (tagFilter !== "ALL" && !tradeHasNoteTag(trade, tagFilter)) {
           return false;
         }
         if (dateFrom && entryDate < dateFrom) {
@@ -996,11 +997,11 @@ function TradeViewPage({
             </label>
             <label className="form-field">
               From
-              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
+              <ThemedDatePicker ariaLabel="Filter trades from date" onChange={setDateFrom} placeholder="From date" value={dateFrom} />
             </label>
             <label className="form-field">
               To
-              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} />
+              <ThemedDatePicker ariaLabel="Filter trades to date" onChange={setDateTo} placeholder="To date" value={dateTo} />
             </label>
             <div className="flex items-end">
               <button className="control-button h-10" disabled={!filtersActive} onClick={resetFilters} type="button">
@@ -5249,6 +5250,27 @@ function uniqueStrings(values: string[]) {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter(Boolean)),
   ).sort((left, right) => left.localeCompare(right));
+}
+
+function buildTradeNoteTagOptions(trades: Trade[]) {
+  return uniqueStrings(trades.flatMap((trade) => tradeNoteTags(trade)));
+}
+
+function tradeHasNoteTag(trade: Trade, tag: string) {
+  const target = tag.trim().toLowerCase();
+  if (!target) {
+    return true;
+  }
+  return tradeNoteTags(trade).some((tradeTag) => tradeTag.trim().toLowerCase() === target);
+}
+
+function tradeNoteTags(trade: Trade) {
+  return mergeTags(trade.mistake_tags, extractInlineNoteTags(trade.notes));
+}
+
+function extractInlineNoteTags(notes: string | null | undefined) {
+  const matches = richTextToPlainText(notes).match(/#[A-Za-z0-9][A-Za-z0-9_-]*/g);
+  return matches?.map((tag) => tag.slice(1)) ?? [];
 }
 
 function buildTradeInstrumentOptions(
