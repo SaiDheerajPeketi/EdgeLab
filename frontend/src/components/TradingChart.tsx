@@ -6,6 +6,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -349,6 +350,8 @@ export function TradingChart({
   const crosshairFrameRef = useRef<number | null>(null);
   const drawingDragMovedRef = useRef(false);
   const orderLineDragRef = useRef<OrderLineDragState | null>(null);
+  const pendingPriceScaleSyncRef = useRef(false);
+  const priceScaleFingerprintRef = useRef<string | null>(null);
   const suppressNextDrawingClickRef = useRef(false);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
@@ -599,17 +602,9 @@ export function TradingChart({
 
   useEffect(() => {
     let frameId: number | null = null;
-    let previousFingerprint: string | null = null;
 
     const watchPriceScale = () => {
-      const fingerprint = priceScaleCoordinateFingerprint(
-        candlesRef.current,
-        barsRef.current,
-      );
-      if (fingerprint !== previousFingerprint) {
-        previousFingerprint = fingerprint;
-        setPlotVersion((value) => value + 1);
-      }
+      syncDrawingLayerToPriceScale();
       frameId = window.requestAnimationFrame(watchPriceScale);
     };
 
@@ -1447,6 +1442,31 @@ export function TradingChart({
     setOrderLineDrag(next);
   }
 
+  function schedulePriceScaleSync() {
+    if (pendingPriceScaleSyncRef.current) {
+      return;
+    }
+    pendingPriceScaleSyncRef.current = true;
+    queueMicrotask(() => {
+      pendingPriceScaleSyncRef.current = false;
+      syncDrawingLayerToPriceScale();
+    });
+  }
+
+  function syncDrawingLayerToPriceScale() {
+    const fingerprint = priceScaleCoordinateFingerprint(
+      candlesRef.current,
+      barsRef.current,
+    );
+    if (fingerprint == null || fingerprint === priceScaleFingerprintRef.current) {
+      return;
+    }
+    priceScaleFingerprintRef.current = fingerprint;
+    flushSync(() => {
+      setPlotVersion((value) => value + 1);
+    });
+  }
+
   function startOrderLineDrag(
     target: OrderLineDragTarget,
     price: number,
@@ -1987,6 +2007,8 @@ export function TradingChart({
             onMouseLeave={handleMagnetCrosshairLeave}
             onMouseMove={handleMagnetCrosshairMove}
             onMouseUp={stopDrawingDrag}
+            onPointerMove={schedulePriceScaleSync}
+            onWheel={schedulePriceScaleSync}
             style={{ backgroundColor: chartSettings.backgroundColor }}
           >
             <div
