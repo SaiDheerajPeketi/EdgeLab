@@ -9,11 +9,15 @@ export function sessionStrategyName(session: {
   name?: string | null;
   strategy_name: string | null;
 }) {
-  const savedStrategy = normalizeStrategyName(session.strategy_name);
+  const rawStrategy = session.strategy_name?.trim() ?? "";
+  if (rawStrategy.toLowerCase() === "unassigned") {
+    return "Unassigned";
+  }
+  const savedStrategy = normalizeStrategyName(rawStrategy);
   const nameStrategy = strategyFromSessionName(session.name);
   if (
     nameStrategy &&
-    (savedStrategy === "Unassigned" || savedStrategy === DEFAULT_STRATEGY_NAME)
+    (!rawStrategy || savedStrategy === DEFAULT_STRATEGY_NAME)
   ) {
     return nameStrategy;
   }
@@ -25,11 +29,15 @@ export function tradeStrategyName(
   session?: { name?: string | null; strategy_name: string | null },
 ) {
   const sessionStrategy = session ? sessionStrategyName(session) : "Unassigned";
-  const tradeStrategy = normalizeStrategyName(trade.strategy_name);
+  const rawTradeStrategy = trade.strategy_name?.trim() ?? "";
+  if (rawTradeStrategy.toLowerCase() === "unassigned") {
+    return "Unassigned";
+  }
+  const tradeStrategy = normalizeStrategyName(rawTradeStrategy);
   if (
     sessionStrategy !== "Unassigned" &&
     sessionStrategy !== DEFAULT_STRATEGY_NAME &&
-    (tradeStrategy === "Unassigned" || tradeStrategy === DEFAULT_STRATEGY_NAME)
+    (!rawTradeStrategy || tradeStrategy === DEFAULT_STRATEGY_NAME)
   ) {
     return sessionStrategy;
   }

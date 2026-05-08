@@ -324,6 +324,10 @@ class JournalUpdate(BaseModel):
     screenshot_url: str | None = None
 
 
+class TradeStrategyUpdate(BaseModel):
+    strategy_name: str | None = Field(default=None, max_length=120)
+
+
 class BacktestAdvanceRequest(BaseModel):
     steps: int = Field(default=1, ge=1, le=5000)
 

@@ -298,6 +298,10 @@ export type JournalPayload = {
   screenshot_url: string | null;
 };
 
+export type TradeStrategyPayload = {
+  strategy_name: string | null;
+};
+
 export type AppStorageItem<T = unknown> = {
   namespace: string;
   key: string;
@@ -506,6 +510,13 @@ export function getTrades(sessionId?: number) {
 
 export function patchJournal(tradeId: number, payload: JournalPayload) {
   return request<Trade>(`/trades/${tradeId}/journal`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchTradeStrategy(tradeId: number, payload: TradeStrategyPayload) {
+  return request<Trade>(`/trades/${tradeId}/strategy`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });

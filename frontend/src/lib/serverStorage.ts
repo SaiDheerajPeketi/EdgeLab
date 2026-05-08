@@ -184,6 +184,7 @@ function legacyStorageKeyFor(key: string) {
   const mappings: Record<string, string> = {
     "active-chart-layout.v1": "edgelab.active-chart-layout.v1",
     "active-chart-settings-preset.v1": "edgelab.active-chart-settings-preset.v1",
+    "backtest-strategies.v1": "edgelab.backtest-strategies.v1",
     "chart-layout-cleared-single-horizontal.v1": "edgelab.chart-layout-cleared-single-horizontal.v1",
     "chart-layout.v1": "edgelab.chart-layout.v1",
     "chart-layouts.v1": "edgelab.chart-layouts.v1",

@@ -16,6 +16,7 @@ import {
   Playbook,
   PlaybookPayload,
   Trade,
+  TradeStrategyPayload,
   advanceBacktest,
   createBacktest,
   deleteBacktestSession,
@@ -35,6 +36,7 @@ import {
   patchBacktestOrder,
   patchBacktestPosition,
   patchJournal,
+  patchTradeStrategy,
   postBacktestOrder,
   postPlaybook,
   refreshDatasets as refreshDatasetsApi,
@@ -84,6 +86,7 @@ type BacktestStore = {
   updatePosition: (payload: PositionUpdatePayload) => Promise<void>;
   cancelOrder: (orderId: number) => Promise<void>;
   updateJournal: (tradeId: number, payload: JournalPayload) => Promise<Trade>;
+  updateTradeStrategy: (tradeId: number, payload: TradeStrategyPayload) => Promise<Trade>;
 };
 
 export const useBacktestStore = create<BacktestStore>((set, get) => ({
@@ -464,6 +467,23 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 
   updateJournal: async (tradeId, payload) => {
     const trade = await patchJournal(tradeId, payload);
+    const activeSessionId = get().state?.session.id;
+    if (activeSessionId) {
+      const state = await getBacktest(activeSessionId);
+      set({ state });
+    } else {
+      set((current) => ({
+        resultTrades: current.resultTrades.map((item) =>
+          item.id === trade.id ? trade : item,
+        ),
+      }));
+    }
+    await get().refreshResults();
+    return trade;
+  },
+
+  updateTradeStrategy: async (tradeId, payload) => {
+    const trade = await patchTradeStrategy(tradeId, payload);
     const activeSessionId = get().state?.session.id;
     if (activeSessionId) {
       const state = await getBacktest(activeSessionId);

@@ -31,6 +31,7 @@ from app.schemas import (
     PlaybookRead,
     PositionUpdate,
     TradeRead,
+    TradeStrategyUpdate,
 )
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -351,6 +352,15 @@ def patch_journal(
     db: Session = Depends(get_db),
 ) -> TradeRead:
     return backtester.update_journal(db, trade_id, payload)
+
+
+@router.patch("/trades/{trade_id}/strategy", response_model=TradeRead)
+def patch_trade_strategy(
+    trade_id: int,
+    payload: TradeStrategyUpdate,
+    db: Session = Depends(get_db),
+) -> TradeRead:
+    return backtester.update_trade_strategy(db, trade_id, payload)
 
 
 @router.get("/metrics", response_model=MetricsResponse)

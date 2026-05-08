@@ -23,6 +23,7 @@ from app.schemas import (
     PositionRead,
     PositionUpdate,
     TradeRead,
+    TradeStrategyUpdate,
 )
 from app.services.datasets import DatasetCatalogService
 from app.services.market_data import MarketDataService
@@ -343,6 +344,21 @@ class BacktestService:
                 screenshot_url=payload.screenshot_url,
             )
         )
+        db.commit()
+        db.refresh(trade)
+        return to_trade_read(trade)
+
+    def update_trade_strategy(
+        self,
+        db: Session,
+        trade_id: int,
+        payload: TradeStrategyUpdate,
+    ) -> TradeRead:
+        trade = db.scalar(select(Trade).where(Trade.id == trade_id))
+        if trade is None:
+            raise HTTPException(status_code=404, detail="Trade not found")
+        strategy_name = payload.strategy_name.strip() if isinstance(payload.strategy_name, str) else None
+        trade.strategy_name = strategy_name or None
         db.commit()
         db.refresh(trade)
         return to_trade_read(trade)

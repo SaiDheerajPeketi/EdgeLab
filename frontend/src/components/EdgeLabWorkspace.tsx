@@ -36,6 +36,7 @@ import {
   MoreHorizontal,
   NotebookPen,
   Palette,
+  Pencil,
   PieChart,
   PlaySquare,
   Plus,
@@ -238,6 +239,7 @@ type NotebookEditorState = {
 };
 
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
+const BACKTEST_STRATEGIES_STORAGE_KEY = "backtest-strategies.v1";
 const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
 const NOTEBOOK_TEMPLATE_STORAGE_KEY = "notebook-template.v1";
 const DEFAULT_NOTEBOOK_TEMPLATE = [
@@ -3191,12 +3193,116 @@ function ReportsPage({
 
 function StrategiesPage({
   currency,
-  onNavigateSessions,
-  onResumeSession,
+  sessionById,
+  sessions,
   strategies,
+  trades,
+  onResumeSession,
 }: SharedPageProps) {
-  const [selectedName, setSelectedName] = useState<string | null>(strategies[0]?.name ?? null);
-  const selected = strategies.find((strategy) => strategy.name === selectedName) ?? strategies[0] ?? null;
+  const savedStrategyNames = useBacktestStrategyNames();
+  const updateSession = useBacktestStore((state) => state.updateSession);
+  const updateTradeStrategy = useBacktestStore((state) => state.updateTradeStrategy);
+  const strategyRows = useMemo(
+    () => mergeStrategyGroups(strategies, savedStrategyNames),
+    [savedStrategyNames, strategies],
+  );
+  const [selectedName, setSelectedName] = useState<string | null>(strategyRows[0]?.name ?? null);
+  const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<StrategyGroup | null>(null);
+  const [mutatingName, setMutatingName] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const selected = strategyRows.find((strategy) => strategy.name === selectedName) ?? strategyRows[0] ?? null;
+
+  useEffect(() => {
+    if (strategyRows.length === 0) {
+      if (selectedName !== null) {
+        setSelectedName(null);
+      }
+      return;
+    }
+    if (!selectedName || !strategyRows.some((strategy) => strategy.name === selectedName)) {
+      setSelectedName(strategyRows[0].name);
+    }
+  }, [selectedName, strategyRows]);
+
+  async function createStrategy(name: string) {
+    const nextName = normalizeBacktestStrategyName(name);
+    if (!nextName) {
+      throw new Error("Strategy name is required");
+    }
+    if (strategyRows.some((strategy) => sameStrategyName(strategy.name, nextName))) {
+      throw new Error("A strategy with this name already exists");
+    }
+    await persistBacktestStrategyNames([...savedStrategyNames, nextName]);
+    setSelectedName(nextName);
+  }
+
+  async function renameStrategy(currentName: string, nextValue: string) {
+    const nextName = normalizeBacktestStrategyName(nextValue);
+    if (!nextName) {
+      throw new Error("Strategy name is required");
+    }
+    if (
+      !sameStrategyName(currentName, nextName) &&
+      strategyRows.some((strategy) => sameStrategyName(strategy.name, nextName))
+    ) {
+      throw new Error("A strategy with this name already exists");
+    }
+
+    setMutatingName(currentName);
+    setMutationError(null);
+    try {
+      await persistBacktestStrategyNames(renameSavedStrategyName(savedStrategyNames, currentName, nextName));
+      await applyStrategyNameChange(currentName, nextName);
+      setSelectedName(nextName);
+    } finally {
+      setMutatingName(null);
+    }
+  }
+
+  async function deleteStrategy(strategy: StrategyGroup) {
+    setMutatingName(strategy.name);
+    setMutationError(null);
+    try {
+      await persistBacktestStrategyNames(removeSavedStrategyName(savedStrategyNames, strategy.name));
+      await applyStrategyNameChange(strategy.name, "Unassigned");
+      setSelectedName("Unassigned");
+      setDeleteTarget(null);
+    } finally {
+      setMutatingName(null);
+    }
+  }
+
+  async function applyStrategyNameChange(currentName: string, nextName: string) {
+    const matchingSessions = sessions.filter((session) => sameStrategyName(sessionStrategyName(session), currentName));
+    const matchingTrades = trades.filter((trade) =>
+      sameStrategyName(tradeStrategyName(trade, sessionById.get(trade.session_id)), currentName),
+    );
+    for (const session of matchingSessions) {
+      await updateSession(session.id, { strategy_name: nextName });
+    }
+    for (const trade of matchingTrades) {
+      await updateTradeStrategy(trade.id, { strategy_name: nextName });
+    }
+  }
+
+  function openCreateDialog() {
+    setEditingName(null);
+    setDialogMode("create");
+    setMutationError(null);
+  }
+
+  function openEditDialog(name: string) {
+    setEditingName(name);
+    setDialogMode("edit");
+    setMutationError(null);
+  }
+
+  function closeDialog() {
+    setDialogMode(null);
+    setEditingName(null);
+  }
 
   return (
     <PageScaffold
@@ -3204,40 +3310,41 @@ function StrategiesPage({
       title="Backtest Strategy Performance"
       description="Strategies are performance groupings for replay sessions. Playbook rule sets now live in their own Backtest Playbooks page."
       actions={
-        <button className="control-button workspace-tab-active" onClick={onNavigateSessions} type="button">
+        <button className="control-button workspace-tab-active" onClick={openCreateDialog} type="button">
           <Plus size={15} />
-          Create strategy session
+          Create strategy
         </button>
       }
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 p-2">
-        <div className="flex gap-2">
-          <TinyTab active>My Strategies ({strategies.length}/{strategies.length})</TinyTab>
-          <TinyTab>Shared with me</TinyTab>
-          <TinyTab>Templates</TinyTab>
+      {mutationError && (
+        <div className="rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+          {mutationError}
         </div>
-        <div className="flex gap-2">
-          <button className="icon-button h-9 w-9" title="Grid view" type="button"><Grid2X2 size={15} /></button>
-          <button className="icon-button h-9 w-9" title="List view" type="button"><List size={15} /></button>
-          <button className="icon-button h-9 w-9" title="Columns" type="button"><Settings size={15} /></button>
-        </div>
-      </div>
+      )}
       <FeatureCard>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <CardLabel icon={Target} label={`My strategies (${strategyRows.length})`} />
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="status-pill">{sessions.length} sessions</span>
+            <span className="status-pill">{trades.length} trades</span>
+          </div>
+        </div>
         <div className="overflow-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
               <tr>
-                <th className="px-3 py-3 font-medium">Title</th>
+                <th className="px-3 py-3 font-medium">Strategy</th>
                 <th className="px-3 py-3 font-medium">Sessions</th>
-                <th className="px-3 py-3 font-medium">Missed trades</th>
+                <th className="px-3 py-3 font-medium">Trades</th>
                 <th className="px-3 py-3 font-medium">Average loser</th>
                 <th className="px-3 py-3 font-medium">Average winner</th>
                 <th className="px-3 py-3 font-medium">Total net P&L</th>
                 <th className="px-3 py-3 font-medium">Win rate</th>
+                <th className="px-3 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {strategies.map((strategy) => (
+              {strategyRows.map((strategy) => (
                 <tr
                   className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${
                     selected?.name === strategy.name ? "bg-cyan-300/10" : ""
@@ -3247,24 +3354,75 @@ function StrategiesPage({
                 >
                   <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
                   <td className="px-3 py-4">{strategy.sessions.length}</td>
-                  <td className="px-3 py-4">0</td>
+                  <td className="px-3 py-4">{strategy.aggregate.totalTrades}</td>
                   <td className="px-3 py-4 text-rose-300">{formatMoney(strategy.aggregate.averageLoss, currency)}</td>
                   <td className="px-3 py-4 text-emerald-300">{formatMoney(strategy.aggregate.averageWin, currency)}</td>
                   <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl, currency)}</td>
                   <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
+                  <td className="px-3 py-4">
+                    <div className="flex gap-2">
+                      <button
+                        className="icon-button h-8 w-8"
+                        disabled={mutatingName === strategy.name}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEditDialog(strategy.name);
+                        }}
+                        title="Edit strategy"
+                        type="button"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                        disabled={mutatingName === strategy.name}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeleteTarget(strategy);
+                          setMutationError(null);
+                        }}
+                        title="Delete strategy"
+                        type="button"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {strategies.length === 0 && <EmptyState icon={Target} message="Create a session under a strategy to populate this list." />}
+          {strategyRows.length === 0 && <EmptyState icon={Target} message="Create a strategy to start organizing backtest sessions." />}
         </div>
       </FeatureCard>
       <FeatureCard>
         {selected ? (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
             <div>
-              <CardLabel icon={Target} label="Strategy detail" />
-              <h3 className="mt-3 text-xl font-semibold text-white">{selected.name}</h3>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardLabel icon={Target} label="Strategy detail" />
+                  <h3 className="mt-3 text-xl font-semibold text-white">{selected.name}</h3>
+                </div>
+                <div className="flex gap-2">
+                  <button className="control-button h-9" disabled={mutatingName === selected.name} onClick={() => openEditDialog(selected.name)} type="button">
+                    <Pencil size={14} />
+                    Edit
+                  </button>
+                  <button
+                    className="icon-button h-9 w-9 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                    disabled={mutatingName === selected.name}
+                    onClick={() => {
+                      setDeleteTarget(selected);
+                      setMutationError(null);
+                    }}
+                    title="Delete strategy"
+                    type="button"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
               <p className="mt-2 text-sm text-slate-500">
                 Compare session outcomes, win rate, R-multiple, and drawdown for this strategy only.
               </p>
@@ -3298,7 +3456,124 @@ function StrategiesPage({
           <EmptyState icon={Target} message="No strategy selected." />
         )}
       </FeatureCard>
+      {dialogMode && (
+        <StrategyNameDialog
+          initialName={dialogMode === "edit" ? editingName ?? "" : ""}
+          mode={dialogMode}
+          onClose={closeDialog}
+          onSave={async (name) => {
+            try {
+              if (dialogMode === "edit" && editingName) {
+                await renameStrategy(editingName, name);
+              } else {
+                await createStrategy(name);
+              }
+              closeDialog();
+            } catch (error) {
+              setMutationError(error instanceof Error ? error.message : "Could not save strategy");
+              throw error;
+            }
+          }}
+        />
+      )}
+      {deleteTarget && (
+        <ModalFrame title="Delete strategy" onClose={() => setDeleteTarget(null)}>
+          <div className="grid gap-4 text-sm text-slate-300">
+            <p>
+              Delete <span className="font-semibold text-white">{deleteTarget.name}</span>? Linked sessions and trades will stay intact and move to Unassigned.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <CompactMetric label="Sessions" value={String(deleteTarget.sessions.length)} />
+              <CompactMetric label="Trades" value={String(deleteTarget.aggregate.totalTrades)} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="control-button" onClick={() => setDeleteTarget(null)} type="button">
+                Cancel
+              </button>
+              <button
+                className="control-button border-rose-300/30 bg-rose-400/10 text-rose-100 hover:bg-rose-400/20"
+                disabled={mutatingName === deleteTarget.name}
+                onClick={() => {
+                  void deleteStrategy(deleteTarget).catch((error) => {
+                    setMutationError(error instanceof Error ? error.message : "Could not delete strategy");
+                  });
+                }}
+                type="button"
+              >
+                <Trash2 size={15} />
+                {mutatingName === deleteTarget.name ? "Deleting" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </ModalFrame>
+      )}
     </PageScaffold>
+  );
+}
+
+function StrategyNameDialog({
+  initialName,
+  mode,
+  onClose,
+  onSave,
+}: {
+  initialName: string;
+  mode: "create" | "edit";
+  onClose: () => void;
+  onSave: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(initialName);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(initialName);
+    setError(null);
+  }, [initialName]);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(name);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Could not save strategy");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalFrame title={mode === "edit" ? "Edit strategy" : "Create strategy"} onClose={onClose}>
+      <form className="grid gap-4" onSubmit={(event) => void handleSubmit(event)}>
+        <label className="form-field">
+          Strategy name
+          <input
+            autoFocus
+            className="input-control h-10 normal-case tracking-normal"
+            maxLength={120}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Opening range reversal"
+            value={name}
+          />
+        </label>
+        {error && (
+          <div className="rounded-md border border-rose-400/25 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
+            {error}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <button className="control-button" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button className="control-button workspace-tab-active" disabled={saving} type="submit">
+            <Save size={15} />
+            {saving ? "Saving" : mode === "edit" ? "Save strategy" : "Create strategy"}
+          </button>
+        </div>
+      </form>
+    </ModalFrame>
   );
 }
 
@@ -4628,6 +4903,99 @@ function CrossAnalysis({
 
 function NetworkMark() {
   return <span className="grid h-5 w-5 place-items-center rounded bg-cyan-300/15 text-[10px] text-cyan-100">EL</span>;
+}
+
+function useBacktestStrategyNames() {
+  const [names, setNames] = useState<string[]>(() =>
+    normalizeBacktestStrategyNames(
+      getCachedAppStorageItem<unknown>(BACKTEST_STRATEGIES_STORAGE_KEY, []),
+    ),
+  );
+
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(BACKTEST_STRATEGIES_STORAGE_KEY, []).then((value) => {
+      if (active) {
+        setNames(normalizeBacktestStrategyNames(value));
+      }
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      BACKTEST_STRATEGIES_STORAGE_KEY,
+      (value) => setNames(normalizeBacktestStrategyNames(value)),
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  return names;
+}
+
+async function persistBacktestStrategyNames(names: string[]) {
+  const nextNames = normalizeBacktestStrategyNames(names);
+  await saveAppStorageItem(BACKTEST_STRATEGIES_STORAGE_KEY, nextNames);
+  return nextNames;
+}
+
+function normalizeBacktestStrategyNames(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const names: string[] = [];
+  for (const item of value) {
+    const name = normalizeBacktestStrategyName(String(item ?? ""));
+    if (!name || names.some((current) => sameStrategyName(current, name))) {
+      continue;
+    }
+    names.push(name);
+  }
+  return names.sort((left, right) => left.localeCompare(right));
+}
+
+function normalizeBacktestStrategyName(value: string) {
+  return value.trim().replace(/\s+/g, " ").slice(0, 120);
+}
+
+function renameSavedStrategyName(names: string[], currentName: string, nextName: string) {
+  const nextNames = names
+    .filter((name) => !sameStrategyName(name, currentName) && !sameStrategyName(name, nextName));
+  nextNames.push(nextName);
+  return nextNames;
+}
+
+function removeSavedStrategyName(names: string[], currentName: string) {
+  return names.filter((name) => !sameStrategyName(name, currentName));
+}
+
+function sameStrategyName(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function mergeStrategyGroups(strategies: StrategyGroup[], savedNames: string[]): StrategyGroup[] {
+  const rows = strategies.slice();
+  for (const name of savedNames) {
+    if (rows.some((strategy) => sameStrategyName(strategy.name, name))) {
+      continue;
+    }
+    rows.push({
+      aggregate: aggregateTrades([]),
+      name,
+      sessions: [],
+      trades: [],
+    });
+  }
+  return rows.sort((left, right) => {
+    const leftHasActivity = left.sessions.length > 0 || left.aggregate.totalTrades > 0;
+    const rightHasActivity = right.sessions.length > 0 || right.aggregate.totalTrades > 0;
+    if (leftHasActivity !== rightHasActivity) {
+      return leftHasActivity ? -1 : 1;
+    }
+    if (leftHasActivity && left.aggregate.netPnl !== right.aggregate.netPnl) {
+      return right.aggregate.netPnl - left.aggregate.netPnl;
+    }
+    return left.name.localeCompare(right.name);
+  });
 }
 
 function useLiveJournalData(): LiveJournalController {
