@@ -12,15 +12,35 @@ const PLOT = {
   top: 62,
   bottom: 44,
 };
+const GENERATED_SNAPSHOT_PREFIX = "data:image/svg+xml;charset=utf-8,";
 
-export async function createTradeSnapshotDataUrl(trade: Trade) {
+export async function createTradeSnapshotDataUrl(trade: Trade, currency = "USD") {
   const window = tradeSnapshotWindow(trade);
   const response = await getBars(window.offset, window.limit, trade.session_id);
   const bars = response.bars.map((bar, index) => ({
     ...bar,
     offset: response.offset + index,
   }));
-  return buildTradeSnapshotDataUrl(trade, bars);
+  return buildTradeSnapshotDataUrl(trade, bars, currency);
+}
+
+export function shouldRegenerateTradeSnapshotForCurrency(
+  url: string | null | undefined,
+  currency: string,
+) {
+  if (!url?.startsWith(GENERATED_SNAPSHOT_PREFIX)) {
+    return false;
+  }
+  try {
+    const svg = decodeURIComponent(url.slice(GENERATED_SNAPSHOT_PREFIX.length));
+    const existingCurrency = svg.match(/\sdata-currency="([^"]+)"/)?.[1];
+    if (existingCurrency) {
+      return existingCurrency !== currency;
+    }
+  } catch {
+    return currency !== "USD";
+  }
+  return currency !== "USD";
 }
 
 function tradeSnapshotWindow(trade: Trade) {
@@ -36,7 +56,7 @@ function tradeSnapshotWindow(trade: Trade) {
   };
 }
 
-function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[]) {
+function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[], currency: string) {
   const bars = downsampleBars(rawBars, 360);
   const markers = [
     trade.entry_price,
@@ -119,7 +139,7 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[]) {
   ].join(" to ");
 
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${SNAPSHOT_WIDTH}" height="${SNAPSHOT_HEIGHT}" viewBox="0 0 ${SNAPSHOT_WIDTH} ${SNAPSHOT_HEIGHT}">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${SNAPSHOT_WIDTH}" height="${SNAPSHOT_HEIGHT}" viewBox="0 0 ${SNAPSHOT_WIDTH} ${SNAPSHOT_HEIGHT}" data-currency="${escapeXml(currency)}">
       <defs>
         <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
           <stop offset="0" stop-color="#0b1220" />
@@ -130,7 +150,7 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[]) {
       <rect x="${PLOT.left}" y="${PLOT.top}" width="${plotWidth}" height="${plotHeight}" fill="#070b10" stroke="rgba(255,255,255,0.1)" rx="6" />
       <text x="${PLOT.left}" y="28" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">Trade #${trade.id} ${escapeXml(trade.side)}</text>
       <text x="${PLOT.left}" y="48" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12">${escapeXml(dateLabel)}</text>
-      <text x="${SNAPSHOT_WIDTH - PLOT.right}" y="28" fill="${pnlColor}" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="end">${escapeXml(formatMoney(trade.realized_pnl))}</text>
+      <text x="${SNAPSHOT_WIDTH - PLOT.right}" y="28" fill="${pnlColor}" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="end">${escapeXml(formatMoney(trade.realized_pnl, currency))}</text>
       <text x="${SNAPSHOT_WIDTH - PLOT.right}" y="48" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12" text-anchor="end">R ${escapeXml(trade.r_multiple?.toFixed(2) ?? "-")}</text>
       ${gridLines}
       ${candles}
@@ -145,7 +165,7 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[]) {
     </svg>
   `;
 
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return `${GENERATED_SNAPSHOT_PREFIX}${encodeURIComponent(svg)}`;
 }
 
 function priceLevel(
@@ -202,12 +222,16 @@ function formatDateTime(value: string) {
   });
 }
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: 2,
-    style: "currency",
-  }).format(value);
+function formatMoney(value: number, currency: string) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      currency,
+      maximumFractionDigits: 2,
+      style: "currency",
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
 }
 
 function escapeXml(value: string) {

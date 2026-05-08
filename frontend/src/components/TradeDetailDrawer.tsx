@@ -11,8 +11,12 @@ import {
   strategyTagScope,
   subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
+import { isRichTextEmpty, normalizeStoredNoteHtml, sanitizeRichTextHtml } from "../lib/richText";
 import { tradeStrategyName } from "../lib/strategy";
-import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
+import {
+  createTradeSnapshotDataUrl,
+  shouldRegenerateTradeSnapshotForCurrency,
+} from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -88,7 +92,7 @@ export function TradeDetailDrawer({
   useEffect(() => {
     let cancelled = false;
     setSnapshotUrl(trade.screenshot_url ?? "");
-    if (trade.screenshot_url) {
+    if (trade.screenshot_url && !shouldRegenerateTradeSnapshotForCurrency(trade.screenshot_url, currency)) {
       setSnapshotStatus("ready");
       return () => {
         cancelled = true;
@@ -98,7 +102,7 @@ export function TradeDetailDrawer({
     async function generateAndSaveSnapshot() {
       setSnapshotStatus("loading");
       try {
-        const snapshot = await createTradeSnapshotDataUrl(trade);
+        const snapshot = await createTradeSnapshotDataUrl(trade, currency);
         if (cancelled) {
           return;
         }
@@ -125,12 +129,12 @@ export function TradeDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [effectiveStrategyName, trade.id, trade.screenshot_url, updateJournal]);
+  }, [currency, effectiveStrategyName, trade.id, trade.screenshot_url, updateJournal]);
 
   async function regenerateSnapshot() {
     setSnapshotStatus("loading");
     try {
-      const snapshot = await createTradeSnapshotDataUrl(trade);
+      const snapshot = await createTradeSnapshotDataUrl(trade, currency);
       setSnapshotUrl(snapshot);
       setSnapshotStatus("saving");
       await updateJournal(trade.id, {
@@ -280,7 +284,16 @@ export function TradeDetailDrawer({
               </button>
             </div>
           </div>
-          <p className="whitespace-pre-wrap text-sm text-slate-300">{trade.notes || "No notes yet"}</p>
+          {isRichTextEmpty(trade.notes) ? (
+            <p className="text-sm text-slate-500">No notes yet</p>
+          ) : (
+            <div
+              className="notebook-rich-note text-sm text-slate-300"
+              dangerouslySetInnerHTML={{
+                __html: sanitizeRichTextHtml(normalizeStoredNoteHtml(trade.notes)),
+              }}
+            />
+          )}
           <div className="mt-3 space-y-3">
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (

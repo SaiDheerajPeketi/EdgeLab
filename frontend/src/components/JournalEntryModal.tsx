@@ -13,16 +13,20 @@ import {
   subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
 import { tradeStrategyName } from "../lib/strategy";
-import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
+import {
+  createTradeSnapshotDataUrl,
+  shouldRegenerateTradeSnapshotForCurrency,
+} from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
+  currency?: string;
   strategyScope?: string | null;
   trade: Trade;
   onClose: () => void;
 };
 
-export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
+export function JournalEntryModal({ currency = "USD", strategyScope, trade, onClose }: Props) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
   const [notes, setNotes] = useState(trade.notes ?? "");
   const [strategy, setStrategy] = useState(
@@ -66,7 +70,7 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
   useEffect(() => {
     let cancelled = false;
     setSnapshotUrl(trade.screenshot_url ?? "");
-    if (trade.screenshot_url) {
+    if (trade.screenshot_url && !shouldRegenerateTradeSnapshotForCurrency(trade.screenshot_url, currency)) {
       setSnapshotStatus("ready");
       return () => {
         cancelled = true;
@@ -74,7 +78,7 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
     }
 
     setSnapshotStatus("loading");
-    void createTradeSnapshotDataUrl(trade)
+    void createTradeSnapshotDataUrl(trade, currency)
       .then((snapshot) => {
         if (cancelled) {
           return;
@@ -91,12 +95,12 @@ export function JournalEntryModal({ strategyScope, trade, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [trade.id, trade.screenshot_url]);
+  }, [currency, trade.id, trade.screenshot_url]);
 
   async function regenerateSnapshot() {
     setSnapshotStatus("loading");
     try {
-      const snapshot = await createTradeSnapshotDataUrl(trade);
+      const snapshot = await createTradeSnapshotDataUrl(trade, currency);
       setSnapshotUrl(snapshot);
       setSnapshotStatus("ready");
     } catch {

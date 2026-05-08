@@ -783,6 +783,12 @@ export default function App() {
   const trades = state?.trades ?? [];
   const position = state?.position ?? null;
   const sessionCurrency = currencyForSession(state?.session ?? null, datasets);
+  const currencyForTrade = (trade: Trade) =>
+    currencyForSession(
+      resultSessions.find((session) => session.id === trade.session_id) ??
+        (state?.session.id === trade.session_id ? state.session : null),
+      datasets,
+    );
   const pendingOrders = orders.filter((order) => order.status === "PENDING").length;
   const savedLayoutLabel =
     chartLayoutSavedAt == null
@@ -1992,6 +1998,7 @@ export default function App() {
 
       {editingTrade && (
         <JournalEntryModal
+          currency={currencyForTrade(editingTrade)}
           strategyScope={strategyScopeForTrade(editingTrade, resultSessions, state?.session ?? null)}
           trade={editingTrade}
           onClose={() => setEditingTrade(null)}
@@ -2000,7 +2007,7 @@ export default function App() {
 
       {reviewTrade && (
         <TradeDetailDrawer
-          currency={sessionCurrency}
+          currency={currencyForTrade(reviewTrade)}
           executions={executions}
           onClose={() => setReviewTrade(null)}
           onJournal={(trade) => {

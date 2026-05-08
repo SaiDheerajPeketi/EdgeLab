@@ -41,6 +41,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Trash2,
   WalletCards,
   X,
 } from "lucide-react";
@@ -50,12 +51,10 @@ import type {
   DatasetRefreshResponse,
   DatasetRefreshStatus,
   DatasetTimeframe,
-  Execution,
   Playbook,
   PlaybookPayload,
   Trade,
 } from "../lib/api";
-import { getBacktest } from "../lib/api";
 import {
   hydrateOrderLineModificationConfirmation,
   loadOrderLineModificationConfirmation,
@@ -67,13 +66,23 @@ import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/
 import {
   DEFAULT_MISTAKE_TAGS,
   hydrateStrategyMistakeTags,
+  isDefaultMistakeTag,
   loadStrategyMistakeTags,
   mergeTags,
   parseTagInput,
   persistStrategyMistakeTags,
+  removeStrategyMistakeTag,
   strategyTagScope,
   subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
+import {
+  escapeHtml,
+  isRichTextEmpty,
+  normalizeStoredNoteHtml,
+  richTextToPlainText,
+  sanitizeRichTextHtml,
+  textToRichHtml,
+} from "../lib/richText";
 import {
   getCachedAppStorageItem,
   loadAppStorageItem,
@@ -82,7 +91,10 @@ import {
 } from "../lib/serverStorage";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
-import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
+import {
+  createTradeSnapshotDataUrl,
+  shouldRegenerateTradeSnapshotForCurrency,
+} from "../lib/tradeSnapshot";
 import type { WorkspaceView } from "../lib/workspace";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
@@ -202,6 +214,24 @@ type LiveTradeInput = {
 
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
 const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
+const NOTEBOOK_TEMPLATE_STORAGE_KEY = "notebook-template.v1";
+const DEFAULT_NOTEBOOK_TEMPLATE = [
+  "Setup",
+  "- Context:",
+  "- Trigger:",
+  "",
+  "Execution",
+  "- Side: {side}",
+  "- Quantity: {quantity}",
+  "- Entry: {entry}",
+  "- Exit: {exit}",
+  "- Result: {pnl} ({r}R)",
+  "",
+  "Review",
+  "- What worked:",
+  "- What needs correction:",
+  "- Next action:",
+].join("\n");
 const LIVE_EMOTIONS = ["Calm", "Confident", "Focused", "Fearful", "Impulsive", "Frustrated", "Other"] as const;
 const CURRENCY_OPTIONS = [
   "USD",
@@ -1900,6 +1930,7 @@ function NotebookPage({
         <FeatureCard>
           {selectedTrade ? (
             <NotebookTradeDetail
+              allTrades={closedTrades}
               currency={currencyForSession(selectedSession, datasets)}
               favorite={favoriteTradeIdSet.has(selectedTrade.id)}
               onReplayTrade={onReplayTrade}
@@ -1918,6 +1949,7 @@ function NotebookPage({
 }
 
 function NotebookTradeDetail({
+  allTrades,
   currency,
   favorite,
   onReplayTrade,
@@ -1926,6 +1958,7 @@ function NotebookTradeDetail({
   session,
   trade,
 }: {
+  allTrades: Trade[];
   currency: string;
   favorite: boolean;
   onReplayTrade: (trade: Trade) => Promise<void> | void;
@@ -1935,10 +1968,11 @@ function NotebookTradeDetail({
   trade: Trade;
 }) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
-  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteRef = useRef<HTMLDivElement | null>(null);
   const customTagRef = useRef<HTMLInputElement | null>(null);
   const saveSignalRef = useRef(saveSignal);
-  const [notes, setNotes] = useState(trade.notes ?? "");
+  const [notes, setNotes] = useState(() => normalizeStoredNoteHtml(trade.notes));
+  const [noteFocused, setNoteFocused] = useState(false);
   const [strategy, setStrategy] = useState(tradeStrategyName(trade, session ?? undefined));
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
@@ -1950,10 +1984,9 @@ function NotebookTradeDetail({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [executionsBySession, setExecutionsBySession] = useState<Record<number, Execution[]>>({});
-  const [executionStatusBySession, setExecutionStatusBySession] = useState<
-    Record<number, "idle" | "loading" | "ready" | "error">
-  >({});
+  const [notebookTemplate, setNotebookTemplate] = useState(() =>
+    normalizeNotebookTemplate(getCachedAppStorageItem<unknown>(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE)),
+  );
   const activeStrategyScope = strategyTagScope(strategy || session?.strategy_name || trade.strategy_name);
   const [strategyCustomTags, setStrategyCustomTags] = useState<string[]>(() =>
     loadStrategyMistakeTags(activeStrategyScope),
@@ -1962,29 +1995,26 @@ function NotebookTradeDetail({
     () => mergeTags(DEFAULT_MISTAKE_TAGS, strategyCustomTags),
     [strategyCustomTags],
   );
-  const cachedExecutions = executionsBySession[trade.session_id];
-  const executionStatus = executionStatusBySession[trade.session_id] ?? "idle";
-  const tradeExecutions = useMemo(
-    () =>
-      (cachedExecutions ?? [])
-        .filter(
-          (execution) =>
-            execution.offset >= trade.entry_offset &&
-            (trade.exit_offset == null || execution.offset <= trade.exit_offset),
-        )
-        .sort((a, b) => a.offset - b.offset || a.id - b.id),
-    [cachedExecutions, trade.entry_offset, trade.exit_offset],
+  const savedNotes = useMemo(() => normalizeStoredNoteHtml(trade.notes), [trade.notes]);
+  const attachedMistakeTags = useMemo(
+    () => new Set(allTrades.flatMap((item) => item.mistake_tags.map((tag) => tag.toLowerCase()))),
+    [allTrades],
   );
   const savedStrategy = tradeStrategyName(trade, session ?? undefined);
   const hasChanges =
-    notes !== (trade.notes ?? "") ||
+    notes !== savedNotes ||
     strategy !== savedStrategy ||
     emotion !== (trade.emotional_state ?? "") ||
     snapshotUrl !== (trade.screenshot_url ?? "") ||
     !sameStringList(tags, trade.mistake_tags);
 
   useEffect(() => {
-    setNotes(trade.notes ?? "");
+    const nextNotes = normalizeStoredNoteHtml(trade.notes);
+    setNotes(nextNotes);
+    if (noteRef.current && noteRef.current.innerHTML !== nextNotes) {
+      noteRef.current.innerHTML = nextNotes;
+    }
+    setNoteFocused(false);
     setStrategy(tradeStrategyName(trade, session ?? undefined));
     setEmotion(trade.emotional_state ?? "");
     setTags(trade.mistake_tags);
@@ -1994,6 +2024,23 @@ function NotebookTradeDetail({
     setStatus(null);
     setMoreOpen(false);
   }, [session, trade]);
+
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE).then((value) => {
+      if (active) {
+        setNotebookTemplate(normalizeNotebookTemplate(value));
+      }
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      NOTEBOOK_TEMPLATE_STORAGE_KEY,
+      (value) => setNotebookTemplate(normalizeNotebookTemplate(value)),
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -2012,14 +2059,14 @@ function NotebookTradeDetail({
 
   useEffect(() => {
     let cancelled = false;
-    if (trade.screenshot_url) {
+    if (trade.screenshot_url && !shouldRegenerateTradeSnapshotForCurrency(trade.screenshot_url, currency)) {
       setSnapshotStatus("ready");
       return () => {
         cancelled = true;
       };
     }
     setSnapshotStatus("loading");
-    void createTradeSnapshotDataUrl(trade)
+    void createTradeSnapshotDataUrl(trade, currency)
       .then((snapshot) => {
         if (cancelled) {
           return;
@@ -2035,44 +2082,7 @@ function NotebookTradeDetail({
     return () => {
       cancelled = true;
     };
-  }, [trade.id, trade.screenshot_url]);
-
-  useEffect(() => {
-    if (cachedExecutions || executionStatus === "loading") {
-      return;
-    }
-    let active = true;
-    setExecutionStatusBySession((current) => ({
-      ...current,
-      [trade.session_id]: "loading",
-    }));
-    void getBacktest(trade.session_id)
-      .then((state) => {
-        if (!active) {
-          return;
-        }
-        setExecutionsBySession((current) => ({
-          ...current,
-          [trade.session_id]: state.executions,
-        }));
-        setExecutionStatusBySession((current) => ({
-          ...current,
-          [trade.session_id]: "ready",
-        }));
-      })
-      .catch(() => {
-        if (!active) {
-          return;
-        }
-        setExecutionStatusBySession((current) => ({
-          ...current,
-          [trade.session_id]: "error",
-        }));
-      });
-    return () => {
-      active = false;
-    };
-  }, [cachedExecutions, executionStatus, trade.session_id]);
+  }, [currency, trade.id, trade.screenshot_url]);
 
   useEffect(() => {
     if (saveSignalRef.current === saveSignal) {
@@ -2086,7 +2096,7 @@ function NotebookTradeDetail({
     setSnapshotStatus("loading");
     setStatus(null);
     try {
-      const snapshot = await createTradeSnapshotDataUrl(trade);
+      const snapshot = await createTradeSnapshotDataUrl(trade, currency);
       setSnapshotUrl(snapshot);
       setSnapshotStatus("ready");
       setStatus("Snapshot regenerated");
@@ -2111,6 +2121,16 @@ function NotebookTradeDetail({
     setTags((current) => current.filter((currentTag) => currentTag !== tag));
   }
 
+  function deleteMistakeSuggestion(tag: string) {
+    if (isDefaultMistakeTag(tag) || attachedMistakeTags.has(tag.toLowerCase()) || tags.includes(tag)) {
+      return;
+    }
+    removeStrategyMistakeTag(activeStrategyScope, tag);
+    setStrategyCustomTags((current) =>
+      current.filter((currentTag) => currentTag.toLowerCase() !== tag.toLowerCase()),
+    );
+  }
+
   function handleCustomTagKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") {
       return;
@@ -2126,11 +2146,11 @@ function NotebookTradeDetail({
       await updateJournal(trade.id, {
         emotional_state: emotion || null,
         mistake_tags: tags,
-        notes: notes || null,
+        notes: isRichTextEmpty(notes) ? null : sanitizeRichTextHtml(notes),
         screenshot_url: snapshotUrl || null,
         strategy_name: strategy || null,
       });
-      persistStrategyMistakeTags(strategy || activeStrategyScope, tags);
+      persistStrategyMistakeTags(activeStrategyScope, tags);
       setStatus("Saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save note");
@@ -2140,111 +2160,112 @@ function NotebookTradeDetail({
   }
 
   function copySummary() {
+    const plainNotes = richTextToPlainText(notes);
     const summary = [
       `${session?.symbol ? formatMarketSymbol(session.symbol) : "Trade"} : ${shortDate(trade.entry_time)}`,
       `${trade.side} ${formatCompactNumber(trade.quantity)} @ ${formatPrice(trade.entry_price)}`,
       `Exit: ${formatPrice(trade.exit_price)} | P&L: ${formatMoney(trade.realized_pnl, currency)} | R: ${formatOptionalNumber(trade.r_multiple)}`,
       strategy ? `Strategy: ${strategy}` : null,
       tags.length > 0 ? `Tags: ${tags.join(", ")}` : null,
-      notes.trim() ? `Notes:\n${notes.trim()}` : null,
+      plainNotes ? `Notes:\n${plainNotes}` : null,
     ].filter(Boolean).join("\n");
     void navigator.clipboard?.writeText(summary);
     setStatus("Copied summary");
     setMoreOpen(false);
   }
 
-  function insertNoteText(text: string) {
-    const textarea = noteRef.current;
-    if (!textarea) {
-      setNotes((current) => `${current}${current ? "\n" : ""}${text}`);
-      return;
-    }
-    const start = textarea.selectionStart ?? notes.length;
-    const end = textarea.selectionEnd ?? notes.length;
-    const prefix = notes.slice(0, start);
-    const suffix = notes.slice(end);
-    const next = `${prefix}${text}${suffix}`;
-    setNotes(next);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.selectionStart = start + text.length;
-      textarea.selectionEnd = start + text.length;
-    });
+  function handleEditorInput(event: FormEvent<HTMLDivElement>) {
+    setNotes(sanitizeRichTextHtml(event.currentTarget.innerHTML));
   }
 
-  function wrapNoteSelection(before: string, after: string, fallback = "text") {
-    const textarea = noteRef.current;
-    if (!textarea) {
-      insertNoteText(`${before}${fallback}${after}`);
-      return;
-    }
-    const start = textarea.selectionStart ?? notes.length;
-    const end = textarea.selectionEnd ?? notes.length;
-    const selected = notes.slice(start, end) || fallback;
-    const replacement = `${before}${selected}${after}`;
-    setNotes(`${notes.slice(0, start)}${replacement}${notes.slice(end)}`);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.selectionStart = start + before.length;
-      textarea.selectionEnd = start + before.length + selected.length;
-    });
+  function syncNotesFromEditor() {
+    setNotes(sanitizeRichTextHtml(noteRef.current?.innerHTML ?? ""));
   }
 
-  function alignSelection() {
-    const textarea = noteRef.current;
-    if (!textarea) {
-      insertNoteText("> ");
+  function focusNoteEditor() {
+    const editor = noteRef.current;
+    if (!editor || typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-    const start = textarea.selectionStart ?? notes.length;
-    const end = textarea.selectionEnd ?? notes.length;
-    const selected = notes.slice(start, end) || "Aligned note";
-    const replacement = selected
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    setNotes(`${notes.slice(0, start)}${replacement}${notes.slice(end)}`);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.selectionStart = start;
-      textarea.selectionEnd = start + replacement.length;
-    });
+    editor.focus();
+    const selection = window.getSelection();
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  function runEditorCommand(command: string, value?: string) {
+    if (typeof document === "undefined") {
+      return;
+    }
+    focusNoteEditor();
+    document.execCommand(command, false, value);
+    syncNotesFromEditor();
+  }
+
+  function insertRichHtml(html: string) {
+    if (typeof document === "undefined") {
+      setNotes((current) => `${current}${current ? "<br>" : ""}${html}`);
+      return;
+    }
+    focusNoteEditor();
+    document.execCommand("insertHTML", false, html);
+    syncNotesFromEditor();
+  }
+
+  function applyLink() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const url = window.prompt("Link URL", "https://");
+    if (!url || url === "https://") {
+      return;
+    }
+    focusNoteEditor();
+    const selectionText = window.getSelection()?.toString();
+    if (selectionText) {
+      runEditorCommand("createLink", url);
+      return;
+    }
+    insertRichHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>`);
   }
 
   function applyEditorAction(action: string) {
     switch (action) {
       case "Templates":
-        insertNoteText(notebookTemplateText(trade, currency));
+        insertRichHtml(textToRichHtml(notebookTemplateText(trade, currency, notebookTemplate, strategy, session)));
         break;
-      case "Add tag":
-        customTagRef.current?.focus();
-        break;
-      case "Write with AI":
-        insertNoteText(buildNotebookReviewDraft(trade, currency, strategy));
+      case "Draft review":
+        insertRichHtml(textToRichHtml(buildNotebookReviewDraft(trade, currency, strategy)));
         break;
       case "B":
-        wrapNoteSelection("**", "**");
+        runEditorCommand("bold");
         break;
       case "I":
-        wrapNoteSelection("*", "*");
+        runEditorCommand("italic");
         break;
       case "U":
-        wrapNoteSelection("<u>", "</u>");
+        runEditorCommand("underline");
         break;
       case "S":
-        wrapNoteSelection("~~", "~~");
+        runEditorCommand("strikeThrough");
         break;
       case "Link":
-        wrapNoteSelection("[", "](https://)", "link text");
+        applyLink();
         break;
       case "Color":
-        wrapNoteSelection('<span style="color: #67e8f9">', "</span>");
+        runEditorCommand("foreColor", "#67e8f9");
         break;
       case "Align":
-        alignSelection();
+        runEditorCommand("justifyCenter");
         break;
       default:
-        insertNoteText("\n- [ ] ");
+        runEditorCommand("insertUnorderedList");
     }
   }
 
@@ -2312,7 +2333,7 @@ function NotebookTradeDetail({
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-4">
           <CompactMetric label="Side" value={trade.side} />
-          <CompactMetric label="Volume" value={formatCompactNumber(trade.quantity)} />
+          <CompactMetric label="Quantity" value={formatCompactNumber(trade.quantity)} />
           <CompactMetric label="R multiple" value={formatOptionalNumber(trade.r_multiple)} />
           <CompactMetric
             label="Gross P&L"
@@ -2338,7 +2359,7 @@ function NotebookTradeDetail({
             <Save size={15} />
             {saving ? "Saving" : hasChanges ? "Save changes" : "Saved"}
           </button>
-          {status && <span className="status-pill">{status}</span>}
+          {status && status !== "Saved" && <span className="status-pill">{status}</span>}
         </div>
       </div>
 
@@ -2379,7 +2400,6 @@ function NotebookTradeDetail({
             <CompactMetric label="Stop loss" value={formatPrice(trade.stop_loss)} />
             <CompactMetric label="Take profit" value={formatPrice(trade.take_profit)} />
             <CompactMetric label="Remaining" value={formatCompactNumber(trade.remaining_quantity)} />
-            <CompactMetric label="Hold" value={formatMinutes(holdMinutes(trade))} />
           </div>
 
           <section className="rounded-md border border-white/10 bg-black/20 p-3">
@@ -2390,25 +2410,43 @@ function NotebookTradeDetail({
             <div className="flex flex-wrap gap-2">
               {mistakeOptions.map((option) => {
                 const active = tags.includes(option);
+                const canDeleteSuggestion =
+                  !active &&
+                  !isDefaultMistakeTag(option) &&
+                  !attachedMistakeTags.has(option.toLowerCase());
                 return (
-                  <button
-                    className={`rounded px-3 py-2 text-xs font-semibold transition ${
+                  <span
+                    className={`inline-flex overflow-hidden rounded text-xs font-semibold transition ${
                       active
                         ? "bg-rose-300/10 text-rose-100"
                         : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
                     }`}
                     key={option}
-                    onClick={() =>
-                      setTags((current) =>
-                        current.includes(option)
-                          ? current.filter((tag) => tag !== option)
-                          : [...current, option],
-                      )
-                    }
-                    type="button"
                   >
-                    {option}
-                  </button>
+                    <button
+                      className="px-3 py-2"
+                      onClick={() =>
+                        setTags((current) =>
+                          current.includes(option)
+                            ? current.filter((tag) => tag !== option)
+                            : [...current, option],
+                        )
+                      }
+                      type="button"
+                    >
+                      {option}
+                    </button>
+                    {canDeleteSuggestion && (
+                      <button
+                        className="border-l border-white/10 px-2 text-slate-500 hover:bg-rose-300/10 hover:text-rose-100"
+                        onClick={() => deleteMistakeSuggestion(option)}
+                        title="Delete unused suggestion"
+                        type="button"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </span>
                 );
               })}
             </div>
@@ -2450,7 +2488,7 @@ function NotebookTradeDetail({
 
           <section className="rounded-md border border-white/10 bg-black/20">
             <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-              {["Templates", "Add tag", "Write with AI", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
+              {["Templates", "Draft review", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
                 <button
                   className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white"
                   key={item}
@@ -2461,13 +2499,22 @@ function NotebookTradeDetail({
                 </button>
               ))}
             </div>
-            <textarea
-              className="min-h-52 w-full resize-y bg-transparent px-4 py-3 text-sm text-slate-300 outline-none placeholder:text-slate-600"
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder='Write something, or press "/" for commands'
-              ref={noteRef}
-              value={notes}
-            />
+            <div className="relative">
+              {isRichTextEmpty(notes) && !noteFocused && (
+                <span className="pointer-events-none absolute left-4 top-3 text-sm text-slate-600">
+                  Write something, or press "/" for commands
+                </span>
+              )}
+              <div
+                className="notebook-rich-editor min-h-52 w-full resize-y overflow-auto bg-transparent px-4 py-3 text-sm text-slate-300 outline-none"
+                contentEditable
+                onBlur={() => setNoteFocused(false)}
+                onFocus={() => setNoteFocused(true)}
+                onInput={handleEditorInput}
+                ref={noteRef}
+                suppressContentEditableWarning
+              />
+            </div>
           </section>
         </div>
 
@@ -2498,33 +2545,6 @@ function NotebookTradeDetail({
             )}
           </section>
 
-          <section className="rounded-md border border-white/10 bg-black/20 p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <CardLabel icon={ClipboardList} label="Executions" />
-              <span className="text-xs text-slate-500">{tradeExecutions.length}</span>
-            </div>
-            <div className="grid gap-2">
-              {tradeExecutions.map((execution) => (
-                <div className="flex justify-between gap-3 rounded bg-white/5 px-3 py-2 text-sm" key={execution.id}>
-                  <span className={execution.side === "BUY" ? "text-emerald-300" : "text-rose-300"}>
-                    {execution.side}
-                  </span>
-                  <span className="text-right text-slate-300">
-                    {formatCompactNumber(execution.quantity)} @ {formatPrice(execution.price)}
-                  </span>
-                </div>
-              ))}
-              {tradeExecutions.length === 0 && (
-                <div className="rounded bg-white/5 px-3 py-3 text-sm text-slate-500">
-                  {executionStatus === "loading"
-                    ? "Loading executions"
-                    : executionStatus === "error"
-                      ? "Executions could not be loaded"
-                      : "No executions linked"}
-                </div>
-              )}
-            </div>
-          </section>
         </aside>
       </div>
     </>
@@ -2561,7 +2581,7 @@ function matchesNotebookSearch(
     trade.side,
     trade.status,
     trade.strategy_name,
-    trade.notes,
+    richTextToPlainText(trade.notes),
     trade.emotional_state,
     trade.entry_time,
     trade.exit_time,
@@ -2581,22 +2601,32 @@ function sameStringList(a: string[], b: string[]) {
   return a.every((item, index) => item === b[index]);
 }
 
-function notebookTemplateText(trade: Trade, currency: string) {
-  return [
-    "Setup",
-    "- Context:",
-    "- Trigger:",
-    "",
-    "Execution",
-    `- Entry: ${formatPrice(trade.entry_price)}`,
-    `- Exit: ${formatPrice(trade.exit_price)}`,
-    `- Result: ${formatMoney(trade.realized_pnl, currency)} (${formatOptionalNumber(trade.r_multiple)}R)`,
-    "",
-    "Review",
-    "- What worked:",
-    "- What needs correction:",
-    "- Next action:",
-  ].join("\n");
+function normalizeNotebookTemplate(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : DEFAULT_NOTEBOOK_TEMPLATE;
+}
+
+function notebookTemplateText(
+  trade: Trade,
+  currency: string,
+  template: string,
+  strategy: string,
+  session: BacktestSession | null,
+) {
+  const replacements: Record<string, string> = {
+    date: shortDate(trade.entry_time),
+    entry: formatPrice(trade.entry_price),
+    exit: formatPrice(trade.exit_price),
+    pnl: formatMoney(trade.realized_pnl, currency),
+    quantity: formatCompactNumber(trade.quantity),
+    r: formatOptionalNumber(trade.r_multiple),
+    side: trade.side,
+    strategy: strategy || tradeStrategyName(trade, session ?? undefined),
+    symbol: session?.symbol ? formatMarketSymbol(session.symbol) : "Trade",
+  };
+  return normalizeNotebookTemplate(template).replace(
+    /\{([a-z_]+)\}/gi,
+    (match, key: string) => replacements[key.toLowerCase()] ?? match,
+  );
 }
 
 function buildNotebookReviewDraft(trade: Trade, currency: string, strategy: string) {
@@ -3197,6 +3227,11 @@ function SettingsPage({
 function BacktestGeneralSettings() {
   const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
     useState(loadOrderLineModificationConfirmation);
+  const [notebookTemplate, setNotebookTemplate] = useState(() =>
+    normalizeNotebookTemplate(getCachedAppStorageItem<unknown>(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE)),
+  );
+  const [templateDraft, setTemplateDraft] = useState(notebookTemplate);
+  const [templateStatus, setTemplateStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -3214,9 +3249,48 @@ function BacktestGeneralSettings() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE).then((value) => {
+      if (!active) {
+        return;
+      }
+      const nextTemplate = normalizeNotebookTemplate(value);
+      setNotebookTemplate(nextTemplate);
+      setTemplateDraft(nextTemplate);
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      NOTEBOOK_TEMPLATE_STORAGE_KEY,
+      (value) => {
+        const nextTemplate = normalizeNotebookTemplate(value);
+        setNotebookTemplate(nextTemplate);
+        setTemplateDraft((current) => (current === notebookTemplate ? nextTemplate : current));
+      },
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [notebookTemplate]);
+
   function updateConfirmation(enabled: boolean) {
     setConfirmOrderLineModifications(enabled);
     void saveOrderLineModificationConfirmation(enabled);
+  }
+
+  async function saveNotebookTemplate() {
+    const nextTemplate = normalizeNotebookTemplate(templateDraft);
+    setTemplateDraft(nextTemplate);
+    setNotebookTemplate(nextTemplate);
+    await saveAppStorageItem(NOTEBOOK_TEMPLATE_STORAGE_KEY, nextTemplate);
+    setTemplateStatus("Template saved");
+  }
+
+  async function resetNotebookTemplate() {
+    setTemplateDraft(DEFAULT_NOTEBOOK_TEMPLATE);
+    setNotebookTemplate(DEFAULT_NOTEBOOK_TEMPLATE);
+    await saveAppStorageItem(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE);
+    setTemplateStatus("Template reset");
   }
 
   return (
@@ -3238,6 +3312,41 @@ function BacktestGeneralSettings() {
           type="checkbox"
         />
       </label>
+      <section className="md:col-span-2 rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Notebook note template
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {"{symbol} {date} {side} {quantity} {entry} {exit} {pnl} {r} {strategy}"}
+            </div>
+          </div>
+          {templateStatus && <span className="status-pill">{templateStatus}</span>}
+        </div>
+        <textarea
+          className="input-control mt-3 min-h-48 py-3 normal-case tracking-normal"
+          onChange={(event) => {
+            setTemplateDraft(event.target.value);
+            setTemplateStatus(null);
+          }}
+          value={templateDraft}
+        />
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button className="control-button" onClick={() => void resetNotebookTemplate()} type="button">
+            <RefreshCw size={15} />
+            Reset
+          </button>
+          <button
+            className="control-button border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+            onClick={() => void saveNotebookTemplate()}
+            type="button"
+          >
+            <Save size={15} />
+            Save template
+          </button>
+        </div>
+      </section>
       <label className="form-field">
         Default risk %
         <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
@@ -3639,7 +3748,7 @@ async function pollDatasetRefreshStatus(
 
 function DashboardFilters({ onClose }: { onClose: () => void }) {
   const groups = [
-    ["General", "Side", "Symbol", "Status", "Trade rating", "Exit price", "Entry price", "R-Multiple", "Position size", "Volume"],
+    ["General", "Side", "Symbol", "Status", "Trade rating", "Exit price", "Entry price", "R-Multiple", "Position size", "Quantity"],
     ["Tags", "Mistake tags", "Custom tags", "Emotional state"],
     ["Day & Time", "Day of week", "Entry time", "Exit time", "Hold duration"],
     ["Strategy", "Strategy tag", "Playbook", "Session"],
@@ -3842,7 +3951,7 @@ function RichTextEditorStub() {
   return (
     <div className="mt-4 rounded-md border border-white/10 bg-black/20">
       <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-        {["Templates", "Add tag", "Write with AI", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
+        {["Templates", "Draft review", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
           <button className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white" key={item} type="button">
             {item}
           </button>

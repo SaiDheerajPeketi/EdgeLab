@@ -46,6 +46,26 @@ export function persistStrategyMistakeTags(
   writeLibrary(library);
 }
 
+export function removeStrategyMistakeTag(
+  strategyName: string | null | undefined,
+  tag: string,
+) {
+  if (isDefaultMistakeTag(tag)) {
+    return;
+  }
+  const library = readLibrary();
+  const key = scopeKey(strategyName);
+  const nextTags = (library[key] ?? []).filter(
+    (currentTag) => currentTag.toLowerCase() !== tag.toLowerCase(),
+  );
+  if (nextTags.length > 0) {
+    library[key] = nextTags;
+  } else {
+    delete library[key];
+  }
+  writeLibrary(library);
+}
+
 export function subscribeStrategyMistakeTags(
   strategyName: string | null | undefined,
   listener: (tags: string[]) => void,
@@ -76,7 +96,7 @@ export function mergeTags(current: string[], nextTags: string[]) {
   return merged;
 }
 
-function isDefaultMistakeTag(value: string) {
+export function isDefaultMistakeTag(value: string) {
   return DEFAULT_MISTAKE_TAGS.some(
     (tag) => tag.toLowerCase() === value.toLowerCase(),
   );
