@@ -194,6 +194,8 @@ function legacyStorageKeyFor(key: string) {
     "live-journal.v1": "edgelab.live-journal.v1",
     "notebook-favorites.v1": "edgelab.notebook-favorites.v1",
     "notebook-template.v1": "edgelab.notebook-template.v1",
+    "order-default-quantity.v1": "edgelab.order-default-quantity.v1",
+    "order-default-risk-percent.v1": "edgelab.order-default-risk-percent.v1",
     "order-line-modification-confirmation.v1": "edgelab.order-line-modification-confirmation.v1",
     "order-risk-base.v1": "edgelab.order-risk-base.v1",
     "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
@@ -208,6 +210,8 @@ function legacyStoresPlainString(key: string) {
     key === "active-chart-settings-preset.v1" ||
     key === "chart-layout-cleared-single-horizontal.v1" ||
     key === "notebook-template.v1" ||
+    key === "order-default-quantity.v1" ||
+    key === "order-default-risk-percent.v1" ||
     key === "order-risk-base.v1" ||
     key === "order-sizing-mode.v1"
   );

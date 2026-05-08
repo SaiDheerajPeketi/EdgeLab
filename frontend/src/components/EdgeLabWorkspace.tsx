@@ -52,6 +52,7 @@ import {
   SlidersHorizontal,
   Star,
   Strikethrough,
+  Tags,
   Target,
   TrendingDown,
   TrendingUp,
@@ -93,6 +94,26 @@ import {
   strategyTagScope,
   subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
+import {
+  hydrateOrderDefaultQuantity,
+  hydrateOrderDefaultRiskPercent,
+  hydrateOrderRiskBase,
+  hydrateOrderSizingMode,
+  loadOrderDefaultQuantity,
+  loadOrderDefaultRiskPercent,
+  loadOrderRiskBase,
+  loadOrderSizingMode,
+  type OrderRiskBase,
+  type OrderSizingMode,
+  saveOrderDefaultQuantity,
+  saveOrderDefaultRiskPercent,
+  saveOrderRiskBase,
+  saveOrderSizingMode,
+  subscribeOrderDefaultQuantity,
+  subscribeOrderDefaultRiskPercent,
+  subscribeOrderRiskBase,
+  subscribeOrderSizingMode,
+} from "../lib/orderSettings";
 import {
   escapeHtml,
   isRichTextEmpty,
@@ -5526,50 +5547,76 @@ function SettingsPage({
   onGetDatasetRefreshStatus,
   onUpdateDatasetAsset,
   onUpdateDatasetSettings,
+  strategies,
 }: SharedPageProps) {
-  const sections = [
-    "Profile",
-    "Security",
-    "Subscription",
-    "Accounts",
-    "Data imports",
-    "PT / SL settings",
-    "Commissions & fees",
-    "Trade settings",
-    "Global settings",
-    "Tags management",
-    "Log history",
+  const sections: Array<{
+    description: string;
+    icon: LucideIcon;
+    id: SettingsSectionId;
+    label: string;
+  }> = [
+    {
+      description: "Dataset root, asset metadata, and CSV refresh",
+      icon: Database,
+      id: "data",
+      label: "Data imports",
+    },
+    {
+      description: "Order ticket defaults and chart-line confirmations",
+      icon: SlidersHorizontal,
+      id: "orders",
+      label: "Order defaults",
+    },
+    {
+      description: "Default review text inserted in trade notes",
+      icon: NotebookPen,
+      id: "notes",
+      label: "Note template",
+    },
+    {
+      description: "Mistake tag suggestions by strategy",
+      icon: Tags,
+      id: "tags",
+      label: "Tags",
+    },
   ];
-  const [active, setActive] = useState("Data imports");
+  const [active, setActive] = useState<SettingsSectionId>("data");
+  const activeSection = sections.find((section) => section.id === active) ?? sections[0];
 
   return (
     <PageScaffold
       eyebrow="Backtest Settings"
       title="Backtest Settings"
-      description="Data import, replay defaults, risk, commissions, tags, and local workspace settings for backtesting."
+      description="Personal replay settings only. Everything here is stored locally and synced through app storage."
     >
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <FeatureCard className="p-2">
           {sections.map((section) => (
             <button
               className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-semibold transition ${
-                active === section ? "bg-cyan-300/10 text-cyan-100" : "text-slate-400 hover:bg-white/5 hover:text-white"
+                active === section.id ? "bg-cyan-300/10 text-cyan-100" : "text-slate-400 hover:bg-white/5 hover:text-white"
               }`}
-              key={section}
-              onClick={() => setActive(section)}
+              key={section.id}
+              onClick={() => setActive(section.id)}
               type="button"
             >
-              {section}
-              <ArrowRight size={13} />
+              <span className="flex min-w-0 items-center gap-2">
+                <section.icon className="shrink-0" size={15} />
+                <span className="truncate">{section.label}</span>
+              </span>
+              <ArrowRight className="shrink-0" size={13} />
             </button>
           ))}
         </FeatureCard>
         <FeatureCard>
-          <div className="flex items-center justify-between gap-3">
-            <CardLabel icon={SlidersHorizontal} label={active} />
-            <span className="status-pill">Self-Hosted - Unlimited</span>
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardLabel icon={activeSection.icon} label={activeSection.label} />
+              <p className="mt-2 text-sm text-slate-500">{activeSection.description}</p>
+            </div>
+            <span className="status-pill">Personal workspace</span>
           </div>
-          {active === "Data imports" ? (
+          {active === "data" ? (
             <BacktestDataSettings
               datasets={datasets}
               onRefreshDatasets={onRefreshDatasets}
@@ -5577,8 +5624,12 @@ function SettingsPage({
               onUpdateDatasetAsset={onUpdateDatasetAsset}
               onUpdateDatasetSettings={onUpdateDatasetSettings}
             />
+          ) : active === "orders" ? (
+            <BacktestOrderSettings />
+          ) : active === "notes" ? (
+            <BacktestNoteTemplateSettings />
           ) : (
-            <BacktestGeneralSettings />
+            <BacktestTagSettings strategies={strategies} />
           )}
         </FeatureCard>
       </div>
@@ -5586,30 +5637,187 @@ function SettingsPage({
   );
 }
 
-function BacktestGeneralSettings() {
+type SettingsSectionId = "data" | "orders" | "notes" | "tags";
+
+function BacktestOrderSettings() {
   const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
     useState(loadOrderLineModificationConfirmation);
+  const [sizingMode, setSizingMode] = useState<OrderSizingMode>(() => loadOrderSizingMode());
+  const [riskBase, setRiskBase] = useState<OrderRiskBase>(() => loadOrderRiskBase());
+  const [defaultQuantity, setDefaultQuantity] = useState(() => loadOrderDefaultQuantity());
+  const [defaultRiskPercent, setDefaultRiskPercent] = useState(() => loadOrderDefaultRiskPercent());
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      hydrateOrderLineModificationConfirmation(),
+      hydrateOrderSizingMode(),
+      hydrateOrderRiskBase(),
+      hydrateOrderDefaultQuantity(),
+      hydrateOrderDefaultRiskPercent(),
+    ]).then(([confirmLineEdits, nextSizingMode, nextRiskBase, nextQuantity, nextRiskPercent]) => {
+      if (!active) {
+        return;
+      }
+      setConfirmOrderLineModifications(confirmLineEdits);
+      setSizingMode(nextSizingMode);
+      setRiskBase(nextRiskBase);
+      setDefaultQuantity(nextQuantity);
+      setDefaultRiskPercent(nextRiskPercent);
+    });
+    const unsubscribers = [
+      subscribeOrderLineModificationConfirmation(setConfirmOrderLineModifications),
+      subscribeOrderSizingMode(setSizingMode),
+      subscribeOrderRiskBase(setRiskBase),
+      subscribeOrderDefaultQuantity(setDefaultQuantity),
+      subscribeOrderDefaultRiskPercent(setDefaultRiskPercent),
+    ];
+    return () => {
+      active = false;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, []);
+
+  function markSaved(label = "Saved") {
+    setStatus(label);
+    window.setTimeout(() => setStatus((current) => (current === label ? null : current)), 1400);
+  }
+
+  function updateConfirmation(enabled: boolean) {
+    setConfirmOrderLineModifications(enabled);
+    void saveOrderLineModificationConfirmation(enabled).then(() => markSaved());
+  }
+
+  function updateSizingMode(value: OrderSizingMode) {
+    setSizingMode(value);
+    void saveOrderSizingMode(value).then(() => markSaved());
+  }
+
+  function updateRiskBase(value: OrderRiskBase) {
+    setRiskBase(value);
+    void saveOrderRiskBase(value).then(() => markSaved());
+  }
+
+  function updateDefaultQuantity(value: string) {
+    setDefaultQuantity(value);
+    if (isPositiveNumberText(value)) {
+      void saveOrderDefaultQuantity(value).then(() => markSaved());
+    }
+  }
+
+  function updateDefaultRiskPercent(value: string) {
+    setDefaultRiskPercent(value);
+    if (isPositiveNumberText(value)) {
+      void saveOrderDefaultRiskPercent(value).then(() => markSaved());
+    }
+  }
+
+  return (
+    <div className="mt-5 grid gap-4">
+      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Ticket sizing mode
+            </div>
+            <div className="mt-1 text-sm text-slate-400">
+              New order tickets open with this sizing method.
+            </div>
+          </div>
+          {status && <span className="status-pill">{status}</span>}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            className={`segmented ${sizingMode === "quantity" ? "segmented-active" : ""}`}
+            onClick={() => updateSizingMode("quantity")}
+            type="button"
+          >
+            Quantity
+          </button>
+          <button
+            className={`segmented ${sizingMode === "risk" ? "segmented-active" : ""}`}
+            onClick={() => updateSizingMode("risk")}
+            type="button"
+          >
+            Risk %
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="form-field">
+          Default quantity
+          <input
+            className="input-control h-10 normal-case tracking-normal"
+            min="0.000001"
+            onChange={(event) => updateDefaultQuantity(event.target.value)}
+            type="number"
+            value={defaultQuantity}
+          />
+        </label>
+        <label className="form-field">
+          Default risk %
+          <input
+            className="input-control h-10 normal-case tracking-normal"
+            min="0.000001"
+            onChange={(event) => updateDefaultRiskPercent(event.target.value)}
+            step="0.01"
+            type="number"
+            value={defaultRiskPercent}
+          />
+        </label>
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Risk % based on
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            className={`segmented ${riskBase === "CURRENT_BALANCE" ? "segmented-active" : ""}`}
+            onClick={() => updateRiskBase("CURRENT_BALANCE")}
+            type="button"
+          >
+            Current balance
+          </button>
+          <button
+            className={`segmented ${riskBase === "INITIAL_BALANCE" ? "segmented-active" : ""}`}
+            onClick={() => updateRiskBase("INITIAL_BALANCE")}
+            type="button"
+          >
+            Initial balance
+          </button>
+        </div>
+      </div>
+
+      <label className="flex min-w-0 items-center justify-between gap-4 rounded-md border border-white/10 bg-black/20 px-3 py-3">
+        <span className="min-w-0">
+          <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Chart order lines
+          </span>
+          <span className="mt-1 block text-sm font-semibold text-white">
+            Confirm drag changes before applying
+          </span>
+        </span>
+        <input
+          aria-label="Confirm order line modifications"
+          checked={confirmOrderLineModifications}
+          className="h-5 w-5 accent-cyan-300"
+          onChange={(event) => updateConfirmation(event.target.checked)}
+          type="checkbox"
+        />
+      </label>
+    </div>
+  );
+}
+
+function BacktestNoteTemplateSettings() {
   const [notebookTemplate, setNotebookTemplate] = useState(() =>
     normalizeNotebookTemplate(getCachedAppStorageItem<unknown>(NOTEBOOK_TEMPLATE_STORAGE_KEY, DEFAULT_NOTEBOOK_TEMPLATE)),
   );
   const [templateDraft, setTemplateDraft] = useState(notebookTemplate);
   const [templateStatus, setTemplateStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void hydrateOrderLineModificationConfirmation().then((enabled) => {
-      if (active) {
-        setConfirmOrderLineModifications(enabled);
-      }
-    });
-    const unsubscribe = subscribeOrderLineModificationConfirmation((enabled) => {
-      setConfirmOrderLineModifications(enabled);
-    });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -5635,11 +5843,6 @@ function BacktestGeneralSettings() {
     };
   }, [notebookTemplate]);
 
-  function updateConfirmation(enabled: boolean) {
-    setConfirmOrderLineModifications(enabled);
-    void saveOrderLineModificationConfirmation(enabled);
-  }
-
   async function saveNotebookTemplate() {
     const nextTemplate = normalizeNotebookTemplate(templateDraft);
     setTemplateDraft(nextTemplate);
@@ -5656,25 +5859,8 @@ function BacktestGeneralSettings() {
   }
 
   return (
-    <div className="mt-5 grid gap-4 md:grid-cols-2">
-      <label className="md:col-span-2 flex min-w-0 items-center justify-between gap-4 rounded-md border border-white/10 bg-black/20 px-3 py-3">
-        <span className="min-w-0">
-          <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Order line modifications
-          </span>
-          <span className="mt-1 block text-sm font-semibold text-white">
-            Confirm drag changes before applying
-          </span>
-        </span>
-        <input
-          aria-label="Confirm order line modifications"
-          checked={confirmOrderLineModifications}
-          className="h-5 w-5 accent-cyan-300"
-          onChange={(event) => updateConfirmation(event.target.checked)}
-          type="checkbox"
-        />
-      </label>
-      <section className="md:col-span-2 rounded-md border border-white/10 bg-black/20 p-3">
+    <div className="mt-5 grid gap-4">
+      <section className="rounded-md border border-white/10 bg-black/20 p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -5709,46 +5895,163 @@ function BacktestGeneralSettings() {
           </button>
         </div>
       </section>
-      <label className="form-field">
-        Default risk %
-        <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
-      </label>
-      <label className="form-field">
-        Default currency
-        <ThemedSelect
-          className="h-10"
-          defaultValue="USD"
-          options={[
-            { label: "USD", value: "USD" },
-            { label: "INR", value: "INR" },
-          ]}
-        />
-      </label>
-      <label className="form-field">
-        Commission mode
-        <ThemedSelect
-          className="h-10"
-          defaultValue="Flat"
-          options={[
-            { label: "Flat", value: "Flat" },
-            { label: "Percent of position", value: "Percent of position" },
-          ]}
-        />
-      </label>
-      <label className="form-field">
-        Auto-save interval
-        <ThemedSelect
-          className="h-10"
-          defaultValue="Every 5 candles"
-          options={[
-            { label: "Every candle", value: "Every candle" },
-            { label: "Every 5 candles", value: "Every 5 candles" },
-            { label: "Manual only", value: "Manual only" },
-          ]}
-        />
-      </label>
     </div>
   );
+}
+
+function BacktestTagSettings({ strategies }: { strategies: StrategyGroup[] }) {
+  const savedStrategyNames = useBacktestStrategyNames();
+  const strategyOptions = useMemo(
+    () => mergeStrategyGroups(strategies, savedStrategyNames),
+    [savedStrategyNames, strategies],
+  );
+  const [selectedStrategy, setSelectedStrategy] = useState(
+    () => strategyOptions[0]?.name ?? "Unassigned",
+  );
+  const [customTags, setCustomTags] = useState<string[]>(() =>
+    loadStrategyMistakeTags(selectedStrategy),
+  );
+  const [tagDraft, setTagDraft] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const selectedGroup =
+    strategyOptions.find((strategy) => sameStrategyName(strategy.name, selectedStrategy)) ?? null;
+  const allTags = mergeTags(DEFAULT_MISTAKE_TAGS, customTags);
+
+  useEffect(() => {
+    if (strategyOptions.length === 0) {
+      setSelectedStrategy("Unassigned");
+      return;
+    }
+    if (
+      !sameStrategyName(selectedStrategy, "Unassigned") &&
+      !strategyOptions.some((strategy) => sameStrategyName(strategy.name, selectedStrategy))
+    ) {
+      setSelectedStrategy(strategyOptions[0].name);
+    }
+  }, [selectedStrategy, strategyOptions]);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateStrategyMistakeTags(selectedStrategy).then((tags) => {
+      if (active) {
+        setCustomTags(tags);
+      }
+    });
+    const unsubscribe = subscribeStrategyMistakeTags(selectedStrategy, setCustomTags);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [selectedStrategy]);
+
+  function addTags() {
+    const tags = parseTagInput(tagDraft);
+    if (tags.length === 0) {
+      return;
+    }
+    const nextTags = mergeTags(customTags, tags);
+    setCustomTags(nextTags);
+    persistStrategyMistakeTags(selectedStrategy, nextTags);
+    setTagDraft("");
+    setStatus("Tags saved");
+  }
+
+  function removeTag(tag: string) {
+    removeStrategyMistakeTag(selectedStrategy, tag);
+    setCustomTags((current) => current.filter((item) => item.toLowerCase() !== tag.toLowerCase()));
+    setStatus("Tag deleted");
+  }
+
+  return (
+    <div className="mt-5 grid gap-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+        <label className="form-field">
+          Strategy scope
+          <ThemedSelect
+            className="h-10"
+            onChange={(value) => {
+              setSelectedStrategy(value);
+              setStatus(null);
+            }}
+            options={buildStrategySelectOptions(strategyOptions)}
+            portal
+            value={selectedStrategy}
+          />
+        </label>
+        <label className="form-field">
+          Add mistake tags
+          <div className="flex gap-2">
+            <input
+              className="input-control h-10 normal-case tracking-normal"
+              onChange={(event) => setTagDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addTags();
+                }
+              }}
+              placeholder="Comma separated, e.g. Chased entry, Missed plan"
+              value={tagDraft}
+            />
+            <button className="control-button h-10" disabled={!tagDraft.trim()} onClick={addTags} type="button">
+              <Plus size={15} />
+              Add
+            </button>
+          </div>
+        </label>
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Suggestions for {selectedStrategy}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              Default tags are always available. Custom tags can be removed here.
+            </div>
+          </div>
+          {status && <span className="status-pill">{status}</span>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {allTags.map((tag) => {
+            const defaultTag = isDefaultMistakeTag(tag);
+            return (
+              <span
+                className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-200"
+                key={tag}
+              >
+                {tag}
+                {defaultTag ? (
+                  <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Default</span>
+                ) : (
+                  <button
+                    className="text-slate-500 transition hover:text-rose-200"
+                    onClick={() => removeTag(tag)}
+                    title="Delete custom tag"
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-3">
+        <CompactMetric label="Strategy trades" value={String(selectedGroup?.aggregate.totalTrades ?? 0)} />
+        <CompactMetric label="Custom tags" value={String(customTags.length)} />
+        <CompactMetric label="Suggestions" value={String(allTags.length)} />
+      </div>
+    </div>
+  );
+}
+
+function isPositiveNumberText(value: string) {
+  const parsed = Number(value);
+  return value.trim().length > 0 && Number.isFinite(parsed) && parsed > 0;
 }
 
 function BacktestDataSettings({

@@ -5,18 +5,25 @@ import type { ChartDrawing } from "../lib/charting";
 import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import {
-  getCachedAppStorageItem,
-  loadAppStorageItem,
-  saveAppStorageItem,
-  subscribeAppStorageItem,
-} from "../lib/serverStorage";
+  hydrateOrderDefaultQuantity,
+  hydrateOrderDefaultRiskPercent,
+  hydrateOrderRiskBase,
+  hydrateOrderSizingMode,
+  loadOrderDefaultQuantity,
+  loadOrderDefaultRiskPercent,
+  loadOrderRiskBase,
+  loadOrderSizingMode,
+  type OrderRiskBase,
+  type OrderSizingMode,
+  saveOrderRiskBase,
+  saveOrderSizingMode,
+  subscribeOrderDefaultQuantity,
+  subscribeOrderDefaultRiskPercent,
+  subscribeOrderRiskBase,
+  subscribeOrderSizingMode,
+} from "../lib/orderSettings";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
-
-const RISK_BASE_STORAGE_KEY = "order-risk-base.v1";
-const SIZING_MODE_STORAGE_KEY = "order-sizing-mode.v1";
-type RiskBase = "CURRENT_BALANCE" | "INITIAL_BALANCE";
-type SizingMode = "quantity" | "risk";
 
 type Props = {
   initialSide?: "BUY" | "SELL" | null;
@@ -35,10 +42,10 @@ export function OrderTicket({
   const placeOrder = useBacktestStore((store) => store.placeOrder);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [orderType, setOrderType] = useState<"MARKET" | "LIMIT" | "STOP">("MARKET");
-  const [sizingMode, setSizingMode] = useState<SizingMode>(() => loadSizingMode());
-  const [quantity, setQuantity] = useState("100000");
-  const [riskPercent, setRiskPercent] = useState("1");
-  const [riskBase, setRiskBase] = useState<RiskBase>(() => loadRiskBase());
+  const [sizingMode, setSizingMode] = useState<OrderSizingMode>(() => loadOrderSizingMode());
+  const [quantity, setQuantity] = useState(() => loadOrderDefaultQuantity());
+  const [riskPercent, setRiskPercent] = useState(() => loadOrderDefaultRiskPercent());
+  const [riskBase, setRiskBase] = useState<OrderRiskBase>(() => loadOrderRiskBase());
   const riskBaseHydratedRef = useRef(false);
   const sizingModeHydratedRef = useRef(false);
   const [limitPrice, setLimitPrice] = useState("");
@@ -109,19 +116,16 @@ export function OrderTicket({
 
   useEffect(() => {
     let active = true;
-    void hydrateSizingMode().then((nextSizingMode) => {
+    void hydrateOrderSizingMode().then((nextSizingMode) => {
       if (active) {
         setSizingMode(nextSizingMode);
         sizingModeHydratedRef.current = true;
       }
     });
-    const unsubscribe = subscribeAppStorageItem<unknown>(
-      SIZING_MODE_STORAGE_KEY,
-      (value) => {
-        setSizingMode(sanitizeSizingMode(value));
-        sizingModeHydratedRef.current = true;
-      },
-    );
+    const unsubscribe = subscribeOrderSizingMode((value) => {
+      setSizingMode(value);
+      sizingModeHydratedRef.current = true;
+    });
     return () => {
       active = false;
       unsubscribe();
@@ -132,24 +136,21 @@ export function OrderTicket({
     if (!sizingModeHydratedRef.current) {
       return;
     }
-    void saveAppStorageItem(SIZING_MODE_STORAGE_KEY, sizingMode);
+    void saveOrderSizingMode(sizingMode);
   }, [sizingMode]);
 
   useEffect(() => {
     let active = true;
-    void hydrateRiskBase().then((nextRiskBase) => {
+    void hydrateOrderRiskBase().then((nextRiskBase) => {
       if (active) {
         setRiskBase(nextRiskBase);
         riskBaseHydratedRef.current = true;
       }
     });
-    const unsubscribe = subscribeAppStorageItem<unknown>(
-      RISK_BASE_STORAGE_KEY,
-      (value) => {
-        setRiskBase(sanitizeRiskBase(value));
-        riskBaseHydratedRef.current = true;
-      },
-    );
+    const unsubscribe = subscribeOrderRiskBase((value) => {
+      setRiskBase(value);
+      riskBaseHydratedRef.current = true;
+    });
     return () => {
       active = false;
       unsubscribe();
@@ -160,8 +161,40 @@ export function OrderTicket({
     if (!riskBaseHydratedRef.current) {
       return;
     }
-    void saveAppStorageItem(RISK_BASE_STORAGE_KEY, riskBase);
+    void saveOrderRiskBase(riskBase);
   }, [riskBase]);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateOrderDefaultQuantity().then((nextQuantity) => {
+      if (active) {
+        setQuantity(nextQuantity);
+      }
+    });
+    const unsubscribe = subscribeOrderDefaultQuantity((value) => {
+      setQuantity(value);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateOrderDefaultRiskPercent().then((nextRiskPercent) => {
+      if (active) {
+        setRiskPercent(nextRiskPercent);
+      }
+    });
+    const unsubscribe = subscribeOrderDefaultRiskPercent((value) => {
+      setRiskPercent(value);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -430,30 +463,6 @@ function numberOrNull(value: string) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function loadSizingMode(): SizingMode {
-  return sanitizeSizingMode(getCachedAppStorageItem<unknown>(SIZING_MODE_STORAGE_KEY, null));
-}
-
-async function hydrateSizingMode(): Promise<SizingMode> {
-  return sanitizeSizingMode(await loadAppStorageItem<unknown>(SIZING_MODE_STORAGE_KEY, null));
-}
-
-function sanitizeSizingMode(value: unknown): SizingMode {
-  return value === "risk" ? "risk" : "quantity";
-}
-
-function loadRiskBase(): RiskBase {
-  return sanitizeRiskBase(getCachedAppStorageItem<unknown>(RISK_BASE_STORAGE_KEY, null));
-}
-
-async function hydrateRiskBase(): Promise<RiskBase> {
-  return sanitizeRiskBase(await loadAppStorageItem<unknown>(RISK_BASE_STORAGE_KEY, null));
-}
-
-function sanitizeRiskBase(value: unknown): RiskBase {
-  return value === "INITIAL_BALANCE" ? "INITIAL_BALANCE" : "CURRENT_BALANCE";
 }
 
 function extractRiskRewardOrderValues(
