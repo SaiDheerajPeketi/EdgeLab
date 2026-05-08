@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, ReactNode } from "react";
+import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -22,6 +22,7 @@ import {
   Gauge,
   Globe2,
   Grid2X2,
+  Image,
   Info,
   LineChart,
   List,
@@ -49,10 +50,12 @@ import type {
   DatasetRefreshResponse,
   DatasetRefreshStatus,
   DatasetTimeframe,
+  Execution,
   Playbook,
   PlaybookPayload,
   Trade,
 } from "../lib/api";
+import { getBacktest } from "../lib/api";
 import {
   hydrateOrderLineModificationConfirmation,
   loadOrderLineModificationConfirmation,
@@ -62,6 +65,16 @@ import {
 import { currencyForSession, currencyForSessions } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import {
+  DEFAULT_MISTAKE_TAGS,
+  hydrateStrategyMistakeTags,
+  loadStrategyMistakeTags,
+  mergeTags,
+  parseTagInput,
+  persistStrategyMistakeTags,
+  strategyTagScope,
+  subscribeStrategyMistakeTags,
+} from "../lib/mistakeTags";
+import {
   getCachedAppStorageItem,
   loadAppStorageItem,
   saveAppStorageItem,
@@ -69,7 +82,9 @@ import {
 } from "../lib/serverStorage";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
+import { createTradeSnapshotDataUrl } from "../lib/tradeSnapshot";
 import type { WorkspaceView } from "../lib/workspace";
+import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 import { TradeLog } from "./TradeLog";
 
@@ -186,6 +201,7 @@ type LiveTradeInput = {
 };
 
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
+const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
 const LIVE_EMOTIONS = ["Calm", "Confident", "Focused", "Fearful", "Impulsive", "Frustrated", "Other"] as const;
 const CURRENCY_OPTIONS = [
   "USD",
@@ -1142,7 +1158,11 @@ function JournalNotesPage({ closedTrades }: JournalPageProps) {
             </div>
           </div>
           <div className="grid gap-2 p-3">
-            <NotebookFolder label={`All live notes (${closedTrades.length})`} active />
+            <NotebookFolder
+              label={`All live notes (${closedTrades.length})`}
+              active
+              onClick={() => undefined}
+            />
             {closedTrades.slice().reverse().map((trade) => (
               <button
                 className={`rounded-md border px-3 py-2 text-left text-sm transition ${
@@ -1694,17 +1714,93 @@ function LiveTradeTable({
 function NotebookPage({
   closedTrades,
   datasets,
-  onInspectTrade,
   onReplayTrade,
   sessionById,
 }: SharedPageProps) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterMode, setFilterMode] = useState<"all" | "favorites">("all");
+  const [favoriteTradeIds, setFavoriteTradeIds] = useState<number[]>(() =>
+    sanitizeFavoriteIds(getCachedAppStorageItem<unknown>(NOTEBOOK_FAVORITES_STORAGE_KEY, [])),
+  );
+  const [saveSignal, setSaveSignal] = useState(0);
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(
     closedTrades.at(-1)?.id ?? null,
   );
+  const favoriteTradeIdSet = useMemo(
+    () => new Set(favoriteTradeIds),
+    [favoriteTradeIds],
+  );
+  const orderedTrades = useMemo(
+    () => closedTrades.slice().reverse(),
+    [closedTrades],
+  );
+  const visibleTrades = useMemo(
+    () =>
+      orderedTrades.filter((trade) => {
+        if (filterMode === "favorites" && !favoriteTradeIdSet.has(trade.id)) {
+          return false;
+        }
+        return matchesNotebookSearch(
+          trade,
+          searchTerm,
+          sessionById.get(trade.session_id),
+        );
+      }),
+    [favoriteTradeIdSet, filterMode, orderedTrades, searchTerm, sessionById],
+  );
   const selectedTrade =
-    closedTrades.find((trade) => trade.id === selectedTradeId) ??
-    closedTrades.at(-1) ??
+    visibleTrades.find((trade) => trade.id === selectedTradeId) ??
+    visibleTrades[0] ??
     null;
+  const selectedSession = selectedTrade
+    ? sessionById.get(selectedTrade.session_id) ?? null
+    : null;
+  const favoriteCount = favoriteTradeIds.filter((id) =>
+    closedTrades.some((trade) => trade.id === id),
+  ).length;
+
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(NOTEBOOK_FAVORITES_STORAGE_KEY, []).then((value) => {
+      if (active) {
+        setFavoriteTradeIds(sanitizeFavoriteIds(value));
+      }
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      NOTEBOOK_FAVORITES_STORAGE_KEY,
+      (value) => setFavoriteTradeIds(sanitizeFavoriteIds(value)),
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (visibleTrades.length === 0) {
+      if (selectedTradeId != null) {
+        setSelectedTradeId(null);
+      }
+      return;
+    }
+    if (!visibleTrades.some((trade) => trade.id === selectedTradeId)) {
+      setSelectedTradeId(visibleTrades[0].id);
+    }
+  }, [selectedTradeId, visibleTrades]);
+
+  function toggleFavorite(tradeId: number) {
+    const nextIds = favoriteTradeIdSet.has(tradeId)
+      ? favoriteTradeIds.filter((id) => id !== tradeId)
+      : [...favoriteTradeIds, tradeId];
+    setFavoriteTradeIds(nextIds);
+    void saveAppStorageItem(NOTEBOOK_FAVORITES_STORAGE_KEY, nextIds);
+  }
+
+  function selectLatestTrade() {
+    setSearchTerm("");
+    setFilterMode("all");
+    setSelectedTradeId(orderedTrades[0]?.id ?? null);
+  }
 
   return (
     <PageScaffold
@@ -1712,10 +1808,16 @@ function NotebookPage({
       title="Backtest Trade Notes"
       description="An EdgeLab notebook linked to closed replay trades and session review."
       actions={
-        <button className="control-button workspace-tab-active" type="button">
-          <FolderPlus size={15} />
-          Add folder
-        </button>
+        selectedTrade ? (
+          <button
+            className="control-button workspace-tab-active"
+            onClick={() => setSaveSignal((value) => value + 1)}
+            type="button"
+          >
+            <Save size={15} />
+            Save note
+          </button>
+        ) : undefined
       }
     >
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -1723,22 +1825,47 @@ function NotebookPage({
           <div className="border-b border-white/10 p-3">
             <div className="flex items-center gap-2">
               <Search size={15} className="text-slate-500" />
-              <input className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Search notes" />
-              <button className="icon-button h-8 w-8" type="button">
+              <input
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600"
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search notes"
+                value={searchTerm}
+              />
+              <button
+                className={`icon-button h-8 w-8 ${filterMode === "favorites" ? "workspace-tab-active" : ""}`}
+                onClick={() =>
+                  setFilterMode((current) => current === "favorites" ? "all" : "favorites")
+                }
+                title="Filter favorites"
+                type="button"
+              >
                 <Filter size={14} />
               </button>
             </div>
           </div>
           <div className="grid gap-2 p-3">
-            <NotebookFolder label={`All notes (${closedTrades.length})`} active />
-            <NotebookFolder label="Favorites (0)" />
+            <NotebookFolder
+              active={filterMode === "all"}
+              label={`All notes (${closedTrades.length})`}
+              onClick={() => setFilterMode("all")}
+            />
+            <NotebookFolder
+              active={filterMode === "favorites"}
+              label={`Favorites (${favoriteCount})`}
+              onClick={() => setFilterMode("favorites")}
+            />
             <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.16em] text-slate-500">
               Trade Notes
-              <button className="icon-button h-7 w-7" type="button">
+              <button
+                className="icon-button h-7 w-7"
+                onClick={selectLatestTrade}
+                title="Select latest trade note"
+                type="button"
+              >
                 <Plus size={13} />
               </button>
             </div>
-            {closedTrades.slice().reverse().map((trade) => (
+            {visibleTrades.map((trade) => (
               <button
                 className={`flex min-w-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition ${
                   selectedTrade?.id === trade.id
@@ -1763,67 +1890,24 @@ function NotebookPage({
                 </span>
               </button>
             ))}
+            {visibleTrades.length === 0 && (
+              <div className="rounded-md border border-dashed border-white/10 bg-black/20 px-3 py-6 text-center text-sm text-slate-500">
+                No notes match this view.
+              </div>
+            )}
           </div>
         </FeatureCard>
         <FeatureCard>
           {selectedTrade ? (
-            <>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">
-                    {tradeSymbol(selectedTrade, sessionById)} : {shortDate(selectedTrade.entry_time)}
-                  </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Created: {formatDateTime(selectedTrade.entry_time)} - Last updated: {formatDateTime(selectedTrade.exit_time)}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button className="icon-button h-9 w-9" type="button"><Star size={15} /></button>
-                  <button className="icon-button h-9 w-9" type="button"><Share2 size={15} /></button>
-                  <button className="icon-button h-9 w-9" type="button"><MoreHorizontal size={15} /></button>
-                </div>
-              </div>
-              <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Trade summary</div>
-                <div className={`mt-2 text-3xl font-semibold ${toneForNumber(selectedTrade.realized_pnl)}`}>
-                  {formatMoney(
-                    selectedTrade.realized_pnl,
-                    currencyForSession(sessionById.get(selectedTrade.session_id), datasets),
-                  )}
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-4">
-                  <CompactMetric label="Side" value={selectedTrade.side} />
-                  <CompactMetric label="Volume" value={formatCompactNumber(selectedTrade.quantity)} />
-                  <CompactMetric label="R multiple" value={formatOptionalNumber(selectedTrade.r_multiple)} />
-                  <CompactMetric
-                    label="Gross P&L"
-                    value={formatMoney(
-                      selectedTrade.realized_pnl,
-                      currencyForSession(sessionById.get(selectedTrade.session_id), datasets),
-                    )}
-                    tone={toneForNumber(selectedTrade.realized_pnl)}
-                  />
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    className="control-button workspace-tab-active"
-                    onClick={() => onReplayTrade(selectedTrade)}
-                    type="button"
-                  >
-                    <PlaySquare size={15} />
-                    Replay trade
-                  </button>
-                  <button
-                    className="control-button"
-                    onClick={() => onInspectTrade(selectedTrade)}
-                    type="button"
-                  >
-                    View trade details
-                  </button>
-                </div>
-              </div>
-              <RichTextEditorStub />
-            </>
+            <NotebookTradeDetail
+              currency={currencyForSession(selectedSession, datasets)}
+              favorite={favoriteTradeIdSet.has(selectedTrade.id)}
+              onReplayTrade={onReplayTrade}
+              onToggleFavorite={() => toggleFavorite(selectedTrade.id)}
+              saveSignal={saveSignal}
+              session={selectedSession}
+              trade={selectedTrade}
+            />
           ) : (
             <EmptyState icon={NotebookPen} message="Close a trade to start a linked note." />
           )}
@@ -1831,6 +1915,698 @@ function NotebookPage({
       </div>
     </PageScaffold>
   );
+}
+
+function NotebookTradeDetail({
+  currency,
+  favorite,
+  onReplayTrade,
+  onToggleFavorite,
+  saveSignal,
+  session,
+  trade,
+}: {
+  currency: string;
+  favorite: boolean;
+  onReplayTrade: (trade: Trade) => Promise<void> | void;
+  onToggleFavorite: () => void;
+  saveSignal: number;
+  session: BacktestSession | null;
+  trade: Trade;
+}) {
+  const updateJournal = useBacktestStore((state) => state.updateJournal);
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  const customTagRef = useRef<HTMLInputElement | null>(null);
+  const saveSignalRef = useRef(saveSignal);
+  const [notes, setNotes] = useState(trade.notes ?? "");
+  const [strategy, setStrategy] = useState(tradeStrategyName(trade, session ?? undefined));
+  const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
+  const [tags, setTags] = useState<string[]>(trade.mistake_tags);
+  const [customTag, setCustomTag] = useState("");
+  const [snapshotUrl, setSnapshotUrl] = useState(trade.screenshot_url ?? "");
+  const [snapshotStatus, setSnapshotStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >(trade.screenshot_url ? "ready" : "idle");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [executionsBySession, setExecutionsBySession] = useState<Record<number, Execution[]>>({});
+  const [executionStatusBySession, setExecutionStatusBySession] = useState<
+    Record<number, "idle" | "loading" | "ready" | "error">
+  >({});
+  const activeStrategyScope = strategyTagScope(strategy || session?.strategy_name || trade.strategy_name);
+  const [strategyCustomTags, setStrategyCustomTags] = useState<string[]>(() =>
+    loadStrategyMistakeTags(activeStrategyScope),
+  );
+  const mistakeOptions = useMemo(
+    () => mergeTags(DEFAULT_MISTAKE_TAGS, strategyCustomTags),
+    [strategyCustomTags],
+  );
+  const cachedExecutions = executionsBySession[trade.session_id];
+  const executionStatus = executionStatusBySession[trade.session_id] ?? "idle";
+  const tradeExecutions = useMemo(
+    () =>
+      (cachedExecutions ?? [])
+        .filter(
+          (execution) =>
+            execution.offset >= trade.entry_offset &&
+            (trade.exit_offset == null || execution.offset <= trade.exit_offset),
+        )
+        .sort((a, b) => a.offset - b.offset || a.id - b.id),
+    [cachedExecutions, trade.entry_offset, trade.exit_offset],
+  );
+  const savedStrategy = tradeStrategyName(trade, session ?? undefined);
+  const hasChanges =
+    notes !== (trade.notes ?? "") ||
+    strategy !== savedStrategy ||
+    emotion !== (trade.emotional_state ?? "") ||
+    snapshotUrl !== (trade.screenshot_url ?? "") ||
+    !sameStringList(tags, trade.mistake_tags);
+
+  useEffect(() => {
+    setNotes(trade.notes ?? "");
+    setStrategy(tradeStrategyName(trade, session ?? undefined));
+    setEmotion(trade.emotional_state ?? "");
+    setTags(trade.mistake_tags);
+    setCustomTag("");
+    setSnapshotUrl(trade.screenshot_url ?? "");
+    setSnapshotStatus(trade.screenshot_url ? "ready" : "idle");
+    setStatus(null);
+    setMoreOpen(false);
+  }, [session, trade]);
+
+  useEffect(() => {
+    let active = true;
+    setStrategyCustomTags(loadStrategyMistakeTags(activeStrategyScope));
+    void hydrateStrategyMistakeTags(activeStrategyScope).then((nextTags) => {
+      if (active) {
+        setStrategyCustomTags(nextTags);
+      }
+    });
+    const unsubscribe = subscribeStrategyMistakeTags(activeStrategyScope, setStrategyCustomTags);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [activeStrategyScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (trade.screenshot_url) {
+      setSnapshotStatus("ready");
+      return () => {
+        cancelled = true;
+      };
+    }
+    setSnapshotStatus("loading");
+    void createTradeSnapshotDataUrl(trade)
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+        setSnapshotUrl(snapshot);
+        setSnapshotStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSnapshotStatus("error");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trade.id, trade.screenshot_url]);
+
+  useEffect(() => {
+    if (cachedExecutions || executionStatus === "loading") {
+      return;
+    }
+    let active = true;
+    setExecutionStatusBySession((current) => ({
+      ...current,
+      [trade.session_id]: "loading",
+    }));
+    void getBacktest(trade.session_id)
+      .then((state) => {
+        if (!active) {
+          return;
+        }
+        setExecutionsBySession((current) => ({
+          ...current,
+          [trade.session_id]: state.executions,
+        }));
+        setExecutionStatusBySession((current) => ({
+          ...current,
+          [trade.session_id]: "ready",
+        }));
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setExecutionStatusBySession((current) => ({
+          ...current,
+          [trade.session_id]: "error",
+        }));
+      });
+    return () => {
+      active = false;
+    };
+  }, [cachedExecutions, executionStatus, trade.session_id]);
+
+  useEffect(() => {
+    if (saveSignalRef.current === saveSignal) {
+      return;
+    }
+    saveSignalRef.current = saveSignal;
+    void saveDraft();
+  }, [saveSignal]);
+
+  async function regenerateSnapshot() {
+    setSnapshotStatus("loading");
+    setStatus(null);
+    try {
+      const snapshot = await createTradeSnapshotDataUrl(trade);
+      setSnapshotUrl(snapshot);
+      setSnapshotStatus("ready");
+      setStatus("Snapshot regenerated");
+    } catch {
+      setSnapshotStatus("error");
+      setStatus("Snapshot could not be generated");
+    }
+  }
+
+  function addTags(value: string) {
+    const nextTags = parseTagInput(value);
+    if (nextTags.length === 0) {
+      return;
+    }
+    persistStrategyMistakeTags(activeStrategyScope, nextTags);
+    setStrategyCustomTags((current) => mergeTags(current, nextTags));
+    setTags((current) => mergeTags(current, nextTags));
+    setCustomTag("");
+  }
+
+  function removeTag(tag: string) {
+    setTags((current) => current.filter((currentTag) => currentTag !== tag));
+  }
+
+  function handleCustomTagKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    addTags(customTag);
+  }
+
+  async function saveDraft() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      await updateJournal(trade.id, {
+        emotional_state: emotion || null,
+        mistake_tags: tags,
+        notes: notes || null,
+        screenshot_url: snapshotUrl || null,
+        strategy_name: strategy || null,
+      });
+      persistStrategyMistakeTags(strategy || activeStrategyScope, tags);
+      setStatus("Saved");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save note");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function copySummary() {
+    const summary = [
+      `${session?.symbol ? formatMarketSymbol(session.symbol) : "Trade"} : ${shortDate(trade.entry_time)}`,
+      `${trade.side} ${formatCompactNumber(trade.quantity)} @ ${formatPrice(trade.entry_price)}`,
+      `Exit: ${formatPrice(trade.exit_price)} | P&L: ${formatMoney(trade.realized_pnl, currency)} | R: ${formatOptionalNumber(trade.r_multiple)}`,
+      strategy ? `Strategy: ${strategy}` : null,
+      tags.length > 0 ? `Tags: ${tags.join(", ")}` : null,
+      notes.trim() ? `Notes:\n${notes.trim()}` : null,
+    ].filter(Boolean).join("\n");
+    void navigator.clipboard?.writeText(summary);
+    setStatus("Copied summary");
+    setMoreOpen(false);
+  }
+
+  function insertNoteText(text: string) {
+    const textarea = noteRef.current;
+    if (!textarea) {
+      setNotes((current) => `${current}${current ? "\n" : ""}${text}`);
+      return;
+    }
+    const start = textarea.selectionStart ?? notes.length;
+    const end = textarea.selectionEnd ?? notes.length;
+    const prefix = notes.slice(0, start);
+    const suffix = notes.slice(end);
+    const next = `${prefix}${text}${suffix}`;
+    setNotes(next);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = start + text.length;
+      textarea.selectionEnd = start + text.length;
+    });
+  }
+
+  function wrapNoteSelection(before: string, after: string, fallback = "text") {
+    const textarea = noteRef.current;
+    if (!textarea) {
+      insertNoteText(`${before}${fallback}${after}`);
+      return;
+    }
+    const start = textarea.selectionStart ?? notes.length;
+    const end = textarea.selectionEnd ?? notes.length;
+    const selected = notes.slice(start, end) || fallback;
+    const replacement = `${before}${selected}${after}`;
+    setNotes(`${notes.slice(0, start)}${replacement}${notes.slice(end)}`);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = start + before.length;
+      textarea.selectionEnd = start + before.length + selected.length;
+    });
+  }
+
+  function alignSelection() {
+    const textarea = noteRef.current;
+    if (!textarea) {
+      insertNoteText("> ");
+      return;
+    }
+    const start = textarea.selectionStart ?? notes.length;
+    const end = textarea.selectionEnd ?? notes.length;
+    const selected = notes.slice(start, end) || "Aligned note";
+    const replacement = selected
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    setNotes(`${notes.slice(0, start)}${replacement}${notes.slice(end)}`);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.selectionStart = start;
+      textarea.selectionEnd = start + replacement.length;
+    });
+  }
+
+  function applyEditorAction(action: string) {
+    switch (action) {
+      case "Templates":
+        insertNoteText(notebookTemplateText(trade, currency));
+        break;
+      case "Add tag":
+        customTagRef.current?.focus();
+        break;
+      case "Write with AI":
+        insertNoteText(buildNotebookReviewDraft(trade, currency, strategy));
+        break;
+      case "B":
+        wrapNoteSelection("**", "**");
+        break;
+      case "I":
+        wrapNoteSelection("*", "*");
+        break;
+      case "U":
+        wrapNoteSelection("<u>", "</u>");
+        break;
+      case "S":
+        wrapNoteSelection("~~", "~~");
+        break;
+      case "Link":
+        wrapNoteSelection("[", "](https://)", "link text");
+        break;
+      case "Color":
+        wrapNoteSelection('<span style="color: #67e8f9">', "</span>");
+        break;
+      case "Align":
+        alignSelection();
+        break;
+      default:
+        insertNoteText("\n- [ ] ");
+    }
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-white">
+            {session?.symbol ? formatMarketSymbol(session.symbol) : "Trade"} : {shortDate(trade.entry_time)}
+          </h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Created: {formatDateTime(trade.entry_time)} - Last updated: {formatDateTime(trade.exit_time)}
+          </p>
+        </div>
+        <div className="relative flex gap-2">
+          <button
+            className={`icon-button h-9 w-9 ${favorite ? "workspace-tab-active" : ""}`}
+            onClick={onToggleFavorite}
+            title={favorite ? "Remove from favorites" : "Add to favorites"}
+            type="button"
+          >
+            <Star fill={favorite ? "currentColor" : "none"} size={15} />
+          </button>
+          <button className="icon-button h-9 w-9" onClick={copySummary} title="Copy note summary" type="button">
+            <Share2 size={15} />
+          </button>
+          <button
+            className={`icon-button h-9 w-9 ${moreOpen ? "workspace-tab-active" : ""}`}
+            onClick={() => setMoreOpen((current) => !current)}
+            title="More note actions"
+            type="button"
+          >
+            <MoreHorizontal size={15} />
+          </button>
+          {moreOpen && (
+            <div className="absolute right-0 top-11 z-20 grid min-w-44 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
+              <button className="chart-dropdown-row" onClick={copySummary} type="button">
+                <Copy size={14} />
+                Copy summary
+              </button>
+              <button className="chart-dropdown-row" onClick={() => void regenerateSnapshot()} type="button">
+                <RefreshCw size={14} />
+                Regenerate snapshot
+              </button>
+              <button
+                className="chart-dropdown-row text-rose-100"
+                onClick={() => {
+                  setNotes("");
+                  setMoreOpen(false);
+                }}
+                type="button"
+              >
+                <X size={14} />
+                Clear note
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
+        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Trade summary</div>
+        <div className={`mt-2 text-3xl font-semibold ${toneForNumber(trade.realized_pnl)}`}>
+          {formatMoney(trade.realized_pnl, currency)}
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+          <CompactMetric label="Side" value={trade.side} />
+          <CompactMetric label="Volume" value={formatCompactNumber(trade.quantity)} />
+          <CompactMetric label="R multiple" value={formatOptionalNumber(trade.r_multiple)} />
+          <CompactMetric
+            label="Gross P&L"
+            value={formatMoney(trade.realized_pnl, currency)}
+            tone={toneForNumber(trade.realized_pnl)}
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            className="control-button workspace-tab-active"
+            onClick={() => onReplayTrade(trade)}
+            type="button"
+          >
+            <PlaySquare size={15} />
+            Replay trade
+          </button>
+          <button
+            className="control-button border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+            disabled={saving || (!hasChanges && status === "Saved")}
+            onClick={() => void saveDraft()}
+            type="button"
+          >
+            <Save size={15} />
+            {saving ? "Saving" : hasChanges ? "Save changes" : "Saved"}
+          </button>
+          {status && <span className="status-pill">{status}</span>}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="form-field">
+              <span>Strategy</span>
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                onChange={(event) => setStrategy(event.target.value)}
+                value={strategy}
+              />
+            </label>
+            <label className="form-field">
+              <span>Emotional State</span>
+              <ThemedSelect
+                className="h-10"
+                onChange={setEmotion}
+                options={selectOptionsWithValue(
+                  [
+                    { label: "No emotion", value: "" },
+                    ...LIVE_EMOTIONS.map((item) => ({ label: item, value: item })),
+                  ],
+                  emotion,
+                )}
+                portal
+                value={emotion}
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <CompactMetric label="Entry time" value={formatDateTime(trade.entry_time)} />
+            <CompactMetric label="Exit time" value={formatDateTime(trade.exit_time)} />
+            <CompactMetric label="Entry" value={formatPrice(trade.entry_price)} />
+            <CompactMetric label="Exit" value={formatPrice(trade.exit_price)} />
+            <CompactMetric label="Stop loss" value={formatPrice(trade.stop_loss)} />
+            <CompactMetric label="Take profit" value={formatPrice(trade.take_profit)} />
+            <CompactMetric label="Remaining" value={formatCompactNumber(trade.remaining_quantity)} />
+            <CompactMetric label="Hold" value={formatMinutes(holdMinutes(trade))} />
+          </div>
+
+          <section className="rounded-md border border-white/10 bg-black/20 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <CardLabel icon={Filter} label="Mistake tags" />
+              <span className="text-xs text-slate-500">{tags.length} selected</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {mistakeOptions.map((option) => {
+                const active = tags.includes(option);
+                return (
+                  <button
+                    className={`rounded px-3 py-2 text-xs font-semibold transition ${
+                      active
+                        ? "bg-rose-300/10 text-rose-100"
+                        : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                    }`}
+                    key={option}
+                    onClick={() =>
+                      setTags((current) =>
+                        current.includes(option)
+                          ? current.filter((tag) => tag !== option)
+                          : [...current, option],
+                      )
+                    }
+                    type="button"
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <input
+                className="input-control h-10"
+                onChange={(event) => setCustomTag(event.target.value)}
+                onKeyDown={handleCustomTagKeyDown}
+                placeholder="Add custom tag"
+                ref={customTagRef}
+                value={customTag}
+              />
+              <button
+                className="control-button"
+                disabled={!customTag.trim()}
+                onClick={() => addTags(customTag)}
+                type="button"
+              >
+                <Plus size={16} />
+                Add
+              </button>
+            </div>
+            {tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <button
+                    className="inline-flex items-center gap-1 rounded bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-300/20"
+                    key={tag}
+                    onClick={() => removeTag(tag)}
+                    type="button"
+                  >
+                    {tag}
+                    <X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-md border border-white/10 bg-black/20">
+            <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
+              {["Templates", "Add tag", "Write with AI", "B", "I", "U", "S", "Link", "Color", "Align", "+"].map((item) => (
+                <button
+                  className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white"
+                  key={item}
+                  onClick={() => applyEditorAction(item)}
+                  type="button"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+            <textarea
+              className="min-h-52 w-full resize-y bg-transparent px-4 py-3 text-sm text-slate-300 outline-none placeholder:text-slate-600"
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder='Write something, or press "/" for commands'
+              ref={noteRef}
+              value={notes}
+            />
+          </section>
+        </div>
+
+        <aside className="grid content-start gap-4">
+          <section className="rounded-md border border-white/10 bg-black/20 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <CardLabel icon={Image} label="Trade snapshot" />
+              <button
+                className="control-button h-9"
+                disabled={snapshotStatus === "loading"}
+                onClick={() => void regenerateSnapshot()}
+                type="button"
+              >
+                <RefreshCw className={snapshotStatus === "loading" ? "animate-spin" : ""} size={14} />
+                Regenerate
+              </button>
+            </div>
+            {snapshotUrl ? (
+              <img
+                alt="Generated trade snapshot"
+                className="w-full rounded-md border border-white/10"
+                src={snapshotUrl}
+              />
+            ) : (
+              <div className="grid h-44 place-items-center rounded-md bg-ink-950 text-sm text-slate-500">
+                {snapshotStatus === "error" ? "Snapshot could not be generated" : "Generating snapshot"}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-md border border-white/10 bg-black/20 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <CardLabel icon={ClipboardList} label="Executions" />
+              <span className="text-xs text-slate-500">{tradeExecutions.length}</span>
+            </div>
+            <div className="grid gap-2">
+              {tradeExecutions.map((execution) => (
+                <div className="flex justify-between gap-3 rounded bg-white/5 px-3 py-2 text-sm" key={execution.id}>
+                  <span className={execution.side === "BUY" ? "text-emerald-300" : "text-rose-300"}>
+                    {execution.side}
+                  </span>
+                  <span className="text-right text-slate-300">
+                    {formatCompactNumber(execution.quantity)} @ {formatPrice(execution.price)}
+                  </span>
+                </div>
+              ))}
+              {tradeExecutions.length === 0 && (
+                <div className="rounded bg-white/5 px-3 py-3 text-sm text-slate-500">
+                  {executionStatus === "loading"
+                    ? "Loading executions"
+                    : executionStatus === "error"
+                      ? "Executions could not be loaded"
+                      : "No executions linked"}
+                </div>
+              )}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function sanitizeFavoriteIds(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item > 0),
+    ),
+  );
+}
+
+function matchesNotebookSearch(
+  trade: Trade,
+  searchTerm: string,
+  session: BacktestSession | undefined,
+) {
+  const query = searchTerm.trim().toLowerCase();
+  if (!query) {
+    return true;
+  }
+  const haystack = [
+    session?.name,
+    session?.symbol,
+    session?.instrument,
+    session?.timeframe,
+    trade.side,
+    trade.status,
+    trade.strategy_name,
+    trade.notes,
+    trade.emotional_state,
+    trade.entry_time,
+    trade.exit_time,
+    formatMoney(trade.realized_pnl, session?.currency ?? "USD"),
+    ...trade.mistake_tags,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
+function sameStringList(a: string[], b: string[]) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((item, index) => item === b[index]);
+}
+
+function notebookTemplateText(trade: Trade, currency: string) {
+  return [
+    "Setup",
+    "- Context:",
+    "- Trigger:",
+    "",
+    "Execution",
+    `- Entry: ${formatPrice(trade.entry_price)}`,
+    `- Exit: ${formatPrice(trade.exit_price)}`,
+    `- Result: ${formatMoney(trade.realized_pnl, currency)} (${formatOptionalNumber(trade.r_multiple)}R)`,
+    "",
+    "Review",
+    "- What worked:",
+    "- What needs correction:",
+    "- Next action:",
+  ].join("\n");
+}
+
+function buildNotebookReviewDraft(trade: Trade, currency: string, strategy: string) {
+  const outcome = trade.realized_pnl >= 0 ? "positive" : "negative";
+  return [
+    `Draft review for ${strategy || "this setup"}:`,
+    `The trade closed with a ${outcome} result of ${formatMoney(trade.realized_pnl, currency)} and ${formatOptionalNumber(trade.r_multiple)}R.`,
+    `Entry was ${formatPrice(trade.entry_price)} and exit was ${formatPrice(trade.exit_price)}.`,
+    "Review whether the entry followed the planned trigger, whether management matched the rulebook, and what one adjustment should carry into the next replay.",
+  ].join("\n");
 }
 
 function ReportsPage({
@@ -3040,12 +3816,21 @@ function ModalFrame({
   );
 }
 
-function NotebookFolder({ active = false, label }: { active?: boolean; label: string }) {
+function NotebookFolder({
+  active = false,
+  label,
+  onClick,
+}: {
+  active?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       className={`rounded-md px-3 py-2 text-left text-sm font-semibold ${
         active ? "bg-cyan-300/10 text-cyan-100" : "text-slate-400 hover:bg-white/5 hover:text-white"
       }`}
+      onClick={onClick}
       type="button"
     >
       {label}

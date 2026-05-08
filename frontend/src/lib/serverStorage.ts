@@ -191,6 +191,7 @@ function legacyStorageKeyFor(key: string) {
     "drawing-presets.v1": "edgelab.drawing-presets.v1",
     "fib-presets.v1": "edgelab.fib-presets.v1",
     "live-journal.v1": "edgelab.live-journal.v1",
+    "notebook-favorites.v1": "edgelab.notebook-favorites.v1",
     "order-line-modification-confirmation.v1": "edgelab.order-line-modification-confirmation.v1",
     "order-risk-base.v1": "edgelab.order-risk-base.v1",
     "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
