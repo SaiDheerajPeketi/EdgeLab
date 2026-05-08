@@ -6,7 +6,6 @@ import {
   ClipboardCheck,
   Clock3,
   Database,
-  Info,
   Maximize2,
   Minimize2,
   Palette,
@@ -99,6 +98,7 @@ type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
 type TimeframeShortcutFeedback = {
   description: string;
   status: "ready" | "unavailable" | "invalid";
+  timeframe?: ChartTimeframe;
   value: string;
 };
 const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
@@ -429,6 +429,15 @@ export default function App() {
       scheduleTimeframeShortcutClear();
     }
 
+    function commitTimeframeShortcut(rawValue: string) {
+      const feedback = buildTimeframeShortcutFeedback(rawValue, sourceTimeframe);
+      if (feedback.status === "ready" && feedback.timeframe) {
+        changeTimeframe(feedback.timeframe);
+      }
+      setTimeframeShortcutFeedback(feedback);
+      scheduleTimeframeShortcutClear();
+    }
+
     function handleTimeframeShortcut(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) {
         clearTimeframeShortcutBuffer();
@@ -436,11 +445,19 @@ export default function App() {
       }
       if (event.key.length !== 1) {
         if (timeframeShortcutBufferRef.current && event.key !== "Shift") {
-          clearTimeframeShortcutBuffer();
-          if (["Backspace", "Delete", "Escape", "Enter"].includes(event.key)) {
+          const bufferedValue = timeframeShortcutBufferRef.current;
+          timeframeShortcutBufferRef.current = "";
+          if (event.key === "Enter") {
+            commitTimeframeShortcut(bufferedValue);
             event.preventDefault();
             return true;
           }
+          if (["Backspace", "Delete", "Escape"].includes(event.key)) {
+            clearTimeframeShortcutBuffer();
+            event.preventDefault();
+            return true;
+          }
+          clearTimeframeShortcutBuffer();
         }
         return false;
       }
@@ -459,12 +476,8 @@ export default function App() {
 
       if (/^[mMhHdDwW]$/.test(event.key)) {
         const rawValue = `${timeframeShortcutBufferRef.current}${event.key}`;
-        const normalized = normalizeChartTimeframe(rawValue);
-        if (normalized && canAggregateTimeframe(normalized, sourceTimeframe)) {
-          changeTimeframe(normalized);
-        }
         timeframeShortcutBufferRef.current = "";
-        showTimeframeShortcutFeedback(rawValue);
+        commitTimeframeShortcut(rawValue);
         event.preventDefault();
         return true;
       }
@@ -1581,16 +1594,16 @@ function TimeframeShortcutOverlay({
       className="timeframe-shortcut-overlay"
       role="status"
     >
-      <div className="timeframe-shortcut-dialog">
+      <div className={`timeframe-shortcut-dialog timeframe-shortcut-dialog-${feedback.status}`}>
+        <span className="timeframe-shortcut-status" aria-hidden="true" />
         <div className="timeframe-shortcut-title">
-          <span>Change interval</span>
-          <Info size={17} />
+          Interval
         </div>
-        <div className={`timeframe-shortcut-input timeframe-shortcut-input-${feedback.status}`}>
+        <div className="timeframe-shortcut-input">
           <span className="timeframe-shortcut-value">{feedback.value}</span>
           <span className="timeframe-shortcut-caret" aria-hidden="true" />
         </div>
-        <div className={`timeframe-shortcut-description timeframe-shortcut-description-${feedback.status}`}>
+        <div className="timeframe-shortcut-description">
           {feedback.description}
         </div>
       </div>
@@ -1630,6 +1643,7 @@ function buildTimeframeShortcutFeedback(
   return {
     description: formatTimeframeShortcutDescription(normalized),
     status: "ready",
+    timeframe: normalized,
     value,
   };
 }

@@ -934,11 +934,11 @@ button:disabled {
   }
 
   .timeframe-shortcut-overlay {
-    @apply pointer-events-none fixed inset-0 z-[260] grid place-items-center px-4;
+    @apply pointer-events-none fixed inset-x-0 top-[42%] z-[260] grid justify-items-center px-4;
   }
 
   .timeframe-shortcut-dialog {
-    @apply grid w-[min(260px,calc(100vw-32px))] gap-3 rounded-md border border-cyan-300/20 bg-[#080c11]/95 px-4 py-4 shadow-panel backdrop-blur;
+    @apply grid min-w-[196px] max-w-[min(260px,calc(100vw-32px))] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 rounded-md border border-cyan-300/20 bg-[#080c11]/95 px-3 py-2.5 shadow-panel backdrop-blur;
     animation: timeframeShortcutIn 120ms ease-out;
     background-image:
       linear-gradient(90deg, rgba(50, 211, 238, 0.10), transparent 46%),
@@ -948,28 +948,36 @@ button:disabled {
       0 1px 0 rgba(255, 255, 255, 0.05) inset;
   }
 
-  .timeframe-shortcut-title {
-    @apply flex items-center justify-between gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400;
+  .timeframe-shortcut-dialog-ready {
+    @apply border-cyan-300/25;
   }
 
-  .timeframe-shortcut-title svg {
-    @apply text-slate-500;
+  .timeframe-shortcut-dialog-unavailable {
+    @apply border-amber-300/30;
+  }
+
+  .timeframe-shortcut-dialog-invalid {
+    @apply border-rose-300/30;
+  }
+
+  .timeframe-shortcut-status {
+    @apply row-span-3 h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(50,211,238,0.55)];
+  }
+
+  .timeframe-shortcut-dialog-unavailable .timeframe-shortcut-status {
+    @apply bg-amber-300 shadow-[0_0_14px_rgba(251,191,36,0.35)];
+  }
+
+  .timeframe-shortcut-dialog-invalid .timeframe-shortcut-status {
+    @apply bg-rose-300 shadow-[0_0_14px_rgba(251,113,133,0.35)];
+  }
+
+  .timeframe-shortcut-title {
+    @apply min-w-0 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500;
   }
 
   .timeframe-shortcut-input {
-    @apply flex h-11 min-w-0 items-center justify-center rounded-md border bg-ink-950 px-3 text-center text-xl font-bold text-slate-100 transition;
-  }
-
-  .timeframe-shortcut-input-ready {
-    @apply border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45),0_0_18px_rgba(37,99,235,0.20)];
-  }
-
-  .timeframe-shortcut-input-unavailable {
-    @apply border-amber-400/80 shadow-[0_0_0_1px_rgba(251,191,36,0.30)];
-  }
-
-  .timeframe-shortcut-input-invalid {
-    @apply border-rose-400/80 shadow-[0_0_0_1px_rgba(251,113,133,0.30)];
+    @apply flex min-w-0 items-center text-lg font-black leading-none text-slate-100;
   }
 
   .timeframe-shortcut-value {
@@ -977,23 +985,19 @@ button:disabled {
   }
 
   .timeframe-shortcut-caret {
-    @apply ml-1 h-6 w-px bg-cyan-100;
+    @apply ml-1 h-5 w-px bg-cyan-100;
     animation: timeframeShortcutCaret 900ms steps(2, start) infinite;
   }
 
   .timeframe-shortcut-description {
-    @apply min-h-4 text-center text-xs font-semibold;
+    @apply min-w-0 truncate text-xs font-semibold text-slate-500;
   }
 
-  .timeframe-shortcut-description-ready {
-    @apply text-slate-500;
-  }
-
-  .timeframe-shortcut-description-unavailable {
+  .timeframe-shortcut-dialog-unavailable .timeframe-shortcut-description {
     @apply text-amber-200/85;
   }
 
-  .timeframe-shortcut-description-invalid {
+  .timeframe-shortcut-dialog-invalid .timeframe-shortcut-description {
     @apply text-rose-200/85;
   }
 
