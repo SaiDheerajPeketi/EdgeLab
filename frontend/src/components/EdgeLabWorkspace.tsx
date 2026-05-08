@@ -119,6 +119,7 @@ type Props = {
   datasets: DatasetCatalog | null;
   onEditTrade: (trade: Trade) => void;
   onInspectTrade: (trade: Trade) => void;
+  onOpenTradeNote: (trade: Trade) => void;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
@@ -135,6 +136,7 @@ type Props = {
   sessions: BacktestSession[];
   trades: Trade[];
   view: WorkspacePageView;
+  notebookFocusTradeId: number | null;
 };
 
 type Aggregate = {
@@ -325,6 +327,7 @@ export function EdgeLabWorkspace({
   datasets,
   onEditTrade,
   onInspectTrade,
+  onOpenTradeNote,
   onCreatePlaybook,
   onNavigateBacktest,
   onNavigateSessions,
@@ -338,6 +341,7 @@ export function EdgeLabWorkspace({
   sessions,
   trades,
   view,
+  notebookFocusTradeId,
 }: Props) {
   const liveJournal = useLiveJournalData();
   const sessionById = useMemo(
@@ -376,6 +380,7 @@ export function EdgeLabWorkspace({
     days,
     onEditTrade,
     onInspectTrade,
+    onOpenTradeNote,
     onCreatePlaybook,
     onNavigateBacktest,
     onNavigateSessions,
@@ -391,6 +396,7 @@ export function EdgeLabWorkspace({
     sessions,
     strategies,
     trades,
+    notebookFocusTradeId,
   };
 
   switch (view) {
@@ -439,6 +445,7 @@ type SharedPageProps = {
   days: DayGroup[];
   onEditTrade: (trade: Trade) => void;
   onInspectTrade: (trade: Trade) => void;
+  onOpenTradeNote: (trade: Trade) => void;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
@@ -457,6 +464,7 @@ type SharedPageProps = {
   sessions: BacktestSession[];
   strategies: StrategyGroup[];
   trades: Trade[];
+  notebookFocusTradeId: number | null;
 };
 
 function DashboardPage({
@@ -844,39 +852,176 @@ function DayViewPage({ currency, datasets, days, onInspectTrade, sessionById }: 
 function TradeViewPage({
   closedTrades,
   currency,
-  onEditTrade,
-  onInspectTrade,
+  datasets,
+  onOpenTradeNote,
+  sessionById,
+  strategies,
 }: SharedPageProps) {
+  const [instrumentFilter, setInstrumentFilter] = useState("ALL");
+  const [sideFilter, setSideFilter] = useState("ALL");
+  const [strategyFilter, setStrategyFilter] = useState("ALL");
+  const [tagFilter, setTagFilter] = useState("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const savedStrategyNames = useBacktestStrategyNames();
+  const instrumentOptions = useMemo(
+    () => buildTradeInstrumentOptions(closedTrades, sessionById),
+    [closedTrades, sessionById],
+  );
+  const strategyOptions = useMemo(
+    () => [
+      { label: "All strategies", value: "ALL" },
+      ...buildStrategySelectOptions(mergeStrategyGroups(strategies, savedStrategyNames)),
+    ],
+    [savedStrategyNames, strategies],
+  );
+  const tagOptions = useMemo(
+    () => [
+      { label: "All tags", value: "ALL" },
+      ...uniqueStrings(closedTrades.flatMap((trade) => trade.mistake_tags)).map((tag) => ({
+        label: tag,
+        value: tag,
+      })),
+    ],
+    [closedTrades],
+  );
+  const filteredTrades = useMemo(
+    () =>
+      closedTrades.filter((trade) => {
+        const session = sessionById.get(trade.session_id);
+        const strategyName = tradeStrategyName(trade, session);
+        const entryDate = trade.entry_time.slice(0, 10);
+        if (instrumentFilter !== "ALL" && tradeInstrumentFilterValue(trade, session) !== instrumentFilter) {
+          return false;
+        }
+        if (sideFilter !== "ALL" && trade.side !== sideFilter) {
+          return false;
+        }
+        if (strategyFilter !== "ALL" && !sameStrategyName(strategyName, strategyFilter)) {
+          return false;
+        }
+        if (tagFilter !== "ALL" && !trade.mistake_tags.includes(tagFilter)) {
+          return false;
+        }
+        if (dateFrom && entryDate < dateFrom) {
+          return false;
+        }
+        if (dateTo && entryDate > dateTo) {
+          return false;
+        }
+        if (!searchTerm.trim()) {
+          return true;
+        }
+        return tradeMatchesLogSearch(trade, session, searchTerm, strategyName);
+      }),
+    [closedTrades, dateFrom, dateTo, instrumentFilter, searchTerm, sessionById, sideFilter, strategyFilter, tagFilter],
+  );
+  const filteredAggregate = useMemo(() => aggregateTrades(filteredTrades), [filteredTrades]);
+  const filtersActive =
+    instrumentFilter !== "ALL" ||
+    sideFilter !== "ALL" ||
+    strategyFilter !== "ALL" ||
+    tagFilter !== "ALL" ||
+    Boolean(dateFrom || dateTo || searchTerm.trim());
+
+  function resetFilters() {
+    setInstrumentFilter("ALL");
+    setSideFilter("ALL");
+    setStrategyFilter("ALL");
+    setTagFilter("ALL");
+    setDateFrom("");
+    setDateTo("");
+    setSearchTerm("");
+  }
+
+  function exportFilteredTradesCsv() {
+    exportTradeLogCsv(filteredTrades, sessionById, datasets);
+  }
+
   return (
     <PageScaffold
       eyebrow="Backtest Trade View"
       title="Backtest Trade Log"
       description="Closed replay trades only, with review notes and tagging. Live actual trades belong in the separate Journal scope."
       actions={
-        <button className="control-button" type="button">
+        <button className="control-button" disabled={filteredTrades.length === 0} onClick={exportFilteredTradesCsv} type="button">
           <Download size={15} />
           Export CSV
         </button>
       }
     >
       <FeatureCard>
-        <div className="mb-4 grid gap-2 md:grid-cols-5">
-          {["Symbol", "Direction", "Strategy", "Tags", "Date range"].map((label) => (
-            <label className="form-field" key={label}>
-              {label}
+        <div className="mb-4 grid gap-3">
+          <div className="grid gap-2 lg:grid-cols-[minmax(0,1.1fr)_repeat(3,minmax(150px,0.75fr))]">
+            <label className="form-field">
+              Search
+              <div className="flex h-10 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-3 text-sm focus-within:border-cyan-300/40 focus-within:ring-2 focus-within:ring-cyan-300/10">
+                <Search className="shrink-0 text-slate-500" size={15} />
+                <input
+                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-600"
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Instrument, strategy, note, tag..."
+                  value={searchTerm}
+                />
+              </div>
+            </label>
+            <label className="form-field">
+              Instrument
+              <ThemedSelect className="h-10" onChange={setInstrumentFilter} options={instrumentOptions} portal value={instrumentFilter} />
+            </label>
+            <label className="form-field">
+              Direction
               <ThemedSelect
                 className="h-10"
-                defaultValue="ALL"
-                options={[{ label: `All ${label.toLowerCase()}`, value: "ALL" }]}
+                onChange={setSideFilter}
+                options={[
+                  { label: "All directions", value: "ALL" },
+                  { label: "Long", value: "LONG" },
+                  { label: "Short", value: "SHORT" },
+                ]}
+                portal
+                value={sideFilter}
               />
             </label>
-          ))}
+            <label className="form-field">
+              Strategy
+              <ThemedSelect className="h-10" onChange={setStrategyFilter} options={strategyOptions} portal value={strategyFilter} />
+            </label>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[minmax(160px,0.75fr)_repeat(2,minmax(140px,0.55fr))_auto]">
+            <label className="form-field">
+              Tags
+              <ThemedSelect className="h-10" onChange={setTagFilter} options={tagOptions} portal value={tagFilter} />
+            </label>
+            <label className="form-field">
+              From
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
+            </label>
+            <label className="form-field">
+              To
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} />
+            </label>
+            <div className="flex items-end">
+              <button className="control-button h-10" disabled={!filtersActive} onClick={resetFilters} type="button">
+                <RefreshCw size={15} />
+                Reset
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            <CompactMetric label="Visible trades" value={`${filteredTrades.length}/${closedTrades.length}`} />
+            <CompactMetric label="Net P&L" value={formatMoney(filteredAggregate.netPnl, currency)} tone={toneForNumber(filteredAggregate.netPnl)} />
+            <CompactMetric label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
+            <CompactMetric label="Avg R" value={formatOptionalNumber(filteredAggregate.averageR)} />
+            <CompactMetric label="Profit factor" value={formatRatio(filteredAggregate.profitFactor)} />
+          </div>
         </div>
         <TradeLog
           currency={currency}
-          trades={closedTrades}
-          onEdit={onEditTrade}
-          onInspect={onInspectTrade}
+          tradeContext={(trade) => buildTradeLogContext(trade, sessionById, datasets)}
+          trades={filteredTrades}
+          onInspect={onOpenTradeNote}
         />
       </FeatureCard>
     </PageScaffold>
@@ -1800,6 +1945,7 @@ function LiveTradeTable({
 function NotebookPage({
   closedTrades,
   datasets,
+  notebookFocusTradeId,
   onReplayTrade,
   sessionById,
   strategies,
@@ -1869,6 +2015,16 @@ function NotebookPage({
   }, []);
 
   useEffect(() => {
+    if (notebookFocusTradeId == null || !closedTrades.some((trade) => trade.id === notebookFocusTradeId)) {
+      return;
+    }
+    setSearchTerm("");
+    setFilterMode("all");
+    setFilterOpen(false);
+    setSelectedTradeId(notebookFocusTradeId);
+  }, [closedTrades, notebookFocusTradeId]);
+
+  useEffect(() => {
     if (visibleTrades.length === 0) {
       if (selectedTradeId != null) {
         setSelectedTradeId(null);
@@ -1906,15 +2062,19 @@ function NotebookPage({
                 value={searchTerm}
               />
               <button
-                className={`icon-button h-8 w-8 ${filterMode === "favorites" ? "workspace-tab-active" : ""}`}
+                className={`control-button h-8 px-2 text-xs ${filterMode === "favorites" ? "workspace-tab-active" : ""}`}
                 onClick={() => setFilterOpen((current) => !current)}
-                title="Filter notes"
+                title="Filter note search scope"
                 type="button"
               >
                 <Filter size={14} />
+                {filterMode === "favorites" ? "Favorites" : "All"}
               </button>
               {filterOpen && (
-                <div className="absolute right-0 top-10 z-20 grid w-40 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
+                <div className="absolute right-0 top-10 z-20 grid w-48 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                    Search scope
+                  </div>
                   {[
                     { id: "all", label: "All notes" },
                     { id: "favorites", label: "Favorites" },
@@ -5083,6 +5243,182 @@ function buildStrategySelectOptions(strategies: StrategyGroup[]) {
     });
   }
   return options;
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+function buildTradeInstrumentOptions(
+  trades: Trade[],
+  sessionById: Map<number, BacktestSession>,
+) {
+  const options = new Map<string, { label: string; sublabel?: string; value: string }>();
+  for (const trade of trades) {
+    const session = sessionById.get(trade.session_id);
+    const value = tradeInstrumentFilterValue(trade, session);
+    if (options.has(value)) {
+      continue;
+    }
+    options.set(value, {
+      label: tradeInstrumentLabel(trade, session),
+      sublabel: tradeInstrumentDetail(session),
+      value,
+    });
+  }
+  return [
+    { label: "All instruments", value: "ALL" },
+    ...Array.from(options.values()).sort((left, right) => left.label.localeCompare(right.label)),
+  ];
+}
+
+function buildTradeLogContext(
+  trade: Trade,
+  sessionById: Map<number, BacktestSession>,
+  datasets: DatasetCatalog | null,
+) {
+  const session = sessionById.get(trade.session_id);
+  return {
+    currency: currencyForSession(session, datasets),
+    instrument: tradeInstrumentLabel(trade, session),
+    instrumentDetail: tradeInstrumentDetail(session),
+    strategy: tradeStrategyName(trade, session),
+  };
+}
+
+function tradeInstrumentFilterValue(trade: Trade, session?: BacktestSession) {
+  return session?.instrument || session?.symbol || `session-${trade.session_id}`;
+}
+
+function tradeInstrumentLabel(trade: Trade, session?: BacktestSession) {
+  const label = session?.instrument || session?.symbol;
+  return label ? formatMarketSymbol(label) : `Session #${trade.session_id}`;
+}
+
+function tradeInstrumentDetail(session?: BacktestSession) {
+  if (!session) {
+    return undefined;
+  }
+  return [formatMarketSymbol(session.symbol), session.timeframe ?? null, session.name]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function tradeMatchesLogSearch(
+  trade: Trade,
+  session: BacktestSession | undefined,
+  query: string,
+  strategyName: string,
+) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+  const haystack = [
+    trade.id,
+    trade.side,
+    trade.status,
+    trade.entry_time,
+    trade.exit_time,
+    trade.entry_price,
+    trade.exit_price,
+    trade.realized_pnl,
+    trade.r_multiple,
+    strategyName,
+    session?.name,
+    session?.symbol,
+    session?.instrument,
+    session?.timeframe,
+    ...trade.mistake_tags,
+    richTextToPlainText(trade.notes),
+  ]
+    .filter((value) => value != null && value !== "")
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(needle);
+}
+
+function exportTradeLogCsv(
+  trades: Trade[],
+  sessionById: Map<number, BacktestSession>,
+  datasets: DatasetCatalog | null,
+) {
+  const headers = [
+    "Trade ID",
+    "Instrument",
+    "Symbol",
+    "Timeframe",
+    "Session",
+    "Side",
+    "Status",
+    "Entry Time",
+    "Exit Time",
+    "Entry Price",
+    "Exit Price",
+    "Quantity",
+    "Remaining Quantity",
+    "Stop Loss",
+    "Take Profit",
+    "Currency",
+    "Realized P&L",
+    "R Multiple",
+    "Strategy",
+    "Tags",
+    "Notes",
+  ];
+  const rows = trades.map((trade) => {
+    const session = sessionById.get(trade.session_id);
+    return [
+      trade.id,
+      session?.instrument ?? "",
+      session?.symbol ?? "",
+      session?.timeframe ?? "",
+      session?.name ?? `Session #${trade.session_id}`,
+      trade.side,
+      trade.status,
+      trade.entry_time,
+      trade.exit_time ?? "",
+      trade.entry_price,
+      trade.exit_price ?? "",
+      trade.quantity,
+      trade.remaining_quantity,
+      trade.stop_loss ?? "",
+      trade.take_profit ?? "",
+      currencyForSession(session, datasets),
+      trade.realized_pnl,
+      trade.r_multiple ?? "",
+      tradeStrategyName(trade, session),
+      trade.mistake_tags.join("; "),
+      richTextToPlainText(trade.notes),
+    ];
+  });
+  downloadTextFile(
+    `backtest-trades-${new Date().toISOString().slice(0, 10)}.csv`,
+    [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"),
+    "text/csv;charset=utf-8",
+  );
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadTextFile(filename: string, contents: string, type: string) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const blob = new Blob([contents], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function useLiveJournalData(): LiveJournalController {

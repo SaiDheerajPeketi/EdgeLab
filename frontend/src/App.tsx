@@ -180,6 +180,7 @@ export default function App() {
   } = useBacktestStore();
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
+  const [notebookFocusTradeId, setNotebookFocusTradeId] = useState<number | null>(null);
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
   const sidebarCollapsed = true;
@@ -1421,6 +1422,19 @@ export default function App() {
     await jumpToOffset(targetOffset);
   }
 
+  function openTradeNoteFromLog(trade: Trade) {
+    setReviewTrade(null);
+    setEditingTrade(null);
+    setReplayFocusTrade(null);
+    setNotebookFocusTradeId(trade.id);
+    setActiveWorkspace("notebook");
+    setSessionGateOpen(false);
+    setLeftPaneOpen(false);
+    setChartToolsOpen(false);
+    setLayersPanelOpen(false);
+    setWorkspacePanel("none");
+  }
+
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
   const backtestFocusHeader = (
     <header className="backtest-focus-header" ref={backtestHeaderRef}>
@@ -1620,6 +1634,7 @@ export default function App() {
               datasets={datasets}
               onEditTrade={setEditingTrade}
               onInspectTrade={setReviewTrade}
+              onOpenTradeNote={openTradeNoteFromLog}
               onNavigateBacktest={() => {
                 setReplayFocusTrade(null);
                 setActiveWorkspace("backtest");
@@ -1641,6 +1656,7 @@ export default function App() {
               sessions={resultSessions}
               trades={resultTrades}
               view={activeWorkspace}
+              notebookFocusTradeId={notebookFocusTradeId}
             />
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
