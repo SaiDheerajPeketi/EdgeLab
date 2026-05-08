@@ -1431,7 +1431,7 @@ export default function App() {
     setEditingTrade(null);
     setReplayFocusTrade(null);
     setNotebookFocusTradeId(trade.id);
-    setNotebookReturnTarget("tradeView");
+    setNotebookReturnTarget(activeWorkspace === "tradeView" || activeWorkspace === "dayView" ? activeWorkspace : null);
     setActiveWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1646,6 +1646,12 @@ export default function App() {
                 setActiveWorkspace("backtest");
                 setSessionGateOpen(false);
               }}
+              onNavigateDayView={() => {
+                setNotebookReturnTarget(null);
+                setReplayFocusTrade(null);
+                setActiveWorkspace("dayView");
+                setSessionGateOpen(false);
+              }}
               onNavigateSessions={() => {
                 setNotebookReturnTarget(null);
                 setReplayFocusTrade(null);
@@ -1672,6 +1678,7 @@ export default function App() {
               trades={resultTrades}
               view={activeWorkspace}
               notebookFocusTradeId={notebookFocusTradeId}
+              notebookReturnToDayView={notebookReturnTarget === "dayView"}
               notebookReturnToTradeView={notebookReturnTarget === "tradeView"}
             />
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (

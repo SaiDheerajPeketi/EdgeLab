@@ -15,6 +15,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Clock3,
   Copy,
@@ -127,6 +129,7 @@ type Props = {
   onUpdatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
   onDeletePlaybook: (playbookId: number) => Promise<void>;
   onNavigateBacktest: () => void;
+  onNavigateDayView: () => void;
   onNavigateSessions: () => void;
   onNavigateTradeView: () => void;
   onReplayTrade: (trade: Trade) => Promise<void> | void;
@@ -143,6 +146,7 @@ type Props = {
   trades: Trade[];
   view: WorkspacePageView;
   notebookFocusTradeId: number | null;
+  notebookReturnToDayView: boolean;
   notebookReturnToTradeView: boolean;
 };
 
@@ -174,6 +178,21 @@ type DayGroup = {
   trades: Trade[];
   aggregate: Aggregate;
 };
+
+type DayViewMode = "day" | "week";
+
+type DayViewPeriod = {
+  aggregate: Aggregate;
+  days: DayGroup[];
+  endDate: string;
+  id: string;
+  label: string;
+  startDate: string;
+  sublabel: string;
+  trades: Trade[];
+};
+
+type DayViewNoteMap = Record<string, string>;
 
 type StrategyGroup = {
   aggregate: Aggregate;
@@ -253,6 +272,7 @@ const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
 const BACKTEST_STRATEGIES_STORAGE_KEY = "backtest-strategies.v1";
 const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
 const NOTEBOOK_TEMPLATE_STORAGE_KEY = "notebook-template.v1";
+const BACKTEST_DAY_NOTES_STORAGE_KEY = "backtest-day-notes.v1";
 const DEFAULT_NOTEBOOK_TEMPLATE = [
   "Setup",
   "- Context:",
@@ -363,6 +383,7 @@ export function EdgeLabWorkspace({
   onUpdatePlaybook,
   onDeletePlaybook,
   onNavigateBacktest,
+  onNavigateDayView,
   onNavigateSessions,
   onNavigateTradeView,
   onReplayTrade,
@@ -376,6 +397,7 @@ export function EdgeLabWorkspace({
   trades,
   view,
   notebookFocusTradeId,
+  notebookReturnToDayView,
   notebookReturnToTradeView,
 }: Props) {
   const [tradeViewFilters, setTradeViewFilters] = useState<TradeViewFilterState>(DEFAULT_TRADE_VIEW_FILTERS);
@@ -478,7 +500,9 @@ export function EdgeLabWorkspace({
     strategies,
     trades,
     notebookFocusTradeId,
+    notebookReturnToDayView,
     notebookReturnToTradeView,
+    onReturnToDayView: notebookReturnToDayView ? onNavigateDayView : undefined,
     onReturnToTradeView: notebookReturnToTradeView ? returnToTradeView : undefined,
     tradeViewFilters,
     onTradeViewFiltersChange: setTradeViewFilters,
@@ -548,6 +572,7 @@ type SharedPageProps = {
     payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
+  onReturnToDayView?: () => void;
   onReturnToTradeView?: () => void;
   onTradeViewFiltersChange: Dispatch<SetStateAction<TradeViewFilterState>>;
   onTradeViewLogScrollChange: (scrollTop: number) => void;
@@ -559,6 +584,7 @@ type SharedPageProps = {
   strategies: StrategyGroup[];
   trades: Trade[];
   notebookFocusTradeId: number | null;
+  notebookReturnToDayView: boolean;
   notebookReturnToTradeView: boolean;
   tradeViewFilters: TradeViewFilterState;
   tradeViewLogScrollTop: number | null;
@@ -868,80 +894,353 @@ function AccountsPage({ aggregate, currency, datasets, sessions }: SharedPagePro
   );
 }
 
-function DayViewPage({ currency, datasets, days, onInspectTrade, sessionById }: SharedPageProps) {
-  const [mode, setMode] = useState<"day" | "week">("day");
-  const visibleDays = days.length > 0 ? days : [];
+function DayViewPage({
+  currency,
+  datasets,
+  days,
+  onInspectTrade,
+  onOpenTradeNote,
+  onReplayTrade,
+  sessionById,
+}: SharedPageProps) {
+  const [mode, setMode] = useState<DayViewMode>("day");
+  const [selectedDate, setSelectedDate] = useState(() => days[0]?.date ?? "");
+  const [calendarMonth, setCalendarMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
+  const [noteEditing, setNoteEditing] = useState(false);
+  const [notesByPeriod, setNotesByPeriod] = useState<DayViewNoteMap>(() =>
+    sanitizeDayViewNotes(getCachedAppStorageItem<unknown>(BACKTEST_DAY_NOTES_STORAGE_KEY, {})),
+  );
+  const periods = useMemo(() => buildDayViewPeriods(days, mode), [days, mode]);
+  const selectedPeriod = useMemo(
+    () => findDayViewPeriod(periods, selectedDate, mode),
+    [mode, periods, selectedDate],
+  );
+  const selectedRange =
+    mode === "week" && selectedPeriod
+      ? { start: selectedPeriod.startDate, end: selectedPeriod.endDate }
+      : null;
+  const noteKey = selectedPeriod ? `${mode}:${selectedPeriod.startDate}` : "";
+  const savedNote = noteKey ? notesByPeriod[noteKey] ?? "" : "";
+  const [noteDraft, setNoteDraft] = useState(savedNote);
+
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(BACKTEST_DAY_NOTES_STORAGE_KEY, {}).then((value) => {
+      if (active) {
+        setNotesByPeriod(sanitizeDayViewNotes(value));
+      }
+    });
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      BACKTEST_DAY_NOTES_STORAGE_KEY,
+      (value) => setNotesByPeriod(sanitizeDayViewNotes(value)),
+    );
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (days.length === 0) {
+      if (selectedDate) {
+        setSelectedDate("");
+      }
+      return;
+    }
+    if (!days.some((day) => day.date === selectedDate)) {
+      const nextDate = days[0].date;
+      setSelectedDate(nextDate);
+      setCalendarMonth(monthCursorFromDateKey(nextDate));
+    }
+  }, [days, selectedDate]);
+
+  useEffect(() => {
+    setNoteDraft(savedNote);
+    setNoteEditing(false);
+  }, [noteKey, savedNote]);
+
+  function selectDate(date: string) {
+    if (!days.some((day) => day.date === date)) {
+      return;
+    }
+    setSelectedDate(date);
+    setCalendarMonth(monthCursorFromDateKey(date));
+  }
+
+  function selectPeriod(period: DayViewPeriod) {
+    selectDate(period.days[0]?.date ?? period.endDate);
+  }
+
+  async function persistNote(nextNote: string) {
+    if (!noteKey) {
+      return;
+    }
+    const trimmed = nextNote.trim();
+    const nextNotes = { ...notesByPeriod };
+    if (trimmed) {
+      nextNotes[noteKey] = trimmed;
+    } else {
+      delete nextNotes[noteKey];
+    }
+    setNotesByPeriod(nextNotes);
+    setNoteEditing(false);
+    await saveAppStorageItem(BACKTEST_DAY_NOTES_STORAGE_KEY, nextNotes);
+  }
+
+  function exportSelectedPeriodCsv() {
+    if (!selectedPeriod) {
+      return;
+    }
+    exportTradeLogCsv(selectedPeriod.trades, sessionById, datasets);
+  }
 
   return (
     <PageScaffold
       eyebrow="Backtest Day View"
       title="Backtest Daily Review"
-      description="Review each replay day with backtest summary stats, mini equity, and the simulated trades inside that day."
+      description="Review replay results by day or week, add persistent review notes, and jump into the trades behind each period."
       actions={
-        <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
-          <TinyTab active={mode === "day"} onClick={() => setMode("day")}>Day</TinyTab>
-          <TinyTab active={mode === "week"} onClick={() => setMode("week")}>Week</TinyTab>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
+            <TinyTab active={mode === "day"} onClick={() => setMode("day")}>Day</TinyTab>
+            <TinyTab active={mode === "week"} onClick={() => setMode("week")}>Week</TinyTab>
+          </div>
+          <button
+            className="control-button"
+            disabled={!selectedPeriod || selectedPeriod.trades.length === 0}
+            onClick={exportSelectedPeriodCsv}
+            type="button"
+          >
+            <FileDown size={15} />
+            Export CSV
+          </button>
         </div>
       }
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="space-y-3">
-          {visibleDays.map((day) => (
-            <FeatureCard key={day.date}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">{day.label}</div>
-                  <div className={`mt-1 text-sm font-semibold ${toneForNumber(day.aggregate.netPnl)}`}>
-                    Net P&L {formatMoney(day.aggregate.netPnl, currency)}
+      {selectedPeriod ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <FeatureCard>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                    {mode === "week" ? "Selected week" : "Selected day"}
+                  </div>
+                  <h2 className="mt-1 truncate text-xl font-semibold text-white">{selectedPeriod.label}</h2>
+                  <div className="mt-1 text-sm text-slate-500">{selectedPeriod.sublabel}</div>
+                  <div className={`mt-2 text-sm font-semibold ${toneForNumber(selectedPeriod.aggregate.netPnl)}`}>
+                    Net P&L {formatMoney(selectedPeriod.aggregate.netPnl, currency)}
                   </div>
                 </div>
-                <button className="control-button h-9" type="button">
-                  <Plus size={14} />
-                  Add note
+                <button className="control-button h-9" onClick={() => setNoteEditing(true)} type="button">
+                  <NotebookPen size={14} />
+                  {savedNote ? "Edit note" : "Add note"}
                 </button>
               </div>
-              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
-                <AreaSparkline values={cumulativeValues(day.trades)} height={150} />
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.58fr)_minmax(280px,0.42fr)]">
+                <AreaSparkline values={cumulativeValues(selectedPeriod.trades)} height={190} />
                 <div className="grid grid-cols-2 gap-2">
-                  <CompactMetric label="Total trades" value={String(day.aggregate.totalTrades)} />
-                  <CompactMetric label="Gross P&L" value={formatMoney(day.aggregate.netPnl, currency)} tone={toneForNumber(day.aggregate.netPnl)} />
-                  <CompactMetric label="Winners" value={String(day.aggregate.wins)} tone="text-emerald-300" />
-                  <CompactMetric label="Losers" value={String(day.aggregate.losses)} tone="text-rose-300" />
-                  <CompactMetric label="Win rate" value={formatPercent(day.aggregate.winRate)} />
-                  <CompactMetric label="Profit factor" value={formatRatio(day.aggregate.profitFactor)} />
+                  <CompactMetric label="Trades" value={String(selectedPeriod.aggregate.totalTrades)} />
+                  <CompactMetric label="Net P&L" value={formatMoney(selectedPeriod.aggregate.netPnl, currency)} tone={toneForNumber(selectedPeriod.aggregate.netPnl)} />
+                  <CompactMetric label="Winners" value={String(selectedPeriod.aggregate.wins)} tone="text-emerald-300" />
+                  <CompactMetric label="Losers" value={String(selectedPeriod.aggregate.losses)} tone="text-rose-300" />
+                  <CompactMetric label="Win rate" value={formatPercent(selectedPeriod.aggregate.winRate)} />
+                  <CompactMetric label="Profit factor" value={formatRatio(selectedPeriod.aggregate.profitFactor)} />
+                  <CompactMetric label="Avg R" value={formatOptionalNumber(selectedPeriod.aggregate.averageR)} />
+                  <CompactMetric label="Avg hold" value={formatMinutes(selectedPeriod.aggregate.averageHoldMinutes)} />
                 </div>
               </div>
-              <div className="mt-3 grid gap-2">
-                {day.trades.map((trade) => (
-                  <button
-                    className="flex items-center justify-between rounded-md border border-white/10 bg-black/20 px-3 py-2 text-left text-sm hover:border-cyan-300/25"
-                    key={trade.id}
-                    onClick={() => onInspectTrade(trade)}
-                    type="button"
-                  >
-                    <span className="text-slate-300">
-                      {tradeSymbol(trade, sessionById)} - {trade.side} - {formatDateTime(trade.entry_time)}
-                    </span>
-                    <span className={toneForNumber(trade.realized_pnl)}>
-                      {formatMoney(
-                        trade.realized_pnl,
-                        currencyForSession(sessionById.get(trade.session_id), datasets),
-                      )}
-                    </span>
-                  </button>
-                ))}
+
+              {(noteEditing || savedNote) && (
+                <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <CardLabel icon={NotebookPen} label={`${mode === "week" ? "Weekly" : "Daily"} note`} />
+                    {!noteEditing && (
+                      <button className="control-button h-8 px-2 text-xs" onClick={() => setNoteEditing(true)} type="button">
+                        <Pencil size={13} />
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  {noteEditing ? (
+                    <div className="grid gap-2">
+                      <textarea
+                        className="input-control min-h-28 resize-y normal-case leading-6 tracking-normal"
+                        onChange={(event) => setNoteDraft(event.target.value)}
+                        placeholder="What happened in this period? What should carry into the next replay?"
+                        value={noteDraft}
+                      />
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button className="control-button" onClick={() => {
+                          setNoteDraft(savedNote);
+                          setNoteEditing(false);
+                        }} type="button">
+                          Cancel
+                        </button>
+                        <button className="control-button" disabled={!savedNote} onClick={() => void persistNote("")} type="button">
+                          <Trash2 size={14} />
+                          Clear
+                        </button>
+                        <button className="control-button workspace-tab-active" disabled={noteDraft.trim() === savedNote.trim()} onClick={() => void persistNote(noteDraft)} type="button">
+                          <Save size={14} />
+                          Save note
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-300">{savedNote}</p>
+                  )}
+                </div>
+              )}
+            </FeatureCard>
+
+            {mode === "week" && (
+              <FeatureCard>
+                <CardLabel icon={CalendarDays} label="Week breakdown" />
+                <div className="mt-3 grid gap-2">
+                  {selectedPeriod.days.map((day) => (
+                    <button
+                      className={`grid gap-2 rounded-md border px-3 py-2 text-left transition sm:grid-cols-[minmax(0,1fr)_120px_88px] sm:items-center ${
+                        day.date === selectedDate
+                          ? "border-cyan-300/30 bg-cyan-300/10"
+                          : "border-white/10 bg-black/20 hover:border-white/20"
+                      }`}
+                      key={day.date}
+                      onClick={() => selectDate(day.date)}
+                      type="button"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-white">{day.label}</span>
+                        <span className="text-xs text-slate-500">{day.aggregate.totalTrades} trades</span>
+                      </span>
+                      <span className={`text-sm font-semibold tabular-nums ${toneForNumber(day.aggregate.netPnl)}`}>
+                        {formatMoney(day.aggregate.netPnl, currency)}
+                      </span>
+                      <span className="text-xs text-slate-500">{formatPercent(day.aggregate.winRate)}</span>
+                    </button>
+                  ))}
+                </div>
+              </FeatureCard>
+            )}
+
+            <FeatureCard>
+              <div className="flex items-center justify-between gap-3">
+                <CardLabel icon={ClipboardList} label={`${mode === "week" ? "Period" : "Day"} trades`} />
+                <span className="status-pill">{selectedPeriod.trades.length} closed</span>
+              </div>
+              <div className="mt-3 overflow-auto">
+                <table className="w-full min-w-[820px] text-left text-sm">
+                  <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    <tr>
+                      <th className="px-3 py-3 font-medium">Trade</th>
+                      <th className="px-3 py-3 font-medium">Entry</th>
+                      <th className="px-3 py-3 font-medium">Exit</th>
+                      <th className="px-3 py-3 font-medium">P&L</th>
+                      <th className="px-3 py-3 font-medium">R</th>
+                      <th className="px-3 py-3 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedPeriod.trades.slice().sort(compareTradesAscending).map((trade) => (
+                      <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
+                        <td className="px-3 py-3">
+                          <div className="font-semibold text-white">
+                            {tradeSymbol(trade, sessionById)} {trade.side}
+                          </div>
+                          <div className="text-xs text-slate-500">{tradeStrategyName(trade, sessionById.get(trade.session_id))}</div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-semibold text-slate-100">{formatPrice(trade.entry_price)}</div>
+                          <div className="text-xs text-slate-500">{formatDateTime(trade.entry_time)}</div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-semibold text-slate-100">{formatPrice(trade.exit_price)}</div>
+                          <div className="text-xs text-slate-500">{formatDateTime(trade.exit_time)}</div>
+                        </td>
+                        <td className={`px-3 py-3 font-semibold ${toneForNumber(trade.realized_pnl)}`}>
+                          {formatMoney(
+                            trade.realized_pnl,
+                            currencyForSession(sessionById.get(trade.session_id), datasets),
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-200">{formatOptionalNumber(trade.r_multiple)}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button className="control-button h-9 px-2 text-xs" onClick={() => onOpenTradeNote(trade)} type="button">
+                              <NotebookPen size={13} />
+                              Review
+                            </button>
+                            <button className="control-button h-9 px-2 text-xs" onClick={() => onInspectTrade(trade)} type="button">
+                              <Eye size={13} />
+                              Snapshot
+                            </button>
+                            <button className="control-button h-9 px-2 text-xs" onClick={() => void onReplayTrade(trade)} type="button">
+                              <PlaySquare size={13} />
+                              Replay
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </FeatureCard>
-          ))}
-          {visibleDays.length === 0 && <EmptyState icon={CalendarDays} message="Closed trades will create daily review cards." />}
-        </div>
-        <FeatureCard>
-          <CardLabel icon={CalendarDays} label="Calendar navigator" />
-          <div className="mt-4">
-            <CalendarHeatmap compact currency={currency} days={days} />
           </div>
-        </FeatureCard>
-      </div>
+
+          <div className="space-y-4">
+            <FeatureCard>
+              <CardLabel icon={CalendarDays} label="Calendar navigator" />
+              <div className="mt-4">
+                <CalendarHeatmap
+                  compact
+                  currency={currency}
+                  days={days}
+                  month={calendarMonth}
+                  onMonthChange={setCalendarMonth}
+                  onSelectDate={selectDate}
+                  selectedDate={mode === "day" ? selectedDate : null}
+                  selectedRange={selectedRange}
+                />
+              </div>
+            </FeatureCard>
+
+            <FeatureCard>
+              <CardLabel icon={mode === "week" ? CalendarDays : ClipboardList} label={mode === "week" ? "Trading weeks" : "Trading days"} />
+              <div className="mt-3 grid max-h-[420px] gap-2 overflow-auto pr-1">
+                {periods.map((period) => {
+                  const active = period.id === selectedPeriod.id;
+                  return (
+                    <button
+                      className={`rounded-md border px-3 py-2 text-left transition ${
+                        active
+                          ? "border-cyan-300/30 bg-cyan-300/10"
+                          : "border-white/10 bg-black/20 hover:border-white/20"
+                      }`}
+                      key={period.id}
+                      onClick={() => selectPeriod(period)}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-white">{period.label}</span>
+                          <span className="text-xs text-slate-500">{period.sublabel}</span>
+                        </span>
+                        <span className={`shrink-0 text-sm font-semibold tabular-nums ${toneForNumber(period.aggregate.netPnl)}`}>
+                          {formatMoney(period.aggregate.netPnl, currency)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </FeatureCard>
+          </div>
+        </div>
+      ) : (
+        <EmptyState icon={CalendarDays} message="Closed trades will create daily review cards." />
+      )}
     </PageScaffold>
   );
 }
@@ -2069,6 +2368,7 @@ function NotebookPage({
   closedTrades,
   datasets,
   notebookFocusTradeId,
+  onReturnToDayView,
   onReturnToTradeView,
   onReplayTrade,
   sessionById,
@@ -2178,6 +2478,11 @@ function NotebookPage({
           <button className="control-button" onClick={onReturnToTradeView} type="button">
             <ArrowLeft size={15} />
             Back to Trades
+          </button>
+        ) : onReturnToDayView ? (
+          <button className="control-button" onClick={onReturnToDayView} type="button">
+            <ArrowLeft size={15} />
+            Back to Day View
           </button>
         ) : undefined
       }
@@ -5239,22 +5544,115 @@ function InsightCard({ body, title }: { body: string; title: string }) {
   );
 }
 
+function sanitizeDayViewNotes(value: unknown): DayViewNoteMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, note]) => [key, note.trim()])
+      .filter(([, note]) => note.length > 0),
+  );
+}
+
+function buildDayViewPeriods(days: DayGroup[], mode: DayViewMode): DayViewPeriod[] {
+  if (mode === "day") {
+    return days.map((day) => ({
+      aggregate: day.aggregate,
+      days: [day],
+      endDate: day.date,
+      id: `day:${day.date}`,
+      label: day.label,
+      startDate: day.date,
+      sublabel: `${day.aggregate.totalTrades} closed ${day.aggregate.totalTrades === 1 ? "trade" : "trades"}`,
+      trades: day.trades.slice().sort(compareTradesAscending),
+    }));
+  }
+
+  const grouped = new Map<string, DayGroup[]>();
+  for (const day of days) {
+    const startDate = startOfIsoWeekKey(day.date);
+    grouped.set(startDate, [...(grouped.get(startDate) ?? []), day]);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([startDate, weekDays]) => {
+      const sortedDays = weekDays.slice().sort((left, right) => right.date.localeCompare(left.date));
+      const endDate = endOfIsoWeekKey(startDate);
+      const trades = sortedDays.flatMap((day) => day.trades).sort(compareTradesAscending);
+      return {
+        aggregate: aggregateTrades(trades),
+        days: sortedDays,
+        endDate,
+        id: `week:${startDate}`,
+        label: formatDateRange(startDate, endDate),
+        startDate,
+        sublabel: `${sortedDays.length} trading ${sortedDays.length === 1 ? "day" : "days"} · ${trades.length} closed ${trades.length === 1 ? "trade" : "trades"}`,
+        trades,
+      };
+    })
+    .sort((left, right) => right.startDate.localeCompare(left.startDate));
+}
+
+function findDayViewPeriod(periods: DayViewPeriod[], selectedDate: string, mode: DayViewMode) {
+  if (periods.length === 0) {
+    return null;
+  }
+  if (mode === "day") {
+    return periods.find((period) => period.startDate === selectedDate) ?? periods[0];
+  }
+  return periods.find((period) => dateKeyInRange(selectedDate, period.startDate, period.endDate)) ?? periods[0];
+}
+
 function CalendarHeatmap({
   compact = false,
   currency = "USD",
   days,
+  month,
+  onMonthChange,
+  onSelectDate,
+  selectedDate = null,
+  selectedRange = null,
 }: {
   compact?: boolean;
   currency?: string;
   days: DayGroup[];
+  month?: string;
+  onMonthChange?: (month: string) => void;
+  onSelectDate?: (date: string) => void;
+  selectedDate?: string | null;
+  selectedRange?: { start: string; end: string } | null;
 }) {
-  const cells = buildMonthCells(days);
+  const [internalMonth, setInternalMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
+  const activeMonth = month ?? internalMonth;
+  const cells = buildMonthCells(days, activeMonth);
+
+  useEffect(() => {
+    if (month == null) {
+      setInternalMonth(monthCursorFromDateKey(days[0]?.date));
+    }
+  }, [days, month]);
+
+  function changeMonth(delta: number) {
+    const nextMonth = addMonthsToDateKey(activeMonth, delta);
+    if (onMonthChange) {
+      onMonthChange(nextMonth);
+      return;
+    }
+    setInternalMonth(nextMonth);
+  }
+
   return (
     <div className="min-w-0">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <button className="control-button h-8" type="button">{"<"}</button>
-        <div className="text-sm font-semibold text-white">{calendarTitle(cells)}</div>
-        <button className="control-button h-8" type="button">{">"}</button>
+        <button className="icon-button h-8 w-8" onClick={() => changeMonth(-1)} title="Previous month" type="button">
+          <ChevronLeft size={14} />
+        </button>
+        <div className="text-sm font-semibold text-white">{calendarTitle(activeMonth)}</div>
+        <button className="icon-button h-8 w-8" onClick={() => changeMonth(1)} title="Next month" type="button">
+          <ChevronRight size={14} />
+        </button>
       </div>
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600">
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
@@ -5262,26 +5660,52 @@ function CalendarHeatmap({
         ))}
       </div>
       <div className="mt-2 grid grid-cols-7 gap-1">
-        {cells.map((cell) => (
-          <div
-            className={`min-h-14 rounded-md border px-2 py-1 text-xs ${
-              cell.day == null
-                ? "border-transparent bg-transparent"
+        {cells.map((cell) => {
+          const isRealDay = cell.day != null;
+          const isSelectable = Boolean(onSelectDate && isRealDay && cell.trades > 0);
+          const isSelected =
+            isRealDay &&
+            (selectedDate === cell.date ||
+              Boolean(selectedRange && dateKeyInRange(cell.date, selectedRange.start, selectedRange.end)));
+          const cellClass = `min-h-14 rounded-md border px-2 py-1 text-left text-xs transition ${
+            !isRealDay
+              ? "border-transparent bg-transparent"
+              : isSelected
+                ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50 ring-1 ring-cyan-300/15"
                 : cell.pnl > 0
                   ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
                   : cell.pnl < 0
                     ? "border-rose-300/20 bg-rose-300/10 text-rose-100"
                     : "border-white/10 bg-black/20 text-slate-500"
-            } ${compact ? "min-h-9 px-1" : ""}`}
-            key={cell.key}
-            title={cell.date}
-          >
-            <div>{cell.day ?? ""}</div>
-            {!compact && cell.day != null && cell.trades > 0 && (
-              <div className="mt-1 truncate font-semibold">{formatMoney(cell.pnl, currency)}</div>
-            )}
-          </div>
-        ))}
+          } ${isSelectable ? "hover:border-cyan-300/30 hover:bg-cyan-300/10" : ""} ${compact ? "min-h-9 px-1" : ""}`;
+          const content = (
+            <>
+              <div>{cell.day ?? ""}</div>
+              {!compact && cell.day != null && cell.trades > 0 && (
+                <div className="mt-1 truncate font-semibold">{formatMoney(cell.pnl, currency)}</div>
+              )}
+              {compact && cell.day != null && cell.trades > 0 && (
+                <div className="mt-1 h-1 w-1 rounded-full bg-current opacity-80" />
+              )}
+            </>
+          );
+          return isSelectable ? (
+            <button
+              aria-pressed={isSelected}
+              className={cellClass}
+              key={cell.key}
+              onClick={() => onSelectDate?.(cell.date)}
+              title={`${cell.date} · ${cell.trades} trades · ${formatMoney(cell.pnl, currency)}`}
+              type="button"
+            >
+              {content}
+            </button>
+          ) : (
+            <div className={cellClass} key={cell.key} title={cell.date}>
+              {content}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -6207,10 +6631,10 @@ function bucketSortValue(label: string) {
   return match ? Number(match[0]) : 0;
 }
 
-function buildMonthCells(days: DayGroup[]) {
-  const latest = days[0]?.date ? new Date(`${days[0].date}T00:00:00`) : new Date();
-  const year = latest.getFullYear();
-  const month = latest.getMonth();
+function buildMonthCells(days: DayGroup[], monthDate: string) {
+  const activeMonth = dateFromKey(monthDate);
+  const year = activeMonth.getFullYear();
+  const month = activeMonth.getMonth();
   const first = new Date(year, month, 1);
   const last = new Date(year, month + 1, 0);
   const offset = (first.getDay() + 6) % 7;
@@ -6237,12 +6661,59 @@ function buildMonthCells(days: DayGroup[]) {
   return cells;
 }
 
-function calendarTitle(cells: Array<{ date: string }>) {
-  const active = cells.find((cell) => cell.date)?.date;
-  if (!active) {
-    return new Date().toLocaleDateString([], { month: "long", year: "numeric" });
+function calendarTitle(monthDate: string) {
+  return dateFromKey(monthDate).toLocaleDateString([], { month: "long", year: "numeric" });
+}
+
+function monthCursorFromDateKey(dateKey: string | null | undefined) {
+  const date = dateFromKey(dateKey ?? todayDateKey());
+  return dateKeyFromDate(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+function addMonthsToDateKey(dateKey: string, months: number) {
+  const date = dateFromKey(dateKey);
+  return dateKeyFromDate(new Date(date.getFullYear(), date.getMonth() + months, 1));
+}
+
+function startOfIsoWeekKey(dateKey: string) {
+  const date = dateFromKey(dateKey);
+  const dayIndex = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - dayIndex);
+  return dateKeyFromDate(date);
+}
+
+function endOfIsoWeekKey(startDateKey: string) {
+  const date = dateFromKey(startDateKey);
+  date.setDate(date.getDate() + 6);
+  return dateKeyFromDate(date);
+}
+
+function dateKeyInRange(dateKey: string, startDateKey: string, endDateKey: string) {
+  return dateKey >= startDateKey && dateKey <= endDateKey;
+}
+
+function formatDateRange(startDateKey: string, endDateKey: string) {
+  return `${shortDate(startDateKey)} - ${shortDate(endDateKey)}`;
+}
+
+function todayDateKey() {
+  return dateKeyFromDate(new Date());
+}
+
+function dateFromKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return new Date();
   }
-  return new Date(`${active}T00:00:00`).toLocaleDateString([], { month: "long", year: "numeric" });
+  return new Date(year, month - 1, day);
+}
+
+function dateKeyFromDate(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function cumulativeValues(trades: Trade[]) {
