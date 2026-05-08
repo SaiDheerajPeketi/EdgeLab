@@ -1,4 +1,4 @@
-import { Image, Plus, RefreshCw, Save, X } from "lucide-react";
+import { Image, PlaySquare, Plus, RefreshCw, Save, X } from "lucide-react";
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Execution, Trade } from "../lib/api";
 import { formatDateTime, formatPrice } from "../lib/format";
@@ -21,6 +21,7 @@ type Props = {
   executions: Execution[];
   onClose: () => void;
   onJournal: (trade: Trade) => void;
+  onReplayTrade: (trade: Trade) => Promise<void> | void;
   strategyScope?: string | null;
 };
 
@@ -30,6 +31,7 @@ export function TradeDetailDrawer({
   executions,
   onClose,
   onJournal,
+  onReplayTrade,
   strategyScope,
 }: Props) {
   const updateJournal = useBacktestStore((state) => state.updateJournal);
@@ -264,9 +266,19 @@ export function TradeDetailDrawer({
         <div className="rounded-md bg-ink-950 p-3">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white">Backtest Notes</h3>
-            <button className="control-button h-8" onClick={() => onJournal(trade)} type="button">
-              Edit
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="control-button h-8 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+                onClick={() => onReplayTrade(trade)}
+                type="button"
+              >
+                <PlaySquare size={14} />
+                Replay
+              </button>
+              <button className="control-button h-8" onClick={() => onJournal(trade)} type="button">
+                Edit
+              </button>
+            </div>
           </div>
           <p className="whitespace-pre-wrap text-sm text-slate-300">{trade.notes || "No notes yet"}</p>
           <div className="mt-3 space-y-3">

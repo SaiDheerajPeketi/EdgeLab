@@ -83,6 +83,7 @@ type Props = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
+  onReplayTrade: (trade: Trade) => Promise<void> | void;
   onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
   onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
@@ -225,6 +226,7 @@ export function EdgeLabWorkspace({
   onCreatePlaybook,
   onNavigateBacktest,
   onNavigateSessions,
+  onReplayTrade,
   onRefreshDatasets,
   onGetDatasetRefreshStatus,
   onResumeSession,
@@ -275,6 +277,7 @@ export function EdgeLabWorkspace({
     onCreatePlaybook,
     onNavigateBacktest,
     onNavigateSessions,
+    onReplayTrade,
     onRefreshDatasets,
     onGetDatasetRefreshStatus,
     onResumeSession,
@@ -337,6 +340,7 @@ type SharedPageProps = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
+  onReplayTrade: (trade: Trade) => Promise<void> | void;
   onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
   onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
@@ -1691,6 +1695,7 @@ function NotebookPage({
   closedTrades,
   datasets,
   onInspectTrade,
+  onReplayTrade,
   sessionById,
 }: SharedPageProps) {
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(
@@ -1799,9 +1804,23 @@ function NotebookPage({
                     tone={toneForNumber(selectedTrade.realized_pnl)}
                   />
                 </div>
-                <button className="control-button mt-4 workspace-tab-active" onClick={() => onInspectTrade(selectedTrade)} type="button">
-                  View trade details
-                </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    className="control-button workspace-tab-active"
+                    onClick={() => onReplayTrade(selectedTrade)}
+                    type="button"
+                  >
+                    <PlaySquare size={15} />
+                    Replay trade
+                  </button>
+                  <button
+                    className="control-button"
+                    onClick={() => onInspectTrade(selectedTrade)}
+                    type="button"
+                  >
+                    View trade details
+                  </button>
+                </div>
               </div>
               <RichTextEditorStub />
             </>

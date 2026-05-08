@@ -101,6 +101,7 @@ const DRAWING_UNDO_LIMIT = 50;
 const DRAWING_UNDO_COALESCE_MS = 350;
 const TIMEFRAME_SHORTCUT_CLEAR_MS = 1200;
 const CHART_SETTINGS_DEFAULTS_VERSION = 2;
+const TRADE_REPLAY_CONTEXT_BARS = 30;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
 type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
@@ -1365,6 +1366,26 @@ export default function App() {
     setWorkspacePanel("none");
   }
 
+  async function replayTradeFromNotes(trade: Trade) {
+    setPlaying(false);
+    setReviewTrade(null);
+    setEditingTrade(null);
+    setActiveWorkspace("backtest");
+    setSessionGateOpen(false);
+    setLeftPaneOpen(false);
+    setChartToolsOpen(false);
+    setLayersPanelOpen(false);
+    setWorkspacePanel("none");
+
+    await loadSession(trade.session_id);
+    const session = resultSessions.find((item) => item.id === trade.session_id);
+    const targetOffset = Math.max(
+      session?.start_offset ?? 0,
+      trade.entry_offset - TRADE_REPLAY_CONTEXT_BARS,
+    );
+    await jumpToOffset(targetOffset);
+  }
+
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
   const backtestFocusHeader = (
     <header className="backtest-focus-header" ref={backtestHeaderRef}>
@@ -1572,6 +1593,7 @@ export default function App() {
                 setActiveWorkspace("sessions");
                 setSessionGateOpen(true);
               }}
+              onReplayTrade={replayTradeFromNotes}
               onResumeSession={resumeSessionFromGateway}
               onCreatePlaybook={createPlaybook}
               onRefreshDatasets={refreshDatasets}
@@ -1947,6 +1969,7 @@ export default function App() {
             setReviewTrade(null);
             setEditingTrade(trade);
           }}
+          onReplayTrade={replayTradeFromNotes}
           strategyScope={strategyScopeForTrade(reviewTrade, resultSessions, state?.session ?? null)}
           trade={reviewTrade}
         />
