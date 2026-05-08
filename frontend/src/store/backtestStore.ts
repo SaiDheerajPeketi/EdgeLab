@@ -3,6 +3,7 @@ import {
   BacktestState,
   BacktestCreatePayload,
   BacktestSession,
+  BacktestSessionUpdatePayload,
   Candle,
   DatasetCatalog,
   DatasetMeta,
@@ -17,6 +18,7 @@ import {
   Trade,
   advanceBacktest,
   createBacktest,
+  deleteBacktestSession,
   deleteBacktestOrder,
   getBars,
   getBacktest,
@@ -36,6 +38,7 @@ import {
   postBacktestOrder,
   postPlaybook,
   refreshDatasets as refreshDatasetsApi,
+  updateBacktestSession,
 } from "../lib/api";
 
 const WINDOW_SIZE = 1500;
@@ -68,6 +71,8 @@ type BacktestStore = {
   refreshResults: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
+  updateSession: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<BacktestSession>;
+  deleteSession: (sessionId: number) => Promise<void>;
   stepForward: (steps?: number) => Promise<void>;
   resetReplay: () => Promise<void>;
   jumpToOffset: (offset: number) => Promise<void>;
@@ -266,6 +271,47 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
   },
 
+  updateSession: async (sessionId, payload) => {
+    try {
+      const session = await updateBacktestSession(sessionId, payload);
+      set((current) => ({
+        resultSessions: upsertSession(current.resultSessions, session),
+        state:
+          current.state?.session.id === session.id
+            ? { ...current.state, session }
+            : current.state,
+        error: null,
+      }));
+      return session;
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  deleteSession: async (sessionId) => {
+    try {
+      await deleteBacktestSession(sessionId);
+      set((current) => {
+        const deletingActiveSession = current.state?.session.id === sessionId;
+        return {
+          resultSessions: current.resultSessions.filter((session) => session.id !== sessionId),
+          resultTrades: current.resultTrades.filter((trade) => trade.session_id !== sessionId),
+          state: deletingActiveSession ? null : current.state,
+          meta: deletingActiveSession ? null : current.meta,
+          bars: deletingActiveSession ? [] : current.bars,
+          barOffset: deletingActiveSession ? 0 : current.barOffset,
+          isPlaying: deletingActiveSession ? false : current.isPlaying,
+          error: null,
+        };
+      });
+      void get().refreshResults();
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+      throw error;
+    }
+  },
+
   stepForward: async (steps = 1) => {
     const sessionId = get().state?.session.id;
     if (!sessionId || get().isStepping) {
@@ -433,6 +479,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     return trade;
   },
 }));
+
+function upsertSession(sessions: BacktestSession[], session: BacktestSession) {
+  if (sessions.some((item) => item.id === session.id)) {
+    return sessions.map((item) => (item.id === session.id ? session : item));
+  }
+  return [session, ...sessions];
+}
 
 async function loadWindow(currentOffset: number, sessionId?: number, startOffset = 0) {
   const barOffset = Math.max(0, currentOffset - WINDOW_SIZE + 1);

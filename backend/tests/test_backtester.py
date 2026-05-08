@@ -7,7 +7,13 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import BacktestSession, Execution, Order, Position, Trade
-from app.schemas import BacktestAdvanceRequest, BacktestCreate, OrderCreate, PositionUpdate
+from app.schemas import (
+    BacktestAdvanceRequest,
+    BacktestCreate,
+    BacktestSessionUpdate,
+    OrderCreate,
+    PositionUpdate,
+)
 from app.services.backtester import BacktestService
 from app.services.market_data import MarketDataService
 
@@ -86,6 +92,59 @@ def test_pnl_multiplier_calibrates_session_pnl_without_changing_r(tmp_path: Path
     assert state.metrics.net_pnl == pytest.approx(400)
     assert state.trades[0].realized_pnl == pytest.approx(400)
     assert state.trades[0].r_multiple == pytest.approx(2)
+
+
+def test_update_session_details(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(name="Before", initial_offset=0))
+
+    updated = service.update_session(
+        db,
+        state.session.id,
+        BacktestSessionUpdate(
+            name="After",
+            strategy_name="Opening Range",
+            currency="INR",
+            timezone="Asia/Kolkata",
+            pnl_multiplier=10,
+            initial_balance=25000,
+            status="COMPLETE",
+        ),
+    )
+
+    assert updated.name == "After"
+    assert updated.strategy_name == "Opening Range"
+    assert updated.currency == "INR"
+    assert updated.timezone == "Asia/Kolkata"
+    assert updated.pnl_multiplier == pytest.approx(10)
+    assert updated.initial_balance == pytest.approx(25000)
+    assert updated.status == "COMPLETE"
+
+
+def test_delete_session_cascades_replay_data(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+    session_id = state.session.id
+
+    service.delete_session(db, session_id)
+
+    assert db.get(BacktestSession, session_id) is None
+    assert db.query(Position).filter(Position.session_id == session_id).count() == 0
+    assert db.query(Order).filter(Order.session_id == session_id).count() == 0
+    assert db.query(Execution).filter(Execution.session_id == session_id).count() == 0
+    assert db.query(Trade).filter(Trade.session_id == session_id).count() == 0
 
 
 def test_open_position_brackets_can_be_amended(tmp_path: Path):

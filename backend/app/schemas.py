@@ -143,6 +143,17 @@ class BacktestCreate(BaseModel):
     initial_offset: int = Field(default=0, ge=0)
 
 
+class BacktestSessionUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    currency: str | None = Field(default=None, max_length=12)
+    timezone: str | None = Field(default=None, max_length=80)
+    pnl_multiplier: float | None = Field(default=None, gt=0)
+    strategy_name: str | None = Field(default=None, max_length=120)
+    playbook_id: int | None = None
+    status: Literal["ACTIVE", "COMPLETE"] | None = None
+    initial_balance: float | None = Field(default=None, gt=0)
+
+
 class BacktestSessionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -38,7 +38,7 @@ import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { EdgeLabWorkspace } from "./components/EdgeLabWorkspace";
 import { TradingChart } from "./components/TradingChart";
-import type { BacktestCreatePayload, Trade } from "./lib/api";
+import type { BacktestCreatePayload, BacktestSessionUpdatePayload, Trade } from "./lib/api";
 import type {
   ChartDrawing,
   ChartIndicatorId,
@@ -165,6 +165,8 @@ export default function App() {
     loadSession,
     loadInitial,
     newSession,
+    updateSession,
+    deleteSession,
     refreshDatasets,
     refreshDatasetStatus,
     updateDatasetAsset,
@@ -1371,6 +1373,27 @@ export default function App() {
     setWorkspacePanel("none");
   }
 
+  async function updateSessionFromGateway(
+    sessionId: number,
+    payload: BacktestSessionUpdatePayload,
+  ) {
+    await updateSession(sessionId, payload);
+  }
+
+  async function deleteSessionFromGateway(sessionId: number) {
+    const deletingActiveSession = state?.session.id === sessionId;
+    await deleteSession(sessionId);
+    if (deletingActiveSession) {
+      setReplayFocusTrade(null);
+      setActiveWorkspace("sessions");
+      setSessionGateOpen(true);
+      setLeftPaneOpen(false);
+      setChartToolsOpen(false);
+      setLayersPanelOpen(false);
+      setWorkspacePanel("none");
+    }
+  }
+
   async function replayTradeFromNotes(trade: Trade) {
     setPlaying(false);
     setReviewTrade(null);
@@ -1626,7 +1649,9 @@ export default function App() {
                 isLoading={isLoading}
                 onCreateSession={createSessionFromGateway}
                 onCreatePlaybook={createPlaybook}
+                onDeleteSession={deleteSessionFromGateway}
                 onResumeSession={resumeSessionFromGateway}
+                onUpdateSession={updateSessionFromGateway}
                 playbooks={playbooks}
                 session={state?.session ?? null}
                 sessions={resultSessions}

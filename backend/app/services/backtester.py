@@ -10,6 +10,7 @@ from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
+    BacktestSessionUpdate,
     BacktestState,
     Candle,
     ExecutionRead,
@@ -370,6 +371,45 @@ class BacktestService:
                 select(BacktestSession).order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
             ).all()
         )
+
+    def update_session(
+        self,
+        db: Session,
+        session_id: int,
+        payload: BacktestSessionUpdate,
+    ) -> BacktestSession:
+        session = self._session_or_404(db, session_id)
+        values = payload.model_dump(exclude_unset=True)
+        if not values:
+            return session
+
+        if "name" in values:
+            name = (values["name"] or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Session name is required")
+            values["name"] = name
+
+        for field in ("strategy_name", "currency", "timezone"):
+            if field in values and isinstance(values[field], str):
+                values[field] = values[field].strip() or None
+
+        playbook_id = values.get("playbook_id")
+        if playbook_id is not None:
+            playbook = db.get(Playbook, playbook_id)
+            if playbook is None:
+                raise HTTPException(status_code=404, detail="Playbook not found")
+
+        for field, value in values.items():
+            setattr(session, field, value)
+
+        db.commit()
+        db.refresh(session)
+        return session
+
+    def delete_session(self, db: Session, session_id: int) -> None:
+        session = self._session_or_404(db, session_id)
+        db.delete(session)
+        db.commit()
 
     def _process_candle(self, db: Session, session: BacktestSession, candle: Candle) -> None:
         self._process_position_brackets(db, session, candle)

@@ -7,15 +7,20 @@ import {
   CheckCircle2,
   Database,
   FileText,
+  Pencil,
   PlayCircle,
   RefreshCw,
   RotateCcw,
+  Save,
   Target,
+  Trash2,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type {
   BacktestCreatePayload,
   BacktestSession,
+  BacktestSessionUpdatePayload,
   DatasetCatalog,
   DatasetInstrument,
   DatasetTimeframe,
@@ -34,7 +39,9 @@ type Props = {
   isLoading: boolean;
   onCreateSession: (payload: BacktestCreatePayload) => Promise<void>;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
+  onDeleteSession: (sessionId: number) => Promise<void> | void;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
+  onUpdateSession: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<void> | void;
   playbooks: Playbook[];
   session: BacktestSession | null;
   sessions: BacktestSession[];
@@ -43,12 +50,46 @@ type Props = {
 
 type PlaybookMode = "none" | "existing" | "new";
 
+const CURRENCY_OPTIONS = [
+  "USD",
+  "EUR",
+  "GBP",
+  "INR",
+  "JPY",
+  "AUD",
+  "CAD",
+  "CHF",
+  "NZD",
+  "SGD",
+  "HKD",
+  "AED",
+].map((currency) => ({ label: currency, value: currency }));
+
+const TIMEZONE_IDS = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Zurich",
+  "Asia/Kolkata",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Asia/Hong_Kong",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+];
+const TIMEZONE_OPTIONS = TIMEZONE_IDS.map(timezoneOption);
+
 export function SessionGateway({
   datasets,
   isLoading,
   onCreateSession,
   onCreatePlaybook,
+  onDeleteSession,
   onResumeSession,
+  onUpdateSession,
   playbooks,
   session,
   sessions,
@@ -70,6 +111,8 @@ export function SessionGateway({
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selectedStrategyName, setSelectedStrategyName] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<BacktestSession | null>(null);
+  const [deletingSession, setDeletingSession] = useState<BacktestSession | null>(null);
 
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
@@ -141,6 +184,15 @@ export function SessionGateway({
     }
   }, [selectedStrategyName, strategyGroups]);
 
+  useEffect(() => {
+    if (editingSession && !sessions.some((item) => item.id === editingSession.id)) {
+      setEditingSession(null);
+    }
+    if (deletingSession && !sessions.some((item) => item.id === deletingSession.id)) {
+      setDeletingSession(null);
+    }
+  }, [deletingSession, editingSession, sessions]);
+
   function selectInstrument(instrument: DatasetInstrument) {
     setInstrumentId(instrument.id);
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
@@ -184,6 +236,19 @@ export function SessionGateway({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function saveSessionDetails(
+    sessionId: number,
+    payload: BacktestSessionUpdatePayload,
+  ) {
+    await onUpdateSession(sessionId, payload);
+    setEditingSession(null);
+  }
+
+  async function confirmDeleteSession(sessionId: number) {
+    await onDeleteSession(sessionId);
+    setDeletingSession(null);
   }
 
   return (
@@ -301,8 +366,8 @@ export function SessionGateway({
 
               <div className="mt-3 grid gap-2">
                 {group.sessions.map((row) => (
-                  <button
-                    className={`grid min-w-0 gap-3 rounded-md border px-3 py-2 text-left transition sm:grid-cols-[minmax(0,1fr)_auto] ${
+                  <div
+                    className={`grid min-w-0 gap-2 rounded-md border p-2 transition sm:grid-cols-[minmax(0,1fr)_auto] ${
                       row.session.id === session?.id
                         ? "border-cyan-300/35 bg-cyan-300/10"
                         : "border-white/10 bg-[#080c11] hover:border-cyan-300/25 hover:bg-cyan-300/5"
@@ -310,30 +375,39 @@ export function SessionGateway({
                     key={`${group.name}:${row.session.id}`}
                     onClick={(event) => {
                       event.stopPropagation();
-                      onResumeSession(row.session.id);
                     }}
-                    type="button"
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-slate-100">
-                        {row.session.name}
-                      </span>
-                      <span className="mt-1 block text-xs text-slate-500">
-                        {formatMarketSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"} · {row.session.status}
-                      </span>
-                    </span>
-                    <span className="flex items-center justify-between gap-3 sm:justify-end">
-                      <span className="text-right">
-                        <span className={`block text-sm font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
-                          {formatMoney(row.aggregate.netPnl, currencyForSession(row.session, datasets))}
+                    <button
+                      className="grid min-w-0 gap-3 rounded px-1 py-0.5 text-left sm:grid-cols-[minmax(0,1fr)_auto]"
+                      onClick={() => onResumeSession(row.session.id)}
+                      type="button"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-100">
+                          {row.session.name}
                         </span>
-                        <span className="block text-xs text-slate-500">
-                          {row.aggregate.closedTrades} trades · {formatPercent(row.aggregate.winRate)}
+                        <span className="mt-1 block text-xs text-slate-500">
+                          {formatMarketSymbol(row.session.symbol)} · {row.session.timeframe ?? "M1"} · {row.session.status}
                         </span>
                       </span>
-                      <ArrowRight size={15} className="text-slate-500" />
-                    </span>
-                  </button>
+                      <span className="flex items-center justify-between gap-3 sm:justify-end">
+                        <span className="text-right">
+                          <span className={`block text-sm font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
+                            {formatMoney(row.aggregate.netPnl, currencyForSession(row.session, datasets))}
+                          </span>
+                          <span className="block text-xs text-slate-500">
+                            {row.aggregate.closedTrades} trades · {formatPercent(row.aggregate.winRate)}
+                          </span>
+                        </span>
+                        <ArrowRight size={15} className="text-slate-500" />
+                      </span>
+                    </button>
+                    <SessionActionButtons
+                      onDelete={setDeletingSession}
+                      onEdit={setEditingSession}
+                      session={row.session}
+                    />
+                  </div>
                 ))}
               </div>
             </article>
@@ -350,6 +424,8 @@ export function SessionGateway({
             activeSessionId={session?.id ?? null}
             datasets={datasets}
             group={selectedStrategyGroup}
+            onDeleteSession={setDeletingSession}
+            onEditSession={setEditingSession}
             onResumeSession={onResumeSession}
           />
         )}
@@ -581,6 +657,21 @@ export function SessionGateway({
           </button>
         </div>
       </form>
+      {editingSession && (
+        <SessionEditDialog
+          onClose={() => setEditingSession(null)}
+          onSave={saveSessionDetails}
+          playbooks={playbooks}
+          session={editingSession}
+        />
+      )}
+      {deletingSession && (
+        <SessionDeleteDialog
+          onClose={() => setDeletingSession(null)}
+          onDelete={confirmDeleteSession}
+          session={deletingSession}
+        />
+      )}
     </section>
   );
 }
@@ -608,6 +699,358 @@ function ModeButton({
       <Icon size={16} />
       {label}
     </button>
+  );
+}
+
+function SessionActionButtons({
+  onDelete,
+  onEdit,
+  session,
+}: {
+  onDelete: (session: BacktestSession) => void;
+  onEdit: (session: BacktestSession) => void;
+  session: BacktestSession;
+}) {
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      <button
+        className="icon-button h-8 w-8"
+        onClick={(event) => {
+          event.stopPropagation();
+          onEdit(session);
+        }}
+        title="Edit session details"
+        type="button"
+      >
+        <Pencil size={14} />
+      </button>
+      <button
+        className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete(session);
+        }}
+        title="Delete session"
+        type="button"
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
+function SessionEditDialog({
+  onClose,
+  onSave,
+  playbooks,
+  session,
+}: {
+  onClose: () => void;
+  onSave: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<void> | void;
+  playbooks: Playbook[];
+  session: BacktestSession;
+}) {
+  const [name, setName] = useState(session.name);
+  const [strategyName, setStrategyName] = useState(session.strategy_name ?? "");
+  const [playbookId, setPlaybookId] = useState(session.playbook_id == null ? "" : String(session.playbook_id));
+  const [initialBalance, setInitialBalance] = useState(String(session.initial_balance ?? 100000));
+  const [currency, setCurrency] = useState(session.currency ?? "USD");
+  const [timezone, setTimezone] = useState(session.timezone ?? "UTC");
+  const [pnlMultiplier, setPnlMultiplier] = useState(String(session.pnl_multiplier ?? 1));
+  const [status, setStatus] = useState<BacktestSession["status"]>(session.status);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(session.name);
+    setStrategyName(session.strategy_name ?? "");
+    setPlaybookId(session.playbook_id == null ? "" : String(session.playbook_id));
+    setInitialBalance(String(session.initial_balance ?? 100000));
+    setCurrency(session.currency ?? "USD");
+    setTimezone(session.timezone ?? "UTC");
+    setPnlMultiplier(String(session.pnl_multiplier ?? 1));
+    setStatus(session.status);
+    setError(null);
+  }, [session]);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    const balanceValue = Number(initialBalance);
+    const multiplierValue = Number(pnlMultiplier);
+    if (!trimmedName) {
+      setError("Session name is required");
+      return;
+    }
+    if (!Number.isFinite(balanceValue) || balanceValue <= 0) {
+      setError("Starting balance must be greater than 0");
+      return;
+    }
+    if (!Number.isFinite(multiplierValue) || multiplierValue <= 0) {
+      setError("P&L calibration must be greater than 0");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(session.id, {
+        name: trimmedName,
+        strategy_name: strategyName.trim() || null,
+        playbook_id: playbookId ? Number(playbookId) : null,
+        initial_balance: balanceValue,
+        currency: currency.trim() || null,
+        timezone: timezone.trim() || null,
+        pnl_multiplier: multiplierValue,
+        status,
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Could not save session");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[260] grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      role="presentation"
+    >
+      <form
+        className="grid w-[min(760px,100%)] max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 bg-[#071018] shadow-panel"
+        onPointerDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => void handleSubmit(event)}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-200">
+              Session Details
+            </div>
+            <h3 className="mt-1 truncate text-base font-semibold text-white">
+              Edit {session.name}
+            </h3>
+          </div>
+          <button className="icon-button h-9 w-9" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 gap-4 overflow-auto p-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <ReadOnlyPill label="Market" value={`${formatMarketSymbol(session.symbol)} · ${session.timeframe ?? "M1"}`} />
+            <ReadOnlyPill label="Instrument" value={session.instrument ?? "Default"} />
+            <ReadOnlyPill label="Dataset" value={session.csv_path ?? "Default CSV"} />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="form-field">
+              <span>Session Name</span>
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                onChange={(event) => setName(event.target.value)}
+                required
+                value={name}
+              />
+            </label>
+            <label className="form-field">
+              <span>Strategy Name</span>
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                onChange={(event) => setStrategyName(event.target.value)}
+                placeholder="No strategy"
+                value={strategyName}
+              />
+            </label>
+            <label className="form-field">
+              <span>Playbook</span>
+              <ThemedSelect
+                className="h-10"
+                onChange={setPlaybookId}
+                options={[
+                  { label: "No playbook", value: "" },
+                  ...playbooks.map((playbook) => ({
+                    label: playbook.name,
+                    value: String(playbook.id),
+                  })),
+                ]}
+                portal
+                value={playbookId}
+              />
+            </label>
+            <label className="form-field">
+              <span>Status</span>
+              <ThemedSelect
+                className="h-10"
+                onChange={(value) => setStatus(value as BacktestSession["status"])}
+                options={[
+                  { label: "Active", value: "ACTIVE" },
+                  { label: "Complete", value: "COMPLETE" },
+                ]}
+                portal
+                value={status}
+              />
+            </label>
+            <label className="form-field">
+              <span>Starting Balance</span>
+              <input
+                className="input-control h-10"
+                min="0.01"
+                onChange={(event) => setInitialBalance(event.target.value)}
+                step="0.01"
+                type="number"
+                value={initialBalance}
+              />
+            </label>
+            <label className="form-field">
+              <span>P&L Calibration</span>
+              <input
+                className="input-control h-10"
+                min="0.000001"
+                onChange={(event) => setPnlMultiplier(event.target.value)}
+                step="0.000001"
+                type="number"
+                value={pnlMultiplier}
+              />
+            </label>
+            <label className="form-field">
+              <span>Currency</span>
+              <ThemedSelect
+                className="h-10"
+                onChange={setCurrency}
+                options={selectOptionsWithValue(CURRENCY_OPTIONS, currency)}
+                portal
+                value={currency}
+              />
+            </label>
+            <label className="form-field">
+              <span>Timestamp Timezone</span>
+              <ThemedSelect
+                className="h-10"
+                menuClassName="max-w-[360px]"
+                onChange={setTimezone}
+                options={selectOptionsWithValue(TIMEZONE_OPTIONS, timezone, timezoneOption)}
+                portal
+                value={timezone}
+              />
+            </label>
+          </div>
+          {error && (
+            <div className="rounded-md border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-100">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-white/10 px-4 py-3">
+          <button className="control-button h-9" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="control-button h-9 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
+            disabled={saving}
+            type="submit"
+          >
+            {saving ? <RefreshCw size={15} className="animate-spin" /> : <Save size={15} />}
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SessionDeleteDialog({
+  onClose,
+  onDelete,
+  session,
+}: {
+  onClose: () => void;
+  onDelete: (sessionId: number) => Promise<void> | void;
+  session: BacktestSession;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete(session.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Could not delete session");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[260] grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      role="presentation"
+    >
+      <div
+        className="w-[min(460px,100%)] rounded-md border border-rose-300/20 bg-[#071018] p-4 shadow-panel"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-200">
+              Delete Session
+            </div>
+            <h3 className="mt-2 text-lg font-semibold text-white">
+              {session.name}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              This removes the session and its linked replay orders, executions, trades, and results.
+            </p>
+          </div>
+          <button className="icon-button h-9 w-9" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+        {error && (
+          <div className="mt-4 rounded-md border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-100">
+            {error}
+          </div>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="control-button h-9" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="control-button h-9 border-rose-300/30 bg-rose-300/10 text-rose-100 hover:bg-rose-300/20"
+            disabled={deleting}
+            onClick={() => void handleDelete()}
+            type="button"
+          >
+            {deleting ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReadOnlyPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+      <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
+        {label}
+      </div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-200" title={value}>
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -739,11 +1182,15 @@ function StrategyDetails({
   activeSessionId,
   datasets,
   group,
+  onDeleteSession,
+  onEditSession,
   onResumeSession,
 }: {
   activeSessionId: number | null;
   datasets: DatasetCatalog | null;
   group: GatewayStrategyGroup;
+  onDeleteSession: (session: BacktestSession) => void;
+  onEditSession: (session: BacktestSession) => void;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
 }) {
   const [selectedSessionIds, setSelectedSessionIds] = useState<number[]>([]);
@@ -887,14 +1334,21 @@ function StrategyDetails({
                   {formatPercent(row.aggregate.winRate)}
                 </td>
                 <td className="px-3 py-3 text-right">
-                  <button
-                    className="control-button h-9"
-                    onClick={() => onResumeSession(row.session.id)}
-                    type="button"
-                  >
-                    Open
-                    <ArrowRight size={14} />
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <SessionActionButtons
+                      onDelete={onDeleteSession}
+                      onEdit={onEditSession}
+                      session={row.session}
+                    />
+                    <button
+                      className="control-button h-9"
+                      onClick={() => onResumeSession(row.session.id)}
+                      type="button"
+                    >
+                      Open
+                      <ArrowRight size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -911,6 +1365,76 @@ function sessionStrategyKey(sessionId: number, strategyName: string) {
 
 function splitSessionStrategyKey(key: string) {
   return key.split("\u0000") as [string, string];
+}
+
+function selectOptionsWithValue(
+  options: Array<{ label: string; sublabel?: string; value: string }>,
+  value: string,
+  makeMissingOption: (value: string) => { label: string; sublabel?: string; value: string } = (
+    nextValue,
+  ) => ({ label: nextValue, value: nextValue }),
+) {
+  if (!value || options.some((option) => option.value === value)) {
+    return options;
+  }
+  return [makeMissingOption(value), ...options];
+}
+
+function timezoneOption(timezone: string) {
+  return {
+    label: `${formatTimezoneOffset(timezone)} · ${formatTimezoneDisplayName(timezone)}`,
+    sublabel: timezone,
+    value: timezone,
+  };
+}
+
+function formatTimezoneOffset(timezone: string, date = new Date()) {
+  const offsetMinutes = timezoneOffsetMinutes(timezone, date);
+  if (offsetMinutes == null) {
+    return "UTC";
+  }
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = Math.floor(absoluteMinutes / 60);
+  const minutes = absoluteMinutes % 60;
+  return minutes === 0
+    ? `UTC${sign}${hours}`
+    : `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatTimezoneDisplayName(timezone: string) {
+  const parts = timezone.split("/");
+  return (parts.at(-1) ?? timezone).replace(/_/g, " ");
+}
+
+function timezoneOffsetMinutes(timezone: string, date: Date) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      month: "2-digit",
+      second: "2-digit",
+      timeZone: timezone,
+      year: "numeric",
+    }).formatToParts(date);
+    const valueByType = new Map(parts.map((part) => [part.type, part.value]));
+    const asUtc = Date.UTC(
+      Number(valueByType.get("year")),
+      Number(valueByType.get("month")) - 1,
+      Number(valueByType.get("day")),
+      Number(valueByType.get("hour")),
+      Number(valueByType.get("minute")),
+      Number(valueByType.get("second")),
+    );
+    if (!Number.isFinite(asUtc)) {
+      return null;
+    }
+    return Math.round((asUtc - date.getTime()) / 60000);
+  } catch {
+    return null;
+  }
 }
 
 function formatRatio(value: number | null | undefined) {

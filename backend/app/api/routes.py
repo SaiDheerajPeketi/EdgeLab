@@ -13,6 +13,7 @@ from app.schemas import (
     BacktestCreate,
     BacktestJumpRequest,
     BacktestSessionRead,
+    BacktestSessionUpdate,
     BacktestState,
     BarsResponse,
     DatasetAssetUpdate,
@@ -245,6 +246,26 @@ def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
 @router.get("/backtests/{session_id}", response_model=BacktestState)
 def get_backtest(session_id: int, db: Session = Depends(get_db)) -> BacktestState:
     return backtester.get_state(db, session_id)
+
+
+@router.patch("/backtests/{session_id}", response_model=BacktestSessionRead)
+def patch_backtest_session(
+    session_id: int,
+    payload: BacktestSessionUpdate,
+    db: Session = Depends(get_db),
+) -> BacktestSessionRead:
+    return BacktestSessionRead.model_validate(
+        backtester.update_session(db, session_id, payload),
+    )
+
+
+@router.delete("/backtests/{session_id}")
+def delete_backtest_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    backtester.delete_session(db, session_id)
+    return {"ok": True}
 
 
 @router.post("/backtests/{session_id}/advance", response_model=BacktestState)

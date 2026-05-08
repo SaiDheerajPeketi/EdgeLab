@@ -272,6 +272,17 @@ export type BacktestCreatePayload = {
   initial_offset?: number;
 };
 
+export type BacktestSessionUpdatePayload = {
+  name?: string;
+  currency?: string | null;
+  timezone?: string | null;
+  pnl_multiplier?: number | null;
+  strategy_name?: string | null;
+  playbook_id?: number | null;
+  status?: "ACTIVE" | "COMPLETE";
+  initial_balance?: number;
+};
+
 export type OrderUpdatePayload = Partial<OrderPayload>;
 
 export type PositionUpdatePayload = {
@@ -407,6 +418,22 @@ export function createBacktest(payload: BacktestCreatePayload = {}) {
   return request<BacktestState>("/backtests", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function updateBacktestSession(
+  sessionId: number,
+  payload: BacktestSessionUpdatePayload,
+) {
+  return request<BacktestSession>(`/backtests/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteBacktestSession(sessionId: number) {
+  return request<{ ok: boolean }>(`/backtests/${sessionId}`, {
+    method: "DELETE",
   });
 }
 
