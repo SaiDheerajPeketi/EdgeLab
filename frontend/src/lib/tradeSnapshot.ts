@@ -3,6 +3,12 @@ import { getBars } from "./api";
 import { formatPrice } from "./format";
 
 type SnapshotBar = Candle & { offset: number };
+type SnapshotLevel = {
+  color: string;
+  dashed?: boolean;
+  label: string;
+  price: number;
+};
 
 const SNAPSHOT_WIDTH = 980;
 const SNAPSHOT_HEIGHT = 430;
@@ -13,6 +19,7 @@ const PLOT = {
   bottom: 44,
 };
 const GENERATED_SNAPSHOT_PREFIX = "data:image/svg+xml;charset=utf-8,";
+const SNAPSHOT_VERSION = "2";
 
 export async function createTradeSnapshotDataUrl(trade: Trade, currency = "USD") {
   const window = tradeSnapshotWindow(trade);
@@ -33,6 +40,10 @@ export function shouldRegenerateTradeSnapshotForCurrency(
   }
   try {
     const svg = decodeURIComponent(url.slice(GENERATED_SNAPSHOT_PREFIX.length));
+    const existingVersion = svg.match(/\sdata-snapshot-version="([^"]+)"/)?.[1];
+    if (existingVersion !== SNAPSHOT_VERSION) {
+      return true;
+    }
     const existingCurrency = svg.match(/\sdata-currency="([^"]+)"/)?.[1];
     if (existingCurrency) {
       return existingCurrency !== currency;
@@ -41,6 +52,21 @@ export function shouldRegenerateTradeSnapshotForCurrency(
     return currency !== "USD";
   }
   return currency !== "USD";
+}
+
+export async function copyTradeSnapshotToClipboard(url: string) {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.clipboard ||
+    typeof ClipboardItem === "undefined"
+  ) {
+    throw new Error("Image clipboard is not available");
+  }
+  const blob = url.startsWith(GENERATED_SNAPSHOT_PREFIX)
+    ? await snapshotDataUrlToPngBlob(url)
+    : await fetch(url).then((response) => response.blob());
+  const type = blob.type || "image/png";
+  await navigator.clipboard.write([new ClipboardItem({ [type]: blob })]);
 }
 
 function tradeSnapshotWindow(trade: Trade) {
@@ -86,7 +112,7 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[], currenc
     const price = high - ratio * (high - low);
     return `
       <line x1="${PLOT.left}" x2="${SNAPSHOT_WIDTH - PLOT.right}" y1="${y}" y2="${y}" stroke="rgba(148,163,184,0.14)" />
-      <text x="${SNAPSHOT_WIDTH - PLOT.right + 10}" y="${y + 4}" fill="#64748b" font-size="11">${escapeXml(formatPrice(price))}</text>
+      <text x="${SNAPSHOT_WIDTH - PLOT.right - 8}" y="${y + 4}" fill="#64748b" font-family="Inter, Arial, sans-serif" font-size="10" text-anchor="end">${escapeXml(formatSnapshotAxisPrice(price))}</text>
     `;
   }).join("");
 
@@ -115,12 +141,15 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[], currenc
   const exitColor = "#38bdf8";
   const pnlColor = trade.realized_pnl >= 0 ? "#22c55e" : "#ef4444";
 
-  const levels = [
-    priceLevel("Entry", trade.entry_price, entryColor, yForPrice),
-    trade.exit_price == null ? "" : priceLevel("Exit", trade.exit_price, exitColor, yForPrice),
-    trade.stop_loss == null ? "" : priceLevel("SL", trade.stop_loss, "#fb7185", yForPrice, true),
-    trade.take_profit == null ? "" : priceLevel("TP", trade.take_profit, "#4ade80", yForPrice, true),
-  ].join("");
+  const levels = priceLevels(
+    [
+      { color: entryColor, label: "Entry", price: trade.entry_price },
+      trade.exit_price == null ? null : { color: exitColor, label: "Exit", price: trade.exit_price },
+      trade.stop_loss == null ? null : { color: "#fb7185", dashed: true, label: "SL", price: trade.stop_loss },
+      trade.take_profit == null ? null : { color: "#4ade80", dashed: true, label: "TP", price: trade.take_profit },
+    ].filter((level): level is SnapshotLevel => level != null),
+    yForPrice,
+  );
 
   const verticals = `
     <line x1="${entryX}" x2="${entryX}" y1="${PLOT.top}" y2="${SNAPSHOT_HEIGHT - PLOT.bottom}" stroke="${entryColor}" stroke-width="1.4" stroke-dasharray="5 5" />
@@ -139,7 +168,7 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[], currenc
   ].join(" to ");
 
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${SNAPSHOT_WIDTH}" height="${SNAPSHOT_HEIGHT}" viewBox="0 0 ${SNAPSHOT_WIDTH} ${SNAPSHOT_HEIGHT}" data-currency="${escapeXml(currency)}">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${SNAPSHOT_WIDTH}" height="${SNAPSHOT_HEIGHT}" viewBox="0 0 ${SNAPSHOT_WIDTH} ${SNAPSHOT_HEIGHT}" data-currency="${escapeXml(currency)}" data-snapshot-version="${SNAPSHOT_VERSION}">
       <defs>
         <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
           <stop offset="0" stop-color="#0b1220" />
@@ -168,19 +197,43 @@ function buildTradeSnapshotDataUrl(trade: Trade, rawBars: SnapshotBar[], currenc
   return `${GENERATED_SNAPSHOT_PREFIX}${encodeURIComponent(svg)}`;
 }
 
-function priceLevel(
-  label: string,
-  price: number,
-  color: string,
-  yForPrice: (price: number) => number,
-  dashed = false,
-) {
-  const y = yForPrice(price);
-  return `
-    <line x1="${PLOT.left}" x2="${SNAPSHOT_WIDTH - PLOT.right}" y1="${y}" y2="${y}" stroke="${color}" stroke-width="1.2" ${dashed ? 'stroke-dasharray="8 6"' : ""} opacity="0.82" />
-    <rect x="${SNAPSHOT_WIDTH - PLOT.right + 8}" y="${y - 10}" width="58" height="20" rx="4" fill="${color}" opacity="0.18" />
-    <text x="${SNAPSHOT_WIDTH - PLOT.right + 14}" y="${y + 4}" fill="${color}" font-family="Inter, Arial, sans-serif" font-size="11" font-weight="700">${label}</text>
-  `;
+function priceLevels(levels: SnapshotLevel[], yForPrice: (price: number) => number) {
+  const labelGap = 24;
+  const minLabelY = PLOT.top + 12;
+  const maxLabelY = SNAPSHOT_HEIGHT - PLOT.bottom - 12;
+  const positioned = levels
+    .map((level, index) => ({
+      ...level,
+      index,
+      labelY: clamp(yForPrice(level.price), minLabelY, maxLabelY),
+      y: yForPrice(level.price),
+    }))
+    .sort((a, b) => a.labelY - b.labelY);
+
+  for (let index = 1; index < positioned.length; index += 1) {
+    positioned[index].labelY = Math.max(positioned[index].labelY, positioned[index - 1].labelY + labelGap);
+  }
+  for (let index = positioned.length - 2; index >= 0; index -= 1) {
+    positioned[index].labelY = Math.min(positioned[index].labelY, positioned[index + 1].labelY - labelGap);
+  }
+
+  return positioned
+    .sort((a, b) => a.index - b.index)
+    .map(({ color, dashed, label, labelY, y }) => {
+      const badgeX = SNAPSHOT_WIDTH - PLOT.right + 8;
+      const badgeY = clamp(labelY, minLabelY, maxLabelY) - 10;
+      const connector =
+        Math.abs(labelY - y) > 4
+          ? `<line x1="${SNAPSHOT_WIDTH - PLOT.right + 3}" x2="${badgeX + 3}" y1="${y}" y2="${labelY}" stroke="${color}" stroke-width="0.9" opacity="0.45" />`
+          : "";
+      return `
+        <line x1="${PLOT.left}" x2="${SNAPSHOT_WIDTH - PLOT.right}" y1="${y}" y2="${y}" stroke="${color}" stroke-width="1.2" ${dashed ? 'stroke-dasharray="8 6"' : ""} opacity="0.82" />
+        ${connector}
+        <rect x="${badgeX}" y="${badgeY}" width="58" height="20" rx="4" fill="${color}" opacity="0.18" />
+        <text x="${badgeX + 6}" y="${badgeY + 14}" fill="${color}" font-family="Inter, Arial, sans-serif" font-size="11" font-weight="700">${label}</text>
+      `;
+    })
+    .join("");
 }
 
 function downsampleBars(bars: SnapshotBar[], maxBars: number): SnapshotBar[] {
@@ -232,6 +285,46 @@ function formatMoney(value: number, currency: string) {
   } catch {
     return `${currency} ${value.toFixed(2)}`;
   }
+}
+
+function formatSnapshotAxisPrice(value: number) {
+  if (Math.abs(value) >= 100) {
+    return value.toFixed(2);
+  }
+  if (Math.abs(value) >= 1) {
+    return value.toFixed(4);
+  }
+  return value.toFixed(6);
+}
+
+function snapshotDataUrlToPngBlob(url: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === "undefined") {
+      reject(new Error("Canvas is not available"));
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || SNAPSHOT_WIDTH;
+      canvas.height = image.naturalHeight || SNAPSHOT_HEIGHT;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Canvas context is not available"));
+        return;
+      }
+      context.drawImage(image, 0, 0);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Snapshot could not be converted"));
+        }
+      }, "image/png");
+    };
+    image.onerror = () => reject(new Error("Snapshot image could not be loaded"));
+    image.src = url;
+  });
 }
 
 function escapeXml(value: string) {

@@ -101,6 +101,7 @@ import {
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
 import {
+  copyTradeSnapshotToClipboard,
   createTradeSnapshotDataUrl,
   shouldRegenerateTradeSnapshotForCurrency,
 } from "../lib/tradeSnapshot";
@@ -2157,6 +2158,26 @@ function NotebookTradeDetail({
     }
   }
 
+  async function copySnapshot() {
+    const url = snapshotUrl || trade.screenshot_url;
+    if (!url) {
+      setStatus("Snapshot is not ready");
+      return;
+    }
+    setStatus(null);
+    try {
+      await copyTradeSnapshotToClipboard(url);
+      setStatus("Snapshot copied");
+    } catch {
+      try {
+        await navigator.clipboard?.writeText(url);
+        setStatus("Snapshot link copied");
+      } catch {
+        setStatus("Snapshot could not be copied");
+      }
+    }
+  }
+
   function addTags(value: string) {
     const nextTags = parseTagInput(value);
     if (nextTags.length === 0) {
@@ -2372,10 +2393,10 @@ function NotebookTradeDetail({
 
   function applyEditorAction(action: string) {
     switch (action) {
-      case "Templates":
+      case "Template":
         insertRichHtml(textToRichHtml(notebookTemplateText(trade, currency, notebookTemplate, strategy, session)));
         break;
-      case "Draft review":
+      case "Generate draft":
         insertRichHtml(textToRichHtml(buildNotebookReviewDraft(trade, currency, strategy)));
         break;
       case "B":
@@ -2604,7 +2625,7 @@ function NotebookTradeDetail({
 
           <section className="rounded-md border border-white/10 bg-black/20">
             <div className="relative flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-              {["Templates", "Draft review"].map((item) => (
+              {["Template", "Generate draft"].map((item) => (
                 <button
                   className="notebook-editor-button px-2.5"
                   key={item}
@@ -2808,15 +2829,26 @@ function NotebookTradeDetail({
           <section className="rounded-md border border-white/10 bg-black/20 p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <CardLabel icon={Image} label="Trade snapshot" />
-              <button
-                className="control-button h-9"
-                disabled={snapshotStatus === "loading"}
-                onClick={() => void regenerateSnapshot()}
-                type="button"
-              >
-                <RefreshCw className={snapshotStatus === "loading" ? "animate-spin" : ""} size={14} />
-                Regenerate
-              </button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  className="control-button h-9"
+                  disabled={!snapshotUrl && !trade.screenshot_url}
+                  onClick={() => void copySnapshot()}
+                  type="button"
+                >
+                  <Copy size={14} />
+                  Copy
+                </button>
+                <button
+                  className="control-button h-9"
+                  disabled={snapshotStatus === "loading"}
+                  onClick={() => void regenerateSnapshot()}
+                  type="button"
+                >
+                  <RefreshCw className={snapshotStatus === "loading" ? "animate-spin" : ""} size={14} />
+                  Regenerate
+                </button>
+              </div>
             </div>
             {snapshotUrl ? (
               <img
@@ -4278,7 +4310,7 @@ function RichTextEditorStub() {
   return (
     <div className="mt-4 rounded-md border border-white/10 bg-black/20">
       <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-        {["Templates", "Draft review", "B", "I", "U", "S", "Link", "Color", "Align"].map((item) => (
+        {["Template", "Generate draft", "B", "I", "U", "S", "Link", "Color", "Align"].map((item) => (
           <button className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white" key={item} type="button">
             {item}
           </button>
