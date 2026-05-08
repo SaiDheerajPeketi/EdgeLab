@@ -50,12 +50,13 @@ import type {
   MagnetMode,
 } from "./lib/charting";
 import {
+  canAggregateTimeframe,
   createIndicatorInstance,
   createLegacyIndicatorInstance,
-  getTimeframeSeconds,
   isIndicatorKind,
   mergeIndicatorSettings,
   nextIndicatorInstanceColor,
+  normalizeChartTimeframe,
   normalizeFibLevels,
 } from "./lib/charting";
 import {
@@ -109,17 +110,6 @@ const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
   "tema20",
   "vwap",
   "wma20",
-];
-const VALID_TIMEFRAMES: ChartTimeframe[] = [
-  "1m",
-  "5m",
-  "15m",
-  "30m",
-  "1H",
-  "4H",
-  "1D",
-  "1W",
-  "1M",
 ];
 const VALID_CHART_STYLES: ChartStyle[] = ["area", "candles", "heikinAshi", "line"];
 
@@ -1757,21 +1747,17 @@ function sanitizeIndicatorInstance(value: unknown): ChartIndicatorInstance | nul
 }
 
 function sanitizeTimeframe(value: unknown): ChartTimeframe {
-  return VALID_TIMEFRAMES.includes(value as ChartTimeframe)
-    ? (value as ChartTimeframe)
-    : "1m";
+  return normalizeChartTimeframe(value) ?? "1m";
 }
 
 function coerceTimeframeToSource(
   requested: ChartTimeframe,
   source: ChartTimeframe | null,
 ): ChartTimeframe {
-  if (!source) {
+  if (!source || canAggregateTimeframe(requested, source)) {
     return requested;
   }
-  return getTimeframeSeconds(requested) < getTimeframeSeconds(source)
-    ? source
-    : requested;
+  return source;
 }
 
 function sanitizeChartStyle(value: unknown): ChartStyle {
@@ -1781,43 +1767,7 @@ function sanitizeChartStyle(value: unknown): ChartStyle {
 }
 
 function toChartTimeframe(value: string | null | undefined): ChartTimeframe | null {
-  const normalized = value?.toUpperCase();
-  switch (normalized) {
-    case "M1":
-    case "1MIN":
-      return "1m";
-    case "M5":
-    case "5M":
-    case "5MIN":
-      return "5m";
-    case "M15":
-    case "15M":
-    case "15MIN":
-      return "15m";
-    case "M30":
-    case "30M":
-    case "30MIN":
-      return "30m";
-    case "H1":
-    case "1H":
-      return "1H";
-    case "H4":
-    case "4H":
-      return "4H";
-    case "D":
-    case "DAILY":
-    case "1D":
-      return "1D";
-    case "W":
-    case "WEEKLY":
-    case "1W":
-      return "1W";
-    case "MONTHLY":
-    case "1M":
-      return "1M";
-    default:
-      return null;
-  }
+  return normalizeChartTimeframe(value);
 }
 
 function sanitizeDrawings(value: unknown): ChartDrawing[] {

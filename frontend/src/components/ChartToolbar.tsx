@@ -2,6 +2,7 @@ import {
   Activity,
   AreaChart,
   CandlestickChart,
+  Check,
   ChevronDown,
   Command,
   Eye,
@@ -37,10 +38,13 @@ import {
   type ChartToolIcon,
 } from "./ChartToolIcons";
 import {
+  canAggregateTimeframe,
+  formatChartTimeframeLabel,
   INDICATORS,
   TIMEFRAMES,
   getTimeframeSeconds,
   indicatorDisplayName,
+  normalizeChartTimeframe,
   type ChartIndicatorInstance,
   type ChartIndicatorKind,
   type ChartStyle,
@@ -198,6 +202,7 @@ export function ChartToolbar({
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [customTimeframe, setCustomTimeframe] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPresets, setSettingsPresets] = useState<ChartSettingsPreset[]>(() =>
     loadChartSettingsPresets(),
@@ -211,10 +216,36 @@ export function ChartToolbar({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const settingsWasOpenRef = useRef(false);
+  const normalizedCustomTimeframe = normalizeChartTimeframe(customTimeframe);
+  const customTimeframeAvailable =
+    normalizedCustomTimeframe != null &&
+    isTimeframeAvailable(normalizedCustomTimeframe, sourceTimeframe);
+  const customTimeframeTitle =
+    customTimeframe.trim().length === 0
+      ? "Enter a custom interval"
+      : normalizedCustomTimeframe == null
+        ? "Use formats like 2m, 10m, 3H, 2D, or 2W"
+        : customTimeframeAvailable
+          ? `Switch to ${formatChartTimeframeLabel(normalizedCustomTimeframe)}`
+          : `Cannot build ${formatChartTimeframeLabel(normalizedCustomTimeframe)} from ${sourceTimeframe} source`;
+
+  useEffect(() => {
+    if (TIMEFRAMES.some((interval) => interval.id === timeframe)) {
+      return;
+    }
+    setCustomTimeframe(formatChartTimeframeLabel(timeframe));
+  }, [timeframe]);
 
   function selectChartStyle(style: ChartStyle) {
     onChartStyleChange(style);
     onSmoothCandlesChange(style === "heikinAshi");
+  }
+
+  function applyCustomTimeframe() {
+    if (!normalizedCustomTimeframe || !customTimeframeAvailable) {
+      return;
+    }
+    onTimeframeChange(normalizedCustomTimeframe);
   }
 
   function refreshSettingsPresets(preferredName?: string | null) {
@@ -375,7 +406,7 @@ export function ChartToolbar({
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white">Chart Workbench</div>
               <div className="truncate text-xs text-slate-500">
-                {timeframe} / {chartStyleLabel(chartStyle)} / {indicatorInstances.length} studies / {drawingsCount} drawings
+                {formatChartTimeframeLabel(timeframe)} / {chartStyleLabel(chartStyle)} / {indicatorInstances.length} studies / {drawingsCount} drawings
               </div>
             </div>
           </div>
@@ -438,6 +469,31 @@ export function ChartToolbar({
               </button>
             );
           })}
+          <form
+            className="timeframe-custom-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyCustomTimeframe();
+            }}
+          >
+            <input
+              aria-label="Custom timeframe"
+              className="timeframe-custom-input"
+              onChange={(event) => setCustomTimeframe(event.target.value)}
+              placeholder="10m"
+              title={customTimeframeTitle}
+              value={customTimeframe}
+            />
+            <button
+              aria-label="Apply custom timeframe"
+              className="timeframe-custom-apply"
+              disabled={!customTimeframeAvailable}
+              title={customTimeframeTitle}
+              type="submit"
+            >
+              <Check size={13} />
+            </button>
+          </form>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1552,10 +1608,7 @@ function isTimeframeAvailable(
   timeframe: ChartTimeframe,
   sourceTimeframe: ChartTimeframe | null,
 ) {
-  return (
-    sourceTimeframe == null ||
-    getTimeframeSeconds(timeframe) >= getTimeframeSeconds(sourceTimeframe)
-  );
+  return canAggregateTimeframe(timeframe, sourceTimeframe);
 }
 
 function IndicatorEditor({

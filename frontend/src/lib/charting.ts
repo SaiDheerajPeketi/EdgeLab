@@ -13,7 +13,15 @@ export const TIMEFRAMES = [
   { id: "1M", label: "1M", seconds: 2592000 },
 ] as const;
 
-export type ChartTimeframe = (typeof TIMEFRAMES)[number]["id"];
+export type ChartTimeframe = string;
+type ChartTimeframeUnit = "minute" | "hour" | "day" | "week" | "month";
+type ParsedChartTimeframe = {
+  id: ChartTimeframe;
+  label: string;
+  seconds: number;
+  unit: ChartTimeframeUnit;
+  value: number;
+};
 export type ChartStyle = "area" | "candles" | "heikinAshi" | "line";
 export type ChartIndicatorId =
   | "atr14"
@@ -499,8 +507,58 @@ function riskRewardMinimumGap(entryPrice: number) {
   return Math.max(Math.abs(entryPrice) * 0.000001, 0.00001);
 }
 
+const PRESET_TIMEFRAME_LOOKUP = new Map<string, ParsedChartTimeframe>(
+  TIMEFRAMES.map((timeframe) => [
+    timeframe.id,
+    {
+      id: timeframe.id,
+      label: timeframe.label,
+      seconds: timeframe.seconds,
+      unit:
+        timeframe.id === "1M"
+          ? "month"
+          : timeframe.id === "1W"
+            ? "week"
+            : timeframe.id === "1D"
+              ? "day"
+              : timeframe.id.endsWith("H")
+                ? "hour"
+                : "minute",
+      value: Number.parseInt(timeframe.id, 10) || 1,
+    },
+  ]),
+);
+
+export function normalizeChartTimeframe(value: unknown): ChartTimeframe | null {
+  return parseChartTimeframe(value)?.id ?? null;
+}
+
+export function formatChartTimeframeLabel(timeframe: ChartTimeframe) {
+  return parseChartTimeframe(timeframe)?.label ?? String(timeframe);
+}
+
 export function getTimeframeSeconds(timeframe: ChartTimeframe) {
-  return TIMEFRAMES.find((item) => item.id === timeframe)?.seconds ?? 60;
+  return parseChartTimeframe(timeframe)?.seconds ?? 60;
+}
+
+export function canAggregateTimeframe(
+  timeframe: ChartTimeframe,
+  sourceTimeframe: ChartTimeframe | null,
+) {
+  const target = parseChartTimeframe(timeframe);
+  const source = sourceTimeframe ? parseChartTimeframe(sourceTimeframe) : null;
+  if (!target || !source) {
+    return source == null && target != null;
+  }
+  if (target.seconds < source.seconds) {
+    return false;
+  }
+  if (target.unit === "month") {
+    return source.unit === "month"
+      ? target.id === source.id
+      : source.unit === "minute" || source.unit === "hour" || source.unit === "day";
+  }
+  return target.seconds % source.seconds === 0;
 }
 
 export function bucketTime(time: number, timeframe: ChartTimeframe) {
@@ -523,6 +581,87 @@ export function bucketTime(time: number, timeframe: ChartTimeframe) {
 
   const seconds = getTimeframeSeconds(timeframe);
   return Math.floor(time / seconds) * seconds;
+}
+
+function parseChartTimeframe(value: unknown): ParsedChartTimeframe | null {
+  if (typeof value !== "string" && typeof value !== "number") {
+    return null;
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  const compact = raw.replace(/\s+/g, "");
+  const upper = compact.toUpperCase();
+  const direct = PRESET_TIMEFRAME_LOOKUP.get(compact);
+  if (direct) {
+    return direct;
+  }
+
+  const aliases: Record<string, string> = {
+    "1MIN": "1m",
+    "1MINUTE": "1m",
+    M1: "1m",
+    "5M": "5m",
+    M5: "5m",
+    "15M": "15m",
+    M15: "15m",
+    "30M": "30m",
+    M30: "30m",
+    H1: "1H",
+    H4: "4H",
+    D: "1D",
+    DAILY: "1D",
+    W: "1W",
+    WEEKLY: "1W",
+    MONTHLY: "1M",
+  };
+  const alias = aliases[upper];
+  if (alias) {
+    return parseChartTimeframe(alias);
+  }
+
+  const minuteMatch = compact.match(/^(\d+)(?:m|min|mins|minute|minutes)$/);
+  if (minuteMatch) {
+    return timeframeFromParts(minuteMatch[1], "minute", "m", 60);
+  }
+  const uppercaseMinuteMatch = compact.match(/^(\d+)M$/);
+  if (uppercaseMinuteMatch && uppercaseMinuteMatch[1] !== "1") {
+    return timeframeFromParts(uppercaseMinuteMatch[1], "minute", "m", 60);
+  }
+  const hourMatch = compact.match(/^(\d+)(?:h|hr|hrs|hour|hours)$/i);
+  if (hourMatch) {
+    return timeframeFromParts(hourMatch[1], "hour", "H", 3600);
+  }
+  const dayMatch = compact.match(/^(\d+)(?:d|day|days)$/i);
+  if (dayMatch) {
+    return timeframeFromParts(dayMatch[1], "day", "D", 86400);
+  }
+  const weekMatch = compact.match(/^(\d+)(?:w|wk|wks|week|weeks)$/i);
+  if (weekMatch) {
+    return timeframeFromParts(weekMatch[1], "week", "W", 604800);
+  }
+
+  return null;
+}
+
+function timeframeFromParts(
+  rawValue: string,
+  unit: Exclude<ChartTimeframeUnit, "month">,
+  suffix: string,
+  secondsPerUnit: number,
+): ParsedChartTimeframe | null {
+  const value = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(value) || value <= 0 || value > 10080) {
+    return null;
+  }
+  return {
+    id: `${value}${suffix}`,
+    label: `${value}${suffix}`,
+    seconds: value * secondsPerUnit,
+    unit,
+    value,
+  };
 }
 
 export function normalizeBars(bars: Candle[]): Candle[] {

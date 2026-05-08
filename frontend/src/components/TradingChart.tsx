@@ -70,6 +70,7 @@ import {
   DEFAULT_FIB_BACKGROUND_OPACITY,
   DEFAULT_FIB_LEVELS,
   defaultRiskRewardStopPoint,
+  formatChartTimeframeLabel,
   indicatorDisplayName,
   isRiskRewardTool,
   latestIndicatorValue,
@@ -1877,7 +1878,7 @@ export function TradingChart({
                     {formatMarketSymbol(symbol)}
                   </div>
                   <div className="text-xs text-slate-400">
-                    {datasetTimeframe ?? timeframe} source / {timeframe} view / {chartStyleLabel(chartStyle)}
+                    {datasetTimeframe ?? formatChartTimeframeLabel(timeframe)} source / {formatChartTimeframeLabel(timeframe)} view / {chartStyleLabel(chartStyle)}
                   </div>
                 </div>
               </div>
