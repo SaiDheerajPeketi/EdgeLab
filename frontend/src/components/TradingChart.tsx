@@ -361,6 +361,7 @@ export function TradingChart({
   const pendingPriceScaleSyncRef = useRef(false);
   const priceScaleFingerprintRef = useRef<string | null>(null);
   const suppressNextDrawingClickRef = useRef(false);
+  const previousTimeframeRef = useRef(timeframe);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -871,11 +872,23 @@ export function TradingChart({
     lineRef.current?.setData(toAscendingSeriesData(closeLineData));
     areaRef.current?.setData(toAscendingSeriesData(closeLineData));
     volumeRef.current?.setData(toAscendingHistogramData(volumeData));
+    const timeframeChanged = previousTimeframeRef.current !== timeframe;
+    previousTimeframeRef.current = timeframe;
+    let resetFrame: number | null = null;
     if (displayBars.length > 0) {
-      chartRef.current?.timeScale().scrollToRealTime();
+      if (timeframeChanged) {
+        resetFrame = window.requestAnimationFrame(() => resetChartView());
+      } else {
+        chartRef.current?.timeScale().scrollToRealTime();
+      }
     }
     setPlotVersion((value) => value + 1);
-  }, [candleData, closeLineData, displayBars.length, volumeData]);
+    return () => {
+      if (resetFrame != null) {
+        window.cancelAnimationFrame(resetFrame);
+      }
+    };
+  }, [candleData, closeLineData, displayBars.length, timeframe, volumeData]);
 
   useEffect(() => {
     const canShowLine = chartStyle === "line" && lineRef.current != null;

@@ -938,23 +938,26 @@ button:disabled {
   }
 
   .timeframe-shortcut-dialog {
-    @apply grid w-[min(360px,calc(100vw-32px))] gap-4 rounded-md border border-black/50 bg-[#151515]/95 px-8 py-7 shadow-panel;
+    @apply grid w-[min(260px,calc(100vw-32px))] gap-3 rounded-md border border-cyan-300/20 bg-[#080c11]/95 px-4 py-4 shadow-panel backdrop-blur;
     animation: timeframeShortcutIn 120ms ease-out;
+    background-image:
+      linear-gradient(90deg, rgba(50, 211, 238, 0.10), transparent 46%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
     box-shadow:
-      0 24px 70px rgba(0, 0, 0, 0.48),
+      0 18px 48px rgba(0, 0, 0, 0.38),
       0 1px 0 rgba(255, 255, 255, 0.05) inset;
   }
 
   .timeframe-shortcut-title {
-    @apply flex items-center justify-center gap-2 text-2xl font-black text-slate-100;
+    @apply flex items-center justify-between gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400;
   }
 
   .timeframe-shortcut-title svg {
-    @apply mt-1 text-slate-500;
+    @apply text-slate-500;
   }
 
   .timeframe-shortcut-input {
-    @apply flex h-16 min-w-0 items-center justify-center rounded-md border bg-[#111] px-4 text-center text-2xl font-semibold text-slate-100 transition;
+    @apply flex h-11 min-w-0 items-center justify-center rounded-md border bg-ink-950 px-3 text-center text-xl font-bold text-slate-100 transition;
   }
 
   .timeframe-shortcut-input-ready {
@@ -974,12 +977,12 @@ button:disabled {
   }
 
   .timeframe-shortcut-caret {
-    @apply ml-1 h-8 w-px bg-slate-200;
+    @apply ml-1 h-6 w-px bg-cyan-100;
     animation: timeframeShortcutCaret 900ms steps(2, start) infinite;
   }
 
   .timeframe-shortcut-description {
-    @apply min-h-5 text-center text-sm font-semibold;
+    @apply min-h-4 text-center text-xs font-semibold;
   }
 
   .timeframe-shortcut-description-ready {
