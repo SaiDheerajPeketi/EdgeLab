@@ -32,6 +32,7 @@ import {
   Link2,
   LineChart,
   List,
+  ListOrdered,
   MoreHorizontal,
   NotebookPen,
   Palette,
@@ -227,9 +228,11 @@ type NotebookAlignMode = "center" | "left" | "right";
 type NotebookEditorState = {
   align: NotebookAlignMode;
   bold: boolean;
+  bulletList: boolean;
   color: string | null;
   italic: boolean;
   link: boolean;
+  orderedList: boolean;
   strike: boolean;
   underline: boolean;
 };
@@ -257,9 +260,11 @@ const DEFAULT_NOTEBOOK_TEMPLATE = [
 const DEFAULT_NOTEBOOK_EDITOR_STATE: NotebookEditorState = {
   align: "left",
   bold: false,
+  bulletList: false,
   color: null,
   italic: false,
   link: false,
+  orderedList: false,
   strike: false,
   underline: false,
 };
@@ -2363,9 +2368,11 @@ function NotebookTradeDetail({
     setEditorState({
       align,
       bold: document.queryCommandState("bold"),
+      bulletList: document.queryCommandState("insertUnorderedList"),
       color: normalizeEditorColor(document.queryCommandValue("foreColor")),
       italic: document.queryCommandState("italic"),
       link: Boolean(findEditorAnchor(selection.anchorNode, editor)),
+      orderedList: document.queryCommandState("insertOrderedList"),
       strike: document.queryCommandState("strikeThrough"),
       underline: document.queryCommandState("underline"),
     });
@@ -2439,6 +2446,12 @@ function NotebookTradeDetail({
         break;
       case "S":
         runEditorCommand("strikeThrough");
+        break;
+      case "Bullet list":
+        runEditorCommand("insertUnorderedList");
+        break;
+      case "Numbered list":
+        runEditorCommand("insertOrderedList");
         break;
       case "Link":
         openLinkPopover();
@@ -2670,6 +2683,8 @@ function NotebookTradeDetail({
                 { active: editorState.italic, action: "I", icon: Italic, label: "Italic" },
                 { active: editorState.underline, action: "U", icon: Underline, label: "Underline" },
                 { active: editorState.strike, action: "S", icon: Strikethrough, label: "Strikethrough" },
+                { active: editorState.bulletList, action: "Bullet list", icon: List, label: "Bullet list" },
+                { active: editorState.orderedList, action: "Numbered list", icon: ListOrdered, label: "Numbered list" },
               ].map(({ active, action, icon: Icon, label }) => (
                 <button
                   aria-pressed={active}
@@ -4343,7 +4358,7 @@ function RichTextEditorStub() {
   return (
     <div className="mt-4 rounded-md border border-white/10 bg-black/20">
       <div className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
-        {["Template", "Generate draft", "B", "I", "U", "S", "Link", "Color", "Align"].map((item) => (
+        {["Template", "Generate draft", "B", "I", "U", "S", "Bullets", "Numbers", "Link", "Color", "Align"].map((item) => (
           <button className="h-8 rounded px-2 text-xs font-semibold text-slate-400 hover:bg-white/10 hover:text-white" key={item} type="button">
             {item}
           </button>
