@@ -612,13 +612,16 @@ export function ChartToolbar({
         </div>
         <span className="chart-pane-active-label">{activePaneLabel}</span>
         {multiChart && (
-          <ThemedSelect
-            ariaLabel="Replay timeframe"
-            className="h-8 w-44"
-            onChange={(value) => onReplayTimeframeChange(value)}
-            options={replayTimeframeOptions}
-            value={replayTimeframe}
-          />
+          <div className="chart-replay-timeframe-control">
+            <span className="chart-replay-timeframe-label">Replay</span>
+            <ThemedSelect
+              ariaLabel="Replay timeframe"
+              className="chart-replay-timeframe-select h-8 w-28"
+              onChange={(value) => onReplayTimeframeChange(value)}
+              options={replayTimeframeOptions}
+              value={replayTimeframe}
+            />
+          </div>
         )}
       </div>
 
