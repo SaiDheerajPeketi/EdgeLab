@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   AlignCenter,
   AlignLeft,
   AlignRight,
+  ArrowLeft,
   ArrowRight,
   BadgeDollarSign,
   BarChart3,
@@ -124,6 +125,7 @@ type Props = {
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onNavigateBacktest: () => void;
   onNavigateSessions: () => void;
+  onNavigateTradeView: () => void;
   onReplayTrade: (trade: Trade) => Promise<void> | void;
   onRefreshDatasets: () => Promise<DatasetRefreshResponse>;
   onGetDatasetRefreshStatus: () => Promise<DatasetRefreshStatus>;
@@ -138,6 +140,7 @@ type Props = {
   trades: Trade[];
   view: WorkspacePageView;
   notebookFocusTradeId: number | null;
+  notebookReturnToTradeView: boolean;
 };
 
 type Aggregate = {
@@ -323,6 +326,28 @@ const TIMEZONE_IDS = [
 ];
 const TIMEZONE_OPTIONS = TIMEZONE_IDS.map(timezoneOption);
 
+type TradeViewFilterState = {
+  dateFrom: string;
+  dateTo: string;
+  instrumentFilter: string;
+  searchTerm: string;
+  sessionFilter: string;
+  sideFilter: string;
+  strategyFilter: string;
+  tagFilter: string;
+};
+
+const DEFAULT_TRADE_VIEW_FILTERS: TradeViewFilterState = {
+  dateFrom: "",
+  dateTo: "",
+  instrumentFilter: "ALL",
+  searchTerm: "",
+  sessionFilter: "ALL",
+  sideFilter: "ALL",
+  strategyFilter: "ALL",
+  tagFilter: "ALL",
+};
+
 export function EdgeLabWorkspace({
   activeSession,
   datasets,
@@ -332,6 +357,7 @@ export function EdgeLabWorkspace({
   onCreatePlaybook,
   onNavigateBacktest,
   onNavigateSessions,
+  onNavigateTradeView,
   onReplayTrade,
   onRefreshDatasets,
   onGetDatasetRefreshStatus,
@@ -343,7 +369,11 @@ export function EdgeLabWorkspace({
   trades,
   view,
   notebookFocusTradeId,
+  notebookReturnToTradeView,
 }: Props) {
+  const [tradeViewFilters, setTradeViewFilters] = useState<TradeViewFilterState>(DEFAULT_TRADE_VIEW_FILTERS);
+  const tradeViewScrollRef = useRef(0);
+  const pendingTradeViewScrollRestoreRef = useRef<number | null>(null);
   const liveJournal = useLiveJournalData();
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
@@ -372,6 +402,27 @@ export function EdgeLabWorkspace({
     datasets,
   );
 
+  useEffect(() => {
+    if (view !== "tradeView" || pendingTradeViewScrollRestoreRef.current == null) {
+      return;
+    }
+    const scrollTop = pendingTradeViewScrollRestoreRef.current;
+    pendingTradeViewScrollRestoreRef.current = null;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollTop });
+    });
+  }, [view]);
+
+  function openTradeNoteFromTradeView(trade: Trade) {
+    tradeViewScrollRef.current = window.scrollY;
+    onOpenTradeNote(trade);
+  }
+
+  function returnToTradeView() {
+    pendingTradeViewScrollRestoreRef.current = tradeViewScrollRef.current;
+    onNavigateTradeView();
+  }
+
   const shared = {
     activeSession,
     aggregate,
@@ -385,6 +436,7 @@ export function EdgeLabWorkspace({
     onCreatePlaybook,
     onNavigateBacktest,
     onNavigateSessions,
+    onNavigateTradeView,
     onReplayTrade,
     onRefreshDatasets,
     onGetDatasetRefreshStatus,
@@ -398,6 +450,10 @@ export function EdgeLabWorkspace({
     strategies,
     trades,
     notebookFocusTradeId,
+    notebookReturnToTradeView,
+    onReturnToTradeView: notebookReturnToTradeView ? returnToTradeView : undefined,
+    tradeViewFilters,
+    onTradeViewFiltersChange: setTradeViewFilters,
   };
 
   switch (view) {
@@ -431,7 +487,7 @@ export function EdgeLabWorkspace({
     case "strategies":
       return <StrategiesPage {...shared} />;
     case "tradeView":
-      return <TradeViewPage {...shared} />;
+      return <TradeViewPage {...shared} onOpenTradeNote={openTradeNoteFromTradeView} />;
     default:
       return null;
   }
@@ -459,6 +515,8 @@ type SharedPageProps = {
     payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   onUpdateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
+  onReturnToTradeView?: () => void;
+  onTradeViewFiltersChange: Dispatch<SetStateAction<TradeViewFilterState>>;
   openTrades: Trade[];
   playbooks: Playbook[];
   sessionById: Map<number, BacktestSession>;
@@ -466,6 +524,8 @@ type SharedPageProps = {
   strategies: StrategyGroup[];
   trades: Trade[];
   notebookFocusTradeId: number | null;
+  notebookReturnToTradeView: boolean;
+  tradeViewFilters: TradeViewFilterState;
 };
 
 function DashboardPage({
@@ -854,18 +914,22 @@ function TradeViewPage({
   closedTrades,
   currency,
   datasets,
+  onTradeViewFiltersChange,
   onOpenTradeNote,
   sessionById,
   strategies,
+  tradeViewFilters,
 }: SharedPageProps) {
-  const [sessionFilter, setSessionFilter] = useState("ALL");
-  const [instrumentFilter, setInstrumentFilter] = useState("ALL");
-  const [sideFilter, setSideFilter] = useState("ALL");
-  const [strategyFilter, setStrategyFilter] = useState("ALL");
-  const [tagFilter, setTagFilter] = useState("ALL");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
+  const {
+    dateFrom,
+    dateTo,
+    instrumentFilter,
+    searchTerm,
+    sessionFilter,
+    sideFilter,
+    strategyFilter,
+    tagFilter,
+  } = tradeViewFilters;
   const savedStrategyNames = useBacktestStrategyNames();
   const sessionOptions = useMemo(
     () => buildTradeSessionOptions(closedTrades, sessionById),
@@ -935,15 +999,15 @@ function TradeViewPage({
     tagFilter !== "ALL" ||
     Boolean(dateFrom || dateTo || searchTerm.trim());
 
+  function updateFilter<K extends keyof TradeViewFilterState>(
+    key: K,
+    value: TradeViewFilterState[K],
+  ) {
+    onTradeViewFiltersChange((current) => ({ ...current, [key]: value }));
+  }
+
   function resetFilters() {
-    setSessionFilter("ALL");
-    setInstrumentFilter("ALL");
-    setSideFilter("ALL");
-    setStrategyFilter("ALL");
-    setTagFilter("ALL");
-    setDateFrom("");
-    setDateTo("");
-    setSearchTerm("");
+    onTradeViewFiltersChange(DEFAULT_TRADE_VIEW_FILTERS);
   }
 
   function exportFilteredTradesCsv() {
@@ -971,7 +1035,7 @@ function TradeViewPage({
                 <Search className="shrink-0 text-slate-500" size={15} />
                 <input
                   className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-600"
-                  onChange={(event) => setSearchTerm(event.target.value)}
+                  onChange={(event) => updateFilter("searchTerm", event.target.value)}
                   placeholder="Instrument, strategy, note, tag..."
                   value={searchTerm}
                 />
@@ -979,17 +1043,17 @@ function TradeViewPage({
             </label>
             <label className="form-field">
               Session
-              <ThemedSelect className="h-10" onChange={setSessionFilter} options={sessionOptions} portal value={sessionFilter} />
+              <ThemedSelect className="h-10" onChange={(value) => updateFilter("sessionFilter", value)} options={sessionOptions} portal value={sessionFilter} />
             </label>
             <label className="form-field">
               Instrument
-              <ThemedSelect className="h-10" onChange={setInstrumentFilter} options={instrumentOptions} portal value={instrumentFilter} />
+              <ThemedSelect className="h-10" onChange={(value) => updateFilter("instrumentFilter", value)} options={instrumentOptions} portal value={instrumentFilter} />
             </label>
             <label className="form-field">
               Direction
               <ThemedSelect
                 className="h-10"
-                onChange={setSideFilter}
+                onChange={(value) => updateFilter("sideFilter", value)}
                 options={[
                   { label: "All directions", value: "ALL" },
                   { label: "Long", value: "LONG" },
@@ -1001,21 +1065,21 @@ function TradeViewPage({
             </label>
             <label className="form-field">
               Strategy
-              <ThemedSelect className="h-10" onChange={setStrategyFilter} options={strategyOptions} portal value={strategyFilter} />
+              <ThemedSelect className="h-10" onChange={(value) => updateFilter("strategyFilter", value)} options={strategyOptions} portal value={strategyFilter} />
             </label>
           </div>
           <div className="grid gap-2 md:grid-cols-[minmax(160px,0.75fr)_repeat(2,minmax(140px,0.55fr))_auto]">
             <label className="form-field">
               Tags
-              <ThemedSelect className="h-10" onChange={setTagFilter} options={tagOptions} portal value={tagFilter} />
+              <ThemedSelect className="h-10" onChange={(value) => updateFilter("tagFilter", value)} options={tagOptions} portal value={tagFilter} />
             </label>
             <label className="form-field">
               From
-              <ThemedDatePicker ariaLabel="Filter trades from date" onChange={setDateFrom} placeholder="From date" value={dateFrom} />
+              <ThemedDatePicker ariaLabel="Filter trades from date" onChange={(value) => updateFilter("dateFrom", value)} placeholder="From date" value={dateFrom} />
             </label>
             <label className="form-field">
               To
-              <ThemedDatePicker ariaLabel="Filter trades to date" onChange={setDateTo} placeholder="To date" value={dateTo} />
+              <ThemedDatePicker ariaLabel="Filter trades to date" onChange={(value) => updateFilter("dateTo", value)} placeholder="To date" value={dateTo} />
             </label>
             <div className="flex items-end">
               <button className="control-button h-10" disabled={!filtersActive} onClick={resetFilters} type="button">
@@ -1961,6 +2025,7 @@ function NotebookPage({
   closedTrades,
   datasets,
   notebookFocusTradeId,
+  onReturnToTradeView,
   onReplayTrade,
   sessionById,
   strategies,
@@ -2064,6 +2129,14 @@ function NotebookPage({
       eyebrow="Backtest Notebook"
       title="Backtest Trade Notes"
       description="An EdgeLab notebook linked to closed replay trades and session review."
+      actions={
+        onReturnToTradeView ? (
+          <button className="control-button" onClick={onReturnToTradeView} type="button">
+            <ArrowLeft size={15} />
+            Back to Trades
+          </button>
+        ) : undefined
+      }
     >
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <FeatureCard className="p-0">

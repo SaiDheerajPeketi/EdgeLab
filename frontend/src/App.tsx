@@ -181,6 +181,7 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [notebookFocusTradeId, setNotebookFocusTradeId] = useState<number | null>(null);
+  const [notebookReturnTarget, setNotebookReturnTarget] = useState<WorkspaceView | null>(null);
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
   const sidebarCollapsed = true;
@@ -815,6 +816,7 @@ export default function App() {
   }
 
   function navigateWorkspace(view: WorkspaceView) {
+    setNotebookReturnTarget(null);
     setActiveWorkspace(view);
     if (view === "sessions") {
       setPlaying(false);
@@ -1427,6 +1429,7 @@ export default function App() {
     setEditingTrade(null);
     setReplayFocusTrade(null);
     setNotebookFocusTradeId(trade.id);
+    setNotebookReturnTarget("tradeView");
     setActiveWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1636,14 +1639,22 @@ export default function App() {
               onInspectTrade={setReviewTrade}
               onOpenTradeNote={openTradeNoteFromLog}
               onNavigateBacktest={() => {
+                setNotebookReturnTarget(null);
                 setReplayFocusTrade(null);
                 setActiveWorkspace("backtest");
                 setSessionGateOpen(false);
               }}
               onNavigateSessions={() => {
+                setNotebookReturnTarget(null);
                 setReplayFocusTrade(null);
                 setActiveWorkspace("sessions");
                 setSessionGateOpen(true);
+              }}
+              onNavigateTradeView={() => {
+                setNotebookReturnTarget(null);
+                setReplayFocusTrade(null);
+                setActiveWorkspace("tradeView");
+                setSessionGateOpen(false);
               }}
               onReplayTrade={replayTradeFromNotes}
               onResumeSession={resumeSessionFromGateway}
@@ -1657,6 +1668,7 @@ export default function App() {
               trades={resultTrades}
               view={activeWorkspace}
               notebookFocusTradeId={notebookFocusTradeId}
+              notebookReturnToTradeView={notebookReturnTarget === "tradeView"}
             />
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
