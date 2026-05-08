@@ -2017,10 +2017,12 @@ function NotebookTradeDetail({
   const customTagRef = useRef<HTMLInputElement | null>(null);
   const linkInputRef = useRef<HTMLInputElement | null>(null);
   const savedSelectionRef = useRef<Range | null>(null);
+  const editingLinkRef = useRef<HTMLAnchorElement | null>(null);
   const [notes, setNotes] = useState(() => normalizeStoredNoteHtml(trade.notes));
   const [noteFocused, setNoteFocused] = useState(false);
   const [editorState, setEditorState] = useState<NotebookEditorState>(DEFAULT_NOTEBOOK_EDITOR_STATE);
   const [linkPopoverOpen, setLinkPopoverOpen] = useState(false);
+  const [linkText, setLinkText] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
@@ -2075,8 +2077,11 @@ function NotebookTradeDetail({
     setSnapshotActionStatus(null);
     setMoreOpen(false);
     setLinkPopoverOpen(false);
+    setLinkText("");
+    setLinkUrl("");
     setColorMenuOpen(false);
     setAlignMenuOpen(false);
+    editingLinkRef.current = null;
     setEditorState(DEFAULT_NOTEBOOK_EDITOR_STATE);
   }, [session, trade]);
 
@@ -2263,8 +2268,11 @@ function NotebookTradeDetail({
     setNoteFocused(false);
     setMoreOpen(false);
     setLinkPopoverOpen(false);
+    setLinkText("");
+    setLinkUrl("");
     setColorMenuOpen(false);
     setAlignMenuOpen(false);
+    editingLinkRef.current = null;
     setEditorState(DEFAULT_NOTEBOOK_EDITOR_STATE);
   }
 
@@ -2381,9 +2389,21 @@ function NotebookTradeDetail({
   }
 
   function openLinkPopover() {
+    if (linkPopoverOpen) {
+      setLinkPopoverOpen(false);
+      setLinkText("");
+      setLinkUrl("");
+      editingLinkRef.current = null;
+      return;
+    }
+    const editor = noteRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
     saveEditorSelection();
-    setLinkUrl("");
-    setLinkPopoverOpen((current) => !current);
+    const anchor = editor && selection ? findEditorAnchor(selection.anchorNode, editor) : null;
+    editingLinkRef.current = anchor;
+    setLinkText(anchor?.textContent?.trim() ?? selection?.toString().trim() ?? "");
+    setLinkUrl(anchor?.getAttribute("href") ?? "");
+    setLinkPopoverOpen(true);
     setColorMenuOpen(false);
     setAlignMenuOpen(false);
   }
@@ -2393,15 +2413,22 @@ function NotebookTradeDetail({
     if (!url) {
       return;
     }
-    restoreEditorSelection();
-    const selectionText = typeof window === "undefined" ? "" : window.getSelection()?.toString();
-    if (selectionText) {
-      runEditorCommand("createLink", url);
+    const selectedText = savedSelectionRef.current?.toString().trim() ?? "";
+    const label = linkText.trim() || selectedText || url;
+    const editingLink = editingLinkRef.current;
+    if (editingLink && noteRef.current?.contains(editingLink)) {
+      editingLink.href = url;
+      editingLink.target = "_blank";
+      editingLink.rel = "noreferrer";
+      editingLink.textContent = label;
+      syncNotesFromEditor();
     } else {
-      insertRichHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>`);
+      insertRichHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`);
     }
     setLinkPopoverOpen(false);
+    setLinkText("");
     setLinkUrl("");
+    editingLinkRef.current = null;
   }
 
   function applyNoteColor(color: string) {
@@ -2730,21 +2757,20 @@ function NotebookTradeDetail({
                   />
                 </button>
                 {colorMenuOpen && (
-                  <div className="notebook-editor-popover left-0 top-9 w-36">
-                    <div className="mb-1 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                      Text color
+                  <div className="notebook-editor-popover left-0 top-9 w-56">
+                    <div className="notebook-popover-title">
+                      <span>Text color</span>
+                      <span
+                        className="h-3 w-3 rounded-full border border-white/20"
+                        style={{ backgroundColor: editorState.color ?? NOTE_COLOR_OPTIONS[0].value }}
+                      />
                     </div>
-                    <div className="grid grid-cols-6 gap-1">
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
                       {NOTE_COLOR_OPTIONS.map((option) => {
                         const active = editorState.color === option.value.toLowerCase();
                         return (
                           <button
-                            aria-label={option.label}
-                            className={`grid h-7 w-7 place-items-center rounded-md border ${
-                              active
-                                ? "border-cyan-300/50 bg-cyan-300/10"
-                                : "border-white/10 hover:bg-white/10"
-                            }`}
+                            className={`notebook-color-option ${active ? "notebook-color-option-active" : ""}`}
                             key={option.value}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => applyNoteColor(option.value)}
@@ -2752,9 +2778,11 @@ function NotebookTradeDetail({
                             type="button"
                           >
                             <span
-                              className="h-3.5 w-3.5 rounded-full border border-white/20"
+                              className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/20"
                               style={{ backgroundColor: option.value }}
                             />
+                            <span className="min-w-0 flex-1 truncate text-left">{option.label}</span>
+                            {active && <CheckCircle2 className="shrink-0 text-cyan-100" size={13} />}
                           </button>
                         );
                       })}
@@ -2784,61 +2812,86 @@ function NotebookTradeDetail({
                   )}
                 </button>
                 {alignMenuOpen && (
-                  <div className="notebook-editor-popover left-0 top-9 w-28">
-                    {NOTE_ALIGN_OPTIONS.map((option) => {
-                      const Icon = option.icon;
-                      const active = editorState.align === option.value;
-                      return (
-                        <button
-                          className={`chart-dropdown-row ${active ? "chart-dropdown-row-active" : ""}`}
-                          key={option.value}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => applyNoteAlign(option.command)}
-                          type="button"
-                        >
-                          <Icon size={14} />
-                          {option.label}
-                        </button>
-                      );
-                    })}
+                  <div className="notebook-editor-popover left-0 top-9 w-40">
+                    <div className="notebook-popover-title">Alignment</div>
+                    <div className="mt-2 grid grid-cols-3 gap-1">
+                      {NOTE_ALIGN_OPTIONS.map((option) => {
+                        const Icon = option.icon;
+                        const active = editorState.align === option.value;
+                        return (
+                          <button
+                            aria-label={option.label}
+                            aria-pressed={active}
+                            className={`notebook-align-option ${active ? "notebook-align-option-active" : ""}`}
+                            key={option.value}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => applyNoteAlign(option.command)}
+                            title={option.label}
+                            type="button"
+                          >
+                            <Icon size={15} />
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
               {linkPopoverOpen && (
                 <form
-                  className="notebook-editor-popover left-2 top-12 w-[min(340px,calc(100vw-48px))]"
+                  className="notebook-editor-popover left-2 top-12 w-[min(320px,calc(100vw-48px))]"
                   onSubmit={(event) => {
                     event.preventDefault();
                     applyLink();
                   }}
                 >
-                  <label className="form-field gap-1">
-                    <span>Link URL</span>
-                    <input
-                      className="input-control h-9 normal-case tracking-normal"
-                      onChange={(event) => setLinkUrl(event.target.value)}
-                      placeholder="https://example.com"
-                      ref={linkInputRef}
-                      value={linkUrl}
-                    />
-                  </label>
-                  <div className="mt-2 flex justify-end gap-2">
+                  <div className="notebook-popover-title">
+                    <span className="inline-flex items-center gap-2">
+                      <Link2 size={13} />
+                      {editingLinkRef.current ? "Edit link" : "Insert link"}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    <label className="notebook-link-field">
+                      <span>Text</span>
+                      <input
+                        className="notebook-link-input"
+                        onChange={(event) => setLinkText(event.target.value)}
+                        placeholder="Display text"
+                        value={linkText}
+                      />
+                    </label>
+                    <label className="notebook-link-field">
+                      <span>URL</span>
+                      <input
+                        className="notebook-link-input"
+                        onChange={(event) => setLinkUrl(event.target.value)}
+                        placeholder="example.com"
+                        ref={linkInputRef}
+                        value={linkUrl}
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex justify-end gap-2">
                     <button
-                      className="control-button h-8"
+                      className="icon-button h-8 w-8"
                       onClick={() => {
                         setLinkPopoverOpen(false);
+                        setLinkText("");
                         setLinkUrl("");
+                        editingLinkRef.current = null;
                       }}
+                      title="Cancel"
                       type="button"
                     >
-                      Cancel
+                      <X size={14} />
                     </button>
                     <button
                       className="control-button h-8 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20"
                       disabled={!normalizeLinkUrl(linkUrl)}
                       type="submit"
                     >
-                      Apply
+                      {editingLinkRef.current ? "Update" : "Apply"}
                     </button>
                   </div>
                 </form>

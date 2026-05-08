@@ -431,7 +431,35 @@ button:disabled {
   }
 
   .notebook-editor-popover {
-    @apply absolute z-30 rounded-md border border-cyan-300/20 bg-[#080c11]/95 p-2 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply absolute z-30 rounded-md border border-white/10 bg-[#080c11]/95 p-3 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+  }
+
+  .notebook-popover-title {
+    @apply flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .notebook-color-option {
+    @apply flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-2 py-2 text-xs font-semibold text-slate-300 transition hover:border-cyan-300/25 hover:bg-cyan-300/10 hover:text-cyan-50;
+  }
+
+  .notebook-color-option-active {
+    @apply border-cyan-300/40 bg-cyan-300/10 text-cyan-50;
+  }
+
+  .notebook-align-option {
+    @apply grid h-9 place-items-center rounded-md border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-300/25 hover:bg-cyan-300/10 hover:text-cyan-50;
+  }
+
+  .notebook-align-option-active {
+    @apply border-cyan-300/40 bg-cyan-300/10 text-cyan-50 shadow-[0_0_0_1px_rgba(103,232,249,0.08)];
+  }
+
+  .notebook-link-field {
+    @apply grid gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .notebook-link-input {
+    @apply h-9 w-full rounded-md border border-white/10 bg-black/30 px-3 text-sm font-medium normal-case tracking-normal text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300/40 focus:bg-black/40 focus:ring-2 focus:ring-cyan-300/10;
   }
 
   .notebook-rich-editor a,
