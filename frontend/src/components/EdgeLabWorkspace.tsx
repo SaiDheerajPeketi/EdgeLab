@@ -373,6 +373,10 @@ const DEFAULT_TRADE_VIEW_FILTERS: TradeViewFilterState = {
   tagFilter: "ALL",
 };
 
+type ResultFilterState = TradeViewFilterState;
+
+const DEFAULT_RESULT_FILTERS: ResultFilterState = DEFAULT_TRADE_VIEW_FILTERS;
+
 export function EdgeLabWorkspace({
   activeSession,
   datasets,
@@ -591,7 +595,6 @@ type SharedPageProps = {
 };
 
 function DashboardPage({
-  aggregate,
   closedTrades,
   currency,
   datasets,
@@ -601,13 +604,99 @@ function DashboardPage({
   openTrades,
   sessionById,
   sessions,
+  strategies,
 }: SharedPageProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<ResultFilterState>(DEFAULT_RESULT_FILTERS);
   const [recentMode, setRecentMode] = useState<"closed" | "open">("closed");
-  const latestDay = days[0];
+  const [selectedDayDate, setSelectedDayDate] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
+  const [calendarInfoOpen, setCalendarInfoOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const filteredClosedTrades = useMemo(
+    () => filterResultTrades(closedTrades, filters, sessionById),
+    [closedTrades, filters, sessionById],
+  );
+  const filteredOpenTrades = useMemo(
+    () => filterResultTrades(openTrades, filters, sessionById),
+    [filters, openTrades, sessionById],
+  );
+  const filteredDays = useMemo(() => groupTradesByDay(filteredClosedTrades), [filteredClosedTrades]);
+  const filteredAggregate = useMemo(() => aggregateTrades(filteredClosedTrades), [filteredClosedTrades]);
+  const selectedDay =
+    filteredDays.find((day) => day.date === selectedDayDate) ?? filteredDays[0] ?? null;
+  const monthDays = useMemo(
+    () => filteredDays.filter((day) => day.date.startsWith(calendarMonth.slice(0, 7))),
+    [calendarMonth, filteredDays],
+  );
+  const monthAggregate = useMemo(
+    () => aggregateTrades(monthDays.flatMap((day) => day.trades)),
+    [monthDays],
+  );
+  const filtersActive = resultFiltersActive(filters);
   const startingBalance =
-    sessions[0]?.initial_balance ?? 100000;
-  const accountBalance = startingBalance + aggregate.netPnl;
+    (filters.sessionFilter !== "ALL"
+      ? sessions.find((session) => String(session.id) === filters.sessionFilter)?.initial_balance
+      : sessions[0]?.initial_balance) ?? 100000;
+  const accountBalance = startingBalance + filteredAggregate.netPnl;
+
+  useEffect(() => {
+    if (filteredDays.length === 0) {
+      setSelectedDayDate("");
+      return;
+    }
+    if (!filteredDays.some((day) => day.date === selectedDayDate)) {
+      setSelectedDayDate(filteredDays[0].date);
+      setCalendarMonth(monthCursorFromDateKey(filteredDays[0].date));
+    }
+  }, [filteredDays, selectedDayDate]);
+
+  useEffect(() => {
+    if (!copyStatus) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setCopyStatus(null), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [copyStatus]);
+
+  function selectDashboardDate(date: string) {
+    if (!filteredDays.some((day) => day.date === date)) {
+      return;
+    }
+    setSelectedDayDate(date);
+    setCalendarMonth(monthCursorFromDateKey(date));
+  }
+
+  async function copyDashboardSummary() {
+    await copyTextToClipboard(
+      buildResultsSummaryText({
+        aggregate: filteredAggregate,
+        currency,
+        label: "Backtest overview",
+        trades: filteredClosedTrades.length,
+      }),
+    );
+    setCopyStatus("Summary copied");
+  }
+
+  async function copyBalance() {
+    await copyTextToClipboard(formatMoney(accountBalance, currency));
+    setCopyStatus("Balance copied");
+  }
+
+  function exportOverviewCsv() {
+    exportResultsSummaryCsv({
+      aggregate: filteredAggregate,
+      currency,
+      days: filteredDays,
+      filenamePrefix: "backtest-overview",
+      sessionById,
+      strategies: groupByStrategy(sessions, filteredClosedTrades, sessionById).filter(
+        (strategy) => strategy.aggregate.totalTrades > 0,
+      ),
+      trades: filteredClosedTrades,
+    });
+  }
 
   return (
     <PageScaffold
@@ -623,24 +712,55 @@ function DashboardPage({
           >
             <Filter size={15} />
             Filters
+            {filtersActive && <span className="status-pill h-6 px-2 text-[10px]">On</span>}
           </button>
-          {filtersOpen && <DashboardFilters onClose={() => setFiltersOpen(false)} />}
+          {filtersOpen && (
+            <ResultFiltersPopover
+              closedTrades={closedTrades}
+              filters={filters}
+              onApply={(nextFilters) => {
+                setFilters(nextFilters);
+                setFiltersOpen(false);
+              }}
+              onClose={() => setFiltersOpen(false)}
+              onReset={() => setFilters(DEFAULT_RESULT_FILTERS)}
+              sessionById={sessionById}
+              strategies={strategies}
+            />
+          )}
         </div>
       }
     >
+      {(filtersActive || copyStatus) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-400">
+          <span>
+            Showing {filteredClosedTrades.length}/{closedTrades.length} closed trades
+            {filtersActive ? " with active filters" : ""}.
+          </span>
+          <div className="flex items-center gap-2">
+            {copyStatus && <span className="text-cyan-100">{copyStatus}</span>}
+            {filtersActive && (
+              <button className="control-button h-8 px-2 text-xs" onClick={() => setFilters(DEFAULT_RESULT_FILTERS)} type="button">
+                <RefreshCw size={13} />
+                Reset filters
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,1fr)_minmax(300px,0.75fr)]">
         <FeatureCard>
           <div className="flex items-center justify-between gap-3">
             <CardLabel icon={TrendingUp} label="Backtest daily P&L" />
-            <span className="status-pill">{latestDay?.label ?? "No trade day"}</span>
+            <span className="status-pill">{selectedDay?.label ?? "No trade day"}</span>
           </div>
-          <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(latestDay?.aggregate.netPnl)}`}>
-            {formatMoney(latestDay?.aggregate.netPnl ?? 0, currency)}
+          <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(selectedDay?.aggregate.netPnl)}`}>
+            {formatMoney(selectedDay?.aggregate.netPnl ?? 0, currency)}
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
-            <CompactMetric label="Trades" value={String(latestDay?.aggregate.totalTrades ?? 0)} />
-            <CompactMetric label="Win" value={formatPercent(latestDay?.aggregate.winRate ?? 0)} />
-            <CompactMetric label="Avg R" value={formatOptionalNumber(latestDay?.aggregate.averageR)} />
+            <CompactMetric label="Trades" value={String(selectedDay?.aggregate.totalTrades ?? 0)} />
+            <CompactMetric label="Win" value={formatPercent(selectedDay?.aggregate.winRate ?? 0)} />
+            <CompactMetric label="Avg R" value={formatOptionalNumber(selectedDay?.aggregate.averageR)} />
           </div>
         </FeatureCard>
 
@@ -657,7 +777,7 @@ function DashboardPage({
             </div>
           </div>
           <div className="mt-4 grid max-h-72 gap-2 overflow-auto">
-            {(recentMode === "closed" ? closedTrades.slice(-8).reverse() : openTrades).map((trade) => (
+            {(recentMode === "closed" ? filteredClosedTrades.slice(-8).reverse() : filteredOpenTrades).map((trade) => (
               <button
                 className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-left transition hover:border-cyan-300/25 hover:bg-cyan-300/5"
                 key={trade.id}
@@ -680,7 +800,7 @@ function DashboardPage({
                 </span>
               </button>
             ))}
-            {(recentMode === "closed" ? closedTrades.length : openTrades.length) === 0 && (
+            {(recentMode === "closed" ? filteredClosedTrades.length : filteredOpenTrades.length) === 0 && (
               <EmptyState
                 icon={ClipboardList}
                 message={recentMode === "closed" ? "Closed trades will appear here." : "No open positions right now."}
@@ -692,7 +812,7 @@ function DashboardPage({
         <FeatureCard>
           <div className="flex items-center justify-between gap-3">
             <CardLabel icon={WalletCards} label="Simulated account balance" />
-            <button className="icon-button h-8 w-8" title="Copy balance" type="button">
+            <button className="icon-button h-8 w-8" onClick={() => void copyBalance()} title="Copy balance" type="button">
               <Copy size={14} />
             </button>
           </div>
@@ -714,30 +834,46 @@ function DashboardPage({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <CardLabel icon={CalendarDays} label="Backtest calendar" />
             <div className="flex items-center gap-2 text-xs text-slate-500">
-              <button className="icon-button h-8 w-8" type="button">
+              <button className="icon-button h-8 w-8" onClick={() => void copyDashboardSummary()} title="Copy overview summary" type="button">
                 <Share2 size={14} />
               </button>
-              <button className="icon-button h-8 w-8" type="button">
+              <button className={`icon-button h-8 w-8 ${calendarInfoOpen ? "workspace-tab-active" : ""}`} onClick={() => setCalendarInfoOpen((value) => !value)} title="Calendar details" type="button">
                 <Info size={14} />
+              </button>
+              <button className="control-button h-8 px-2 text-xs" disabled={filteredClosedTrades.length === 0} onClick={exportOverviewCsv} type="button">
+                <FileDown size={13} />
+                CSV
               </button>
             </div>
           </div>
-          <CalendarHeatmap currency={currency} days={days} />
+          <CalendarHeatmap
+            currency={currency}
+            days={filteredDays}
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            onSelectDate={selectDashboardDate}
+            selectedDate={selectedDay?.date ?? null}
+          />
+          {calendarInfoOpen && (
+            <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-3 text-sm leading-6 text-slate-400">
+              Calendar cells use closed trade P&L by exit date. Selecting a trading day updates the daily P&L card, while the month metrics below follow the visible calendar month and active filters.
+            </div>
+          )}
           <div className="mt-4 grid gap-2 md:grid-cols-4">
-            <CompactMetric label="Month P&L" value={formatMoney(aggregate.netPnl, currency)} tone={toneForNumber(aggregate.netPnl)} />
-            <CompactMetric label="Trading days" value={String(days.length)} />
-            <CompactMetric label="Win rate" value={formatPercent(aggregate.winRate)} />
-            <CompactMetric label="Profit factor" value={formatRatio(aggregate.profitFactor)} />
+            <CompactMetric label="Month P&L" value={formatMoney(monthAggregate.netPnl, currency)} tone={toneForNumber(monthAggregate.netPnl)} />
+            <CompactMetric label="Trading days" value={String(monthDays.length)} />
+            <CompactMetric label="Win rate" value={formatPercent(monthAggregate.winRate)} />
+            <CompactMetric label="Profit factor" value={formatRatio(monthAggregate.profitFactor)} />
           </div>
         </FeatureCard>
         <FeatureCard>
           <CardLabel icon={TrendingDown} label="Drawdown" />
           <div className="mt-4">
-            <AreaSparkline values={drawdownValues(closedTrades)} height={220} tone="rose" />
+            <AreaSparkline values={drawdownValues(filteredClosedTrades)} height={220} tone="rose" />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown, currency)} tone="text-rose-300" />
-            <CompactMetric label="Recovery" value={formatRatio(aggregate.recoveryFactor)} />
+            <CompactMetric label="Max DD" value={formatMoney(filteredAggregate.maxDrawdown, currency)} tone="text-rose-300" />
+            <CompactMetric label="Recovery" value={formatRatio(filteredAggregate.recoveryFactor)} />
           </div>
         </FeatureCard>
       </div>
@@ -3714,19 +3850,46 @@ function buildNotebookReviewDraft(trade: Trade, currency: string, strategy: stri
 }
 
 function ReportsPage({
-  aggregate,
   closedTrades,
   currency,
-  days,
   sessionById,
+  sessions,
   strategies,
 }: SharedPageProps) {
   const [tab, setTab] = useState<
     "calendar" | "daytime" | "overview" | "performance" | "recaps" | "risk" | "tags" | "winsLosses"
   >("performance");
-  const tagRows = useMemo(() => groupByTag(closedTrades), [closedTrades]);
-  const rRows = useMemo(() => groupByRMultiple(closedTrades), [closedTrades]);
-  const hourRows = useMemo(() => groupByHour(closedTrades), [closedTrades]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<ResultFilterState>(DEFAULT_RESULT_FILTERS);
+  const filteredClosedTrades = useMemo(
+    () => filterResultTrades(closedTrades, filters, sessionById),
+    [closedTrades, filters, sessionById],
+  );
+  const filteredAggregate = useMemo(() => aggregateTrades(filteredClosedTrades), [filteredClosedTrades]);
+  const filteredDays = useMemo(() => groupTradesByDay(filteredClosedTrades), [filteredClosedTrades]);
+  const filteredStrategies = useMemo(
+    () =>
+      groupByStrategy(sessions, filteredClosedTrades, sessionById).filter(
+        (strategy) => strategy.aggregate.totalTrades > 0,
+      ),
+    [filteredClosedTrades, sessionById, sessions],
+  );
+  const tagRows = useMemo(() => groupByTag(filteredClosedTrades), [filteredClosedTrades]);
+  const rRows = useMemo(() => groupByRMultiple(filteredClosedTrades), [filteredClosedTrades]);
+  const hourRows = useMemo(() => groupByHour(filteredClosedTrades), [filteredClosedTrades]);
+  const filtersActive = resultFiltersActive(filters);
+
+  function exportMetricsCsv() {
+    exportResultsSummaryCsv({
+      aggregate: filteredAggregate,
+      currency,
+      days: filteredDays,
+      filenamePrefix: "backtest-metrics",
+      sessionById,
+      strategies: filteredStrategies,
+      trades: filteredClosedTrades,
+    });
+  }
 
   return (
     <PageScaffold
@@ -3734,12 +3897,46 @@ function ReportsPage({
       title="Backtest Performance Reports"
       description="Performance, overview, day/time, risk, tags, calendar, and recaps from replay/backtest trades only."
       actions={
-        <button className="control-button" type="button">
-          <Filter size={15} />
-          Filters
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="relative">
+            <button
+              className={`control-button ${filtersOpen ? "workspace-tab-active" : ""}`}
+              onClick={() => setFiltersOpen((value) => !value)}
+              type="button"
+            >
+              <Filter size={15} />
+              Filters
+              {filtersActive && <span className="status-pill h-6 px-2 text-[10px]">On</span>}
+            </button>
+            {filtersOpen && (
+              <ResultFiltersPopover
+                closedTrades={closedTrades}
+                filters={filters}
+                onApply={(nextFilters) => {
+                  setFilters(nextFilters);
+                  setFiltersOpen(false);
+                }}
+                onClose={() => setFiltersOpen(false)}
+                onReset={() => setFilters(DEFAULT_RESULT_FILTERS)}
+                sessionById={sessionById}
+                strategies={strategies}
+              />
+            )}
+          </div>
+          <button className="control-button" disabled={filteredClosedTrades.length === 0} onClick={exportMetricsCsv} type="button">
+            <FileDown size={15} />
+            Export CSV
+          </button>
+        </div>
       }
     >
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <CompactMetric label="Visible trades" value={`${filteredClosedTrades.length}/${closedTrades.length}`} />
+        <CompactMetric label="Net P&L" value={formatMoney(filteredAggregate.netPnl, currency)} tone={toneForNumber(filteredAggregate.netPnl)} />
+        <CompactMetric label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
+        <CompactMetric label="Avg R" value={formatOptionalNumber(filteredAggregate.averageR)} />
+        <CompactMetric label="Profit factor" value={formatRatio(filteredAggregate.profitFactor)} />
+      </div>
       <div className="flex gap-2 overflow-x-auto rounded-md border border-white/10 bg-black/20 p-1">
         {[
           ["performance", "Performance"],
@@ -3761,14 +3958,14 @@ function ReportsPage({
         <div className="grid gap-4 xl:grid-cols-2">
           <FeatureCard>
             <CardLabel icon={LineChart} label="Net P&L" />
-            <AreaSparkline values={cumulativeValues(closedTrades)} height={260} />
+            <AreaSparkline values={cumulativeValues(filteredClosedTrades)} height={260} />
           </FeatureCard>
           <FeatureCard>
             <CardLabel icon={BarChart3} label="Avg daily win/loss" />
-            <BarBreakdown rows={days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
+            <BarBreakdown rows={filteredDays.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
           </FeatureCard>
           <FeatureCard className="xl:col-span-2">
-            <StatsGrid aggregate={aggregate} currency={currency} />
+            <StatsGrid aggregate={filteredAggregate} currency={currency} />
           </FeatureCard>
         </div>
       )}
@@ -3778,12 +3975,14 @@ function ReportsPage({
           <FeatureCard>
             <CardLabel icon={Gauge} label="Your stats" />
             <div className="mt-4 grid gap-2">
-              <CompactMetric label="Best month" value={formatMoney(bestMonth(closedTrades).pnl, currency)} tone="text-emerald-300" />
-              <CompactMetric label="Lowest month" value={formatMoney(worstMonth(closedTrades).pnl, currency)} tone="text-rose-300" />
+              <CompactMetric label="Best month" value={formatMoney(bestMonth(filteredClosedTrades).pnl, currency)} tone="text-emerald-300" />
+              <CompactMetric label="Lowest month" value={formatMoney(worstMonth(filteredClosedTrades).pnl, currency)} tone="text-rose-300" />
+              <CompactMetric label="Best day" value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-emerald-300" />
+              <CompactMetric label="Lowest day" value={formatMoney(worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-rose-300" />
             </div>
           </FeatureCard>
           <FeatureCard>
-            <StatsGrid aggregate={aggregate} currency={currency} />
+            <StatsGrid aggregate={filteredAggregate} currency={currency} />
           </FeatureCard>
         </div>
       )}
@@ -3807,7 +4006,7 @@ function ReportsPage({
           />
           <FeatureCard>
             <CardLabel icon={Grid2X2} label="R-multiple cross analysis" />
-            <CrossAnalysis currency={currency} rows={rRows} sessionById={sessionById} trades={closedTrades} />
+            <CrossAnalysis currency={currency} rows={rRows} sessionById={sessionById} trades={filteredClosedTrades} />
           </FeatureCard>
         </div>
       )}
@@ -3824,19 +4023,19 @@ function ReportsPage({
       {tab === "winsLosses" && (
         <div className="grid gap-4 xl:grid-cols-2">
           <FeatureCard>
-            <CardLabel icon={TrendingUp} label={`Wins (${aggregate.wins} trades matched)`} />
-            <StatsGrid aggregate={aggregateTrades(closedTrades.filter((trade) => trade.realized_pnl > 0))} currency={currency} />
+            <CardLabel icon={TrendingUp} label={`Wins (${filteredAggregate.wins} trades matched)`} />
+            <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl > 0))} currency={currency} />
           </FeatureCard>
           <FeatureCard>
-            <CardLabel icon={TrendingDown} label={`Losses (${aggregate.losses} trades matched)`} />
-            <StatsGrid aggregate={aggregateTrades(closedTrades.filter((trade) => trade.realized_pnl < 0))} currency={currency} />
+            <CardLabel icon={TrendingDown} label={`Losses (${filteredAggregate.losses} trades matched)`} />
+            <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl < 0))} currency={currency} />
           </FeatureCard>
         </div>
       )}
 
       {tab === "calendar" && (
         <FeatureCard>
-          <CalendarHeatmap currency={currency} days={days} />
+          <CalendarHeatmap currency={currency} days={filteredDays} />
         </FeatureCard>
       )}
 
@@ -3844,11 +4043,11 @@ function ReportsPage({
         <div className="grid gap-3">
           <InsightCard
             title="Monthly recap"
-            body={closedTrades.length > 0 ? `Net ${formatMoney(aggregate.netPnl, currency)} across ${closedTrades.length} closed backtest trades. Best trade ${formatMoney(aggregate.largestWin ?? 0, currency)}, worst trade ${formatMoney(aggregate.largestLoss ?? 0, currency)}.` : "Backtest reports will appear here after your first closed replay trade."}
+            body={filteredClosedTrades.length > 0 ? `Net ${formatMoney(filteredAggregate.netPnl, currency)} across ${filteredClosedTrades.length} closed backtest trades. Best trade ${formatMoney(filteredAggregate.largestWin ?? 0, currency)}, worst trade ${formatMoney(filteredAggregate.largestLoss ?? 0, currency)}.` : "Backtest reports will appear here after your first closed replay trade."}
           />
           <InsightCard
             title="Strategy pattern"
-            body={strategies[0] ? `${strategies[0].name} is currently the most visible strategy with ${strategies[0].aggregate.totalTrades} closed trades.` : "Strategy recaps unlock once trades are linked to strategies."}
+            body={filteredStrategies[0] ? `${filteredStrategies[0].name} is currently the most visible strategy with ${filteredStrategies[0].aggregate.totalTrades} closed trades in this scope.` : "Strategy recaps unlock once trades are linked to strategies."}
           />
         </div>
       )}
@@ -5224,37 +5423,128 @@ async function pollDatasetRefreshStatus(
   }
 }
 
-function DashboardFilters({ onClose }: { onClose: () => void }) {
-  const groups = [
-    ["General", "Side", "Symbol", "Status", "Trade rating", "Exit price", "Entry price", "R-Multiple", "Position size", "Quantity"],
-    ["Tags", "Mistake tags", "Custom tags", "Emotional state"],
-    ["Day & Time", "Day of week", "Entry time", "Exit time", "Hold duration"],
-    ["Strategy", "Strategy tag", "Playbook", "Session"],
-    ["AI Insights", "Not a strong trade", "Profit exceeded drawdown", "Red to Green Trade", "Scale In", "Scale Out"],
-  ];
+function ResultFiltersPopover({
+  closedTrades,
+  filters,
+  onApply,
+  onClose,
+  onReset,
+  sessionById,
+  strategies,
+}: {
+  closedTrades: Trade[];
+  filters: ResultFilterState;
+  onApply: (filters: ResultFilterState) => void;
+  onClose: () => void;
+  onReset: () => void;
+  sessionById: Map<number, BacktestSession>;
+  strategies: StrategyGroup[];
+}) {
+  const [draft, setDraft] = useState<ResultFilterState>(filters);
+  const savedStrategyNames = useBacktestStrategyNames();
+  const sessionOptions = useMemo(
+    () => buildTradeSessionOptions(closedTrades, sessionById),
+    [closedTrades, sessionById],
+  );
+  const instrumentOptions = useMemo(
+    () => buildTradeInstrumentOptions(closedTrades, sessionById),
+    [closedTrades, sessionById],
+  );
+  const strategyOptions = useMemo(
+    () => [
+      { label: "All strategies", value: "ALL" },
+      ...buildStrategySelectOptions(mergeStrategyGroups(strategies, savedStrategyNames)),
+    ],
+    [savedStrategyNames, strategies],
+  );
+  const tagOptions = useMemo(
+    () => [
+      { label: "All tags", value: "ALL" },
+      ...buildTradeNoteTagOptions(closedTrades).map((tag) => ({
+        label: tag,
+        value: tag,
+      })),
+    ],
+    [closedTrades],
+  );
+
+  useEffect(() => {
+    setDraft(filters);
+  }, [filters]);
+
+  function updateDraft<K extends keyof ResultFilterState>(
+    key: K,
+    value: ResultFilterState[K],
+  ) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetDraft() {
+    setDraft(DEFAULT_RESULT_FILTERS);
+    onReset();
+  }
 
   return (
     <div className="absolute right-0 top-full z-50 mt-2 w-[min(760px,calc(100vw-32px))] rounded-md border border-white/10 bg-[#080c11] p-4 shadow-panel">
-      <div className="grid gap-4 md:grid-cols-2">
-        {groups.map(([title, ...items]) => (
-          <div className="rounded-md border border-white/10 bg-black/20 p-3" key={title}>
-            <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">
-              {title}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {items.map((item) => (
-                <button className="rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10" key={item} type="button">
-                  {item}
-                </button>
-              ))}
-            </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <label className="form-field md:col-span-2 xl:col-span-3">
+          Search
+          <div className="flex h-10 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-3 text-sm focus-within:border-cyan-300/40 focus-within:ring-2 focus-within:ring-cyan-300/10">
+            <Search className="shrink-0 text-slate-500" size={15} />
+            <input
+              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-600"
+              onChange={(event) => updateDraft("searchTerm", event.target.value)}
+              placeholder="Instrument, strategy, note, tag..."
+              value={draft.searchTerm}
+            />
           </div>
-        ))}
+        </label>
+        <label className="form-field">
+          Session
+          <ThemedSelect className="h-10" onChange={(value) => updateDraft("sessionFilter", value)} options={sessionOptions} portal value={draft.sessionFilter} />
+        </label>
+        <label className="form-field">
+          Instrument
+          <ThemedSelect className="h-10" onChange={(value) => updateDraft("instrumentFilter", value)} options={instrumentOptions} portal value={draft.instrumentFilter} />
+        </label>
+        <label className="form-field">
+          Direction
+          <ThemedSelect
+            className="h-10"
+            onChange={(value) => updateDraft("sideFilter", value)}
+            options={[
+              { label: "All directions", value: "ALL" },
+              { label: "Long", value: "LONG" },
+              { label: "Short", value: "SHORT" },
+            ]}
+            portal
+            value={draft.sideFilter}
+          />
+        </label>
+        <label className="form-field">
+          Strategy
+          <ThemedSelect className="h-10" onChange={(value) => updateDraft("strategyFilter", value)} options={strategyOptions} portal value={draft.strategyFilter} />
+        </label>
+        <label className="form-field">
+          Tags
+          <ThemedSelect className="h-10" onChange={(value) => updateDraft("tagFilter", value)} options={tagOptions} portal value={draft.tagFilter} />
+        </label>
+        <label className="form-field">
+          From
+          <ThemedDatePicker ariaLabel="Filter results from date" onChange={(value) => updateDraft("dateFrom", value)} placeholder="From date" value={draft.dateFrom} />
+        </label>
+        <label className="form-field">
+          To
+          <ThemedDatePicker ariaLabel="Filter results to date" onChange={(value) => updateDraft("dateTo", value)} placeholder="To date" value={draft.dateTo} />
+        </label>
       </div>
-      <div className="mt-4 flex justify-end gap-2">
-        <button className="control-button" type="button">Reset all</button>
+      <div className="mt-4 flex flex-wrap justify-end gap-2">
+        <button className="control-button" disabled={!resultFiltersActive(draft)} onClick={resetDraft} type="button">
+          <RefreshCw size={15} />
+          Reset
+        </button>
         <button className="control-button" onClick={onClose} type="button">Cancel</button>
-        <button className="control-button workspace-tab-active" onClick={onClose} type="button">Apply filters</button>
+        <button className="control-button workspace-tab-active" onClick={() => onApply(draft)} type="button">Apply filters</button>
       </div>
     </div>
   );
@@ -6084,6 +6374,51 @@ function tradeMatchesLogSearch(
   return haystack.includes(needle);
 }
 
+function filterResultTrades(
+  trades: Trade[],
+  filters: ResultFilterState,
+  sessionById: Map<number, BacktestSession>,
+) {
+  return trades.filter((trade) => {
+    const session = sessionById.get(trade.session_id);
+    const strategyName = tradeStrategyName(trade, session);
+    const resultDate = (trade.exit_time ?? trade.entry_time).slice(0, 10);
+    if (filters.sessionFilter !== "ALL" && String(trade.session_id) !== filters.sessionFilter) {
+      return false;
+    }
+    if (filters.instrumentFilter !== "ALL" && tradeInstrumentFilterValue(trade, session) !== filters.instrumentFilter) {
+      return false;
+    }
+    if (filters.sideFilter !== "ALL" && trade.side !== filters.sideFilter) {
+      return false;
+    }
+    if (filters.strategyFilter !== "ALL" && !sameStrategyName(strategyName, filters.strategyFilter)) {
+      return false;
+    }
+    if (filters.tagFilter !== "ALL" && !tradeHasNoteTag(trade, filters.tagFilter)) {
+      return false;
+    }
+    if (filters.dateFrom && resultDate < filters.dateFrom) {
+      return false;
+    }
+    if (filters.dateTo && resultDate > filters.dateTo) {
+      return false;
+    }
+    return tradeMatchesLogSearch(trade, session, filters.searchTerm, strategyName);
+  });
+}
+
+function resultFiltersActive(filters: ResultFilterState) {
+  return (
+    filters.sessionFilter !== "ALL" ||
+    filters.instrumentFilter !== "ALL" ||
+    filters.sideFilter !== "ALL" ||
+    filters.strategyFilter !== "ALL" ||
+    filters.tagFilter !== "ALL" ||
+    Boolean(filters.dateFrom || filters.dateTo || filters.searchTerm.trim())
+  );
+}
+
 function exportTradeLogCsv(
   trades: Trade[],
   sessionById: Map<number, BacktestSession>,
@@ -6143,6 +6478,91 @@ function exportTradeLogCsv(
     [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"),
     "text/csv;charset=utf-8",
   );
+}
+
+function exportResultsSummaryCsv({
+  aggregate,
+  currency,
+  days,
+  filenamePrefix,
+  sessionById,
+  strategies,
+  trades,
+}: {
+  aggregate: Aggregate;
+  currency: string;
+  days: DayGroup[];
+  filenamePrefix: string;
+  sessionById: Map<number, BacktestSession>;
+  strategies: StrategyGroup[];
+  trades: Trade[];
+}) {
+  const rows: unknown[][] = [
+    ["Section", "Metric", "Value", "Extra"],
+    ["Summary", "Net P&L", aggregate.netPnl, currency],
+    ["Summary", "Closed trades", aggregate.totalTrades, ""],
+    ["Summary", "Win rate", `${(aggregate.winRate * 100).toFixed(1)}%`, ""],
+    ["Summary", "Profit factor", formatRatio(aggregate.profitFactor), ""],
+    ["Summary", "Average R", formatOptionalNumber(aggregate.averageR), ""],
+    ["Summary", "Max drawdown", aggregate.maxDrawdown, currency],
+    ["Summary", "Recovery factor", formatRatio(aggregate.recoveryFactor), ""],
+    [],
+    ["Daily", "Date", "P&L", "Trades"],
+    ...days
+      .slice()
+      .reverse()
+      .map((day) => ["Daily", day.date, day.aggregate.netPnl, day.aggregate.totalTrades]),
+    [],
+    ["Strategy", "Name", "P&L", "Trades"],
+    ...strategies.map((strategy) => [
+      "Strategy",
+      strategy.name,
+      strategy.aggregate.netPnl,
+      strategy.aggregate.totalTrades,
+    ]),
+    [],
+    ["Trade", "ID", "Instrument", "P&L"],
+    ...trades.map((trade) => [
+      "Trade",
+      trade.id,
+      tradeInstrumentLabel(trade, sessionById.get(trade.session_id)),
+      trade.realized_pnl ?? 0,
+    ]),
+  ];
+  downloadTextFile(
+    `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv`,
+    rows.map((row) => row.map(csvCell).join(",")).join("\n"),
+    "text/csv;charset=utf-8",
+  );
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator === "undefined") {
+    return;
+  }
+  await navigator.clipboard?.writeText(text);
+}
+
+function buildResultsSummaryText({
+  aggregate,
+  currency,
+  label,
+  trades,
+}: {
+  aggregate: Aggregate;
+  currency: string;
+  label: string;
+  trades: number;
+}) {
+  return [
+    label,
+    `Net P&L: ${formatMoney(aggregate.netPnl, currency)}`,
+    `Trades: ${trades}`,
+    `Win rate: ${formatPercent(aggregate.winRate)}`,
+    `Profit factor: ${formatRatio(aggregate.profitFactor)}`,
+    `Average R: ${formatOptionalNumber(aggregate.averageR)}`,
+    `Max drawdown: ${formatMoney(aggregate.maxDrawdown, currency)}`,
+  ].join("\n");
 }
 
 function csvCell(value: unknown) {
