@@ -7,6 +7,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
+  CSSProperties,
   SetStateAction,
 } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -178,6 +179,7 @@ import {
 import type { WorkspaceView } from "../lib/workspace";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedDatePicker } from "./ThemedDatePicker";
+import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { TradeLog } from "./TradeLog";
 
@@ -2429,6 +2431,105 @@ type JournalPageProps = {
   strategies: LiveStrategyGroup[];
 };
 
+function JournalAccountBadge({
+  account,
+  compact = false,
+}: {
+  account: LiveJournalAccount;
+  compact?: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex min-w-0 items-center gap-1.5 rounded border border-white/10 bg-black/30 font-semibold text-slate-200 ${
+        compact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-xs"
+      }`}
+    >
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: account.color }} />
+      <span className="truncate">{account.name}</span>
+      {!compact && <span className="text-slate-600">{account.currency}</span>}
+    </span>
+  );
+}
+
+function JournalAccountToggle({
+  account,
+  active,
+  onClick,
+}: {
+  account: LiveJournalAccount;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-left transition ${
+        active
+          ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50 shadow-[0_0_0_1px_rgba(103,232,249,0.08)]"
+          : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:bg-white/5 hover:text-white"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      <span className="flex min-w-0 items-center gap-2.5">
+        <span
+          className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black/40"
+          style={{ backgroundColor: account.color }}
+        />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold">{account.name}</span>
+          <span className="block truncate text-xs text-slate-500">
+            {account.broker || "Manual"} · {account.currency}
+          </span>
+        </span>
+      </span>
+      <span
+        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${
+          active ? "border-cyan-200 bg-cyan-200 text-ink-950" : "border-white/15 text-transparent"
+        }`}
+      >
+        <CheckCircle2 size={13} />
+      </span>
+    </button>
+  );
+}
+
+function JournalBooleanToggle({
+  checked,
+  description,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  description?: string;
+  label: string;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <button
+      aria-pressed={checked}
+      className={`flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition ${
+        checked
+          ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
+          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10"
+      }`}
+      onClick={() => onChange(!checked)}
+      type="button"
+    >
+      <span
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border ${
+          checked ? "border-cyan-300/40 bg-cyan-300/15 text-cyan-100" : "border-white/10 bg-black/20 text-slate-500"
+        }`}
+      >
+        <CheckCircle2 size={16} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-white">{label}</span>
+        {description && <span className="mt-0.5 block text-xs leading-5 text-slate-500">{description}</span>}
+      </span>
+    </button>
+  );
+}
+
 function JournalSessionsPage({
   accounts,
   journal,
@@ -2486,6 +2587,17 @@ function JournalSessionsPage({
   );
   const totalTakenTrades = sessionRows.reduce((sum, row) => sum + row.takenTrades.length, 0);
   const totalMissedSetups = sessionRows.reduce((sum, row) => sum + row.missedTrades.length, 0);
+  const selectedSessionRow = selectedSession
+    ? sessionRows.find((row) => row.session.id === selectedSession.id) ?? null
+    : null;
+  const selectedSessionAccounts = selectedSession
+    ? accounts.filter((account) => selectedSession.account_ids?.includes(account.id))
+    : [];
+  const selectedSessionCurrency = selectedSession
+    ? selectedSessionAccounts.length > 0
+      ? currencyForJournalAccounts(selectedSessionAccounts, selectedSession.currency)
+      : selectedSession.currency
+    : settings.default_currency;
 
   useEffect(() => {
     if (!selectedSession && sessions[0]) {
@@ -2617,10 +2729,7 @@ function JournalSessionsPage({
                       <td className="px-3 py-4">
                         <div className="flex max-w-48 flex-wrap gap-1">
                           {rowAccounts.map((account) => (
-                            <span className="inline-flex items-center gap-1 rounded bg-black/30 px-2 py-1 text-xs font-semibold text-slate-200" key={account.id}>
-                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color }} />
-                              {account.name}
-                            </span>
+                            <JournalAccountBadge account={account} compact key={account.id} />
                           ))}
                           {rowAccounts.length === 0 && <span className="text-xs text-slate-600">Unlinked</span>}
                         </div>
@@ -2693,19 +2802,12 @@ function JournalSessionsPage({
               <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Accounts</div>
               <div className="grid gap-2">
                 {activeAccounts.map((account) => (
-                  <button
-                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
-                      accountIds.includes(account.id)
-                        ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
-                        : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
-                    }`}
+                  <JournalAccountToggle
+                    account={account}
+                    active={accountIds.includes(account.id)}
                     key={account.id}
                     onClick={() => toggleAccount(account.id)}
-                    type="button"
-                  >
-                    <span>{account.name}</span>
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account.color }} />
-                  </button>
+                  />
                 ))}
                 {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">Create an account first or keep this session unlinked.</div>}
               </div>
@@ -2731,7 +2833,13 @@ function JournalSessionsPage({
             </label>
             <label className="form-field">
               Currency
-              <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setCurrency(event.target.value.toUpperCase())} value={currency} />
+              <ThemedSelect
+                className="h-10"
+                onChange={setCurrency}
+                options={selectOptionsWithValue(CURRENCY_OPTIONS, currency)}
+                portal
+                value={currency}
+              />
             </label>
             <label className="form-field">
               Notes
@@ -2750,6 +2858,14 @@ function JournalSessionsPage({
             <CardLabel icon={Settings} label="Selected session" />
             <span className="status-pill">{selectedSession.status}</span>
           </div>
+          {selectedSessionRow && (
+            <div className="mb-4 grid gap-2 md:grid-cols-4">
+              <CompactMetric label="Session P&L" value={formatMoney(selectedSessionRow.aggregate.netPnl, selectedSessionCurrency)} tone={toneForNumber(selectedSessionRow.aggregate.netPnl)} />
+              <CompactMetric label="Taken trades" value={String(selectedSessionRow.takenTrades.length)} />
+              <CompactMetric label="Missed setups" value={String(selectedSessionRow.missedTrades.length)} />
+              <CompactMetric label="Win rate" value={formatPercent(selectedSessionRow.aggregate.winRate)} />
+            </div>
+          )}
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
             <div className="grid gap-3 md:grid-cols-2">
               <label className="form-field">
@@ -2778,7 +2894,13 @@ function JournalSessionsPage({
               </label>
               <label className="form-field">
                 Currency
-                <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setEditDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} value={editDraft.currency} />
+                <ThemedSelect
+                  className="h-10"
+                  onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
+                  options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
+                  portal
+                  value={editDraft.currency}
+                />
               </label>
               <label className="form-field md:col-span-2">
                 Notes
@@ -2790,22 +2912,35 @@ function JournalSessionsPage({
                 <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Linked accounts</div>
                 <div className="grid gap-2">
                   {activeAccounts.map((account) => (
-                    <button
-                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
-                        editDraft.accountIds.includes(account.id)
-                          ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
-                          : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
-                      }`}
+                    <JournalAccountToggle
+                      account={account}
+                      active={editDraft.accountIds.includes(account.id)}
                       key={account.id}
                       onClick={() => toggleEditAccount(account.id)}
-                      type="button"
-                    >
-                      <span>{account.name}</span>
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account.color }} />
-                    </button>
+                    />
                   ))}
+                  {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No active accounts available.</div>}
                 </div>
               </div>
+              {selectedSessionRow && (
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
+                  <div className="grid gap-2">
+                    {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
+                      <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
+                          <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
+                        </span>
+                        <span className={`shrink-0 font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                          {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
+                        </span>
+                      </div>
+                    ))}
+                    {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
+                  </div>
+                </div>
+              )}
               <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
                 <Save size={15} />
                 Save session changes
@@ -2895,7 +3030,7 @@ function JournalDashboardPage({
         <FeatureCard>
           <CardLabel icon={TrendingDown} label="Live drawdown" />
           <div className="mt-4">
-            <AreaSparkline values={drawdownValues(closedTrades)} height={220} tone="rose" />
+            <AreaSparkline currency={currency} values={drawdownValues(closedTrades)} height={220} tone="rose" />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown, currency)} tone="text-rose-300" />
@@ -2950,19 +3085,24 @@ function JournalDayViewPage({ accounts, days, journalEntries, sessionById }: Jou
         <div className="space-y-3">
           {days.map((day) => (
             <FeatureCard key={day.date}>
+              {(() => {
+                const dayCurrency = currencyForJournalTrades(day.trades as JournalTrade[], accountById, sessionById);
+                const dayMissedCount = journalEntries.filter((trade) => isMissedJournalTrade(trade) && trade.entry_time.slice(0, 10) === day.date).length;
+                return (
+                  <>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-white">{day.label}</div>
                   <div className={`mt-1 text-sm font-semibold ${toneForNumber(day.aggregate.netPnl)}`}>
-                    Net P&L {formatMoney(day.aggregate.netPnl, currencyForJournalTrades(day.trades as JournalTrade[], accountById, sessionById))}
+                    Net P&L {formatMoney(day.aggregate.netPnl, dayCurrency)}
                   </div>
                 </div>
                 <span className="status-pill">
-                  {day.aggregate.totalTrades} taken · {journalEntries.filter((trade) => isMissedJournalTrade(trade) && trade.entry_time.slice(0, 10) === day.date).length} missed
+                  {day.aggregate.totalTrades} taken · {dayMissedCount} missed
                 </span>
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
-                <AreaSparkline values={cumulativeValues(day.trades)} height={150} />
+                <AreaSparkline currency={dayCurrency} values={cumulativeValues(day.trades)} height={150} />
                 <div className="grid grid-cols-2 gap-2">
                   <CompactMetric label="Win rate" value={formatPercent(day.aggregate.winRate)} />
                   <CompactMetric label="Profit factor" value={formatRatio(day.aggregate.profitFactor)} />
@@ -2970,6 +3110,9 @@ function JournalDayViewPage({ accounts, days, journalEntries, sessionById }: Jou
                   <CompactMetric label="Losers" value={String(day.aggregate.losses)} tone="text-rose-300" />
                 </div>
               </div>
+                  </>
+                );
+              })()}
             </FeatureCard>
           ))}
           {days.length === 0 && <EmptyState icon={CalendarDays} message="Taken-trade days appear after recording Journal trades." />}
@@ -2987,14 +3130,48 @@ function JournalDayViewPage({ accounts, days, journalEntries, sessionById }: Jou
 
 function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPageProps) {
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(journalEntries.at(-1)?.id ?? null);
+  const [searchTerm, setSearchTerm] = useState("");
   const selectedTrade = journalEntries.find((trade) => trade.id === selectedTradeId) ?? journalEntries.at(-1) ?? null;
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
   );
+  const filteredEntries = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) {
+      return journalEntries;
+    }
+    return journalEntries.filter((trade) => {
+      const session = sessionById.get(trade.session_id);
+      const linkedAccounts = liveTradeAccountIds(trade, session)
+        .map((accountId) => accountById.get(accountId))
+        .filter((account): account is LiveJournalAccount => Boolean(account));
+      return [
+        trade.strategy_name,
+        session?.name,
+        session?.instrument,
+        trade.side,
+        trade.emotional_state,
+        trade.notes,
+        trade.missed_reason,
+        shortDate(trade.entry_time),
+        ...trade.mistake_tags,
+        ...linkedAccounts.map((account) => account.name),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [accountById, journalEntries, searchTerm, sessionById]);
   const selectedCurrency = selectedTrade
     ? currencyForJournalTrade(selectedTrade, accountById, sessionById)
     : "USD";
+  const selectedAccounts = selectedTrade
+    ? liveTradeAccountIds(selectedTrade, sessionById.get(selectedTrade.session_id))
+      .map((accountId) => accountById.get(accountId))
+      .filter((account): account is LiveJournalAccount => Boolean(account))
+    : [];
 
   return (
     <PageScaffold
@@ -3007,16 +3184,21 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
           <div className="border-b border-white/10 p-3">
             <div className="flex items-center gap-2">
               <Search size={15} className="text-slate-500" />
-              <input className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Search live notes" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600"
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search live notes"
+                value={searchTerm}
+              />
             </div>
           </div>
           <div className="grid gap-2 p-3">
               <NotebookFolder
-                label={`All live notes (${journalEntries.length})`}
+                label={`Live notes (${filteredEntries.length})`}
                 active
                 onClick={() => undefined}
               />
-              {journalEntries.slice().reverse().map((trade) => (
+              {filteredEntries.slice().reverse().map((trade) => (
                 <button
                   className={`rounded-md border px-3 py-2 text-left text-sm transition ${
                     selectedTrade?.id === trade.id ? "border-cyan-300/30 bg-cyan-300/10" : "border-white/10 bg-black/20 hover:border-white/20"
@@ -3031,6 +3213,7 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
                   </span>
                 </button>
               ))}
+              {filteredEntries.length === 0 && <EmptyState icon={Search} message="No live notes match this search." />}
           </div>
         </FeatureCard>
         <FeatureCard>
@@ -3040,6 +3223,12 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
               <p className="mt-1 text-xs text-slate-500">
                 Entry {formatDateTime(selectedTrade.entry_time)} - {isMissedJournalTrade(selectedTrade) ? "Missed setup" : `Exit ${formatDateTime(selectedTrade.exit_time)}`}
               </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {selectedAccounts.map((account) => (
+                  <JournalAccountBadge account={account} key={account.id} />
+                ))}
+                {selectedAccounts.length === 0 && <span className="status-pill h-7 px-2 text-[10px]">No account link</span>}
+              </div>
               <div className="mt-4 grid gap-2 md:grid-cols-5">
                 <CompactMetric label="Side" value={selectedTrade.side} />
                 <CompactMetric label={isMissedJournalTrade(selectedTrade) ? "Planned entry" : "P&L"} value={isMissedJournalTrade(selectedTrade) ? formatPrice(selectedTrade.planned_entry_price) : formatMoney(selectedTrade.realized_pnl, selectedCurrency)} tone={isMissedJournalTrade(selectedTrade) ? "text-amber-200" : toneForNumber(selectedTrade.realized_pnl)} />
@@ -3211,23 +3400,29 @@ function JournalReportsPage({
       </div>
       {tab === "performance" && (
         <div className="grid gap-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
-            <FeatureCard className="overflow-hidden p-0">
-              <MetricChartHeader icon={LineChart} label="Journal equity" meta={`${takenTrades.length} taken trades`} tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, reportCurrency)} />
-              <div className="px-4 pb-4">
-                <AreaSparkline currency={reportCurrency} height={288} values={cumulativeValues(takenTrades)} />
+          {takenTrades.length > 0 ? (
+            <>
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
+                <FeatureCard className="overflow-hidden p-0">
+                  <MetricChartHeader icon={LineChart} label="Journal equity" meta={`${takenTrades.length} taken trades`} tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, reportCurrency)} />
+                  <div className="px-4 pb-4">
+                    <AreaSparkline currency={reportCurrency} height={288} values={cumulativeValues(takenTrades)} />
+                  </div>
+                </FeatureCard>
+                <FeatureCard className="overflow-hidden p-0">
+                  <MetricChartHeader icon={BarChart3} label="Daily P&L" meta={`${days.length} trading days`} tone={toneForNumber(bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl)} value={formatMoney(bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)} />
+                  <div className="px-4 pb-4">
+                    <BarBreakdown chartHeight={288} currency={reportCurrency} maxItems={18} rows={days.slice().reverse().map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
+                  </div>
+                </FeatureCard>
               </div>
-            </FeatureCard>
-            <FeatureCard className="overflow-hidden p-0">
-              <MetricChartHeader icon={BarChart3} label="Daily P&L" meta={`${days.length} trading days`} tone={toneForNumber(bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl)} value={formatMoney(bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)} />
-              <div className="px-4 pb-4">
-                <BarBreakdown chartHeight={288} currency={reportCurrency} maxItems={18} rows={days.slice().reverse().map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
-              </div>
-            </FeatureCard>
-          </div>
-          <FeatureCard>
-            <StatsGrid aggregate={aggregate} currency={reportCurrency} />
-          </FeatureCard>
+              <FeatureCard>
+                <StatsGrid aggregate={aggregate} currency={reportCurrency} />
+              </FeatureCard>
+            </>
+          ) : (
+            <EmptyState icon={LineChart} message="Record a taken Journal trade to unlock performance charts." />
+          )}
         </div>
       )}
       {tab === "overview" && (
@@ -3555,23 +3750,29 @@ function JournalStrategiesPage({
                 <CompactMetric label="Max DD" value={formatMoney(selected.aggregate.maxDrawdown, selectedCurrency)} tone="text-rose-300" />
                 <CompactMetric label="Sessions" value={String(selected.sessions.length)} />
               </div>
-              <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <CardLabel icon={LineChart} label="Live equity curve" />
-                  <div className="mt-3">
-                    <AreaSparkline currency={selectedCurrency} height={190} values={cumulativeValues(selected.trades)} />
+              {selected.trades.length > 0 ? (
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                    <CardLabel icon={LineChart} label="Live equity curve" />
+                    <div className="mt-3">
+                      <AreaSparkline currency={selectedCurrency} height={190} values={cumulativeValues(selected.trades)} />
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                    <CardLabel icon={BarChart3} label="Daily P&L" />
+                    <BarBreakdown
+                      chartHeight={190}
+                      currency={selectedCurrency}
+                      maxItems={8}
+                      rows={selectedDays.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
+                    />
                   </div>
                 </div>
-                <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <CardLabel icon={BarChart3} label="Daily P&L" />
-                  <BarBreakdown
-                    chartHeight={190}
-                    currency={selectedCurrency}
-                    maxItems={8}
-                    rows={selectedDays.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
-                  />
+              ) : (
+                <div className="mt-4 rounded-md border border-dashed border-cyan-300/20 bg-cyan-300/[0.04] px-4 py-5 text-sm text-slate-400">
+                  Record a taken Journal trade with this strategy and the equity curve, daily P&L, and trade stream will appear here.
                 </div>
-              </div>
+              )}
               <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
                 <CardLabel icon={ClipboardList} label="Recent trades" />
                 <div className="mt-3 grid gap-2">
@@ -3836,7 +4037,10 @@ function JournalAccountsPage({
                     <span className="block truncate font-semibold text-white">{row.account.name}</span>
                     <span className="mt-1 block text-xs text-slate-500">{row.account.broker || "Manual"} · {row.account.currency}</span>
                   </span>
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.account.color }} />
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black/40"
+                    style={{ backgroundColor: row.account.color, boxShadow: `0 0 18px ${row.account.color}` }}
+                  />
                 </div>
                 <div className={`mt-4 text-xl font-semibold tabular-nums ${toneForNumber(row.balance)}`}>
                   {formatMoney(row.balance, row.account.currency)}
@@ -3868,14 +4072,20 @@ function JournalAccountsPage({
               Broker
               <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setBroker(event.target.value)} value={broker} />
             </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_64px] gap-2">
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(128px,150px)]">
               <label className="form-field">
                 Currency
-                <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setCurrency(event.target.value.toUpperCase())} value={currency} />
+                <ThemedSelect
+                  className="h-10"
+                  onChange={setCurrency}
+                  options={selectOptionsWithValue(CURRENCY_OPTIONS, currency)}
+                  portal
+                  value={currency}
+                />
               </label>
-              <label className="form-field">
-                Color
-                <input className="input-control h-10 p-1" onChange={(event) => setColor(event.target.value)} type="color" value={color} />
+              <label className="form-field min-w-0">
+                Accent
+                <ThemedColorPicker ariaLabel="Account color" compact onChange={setColor} value={color} />
               </label>
             </div>
             <label className="form-field">
@@ -3900,7 +4110,17 @@ function JournalAccountsPage({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardLabel icon={WalletCards} label="Account detail" />
-                  <h3 className="mt-3 text-xl font-semibold text-white">{selectedRow.account.name}</h3>
+                  <h3 className="mt-3 flex items-center gap-2 text-xl font-semibold text-white">
+                    <span
+                      className="h-3 w-3 rounded-full"
+                      style={{
+                        backgroundColor: selectedRow.account.color,
+                        boxShadow: `0 0 18px ${selectedRow.account.color}`,
+                      } as CSSProperties}
+                    />
+                    {selectedRow.account.name}
+                  </h3>
+                  <div className="mt-1 text-xs text-slate-500">{selectedRow.account.broker || "Manual"} · {selectedRow.account.currency}</div>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -3938,39 +4158,58 @@ function JournalAccountsPage({
                 <CompactMetric label="Win rate" value={formatPercent(selectedRow.aggregate.winRate)} />
                 <CompactMetric label="Max DD" value={formatMoney(selectedRow.aggregate.maxDrawdown, selectedRow.account.currency)} tone="text-rose-300" />
               </div>
-              <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <CardLabel icon={LineChart} label="Account equity" />
-                  <div className="mt-3">
-                    <AreaSparkline currency={selectedRow.account.currency} height={190} values={cumulativeValues(selectedRow.trades)} />
+              {selectedRow.trades.length > 0 ? (
+                <>
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <CardLabel icon={LineChart} label="Account equity" />
+                      <div className="mt-3">
+                        <AreaSparkline currency={selectedRow.account.currency} height={190} values={cumulativeValues(selectedRow.trades)} />
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <CardLabel icon={BarChart3} label="Daily P&L" />
+                      <BarBreakdown
+                        chartHeight={190}
+                        currency={selectedRow.account.currency}
+                        maxItems={10}
+                        rows={selectedRow.days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+                    <CardLabel icon={ClipboardList} label="Recent account trades" />
+                    <div className="mt-3 grid gap-2">
+                      {selectedRow.trades.slice().sort(compareTradesAscending).reverse().slice(0, 6).map((trade) => (
+                        <div className="grid gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto]" key={trade.id}>
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-white">{trade.strategy_name || sessionById.get(trade.session_id)?.strategy_name || "Unassigned"}</div>
+                            <div className="text-xs text-slate-500">{formatDateTime(trade.exit_time ?? trade.entry_time)} · {trade.side}</div>
+                          </div>
+                          <div className={`font-semibold tabular-nums ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl, selectedRow.account.currency)}</div>
+                          <div className="text-slate-500 tabular-nums">{formatOptionalNumber(trade.r_multiple)}R</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-4 rounded-md border border-dashed border-cyan-300/20 bg-cyan-300/[0.04] px-4 py-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <CardLabel icon={ClipboardList} label="No taken trades linked" />
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                        Link this account while recording a taken Journal trade and the balance, equity curve, daily P&L, and recent trade stream will appear here.
+                      </p>
+                    </div>
+                    <div className="grid min-w-56 grid-cols-3 gap-2">
+                      <MiniMetric label="Sessions" value={String(selectedRow.sessions.length)} />
+                      <MiniMetric label="Missed" value={String(selectedRow.missedTrades.length)} />
+                      <MiniMetric label="Currency" value={selectedRow.account.currency} />
+                    </div>
                   </div>
                 </div>
-                <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <CardLabel icon={BarChart3} label="Daily P&L" />
-                  <BarBreakdown
-                    chartHeight={190}
-                    currency={selectedRow.account.currency}
-                    maxItems={10}
-                    rows={selectedRow.days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
-                  />
-                </div>
-              </div>
-              <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
-                <CardLabel icon={ClipboardList} label="Recent account trades" />
-                <div className="mt-3 grid gap-2">
-                  {selectedRow.trades.slice().sort(compareTradesAscending).reverse().slice(0, 6).map((trade) => (
-                    <div className="grid gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto]" key={trade.id}>
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold text-white">{trade.strategy_name || sessionById.get(trade.session_id)?.strategy_name || "Unassigned"}</div>
-                        <div className="text-xs text-slate-500">{formatDateTime(trade.exit_time ?? trade.entry_time)} · {trade.side}</div>
-                      </div>
-                      <div className={`font-semibold tabular-nums ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl, selectedRow.account.currency)}</div>
-                      <div className="text-slate-500 tabular-nums">{formatOptionalNumber(trade.r_multiple)}R</div>
-                    </div>
-                  ))}
-                  {selectedRow.trades.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No taken trades linked to this account yet.</div>}
-                </div>
-              </div>
+              )}
             </div>
             <div className="grid content-start gap-4">
               <div className="rounded-md border border-white/10 bg-black/20 p-3">
@@ -3984,14 +4223,25 @@ function JournalAccountsPage({
                     Broker
                     <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, broker: event.target.value }))} value={editDraft.broker} />
                   </label>
-                  <div className="grid grid-cols-[minmax(0,1fr)_64px] gap-2">
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(128px,150px)]">
                     <label className="form-field">
                       Currency
-                      <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setEditDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} value={editDraft.currency} />
+                      <ThemedSelect
+                        className="h-10"
+                        onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
+                        options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
+                        portal
+                        value={editDraft.currency}
+                      />
                     </label>
-                    <label className="form-field">
-                      Color
-                      <input className="input-control h-10 p-1" onChange={(event) => setEditDraft((current) => ({ ...current, color: event.target.value }))} type="color" value={editDraft.color} />
+                    <label className="form-field min-w-0">
+                      Accent
+                      <ThemedColorPicker
+                        ariaLabel="Account color"
+                        compact
+                        onChange={(value) => setEditDraft((current) => ({ ...current, color: value }))}
+                        value={editDraft.color}
+                      />
                     </label>
                   </div>
                   <label className="form-field">
@@ -4113,7 +4363,13 @@ function JournalSettingsPage({
             </label>
             <label className="form-field">
               Default currency
-              <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setDefaultCurrency(event.target.value.toUpperCase())} value={defaultCurrency} />
+              <ThemedSelect
+                className="h-10"
+                onChange={setDefaultCurrency}
+                options={selectOptionsWithValue(CURRENCY_OPTIONS, defaultCurrency)}
+                portal
+                value={defaultCurrency}
+              />
             </label>
             <label className="form-field">
               Default live risk %
@@ -4136,26 +4392,23 @@ function JournalSettingsPage({
             <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Default accounts</div>
             <div className="grid gap-2 md:grid-cols-2">
               {activeAccounts.map((account) => (
-                <button
-                  className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
-                    defaultAccountIds.includes(account.id)
-                      ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
-                      : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
-                  }`}
+                <JournalAccountToggle
+                  account={account}
+                  active={defaultAccountIds.includes(account.id)}
                   key={account.id}
                   onClick={() => toggleDefaultAccount(account.id)}
-                  type="button"
-                >
-                  <span>{account.name}</span>
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account.color }} />
-                </button>
+                />
               ))}
               {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500 md:col-span-2">Create a Journal account to set account defaults.</div>}
             </div>
-            <label className="mt-3 flex items-center gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
-              <input checked={requireAccount} onChange={(event) => setRequireAccount(event.target.checked)} type="checkbox" />
-              Require at least one account for taken trades
-            </label>
+            <div className="mt-3">
+              <JournalBooleanToggle
+                checked={requireAccount}
+                description="Missed setups can still stay account-optional."
+                label="Require at least one account for taken trades"
+                onChange={setRequireAccount}
+              />
+            </div>
           </div>
         </FeatureCard>
         <FeatureCard>
@@ -4252,6 +4505,52 @@ function LiveTradeForm({
   const [notes, setNotes] = useState("");
   const [missedReason, setMissedReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const selectedSession = useMemo(
+    () => sessions.find((session) => String(session.id) === sessionId) ?? sessions[0] ?? null,
+    [sessionId, sessions],
+  );
+  const selectedAccounts = useMemo(
+    () => activeAccounts.filter((account) => accountIds.includes(account.id)),
+    [accountIds, activeAccounts],
+  );
+  const selectedTradeCurrency = selectedAccounts.length > 0
+    ? currencyForJournalAccounts(selectedAccounts, selectedSession?.currency ?? settings.default_currency)
+    : normalizeCurrencyCode(selectedSession?.currency ?? settings.default_currency);
+  const pnlPreview = useMemo(() => {
+    const parsedEntry = parseOptionalFloat(entryPrice) ?? 0;
+    const parsedExit = parseOptionalFloat(exitPrice);
+    const parsedQuantity = parseOptionalFloat(quantity) ?? 0;
+    const gross =
+      entryType === "TAKEN" && parsedExit != null
+        ? side === "LONG"
+          ? (parsedExit - parsedEntry) * parsedQuantity
+          : (parsedEntry - parsedExit) * parsedQuantity
+        : 0;
+    const notional = Math.abs(parsedEntry * parsedQuantity);
+    const commissions = entryType === "TAKEN"
+      ? journalCostAmount(settings.default_commission_mode, settings.default_commission_value, notional)
+      : 0;
+    const fees = entryType === "TAKEN"
+      ? journalCostAmount(settings.default_fee_mode, settings.default_fee_value, notional)
+      : 0;
+    return {
+      commissions,
+      fees,
+      gross,
+      net: gross - commissions - fees,
+      notional,
+    };
+  }, [
+    entryPrice,
+    entryType,
+    exitPrice,
+    quantity,
+    settings.default_commission_mode,
+    settings.default_commission_value,
+    settings.default_fee_mode,
+    settings.default_fee_value,
+    side,
+  ]);
 
   useEffect(() => {
     const selectedSession = sessions.find((session) => String(session.id) === sessionId);
@@ -4428,22 +4727,12 @@ function LiveTradeForm({
             {activeAccounts.map((account) => {
               const active = accountIds.includes(account.id);
               return (
-                <button
-                  className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition ${
-                    active
-                      ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
-                      : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
-                  }`}
+                <JournalAccountToggle
+                  account={account}
+                  active={active}
                   key={account.id}
                   onClick={() => toggleAccount(account.id)}
-                  type="button"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{account.name}</span>
-                    <span className="text-xs text-slate-500">{account.broker || "Manual"} · {account.currency}</span>
-                  </span>
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: account.color }} />
-                </button>
+                />
               );
             })}
             {activeAccounts.length === 0 && (
@@ -4504,6 +4793,20 @@ function LiveTradeForm({
             <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" value={takeProfit} />
           </label>
         </div>
+        {entryType === "TAKEN" && (
+          <div className="rounded-md border border-white/10 bg-black/20 p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <CardLabel icon={BadgeDollarSign} label="Trade preview" />
+              <span className="status-pill h-7 px-2 text-[10px]">{selectedTradeCurrency}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <MiniMetric label="Gross" value={formatMoney(pnlPreview.gross, selectedTradeCurrency)} />
+              <MiniMetric label="Net" value={formatMoney(pnlPreview.net, selectedTradeCurrency)} />
+              <MiniMetric label="Commissions" value={formatMoney(pnlPreview.commissions, selectedTradeCurrency)} />
+              <MiniMetric label="Fees" value={formatMoney(pnlPreview.fees, selectedTradeCurrency)} />
+            </div>
+          </div>
+        )}
         <label className="form-field">
           Tags
           <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTags(event.target.value)} placeholder="FOMO, Late entry" value={tags} />
@@ -4622,10 +4925,7 @@ function LiveTradeTable({
                   <td className="px-3 py-4">
                     <div className="flex max-w-44 flex-wrap gap-1">
                       {accounts.map((account) => (
-                        <span className="inline-flex items-center gap-1 rounded bg-black/30 px-2 py-1 text-xs font-semibold text-slate-200" key={account.id}>
-                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color }} />
-                          {account.name}
-                        </span>
+                        <JournalAccountBadge account={account} compact key={account.id} />
                       ))}
                       {accounts.length === 0 && <span className="text-xs text-slate-600">Unlinked</span>}
                     </div>
