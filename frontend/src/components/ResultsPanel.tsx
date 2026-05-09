@@ -14,6 +14,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  WalletCards,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { BacktestSession, Trade } from "../lib/api";
@@ -43,6 +44,7 @@ type Aggregate = {
   expectancy: number | null;
   grossLosses: number;
   grossWins: number;
+  grossPnl: number;
   largestLoss: number | null;
   longPnl: number;
   longTrades: number;
@@ -54,6 +56,8 @@ type Aggregate = {
   shortPnl: number;
   shortTrades: number;
   totalTrades: number;
+  totalCommissions: number;
+  totalFees: number;
   winRate: number;
   wins: number;
 };
@@ -276,11 +280,14 @@ function OverviewResults({
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
           <ResultMetric icon={Activity} label="Closed Trades" value={String(aggregate.totalTrades)} />
           <ResultMetric icon={Target} label="Win Rate" tone="text-cyan-100" value={formatPercent(aggregate.winRate)} />
           <ResultMetric icon={Sigma} label="Profit Factor" tone="text-amber-100" value={formatRatio(aggregate.profitFactor)} />
           <ResultMetric icon={BarChart3} label="Avg R" tone={toneForNumber(aggregate.averageR)} value={formatOptionalNumber(aggregate.averageR)} />
+          <ResultMetric icon={WalletCards} label="Gross P&L" tone={toneForNumber(aggregate.grossPnl)} value={formatMoney(aggregate.grossPnl, currency)} />
+          <ResultMetric icon={WalletCards} label="Commissions" value={formatMoney(aggregate.totalCommissions, currency)} />
+          <ResultMetric icon={WalletCards} label="Fees" value={formatMoney(aggregate.totalFees, currency)} />
           <ResultMetric icon={TrendingDown} label="Max Drawdown" tone="text-rose-200" value={formatMoney(aggregate.maxDrawdown, currency)} />
           <ResultMetric icon={TrendingUp} label="Recovery" tone="text-emerald-100" value={formatRatio(aggregate.recoveryFactor)} />
           <ResultMetric icon={ChevronRight} label="Long / Short" value={`${aggregate.longTrades} / ${aggregate.shortTrades}`} />
@@ -303,9 +310,14 @@ function OverviewResults({
       </div>
 
       <div className="terminal-panel min-w-0 p-4 xl:col-span-2">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
+        <div className="grid gap-3 lg:grid-cols-4">
           <ResultSummaryCard title="Outcome Mix">
             <OutcomeBars aggregate={aggregate} />
+          </ResultSummaryCard>
+          <ResultSummaryCard title="Cost Breakdown">
+            <SummaryLine label="Gross P&L" tone={toneForNumber(aggregate.grossPnl)} value={formatMoney(aggregate.grossPnl, currency)} />
+            <SummaryLine label="Commissions" value={formatMoney(aggregate.totalCommissions, currency)} />
+            <SummaryLine label="Fees" value={formatMoney(aggregate.totalFees, currency)} />
           </ResultSummaryCard>
           <ResultSummaryCard title="Trade Quality">
             <SummaryLine label="Best trade" tone={toneForNumber(aggregate.bestTrade)} value={formatMoney(aggregate.bestTrade, currency)} />
@@ -502,7 +514,7 @@ function TradeResults({
         </div>
       </div>
       <div className="overflow-auto">
-        <table className="w-full min-w-[1040px] text-left text-sm">
+        <table className="w-full min-w-[1280px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-3 py-2 font-medium">Exit</th>
@@ -513,7 +525,10 @@ function TradeResults({
               <th className="px-3 py-2 font-medium">Exit Price</th>
               <th className="px-3 py-2 font-medium">Stop</th>
               <th className="px-3 py-2 font-medium">Target</th>
-              <th className="px-3 py-2 font-medium">P&L</th>
+              <th className="px-3 py-2 font-medium">Gross P&L</th>
+              <th className="px-3 py-2 font-medium">Commission</th>
+              <th className="px-3 py-2 font-medium">Fees</th>
+              <th className="px-3 py-2 font-medium">Net P&L</th>
               <th className="px-3 py-2 font-medium">R</th>
               <th className="px-3 py-2 font-medium" />
             </tr>
@@ -550,6 +565,15 @@ function TradeResults({
                   <td className="px-3 py-3 tabular-nums">{formatPrice(trade.exit_price)}</td>
                   <td className="px-3 py-3 tabular-nums">{formatPrice(trade.stop_loss)}</td>
                   <td className="px-3 py-3 tabular-nums">{formatPrice(trade.take_profit)}</td>
+                  <td className={`px-3 py-3 font-semibold ${toneForNumber(tradeGrossPnl(trade))}`}>
+                    {formatMoney(tradeGrossPnl(trade), currency)}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {formatMoney(trade.commission_amount ?? 0, currency)}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {formatMoney(trade.fee_amount ?? 0, currency)}
+                  </td>
                   <td className={`px-3 py-3 font-semibold ${toneForNumber(trade.realized_pnl)}`}>
                     {formatMoney(trade.realized_pnl, currency)}
                   </td>
@@ -751,6 +775,9 @@ function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggre
   const breakevenTrades = orderedTrades.filter((trade) => (trade.realized_pnl ?? 0) === 0).length;
   const grossWins = winningTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
   const grossLosses = Math.abs(losingTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0));
+  const grossPnl = orderedTrades.reduce((sum, trade) => sum + tradeGrossPnl(trade), 0);
+  const totalCommissions = orderedTrades.reduce((sum, trade) => sum + (trade.commission_amount ?? 0), 0);
+  const totalFees = orderedTrades.reduce((sum, trade) => sum + (trade.fee_amount ?? 0), 0);
   const rValues = orderedTrades
     .map((trade) => trade.r_multiple)
     .filter((value): value is number => value != null && Number.isFinite(value));
@@ -780,6 +807,7 @@ function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggre
     expectancy: orderedTrades.length > 0 ? netPnl / orderedTrades.length : null,
     grossLosses,
     grossWins,
+    grossPnl,
     largestLoss,
     longPnl: longTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0),
     longTrades: longTrades.length,
@@ -790,10 +818,20 @@ function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggre
     recoveryFactor: maxDrawdown < 0 ? netPnl / Math.abs(maxDrawdown) : null,
     shortPnl: shortTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0),
     shortTrades: shortTrades.length,
+    totalCommissions,
+    totalFees,
     totalTrades: orderedTrades.length,
     winRate: orderedTrades.length > 0 ? wins / orderedTrades.length : 0,
     wins,
   };
+}
+
+function tradeGrossPnl(trade: Trade) {
+  const grossPnl = trade.gross_pnl;
+  if (Number.isFinite(grossPnl)) {
+    return grossPnl;
+  }
+  return (trade.realized_pnl ?? 0) + (trade.commission_amount ?? 0) + (trade.fee_amount ?? 0);
 }
 
 function compareTradesAscending(a: Trade, b: Trade) {
@@ -975,6 +1013,9 @@ function buildResultsSummaryText({
   return [
     label,
     session ? `${formatMarketSymbol(session.symbol)} ${session.timeframe ?? ""}`.trim() : null,
+    `Gross P&L: ${formatMoney(aggregate.grossPnl, currency)}`,
+    `Commissions: ${formatMoney(aggregate.totalCommissions, currency)}`,
+    `Fees: ${formatMoney(aggregate.totalFees, currency)}`,
     `Net P&L: ${formatMoney(aggregate.netPnl, currency)}`,
     `Closed trades: ${aggregate.totalTrades}`,
     `Open trades: ${aggregate.openTrades}`,
@@ -1011,6 +1052,9 @@ function exportSessionResultsCsv({
     ["Summary", "Symbol", session?.symbol ?? "", ""],
     ["Summary", "Timeframe", session?.timeframe ?? "", ""],
     ["Summary", "Currency", currency, ""],
+    ["Summary", "Gross P&L", aggregate.grossPnl, currency],
+    ["Summary", "Commissions", aggregate.totalCommissions, currency],
+    ["Summary", "Fees", aggregate.totalFees, currency],
     ["Summary", "Net P&L", aggregate.netPnl, currency],
     ["Summary", "Closed trades", aggregate.totalTrades, ""],
     ["Summary", "Open trades", aggregate.openTrades, ""],
@@ -1020,7 +1064,7 @@ function exportSessionResultsCsv({
     ["Summary", "Max drawdown", aggregate.maxDrawdown, currency],
     ["Summary", "Recovery factor", formatRatio(aggregate.recoveryFactor), ""],
     [],
-    ["Trade ID", "Exit Time", "Side", "Quantity", "Entry", "Exit", "Stop", "Target", "P&L", "R", "Strategy", "Tags"],
+    ["Trade ID", "Exit Time", "Side", "Quantity", "Entry", "Exit", "Stop", "Target", "Gross P&L", "Commission", "Fees", "Net P&L", "R", "Strategy", "Tags"],
     ...trades.map((trade) => [
       trade.id,
       trade.exit_time ?? "",
@@ -1030,6 +1074,9 @@ function exportSessionResultsCsv({
       trade.exit_price ?? "",
       trade.stop_loss ?? "",
       trade.take_profit ?? "",
+      tradeGrossPnl(trade),
+      trade.commission_amount ?? 0,
+      trade.fee_amount ?? 0,
       trade.realized_pnl,
       trade.r_multiple ?? "",
       tradeStrategyName(trade, session ?? undefined),

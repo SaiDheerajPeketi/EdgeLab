@@ -224,6 +224,7 @@ type Aggregate = {
   breakeven: number;
   closed: Trade[];
   grossLosses: number;
+  grossPnl: number;
   grossWins: number;
   largestLoss: number | null;
   largestWin: number | null;
@@ -4913,8 +4914,9 @@ function ReportsPage({
         </div>
       </section>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, reportCurrency)} />
+        <ResultMetricCard icon={BadgeDollarSign} label="Gross P&L" tone={toneForNumber(filteredAggregate.grossPnl)} value={formatMoney(filteredAggregate.grossPnl, reportCurrency)} />
         <ResultMetricCard icon={WalletCards} label="Commissions" value={formatMoney(filteredAggregate.totalCommissions, reportCurrency)} />
         <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(filteredAggregate.totalFees, reportCurrency)} />
         <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
@@ -7451,6 +7453,9 @@ function RichTextEditorStub() {
 function StatsGrid({ aggregate, currency }: { aggregate: Aggregate; currency: string }) {
   const rows = [
     ["Net P&L", formatMoney(aggregate.netPnl, currency), toneForNumber(aggregate.netPnl)],
+    ["Gross P&L", formatMoney(aggregate.grossPnl, currency), toneForNumber(aggregate.grossPnl)],
+    ["Commissions", formatMoney(aggregate.totalCommissions, currency), "text-slate-100"],
+    ["Fees", formatMoney(aggregate.totalFees, currency), "text-slate-100"],
     ["Trades", String(aggregate.totalTrades), "text-slate-100"],
     ["Win rate", formatPercent(aggregate.winRate), "text-slate-100"],
     ["Profit factor", formatRatio(aggregate.profitFactor), "text-amber-100"],
@@ -8539,6 +8544,7 @@ function exportResultsSummaryCsv({
 }) {
   const rows: unknown[][] = [
     ["Section", "Metric", "Value", "Extra"],
+    ["Summary", "Gross P&L", aggregate.grossPnl, currency],
     ["Summary", "Net P&L", aggregate.netPnl, currency],
     ["Summary", "Commissions", aggregate.totalCommissions, currency],
     ["Summary", "Fees", aggregate.totalFees, currency],
@@ -8563,11 +8569,14 @@ function exportResultsSummaryCsv({
       strategy.aggregate.totalTrades,
     ]),
     [],
-    ["Trade", "ID", "Instrument", "P&L"],
+    ["Trade", "ID", "Instrument", "Gross P&L", "Commission", "Fees", "Net P&L"],
     ...trades.map((trade) => [
       "Trade",
       trade.id,
       tradeInstrumentLabel(trade, sessionById.get(trade.session_id)),
+      tradeGrossPnl(trade),
+      trade.commission_amount ?? 0,
+      trade.fee_amount ?? 0,
       trade.realized_pnl ?? 0,
     ]),
   ];
@@ -8939,6 +8948,7 @@ function toIsoFromDateTimeLocal(value: string) {
 function aggregateTrades(trades: Trade[]): Aggregate {
   const closed = trades.filter((trade) => trade.status === "CLOSED").slice().sort(compareTradesAscending);
   const netPnl = closed.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
+  const grossPnl = closed.reduce((sum, trade) => sum + tradeGrossPnl(trade), 0);
   const totalCommissions = closed.reduce((sum, trade) => sum + (trade.commission_amount ?? 0), 0);
   const totalFees = closed.reduce((sum, trade) => sum + (trade.fee_amount ?? 0), 0);
   const wins = closed.filter((trade) => (trade.realized_pnl ?? 0) > 0);
@@ -8962,6 +8972,7 @@ function aggregateTrades(trades: Trade[]): Aggregate {
     breakeven: breakeven.length,
     closed,
     grossLosses,
+    grossPnl,
     grossWins,
     largestLoss: closed.length > 0 ? Math.min(...closed.map((trade) => trade.realized_pnl ?? 0)) : null,
     largestWin: closed.length > 0 ? Math.max(...closed.map((trade) => trade.realized_pnl ?? 0)) : null,
@@ -8976,6 +8987,14 @@ function aggregateTrades(trades: Trade[]): Aggregate {
     winRate: closed.length > 0 ? wins.length / closed.length : 0,
     wins: wins.length,
   };
+}
+
+function tradeGrossPnl(trade: Trade) {
+  const grossPnl = trade.gross_pnl;
+  if (Number.isFinite(grossPnl)) {
+    return grossPnl;
+  }
+  return (trade.realized_pnl ?? 0) + (trade.commission_amount ?? 0) + (trade.fee_amount ?? 0);
 }
 
 function computePlaybookUsage(
