@@ -9,13 +9,13 @@ import {
   Database,
   Maximize2,
   Minimize2,
-  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   PencilRuler,
   Radio,
+  Settings2,
   LineChart,
   ScrollText,
   WalletCards,
@@ -297,8 +297,22 @@ export default function App() {
     setPaneField("chartStyle", action);
   }
 
-  function setChartSettings(action: SetStateAction<ChartVisualSettings>) {
-    setPaneField("chartSettings", action);
+  function applyChartSettingsToCurrentScope(
+    action: SetStateAction<ChartVisualSettings>,
+  ) {
+    const resolveSettings = (previous: ChartVisualSettings) =>
+      sanitizeChartVisualSettings(resolveStateAction(action, previous));
+    if (isMultiChartLayout) {
+      updateActiveChartPane((pane) => ({
+        ...pane,
+        chartSettings: resolveSettings(pane.chartSettings),
+      }));
+      return;
+    }
+    updateChartPane(activeChartPane.id, (pane) => ({
+      ...pane,
+      chartSettings: resolveSettings(pane.chartSettings),
+    }));
   }
 
   function setIndicatorInstances(action: SetStateAction<ChartIndicatorInstance[]>) {
@@ -400,7 +414,7 @@ export default function App() {
       setAvailableLayouts(loadSavedLayoutNames());
       const activeSettingsPreset = loadActiveChartSettingsPreset();
       if (activeSettingsPreset) {
-        setChartSettings(activeSettingsPreset.settings);
+        applyChartSettingsToCurrentScope(activeSettingsPreset.settings);
       }
     });
     const unsubscribeLayouts = subscribeAppStorageItem<unknown>(
@@ -448,7 +462,7 @@ export default function App() {
         ? presets.find((preset) => preset.name === activeName) ?? null
         : null;
       if (activeSettingsPreset) {
-        setChartSettings(activeSettingsPreset.settings);
+        applyChartSettingsToCurrentScope(activeSettingsPreset.settings);
       }
     });
     return () => {
@@ -1557,7 +1571,7 @@ export default function App() {
           onClick={openChartSettings}
           type="button"
         >
-          <Palette size={14} />
+          <Settings2 size={14} />
           Settings
         </button>
         {!isChartFullscreen && (
@@ -1642,7 +1656,7 @@ export default function App() {
         onClick={openChartSettings}
         type="button"
       >
-        <Palette size={15} />
+        <Settings2 size={15} />
         Settings
       </button>
       <button
@@ -1841,10 +1855,10 @@ export default function App() {
                     indicatorInstances={indicatorInstances}
                     onAddIndicator={addIndicator}
                     onChartSettingsChange={(settings) =>
-                      setChartSettings(sanitizeChartVisualSettings(settings))
+                      applyChartSettingsToCurrentScope(settings)
                     }
                     onChartSettingsReset={() =>
-                      setChartSettings(DEFAULT_CHART_VISUAL_SETTINGS)
+                      applyChartSettingsToCurrentScope(DEFAULT_CHART_VISUAL_SETTINGS)
                     }
                     onChartStyleChange={setChartStyle}
                     onClearDrawings={clearDrawings}
