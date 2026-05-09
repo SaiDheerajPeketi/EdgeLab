@@ -74,6 +74,18 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "grosspnl",
         "result",
     ),
+    "commission_amount": (
+        "commission",
+        "commissions",
+        "fee",
+        "fees",
+        "brokerfee",
+        "brokerfees",
+        "transactionfee",
+        "transactionfees",
+        "cost",
+        "costs",
+    ),
     "symbol": ("symbol", "ticker", "instrument", "market", "contract", "asset"),
     "strategy_name": ("strategy", "strategyname", "setup", "playbook", "system"),
     "stop_loss": ("stoploss", "stop", "sl", "stopprice"),
@@ -183,8 +195,12 @@ def import_trade_csv(
             exit_time=row["exit_time"],
             exit_offset=offset,
             exit_price=row["exit_price"],
+            gross_pnl=row["gross_pnl"],
             realized_pnl=row["realized_pnl"],
             r_multiple=row["r_multiple"],
+            commission_mode=row["commission_mode"],
+            commission_value=row["commission_value"],
+            commission_amount=row["commission_amount"],
             strategy_name=row["strategy_name"],
             notes=row["notes"],
             mistake_tags=json.dumps(row["tags"]),
@@ -241,11 +257,14 @@ def _parse_trade_row(
     exit_price = _parse_float(_field(row, headers, mapping, "exit_price"), "exit price", row_number)
     quantity = _parse_float(_field(row, headers, mapping, "quantity"), "quantity", row_number)
     pnl_value = _field(row, headers, mapping, "realized_pnl")
+    commission_amount = _parse_optional_float(_field(row, headers, mapping, "commission_amount")) or 0.0
+    price_derived_pnl = (exit_price - entry_price) * quantity * (1 if side == "LONG" else -1)
     realized_pnl = (
         _parse_float(pnl_value, "realized P&L", row_number)
         if pnl_value
-        else (exit_price - entry_price) * quantity * (1 if side == "LONG" else -1)
+        else price_derived_pnl - commission_amount
     )
+    gross_pnl = realized_pnl + commission_amount if pnl_value else price_derived_pnl
     return {
         "entry_time": entry_time,
         "exit_time": exit_time,
@@ -253,7 +272,11 @@ def _parse_trade_row(
         "entry_price": entry_price,
         "exit_price": exit_price,
         "quantity": quantity,
+        "gross_pnl": gross_pnl,
         "realized_pnl": realized_pnl,
+        "commission_mode": "FIXED" if commission_amount > 0 else "NONE",
+        "commission_value": commission_amount,
+        "commission_amount": commission_amount,
         "symbol": _clean_text(_field(row, headers, mapping, "symbol")),
         "strategy_name": _clean_text(_field(row, headers, mapping, "strategy_name"))
         or _clean_text(default_strategy),

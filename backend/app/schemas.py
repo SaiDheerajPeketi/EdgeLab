@@ -9,6 +9,7 @@ OrderType = Literal["MARKET", "LIMIT", "STOP"]
 OrderStatus = Literal["PENDING", "FILLED", "CANCELLED"]
 PositionSide = Literal["FLAT", "LONG", "SHORT"]
 RiskBase = Literal["CURRENT_BALANCE", "INITIAL_BALANCE"]
+CommissionMode = Literal["NONE", "FIXED", "PERCENT"]
 
 
 class Candle(BaseModel):
@@ -233,6 +234,8 @@ class OrderCreate(BaseModel):
     take_profit: float | None = Field(default=None, gt=0)
     breakeven_trigger_r: float | None = Field(default=None, gt=0)
     reduce_only: bool = False
+    commission_mode: CommissionMode = "NONE"
+    commission_value: float | None = Field(default=0.0, ge=0)
     strategy_name: str | None = None
     playbook_id: int | None = None
     mistake_tags: list[str] = Field(default_factory=list)
@@ -259,6 +262,8 @@ class OrderUpdate(BaseModel):
     take_profit: float | None = Field(default=None, gt=0)
     breakeven_trigger_r: float | None = Field(default=None, gt=0)
     reduce_only: bool | None = None
+    commission_mode: CommissionMode | None = None
+    commission_value: float | None = Field(default=None, ge=0)
     strategy_name: str | None = None
     playbook_id: int | None = None
     mistake_tags: list[str] | None = None
@@ -282,6 +287,8 @@ class OrderRead(BaseModel):
     take_profit: float | None
     breakeven_trigger_r: float | None
     reduce_only: bool
+    commission_mode: CommissionMode
+    commission_value: float
     strategy_name: str | None
     mistake_tags: list[str]
     notes: str | None
@@ -325,8 +332,12 @@ class TradeRead(BaseModel):
     exit_time: datetime | None
     exit_offset: int | None
     exit_price: float | None
+    gross_pnl: float
     realized_pnl: float
     r_multiple: float | None
+    commission_mode: CommissionMode
+    commission_value: float
+    commission_amount: float
     strategy_name: str | None
     playbook_id: int | None
     notes: str | None
@@ -350,6 +361,9 @@ class JournalUpdate(BaseModel):
     strategy_name: str | None = None
     emotional_state: str | None = None
     screenshot_url: str | None = None
+    commission_mode: CommissionMode | None = None
+    commission_value: float | None = Field(default=None, ge=0)
+    commission_amount: float | None = Field(default=None, ge=0)
 
 
 class TradeStrategyUpdate(BaseModel):

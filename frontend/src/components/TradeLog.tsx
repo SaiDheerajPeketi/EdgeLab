@@ -57,7 +57,7 @@ export function TradeLog({
         onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
         ref={scrollContainerRef}
       >
-        <table className="w-full min-w-[980px] text-left text-sm">
+        <table className="w-full min-w-[1080px] text-left text-sm">
           <thead className="sticky top-0 bg-ink-850 text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">Instrument</th>
@@ -65,6 +65,7 @@ export function TradeLog({
               <th className="px-3 py-3 font-medium">Exit</th>
               <th className="px-3 py-3 font-medium">Side</th>
               <th className="px-3 py-3 font-medium">PnL</th>
+              <th className="px-3 py-3 font-medium">Fees</th>
               <th className="px-3 py-3 font-medium">R</th>
               <th className="px-3 py-3 font-medium">Strategy</th>
               <th className="px-4 py-3" />
@@ -120,6 +121,9 @@ export function TradeLog({
                     }`}
                   >
                     {trade.realized_pnl == null ? "—" : formatMoney(trade.realized_pnl, rowCurrency)}
+                  </td>
+                  <td className="px-3 py-3 text-slate-300">
+                    {formatMoney(trade.commission_amount ?? 0, rowCurrency)}
                   </td>
                   <td className="px-3 py-3 text-slate-200">
                     {trade.r_multiple == null ? "—" : trade.r_multiple.toFixed(2)}

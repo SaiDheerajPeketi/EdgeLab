@@ -72,6 +72,28 @@ def _migrate_sqlite_columns() -> None:
                     "end_offset": "INTEGER",
                 },
             )
+        if "orders" in tables:
+            _add_missing_columns(
+                connection,
+                inspector,
+                "orders",
+                {
+                    "commission_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
+                    "commission_value": "FLOAT DEFAULT 0.0 NOT NULL",
+                },
+            )
+        if "trades" in tables:
+            _add_missing_columns(
+                connection,
+                inspector,
+                "trades",
+                {
+                    "gross_pnl": "FLOAT",
+                    "commission_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
+                    "commission_value": "FLOAT DEFAULT 0.0 NOT NULL",
+                    "commission_amount": "FLOAT DEFAULT 0.0 NOT NULL",
+                },
+            )
         if "dataset_assets" in tables:
             _add_missing_columns(
                 connection,

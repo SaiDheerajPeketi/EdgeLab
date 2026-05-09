@@ -209,7 +209,9 @@ export function TradeDetailDrawer({
           <Metric label="Exit Date/Time" value={formatDateTime(trade.exit_time)} />
           <Metric label="Entry" value={formatPrice(trade.entry_price)} />
           <Metric label="Exit" value={formatPrice(trade.exit_price)} />
-          <Metric label="PnL" value={money(trade.realized_pnl, currency)} tone={trade.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"} />
+          <Metric label="Net PnL" value={money(trade.realized_pnl, currency)} tone={trade.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"} />
+          <Metric label="Gross PnL" value={money(trade.gross_pnl ?? trade.realized_pnl, currency)} tone={(trade.gross_pnl ?? trade.realized_pnl) >= 0 ? "text-emerald-300" : "text-rose-300"} />
+          <Metric label="Fees" value={money(trade.commission_amount ?? 0, currency)} />
           <Metric label="R" value={trade.r_multiple?.toFixed(2) ?? "—"} />
           <Metric label="Qty" value={trade.quantity.toLocaleString()} />
           <Metric label="Remaining" value={trade.remaining_quantity.toLocaleString()} />

@@ -5,18 +5,28 @@ import type { ChartDrawing } from "../lib/charting";
 import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import {
+  hydrateOrderCommissionFixed,
+  hydrateOrderCommissionMode,
+  hydrateOrderCommissionPercent,
   hydrateOrderDefaultQuantity,
   hydrateOrderDefaultRiskPercent,
   hydrateOrderRiskBase,
   hydrateOrderSizingMode,
+  loadOrderCommissionFixed,
+  loadOrderCommissionMode,
+  loadOrderCommissionPercent,
   loadOrderDefaultQuantity,
   loadOrderDefaultRiskPercent,
   loadOrderRiskBase,
   loadOrderSizingMode,
+  type OrderCommissionMode,
   type OrderRiskBase,
   type OrderSizingMode,
   saveOrderRiskBase,
   saveOrderSizingMode,
+  subscribeOrderCommissionFixed,
+  subscribeOrderCommissionMode,
+  subscribeOrderCommissionPercent,
   subscribeOrderDefaultQuantity,
   subscribeOrderDefaultRiskPercent,
   subscribeOrderRiskBase,
@@ -46,6 +56,11 @@ export function OrderTicket({
   const [quantity, setQuantity] = useState(() => loadOrderDefaultQuantity());
   const [riskPercent, setRiskPercent] = useState(() => loadOrderDefaultRiskPercent());
   const [riskBase, setRiskBase] = useState<OrderRiskBase>(() => loadOrderRiskBase());
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(() =>
+    loadOrderCommissionMode(),
+  );
+  const [fixedCommission, setFixedCommission] = useState(() => loadOrderCommissionFixed());
+  const [percentCommission, setPercentCommission] = useState(() => loadOrderCommissionPercent());
   const riskBaseHydratedRef = useRef(false);
   const sizingModeHydratedRef = useRef(false);
   const [limitPrice, setLimitPrice] = useState("");
@@ -196,6 +211,31 @@ export function OrderTicket({
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      hydrateOrderCommissionMode(),
+      hydrateOrderCommissionFixed(),
+      hydrateOrderCommissionPercent(),
+    ]).then(([nextMode, nextFixed, nextPercent]) => {
+      if (!active) {
+        return;
+      }
+      setCommissionMode(nextMode);
+      setFixedCommission(nextFixed);
+      setPercentCommission(nextPercent);
+    });
+    const unsubscribers = [
+      subscribeOrderCommissionMode(setCommissionMode),
+      subscribeOrderCommissionFixed(setFixedCommission),
+      subscribeOrderCommissionPercent(setPercentCommission),
+    ];
+    return () => {
+      active = false;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, []);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (isSubmitting) {
@@ -213,6 +253,13 @@ export function OrderTicket({
       take_profit: numberOrNull(takeProfit),
       breakeven_trigger_r: numberOrNull(breakeven),
       reduce_only: reduceOnly,
+      commission_mode: commissionMode,
+      commission_value:
+        commissionMode === "FIXED"
+          ? numberOrNull(fixedCommission) ?? 0
+          : commissionMode === "PERCENT"
+            ? numberOrNull(percentCommission) ?? 0
+            : 0,
       strategy_name: sessionStrategy || null,
       playbook_id: playbookId ? Number(playbookId) : null,
       mistake_tags: [],
@@ -389,6 +436,45 @@ export function OrderTicket({
             Estimated size {Math.round(estimatedRiskSize).toLocaleString()}
           </div>
         )}
+
+        <div className="rounded-md border border-white/10 bg-black/20 p-2">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            Commissions / fees
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { label: "None", value: "NONE" },
+              { label: "Fixed", value: "FIXED" },
+              { label: "Percent", value: "PERCENT" },
+            ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
+              <button
+                className={`segmented ${commissionMode === option.value ? "segmented-active" : ""}`}
+                key={option.value}
+                onClick={() => setCommissionMode(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {commissionMode !== "NONE" && (
+            <label className="form-field mt-2">
+              <span>{commissionMode === "FIXED" ? "Fixed fee" : "Percent fee"}</span>
+              <input
+                className="input-control h-10"
+                min="0"
+                onChange={(event) =>
+                  commissionMode === "FIXED"
+                    ? setFixedCommission(event.target.value)
+                    : setPercentCommission(event.target.value)
+                }
+                step={commissionMode === "FIXED" ? "0.01" : "0.0001"}
+                type="number"
+                value={commissionMode === "FIXED" ? fixedCommission : percentCommission}
+              />
+            </label>
+          )}
+        </div>
 
         {riskRewardValues && (
           <div className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-100">

@@ -68,6 +68,54 @@ def test_long_market_order_closes_at_take_profit(tmp_path: Path):
     assert state.trades[0].r_multiple == pytest.approx(2)
 
 
+def test_fixed_commission_is_deducted_from_closed_trade(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+            commission_mode="FIXED",
+            commission_value=4,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert state.metrics.net_pnl == pytest.approx(36)
+    assert state.trades[0].gross_pnl == pytest.approx(40)
+    assert state.trades[0].commission_amount == pytest.approx(4)
+    assert state.trades[0].realized_pnl == pytest.approx(36)
+    assert state.trades[0].r_multiple == pytest.approx(1.8)
+
+
+def test_percent_commission_is_deducted_from_closed_trade(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+            commission_mode="PERCENT",
+            commission_value=0.1,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert state.trades[0].commission_amount == pytest.approx(2.04)
+    assert state.trades[0].realized_pnl == pytest.approx(37.96)
+    assert state.metrics.net_pnl == pytest.approx(37.96)
+
+
 def test_pnl_multiplier_calibrates_session_pnl_without_changing_r(tmp_path: Path):
     service, db = make_service(tmp_path, DEFAULT_ROWS)
     state = service.create_session(

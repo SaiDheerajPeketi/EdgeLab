@@ -104,20 +104,33 @@ import {
   subscribeStrategyMistakeTags,
 } from "../lib/mistakeTags";
 import {
+  hydrateOrderCommissionFixed,
+  hydrateOrderCommissionMode,
+  hydrateOrderCommissionPercent,
   hydrateOrderDefaultQuantity,
   hydrateOrderDefaultRiskPercent,
   hydrateOrderRiskBase,
   hydrateOrderSizingMode,
+  loadOrderCommissionFixed,
+  loadOrderCommissionMode,
+  loadOrderCommissionPercent,
   loadOrderDefaultQuantity,
   loadOrderDefaultRiskPercent,
   loadOrderRiskBase,
   loadOrderSizingMode,
+  type OrderCommissionMode,
   type OrderRiskBase,
   type OrderSizingMode,
+  saveOrderCommissionFixed,
+  saveOrderCommissionMode,
+  saveOrderCommissionPercent,
   saveOrderDefaultQuantity,
   saveOrderDefaultRiskPercent,
   saveOrderRiskBase,
   saveOrderSizingMode,
+  subscribeOrderCommissionFixed,
+  subscribeOrderCommissionMode,
+  subscribeOrderCommissionPercent,
   subscribeOrderDefaultQuantity,
   subscribeOrderDefaultRiskPercent,
   subscribeOrderRiskBase,
@@ -935,6 +948,7 @@ type ImportMappingField =
   | "exit_price"
   | "quantity"
   | "realized_pnl"
+  | "commission_amount"
   | "symbol"
   | "strategy_name"
   | "stop_loss"
@@ -960,6 +974,7 @@ const IMPORT_FIELD_DEFINITIONS: Array<{
   { key: "exit_price", label: "Exit price", required: true },
   { key: "quantity", label: "Quantity", required: true },
   { key: "realized_pnl", label: "P&L" },
+  { key: "commission_amount", label: "Fees" },
   { key: "symbol", label: "Symbol" },
   { key: "strategy_name", label: "Strategy" },
   { key: "stop_loss", label: "Stop loss" },
@@ -977,6 +992,7 @@ const IMPORT_FIELD_ALIASES: Record<ImportMappingField, string[]> = {
   exit_price: ["exitprice", "closeprice", "priceout", "exitfill", "avgexit", "exit"],
   quantity: ["quantity", "qty", "contracts", "shares", "lots", "volume", "size"],
   realized_pnl: ["pnl", "pl", "profit", "profitloss", "realizedpnl", "netpnl", "netprofit", "result"],
+  commission_amount: ["commission", "commissions", "fee", "fees", "brokerfee", "brokerfees", "cost"],
   symbol: ["symbol", "ticker", "instrument", "market", "contract", "asset"],
   strategy_name: ["strategy", "strategyname", "setup", "playbook", "system"],
   stop_loss: ["stoploss", "stop", "sl", "stopprice"],
@@ -3308,6 +3324,12 @@ function NotebookTradeDetail({
   const [alignMenuOpen, setAlignMenuOpen] = useState(false);
   const [strategy, setStrategy] = useState(tradeStrategyName(trade, session ?? undefined));
   const [emotion, setEmotion] = useState(trade.emotional_state ?? "");
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(() =>
+    normalizeCommissionMode(trade.commission_mode),
+  );
+  const [commissionValue, setCommissionValue] = useState(() =>
+    formatNumberInput(trade.commission_value),
+  );
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
   const [customTag, setCustomTag] = useState("");
   const [snapshotUrl, setSnapshotUrl] = useState(trade.screenshot_url ?? "");
@@ -3334,10 +3356,14 @@ function NotebookTradeDetail({
     [allTrades],
   );
   const savedStrategy = tradeStrategyName(trade, session ?? undefined);
+  const savedCommissionMode = normalizeCommissionMode(trade.commission_mode);
+  const savedCommissionValue = formatNumberInput(trade.commission_value);
   const hasChanges =
     notes !== savedNotes ||
     strategy !== savedStrategy ||
     emotion !== (trade.emotional_state ?? "") ||
+    commissionMode !== savedCommissionMode ||
+    (commissionMode !== "NONE" && commissionValue !== savedCommissionValue) ||
     snapshotUrl !== (trade.screenshot_url ?? "") ||
     !sameStringList(tags, trade.mistake_tags);
 
@@ -3350,6 +3376,8 @@ function NotebookTradeDetail({
     setNoteFocused(false);
     setStrategy(tradeStrategyName(trade, session ?? undefined));
     setEmotion(trade.emotional_state ?? "");
+    setCommissionMode(normalizeCommissionMode(trade.commission_mode));
+    setCommissionValue(formatNumberInput(trade.commission_value));
     setTags(trade.mistake_tags);
     setCustomTag("");
     setSnapshotUrl(trade.screenshot_url ?? "");
@@ -3517,6 +3545,8 @@ function NotebookTradeDetail({
         notes: isRichTextEmpty(notes) ? null : sanitizeRichTextHtml(notes),
         screenshot_url: snapshotUrl || null,
         strategy_name: strategy || null,
+        commission_mode: commissionMode,
+        commission_value: commissionMode === "NONE" ? 0 : numberFromTextOrZero(commissionValue),
       });
       persistStrategyMistakeTags(activeStrategyScope, tags);
     } catch (error) {
@@ -3532,6 +3562,7 @@ function NotebookTradeDetail({
       `${session?.symbol ? formatMarketSymbol(session.symbol) : "Trade"} : ${shortDate(trade.entry_time)}`,
       `${trade.side} ${formatCompactNumber(trade.quantity)} @ ${formatPrice(trade.entry_price)}`,
       `Exit: ${formatPrice(trade.exit_price)} | P&L: ${formatMoney(trade.realized_pnl, currency)} | R: ${formatOptionalNumber(trade.r_multiple)}`,
+      trade.commission_amount > 0 ? `Fees: ${formatMoney(trade.commission_amount, currency)}` : null,
       strategy ? `Strategy: ${strategy}` : null,
       tags.length > 0 ? `Tags: ${tags.join(", ")}` : null,
       plainNotes ? `Notes:\n${plainNotes}` : null,
@@ -3824,10 +3855,16 @@ function NotebookTradeDetail({
           <CompactMetric label="Quantity" value={formatCompactNumber(trade.quantity)} />
           <CompactMetric label="R multiple" value={formatOptionalNumber(trade.r_multiple)} />
           <CompactMetric
-            label="Gross P&L"
+            label="Net P&L"
             value={formatMoney(trade.realized_pnl, currency)}
             tone={toneForNumber(trade.realized_pnl)}
           />
+          <CompactMetric
+            label="Gross P&L"
+            value={formatMoney(trade.gross_pnl ?? trade.realized_pnl, currency)}
+            tone={toneForNumber(trade.gross_pnl ?? trade.realized_pnl)}
+          />
+          <CompactMetric label="Fees" value={formatMoney(trade.commission_amount ?? 0, currency)} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -3852,7 +3889,7 @@ function NotebookTradeDetail({
 
       <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-4">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,0.7fr)]">
             <label className="form-field">
               <span>Strategy</span>
               <ThemedSelect
@@ -3883,6 +3920,40 @@ function NotebookTradeDetail({
                 value={emotion}
               />
             </label>
+            <section className="rounded-md border border-white/10 bg-black/20 p-2">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Fees
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {([
+                  { label: "None", value: "NONE" },
+                  { label: "Fixed", value: "FIXED" },
+                  { label: "Percent", value: "PERCENT" },
+                ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
+                  <button
+                    className={`segmented px-2 text-xs ${commissionMode === option.value ? "segmented-active" : ""}`}
+                    key={option.value}
+                    onClick={() => setCommissionMode(option.value)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {commissionMode !== "NONE" && (
+                <label className="form-field mt-2">
+                  <span>{commissionMode === "FIXED" ? "Fixed fee" : "Percent fee"}</span>
+                  <input
+                    className="input-control h-10"
+                    min="0"
+                    onChange={(event) => setCommissionValue(event.target.value)}
+                    step={commissionMode === "FIXED" ? "0.01" : "0.0001"}
+                    type="number"
+                    value={commissionValue}
+                  />
+                </label>
+              )}
+            </section>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -4308,6 +4379,19 @@ function sameStringList(a: string[], b: string[]) {
   return a.every((item, index) => item === b[index]);
 }
 
+function normalizeCommissionMode(value: unknown): OrderCommissionMode {
+  return value === "FIXED" || value === "PERCENT" ? value : "NONE";
+}
+
+function formatNumberInput(value: number | null | undefined) {
+  return Number.isFinite(value) ? String(value) : "0";
+}
+
+function numberFromTextOrZero(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
 function findEditorAnchor(node: Node | null, editor: HTMLElement) {
   let current = node instanceof Element ? node : node?.parentElement ?? null;
   while (current && current !== editor) {
@@ -4547,8 +4631,9 @@ function ReportsPage({
         </div>
       </section>
 
-      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
         <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, currency)} />
+        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(filteredAggregate.totalCommissions, currency)} />
         <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
         <ResultMetricCard icon={Target} label="Trades" value={String(filteredAggregate.totalTrades)} />
         <ResultMetricCard icon={Gauge} label="Avg R" tone={toneForNumber(filteredAggregate.averageR)} value={formatOptionalNumber(filteredAggregate.averageR)} />
@@ -5655,6 +5740,11 @@ function BacktestOrderSettings() {
   const [riskBase, setRiskBase] = useState<OrderRiskBase>(() => loadOrderRiskBase());
   const [defaultQuantity, setDefaultQuantity] = useState(() => loadOrderDefaultQuantity());
   const [defaultRiskPercent, setDefaultRiskPercent] = useState(() => loadOrderDefaultRiskPercent());
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(() =>
+    loadOrderCommissionMode(),
+  );
+  const [fixedCommission, setFixedCommission] = useState(() => loadOrderCommissionFixed());
+  const [percentCommission, setPercentCommission] = useState(() => loadOrderCommissionPercent());
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -5665,7 +5755,10 @@ function BacktestOrderSettings() {
       hydrateOrderRiskBase(),
       hydrateOrderDefaultQuantity(),
       hydrateOrderDefaultRiskPercent(),
-    ]).then(([confirmLineEdits, nextSizingMode, nextRiskBase, nextQuantity, nextRiskPercent]) => {
+      hydrateOrderCommissionMode(),
+      hydrateOrderCommissionFixed(),
+      hydrateOrderCommissionPercent(),
+    ]).then(([confirmLineEdits, nextSizingMode, nextRiskBase, nextQuantity, nextRiskPercent, nextCommissionMode, nextFixedCommission, nextPercentCommission]) => {
       if (!active) {
         return;
       }
@@ -5674,6 +5767,9 @@ function BacktestOrderSettings() {
       setRiskBase(nextRiskBase);
       setDefaultQuantity(nextQuantity);
       setDefaultRiskPercent(nextRiskPercent);
+      setCommissionMode(nextCommissionMode);
+      setFixedCommission(nextFixedCommission);
+      setPercentCommission(nextPercentCommission);
     });
     const unsubscribers = [
       subscribeOrderLineModificationConfirmation(setConfirmOrderLineModifications),
@@ -5681,6 +5777,9 @@ function BacktestOrderSettings() {
       subscribeOrderRiskBase(setRiskBase),
       subscribeOrderDefaultQuantity(setDefaultQuantity),
       subscribeOrderDefaultRiskPercent(setDefaultRiskPercent),
+      subscribeOrderCommissionMode(setCommissionMode),
+      subscribeOrderCommissionFixed(setFixedCommission),
+      subscribeOrderCommissionPercent(setPercentCommission),
     ];
     return () => {
       active = false;
@@ -5719,6 +5818,25 @@ function BacktestOrderSettings() {
     setDefaultRiskPercent(value);
     if (isPositiveNumberText(value)) {
       void saveOrderDefaultRiskPercent(value).then(() => markSaved());
+    }
+  }
+
+  function updateCommissionMode(value: OrderCommissionMode) {
+    setCommissionMode(value);
+    void saveOrderCommissionMode(value).then(() => markSaved());
+  }
+
+  function updateFixedCommission(value: string) {
+    setFixedCommission(value);
+    if (isNonNegativeNumberText(value)) {
+      void saveOrderCommissionFixed(value).then(() => markSaved());
+    }
+  }
+
+  function updatePercentCommission(value: string) {
+    setPercentCommission(value);
+    if (isNonNegativeNumberText(value)) {
+      void saveOrderCommissionPercent(value).then(() => markSaved());
     }
   }
 
@@ -5797,6 +5915,59 @@ function BacktestOrderSettings() {
           >
             Initial balance
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Universal commissions / fees
+            </div>
+            <div className="mt-1 text-sm text-slate-400">
+              Applied to new backtest orders and deducted from closed trade P&L.
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {([
+            { label: "No fees", value: "NONE" },
+            { label: "Fixed", value: "FIXED" },
+            { label: "Percent", value: "PERCENT" },
+          ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
+            <button
+              className={`segmented ${commissionMode === option.value ? "segmented-active" : ""}`}
+              key={option.value}
+              onClick={() => updateCommissionMode(option.value)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className="form-field">
+            Default fixed fee
+            <input
+              className="input-control h-10 normal-case tracking-normal"
+              min="0"
+              onChange={(event) => updateFixedCommission(event.target.value)}
+              step="0.01"
+              type="number"
+              value={fixedCommission}
+            />
+          </label>
+          <label className="form-field">
+            Default percent fee
+            <input
+              className="input-control h-10 normal-case tracking-normal"
+              min="0"
+              onChange={(event) => updatePercentCommission(event.target.value)}
+              step="0.0001"
+              type="number"
+              value={percentCommission}
+            />
+          </label>
         </div>
       </div>
 
@@ -6061,6 +6232,11 @@ function BacktestTagSettings({ strategies }: { strategies: StrategyGroup[] }) {
 function isPositiveNumberText(value: string) {
   const parsed = Number(value);
   return value.trim().length > 0 && Number.isFinite(parsed) && parsed > 0;
+}
+
+function isNonNegativeNumberText(value: string) {
+  const parsed = Number(value);
+  return value.trim().length > 0 && Number.isFinite(parsed) && parsed >= 0;
 }
 
 function BacktestDataSettings({
@@ -7797,7 +7973,10 @@ function tradeMatchesLogSearch(
     trade.exit_time,
     trade.entry_price,
     trade.exit_price,
+    trade.gross_pnl,
     trade.realized_pnl,
+    trade.commission_amount,
+    trade.commission_mode,
     trade.r_multiple,
     strategyName,
     session?.name,
@@ -7880,6 +8059,10 @@ function exportTradeLogCsv(
     "Stop Loss",
     "Take Profit",
     "Currency",
+    "Gross P&L",
+    "Fees",
+    "Fee Mode",
+    "Fee Value",
     "Realized P&L",
     "R Multiple",
     "Strategy",
@@ -7905,6 +8088,10 @@ function exportTradeLogCsv(
       trade.stop_loss ?? "",
       trade.take_profit ?? "",
       currencyForSession(session, datasets),
+      trade.gross_pnl ?? trade.realized_pnl,
+      trade.commission_amount ?? 0,
+      trade.commission_mode ?? "NONE",
+      trade.commission_value ?? 0,
       trade.realized_pnl,
       trade.r_multiple ?? "",
       tradeStrategyName(trade, session),
@@ -7939,6 +8126,7 @@ function exportResultsSummaryCsv({
   const rows: unknown[][] = [
     ["Section", "Metric", "Value", "Extra"],
     ["Summary", "Net P&L", aggregate.netPnl, currency],
+    ["Summary", "Fees", aggregate.totalCommissions, currency],
     ["Summary", "Closed trades", aggregate.totalTrades, ""],
     ["Summary", "Win rate", `${(aggregate.winRate * 100).toFixed(1)}%`, ""],
     ["Summary", "Profit factor", formatRatio(aggregate.profitFactor), ""],
@@ -8146,6 +8334,9 @@ function useLiveJournalData(): LiveJournalController {
           ? null
           : Math.abs(payload.entryPrice - payload.stopLoss) * payload.quantity;
       const trade: Trade = {
+        commission_amount: 0,
+        commission_mode: "NONE",
+        commission_value: 0,
         emotional_state: payload.emotionalState,
         entry_offset: 0,
         entry_price: payload.entryPrice,
@@ -8154,6 +8345,7 @@ function useLiveJournalData(): LiveJournalController {
         exit_price: payload.exitPrice,
         exit_time: toIsoFromDateTimeLocal(payload.exitTime),
         id: nextNumericId(current.trades),
+        gross_pnl: realizedPnl,
         mistake_tags: payload.mistakeTags,
         notes: payload.notes,
         playbook_id: session.playbook_id ?? null,
@@ -8205,7 +8397,15 @@ function sanitizeLiveJournalData(value: unknown): LiveJournalData {
         .map((session) => ({ ...session, playbook_id: session.playbook_id ?? null }))
     : [];
   const trades = Array.isArray(candidate.trades)
-    ? candidate.trades.filter(isTradeLike)
+    ? candidate.trades
+        .filter(isTradeLike)
+        .map((trade) => ({
+          ...trade,
+          commission_amount: trade.commission_amount ?? 0,
+          commission_mode: normalizeCommissionMode(trade.commission_mode),
+          commission_value: trade.commission_value ?? 0,
+          gross_pnl: trade.gross_pnl ?? trade.realized_pnl,
+        }))
     : [];
   const playbooks = Array.isArray(candidate.playbooks)
     ? candidate.playbooks.filter(isPlaybookLike)
@@ -8318,6 +8518,7 @@ function toIsoFromDateTimeLocal(value: string) {
 function aggregateTrades(trades: Trade[]): Aggregate {
   const closed = trades.filter((trade) => trade.status === "CLOSED").slice().sort(compareTradesAscending);
   const netPnl = closed.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
+  const totalCommissions = closed.reduce((sum, trade) => sum + (trade.commission_amount ?? 0), 0);
   const wins = closed.filter((trade) => (trade.realized_pnl ?? 0) > 0);
   const losses = closed.filter((trade) => (trade.realized_pnl ?? 0) < 0);
   const breakeven = closed.filter((trade) => (trade.realized_pnl ?? 0) === 0);
@@ -8347,7 +8548,7 @@ function aggregateTrades(trades: Trade[]): Aggregate {
     netPnl,
     profitFactor: grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : null,
     recoveryFactor: maxDrawdown < 0 ? netPnl / Math.abs(maxDrawdown) : null,
-    totalCommissions: 0,
+    totalCommissions,
     totalTrades: closed.length,
     winRate: closed.length > 0 ? wins.length / closed.length : 0,
     wins: wins.length,

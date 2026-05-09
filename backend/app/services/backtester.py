@@ -173,6 +173,8 @@ class BacktestService:
             take_profit=payload.take_profit,
             breakeven_trigger_r=payload.breakeven_trigger_r,
             reduce_only=payload.reduce_only,
+            commission_mode=_normalize_commission_mode(payload.commission_mode),
+            commission_value=_commission_value(payload.commission_mode, payload.commission_value),
             strategy_name=payload.strategy_name,
             mistake_tags=json.dumps(payload.mistake_tags),
             notes=payload.notes,
@@ -206,13 +208,20 @@ class BacktestService:
             "take_profit",
             "breakeven_trigger_r",
             "reduce_only",
+            "commission_mode",
+            "commission_value",
             "strategy_name",
             "playbook_id",
             "notes",
         ):
             value = getattr(payload, field)
             if value is not None:
-                setattr(order, field, value)
+                if field == "commission_mode":
+                    setattr(order, field, _normalize_commission_mode(value))
+                elif field == "commission_value":
+                    setattr(order, field, _commission_value(order.commission_mode, value))
+                else:
+                    setattr(order, field, value)
         if payload.mistake_tags is not None:
             order.mistake_tags = json.dumps(payload.mistake_tags)
         db.commit()
@@ -336,6 +345,31 @@ class BacktestService:
         trade.strategy_name = payload.strategy_name
         trade.emotional_state = payload.emotional_state
         trade.screenshot_url = payload.screenshot_url
+        fee_changed = (
+            payload.commission_mode is not None
+            or payload.commission_value is not None
+            or payload.commission_amount is not None
+        )
+        if payload.commission_mode is not None:
+            trade.commission_mode = _normalize_commission_mode(payload.commission_mode)
+        if payload.commission_value is not None:
+            trade.commission_value = _commission_value(trade.commission_mode, payload.commission_value)
+        if fee_changed:
+            session = self._session_or_404(db, trade.session_id)
+            previous_net_pnl = trade.realized_pnl or 0.0
+            gross_pnl = self._trade_gross_pnl(trade)
+            trade.gross_pnl = gross_pnl
+            if payload.commission_amount is not None:
+                trade.commission_amount = max(payload.commission_amount, 0.0)
+            else:
+                trade.commission_amount = self._commission_for_trade(session, trade)
+            if _normalize_commission_mode(trade.commission_mode) == "NONE":
+                trade.commission_value = 0.0
+                trade.commission_amount = 0.0
+            if trade.status == "CLOSED":
+                trade.realized_pnl = gross_pnl - (trade.commission_amount or 0.0)
+                session.realized_pnl += trade.realized_pnl - previous_net_pnl
+                trade.r_multiple = self._trade_r_multiple(session, trade)
         db.add(
             TradeNote(
                 trade_id=trade.id,
@@ -668,6 +702,8 @@ class BacktestService:
                 remaining_quantity=quantity,
                 stop_loss=order.stop_loss,
                 take_profit=order.take_profit,
+                commission_mode=_normalize_commission_mode(order.commission_mode),
+                commission_value=_commission_value(order.commission_mode, order.commission_value),
                 strategy_name=order.strategy_name,
                 notes=order.notes,
                 mistake_tags=order.mistake_tags,
@@ -703,6 +739,10 @@ class BacktestService:
             trade.remaining_quantity += quantity
             trade.stop_loss = position.stop_loss
             trade.take_profit = position.take_profit
+            order_commission_mode = _normalize_commission_mode(order.commission_mode)
+            if _normalize_commission_mode(trade.commission_mode) == "NONE" and order_commission_mode != "NONE":
+                trade.commission_mode = order_commission_mode
+                trade.commission_value = _commission_value(order_commission_mode, order.commission_value)
 
     def _close_quantity(
         self,
@@ -714,9 +754,14 @@ class BacktestService:
         price: float,
         quantity: float,
     ) -> float:
-        realized = self._price_pnl(session, position.avg_price, price, quantity, position.side)
+        gross_realized = self._price_pnl(session, position.avg_price, price, quantity, position.side)
+        realized = gross_realized
         trade = self._open_trade_for_position(db, session.id, position.side)
         if trade:
+            commission_amount = self._commission_for_close(session, trade, price, quantity)
+            realized = gross_realized - commission_amount
+            trade.gross_pnl = self._trade_gross_pnl(trade) + gross_realized
+            trade.commission_amount = (trade.commission_amount or 0.0) + commission_amount
             trade.realized_pnl += realized
             trade.remaining_quantity = max(trade.remaining_quantity - quantity, 0.0)
             trade.exit_time = candle.timestamp
@@ -738,6 +783,54 @@ class BacktestService:
             position.strategy_name = None
             position.playbook_id = None
         return realized
+
+    def _commission_for_close(
+        self,
+        session: BacktestSession,
+        trade: Trade,
+        exit_price: float,
+        quantity: float,
+    ) -> float:
+        mode = _normalize_commission_mode(trade.commission_mode)
+        value = _commission_value(mode, trade.commission_value)
+        if mode == "NONE" or value <= 0 or quantity <= 0:
+            return 0.0
+        if mode == "FIXED":
+            total_quantity = trade.quantity if trade.quantity > 0 else quantity
+            return value * min(max(quantity / total_quantity, 0.0), 1.0)
+        return self._percent_commission(session, trade.entry_price, exit_price, quantity, value)
+
+    def _commission_for_trade(self, session: BacktestSession, trade: Trade) -> float:
+        mode = _normalize_commission_mode(trade.commission_mode)
+        value = _commission_value(mode, trade.commission_value)
+        if mode == "NONE" or value <= 0 or trade.exit_price is None:
+            return 0.0
+        if mode == "FIXED":
+            return value
+        return self._percent_commission(
+            session,
+            trade.entry_price,
+            trade.exit_price,
+            trade.quantity,
+            value,
+        )
+
+    def _percent_commission(
+        self,
+        session: BacktestSession,
+        entry_price: float,
+        exit_price: float,
+        quantity: float,
+        percent: float,
+    ) -> float:
+        notional = abs(entry_price * quantity * self._pnl_multiplier(session))
+        notional += abs(exit_price * quantity * self._pnl_multiplier(session))
+        return notional * (percent / 100)
+
+    def _trade_gross_pnl(self, trade: Trade) -> float:
+        if trade.gross_pnl is not None:
+            return trade.gross_pnl
+        return (trade.realized_pnl or 0.0) + (trade.commission_amount or 0.0)
 
     def _price_pnl(
         self,
@@ -1069,6 +1162,8 @@ def to_order_read(order: Order) -> OrderRead:
         take_profit=order.take_profit,
         breakeven_trigger_r=order.breakeven_trigger_r,
         reduce_only=order.reduce_only,
+        commission_mode=_normalize_commission_mode(order.commission_mode),
+        commission_value=_commission_value(order.commission_mode, order.commission_value),
         strategy_name=order.strategy_name,
         mistake_tags=_decode_tags(order.mistake_tags),
         notes=order.notes,
@@ -1101,8 +1196,14 @@ def to_trade_read(trade: Trade) -> TradeRead:
         exit_time=trade.exit_time,
         exit_offset=trade.exit_offset,
         exit_price=trade.exit_price,
+        gross_pnl=trade.gross_pnl
+        if trade.gross_pnl is not None
+        else (trade.realized_pnl or 0.0) + (trade.commission_amount or 0.0),
         realized_pnl=trade.realized_pnl,
         r_multiple=trade.r_multiple,
+        commission_mode=_normalize_commission_mode(trade.commission_mode),
+        commission_value=_commission_value(trade.commission_mode, trade.commission_value),
+        commission_amount=trade.commission_amount or 0.0,
         strategy_name=trade.strategy_name,
         playbook_id=trade.playbook_id,
         notes=trade.notes,
@@ -1120,3 +1221,15 @@ def _decode_tags(value: str | None) -> list[str]:
     except json.JSONDecodeError:
         return []
     return decoded if isinstance(decoded, list) else []
+
+
+def _normalize_commission_mode(value: str | None) -> str:
+    return value if value in {"FIXED", "PERCENT"} else "NONE"
+
+
+def _commission_value(mode: str | None, value: float | None) -> float:
+    if _normalize_commission_mode(mode) == "NONE":
+        return 0.0
+    if value is None:
+        return 0.0
+    return max(float(value), 0.0)

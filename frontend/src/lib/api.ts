@@ -99,6 +99,8 @@ export type PlaybookUpdatePayload = {
   rules?: string | null;
 };
 
+export type CommissionMode = "NONE" | "FIXED" | "PERCENT";
+
 export type BacktestSession = {
   id: number;
   name: string;
@@ -153,6 +155,8 @@ export type Order = {
   take_profit: number | null;
   breakeven_trigger_r: number | null;
   reduce_only: boolean;
+  commission_mode: CommissionMode;
+  commission_value: number;
   strategy_name: string | null;
   mistake_tags: string[];
   notes: string | null;
@@ -194,8 +198,12 @@ export type Trade = {
   exit_time: string | null;
   exit_offset: number | null;
   exit_price: number | null;
+  gross_pnl: number;
   realized_pnl: number;
   r_multiple: number | null;
+  commission_mode: CommissionMode;
+  commission_value: number;
+  commission_amount: number;
   strategy_name: string | null;
   playbook_id: number | null;
   notes: string | null;
@@ -255,6 +263,8 @@ export type OrderPayload = {
   take_profit?: number | null;
   breakeven_trigger_r?: number | null;
   reduce_only?: boolean;
+  commission_mode?: CommissionMode;
+  commission_value?: number | null;
   strategy_name?: string | null;
   playbook_id?: number | null;
   mistake_tags?: string[];
@@ -324,6 +334,9 @@ export type JournalPayload = {
   strategy_name: string | null;
   emotional_state: string | null;
   screenshot_url: string | null;
+  commission_mode?: CommissionMode | null;
+  commission_value?: number | null;
+  commission_amount?: number | null;
 };
 
 export type TradeStrategyPayload = {

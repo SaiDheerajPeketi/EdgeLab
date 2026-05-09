@@ -1,6 +1,11 @@
 import { ArrowDownToLine, ArrowUpToLine, BadgeDollarSign } from "lucide-react";
 import type { Position } from "../lib/api";
 import { formatPrice } from "../lib/format";
+import {
+  loadOrderCommissionFixed,
+  loadOrderCommissionMode,
+  loadOrderCommissionPercent,
+} from "../lib/orderSettings";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -17,11 +22,19 @@ export function PositionPanel({ currency = "USD", position }: Props) {
     if (!position || isFlat) {
       return;
     }
+    const commissionMode = loadOrderCommissionMode();
     void placeOrder({
       side: closeSide,
       order_type: "MARKET",
       quantity: position.quantity * fraction,
       reduce_only: true,
+      commission_mode: commissionMode,
+      commission_value:
+        commissionMode === "FIXED"
+          ? numberOrZero(loadOrderCommissionFixed())
+          : commissionMode === "PERCENT"
+            ? numberOrZero(loadOrderCommissionPercent())
+            : 0,
       strategy_name: position.strategy_name,
       playbook_id: position.playbook_id,
     });
@@ -92,4 +105,9 @@ function money(value: number, currency: string) {
     currency,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function numberOrZero(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
