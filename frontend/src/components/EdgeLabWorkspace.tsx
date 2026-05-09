@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
+  DragEvent as ReactDragEvent,
   Dispatch,
   FormEvent,
   KeyboardEvent,
@@ -2554,6 +2556,16 @@ function costPercentValueForMode(mode: OrderCommissionMode, value: number) {
   return mode === "PERCENT" ? formatNumberInput(value) : "0";
 }
 
+function formatCostDefault(mode: OrderCommissionMode, value: number, currency: string) {
+  if (mode === "NONE") {
+    return "None";
+  }
+  if (mode === "PERCENT") {
+    return `${formatNumberInput(value)}%`;
+  }
+  return formatMoney(value, currency);
+}
+
 function JournalSessionsPage({
   accounts,
   journal,
@@ -2613,6 +2625,9 @@ function JournalSessionsPage({
     [editDraft.strategy, strategyNameOptions],
   );
   const [editingSessionTradeId, setEditingSessionTradeId] = useState<number | null>(null);
+  const [showSessionSettings, setShowSessionSettings] = useState(false);
+  const addTradeSectionRef = useRef<HTMLDivElement | null>(null);
+  const previousSelectedSessionIdRef = useRef<number | null>(selectedSessionId);
   const sessionRows = useMemo(
     () =>
       sessions.map((session) => {
@@ -2651,6 +2666,29 @@ function JournalSessionsPage({
       setSelectedSessionId(sessions[0].id);
     }
   }, [selectedSession, sessions]);
+
+  useEffect(() => {
+    if (previousSelectedSessionIdRef.current === selectedSessionId) {
+      return;
+    }
+    previousSelectedSessionIdRef.current = selectedSessionId;
+    setShowSessionSettings(false);
+    if (!selectedSessionId) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      addTradeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (editingSessionTradeId == null) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      addTradeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [editingSessionTradeId]);
 
   useEffect(() => {
     if (!selectedSession) {
@@ -2952,7 +2990,17 @@ function JournalSessionsPage({
         <FeatureCard>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <CardLabel icon={Settings} label="Selected session" />
-            <span className="status-pill">{selectedSession.status}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="status-pill">{selectedSession.status}</span>
+              <button
+                className={`control-button h-9 ${showSessionSettings ? "workspace-tab-active" : ""}`}
+                onClick={() => setShowSessionSettings((current) => !current)}
+                type="button"
+              >
+                <Settings size={14} />
+                {showSessionSettings ? "Hide settings" : "Session settings"}
+              </button>
+            </div>
           </div>
           {selectedSessionRow && (
             <div className="mb-4 grid gap-2 md:grid-cols-4">
@@ -2962,145 +3010,193 @@ function JournalSessionsPage({
               <CompactMetric label="Win rate" value={formatPercent(selectedSessionRow.aggregate.winRate)} />
             </div>
           )}
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="form-field">
-                Session name
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
-              </label>
-              <label className="form-field">
-                Strategy
-                <ThemedSelect
-                  className="h-10"
-                  onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
-                  options={editStrategyOptions}
-                  portal
-                  value={editDraft.strategy}
-                />
-              </label>
-              <label className="form-field">
-                Instrument
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
-              </label>
-              <label className="form-field">
-                Playbook
-                <ThemedSelect
-                  className="h-10"
-                  onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
-                  options={[
-                    { label: "No playbook", value: "" },
-                    ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
-                  ]}
-                  value={editDraft.playbookId}
-                />
-              </label>
-              <label className="form-field">
-                Currency
-                <ThemedSelect
-                  className="h-10"
-                  onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
-                  options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
-                  portal
-                  value={editDraft.currency}
-                />
-              </label>
-              <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
-                  <span className="text-xs text-slate-500">Applied to new trades in this session</span>
-                </div>
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <CostConfigCard
-                    fixedValue={editDraft.commissionFixed}
-                    mode={editDraft.commissionMode}
-                    onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
-                    onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
-                    onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
-                    percentValue={editDraft.commissionPercent}
-                    title="Commission"
-                  />
-                  <CostConfigCard
-                    fixedValue={editDraft.brokerageFixed}
-                    mode={editDraft.brokerageMode}
-                    onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
-                    onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
-                    onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
-                    percentValue={editDraft.brokeragePercent}
-                    title="Brokerage"
-                  />
-                </div>
-              </div>
-              <label className="form-field md:col-span-2">
-                Notes
-                <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
-              </label>
-            </div>
-            <div className="grid content-start gap-3">
+          {!showSessionSettings && (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.48fr)_minmax(0,0.52fr)]">
               <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Linked accounts</div>
-                <div className="grid gap-2">
-                  {activeAccounts.map((account) => (
-                    <JournalAccountToggle
-                      account={account}
-                      active={editDraft.accountIds.includes(account.id)}
-                      key={account.id}
-                      onClick={() => toggleEditAccount(account.id)}
-                    />
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">{selectedSession.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">{selectedSession.instrument} · {selectedSession.strategy_name || "Unassigned"}</div>
+                  </div>
+                  <span className="status-pill h-7 px-2 text-[10px]">{selectedSession.currency}</span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, selectedSessionCurrency)} />
+                  <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, selectedSessionCurrency)} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {selectedSessionAccounts.map((account) => (
+                    <JournalAccountBadge account={account} key={account.id} />
                   ))}
-                  {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No active accounts available.</div>}
+                  {selectedSessionAccounts.length === 0 && <span className="text-xs text-slate-600">No linked accounts</span>}
                 </div>
               </div>
               {selectedSessionRow && (
                 <div className="rounded-md border border-white/10 bg-black/20 p-3">
                   <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
                   <div className="grid gap-2">
-                    {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
+                    {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 3).map((trade) => (
                       <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
                         <span className="min-w-0">
                           <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
                           <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
                         </span>
-                        <span className="flex shrink-0 items-center gap-2">
-                          <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
-                            {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
-                          </span>
-                          <button
-                            className="icon-button h-8 w-8"
-                            onClick={() => setEditingSessionTradeId(trade.id)}
-                            title="Edit entry"
-                            type="button"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                        </span>
+                        <button className="control-button h-8 px-2 text-xs" onClick={() => setEditingSessionTradeId(trade.id)} type="button">
+                          <Pencil size={13} />
+                          Edit
+                        </button>
                       </div>
                     ))}
                     {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
                   </div>
                 </div>
               )}
-              <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
-                <Save size={15} />
-                Save session changes
-              </button>
             </div>
-          </div>
+          )}
+          {showSessionSettings && (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="form-field">
+                  Session name
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
+                </label>
+                <label className="form-field">
+                  Strategy
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
+                    options={editStrategyOptions}
+                    portal
+                    value={editDraft.strategy}
+                  />
+                </label>
+                <label className="form-field">
+                  Instrument
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
+                </label>
+                <label className="form-field">
+                  Playbook
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
+                    options={[
+                      { label: "No playbook", value: "" },
+                      ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
+                    ]}
+                    value={editDraft.playbookId}
+                  />
+                </label>
+                <label className="form-field">
+                  Currency
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
+                    options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
+                    portal
+                    value={editDraft.currency}
+                  />
+                </label>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
+                    <span className="text-xs text-slate-500">Applied to new trades in this session</span>
+                  </div>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <CostConfigCard
+                      fixedValue={editDraft.commissionFixed}
+                      mode={editDraft.commissionMode}
+                      onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
+                      onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
+                      onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
+                      percentValue={editDraft.commissionPercent}
+                      title="Commission"
+                    />
+                    <CostConfigCard
+                      fixedValue={editDraft.brokerageFixed}
+                      mode={editDraft.brokerageMode}
+                      onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
+                      onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
+                      onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
+                      percentValue={editDraft.brokeragePercent}
+                      title="Brokerage"
+                    />
+                  </div>
+                </div>
+                <label className="form-field md:col-span-2">
+                  Notes
+                  <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
+                </label>
+              </div>
+              <div className="grid content-start gap-3">
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Linked accounts</div>
+                  <div className="grid gap-2">
+                    {activeAccounts.map((account) => (
+                      <JournalAccountToggle
+                        account={account}
+                        active={editDraft.accountIds.includes(account.id)}
+                        key={account.id}
+                        onClick={() => toggleEditAccount(account.id)}
+                      />
+                    ))}
+                    {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No active accounts available.</div>}
+                  </div>
+                </div>
+                {selectedSessionRow && (
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                    <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
+                    <div className="grid gap-2">
+                      {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
+                        <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
+                            <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                              {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
+                            </span>
+                            <button
+                              className="icon-button h-8 w-8"
+                              onClick={() => setEditingSessionTradeId(trade.id)}
+                              title="Edit entry"
+                              type="button"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          </span>
+                        </div>
+                      ))}
+                      {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
+                    </div>
+                  </div>
+                )}
+                <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
+                  <Save size={15} />
+                  Save session changes
+                </button>
+              </div>
+            </div>
+          )}
         </FeatureCard>
       )}
       {selectedSession && (
-        <LiveTradeForm
-          accounts={accounts}
-          fixedSessionId={selectedSession.id}
-          initialTrade={editingSessionTrade}
-          journal={journal}
-          onCancelEdit={() => setEditingSessionTradeId(null)}
-          onSaved={() => setEditingSessionTradeId(null)}
-          playbooks={playbooks}
-          sessions={sessions}
-          settings={settings}
-          strategies={strategies}
-          title={editingSessionTrade ? "Edit selected session trade" : "Add trade to selected session"}
-        />
+        <div ref={addTradeSectionRef}>
+          <LiveTradeForm
+            allTrades={journalEntries}
+            accounts={accounts}
+            fixedSessionId={selectedSession.id}
+            initialTrade={editingSessionTrade}
+            journal={journal}
+            onCancelEdit={() => setEditingSessionTradeId(null)}
+            onSaved={() => setEditingSessionTradeId(null)}
+            playbooks={playbooks}
+            sessions={sessions}
+            settings={settings}
+            strategies={strategies}
+            title={editingSessionTrade ? "Edit selected session trade" : "Add trade to selected session"}
+          />
+        </div>
       )}
     </PageScaffold>
   );
@@ -3216,6 +3312,7 @@ function JournalTradesPage({
     >
       <div className="grid gap-4 2xl:grid-cols-[380px_minmax(0,1fr)]">
         <LiveTradeForm
+          allTrades={journalEntries}
           accounts={accounts}
           initialTrade={editingTrade}
           journal={journal}
@@ -4621,7 +4718,642 @@ function JournalSettingsPage({
   );
 }
 
+function JournalTagPicker({
+  attachedMistakeTags,
+  customTag,
+  mistakeOptions,
+  onAddTags,
+  onCustomTagChange,
+  onCustomTagKeyDown,
+  onDeleteSuggestion,
+  onRemoveTag,
+  onToggleTag,
+  tags,
+}: {
+  attachedMistakeTags: Set<string>;
+  customTag: string;
+  mistakeOptions: string[];
+  onAddTags: (value: string) => void;
+  onCustomTagChange: (value: string) => void;
+  onCustomTagKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onDeleteSuggestion: (tag: string) => void;
+  onRemoveTag: (tag: string) => void;
+  onToggleTag: (tag: string) => void;
+  tags: string[];
+}) {
+  return (
+    <section className="rounded-md border border-white/10 bg-black/20 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <CardLabel icon={Tags} label="Mistake tags" />
+        <span className="text-xs text-slate-500">{tags.length} selected</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {mistakeOptions.map((option) => {
+          const active = tags.includes(option);
+          const canDeleteSuggestion =
+            !active &&
+            !isDefaultMistakeTag(option) &&
+            !attachedMistakeTags.has(option.toLowerCase());
+          return (
+            <span
+              className={`inline-flex overflow-hidden rounded text-xs font-semibold transition ${
+                active
+                  ? "bg-rose-300/10 text-rose-100"
+                  : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+              }`}
+              key={option}
+            >
+              <button className="px-3 py-2" onClick={() => onToggleTag(option)} type="button">
+                {option}
+              </button>
+              {canDeleteSuggestion && (
+                <button
+                  className="border-l border-white/10 px-2 text-slate-500 hover:bg-rose-300/10 hover:text-rose-100"
+                  onClick={() => onDeleteSuggestion(option)}
+                  title="Delete unused suggestion"
+                  type="button"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </span>
+          );
+        })}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          className="input-control h-10"
+          onChange={(event) => onCustomTagChange(event.target.value)}
+          onKeyDown={onCustomTagKeyDown}
+          placeholder="Add custom tag"
+          value={customTag}
+        />
+        <button
+          className="control-button"
+          disabled={!customTag.trim()}
+          onClick={() => onAddTags(customTag)}
+          type="button"
+        >
+          <Plus size={16} />
+          Add
+        </button>
+      </div>
+      {tags.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {tags.map((tag) => (
+            <button
+              className="inline-flex items-center gap-1 rounded bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-300/20"
+              key={tag}
+              onClick={() => onRemoveTag(tag)}
+              type="button"
+            >
+              {tag}
+              <X size={12} />
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function JournalScreenshotInput({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const uploaded = value.startsWith("data:");
+
+  function readFile(file: File | undefined) {
+    if (!file || !file.type.startsWith("image/")) {
+      setUploadMessage("Choose an image file.");
+      return;
+    }
+    setUploadMessage(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        onChange(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    readFile(event.dataTransfer.files?.[0]);
+  }
+
+  function handlePaste(event: ReactClipboardEvent<HTMLDivElement>) {
+    const pastedImage = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
+    if (!pastedImage) {
+      return;
+    }
+    event.preventDefault();
+    readFile(pastedImage);
+  }
+
+  return (
+    <section className="rounded-md border border-white/10 bg-black/20 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <CardLabel icon={Image} label="Screenshot" />
+        {value && (
+          <button className="control-button h-8 px-2 text-xs" onClick={() => onChange("")} type="button">
+            <X size={13} />
+            Clear
+          </button>
+        )}
+      </div>
+      <div
+        className={`grid min-h-36 place-items-center rounded-md border border-dashed px-4 py-5 text-center transition ${
+          dragActive ? "border-cyan-300/50 bg-cyan-300/10" : "border-white/10 bg-white/[0.03] hover:border-white/20"
+        }`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+            setDragActive(false);
+          }
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={handleDrop}
+        onPaste={handlePaste}
+        tabIndex={0}
+      >
+        {value ? (
+          <div className="grid w-full gap-3">
+            <img alt="Trade screenshot preview" className="max-h-52 w-full rounded-md object-contain" src={value} />
+            <div className="text-xs text-slate-500">{uploaded ? "Uploaded image attached" : "Linked screenshot URL"}</div>
+          </div>
+        ) : (
+          <div>
+            <div className="mx-auto grid h-11 w-11 place-items-center rounded-md border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
+              <Image size={18} />
+            </div>
+            <p className="mt-3 text-sm font-semibold text-slate-200">No screenshot attached</p>
+            <p className="mt-1 text-xs text-slate-500">Drop, paste, upload, or link an image</p>
+          </div>
+        )}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          className="input-control h-10 normal-case tracking-normal"
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Paste screenshot URL"
+          value={uploaded ? "" : value}
+        />
+        <button className="control-button h-10" onClick={() => fileInputRef.current?.click()} type="button">
+          <FileUp size={15} />
+          Upload
+        </button>
+      </div>
+      <input
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          readFile(event.target.files?.[0]);
+          event.currentTarget.value = "";
+        }}
+        ref={fileInputRef}
+        type="file"
+      />
+      {uploadMessage && <div className="mt-2 text-xs text-rose-200">{uploadMessage}</div>}
+    </section>
+  );
+}
+
+function JournalRichNoteEditor({
+  onChange,
+  placeholder = "Write the trade review notes...",
+  value,
+}: {
+  onChange: (value: string) => void;
+  placeholder?: string;
+  value: string;
+}) {
+  const noteRef = useRef<HTMLDivElement | null>(null);
+  const editorToolbarRef = useRef<HTMLDivElement | null>(null);
+  const linkInputRef = useRef<HTMLInputElement | null>(null);
+  const lastInternalValueRef = useRef<string | null>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
+  const editingLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const [noteFocused, setNoteFocused] = useState(false);
+  const [editorState, setEditorState] = useState<NotebookEditorState>(DEFAULT_NOTEBOOK_EDITOR_STATE);
+  const [linkPopoverOpen, setLinkPopoverOpen] = useState(false);
+  const [linkText, setLinkText] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [alignMenuOpen, setAlignMenuOpen] = useState(false);
+
+  function closeEditorPopovers() {
+    setLinkPopoverOpen(false);
+    setLinkText("");
+    setLinkUrl("");
+    setColorMenuOpen(false);
+    setAlignMenuOpen(false);
+    editingLinkRef.current = null;
+  }
+
+  useCloseOnOutsidePointer(linkPopoverOpen || colorMenuOpen || alignMenuOpen, [editorToolbarRef], closeEditorPopovers);
+
+  useEffect(() => {
+    if (value === lastInternalValueRef.current) {
+      return;
+    }
+    const nextValue = normalizeStoredNoteHtml(value);
+    if (noteRef.current && noteRef.current.innerHTML !== nextValue) {
+      noteRef.current.innerHTML = nextValue;
+    }
+    lastInternalValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    if (!linkPopoverOpen) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => linkInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [linkPopoverOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+    const handleSelectionChange = () => updateEditorState();
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
+
+  function handleEditorInput(event: FormEvent<HTMLDivElement>) {
+    pushEditorValue(sanitizeRichTextHtml(event.currentTarget.innerHTML));
+    updateEditorState();
+  }
+
+  function syncNotesFromEditor() {
+    pushEditorValue(sanitizeRichTextHtml(noteRef.current?.innerHTML ?? ""));
+    updateEditorState();
+  }
+
+  function pushEditorValue(nextValue: string) {
+    lastInternalValueRef.current = nextValue;
+    onChange(nextValue);
+  }
+
+  function saveEditorSelection() {
+    const editor = noteRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    if (!editor || !selection?.rangeCount || !editor.contains(selection.anchorNode)) {
+      return;
+    }
+    savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+  }
+
+  function restoreEditorSelection() {
+    const editor = noteRef.current;
+    const range = savedSelectionRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    if (!editor || !range || !selection) {
+      return;
+    }
+    editor.focus();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function selectionIsInEditor() {
+    const editor = noteRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    return Boolean(editor && selection?.rangeCount && editor.contains(selection.anchorNode));
+  }
+
+  function focusNoteEditor() {
+    const editor = noteRef.current;
+    if (!editor || typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    editor.focus();
+    const selection = window.getSelection();
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+      saveEditorSelection();
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    saveEditorSelection();
+  }
+
+  function runEditorCommand(command: string, commandValue?: string) {
+    if (typeof document === "undefined") {
+      return;
+    }
+    restoreEditorSelection();
+    if (!selectionIsInEditor()) {
+      focusNoteEditor();
+    }
+    document.execCommand(command, false, commandValue);
+    saveEditorSelection();
+    syncNotesFromEditor();
+    requestAnimationFrame(updateEditorState);
+  }
+
+  function insertRichHtml(html: string) {
+    if (typeof document === "undefined") {
+      pushEditorValue(`${value}${value ? "<br>" : ""}${html}`);
+      return;
+    }
+    restoreEditorSelection();
+    if (!selectionIsInEditor()) {
+      focusNoteEditor();
+    }
+    document.execCommand("insertHTML", false, html);
+    saveEditorSelection();
+    syncNotesFromEditor();
+    requestAnimationFrame(updateEditorState);
+  }
+
+  function updateEditorState() {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+    const editor = noteRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection?.rangeCount || !editor.contains(selection.anchorNode)) {
+      return;
+    }
+    const align = document.queryCommandState("justifyCenter")
+      ? "center"
+      : document.queryCommandState("justifyRight")
+        ? "right"
+        : "left";
+    setEditorState({
+      align,
+      bold: document.queryCommandState("bold"),
+      bulletList: document.queryCommandState("insertUnorderedList"),
+      color: normalizeEditorColor(document.queryCommandValue("foreColor")),
+      italic: document.queryCommandState("italic"),
+      link: Boolean(findEditorAnchor(selection.anchorNode, editor)),
+      orderedList: document.queryCommandState("insertOrderedList"),
+      strike: document.queryCommandState("strikeThrough"),
+      underline: document.queryCommandState("underline"),
+    });
+  }
+
+  function openLinkPopover() {
+    if (linkPopoverOpen) {
+      setLinkPopoverOpen(false);
+      setLinkText("");
+      setLinkUrl("");
+      editingLinkRef.current = null;
+      return;
+    }
+    const editor = noteRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    saveEditorSelection();
+    const anchor = editor && selection ? findEditorAnchor(selection.anchorNode, editor) : null;
+    editingLinkRef.current = anchor;
+    setLinkText(anchor?.textContent?.trim() ?? selection?.toString().trim() ?? "");
+    setLinkUrl(anchor?.getAttribute("href") ?? "");
+    setLinkPopoverOpen(true);
+    setColorMenuOpen(false);
+    setAlignMenuOpen(false);
+  }
+
+  function applyLink() {
+    const url = normalizeLinkUrl(linkUrl);
+    if (!url) {
+      return;
+    }
+    const selectedText = savedSelectionRef.current?.toString().trim() ?? "";
+    const label = linkText.trim() || selectedText || url;
+    const editingLink = editingLinkRef.current;
+    if (editingLink && noteRef.current?.contains(editingLink)) {
+      editingLink.href = url;
+      editingLink.target = "_blank";
+      editingLink.rel = "noreferrer";
+      editingLink.textContent = label;
+      syncNotesFromEditor();
+    } else {
+      insertRichHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`);
+    }
+    setLinkPopoverOpen(false);
+    setLinkText("");
+    setLinkUrl("");
+    editingLinkRef.current = null;
+  }
+
+  function handleEditorClick(event: ReactMouseEvent<HTMLDivElement>) {
+    const editor = noteRef.current;
+    if (!editor || !(event.target instanceof Node)) {
+      return;
+    }
+    const anchor = findEditorAnchor(event.target, editor);
+    if (!anchor?.href) {
+      return;
+    }
+    event.preventDefault();
+    window.open(anchor.href, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <section className="rounded-md border border-white/10 bg-black/20">
+      <div className="relative flex flex-wrap items-center gap-1 border-b border-white/10 p-2" ref={editorToolbarRef}>
+        {[
+          { active: editorState.bold, action: "bold", icon: Bold, label: "Bold" },
+          { active: editorState.italic, action: "italic", icon: Italic, label: "Italic" },
+          { active: editorState.underline, action: "underline", icon: Underline, label: "Underline" },
+          { active: editorState.strike, action: "strikeThrough", icon: Strikethrough, label: "Strikethrough" },
+          { active: editorState.bulletList, action: "insertUnorderedList", icon: List, label: "Bullet list" },
+          { active: editorState.orderedList, action: "insertOrderedList", icon: ListOrdered, label: "Numbered list" },
+        ].map(({ active, action, icon: Icon, label }) => (
+          <button
+            aria-pressed={active}
+            className={`notebook-editor-button ${active ? "notebook-editor-button-active" : ""}`}
+            key={action}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => runEditorCommand(action)}
+            title={label}
+            type="button"
+          >
+            <Icon size={14} />
+          </button>
+        ))}
+        <button
+          aria-pressed={linkPopoverOpen}
+          className={`notebook-editor-button ${linkPopoverOpen ? "notebook-editor-button-active" : ""}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={openLinkPopover}
+          title="Link"
+          type="button"
+        >
+          <Link2 size={14} />
+        </button>
+        <div className="relative">
+          <button
+            className={`notebook-editor-button ${colorMenuOpen ? "notebook-editor-button-active" : ""}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              saveEditorSelection();
+              setColorMenuOpen((current) => !current);
+              setAlignMenuOpen(false);
+              setLinkPopoverOpen(false);
+            }}
+            title="Text color"
+            type="button"
+          >
+            <Palette size={14} />
+            <span
+              className="h-2.5 w-2.5 rounded-full border border-white/20"
+              style={{ backgroundColor: editorState.color ?? NOTE_COLOR_OPTIONS[0].value }}
+            />
+          </button>
+          {colorMenuOpen && (
+            <div className="notebook-editor-popover left-0 top-9 w-56">
+              <div className="notebook-popover-title">Text color</div>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {NOTE_COLOR_OPTIONS.map((option) => {
+                  const active = editorState.color === option.value.toLowerCase();
+                  return (
+                    <button
+                      className={`notebook-color-option ${active ? "notebook-color-option-active" : ""}`}
+                      key={option.value}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        runEditorCommand("foreColor", option.value);
+                        setColorMenuOpen(false);
+                      }}
+                      title={option.label}
+                      type="button"
+                    >
+                      <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/20" style={{ backgroundColor: option.value }} />
+                      <span className="min-w-0 flex-1 truncate text-left">{option.label}</span>
+                      {active && <CheckCircle2 className="shrink-0 text-cyan-100" size={13} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button
+            className={`notebook-editor-button ${alignMenuOpen || editorState.align !== "left" ? "notebook-editor-button-active" : ""}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              saveEditorSelection();
+              setAlignMenuOpen((current) => !current);
+              setColorMenuOpen(false);
+              setLinkPopoverOpen(false);
+            }}
+            title="Text alignment"
+            type="button"
+          >
+            {editorState.align === "right" ? <AlignRight size={14} /> : editorState.align === "center" ? <AlignCenter size={14} /> : <AlignLeft size={14} />}
+          </button>
+          {alignMenuOpen && (
+            <div className="notebook-editor-popover left-0 top-9 w-40">
+              <div className="notebook-popover-title">Alignment</div>
+              <div className="mt-2 grid grid-cols-3 gap-1">
+                {NOTE_ALIGN_OPTIONS.map((option) => {
+                  const Icon = option.icon;
+                  const active = editorState.align === option.value;
+                  return (
+                    <button
+                      aria-label={option.label}
+                      aria-pressed={active}
+                      className={`notebook-align-option ${active ? "notebook-align-option-active" : ""}`}
+                      key={option.value}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        runEditorCommand(option.command);
+                        setAlignMenuOpen(false);
+                      }}
+                      title={option.label}
+                      type="button"
+                    >
+                      <Icon size={15} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        {linkPopoverOpen && (
+          <form
+            className="notebook-editor-popover left-2 top-12 w-[min(320px,calc(100vw-48px))]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyLink();
+            }}
+          >
+            <div className="notebook-popover-title">
+              <span className="inline-flex items-center gap-2">
+                <Link2 size={13} />
+                {editingLinkRef.current ? "Edit link" : "Insert link"}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2">
+              <label className="notebook-link-field">
+                <span>Text</span>
+                <input className="notebook-link-input" onChange={(event) => setLinkText(event.target.value)} placeholder="Display text" value={linkText} />
+              </label>
+              <label className="notebook-link-field">
+                <span>URL</span>
+                <input className="notebook-link-input" onChange={(event) => setLinkUrl(event.target.value)} placeholder="example.com" ref={linkInputRef} value={linkUrl} />
+              </label>
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+              <button className="icon-button h-8 w-8" onClick={closeEditorPopovers} title="Cancel" type="button">
+                <X size={14} />
+              </button>
+              <button className="control-button h-8 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20" disabled={!normalizeLinkUrl(linkUrl)} type="submit">
+                {editingLinkRef.current ? "Update" : "Apply"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+      <div className="relative">
+        {isRichTextEmpty(value) && !noteFocused && (
+          <span className="pointer-events-none absolute left-4 top-3 text-sm text-slate-600">{placeholder}</span>
+        )}
+        <div
+          className="notebook-rich-editor min-h-40 w-full resize-y overflow-auto bg-transparent px-4 py-3 text-sm text-slate-300 outline-none"
+          contentEditable
+          onBlur={() => setNoteFocused(false)}
+          onClick={handleEditorClick}
+          onFocus={() => setNoteFocused(true)}
+          onInput={handleEditorInput}
+          onKeyUp={() => {
+            saveEditorSelection();
+            updateEditorState();
+          }}
+          onMouseUp={() => {
+            saveEditorSelection();
+            updateEditorState();
+          }}
+          ref={noteRef}
+          suppressContentEditableWarning
+        />
+      </div>
+    </section>
+  );
+}
+
 function LiveTradeForm({
+  allTrades = [],
   accounts,
   fixedSessionId,
   initialTrade = null,
@@ -4634,6 +5366,7 @@ function LiveTradeForm({
   strategies,
   title = "Record actual trade",
 }: {
+  allTrades?: JournalTrade[];
   accounts: LiveJournalAccount[];
   fixedSessionId?: number;
   initialTrade?: JournalTrade | null;
@@ -4682,7 +5415,8 @@ function LiveTradeForm({
   const [takeProfit, setTakeProfit] = useState("");
   const [emotion, setEmotion] = useState<string>("Calm");
   const [screenshotUrl, setScreenshotUrl] = useState("");
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [customTag, setCustomTag] = useState("");
   const [notes, setNotes] = useState("");
   const [missedReason, setMissedReason] = useState("");
   const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(defaultSession?.commission_mode ?? settings.default_commission_mode);
@@ -4706,6 +5440,18 @@ function LiveTradeForm({
   const strategyOptions = useMemo(
     () => journalStrategySelectOptions(strategyNameOptions, strategy),
     [strategy, strategyNameOptions],
+  );
+  const activeStrategyScope = strategyTagScope(strategy || selectedSession?.strategy_name || "Unassigned");
+  const [strategyCustomTags, setStrategyCustomTags] = useState<string[]>(() =>
+    loadStrategyMistakeTags(activeStrategyScope),
+  );
+  const mistakeOptions = useMemo(
+    () => mergeTags(DEFAULT_MISTAKE_TAGS, strategyCustomTags),
+    [strategyCustomTags],
+  );
+  const attachedMistakeTags = useMemo(
+    () => new Set(allTrades.flatMap((trade) => trade.mistake_tags.map((tag) => tag.toLowerCase()))),
+    [allTrades],
   );
   const pnlPreview = useMemo(() => {
     const parsedEntry = parseOptionalFloat(entryPrice) ?? 0;
@@ -4769,8 +5515,9 @@ function LiveTradeForm({
       setTakeProfit(formatNumberInput(nextEntryType === "MISSED" ? initialTrade.planned_take_profit : initialTrade.take_profit));
       setEmotion(initialTrade.emotional_state || "Calm");
       setScreenshotUrl(initialTrade.screenshot_url ?? "");
-      setTags(initialTrade.mistake_tags.join(", "));
-      setNotes(initialTrade.notes ?? "");
+      setTags(initialTrade.mistake_tags);
+      setCustomTag("");
+      setNotes(normalizeStoredNoteHtml(initialTrade.notes));
       setMissedReason(initialTrade.missed_reason ?? "");
       setCommissionMode(commission);
       setCommissionFixed(costFixedValueForMode(commission, initialTrade.commission_value ?? 0));
@@ -4809,19 +5556,20 @@ function LiveTradeForm({
     }
   }, [initialTrade, settings.default_entry_type]);
 
-  function handleScreenshotFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setScreenshotUrl(reader.result);
+  useEffect(() => {
+    let active = true;
+    setStrategyCustomTags(loadStrategyMistakeTags(activeStrategyScope));
+    void hydrateStrategyMistakeTags(activeStrategyScope).then((nextTags) => {
+      if (active) {
+        setStrategyCustomTags(nextTags);
       }
+    });
+    const unsubscribe = subscribeStrategyMistakeTags(activeStrategyScope, setStrategyCustomTags);
+    return () => {
+      active = false;
+      unsubscribe();
     };
-    reader.readAsDataURL(file);
-  }
+  }, [activeStrategyScope]);
 
   function toggleAccount(accountId: number) {
     setAccountIds((current) =>
@@ -4829,6 +5577,39 @@ function LiveTradeForm({
         ? current.filter((id) => id !== accountId)
         : [...current, accountId],
     );
+  }
+
+  function addTags(value: string) {
+    const nextTags = parseTagInput(value);
+    if (nextTags.length === 0) {
+      return;
+    }
+    persistStrategyMistakeTags(activeStrategyScope, nextTags);
+    setStrategyCustomTags((current) => mergeTags(current, nextTags));
+    setTags((current) => mergeTags(current, nextTags));
+    setCustomTag("");
+  }
+
+  function removeTag(tag: string) {
+    setTags((current) => current.filter((currentTag) => currentTag !== tag));
+  }
+
+  function deleteMistakeSuggestion(tag: string) {
+    if (isDefaultMistakeTag(tag) || attachedMistakeTags.has(tag.toLowerCase()) || tags.includes(tag)) {
+      return;
+    }
+    removeStrategyMistakeTag(activeStrategyScope, tag);
+    setStrategyCustomTags((current) =>
+      current.filter((currentTag) => currentTag.toLowerCase() !== tag.toLowerCase()),
+    );
+  }
+
+  function handleCustomTagKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    addTags(customTag);
   }
 
   function submitTrade(event: FormEvent<HTMLFormElement>) {
@@ -4859,9 +5640,9 @@ function LiveTradeForm({
       entryTime,
       exitPrice: entryType === "TAKEN" ? parsedExit : null,
       exitTime,
-      mistakeTags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      mistakeTags: tags,
       missedReason: entryType === "MISSED" ? missedReason.trim() || null : null,
-      notes: notes.trim() || null,
+      notes: isRichTextEmpty(notes) ? null : sanitizeRichTextHtml(notes),
       playbookId: playbookId ? Number(playbookId) : null,
       plannedEntryPrice: entryType === "MISSED" ? parsedEntry : null,
       plannedExitPrice: entryType === "MISSED" ? parsedExit : null,
@@ -4882,8 +5663,10 @@ function LiveTradeForm({
       setNotes("");
       setMissedReason("");
       setScreenshotUrl("");
-      setTags("");
+      setTags([]);
+      setCustomTag("");
     }
+    persistStrategyMistakeTags(activeStrategyScope, tags);
     onSaved?.();
   }
 
@@ -5096,10 +5879,22 @@ function LiveTradeForm({
             </div>
           </div>
         )}
-        <label className="form-field">
-          Tags
-          <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTags(event.target.value)} placeholder="FOMO, Late entry" value={tags} />
-        </label>
+        <JournalTagPicker
+          attachedMistakeTags={attachedMistakeTags}
+          customTag={customTag}
+          mistakeOptions={mistakeOptions}
+          onAddTags={addTags}
+          onCustomTagChange={setCustomTag}
+          onCustomTagKeyDown={handleCustomTagKeyDown}
+          onDeleteSuggestion={deleteMistakeSuggestion}
+          onRemoveTag={removeTag}
+          onToggleTag={(tag) =>
+            setTags((current) =>
+              current.includes(tag) ? current.filter((currentTag) => currentTag !== tag) : [...current, tag],
+            )
+          }
+          tags={tags}
+        />
         {entryType === "MISSED" && (
           <label className="form-field">
             Missed reason
@@ -5111,30 +5906,11 @@ function LiveTradeForm({
             />
           </label>
         )}
+        <JournalScreenshotInput onChange={setScreenshotUrl} value={screenshotUrl} />
         <div className="grid gap-2">
-          <label className="form-field">
-            Screenshot URL
-            <input
-              className="input-control h-10 normal-case tracking-normal"
-              onChange={(event) => setScreenshotUrl(event.target.value)}
-              placeholder="Paste image URL or upload below"
-              value={screenshotUrl.startsWith("data:") ? "Uploaded image attached" : screenshotUrl}
-            />
-          </label>
-          <label className="form-field">
-            Upload screenshot
-            <input className="input-control h-10 normal-case tracking-normal file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-slate-200" accept="image/*" onChange={handleScreenshotFile} type="file" />
-          </label>
-          {screenshotUrl && (
-            <div className="overflow-hidden rounded-md border border-white/10 bg-black/20">
-              <img alt="Trade screenshot preview" className="max-h-36 w-full object-cover" src={screenshotUrl} />
-            </div>
-          )}
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Notes</div>
+          <JournalRichNoteEditor onChange={setNotes} value={notes} />
         </div>
-        <label className="form-field">
-          Notes
-          <textarea className="input-control min-h-24 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
-        </label>
         {formError && (
           <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">
             {formError}
