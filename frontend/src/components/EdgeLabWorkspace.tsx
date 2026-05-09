@@ -2634,8 +2634,8 @@ function JournalSessionsPage({
   );
   const [editingSessionTradeId, setEditingSessionTradeId] = useState<number | null>(null);
   const [showSessionSettings, setShowSessionSettings] = useState(false);
+  const selectedSessionCardRef = useRef<HTMLDivElement | null>(null);
   const addTradeSectionRef = useRef<HTMLDivElement | null>(null);
-  const previousSelectedSessionIdRef = useRef<number | null>(selectedSessionId);
   const sessionRows = useMemo(
     () =>
       sessions.map((session) => {
@@ -2674,20 +2674,6 @@ function JournalSessionsPage({
       setSelectedSessionId(sessions[0].id);
     }
   }, [selectedSession, sessions]);
-
-  useEffect(() => {
-    if (previousSelectedSessionIdRef.current === selectedSessionId) {
-      return;
-    }
-    previousSelectedSessionIdRef.current = selectedSessionId;
-    setShowSessionSettings(false);
-    if (!selectedSessionId) {
-      return;
-    }
-    requestAnimationFrame(() => {
-      addTradeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [selectedSessionId]);
 
   useEffect(() => {
     if (editingSessionTradeId == null) {
@@ -2753,6 +2739,16 @@ function JournalSessionsPage({
     }));
   }
 
+  function selectSession(sessionId: number, mode: "addTrade" | "edit" = "addTrade") {
+    setSelectedSessionId(sessionId);
+    setEditingSessionTradeId(null);
+    setShowSessionSettings(mode === "edit");
+    requestAnimationFrame(() => {
+      const target = mode === "edit" ? selectedSessionCardRef.current : addTradeSectionRef.current;
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const selectedAccounts = accounts.filter((account) => accountIds.includes(account.id));
@@ -2795,6 +2791,7 @@ function JournalSessionsPage({
       playbook_id: editDraft.playbookId ? Number(editDraft.playbookId) : null,
       strategy_name: editDraft.strategy,
     });
+    setShowSessionSettings(false);
   }
 
   return (
@@ -2839,7 +2836,7 @@ function JournalSessionsPage({
                     <tr
                       className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selectedSession?.id === session.id ? "bg-cyan-300/10" : ""}`}
                       key={session.id}
-                      onClick={() => setSelectedSessionId(session.id)}
+                      onClick={() => selectSession(session.id)}
                     >
                       <td className="px-3 py-4">
                         <div className="font-semibold text-white">{session.name}</div>
@@ -2862,6 +2859,17 @@ function JournalSessionsPage({
                       <td className="px-3 py-4">{formatPercent(rowAggregate.winRate)}</td>
                       <td className="px-3 py-4">
                         <div className="flex gap-2">
+                          <button
+                            className="control-button h-8 px-2 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectSession(session.id, "edit");
+                            }}
+                            type="button"
+                          >
+                            <Pencil size={13} />
+                            Edit
+                          </button>
                           <button
                             className="control-button h-8 px-2 text-xs"
                             onClick={(event) => {
@@ -2995,74 +3003,75 @@ function JournalSessionsPage({
         </FeatureCard>
       </div>
       {selectedSession && (
-        <FeatureCard>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <CardLabel icon={Settings} label="Selected session" />
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="status-pill">{selectedSession.status}</span>
-              <button
-                className={`control-button h-9 ${showSessionSettings ? "workspace-tab-active" : ""}`}
-                onClick={() => setShowSessionSettings((current) => !current)}
-                type="button"
-              >
-                <Settings size={14} />
-                {showSessionSettings ? "Hide settings" : "Session settings"}
-              </button>
-            </div>
-          </div>
-          {selectedSessionRow && (
-            <div className="mb-4 grid gap-2 md:grid-cols-4">
-              <CompactMetric label="Session P&L" value={formatMoney(selectedSessionRow.aggregate.netPnl, selectedSessionCurrency)} tone={toneForNumber(selectedSessionRow.aggregate.netPnl)} />
-              <CompactMetric label="Taken trades" value={String(selectedSessionRow.takenTrades.length)} />
-              <CompactMetric label="Missed setups" value={String(selectedSessionRow.missedTrades.length)} />
-              <CompactMetric label="Win rate" value={formatPercent(selectedSessionRow.aggregate.winRate)} />
-            </div>
-          )}
-          {!showSessionSettings && (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.48fr)_minmax(0,0.52fr)]">
-              <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-white">{selectedSession.name}</div>
-                    <div className="mt-1 text-xs text-slate-500">{selectedSession.instrument} · {selectedSession.strategy_name || "Unassigned"}</div>
-                  </div>
-                  <span className="status-pill h-7 px-2 text-[10px]">{selectedSession.currency}</span>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, selectedSessionCurrency)} />
-                  <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, selectedSessionCurrency)} />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {selectedSessionAccounts.map((account) => (
-                    <JournalAccountBadge account={account} key={account.id} />
-                  ))}
-                  {selectedSessionAccounts.length === 0 && <span className="text-xs text-slate-600">No linked accounts</span>}
-                </div>
+        <div ref={selectedSessionCardRef}>
+          <FeatureCard>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <CardLabel icon={Settings} label="Selected session" />
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="status-pill">{selectedSession.status}</span>
+                <button
+                  className={`control-button h-9 ${showSessionSettings ? "workspace-tab-active" : ""}`}
+                  onClick={() => setShowSessionSettings((current) => !current)}
+                  type="button"
+                >
+                  {showSessionSettings ? <X size={14} /> : <Pencil size={14} />}
+                  {showSessionSettings ? "Close edit" : "Edit session"}
+                </button>
               </div>
-              {selectedSessionRow && (
+            </div>
+            {selectedSessionRow && (
+              <div className="mb-4 grid gap-2 md:grid-cols-4">
+                <CompactMetric label="Session P&L" value={formatMoney(selectedSessionRow.aggregate.netPnl, selectedSessionCurrency)} tone={toneForNumber(selectedSessionRow.aggregate.netPnl)} />
+                <CompactMetric label="Taken trades" value={String(selectedSessionRow.takenTrades.length)} />
+                <CompactMetric label="Missed setups" value={String(selectedSessionRow.missedTrades.length)} />
+                <CompactMetric label="Win rate" value={formatPercent(selectedSessionRow.aggregate.winRate)} />
+              </div>
+            )}
+            {!showSessionSettings && (
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.48fr)_minmax(0,0.52fr)]">
                 <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
-                  <div className="grid gap-2">
-                    {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 3).map((trade) => (
-                      <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
-                          <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
-                        </span>
-                        <button className="control-button h-8 px-2 text-xs" onClick={() => setEditingSessionTradeId(trade.id)} type="button">
-                          <Pencil size={13} />
-                          Edit
-                        </button>
-                      </div>
+                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white">{selectedSession.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">{selectedSession.instrument} · {selectedSession.strategy_name || "Unassigned"}</div>
+                    </div>
+                    <span className="status-pill h-7 px-2 text-[10px]">{selectedSession.currency}</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, selectedSessionCurrency)} />
+                    <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, selectedSessionCurrency)} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {selectedSessionAccounts.map((account) => (
+                      <JournalAccountBadge account={account} key={account.id} />
                     ))}
-                    {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
+                    {selectedSessionAccounts.length === 0 && <span className="text-xs text-slate-600">No linked accounts</span>}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-          {showSessionSettings && (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
+                {selectedSessionRow && (
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                    <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
+                    <div className="grid gap-2">
+                      {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 3).map((trade) => (
+                        <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
+                            <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
+                          </span>
+                          <button className="control-button h-8 px-2 text-xs" onClick={() => setEditingSessionTradeId(trade.id)} type="button">
+                            <Pencil size={13} />
+                            Edit
+                          </button>
+                        </div>
+                      ))}
+                      {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {showSessionSettings && (
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="form-field">
                   Session name
@@ -3184,9 +3193,10 @@ function JournalSessionsPage({
                   Save session changes
                 </button>
               </div>
-            </div>
-          )}
-        </FeatureCard>
+              </div>
+            )}
+          </FeatureCard>
+        </div>
       )}
       {selectedSession && (
         <div ref={addTradeSectionRef}>
