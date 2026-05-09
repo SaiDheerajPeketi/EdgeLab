@@ -279,6 +279,10 @@ type StrategyGroup = {
 type LiveJournalSession = {
   account_ids?: number[];
   account: string;
+  brokerage_mode: OrderCommissionMode;
+  brokerage_value: number;
+  commission_mode: OrderCommissionMode;
+  commission_value: number;
   created_at: string;
   currency: string;
   id: number;
@@ -358,6 +362,7 @@ type LiveJournalController = {
   updateAccount: (accountId: number, payload: Partial<LiveJournalAccountInput> & { status?: LiveJournalAccount["status"] }) => LiveJournalAccount | null;
   updateSession: (sessionId: number, payload: Partial<Omit<LiveJournalSession, "created_at" | "id">>) => LiveJournalSession | null;
   updateSettings: (payload: Partial<LiveJournalSettings>) => void;
+  updateTrade: (tradeId: number, payload: LiveTradeInput) => void;
   updateTradeStrategy: (tradeId: number, strategyName: string | null) => void;
   data: LiveJournalData;
 };
@@ -373,6 +378,10 @@ type LiveJournalAccountInput = {
 
 type LiveTradeInput = {
   accountIds: number[];
+  brokerageMode?: OrderCommissionMode;
+  brokerageValue?: number;
+  commissionMode?: OrderCommissionMode;
+  commissionValue?: number;
   emotionalState: string | null;
   entryPrice: number | null;
   entryType: JournalEntryType;
@@ -2530,6 +2539,21 @@ function JournalBooleanToggle({
   );
 }
 
+function journalStrategySelectOptions(strategyNames: string[], value: string) {
+  const options = uniqueStrings(["Unassigned", ...strategyNames])
+    .filter(Boolean)
+    .map((strategyName) => ({ label: strategyName, value: strategyName }));
+  return selectOptionsWithValue(options, value || "Unassigned");
+}
+
+function costFixedValueForMode(mode: OrderCommissionMode, value: number) {
+  return mode === "FIXED" ? formatNumberInput(value) : "0";
+}
+
+function costPercentValueForMode(mode: OrderCommissionMode, value: number) {
+  return mode === "PERCENT" ? formatNumberInput(value) : "0";
+}
+
 function JournalSessionsPage({
   accounts,
   journal,
@@ -2539,7 +2563,6 @@ function JournalSessionsPage({
   settings,
   strategies,
 }: JournalPageProps) {
-  const strategyListId = useId().replace(/:/g, "");
   const savedStrategyNames = useLiveJournalStrategyNames();
   const strategyNameOptions = useMemo(
     () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
@@ -2550,9 +2573,19 @@ function JournalSessionsPage({
   const [instrument, setInstrument] = useState("OANDA:EURUSD");
   const [balance, setBalance] = useState("100000");
   const [currency, setCurrency] = useState(settings.default_currency);
+  const [createCommissionMode, setCreateCommissionMode] = useState<OrderCommissionMode>(settings.default_commission_mode);
+  const [createCommissionFixed, setCreateCommissionFixed] = useState(costFixedValueForMode(settings.default_commission_mode, settings.default_commission_value));
+  const [createCommissionPercent, setCreateCommissionPercent] = useState(costPercentValueForMode(settings.default_commission_mode, settings.default_commission_value));
+  const [createBrokerageMode, setCreateBrokerageMode] = useState<OrderCommissionMode>(settings.default_fee_mode);
+  const [createBrokerageFixed, setCreateBrokerageFixed] = useState(costFixedValueForMode(settings.default_fee_mode, settings.default_fee_value));
+  const [createBrokeragePercent, setCreateBrokeragePercent] = useState(costPercentValueForMode(settings.default_fee_mode, settings.default_fee_value));
   const [accountIds, setAccountIds] = useState<number[]>(settings.default_account_ids);
   const [playbookId, setPlaybookId] = useState("");
   const [notes, setNotes] = useState("");
+  const createStrategyOptions = useMemo(
+    () => journalStrategySelectOptions(strategyNameOptions, strategy),
+    [strategy, strategyNameOptions],
+  );
   const activeAccounts = accounts.filter((account) => account.status === "ACTIVE");
   const playbookById = useMemo(
     () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
@@ -2562,6 +2595,12 @@ function JournalSessionsPage({
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0] ?? null;
   const [editDraft, setEditDraft] = useState({
     accountIds: selectedSession?.account_ids ?? [],
+    brokerageFixed: costFixedValueForMode(selectedSession?.brokerage_mode ?? settings.default_fee_mode, selectedSession?.brokerage_value ?? settings.default_fee_value),
+    brokerageMode: selectedSession?.brokerage_mode ?? settings.default_fee_mode,
+    brokeragePercent: costPercentValueForMode(selectedSession?.brokerage_mode ?? settings.default_fee_mode, selectedSession?.brokerage_value ?? settings.default_fee_value),
+    commissionFixed: costFixedValueForMode(selectedSession?.commission_mode ?? settings.default_commission_mode, selectedSession?.commission_value ?? settings.default_commission_value),
+    commissionMode: selectedSession?.commission_mode ?? settings.default_commission_mode,
+    commissionPercent: costPercentValueForMode(selectedSession?.commission_mode ?? settings.default_commission_mode, selectedSession?.commission_value ?? settings.default_commission_value),
     currency: selectedSession?.currency ?? settings.default_currency,
     instrument: selectedSession?.instrument ?? "Manual",
     name: selectedSession?.name ?? "Live Trading Session",
@@ -2569,6 +2608,11 @@ function JournalSessionsPage({
     playbookId: selectedSession?.playbook_id == null ? "" : String(selectedSession.playbook_id),
     strategy: selectedSession?.strategy_name ?? "Unassigned",
   });
+  const editStrategyOptions = useMemo(
+    () => journalStrategySelectOptions(strategyNameOptions, editDraft.strategy),
+    [editDraft.strategy, strategyNameOptions],
+  );
+  const [editingSessionTradeId, setEditingSessionTradeId] = useState<number | null>(null);
   const sessionRows = useMemo(
     () =>
       sessions.map((session) => {
@@ -2598,6 +2642,9 @@ function JournalSessionsPage({
       ? currencyForJournalAccounts(selectedSessionAccounts, selectedSession.currency)
       : selectedSession.currency
     : settings.default_currency;
+  const editingSessionTrade = editingSessionTradeId == null
+    ? null
+    : journalEntries.find((trade) => trade.id === editingSessionTradeId && trade.session_id === selectedSession?.id) ?? null;
 
   useEffect(() => {
     if (!selectedSession && sessions[0]) {
@@ -2611,6 +2658,12 @@ function JournalSessionsPage({
     }
     setEditDraft({
       accountIds: selectedSession.account_ids ?? [],
+      brokerageFixed: costFixedValueForMode(selectedSession.brokerage_mode, selectedSession.brokerage_value),
+      brokerageMode: selectedSession.brokerage_mode,
+      brokeragePercent: costPercentValueForMode(selectedSession.brokerage_mode, selectedSession.brokerage_value),
+      commissionFixed: costFixedValueForMode(selectedSession.commission_mode, selectedSession.commission_value),
+      commissionMode: selectedSession.commission_mode,
+      commissionPercent: costPercentValueForMode(selectedSession.commission_mode, selectedSession.commission_value),
       currency: selectedSession.currency ?? settings.default_currency,
       instrument: selectedSession.instrument ?? "Manual",
       name: selectedSession.name,
@@ -2618,12 +2671,26 @@ function JournalSessionsPage({
       playbookId: selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id),
       strategy: selectedSession.strategy_name ?? "Unassigned",
     });
+    setEditingSessionTradeId(null);
   }, [selectedSession, settings.default_currency]);
 
   useEffect(() => {
     setCurrency(settings.default_currency);
     setAccountIds(settings.default_account_ids);
-  }, [settings.default_account_ids, settings.default_currency]);
+    setCreateCommissionMode(settings.default_commission_mode);
+    setCreateCommissionFixed(costFixedValueForMode(settings.default_commission_mode, settings.default_commission_value));
+    setCreateCommissionPercent(costPercentValueForMode(settings.default_commission_mode, settings.default_commission_value));
+    setCreateBrokerageMode(settings.default_fee_mode);
+    setCreateBrokerageFixed(costFixedValueForMode(settings.default_fee_mode, settings.default_fee_value));
+    setCreateBrokeragePercent(costPercentValueForMode(settings.default_fee_mode, settings.default_fee_value));
+  }, [
+    settings.default_account_ids,
+    settings.default_commission_mode,
+    settings.default_commission_value,
+    settings.default_currency,
+    settings.default_fee_mode,
+    settings.default_fee_value,
+  ]);
 
   function toggleAccount(accountId: number) {
     setAccountIds((current) =>
@@ -2646,6 +2713,10 @@ function JournalSessionsPage({
     journal.addSession({
       account: selectedAccounts.map((account) => account.name).join(", ") || settings.default_broker || "Manual",
       account_ids: accountIds,
+      brokerage_mode: createBrokerageMode,
+      brokerage_value: costValueForPayload(createBrokerageMode, createBrokerageFixed, createBrokeragePercent),
+      commission_mode: createCommissionMode,
+      commission_value: costValueForPayload(createCommissionMode, createCommissionFixed, createCommissionPercent),
       currency: selectedAccounts.length > 0 ? currencyForJournalAccounts(selectedAccounts, currency) : normalizeCurrencyCode(currency),
       initial_balance: selectedAccounts.length > 0 ? selectedAccounts.reduce((sum, account) => sum + account.initial_balance, 0) : Number(balance) || 0,
       instrument: instrument.trim() || "Manual",
@@ -2666,6 +2737,10 @@ function JournalSessionsPage({
     journal.updateSession(selectedSession.id, {
       account: selectedAccounts.map((account) => account.name).join(", ") || selectedSession.account,
       account_ids: editDraft.accountIds,
+      brokerage_mode: editDraft.brokerageMode,
+      brokerage_value: costValueForPayload(editDraft.brokerageMode, editDraft.brokerageFixed, editDraft.brokeragePercent),
+      commission_mode: editDraft.commissionMode,
+      commission_value: costValueForPayload(editDraft.commissionMode, editDraft.commissionFixed, editDraft.commissionPercent),
       currency: selectedAccounts.length > 0 ? currencyForJournalAccounts(selectedAccounts, editDraft.currency) : normalizeCurrencyCode(editDraft.currency),
       initial_balance: selectedAccounts.length > 0 ? selectedAccounts.reduce((sum, account) => sum + account.initial_balance, 0) : selectedSession.initial_balance,
       instrument: editDraft.instrument,
@@ -2782,17 +2857,13 @@ function JournalSessionsPage({
             </label>
             <label className="form-field">
               Strategy
-              <input
-                className="input-control h-10 normal-case tracking-normal"
-                list={strategyListId}
-                onChange={(event) => setStrategy(event.target.value)}
+              <ThemedSelect
+                className="h-10"
+                onChange={setStrategy}
+                options={createStrategyOptions}
+                portal
                 value={strategy}
               />
-              <datalist id={strategyListId}>
-                {strategyNameOptions.map((strategyName) => (
-                  <option key={strategyName} value={strategyName} />
-                ))}
-              </datalist>
             </label>
             <label className="form-field">
               Instrument
@@ -2841,6 +2912,31 @@ function JournalSessionsPage({
                 value={currency}
               />
             </label>
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Session trade costs
+              </div>
+              <div className="grid gap-3">
+                <CostConfigCard
+                  fixedValue={createCommissionFixed}
+                  mode={createCommissionMode}
+                  onFixedValueChange={setCreateCommissionFixed}
+                  onModeChange={setCreateCommissionMode}
+                  onPercentValueChange={setCreateCommissionPercent}
+                  percentValue={createCommissionPercent}
+                  title="Commission default"
+                />
+                <CostConfigCard
+                  fixedValue={createBrokerageFixed}
+                  mode={createBrokerageMode}
+                  onFixedValueChange={setCreateBrokerageFixed}
+                  onModeChange={setCreateBrokerageMode}
+                  onPercentValueChange={setCreateBrokeragePercent}
+                  percentValue={createBrokeragePercent}
+                  title="Brokerage default"
+                />
+              </div>
+            </div>
             <label className="form-field">
               Notes
               <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
@@ -2874,7 +2970,13 @@ function JournalSessionsPage({
               </label>
               <label className="form-field">
                 Strategy
-                <input className="input-control h-10 normal-case tracking-normal" list={strategyListId} onChange={(event) => setEditDraft((current) => ({ ...current, strategy: event.target.value }))} value={editDraft.strategy} />
+                <ThemedSelect
+                  className="h-10"
+                  onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
+                  options={editStrategyOptions}
+                  portal
+                  value={editDraft.strategy}
+                />
               </label>
               <label className="form-field">
                 Instrument
@@ -2902,6 +3004,32 @@ function JournalSessionsPage({
                   value={editDraft.currency}
                 />
               </label>
+              <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
+                  <span className="text-xs text-slate-500">Applied to new trades in this session</span>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <CostConfigCard
+                    fixedValue={editDraft.commissionFixed}
+                    mode={editDraft.commissionMode}
+                    onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
+                    onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
+                    onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
+                    percentValue={editDraft.commissionPercent}
+                    title="Commission"
+                  />
+                  <CostConfigCard
+                    fixedValue={editDraft.brokerageFixed}
+                    mode={editDraft.brokerageMode}
+                    onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
+                    onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
+                    onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
+                    percentValue={editDraft.brokeragePercent}
+                    title="Brokerage"
+                  />
+                </div>
+              </div>
               <label className="form-field md:col-span-2">
                 Notes
                 <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
@@ -2932,8 +3060,18 @@ function JournalSessionsPage({
                           <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
                           <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
                         </span>
-                        <span className={`shrink-0 font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
-                          {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                            {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
+                          </span>
+                          <button
+                            className="icon-button h-8 w-8"
+                            onClick={() => setEditingSessionTradeId(trade.id)}
+                            title="Edit entry"
+                            type="button"
+                          >
+                            <Pencil size={14} />
+                          </button>
                         </span>
                       </div>
                     ))}
@@ -2948,6 +3086,21 @@ function JournalSessionsPage({
             </div>
           </div>
         </FeatureCard>
+      )}
+      {selectedSession && (
+        <LiveTradeForm
+          accounts={accounts}
+          fixedSessionId={selectedSession.id}
+          initialTrade={editingSessionTrade}
+          journal={journal}
+          onCancelEdit={() => setEditingSessionTradeId(null)}
+          onSaved={() => setEditingSessionTradeId(null)}
+          playbooks={playbooks}
+          sessions={sessions}
+          settings={settings}
+          strategies={strategies}
+          title={editingSessionTrade ? "Edit selected session trade" : "Add trade to selected session"}
+        />
       )}
     </PageScaffold>
   );
@@ -3051,6 +3204,10 @@ function JournalTradesPage({
   sessions,
   strategies,
 }: JournalPageProps) {
+  const [editingTradeId, setEditingTradeId] = useState<number | null>(null);
+  const editingTrade = editingTradeId == null
+    ? null
+    : journalEntries.find((trade) => trade.id === editingTradeId) ?? null;
   return (
     <PageScaffold
       eyebrow="Journal Trades"
@@ -3058,9 +3215,21 @@ function JournalTradesPage({
       description="Record taken trades and missed setups with strategy, playbook, and optional account links."
     >
       <div className="grid gap-4 2xl:grid-cols-[380px_minmax(0,1fr)]">
-        <LiveTradeForm accounts={accounts} journal={journal} playbooks={playbooks} sessions={sessions} settings={settings} strategies={strategies} />
+        <LiveTradeForm
+          accounts={accounts}
+          initialTrade={editingTrade}
+          journal={journal}
+          onCancelEdit={() => setEditingTradeId(null)}
+          onSaved={() => setEditingTradeId(null)}
+          playbooks={playbooks}
+          sessions={sessions}
+          settings={settings}
+          strategies={strategies}
+          title={editingTrade ? "Edit journal trade" : "Record actual trade"}
+        />
         <LiveTradeTable
           accountById={new Map(accounts.map((account) => [account.id, account]))}
+          onEditTrade={(trade) => setEditingTradeId(trade.id)}
           playbookById={new Map(playbooks.map((playbook) => [playbook.id, playbook]))}
           sessionById={new Map(sessions.map((session) => [session.id, session]))}
           trades={journalEntries}
@@ -3392,7 +3561,7 @@ function JournalReportsPage({
         <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, reportCurrency)} />
         <ResultMetricCard icon={BadgeDollarSign} label="Gross P&L" tone={toneForNumber(aggregate.grossPnl)} value={formatMoney(aggregate.grossPnl, reportCurrency)} />
         <ResultMetricCard icon={WalletCards} label="Commissions" value={formatMoney(aggregate.totalCommissions, reportCurrency)} />
-        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(aggregate.totalFees, reportCurrency)} />
+        <ResultMetricCard icon={WalletCards} label="Brokerage" value={formatMoney(aggregate.totalFees, reportCurrency)} />
         <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(aggregate.winRate)} />
         <ResultMetricCard icon={Target} label="Taken" value={String(aggregate.totalTrades)} />
         <ResultMetricCard icon={Clock3} label="Missed" value={String(missedTrades.length)} />
@@ -4412,7 +4581,7 @@ function JournalSettingsPage({
           </div>
         </FeatureCard>
         <FeatureCard>
-          <CardLabel icon={BadgeDollarSign} label="Trade cost defaults" />
+          <CardLabel icon={BadgeDollarSign} label="Global trade cost defaults" />
           <div className="mt-4 grid gap-3">
             <CostConfigCard
               fixedValue={commissionFixed}
@@ -4430,7 +4599,7 @@ function JournalSettingsPage({
               onModeChange={setFeeMode}
               onPercentValueChange={setFeePercent}
               percentValue={feePercent}
-              title="Default fees"
+              title="Default brokerage"
             />
             <button className="control-button workspace-tab-active justify-center" onClick={saveSettings} type="button">
               <Save size={15} />
@@ -4454,20 +4623,29 @@ function JournalSettingsPage({
 
 function LiveTradeForm({
   accounts,
+  fixedSessionId,
+  initialTrade = null,
   journal,
+  onCancelEdit,
+  onSaved,
   playbooks,
   sessions,
   settings,
   strategies,
+  title = "Record actual trade",
 }: {
   accounts: LiveJournalAccount[];
+  fixedSessionId?: number;
+  initialTrade?: JournalTrade | null;
   journal: LiveJournalController;
+  onCancelEdit?: () => void;
+  onSaved?: () => void;
   playbooks: Playbook[];
   sessions: LiveJournalSession[];
   settings: LiveJournalSettings;
   strategies: LiveStrategyGroup[];
+  title?: string;
 }) {
-  const strategyListId = useId().replace(/:/g, "");
   const savedStrategyNames = useLiveJournalStrategyNames();
   const strategyNameOptions = useMemo(
     () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
@@ -4477,8 +4655,11 @@ function LiveTradeForm({
     () => accounts.filter((account) => account.status === "ACTIVE"),
     [accounts],
   );
-  const defaultSessionId = String(sessions[0]?.id ?? 1);
-  const defaultSession = sessions[0];
+  const fixedSession = fixedSessionId == null
+    ? null
+    : sessions.find((session) => session.id === fixedSessionId) ?? null;
+  const defaultSession = fixedSession ?? sessions[0];
+  const defaultSessionId = String(defaultSession?.id ?? 1);
   const defaultAccountIds = useMemo(
     () =>
       settings.default_account_ids.filter((accountId) =>
@@ -4504,6 +4685,12 @@ function LiveTradeForm({
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
   const [missedReason, setMissedReason] = useState("");
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(defaultSession?.commission_mode ?? settings.default_commission_mode);
+  const [commissionFixed, setCommissionFixed] = useState(costFixedValueForMode(defaultSession?.commission_mode ?? settings.default_commission_mode, defaultSession?.commission_value ?? settings.default_commission_value));
+  const [commissionPercent, setCommissionPercent] = useState(costPercentValueForMode(defaultSession?.commission_mode ?? settings.default_commission_mode, defaultSession?.commission_value ?? settings.default_commission_value));
+  const [brokerageMode, setBrokerageMode] = useState<OrderCommissionMode>(defaultSession?.brokerage_mode ?? settings.default_fee_mode);
+  const [brokerageFixed, setBrokerageFixed] = useState(costFixedValueForMode(defaultSession?.brokerage_mode ?? settings.default_fee_mode, defaultSession?.brokerage_value ?? settings.default_fee_value));
+  const [brokeragePercent, setBrokeragePercent] = useState(costPercentValueForMode(defaultSession?.brokerage_mode ?? settings.default_fee_mode, defaultSession?.brokerage_value ?? settings.default_fee_value));
   const [formError, setFormError] = useState<string | null>(null);
   const selectedSession = useMemo(
     () => sessions.find((session) => String(session.id) === sessionId) ?? sessions[0] ?? null,
@@ -4516,6 +4703,10 @@ function LiveTradeForm({
   const selectedTradeCurrency = selectedAccounts.length > 0
     ? currencyForJournalAccounts(selectedAccounts, selectedSession?.currency ?? settings.default_currency)
     : normalizeCurrencyCode(selectedSession?.currency ?? settings.default_currency);
+  const strategyOptions = useMemo(
+    () => journalStrategySelectOptions(strategyNameOptions, strategy),
+    [strategy, strategyNameOptions],
+  );
   const pnlPreview = useMemo(() => {
     const parsedEntry = parseOptionalFloat(entryPrice) ?? 0;
     const parsedExit = parseOptionalFloat(exitPrice);
@@ -4527,35 +4718,76 @@ function LiveTradeForm({
           : (parsedEntry - parsedExit) * parsedQuantity
         : 0;
     const notional = Math.abs(parsedEntry * parsedQuantity);
+    const commissionValue = costValueForPayload(commissionMode, commissionFixed, commissionPercent);
+    const brokerageValue = costValueForPayload(brokerageMode, brokerageFixed, brokeragePercent);
     const commissions = entryType === "TAKEN"
-      ? journalCostAmount(settings.default_commission_mode, settings.default_commission_value, notional)
+      ? journalCostAmount(commissionMode, commissionValue, notional)
       : 0;
-    const fees = entryType === "TAKEN"
-      ? journalCostAmount(settings.default_fee_mode, settings.default_fee_value, notional)
+    const brokerage = entryType === "TAKEN"
+      ? journalCostAmount(brokerageMode, brokerageValue, notional)
       : 0;
     return {
+      brokerage,
       commissions,
-      fees,
       gross,
-      net: gross - commissions - fees,
+      net: gross - commissions - brokerage,
       notional,
     };
   }, [
+    brokerageFixed,
+    brokerageMode,
+    brokeragePercent,
+    commissionFixed,
+    commissionMode,
+    commissionPercent,
     entryPrice,
     entryType,
     exitPrice,
     quantity,
-    settings.default_commission_mode,
-    settings.default_commission_value,
-    settings.default_fee_mode,
-    settings.default_fee_value,
     side,
   ]);
 
   useEffect(() => {
-    const selectedSession = sessions.find((session) => String(session.id) === sessionId);
+    if (initialTrade) {
+      const tradeSession = sessions.find((session) => session.id === initialTrade.session_id) ?? defaultSession;
+      const nextEntryType: JournalEntryType = isMissedJournalTrade(initialTrade) ? "MISSED" : "TAKEN";
+      const tradeAccounts = liveTradeAccountIds(initialTrade, tradeSession);
+      const commission = normalizeCommissionMode(initialTrade.commission_mode);
+      const brokerage = normalizeCommissionMode(initialTrade.fee_mode);
+      setSessionId(String(tradeSession?.id ?? initialTrade.session_id));
+      setEntryType(nextEntryType);
+      setAccountIds(filterLiveAccountIds(tradeAccounts, activeAccounts));
+      setPlaybookId(initialTrade.playbook_id == null ? "" : String(initialTrade.playbook_id));
+      setSide(initialTrade.side);
+      setStrategy(initialTrade.strategy_name || tradeSession?.strategy_name || "Unassigned");
+      setEntryTime(dateTimeLocalFromIso(initialTrade.entry_time));
+      setExitTime(dateTimeLocalFromIso(initialTrade.exit_time ?? initialTrade.entry_time));
+      setEntryPrice(formatNumberInput(nextEntryType === "MISSED" ? initialTrade.planned_entry_price ?? initialTrade.entry_price : initialTrade.entry_price));
+      setExitPrice(formatNumberInput(nextEntryType === "MISSED" ? initialTrade.planned_exit_price ?? initialTrade.exit_price : initialTrade.exit_price));
+      setQuantity(formatNumberInput(initialTrade.quantity));
+      setStopLoss(formatNumberInput(nextEntryType === "MISSED" ? initialTrade.planned_stop_loss : initialTrade.stop_loss));
+      setTakeProfit(formatNumberInput(nextEntryType === "MISSED" ? initialTrade.planned_take_profit : initialTrade.take_profit));
+      setEmotion(initialTrade.emotional_state || "Calm");
+      setScreenshotUrl(initialTrade.screenshot_url ?? "");
+      setTags(initialTrade.mistake_tags.join(", "));
+      setNotes(initialTrade.notes ?? "");
+      setMissedReason(initialTrade.missed_reason ?? "");
+      setCommissionMode(commission);
+      setCommissionFixed(costFixedValueForMode(commission, initialTrade.commission_value ?? 0));
+      setCommissionPercent(costPercentValueForMode(commission, initialTrade.commission_value ?? 0));
+      setBrokerageMode(brokerage);
+      setBrokerageFixed(costFixedValueForMode(brokerage, initialTrade.fee_value ?? 0));
+      setBrokeragePercent(costPercentValueForMode(brokerage, initialTrade.fee_value ?? 0));
+      setFormError(null);
+      return;
+    }
+
+    const selectedSession = fixedSession ?? sessions.find((session) => String(session.id) === sessionId) ?? defaultSession;
     if (!selectedSession) {
       return;
+    }
+    if (fixedSessionId != null && String(selectedSession.id) !== sessionId) {
+      setSessionId(String(selectedSession.id));
     }
     setStrategy(selectedSession.strategy_name || "Unassigned");
     setPlaybookId(selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id));
@@ -4563,11 +4795,19 @@ function LiveTradeForm({
       activeAccounts.some((account) => account.id === accountId),
     ) ?? [];
     setAccountIds(sessionAccounts.length > 0 ? sessionAccounts : defaultAccountIds);
-  }, [activeAccounts, defaultAccountIds, sessionId, sessions]);
+    setCommissionMode(selectedSession.commission_mode);
+    setCommissionFixed(costFixedValueForMode(selectedSession.commission_mode, selectedSession.commission_value));
+    setCommissionPercent(costPercentValueForMode(selectedSession.commission_mode, selectedSession.commission_value));
+    setBrokerageMode(selectedSession.brokerage_mode);
+    setBrokerageFixed(costFixedValueForMode(selectedSession.brokerage_mode, selectedSession.brokerage_value));
+    setBrokeragePercent(costPercentValueForMode(selectedSession.brokerage_mode, selectedSession.brokerage_value));
+  }, [activeAccounts, defaultAccountIds, defaultSession, fixedSession, fixedSessionId, initialTrade, sessionId, sessions]);
 
   useEffect(() => {
-    setEntryType(settings.default_entry_type);
-  }, [settings.default_entry_type]);
+    if (!initialTrade) {
+      setEntryType(settings.default_entry_type);
+    }
+  }, [initialTrade, settings.default_entry_type]);
 
   function handleScreenshotFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -4607,8 +4847,12 @@ function LiveTradeForm({
       return;
     }
     setFormError(null);
-    journal.addTrade({
+    const payload: LiveTradeInput = {
       accountIds: entryType === "MISSED" ? accountIds : accountIds,
+      brokerageMode,
+      brokerageValue: costValueForPayload(brokerageMode, brokerageFixed, brokeragePercent),
+      commissionMode,
+      commissionValue: costValueForPayload(commissionMode, commissionFixed, commissionPercent),
       emotionalState: emotion || null,
       entryPrice: entryType === "TAKEN" ? parsedEntry : null,
       entryType,
@@ -4630,16 +4874,30 @@ function LiveTradeForm({
       stopLoss: entryType === "TAKEN" ? parsedStopLoss : null,
       strategyName: strategy.trim() || null,
       takeProfit: entryType === "TAKEN" ? parsedTakeProfit : null,
-    });
-    setNotes("");
-    setMissedReason("");
-    setScreenshotUrl("");
-    setTags("");
+    };
+    if (initialTrade) {
+      journal.updateTrade(initialTrade.id, payload);
+    } else {
+      journal.addTrade(payload);
+      setNotes("");
+      setMissedReason("");
+      setScreenshotUrl("");
+      setTags("");
+    }
+    onSaved?.();
   }
 
   return (
     <FeatureCard>
-      <CardLabel icon={Plus} label="Record actual trade" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <CardLabel icon={initialTrade ? Pencil : Plus} label={title} />
+        {initialTrade && (
+          <button className="control-button h-8 px-2 text-xs" onClick={onCancelEdit} type="button">
+            <X size={13} />
+            Cancel edit
+          </button>
+        )}
+      </div>
       <form className="mt-4 grid gap-3" onSubmit={submitTrade}>
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -4657,19 +4915,30 @@ function LiveTradeForm({
             Missed
           </button>
         </div>
-        <label className="form-field">
-          Live session
-          <ThemedSelect
-            className="h-10"
-            onChange={setSessionId}
-            options={sessions.map((session) => ({
-              label: session.name,
-              sublabel: session.instrument,
-              value: String(session.id),
-            }))}
-            value={sessionId}
-          />
-        </label>
+        {fixedSessionId == null ? (
+          <label className="form-field">
+            Live session
+            <ThemedSelect
+              className="h-10"
+              onChange={setSessionId}
+              options={sessions.map((session) => ({
+                label: session.name,
+                sublabel: `${session.instrument} · ${session.currency}`,
+                value: String(session.id),
+              }))}
+              portal
+              value={sessionId}
+            />
+          </label>
+        ) : selectedSession ? (
+          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">Session</div>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-white">{selectedSession.name}</span>
+              <span className="text-xs text-slate-500">{selectedSession.instrument} · {selectedSession.currency}</span>
+            </div>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2">
           <button
             className={`control-button justify-center ${side === "LONG" ? "workspace-tab-active" : ""}`}
@@ -4688,17 +4957,13 @@ function LiveTradeForm({
         </div>
         <label className="form-field">
           Strategy
-          <input
-            className="input-control h-10 normal-case tracking-normal"
-            list={strategyListId}
-            onChange={(event) => setStrategy(event.target.value)}
+          <ThemedSelect
+            className="h-10"
+            onChange={setStrategy}
+            options={strategyOptions}
+            portal
             value={strategy}
           />
-          <datalist id={strategyListId}>
-            {strategyNameOptions.map((strategyName) => (
-              <option key={strategyName} value={strategyName} />
-            ))}
-          </datalist>
         </label>
         <label className="form-field">
           Playbook
@@ -4721,7 +4986,9 @@ function LiveTradeForm({
             <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
               Accounts
             </div>
-            {entryType === "MISSED" && <span className="text-[11px] text-slate-600">Optional for missed entries</span>}
+            <span className="text-[11px] text-slate-600">
+              {entryType === "MISSED" ? "Optional for missed entries" : "Select multiple for copy trades"}
+            </span>
           </div>
           <div className="grid gap-2">
             {activeAccounts.map((account) => {
@@ -4794,16 +5061,38 @@ function LiveTradeForm({
           </label>
         </div>
         {entryType === "TAKEN" && (
-          <div className="rounded-md border border-white/10 bg-black/20 p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <CardLabel icon={BadgeDollarSign} label="Trade preview" />
-              <span className="status-pill h-7 px-2 text-[10px]">{selectedTradeCurrency}</span>
+          <div className="grid gap-3">
+            <div className="grid gap-3 xl:grid-cols-2">
+              <CostConfigCard
+                fixedValue={commissionFixed}
+                mode={commissionMode}
+                onFixedValueChange={setCommissionFixed}
+                onModeChange={setCommissionMode}
+                onPercentValueChange={setCommissionPercent}
+                percentValue={commissionPercent}
+                title="Trade commission"
+              />
+              <CostConfigCard
+                fixedValue={brokerageFixed}
+                mode={brokerageMode}
+                onFixedValueChange={setBrokerageFixed}
+                onModeChange={setBrokerageMode}
+                onPercentValueChange={setBrokeragePercent}
+                percentValue={brokeragePercent}
+                title="Trade brokerage"
+              />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <MiniMetric label="Gross" value={formatMoney(pnlPreview.gross, selectedTradeCurrency)} />
-              <MiniMetric label="Net" value={formatMoney(pnlPreview.net, selectedTradeCurrency)} />
-              <MiniMetric label="Commissions" value={formatMoney(pnlPreview.commissions, selectedTradeCurrency)} />
-              <MiniMetric label="Fees" value={formatMoney(pnlPreview.fees, selectedTradeCurrency)} />
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <CardLabel icon={BadgeDollarSign} label="Trade preview" />
+                <span className="status-pill h-7 px-2 text-[10px]">{selectedTradeCurrency}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <MiniMetric label="Gross" value={formatMoney(pnlPreview.gross, selectedTradeCurrency)} />
+                <MiniMetric label="Net" value={formatMoney(pnlPreview.net, selectedTradeCurrency)} />
+                <MiniMetric label="Commissions" value={formatMoney(pnlPreview.commissions, selectedTradeCurrency)} />
+                <MiniMetric label="Brokerage" value={formatMoney(pnlPreview.brokerage, selectedTradeCurrency)} />
+              </div>
             </div>
           </div>
         )}
@@ -4852,7 +5141,7 @@ function LiveTradeForm({
           </div>
         )}
         <button className="control-button workspace-tab-active justify-center" type="submit">
-          {entryType === "MISSED" ? "Save missed setup" : "Save actual trade"}
+          {initialTrade ? "Save trade changes" : entryType === "MISSED" ? "Save missed setup" : "Save actual trade"}
         </button>
       </form>
     </FeatureCard>
@@ -4861,11 +5150,13 @@ function LiveTradeForm({
 
 function LiveTradeTable({
   accountById,
+  onEditTrade,
   playbookById,
   sessionById,
   trades,
 }: {
   accountById: Map<number, LiveJournalAccount>;
+  onEditTrade?: (trade: JournalTrade) => void;
   playbookById: Map<number, Playbook>;
   sessionById: Map<number, LiveJournalSession>;
   trades: JournalTrade[];
@@ -4897,6 +5188,7 @@ function LiveTradeTable({
               <th className="px-3 py-3 font-medium">Playbook</th>
               <th className="px-3 py-3 font-medium">Emotion</th>
               <th className="px-3 py-3 font-medium">Review</th>
+              {onEditTrade && <th className="px-3 py-3 font-medium">Edit</th>}
             </tr>
           </thead>
           <tbody>
@@ -4962,6 +5254,13 @@ function LiveTradeTable({
                       </a>
                     )}
                   </td>
+                  {onEditTrade && (
+                    <td className="px-3 py-4">
+                      <button className="icon-button h-8 w-8" onClick={() => onEditTrade(trade)} title="Edit trade" type="button">
+                        <Pencil size={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -10765,77 +11064,102 @@ function useLiveJournalData(): LiveJournalController {
     }));
   }
 
+  function buildTradeFromPayload(
+    current: LiveJournalData,
+    payload: LiveTradeInput,
+    existing?: JournalTrade,
+  ) {
+    const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession(current.accounts, current.settings);
+    const sessions = current.sessions.length > 0 ? current.sessions : [session];
+    const isMissed = payload.entryType === "MISSED";
+    const entryPrice = payload.entryPrice ?? payload.plannedEntryPrice ?? 0;
+    const exitPrice = isMissed ? payload.plannedExitPrice : payload.exitPrice;
+    const quantity = payload.quantity ?? 0;
+    const grossPnl =
+      !isMissed && exitPrice != null
+        ? payload.side === "LONG"
+          ? (exitPrice - entryPrice) * quantity
+          : (entryPrice - exitPrice) * quantity
+        : 0;
+    const notional = Math.abs(entryPrice * quantity);
+    const commissionMode = normalizeCommissionMode(payload.commissionMode ?? session.commission_mode ?? current.settings.default_commission_mode);
+    const commissionValue = safeNonNegativeNumber(payload.commissionValue, session.commission_value ?? current.settings.default_commission_value);
+    const brokerageMode = normalizeCommissionMode(payload.brokerageMode ?? session.brokerage_mode ?? current.settings.default_fee_mode);
+    const brokerageValue = safeNonNegativeNumber(payload.brokerageValue, session.brokerage_value ?? current.settings.default_fee_value);
+    const commissionAmount = isMissed ? 0 : journalCostAmount(commissionMode, commissionValue, notional);
+    const brokerageAmount = isMissed ? 0 : journalCostAmount(brokerageMode, brokerageValue, notional);
+    const realizedPnl = grossPnl - commissionAmount - brokerageAmount;
+    const riskAmount =
+      payload.stopLoss == null || isMissed
+        ? null
+        : Math.abs(entryPrice - payload.stopLoss) * quantity;
+    const directAccountIds = filterLiveAccountIds(payload.accountIds, current.accounts);
+    const sessionAccountIds = filterLiveAccountIds(session.account_ids ?? [], current.accounts);
+    const accountIds = directAccountIds.length > 0 ? directAccountIds : isMissed ? [] : sessionAccountIds;
+    const trade: JournalTrade = {
+      ...existing,
+      account_ids: accountIds,
+      commission_amount: commissionAmount,
+      commission_mode: isMissed ? "NONE" : commissionMode,
+      commission_value: isMissed ? 0 : commissionValue,
+      emotional_state: payload.emotionalState,
+      entry_offset: existing?.entry_offset ?? 0,
+      entry_price: entryPrice,
+      entry_time: toIsoFromDateTimeLocal(payload.entryTime),
+      exit_offset: existing?.exit_offset ?? null,
+      exit_price: exitPrice,
+      exit_time: isMissed ? toIsoFromDateTimeLocal(payload.entryTime) : toIsoFromDateTimeLocal(payload.exitTime),
+      fee_amount: brokerageAmount,
+      fee_mode: isMissed ? "NONE" : brokerageMode,
+      fee_value: isMissed ? 0 : brokerageValue,
+      id: existing?.id ?? nextNumericId(current.trades),
+      gross_pnl: grossPnl,
+      journal_entry_type: payload.entryType,
+      mistake_tags: payload.mistakeTags,
+      missed_reason: isMissed ? payload.missedReason : null,
+      notes: payload.notes,
+      planned_entry_price: payload.plannedEntryPrice,
+      planned_exit_price: payload.plannedExitPrice,
+      planned_stop_loss: payload.plannedStopLoss,
+      planned_take_profit: payload.plannedTakeProfit,
+      playbook_id: payload.playbookId ?? session.playbook_id ?? null,
+      quantity,
+      r_multiple: riskAmount != null && riskAmount > 0 ? realizedPnl / riskAmount : null,
+      realized_pnl: realizedPnl,
+      remaining_quantity: 0,
+      screenshot_url: payload.screenshotUrl,
+      session_id: session.id,
+      side: payload.side,
+      status: "CLOSED",
+      stop_loss: isMissed ? null : payload.stopLoss,
+      strategy_name: payload.strategyName ?? session.strategy_name,
+      take_profit: isMissed ? null : payload.takeProfit,
+    };
+    return { sessions, trade };
+  }
+
   function addTrade(payload: LiveTradeInput) {
     setData((current) => {
-      const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession(current.accounts, current.settings);
-      const sessions = current.sessions.length > 0 ? current.sessions : [session];
-      const isMissed = payload.entryType === "MISSED";
-      const entryPrice = payload.entryPrice ?? payload.plannedEntryPrice ?? 0;
-      const exitPrice = isMissed ? payload.plannedExitPrice : payload.exitPrice;
-      const quantity = isMissed ? payload.quantity ?? 0 : payload.quantity ?? 0;
-      const grossPnl =
-        !isMissed && exitPrice != null
-          ? payload.side === "LONG"
-            ? (exitPrice - entryPrice) * quantity
-            : (entryPrice - exitPrice) * quantity
-          : 0;
-      const notional = Math.abs(entryPrice * quantity);
-      const commissionAmount = isMissed
-        ? 0
-        : journalCostAmount(current.settings.default_commission_mode, current.settings.default_commission_value, notional);
-      const feeAmount = isMissed
-        ? 0
-        : journalCostAmount(current.settings.default_fee_mode, current.settings.default_fee_value, notional);
-      const realizedPnl = grossPnl - commissionAmount - feeAmount;
-      const riskAmount =
-        payload.stopLoss == null || isMissed
-          ? null
-          : Math.abs(entryPrice - payload.stopLoss) * quantity;
-      const directAccountIds = filterLiveAccountIds(payload.accountIds, current.accounts);
-      const sessionAccountIds = filterLiveAccountIds(session.account_ids ?? [], current.accounts);
-      const accountIds = directAccountIds.length > 0 ? directAccountIds : isMissed ? [] : sessionAccountIds;
-      const trade: JournalTrade = {
-        account_ids: accountIds,
-        commission_amount: commissionAmount,
-        commission_mode: isMissed ? "NONE" : current.settings.default_commission_mode,
-        commission_value: isMissed ? 0 : current.settings.default_commission_value,
-        emotional_state: payload.emotionalState,
-        entry_offset: 0,
-        entry_price: entryPrice,
-        entry_time: toIsoFromDateTimeLocal(payload.entryTime),
-        exit_offset: null,
-        exit_price: exitPrice,
-        exit_time: isMissed ? toIsoFromDateTimeLocal(payload.entryTime) : toIsoFromDateTimeLocal(payload.exitTime),
-        fee_amount: feeAmount,
-        fee_mode: isMissed ? "NONE" : current.settings.default_fee_mode,
-        fee_value: isMissed ? 0 : current.settings.default_fee_value,
-        id: nextNumericId(current.trades),
-        gross_pnl: grossPnl,
-        journal_entry_type: payload.entryType,
-        mistake_tags: payload.mistakeTags,
-        missed_reason: isMissed ? payload.missedReason : null,
-        notes: payload.notes,
-        planned_entry_price: payload.plannedEntryPrice,
-        planned_exit_price: payload.plannedExitPrice,
-        planned_stop_loss: payload.plannedStopLoss,
-        planned_take_profit: payload.plannedTakeProfit,
-        playbook_id: payload.playbookId ?? session.playbook_id ?? null,
-        quantity,
-        r_multiple: riskAmount != null && riskAmount > 0 ? realizedPnl / riskAmount : null,
-        realized_pnl: realizedPnl,
-        remaining_quantity: 0,
-        screenshot_url: payload.screenshotUrl,
-        session_id: session.id,
-        side: payload.side,
-        status: "CLOSED",
-        stop_loss: isMissed ? null : payload.stopLoss,
-        strategy_name: payload.strategyName ?? session.strategy_name,
-        take_profit: isMissed ? null : payload.takeProfit,
-      };
+      const { sessions, trade } = buildTradeFromPayload(current, payload);
       return {
         ...current,
         sessions,
         trades: [...current.trades, trade],
+      };
+    });
+  }
+
+  function updateTrade(tradeId: number, payload: LiveTradeInput) {
+    setData((current) => {
+      const existing = current.trades.find((trade) => trade.id === tradeId);
+      if (!existing) {
+        return current;
+      }
+      const { sessions, trade } = buildTradeFromPayload(current, payload, existing);
+      return {
+        ...current,
+        sessions,
+        trades: current.trades.map((item) => (item.id === tradeId ? trade : item)),
       };
     });
   }
@@ -10852,6 +11176,7 @@ function useLiveJournalData(): LiveJournalController {
     updatePlaybook,
     updateSession,
     updateSettings,
+    updateTrade,
     updateTradeStrategy,
     data,
   };
@@ -10971,6 +11296,10 @@ function defaultLiveSession(
   return {
     account: accountRows.length > 0 ? accountRows.map((account) => account.name).join(", ") : "Manual",
     account_ids: accountIds,
+    brokerage_mode: settings.default_fee_mode,
+    brokerage_value: settings.default_fee_value,
+    commission_mode: settings.default_commission_mode,
+    commission_value: settings.default_commission_value,
     created_at: new Date().toISOString(),
     currency: accountRows.length > 0 ? currencyForJournalAccounts(accountRows, settings.default_currency) : normalizeCurrencyCode(settings.default_currency),
     id: 1,
@@ -11102,6 +11431,10 @@ function normalizeLiveJournalSession(
       ? linkedAccounts.map((account) => account.name).join(", ")
       : session.account?.trim() || "Manual",
     account_ids: accountIds,
+    brokerage_mode: normalizeCommissionMode(session.brokerage_mode ?? settings.default_fee_mode),
+    brokerage_value: safeNonNegativeNumber(session.brokerage_value, settings.default_fee_value),
+    commission_mode: normalizeCommissionMode(session.commission_mode ?? settings.default_commission_mode),
+    commission_value: safeNonNegativeNumber(session.commission_value, settings.default_commission_value),
     currency: linkedAccounts.length > 0
       ? currencyForJournalAccounts(linkedAccounts, session.currency || settings.default_currency)
       : normalizeCurrencyCode(session.currency || settings.default_currency),
@@ -11340,6 +11673,18 @@ function nextNumericId(items: Array<{ id: number }>) {
 
 function defaultDateTimeLocal(offsetMinutes: number) {
   const date = new Date(Date.now() + offsetMinutes * 60000);
+  const localOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - localOffset).toISOString().slice(0, 16);
+}
+
+function dateTimeLocalFromIso(value: string | null | undefined) {
+  if (!value) {
+    return defaultDateTimeLocal(0);
+  }
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return defaultDateTimeLocal(0);
+  }
   const localOffset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - localOffset).toISOString().slice(0, 16);
 }
