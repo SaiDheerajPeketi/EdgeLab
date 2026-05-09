@@ -1,6 +1,7 @@
-import type { BacktestSession, DatasetCatalog, DatasetInstrument } from "./api";
+import type { BacktestSession, DatasetCatalog, DatasetInstrument, Trade } from "./api";
 
-const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "USD";
+export const MIXED_CURRENCY = "MIXED";
 
 export function normalizeCurrencyCode(value: string | null | undefined) {
   const currency = value?.trim().toUpperCase();
@@ -12,7 +13,7 @@ export function currencyForSession(
   datasets: DatasetCatalog | null | undefined,
 ) {
   return normalizeCurrencyCode(
-    datasetCurrencyForSession(session, datasets) ?? session?.currency ?? DEFAULT_CURRENCY,
+    session?.currency ?? datasetCurrencyForSession(session, datasets) ?? DEFAULT_CURRENCY,
   );
 }
 
@@ -20,10 +21,35 @@ export function currencyForSessions(
   sessions: BacktestSession[],
   datasets: DatasetCatalog | null | undefined,
 ) {
-  const currencies = sessions
-    .map((session) => currencyForSession(session, datasets))
-    .filter(Boolean);
-  return currencies[0] ?? DEFAULT_CURRENCY;
+  const currencies = new Set(
+    sessions
+      .map((session) => currencyForSession(session, datasets))
+      .filter(Boolean),
+  );
+  if (currencies.size > 1) {
+    return MIXED_CURRENCY;
+  }
+  return currencies.values().next().value ?? DEFAULT_CURRENCY;
+}
+
+export function currencyForTrades(
+  trades: Trade[],
+  sessionById: Map<number, BacktestSession>,
+  datasets: DatasetCatalog | null | undefined,
+  fallbackCurrency = DEFAULT_CURRENCY,
+) {
+  const sessions = Array.from(
+    new Map(
+      trades
+        .map((trade) => sessionById.get(trade.session_id))
+        .filter((session): session is BacktestSession => Boolean(session))
+        .map((session) => [session.id, session] as const),
+    ).values(),
+  );
+  if (sessions.length === 0) {
+    return normalizeCurrencyCode(fallbackCurrency);
+  }
+  return currencyForSessions(sessions, datasets);
 }
 
 function datasetCurrencyForSession(

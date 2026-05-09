@@ -89,7 +89,13 @@ import {
   saveOrderLineModificationConfirmation,
   subscribeOrderLineModificationConfirmation,
 } from "../lib/backtestSettings";
-import { currencyForSession, currencyForSessions } from "../lib/currency";
+import {
+  MIXED_CURRENCY,
+  currencyForSession,
+  currencyForSessions,
+  currencyForTrades,
+  normalizeCurrencyCode,
+} from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import {
   DEFAULT_MISTAKE_TAGS,
@@ -697,6 +703,10 @@ function DashboardPage({
   );
   const filteredDays = useMemo(() => groupTradesByDay(filteredClosedTrades), [filteredClosedTrades]);
   const filteredAggregate = useMemo(() => aggregateTrades(filteredClosedTrades), [filteredClosedTrades]);
+  const filteredCurrency = useMemo(
+    () => currencyForFilteredScope(filteredClosedTrades, sessionById, datasets, currency, filters),
+    [currency, datasets, filteredClosedTrades, filters, sessionById],
+  );
   const selectedDay =
     filteredDays.find((day) => day.date === selectedDayDate) ?? filteredDays[0] ?? null;
   const monthDays = useMemo(
@@ -706,6 +716,17 @@ function DashboardPage({
   const monthAggregate = useMemo(
     () => aggregateTrades(monthDays.flatMap((day) => day.trades)),
     [monthDays],
+  );
+  const selectedDayCurrency = useMemo(
+    () =>
+      selectedDay
+        ? currencyForTrades(selectedDay.trades, sessionById, datasets, filteredCurrency)
+        : filteredCurrency,
+    [datasets, filteredCurrency, selectedDay, sessionById],
+  );
+  const monthCurrency = useMemo(
+    () => currencyForTrades(monthDays.flatMap((day) => day.trades), sessionById, datasets, filteredCurrency),
+    [datasets, filteredCurrency, monthDays, sessionById],
   );
   const filtersActive = resultFiltersActive(filters);
   const startingBalance =
@@ -745,7 +766,7 @@ function DashboardPage({
     await copyTextToClipboard(
       buildResultsSummaryText({
         aggregate: filteredAggregate,
-        currency,
+        currency: filteredCurrency,
         label: "Backtest overview",
         trades: filteredClosedTrades.length,
       }),
@@ -754,14 +775,14 @@ function DashboardPage({
   }
 
   async function copyBalance() {
-    await copyTextToClipboard(formatMoney(accountBalance, currency));
+    await copyTextToClipboard(formatMoney(accountBalance, filteredCurrency));
     setCopyStatus("Balance copied");
   }
 
   function exportOverviewCsv() {
     exportResultsSummaryCsv({
       aggregate: filteredAggregate,
-      currency,
+      currency: filteredCurrency,
       days: filteredDays,
       filenamePrefix: "backtest-overview",
       sessionById,
@@ -829,7 +850,7 @@ function DashboardPage({
             <span className="status-pill">{selectedDay?.label ?? "No trade day"}</span>
           </div>
           <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(selectedDay?.aggregate.netPnl)}`}>
-            {formatMoney(selectedDay?.aggregate.netPnl ?? 0, currency)}
+            {formatMoney(selectedDay?.aggregate.netPnl ?? 0, selectedDayCurrency)}
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <CompactMetric label="Trades" value={String(selectedDay?.aggregate.totalTrades ?? 0)} />
@@ -891,7 +912,7 @@ function DashboardPage({
             </button>
           </div>
           <div className="mt-6 text-4xl font-semibold tabular-nums text-white">
-            {formatMoney(accountBalance, currency)}
+            {formatMoney(accountBalance, filteredCurrency)}
           </div>
           <p className="mt-3 text-sm text-slate-500">
             Simulated from starting balance plus closed replay trade P&L.
@@ -921,7 +942,7 @@ function DashboardPage({
             </div>
           </div>
           <CalendarHeatmap
-            currency={currency}
+            currency={filteredCurrency}
             days={filteredDays}
             month={calendarMonth}
             onMonthChange={setCalendarMonth}
@@ -934,7 +955,7 @@ function DashboardPage({
             </div>
           )}
           <div className="mt-4 grid gap-2 md:grid-cols-4">
-            <CompactMetric label="Month P&L" value={formatMoney(monthAggregate.netPnl, currency)} tone={toneForNumber(monthAggregate.netPnl)} />
+            <CompactMetric label="Month P&L" value={formatMoney(monthAggregate.netPnl, monthCurrency)} tone={toneForNumber(monthAggregate.netPnl)} />
             <CompactMetric label="Trading days" value={String(monthDays.length)} />
             <CompactMetric label="Win rate" value={formatPercent(monthAggregate.winRate)} />
             <CompactMetric label="Profit factor" value={formatRatio(monthAggregate.profitFactor)} />
@@ -943,10 +964,10 @@ function DashboardPage({
         <FeatureCard>
           <CardLabel icon={TrendingDown} label="Drawdown" />
           <div className="mt-4">
-            <AreaSparkline currency={currency} values={drawdownValues(filteredClosedTrades)} height={220} tone="rose" />
+            <AreaSparkline currency={filteredCurrency} values={drawdownValues(filteredClosedTrades)} height={220} tone="rose" />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <CompactMetric label="Max DD" value={formatMoney(filteredAggregate.maxDrawdown, currency)} tone="text-rose-300" />
+            <CompactMetric label="Max DD" value={formatMoney(filteredAggregate.maxDrawdown, filteredCurrency)} tone="text-rose-300" />
             <CompactMetric label="Recovery" value={formatRatio(filteredAggregate.recoveryFactor)} />
           </div>
         </FeatureCard>
@@ -1700,6 +1721,13 @@ function DayViewPage({
     () => findDayViewPeriod(periods, selectedDate, mode),
     [mode, periods, selectedDate],
   );
+  const selectedPeriodCurrency = useMemo(
+    () =>
+      selectedPeriod
+        ? currencyForTrades(selectedPeriod.trades, sessionById, datasets, currency)
+        : currency,
+    [currency, datasets, selectedPeriod, sessionById],
+  );
   const selectedRange =
     mode === "week" && selectedPeriod
       ? { start: selectedPeriod.startDate, end: selectedPeriod.endDate }
@@ -1814,7 +1842,7 @@ function DayViewPage({
                   <h2 className="mt-1 truncate text-xl font-semibold text-white">{selectedPeriod.label}</h2>
                   <div className="mt-1 text-sm text-slate-500">{selectedPeriod.sublabel}</div>
                   <div className={`mt-2 text-sm font-semibold ${toneForNumber(selectedPeriod.aggregate.netPnl)}`}>
-                    Net P&L {formatMoney(selectedPeriod.aggregate.netPnl, currency)}
+                    Net P&L {formatMoney(selectedPeriod.aggregate.netPnl, selectedPeriodCurrency)}
                   </div>
                 </div>
                 <button className="control-button h-9" onClick={() => setNoteEditing(true)} type="button">
@@ -1824,10 +1852,10 @@ function DayViewPage({
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.58fr)_minmax(280px,0.42fr)]">
-                <AreaSparkline currency={currency} values={cumulativeValues(selectedPeriod.trades)} height={190} />
+                <AreaSparkline currency={selectedPeriodCurrency} values={cumulativeValues(selectedPeriod.trades)} height={190} />
                 <div className="grid grid-cols-2 gap-2">
                   <CompactMetric label="Trades" value={String(selectedPeriod.aggregate.totalTrades)} />
-                  <CompactMetric label="Net P&L" value={formatMoney(selectedPeriod.aggregate.netPnl, currency)} tone={toneForNumber(selectedPeriod.aggregate.netPnl)} />
+                  <CompactMetric label="Net P&L" value={formatMoney(selectedPeriod.aggregate.netPnl, selectedPeriodCurrency)} tone={toneForNumber(selectedPeriod.aggregate.netPnl)} />
                   <CompactMetric label="Winners" value={String(selectedPeriod.aggregate.wins)} tone="text-emerald-300" />
                   <CompactMetric label="Losers" value={String(selectedPeriod.aggregate.losses)} tone="text-rose-300" />
                   <CompactMetric label="Win rate" value={formatPercent(selectedPeriod.aggregate.winRate)} />
@@ -1900,7 +1928,7 @@ function DayViewPage({
                         <span className="text-xs text-slate-500">{day.aggregate.totalTrades} trades</span>
                       </span>
                       <span className={`text-sm font-semibold tabular-nums ${toneForNumber(day.aggregate.netPnl)}`}>
-                        {formatMoney(day.aggregate.netPnl, currency)}
+                        {formatMoney(day.aggregate.netPnl, currencyForTrades(day.trades, sessionById, datasets, selectedPeriodCurrency))}
                       </span>
                       <span className="text-xs text-slate-500">{formatPercent(day.aggregate.winRate)}</span>
                     </button>
@@ -1996,6 +2024,7 @@ function DayViewPage({
               <div className="mt-3 grid max-h-[420px] gap-2 overflow-auto pr-1">
                 {periods.map((period) => {
                   const active = period.id === selectedPeriod.id;
+                  const periodCurrency = currencyForTrades(period.trades, sessionById, datasets, currency);
                   return (
                     <button
                       className={`rounded-md border px-3 py-2 text-left transition ${
@@ -2013,7 +2042,7 @@ function DayViewPage({
                           <span className="text-xs text-slate-500">{period.sublabel}</span>
                         </span>
                         <span className={`shrink-0 text-sm font-semibold tabular-nums ${toneForNumber(period.aggregate.netPnl)}`}>
-                          {formatMoney(period.aggregate.netPnl, currency)}
+                          {formatMoney(period.aggregate.netPnl, periodCurrency)}
                         </span>
                       </div>
                     </button>
@@ -2114,6 +2143,10 @@ function TradeViewPage({
     [closedTrades, dateFrom, dateTo, instrumentFilter, searchTerm, sessionById, sessionFilter, sideFilter, strategyFilter, tagFilter],
   );
   const filteredAggregate = useMemo(() => aggregateTrades(filteredTrades), [filteredTrades]);
+  const filteredCurrency = useMemo(
+    () => currencyForFilteredScope(filteredTrades, sessionById, datasets, currency, tradeViewFilters),
+    [currency, datasets, filteredTrades, sessionById, tradeViewFilters],
+  );
   const filtersActive =
     sessionFilter !== "ALL" ||
     instrumentFilter !== "ALL" ||
@@ -2213,14 +2246,14 @@ function TradeViewPage({
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
             <CompactMetric label="Visible trades" value={`${filteredTrades.length}/${closedTrades.length}`} />
-            <CompactMetric label="Net P&L" value={formatMoney(filteredAggregate.netPnl, currency)} tone={toneForNumber(filteredAggregate.netPnl)} />
+            <CompactMetric label="Net P&L" value={formatMoney(filteredAggregate.netPnl, filteredCurrency)} tone={toneForNumber(filteredAggregate.netPnl)} />
             <CompactMetric label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
             <CompactMetric label="Avg R" value={formatOptionalNumber(filteredAggregate.averageR)} />
             <CompactMetric label="Profit factor" value={formatRatio(filteredAggregate.profitFactor)} />
           </div>
         </div>
         <TradeLog
-          currency={currency}
+          currency={filteredCurrency}
           onScrollTopChange={onTradeViewLogScrollChange}
           onScrollTopRestored={onTradeViewLogScrollRestored}
           restoreScrollTop={tradeViewLogScrollTop}
@@ -4713,6 +4746,7 @@ function buildNotebookReviewDraft(trade: Trade, currency: string, strategy: stri
 function ReportsPage({
   closedTrades,
   currency,
+  datasets,
   sessionById,
   sessions,
   strategies,
@@ -4731,6 +4765,10 @@ function ReportsPage({
   );
   const filteredAggregate = useMemo(() => aggregateTrades(filteredClosedTrades), [filteredClosedTrades]);
   const filteredDays = useMemo(() => groupTradesByDay(filteredClosedTrades), [filteredClosedTrades]);
+  const reportCurrency = useMemo(
+    () => currencyForFilteredScope(filteredClosedTrades, sessionById, datasets, currency, filters),
+    [currency, datasets, filteredClosedTrades, filters, sessionById],
+  );
   const filteredStrategies = useMemo(
     () =>
       groupByStrategy(sessions, filteredClosedTrades, sessionById).filter(
@@ -4793,7 +4831,7 @@ function ReportsPage({
   function exportMetricsCsv() {
     exportResultsSummaryCsv({
       aggregate: filteredAggregate,
-      currency,
+      currency: reportCurrency,
       days: filteredDays,
       filenamePrefix: "backtest-metrics",
       sessionById,
@@ -4862,6 +4900,9 @@ function ReportsPage({
             <span className="status-pill h-8 px-2 text-[11px]">
               {filteredClosedTrades.length}/{closedTrades.length} trades
             </span>
+            {reportCurrency === MIXED_CURRENCY && (
+              <span className="status-pill h-8 px-2 text-[11px]">Mixed currencies</span>
+            )}
             {filtersActive && (
               <button className="control-button h-8 px-2 text-xs" onClick={() => setFilters(DEFAULT_RESULT_FILTERS)} type="button">
                 <RefreshCw size={13} />
@@ -4873,13 +4914,13 @@ function ReportsPage({
       </section>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
-        <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, currency)} />
-        <ResultMetricCard icon={WalletCards} label="Commissions" value={formatMoney(filteredAggregate.totalCommissions, currency)} />
-        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(filteredAggregate.totalFees, currency)} />
+        <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, reportCurrency)} />
+        <ResultMetricCard icon={WalletCards} label="Commissions" value={formatMoney(filteredAggregate.totalCommissions, reportCurrency)} />
+        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(filteredAggregate.totalFees, reportCurrency)} />
         <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
         <ResultMetricCard icon={Target} label="Trades" value={String(filteredAggregate.totalTrades)} />
         <ResultMetricCard icon={Gauge} label="Avg R" tone={toneForNumber(filteredAggregate.averageR)} value={formatOptionalNumber(filteredAggregate.averageR)} />
-        <ResultMetricCard icon={TrendingDown} label="Max DD" tone="text-rose-300" value={formatMoney(filteredAggregate.maxDrawdown, currency)} />
+        <ResultMetricCard icon={TrendingDown} label="Max DD" tone="text-rose-300" value={formatMoney(filteredAggregate.maxDrawdown, reportCurrency)} />
       </div>
 
       {tab === "performance" && (
@@ -4891,10 +4932,10 @@ function ReportsPage({
                 label="Net P&L"
                 meta={`${filteredAggregate.totalTrades} closed trades`}
                 tone={toneForNumber(filteredAggregate.netPnl)}
-                value={formatMoney(filteredAggregate.netPnl, currency)}
+                value={formatMoney(filteredAggregate.netPnl, reportCurrency)}
               />
               <div className="px-4 pb-4">
-                <AreaSparkline currency={currency} height={288} values={cumulativeValues(filteredClosedTrades)} />
+                <AreaSparkline currency={reportCurrency} height={288} values={cumulativeValues(filteredClosedTrades)} />
               </div>
             </FeatureCard>
             <FeatureCard className="overflow-hidden p-0">
@@ -4903,10 +4944,10 @@ function ReportsPage({
                 label="Daily P&L"
                 meta={`${filteredDays.length} trading days`}
                 tone={toneForNumber(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl)}
-                value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)}
+                value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)}
               />
               <div className="px-4 pb-4">
-                <BarBreakdown chartHeight={288} currency={currency} maxItems={18} rows={dailyPnlRows} />
+                <BarBreakdown chartHeight={288} currency={reportCurrency} maxItems={18} rows={dailyPnlRows} />
               </div>
             </FeatureCard>
           </div>
@@ -4924,9 +4965,13 @@ function ReportsPage({
                 onChange={(value) => setPerformanceDetailTab(value as PerformanceDetailTab)}
               />
             </div>
-            {performanceDetailTab === "summary" && <StatsGrid aggregate={filteredAggregate} currency={currency} />}
-            {performanceDetailTab === "days" && <ResultsDayTable currency={currency} days={filteredDays} />}
-            {performanceDetailTab === "trades" && <ResultsTradeTable currency={currency} sessionById={sessionById} trades={filteredClosedTrades} />}
+            {performanceDetailTab === "summary" && <StatsGrid aggregate={filteredAggregate} currency={reportCurrency} />}
+            {performanceDetailTab === "days" && (
+              <ResultsDayTable currency={reportCurrency} datasets={datasets} days={filteredDays} sessionById={sessionById} />
+            )}
+            {performanceDetailTab === "trades" && (
+              <ResultsTradeTable currency={reportCurrency} datasets={datasets} sessionById={sessionById} trades={filteredClosedTrades} />
+            )}
           </FeatureCard>
         </div>
       )}
@@ -4934,10 +4979,10 @@ function ReportsPage({
       {tab === "overview" && (
         <div className="grid gap-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <InsightMetric currency={currency} row={bestRow(monthRows)} title="Best month" />
-            <InsightMetric currency={currency} row={worstRow(monthRows)} title="Weakest month" />
-            <InsightMetric currency={currency} row={bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Best day" />
-            <InsightMetric currency={currency} row={worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Weakest day" />
+            <InsightMetric currency={reportCurrency} row={bestRow(monthRows)} title="Best month" />
+            <InsightMetric currency={reportCurrency} row={worstRow(monthRows)} title="Weakest month" />
+            <InsightMetric currency={reportCurrency} row={bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Best day" />
+            <InsightMetric currency={reportCurrency} row={worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Weakest day" />
           </div>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,0.66fr)_minmax(320px,0.34fr)]">
             <FeatureCard className="overflow-hidden p-0">
@@ -4946,10 +4991,10 @@ function ReportsPage({
                 label="Equity curve"
                 meta="Filtered closed trades"
                 tone={toneForNumber(filteredAggregate.netPnl)}
-                value={formatMoney(filteredAggregate.netPnl, currency)}
+                value={formatMoney(filteredAggregate.netPnl, reportCurrency)}
               />
               <div className="px-4 pb-4">
-                <AreaSparkline currency={currency} height={260} values={cumulativeValues(filteredClosedTrades)} />
+                <AreaSparkline currency={reportCurrency} height={260} values={cumulativeValues(filteredClosedTrades)} />
               </div>
             </FeatureCard>
             <FeatureCard>
@@ -4960,7 +5005,7 @@ function ReportsPage({
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate text-sm font-semibold text-white">{strategy.name}</span>
                       <span className={`shrink-0 text-sm font-semibold tabular-nums ${toneForNumber(strategy.aggregate.netPnl)}`}>
-                        {formatMoney(strategy.aggregate.netPnl, currency)}
+                        {formatMoney(strategy.aggregate.netPnl, reportCurrency)}
                       </span>
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
@@ -4975,7 +5020,7 @@ function ReportsPage({
           <FeatureCard>
             <CardLabel icon={Gauge} label="Summary metrics" />
             <div className="mt-4">
-              <StatsGrid aggregate={filteredAggregate} currency={currency} />
+              <StatsGrid aggregate={filteredAggregate} currency={reportCurrency} />
             </div>
           </FeatureCard>
         </div>
@@ -4994,7 +5039,7 @@ function ReportsPage({
             onChange={(value) => setTimeBreakdown(value as TimeBreakdownMode)}
           />
           <ReportBreakdown
-            currency={currency}
+            currency={reportCurrency}
             leftTitle={`${timeTitle} net P&L`}
             rightTitle={`${timeTitle} win rate`}
             rows={timeRows}
@@ -5015,7 +5060,7 @@ function ReportsPage({
             onChange={(value) => setRiskBreakdown(value as RiskBreakdownMode)}
           />
           <ReportBreakdown
-            currency={currency}
+            currency={reportCurrency}
             leftTitle={`${riskTitle} net P&L`}
             rightTitle={`${riskTitle} win rate`}
             rows={riskRows}
@@ -5023,7 +5068,7 @@ function ReportsPage({
           {riskBreakdown === "rMultiple" && (
             <FeatureCard>
               <CardLabel icon={Grid2X2} label="R-multiple cross analysis" />
-              <CrossAnalysis currency={currency} rows={rRows} sessionById={sessionById} trades={filteredClosedTrades} />
+              <CrossAnalysis currency={reportCurrency} rows={rRows} sessionById={sessionById} trades={filteredClosedTrades} />
             </FeatureCard>
           )}
         </div>
@@ -5031,7 +5076,7 @@ function ReportsPage({
 
       {tab === "tags" && (
         <ReportBreakdown
-          currency={currency}
+          currency={reportCurrency}
           leftTitle="Net P&L by tag"
           rightTitle="Win % by tag"
           rows={tagRows}
@@ -5043,19 +5088,19 @@ function ReportsPage({
           <FeatureCard>
             <CardLabel icon={TrendingUp} label={`Wins (${filteredAggregate.wins} trades matched)`} />
             <div className="mt-4">
-              <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl > 0))} currency={currency} />
+              <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl > 0))} currency={reportCurrency} />
             </div>
           </FeatureCard>
           <FeatureCard>
             <CardLabel icon={TrendingDown} label={`Losses (${filteredAggregate.losses} trades matched)`} />
             <div className="mt-4">
-              <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl < 0))} currency={currency} />
+              <StatsGrid aggregate={aggregateTrades(filteredClosedTrades.filter((trade) => trade.realized_pnl < 0))} currency={reportCurrency} />
             </div>
           </FeatureCard>
           <FeatureCard className="xl:col-span-2">
             <CardLabel icon={ClipboardList} label="Matched trade outcomes" />
             <div className="mt-4">
-              <ResultsTradeTable currency={currency} sessionById={sessionById} trades={filteredClosedTrades} />
+              <ResultsTradeTable currency={reportCurrency} datasets={datasets} sessionById={sessionById} trades={filteredClosedTrades} />
             </div>
           </FeatureCard>
         </div>
@@ -5066,16 +5111,16 @@ function ReportsPage({
           <FeatureCard>
             <CardLabel icon={CalendarDays} label="Result calendar" />
             <div className="mt-4">
-              <CalendarHeatmap currency={currency} days={filteredDays} />
+              <CalendarHeatmap currency={reportCurrency} days={filteredDays} />
             </div>
           </FeatureCard>
           <FeatureCard>
             <CardLabel icon={Activity} label="Calendar summary" />
             <div className="mt-4 grid gap-2">
               <CompactMetric label="Trading days" value={String(filteredDays.length)} />
-              <CompactMetric label="Best day" value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-emerald-300" />
-              <CompactMetric label="Weakest day" value={formatMoney(worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, currency)} tone="text-rose-300" />
-              <CompactMetric label="Avg day" value={formatMoney(filteredDays.length > 0 ? filteredAggregate.netPnl / filteredDays.length : 0, currency)} tone={toneForNumber(filteredDays.length > 0 ? filteredAggregate.netPnl / filteredDays.length : 0)} />
+              <CompactMetric label="Best day" value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)} tone="text-emerald-300" />
+              <CompactMetric label="Weakest day" value={formatMoney(worstRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)} tone="text-rose-300" />
+              <CompactMetric label="Avg day" value={formatMoney(filteredDays.length > 0 ? filteredAggregate.netPnl / filteredDays.length : 0, reportCurrency)} tone={toneForNumber(filteredDays.length > 0 ? filteredAggregate.netPnl / filteredDays.length : 0)} />
             </div>
           </FeatureCard>
         </div>
@@ -5085,7 +5130,7 @@ function ReportsPage({
         <div className="grid gap-3">
           <InsightCard
             title="Monthly recap"
-            body={filteredClosedTrades.length > 0 ? `Net ${formatMoney(filteredAggregate.netPnl, currency)} across ${filteredClosedTrades.length} closed backtest trades. Best trade ${formatMoney(filteredAggregate.largestWin ?? 0, currency)}, worst trade ${formatMoney(filteredAggregate.largestLoss ?? 0, currency)}.` : "Backtest reports will appear here after your first closed replay trade."}
+            body={filteredClosedTrades.length > 0 ? `Net ${formatMoney(filteredAggregate.netPnl, reportCurrency)} across ${filteredClosedTrades.length} closed backtest trades. Best trade ${formatMoney(filteredAggregate.largestWin ?? 0, reportCurrency)}, worst trade ${formatMoney(filteredAggregate.largestLoss ?? 0, reportCurrency)}.` : "Backtest reports will appear here after your first closed replay trade."}
           />
           <InsightCard
             title="Strategy pattern"
@@ -5099,6 +5144,7 @@ function ReportsPage({
 
 function StrategiesPage({
   currency,
+  datasets,
   sessionById,
   sessions,
   strategies,
@@ -5119,6 +5165,9 @@ function StrategiesPage({
   const [mutatingName, setMutatingName] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const selected = strategyRows.find((strategy) => strategy.name === selectedName) ?? strategyRows[0] ?? null;
+  const selectedCurrency = selected
+    ? currencyForSessions(selected.sessions, datasets)
+    : currency;
 
   useEffect(() => {
     if (strategyRows.length === 0) {
@@ -5250,52 +5299,55 @@ function StrategiesPage({
               </tr>
             </thead>
             <tbody>
-              {strategyRows.map((strategy) => (
-                <tr
-                  className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${
-                    selected?.name === strategy.name ? "bg-cyan-300/10" : ""
-                  }`}
-                  key={strategy.name}
-                  onClick={() => setSelectedName(strategy.name)}
-                >
-                  <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
-                  <td className="px-3 py-4">{strategy.sessions.length}</td>
-                  <td className="px-3 py-4">{strategy.aggregate.totalTrades}</td>
-                  <td className="px-3 py-4 text-rose-300">{formatMoney(strategy.aggregate.averageLoss, currency)}</td>
-                  <td className="px-3 py-4 text-emerald-300">{formatMoney(strategy.aggregate.averageWin, currency)}</td>
-                  <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl, currency)}</td>
-                  <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
-                  <td className="px-3 py-4">
-                    <div className="flex gap-2">
-                      <button
-                        className="icon-button h-8 w-8"
-                        disabled={mutatingName === strategy.name}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openEditDialog(strategy.name);
-                        }}
-                        title="Edit strategy"
-                        type="button"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
-                        disabled={mutatingName === strategy.name}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteTarget(strategy);
-                          setMutationError(null);
-                        }}
-                        title="Delete strategy"
-                        type="button"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {strategyRows.map((strategy) => {
+                const strategyCurrency = currencyForSessions(strategy.sessions, datasets);
+                return (
+                  <tr
+                    className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${
+                      selected?.name === strategy.name ? "bg-cyan-300/10" : ""
+                    }`}
+                    key={strategy.name}
+                    onClick={() => setSelectedName(strategy.name)}
+                  >
+                    <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
+                    <td className="px-3 py-4">{strategy.sessions.length}</td>
+                    <td className="px-3 py-4">{strategy.aggregate.totalTrades}</td>
+                    <td className="px-3 py-4 text-rose-300">{formatMoney(strategy.aggregate.averageLoss, strategyCurrency)}</td>
+                    <td className="px-3 py-4 text-emerald-300">{formatMoney(strategy.aggregate.averageWin, strategyCurrency)}</td>
+                    <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl, strategyCurrency)}</td>
+                    <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
+                    <td className="px-3 py-4">
+                      <div className="flex gap-2">
+                        <button
+                          className="icon-button h-8 w-8"
+                          disabled={mutatingName === strategy.name}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditDialog(strategy.name);
+                          }}
+                          title="Edit strategy"
+                          type="button"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                          disabled={mutatingName === strategy.name}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDeleteTarget(strategy);
+                            setMutationError(null);
+                          }}
+                          title="Delete strategy"
+                          type="button"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {strategyRows.length === 0 && <EmptyState icon={Target} message="Create a strategy to start organizing backtest sessions." />}
@@ -5333,7 +5385,7 @@ function StrategiesPage({
                 Compare session outcomes, win rate, R-multiple, and drawdown for this strategy only.
               </p>
               <div className="mt-4 grid gap-2 md:grid-cols-3">
-                <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl, currency)} tone={toneForNumber(selected.aggregate.netPnl)} />
+                <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl, selectedCurrency)} tone={toneForNumber(selected.aggregate.netPnl)} />
                 <CompactMetric label="Win rate" value={formatPercent(selected.aggregate.winRate)} />
                 <CompactMetric label="Profit factor" value={formatRatio(selected.aggregate.profitFactor)} />
               </div>
@@ -7172,7 +7224,17 @@ function EmptyState({ icon: Icon, message }: { icon: LucideIcon; message: string
   );
 }
 
-function ResultsDayTable({ currency, days }: { currency: string; days: DayGroup[] }) {
+function ResultsDayTable({
+  currency,
+  datasets,
+  days,
+  sessionById,
+}: {
+  currency: string;
+  datasets: DatasetCatalog | null;
+  days: DayGroup[];
+  sessionById: Map<number, BacktestSession>;
+}) {
   if (days.length === 0) {
     return <EmptyState icon={CalendarDays} message="No day results in this filtered scope." />;
   }
@@ -7190,18 +7252,21 @@ function ResultsDayTable({ currency, days }: { currency: string; days: DayGroup[
           </tr>
         </thead>
         <tbody>
-          {days.map((day) => (
-            <tr className="border-t border-white/10 text-slate-300" key={day.date}>
-              <td className="px-3 py-3 font-semibold text-white">{day.label}</td>
-              <td className="px-3 py-3">{day.aggregate.totalTrades}</td>
-              <td className={`px-3 py-3 font-semibold tabular-nums ${toneForNumber(day.aggregate.netPnl)}`}>
-                {formatMoney(day.aggregate.netPnl, currency)}
-              </td>
-              <td className="px-3 py-3 tabular-nums">{formatPercent(day.aggregate.winRate)}</td>
-              <td className="px-3 py-3 tabular-nums">{formatOptionalNumber(day.aggregate.averageR)}</td>
-              <td className="px-3 py-3 tabular-nums">{formatRatio(day.aggregate.profitFactor)}</td>
-            </tr>
-          ))}
+          {days.map((day) => {
+            const dayCurrency = currencyForTrades(day.trades, sessionById, datasets, currency);
+            return (
+              <tr className="border-t border-white/10 text-slate-300" key={day.date}>
+                <td className="px-3 py-3 font-semibold text-white">{day.label}</td>
+                <td className="px-3 py-3">{day.aggregate.totalTrades}</td>
+                <td className={`px-3 py-3 font-semibold tabular-nums ${toneForNumber(day.aggregate.netPnl)}`}>
+                  {formatMoney(day.aggregate.netPnl, dayCurrency)}
+                </td>
+                <td className="px-3 py-3 tabular-nums">{formatPercent(day.aggregate.winRate)}</td>
+                <td className="px-3 py-3 tabular-nums">{formatOptionalNumber(day.aggregate.averageR)}</td>
+                <td className="px-3 py-3 tabular-nums">{formatRatio(day.aggregate.profitFactor)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -7210,10 +7275,12 @@ function ResultsDayTable({ currency, days }: { currency: string; days: DayGroup[
 
 function ResultsTradeTable({
   currency,
+  datasets,
   sessionById,
   trades,
 }: {
   currency: string;
+  datasets: DatasetCatalog | null;
   sessionById: Map<number, BacktestSession>;
   trades: Trade[];
 }) {
@@ -7238,6 +7305,7 @@ function ResultsTradeTable({
         <tbody>
           {visibleTrades.map((trade) => {
             const session = sessionById.get(trade.session_id);
+            const rowCurrency = session ? currencyForSession(session, datasets) : currency;
             return (
               <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
                 <td className="px-3 py-3 font-semibold text-white">#{trade.id}</td>
@@ -7246,7 +7314,7 @@ function ResultsTradeTable({
                 <td className="px-3 py-3 text-slate-500">{formatDateTime(trade.exit_time ?? trade.entry_time)}</td>
                 <td className="px-3 py-3">{trade.side}</td>
                 <td className={`px-3 py-3 font-semibold tabular-nums ${toneForNumber(trade.realized_pnl)}`}>
-                  {formatMoney(trade.realized_pnl ?? 0, currency)}
+                  {formatMoney(trade.realized_pnl ?? 0, rowCurrency)}
                 </td>
                 <td className="px-3 py-3 tabular-nums">{formatOptionalNumber(trade.r_multiple)}</td>
               </tr>
@@ -8361,6 +8429,22 @@ function resultFiltersActive(filters: ResultFilterState) {
   );
 }
 
+function currencyForFilteredScope(
+  trades: Trade[],
+  sessionById: Map<number, BacktestSession>,
+  datasets: DatasetCatalog | null,
+  fallbackCurrency: string,
+  filters: ResultFilterState,
+) {
+  if (filters.sessionFilter !== "ALL") {
+    const session = sessionById.get(Number(filters.sessionFilter));
+    if (session) {
+      return currencyForSession(session, datasets);
+    }
+  }
+  return currencyForTrades(trades, sessionById, datasets, fallbackCurrency);
+}
+
 function exportTradeLogCsv(
   trades: Trade[],
   sessionById: Map<number, BacktestSession>,
@@ -9374,12 +9458,20 @@ function formatCompactMoney(value: number | null | undefined, currency = "USD") 
   if (value == null || !Number.isFinite(value)) {
     return "-";
   }
+  const currencyCode = normalizeCurrencyCode(currency);
   const absolute = Math.abs(value);
+  if (currencyCode === MIXED_CURRENCY) {
+    return `Mixed ${new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: absolute < 1000 ? 2 : 1,
+      minimumFractionDigits: absolute < 1000 ? 2 : 0,
+      notation: absolute < 1000 ? "standard" : "compact",
+    }).format(value)}`;
+  }
   if (absolute < 1000) {
-    return formatMoney(value, currency);
+    return formatMoney(value, currencyCode);
   }
   return new Intl.NumberFormat("en-US", {
-    currency,
+    currency: currencyCode,
     maximumFractionDigits: 1,
     notation: "compact",
     style: "currency",

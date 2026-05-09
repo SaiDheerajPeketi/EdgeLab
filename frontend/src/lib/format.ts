@@ -1,4 +1,4 @@
-import { normalizeCurrencyCode } from "./currency";
+import { MIXED_CURRENCY, normalizeCurrencyCode } from "./currency";
 
 export function formatPrice(
   value: number | null | undefined,
@@ -41,6 +41,12 @@ export function formatDateTime(value: string | null | undefined) {
 
 export function formatMoney(value: number | null | undefined, currency = "USD") {
   const currencyCode = normalizeCurrencyCode(currency);
+  if (currencyCode === MIXED_CURRENCY) {
+    return `Mixed ${new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    }).format(value ?? 0)}`;
+  }
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
