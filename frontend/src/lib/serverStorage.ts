@@ -184,6 +184,7 @@ function legacyStorageKeyFor(key: string) {
   const mappings: Record<string, string> = {
     "active-chart-layout.v1": "edgelab.active-chart-layout.v1",
     "active-chart-settings-preset.v1": "edgelab.active-chart-settings-preset.v1",
+    "active-live-chart-layout.v1": "edgelab.active-live-chart-layout.v1",
     "backtest-strategies.v1": "edgelab.backtest-strategies.v1",
     "chart-layout-cleared-single-horizontal.v1": "edgelab.chart-layout-cleared-single-horizontal.v1",
     "chart-layout.v1": "edgelab.chart-layout.v1",
@@ -192,6 +193,8 @@ function legacyStorageKeyFor(key: string) {
     "drawing-presets.v1": "edgelab.drawing-presets.v1",
     "fib-presets.v1": "edgelab.fib-presets.v1",
     "live-journal.v1": "edgelab.live-journal.v1",
+    "live-chart-layout.v1": "edgelab.live-chart-layout.v1",
+    "live-chart-layouts.v1": "edgelab.live-chart-layouts.v1",
     "live-market-catalog.v1": "edgelab.live-market-catalog.v1",
     "live-watchlists.v1": "edgelab.live-watchlists.v1",
     "notebook-favorites.v1": "edgelab.notebook-favorites.v1",
@@ -216,6 +219,7 @@ function legacyStoresPlainString(key: string) {
   return (
     key === "active-chart-layout.v1" ||
     key === "active-chart-settings-preset.v1" ||
+    key === "active-live-chart-layout.v1" ||
     key === "chart-layout-cleared-single-horizontal.v1" ||
     key === "notebook-template.v1" ||
     key === "order-commission-fixed.v1" ||

@@ -45,6 +45,7 @@ import {
   Image,
   Info,
   Italic,
+  Layers,
   Link2,
   LineChart,
   List,
@@ -73,17 +74,6 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import {
-  ColorType,
-  CrosshairMode,
-  createChart,
-} from "lightweight-charts";
-import type {
-  CandlestickData,
-  IChartApi,
-  ISeriesApi,
-  UTCTimestamp,
-} from "lightweight-charts";
 import {
   exportAppDataBundle,
   getBinanceInstruments,
@@ -114,6 +104,38 @@ import {
   saveOrderLineModificationConfirmation,
   subscribeOrderLineModificationConfirmation,
 } from "../lib/backtestSettings";
+import {
+  canAggregateTimeframe,
+  createIndicatorInstance,
+  formatChartTimeframeLabel,
+  getTimeframeSeconds,
+  isIndicatorKind,
+  mergeIndicatorSettings,
+  nextIndicatorInstanceColor,
+  normalizeChartTimeframe,
+  normalizeFibLevels,
+  normalizeRiskRewardDrawing,
+  TIMEFRAMES,
+  type ChartDrawing,
+  type ChartIndicatorInstance,
+  type ChartIndicatorKind,
+  type ChartStyle,
+  type ChartTimeframe,
+  type DrawingTool,
+  type IndicatorSettings,
+  type MagnetMode,
+} from "../lib/charting";
+import {
+  chartPaneLayoutById,
+  DEFAULT_CHART_PANE_LAYOUT,
+  sanitizeChartPaneLayout,
+  type ChartPaneLayoutId,
+} from "../lib/chartLayouts";
+import {
+  DEFAULT_CHART_VISUAL_SETTINGS,
+  sanitizeChartVisualSettings,
+  type ChartVisualSettings,
+} from "../lib/chartSettings";
 import {
   MIXED_CURRENCY,
   currencyForSession,
@@ -202,10 +224,13 @@ import {
 } from "../lib/tradeSnapshot";
 import type { WorkspaceView } from "../lib/workspace";
 import { useBacktestStore } from "../store/backtestStore";
+import { ChartObjectsPanel } from "./ChartObjectsPanel";
+import { ChartToolbar } from "./ChartToolbar";
 import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedDatePicker } from "./ThemedDatePicker";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+import { TradingChart } from "./TradingChart";
 import { TradeLog } from "./TradeLog";
 
 type WorkspacePageView = Exclude<WorkspaceView, "backtest" | "sessions">;
@@ -861,6 +886,46 @@ type LiveMarketCatalog = {
   refreshedAt: string | null;
 };
 
+type LiveChartPaneState = {
+  chartSettings: ChartVisualSettings;
+  chartStyle: ChartStyle;
+  drawingTool: DrawingTool;
+  drawings: ChartDrawing[];
+  id: string;
+  indicatorInstances: ChartIndicatorInstance[];
+  magnetMode: MagnetMode;
+  showOrderOverlays: boolean;
+  smoothCandles: boolean;
+  timeframe: ChartTimeframe;
+};
+
+type LiveChartLayout = {
+  activePaneId?: string;
+  chartSettings?: ChartVisualSettings;
+  chartStyle?: ChartStyle;
+  drawings?: ChartDrawing[];
+  indicatorInstances?: ChartIndicatorInstance[];
+  magnetMode?: MagnetMode;
+  paneLayout?: ChartPaneLayoutId;
+  panes?: LiveChartPaneState[];
+  showOrderOverlays?: boolean;
+  smoothCandles?: boolean;
+  timeframe?: ChartTimeframe;
+};
+
+type LiveChartLayoutRecord = {
+  layout: LiveChartLayout;
+  name: string;
+  updatedAt: string;
+};
+
+type TimeframeShortcutFeedback = {
+  description: string;
+  status: "ready" | "unavailable" | "invalid";
+  timeframe?: ChartTimeframe;
+  value: string;
+};
+
 type BinanceTickerPayload = {
   E?: number;
   P?: string;
@@ -903,23 +968,24 @@ type BinanceKlinePayload = {
 
 const LIVE_WATCHLIST_STORAGE_KEY = "live-watchlists.v1";
 const LIVE_MARKET_CATALOG_STORAGE_KEY = "live-market-catalog.v1";
+const LIVE_CHART_LAYOUT_STORAGE_KEY = "live-chart-layout.v1";
+const LIVE_CHART_LAYOUTS_STORAGE_KEY = "live-chart-layouts.v1";
+const ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY = "active-live-chart-layout.v1";
 const BINANCE_REST_BASE = "https://data-api.binance.vision";
 const BINANCE_WS_BASE = "wss://data-stream.binance.vision";
 const LIVE_MAX_WATCHLIST_SYMBOLS = 40;
-type LiveTimeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+const LIVE_SOURCE_TIMEFRAME: ChartTimeframe = "1m";
+const LIVE_DRAWING_UNDO_LIMIT = 50;
+const LIVE_DRAWING_UNDO_COALESCE_MS = 350;
+const TIMEFRAME_SHORTCUT_CLEAR_MS = 1200;
 
 const LIVE_TIMEFRAMES: Array<{
-  binanceInterval: "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
-  dukascopyInterval: "1MIN" | "5MIN" | "15MIN" | "1HOUR" | "1DAY";
+  binanceInterval: "1m";
+  dukascopyInterval: "1MIN";
   label: string;
-  value: LiveTimeframe;
+  value: ChartTimeframe;
 }> = [
-  { binanceInterval: "1m", dukascopyInterval: "1MIN", label: "1m", value: "1m" },
-  { binanceInterval: "5m", dukascopyInterval: "5MIN", label: "5m", value: "5m" },
-  { binanceInterval: "15m", dukascopyInterval: "15MIN", label: "15m", value: "15m" },
-  { binanceInterval: "1h", dukascopyInterval: "1HOUR", label: "1H", value: "1h" },
-  { binanceInterval: "4h", dukascopyInterval: "1HOUR", label: "4H", value: "4h" },
-  { binanceInterval: "1d", dukascopyInterval: "1DAY", label: "1D", value: "1d" },
+  { binanceInterval: "1m", dukascopyInterval: "1MIN", label: "1m", value: LIVE_SOURCE_TIMEFRAME },
 ] as const;
 const DUKASCOPY_POLL_INTERVAL_MS = 30000;
 
@@ -1021,14 +1087,11 @@ function LiveMarketsPage() {
   const [feedDraft, setFeedDraft] = useState<LiveFeedProvider>("binance");
   const [binanceSearch, setBinanceSearch] = useState("");
   const [dukascopySearch, setDukascopySearch] = useState("");
-  const [timeframe, setTimeframe] = useState<LiveTimeframe>("1m");
   const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
-  const [candles, setCandles] = useState<CandlestickData[]>([]);
+  const [liveBars, setLiveBars] = useState<Candle[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
   const [feedError, setFeedError] = useState<string | null>(null);
   const selectedTicker = selectedLiveSymbol ? tickers[liveSymbolKey(selectedLiveSymbol)] ?? null : null;
-  const liveTimeframeOptions = LIVE_TIMEFRAMES.map((item) => ({ label: item.label, value: item.value }));
-  const timeframeConfig = liveTimeframeConfig(timeframe);
   const binanceSearchResults = useMemo(
     () => filterBinanceInstruments(catalog.binance, binanceSearch),
     [binanceSearch, catalog.binance],
@@ -1077,20 +1140,20 @@ function LiveMarketsPage() {
 
   useEffect(() => {
     if (!selectedLiveSymbol) {
-      setCandles([]);
+      setLiveBars([]);
       return;
     }
     const controller = new AbortController();
-    setCandles([]);
+    setLiveBars([]);
     const candleRequest = selectedLiveSymbol.feed === "binance"
-      ? fetchBinanceKlines(selectedLiveSymbol.symbol, timeframeConfig.binanceInterval, controller.signal)
-      : fetchDukascopyCandles(selectedLiveSymbol.symbol, timeframeConfig.dukascopyInterval, controller.signal);
+      ? fetchBinanceKlines(selectedLiveSymbol.symbol, "1m", controller.signal)
+      : fetchDukascopyCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
     void candleRequest
-      .then((nextCandles) => {
-        setCandles(nextCandles);
+      .then((nextBars) => {
+        setLiveBars(nextBars);
         setFeedError(null);
         if (selectedLiveSymbol.feed === "dukascopy") {
-          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextCandles);
+          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
           if (ticker) {
             setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
           }
@@ -1102,7 +1165,7 @@ function LiveMarketsPage() {
         }
       });
     return () => controller.abort();
-  }, [selectedLiveSymbol, timeframeConfig.binanceInterval, timeframeConfig.dukascopyInterval]);
+  }, [selectedLiveSymbol]);
 
   useEffect(() => {
     const streamSymbols = uniqueLiveSymbols(symbols.filter((item) => item.feed === "binance").map((item) => item.symbol));
@@ -1112,7 +1175,7 @@ function LiveMarketsPage() {
     }
     const streams = [
       ...streamSymbols.map((symbol) => `${symbol.toLowerCase()}@ticker`),
-      selectedLiveSymbol?.feed === "binance" ? `${selectedLiveSymbol.symbol.toLowerCase()}@kline_${timeframeConfig.binanceInterval}` : "",
+      selectedLiveSymbol?.feed === "binance" ? `${selectedLiveSymbol.symbol.toLowerCase()}@kline_1m` : "",
     ].filter(Boolean);
     const socket = new WebSocket(`${BINANCE_WS_BASE}/stream?streams=${streams.join("/")}`);
     let closedByEffect = false;
@@ -1145,7 +1208,7 @@ function LiveMarketsPage() {
       if (isBinanceKlinePayload(payload) && payload.s === selectedLiveSymbol?.symbol) {
         const candle = liveCandleFromBinance(payload);
         if (candle) {
-          setCandles((current) => upsertLiveCandle(current, candle));
+          setLiveBars((current) => upsertLiveCandle(current, candle));
         }
       }
     };
@@ -1153,7 +1216,7 @@ function LiveMarketsPage() {
       closedByEffect = true;
       socket.close();
     };
-  }, [selectedLiveSymbol, symbols, timeframeConfig.binanceInterval]);
+  }, [selectedLiveSymbol, symbols]);
 
   useEffect(() => {
     if (selectedFeed !== "dukascopy" || !selectedLiveSymbol) {
@@ -1161,10 +1224,10 @@ function LiveMarketsPage() {
     }
     const interval = window.setInterval(() => {
       const controller = new AbortController();
-      void fetchDukascopyCandles(selectedLiveSymbol.symbol, timeframeConfig.dukascopyInterval, controller.signal, 260)
-        .then((nextCandles) => {
-          setCandles(nextCandles);
-          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextCandles);
+      void fetchDukascopyCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal, 1000)
+        .then((nextBars) => {
+          setLiveBars(nextBars);
+          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
           if (ticker) {
             setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
           }
@@ -1174,7 +1237,7 @@ function LiveMarketsPage() {
         });
     }, DUKASCOPY_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [selectedFeed, selectedLiveSymbol, timeframeConfig.dukascopyInterval]);
+  }, [selectedFeed, selectedLiveSymbol]);
 
   function persistWatchlist(nextWatchlist: LiveWatchlist) {
     setWatchlists((current) =>
@@ -1300,12 +1363,6 @@ function LiveMarketsPage() {
           <span className={`status-pill h-9 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
             {connectionStatus === "live" ? "Live feed" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Feed offline" : "No symbols"}
           </span>
-          <ThemedSelect
-            className="h-10 min-w-28"
-            onChange={(value) => setTimeframe(value as typeof timeframe)}
-            options={liveTimeframeOptions}
-            value={timeframe}
-          />
         </div>
       }
     >
@@ -1584,7 +1641,6 @@ function LiveMarketsPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="truncate text-xl font-semibold text-white">{selectedLiveSymbol?.label || selectedSymbol || "No symbol selected"}</h2>
-                  <span className="status-pill h-7 px-2 text-[10px]">{timeframe.toUpperCase()}</span>
                   <span className="status-pill h-7 px-2 text-[10px]">{selectedSourceLabel}</span>
                 </div>
                 <p className="mt-1 text-sm text-slate-500">
@@ -1597,12 +1653,13 @@ function LiveMarketsPage() {
                 {selectedTicker ? formatLivePrice(selectedTicker.last) : "--"}
               </div>
             </div>
-            <LiveCandlestickChart
-              candles={candles}
+            <LiveChartStudio
+              bars={liveBars}
               connectionStatus={connectionStatus}
+              selectedSourceLabel={selectedSourceLabel}
               symbol={selectedLiveSymbol?.label ?? selectedSymbol}
+              symbolCode={selectedLiveSymbol?.symbol ?? selectedSymbol}
               ticker={selectedTicker}
-              timeframe={timeframe}
             />
           </FeatureCard>
 
@@ -1625,104 +1682,1157 @@ function LiveMarketsPage() {
   );
 }
 
-function LiveCandlestickChart({
-  candles,
+function LiveChartStudio({
+  bars,
   connectionStatus,
+  selectedSourceLabel,
   symbol,
+  symbolCode,
   ticker,
-  timeframe,
 }: {
-  candles: CandlestickData[];
+  bars: Candle[];
   connectionStatus: LiveConnectionStatus;
+  selectedSourceLabel: string;
   symbol: string;
+  symbolCode: string;
   ticker: LiveTicker | null;
-  timeframe: string;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const chartKey = `${symbol}-${timeframe}`;
+  const [chartPaneLayout, setChartPaneLayout] = useState<ChartPaneLayoutId>(() =>
+    sanitizeChartPaneLayout(loadLiveChartLayout()?.paneLayout),
+  );
+  const [chartPanes, setChartPanes] = useState<LiveChartPaneState[]>(() =>
+    sanitizeLiveChartPanes(loadLiveChartLayout() ?? {}),
+  );
+  const [activeChartPaneId, setActiveChartPaneId] = useState(() => chartPanes[0]?.id ?? "live-chart-pane-1");
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [chartToolsOpen, setChartToolsOpen] = useState(false);
+  const [chartSettingsPanelOpen, setChartSettingsPanelOpen] = useState(false);
+  const [chartSettingsOpenSignal, setChartSettingsOpenSignal] = useState(0);
+  const [layersPanelOpen, setLayersPanelOpen] = useState(false);
+  const [layoutName, setLayoutName] = useState(() => loadActiveLiveChartLayoutName());
+  const [availableLayouts, setAvailableLayouts] = useState(() => loadLiveChartLayoutRecords().map((record) => record.name));
+  const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
+  const [drawingUndoStack, setDrawingUndoStack] = useState<ChartDrawing[][]>([]);
+  const [timeframeShortcutFeedback, setTimeframeShortcutFeedback] = useState<TimeframeShortcutFeedback | null>(null);
+  const drawingUndoBatchOpenRef = useRef(false);
+  const drawingUndoBatchTimerRef = useRef<number | null>(null);
+  const lastNeutralDrawingToolRef = useRef<Extract<DrawingTool, "cursor" | "crosshair">>("crosshair");
+  const timeframeShortcutBufferRef = useRef("");
+  const timeframeShortcutTimerRef = useRef<number | null>(null);
+  const chartPaneLayoutDefinition = chartPaneLayoutById(chartPaneLayout);
+  const visibleChartPanes = chartPanes.slice(0, chartPaneLayoutDefinition.panes);
+  const activeChartPane =
+    chartPanes.find((pane) => pane.id === activeChartPaneId) ?? visibleChartPanes[0] ?? createDefaultLiveChartPane(0);
+  const activeChartPaneIndex = visibleChartPanes.findIndex((pane) => pane.id === activeChartPane.id);
+  const isMultiChartLayout = chartPaneLayoutDefinition.panes > 1;
+  const activePaneLabel = isMultiChartLayout && activeChartPaneIndex >= 0 ? `Pane ${activeChartPaneIndex + 1}` : "Live chart";
+  const savedLayoutLabel =
+    chartLayoutSavedAt == null
+      ? null
+      : `Saved ${new Date(chartLayoutSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const changeTone = toneForNumber(ticker?.changePercent ?? 0);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return undefined;
-    }
-    const chart = createChart(container, {
-      autoSize: true,
-      crosshair: {
-        mode: CrosshairMode.Normal,
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      LIVE_CHART_LAYOUT_STORAGE_KEY,
+      (value) => {
+        const layout = sanitizeLiveChartLayout(value);
+        setChartPaneLayout(sanitizeChartPaneLayout(layout.paneLayout));
+        setChartPanes(sanitizeLiveChartPanes(layout));
+        setActiveChartPaneId(layout.activePaneId ?? "live-chart-pane-1");
       },
-      grid: {
-        horzLines: { color: "rgba(148, 163, 184, 0.12)" },
-        vertLines: { color: "rgba(148, 163, 184, 0.08)" },
-      },
-      layout: {
-        background: { color: "#05070a", type: ColorType.Solid },
-        fontFamily: "Inter, ui-sans-serif, system-ui",
-        textColor: "#94a3b8",
-      },
-      localization: {
-        priceFormatter: formatLivePrice,
-      },
-      rightPriceScale: {
-        borderColor: "rgba(148, 163, 184, 0.18)",
-        scaleMargins: { bottom: 0.18, top: 0.08 },
-      },
-      timeScale: {
-        borderColor: "rgba(148, 163, 184, 0.18)",
-        rightOffset: 8,
-        timeVisible: true,
-      },
-    });
-    const candlesSeries = chart.addCandlestickSeries({
-      borderDownColor: "#fb7185",
-      borderUpColor: "#2dd4bf",
-      downColor: "#fb7185",
-      wickDownColor: "#fda4af",
-      wickUpColor: "#5eead4",
-      upColor: "#2dd4bf",
-    });
-    chartRef.current = chart;
-    candleSeriesRef.current = candlesSeries;
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-      candleSeriesRef.current = null;
-    };
+    );
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
-    candleSeriesRef.current?.setData(candles);
-    if (candles.length > 0) {
-      chartRef.current?.timeScale().fitContent();
+    if (visibleChartPanes.some((pane) => pane.id === activeChartPaneId)) {
+      return;
     }
-  }, [candles, chartKey]);
+    setActiveChartPaneId(visibleChartPanes[0]?.id ?? "live-chart-pane-1");
+    setSelectedDrawingId(null);
+    setDrawingUndoStack([]);
+  }, [activeChartPaneId, visibleChartPanes]);
 
-  const changeTone = toneForNumber(ticker?.changePercent ?? 0);
+  useEffect(() => {
+    function clearTimeframeShortcutBuffer() {
+      timeframeShortcutBufferRef.current = "";
+      if (timeframeShortcutTimerRef.current != null) {
+        window.clearTimeout(timeframeShortcutTimerRef.current);
+        timeframeShortcutTimerRef.current = null;
+      }
+      setTimeframeShortcutFeedback(null);
+    }
+
+    function scheduleTimeframeShortcutClear() {
+      if (timeframeShortcutTimerRef.current != null) {
+        window.clearTimeout(timeframeShortcutTimerRef.current);
+      }
+      timeframeShortcutTimerRef.current = window.setTimeout(() => {
+        timeframeShortcutBufferRef.current = "";
+        timeframeShortcutTimerRef.current = null;
+        setTimeframeShortcutFeedback(null);
+      }, TIMEFRAME_SHORTCUT_CLEAR_MS);
+    }
+
+    function showTimeframeShortcutFeedback(rawValue: string) {
+      setTimeframeShortcutFeedback(buildTimeframeShortcutFeedback(rawValue, LIVE_SOURCE_TIMEFRAME));
+      scheduleTimeframeShortcutClear();
+    }
+
+    function commitTimeframeShortcut(rawValue: string) {
+      const feedback = buildTimeframeShortcutFeedback(rawValue, LIVE_SOURCE_TIMEFRAME);
+      if (feedback.status === "ready" && feedback.timeframe) {
+        clearTimeframeShortcutBuffer();
+        changeTimeframe(feedback.timeframe);
+        return;
+      }
+      timeframeShortcutBufferRef.current = "";
+      setTimeframeShortcutFeedback(feedback);
+      scheduleTimeframeShortcutClear();
+    }
+
+    function handleTimeframeShortcut(event: globalThis.KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        clearTimeframeShortcutBuffer();
+        return false;
+      }
+      if (event.key.length !== 1) {
+        if (timeframeShortcutBufferRef.current && event.key !== "Shift") {
+          const bufferedValue = timeframeShortcutBufferRef.current;
+          timeframeShortcutBufferRef.current = "";
+          if (event.key === "Enter") {
+            commitTimeframeShortcut(bufferedValue);
+            event.preventDefault();
+            return true;
+          }
+          if (["Backspace", "Delete", "Escape"].includes(event.key)) {
+            clearTimeframeShortcutBuffer();
+            event.preventDefault();
+            return true;
+          }
+          clearTimeframeShortcutBuffer();
+        }
+        return false;
+      }
+      if (/^\d$/.test(event.key)) {
+        timeframeShortcutBufferRef.current = `${timeframeShortcutBufferRef.current}${event.key}`.slice(0, 5);
+        showTimeframeShortcutFeedback(timeframeShortcutBufferRef.current);
+        event.preventDefault();
+        return true;
+      }
+      if (!timeframeShortcutBufferRef.current) {
+        return false;
+      }
+      if (/^[mMhHdDwW]$/.test(event.key)) {
+        const rawValue = `${timeframeShortcutBufferRef.current}${event.key}`;
+        timeframeShortcutBufferRef.current = "";
+        commitTimeframeShortcut(rawValue);
+        event.preventDefault();
+        return true;
+      }
+      showTimeframeShortcutFeedback(`${timeframeShortcutBufferRef.current}${event.key}`);
+      timeframeShortcutBufferRef.current = "";
+      event.preventDefault();
+      return true;
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+      if (isTyping) {
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undoLastDrawingChange();
+        return;
+      }
+      if (handleTimeframeShortcut(event)) {
+        return;
+      }
+      switch (event.key) {
+        case "h":
+        case "H":
+          changeDrawingTool("horizontal");
+          break;
+        case "v":
+        case "V":
+          changeDrawingTool("vertical");
+          break;
+        case "t":
+        case "T":
+          changeDrawingTool("trendline");
+          break;
+        case "r":
+        case "R":
+          changeDrawingTool("rectangle");
+          break;
+        case "f":
+        case "F":
+          changeDrawingTool("fib");
+          break;
+        case "l":
+        case "L":
+          changeDrawingTool("text");
+          break;
+        case "m":
+        case "M":
+          changeDrawingTool("measure");
+          break;
+        case "Escape":
+          event.preventDefault();
+          if (activeChartPane.drawingTool !== "cursor" && activeChartPane.drawingTool !== "crosshair") {
+            changeDrawingTool(lastNeutralDrawingToolRef.current);
+          }
+          setSelectedDrawingId(null);
+          break;
+        case "Delete":
+        case "Backspace":
+          event.preventDefault();
+          if (selectedDrawingId) {
+            deleteDrawing(selectedDrawingId);
+          } else {
+            removeLastUnlockedDrawing();
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeChartPane.drawingTool, selectedDrawingId, drawingUndoStack, chartPanes, activeChartPane.id]);
+
+  function updateChartPane(paneId: string, updater: (pane: LiveChartPaneState) => LiveChartPaneState) {
+    setChartPanes((current) =>
+      current.map((pane) => pane.id === paneId ? sanitizeLiveChartPaneState(updater(pane)) : pane),
+    );
+  }
+
+  function updateActiveChartPane(updater: (pane: LiveChartPaneState) => LiveChartPaneState) {
+    updateChartPane(activeChartPane.id, updater);
+  }
+
+  function chartPaneById(paneId: string) {
+    return chartPanes.find((pane) => pane.id === paneId) ?? activeChartPane;
+  }
+
+  function changeTimeframe(nextTimeframe: ChartTimeframe) {
+    const normalized = normalizeChartTimeframe(nextTimeframe);
+    if (!normalized || !canAggregateTimeframe(normalized, LIVE_SOURCE_TIMEFRAME)) {
+      return;
+    }
+    updateActiveChartPane((pane) => ({ ...pane, timeframe: normalized }));
+  }
+
+  function changeReplayTimeframe(nextTimeframe: ChartTimeframe) {
+    changeTimeframe(nextTimeframe);
+  }
+
+  function changeDrawingTool(tool: DrawingTool) {
+    changeDrawingToolForPane(activeChartPane.id, tool);
+  }
+
+  function changeDrawingToolForPane(paneId: string, tool: DrawingTool) {
+    if (tool === "cursor" || tool === "crosshair") {
+      lastNeutralDrawingToolRef.current = tool;
+    }
+    updateChartPane(paneId, (pane) => ({ ...pane, drawingTool: tool }));
+  }
+
+  function selectChartPane(paneId: string) {
+    setActiveChartPaneId(paneId);
+    setSelectedDrawingId(null);
+    setDrawingUndoStack([]);
+  }
+
+  function changeChartPaneLayout(nextLayout: ChartPaneLayoutId) {
+    const layout = chartPaneLayoutById(nextLayout);
+    setChartPaneLayout(layout.id);
+    setChartPanes((current) => {
+      const nextPanes = [...current];
+      while (nextPanes.length < layout.panes) {
+        nextPanes.push(createDefaultLiveChartPane(nextPanes.length, activeChartPane));
+      }
+      return nextPanes;
+    });
+    if (activeChartPaneIndex >= layout.panes) {
+      selectChartPane("live-chart-pane-1");
+    }
+  }
+
+  function addIndicator(kind: ChartIndicatorKind) {
+    updateActiveChartPane((pane) => ({
+      ...pane,
+      indicatorInstances: [
+        ...pane.indicatorInstances,
+        createIndicatorInstance(kind, {
+          color: nextIndicatorInstanceColor(kind, pane.indicatorInstances),
+        }),
+      ],
+    }));
+  }
+
+  function removeIndicator(instanceId: string) {
+    removeIndicatorForPane(activeChartPane.id, instanceId);
+  }
+
+  function removeIndicatorForPane(paneId: string, instanceId: string) {
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      indicatorInstances: pane.indicatorInstances.filter((indicator) => indicator.id !== instanceId),
+    }));
+  }
+
+  function toggleIndicatorVisibility(instanceId: string) {
+    toggleIndicatorVisibilityForPane(activeChartPane.id, instanceId);
+  }
+
+  function toggleIndicatorVisibilityForPane(paneId: string, instanceId: string) {
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      indicatorInstances: pane.indicatorInstances.map((indicator) =>
+        indicator.id === instanceId ? { ...indicator, visible: indicator.visible === false } : indicator,
+      ),
+    }));
+  }
+
+  function updateIndicatorSettings(instanceId: string, settings: Partial<IndicatorSettings>) {
+    updateIndicatorSettingsForPane(activeChartPane.id, instanceId, settings);
+  }
+
+  function updateIndicatorSettingsForPane(
+    paneId: string,
+    instanceId: string,
+    settings: Partial<IndicatorSettings>,
+  ) {
+    updateChartPane(paneId, (pane) => ({
+      ...pane,
+      indicatorInstances: pane.indicatorInstances.map((indicator) =>
+        indicator.id === instanceId
+          ? { ...indicator, settings: mergeIndicatorSettings(indicator.kind, { ...indicator.settings, ...settings }) }
+          : indicator,
+      ),
+    }));
+  }
+
+  function changeMagnetModeForPane(paneId: string, magnetMode: MagnetMode) {
+    updateChartPane(paneId, (pane) => ({ ...pane, magnetMode }));
+  }
+
+  function setPaneDrawings(paneId: string, nextDrawings: ChartDrawing[], recordUndo = true) {
+    const paneSnapshot = chartPaneById(paneId).drawings;
+    const sanitizedDrawings = sanitizeLiveDrawings(nextDrawings);
+    if (recordUndo) {
+      captureDrawingUndoSnapshot(paneSnapshot);
+    } else {
+      closeDrawingUndoBatch();
+    }
+    updateChartPane(paneId, (pane) => ({ ...pane, drawings: sanitizedDrawings }));
+    return sanitizedDrawings;
+  }
+
+  function addDrawingToPane(paneId: string, drawing: ChartDrawing) {
+    const pane = chartPaneById(paneId);
+    setPaneDrawings(paneId, [...pane.drawings, drawing]);
+    setActiveChartPaneId(paneId);
+    setSelectedDrawingId(drawing.id);
+  }
+
+  function deleteDrawingForPane(paneId: string, drawingId: string) {
+    const pane = chartPaneById(paneId);
+    const targetDrawing = pane.drawings.find((drawing) => drawing.id === drawingId);
+    if (!targetDrawing || targetDrawing.locked) {
+      return;
+    }
+    setPaneDrawings(paneId, pane.drawings.filter((drawing) => drawing.id !== drawingId));
+    setSelectedDrawingId(null);
+  }
+
+  function deleteDrawing(drawingId: string) {
+    deleteDrawingForPane(activeChartPane.id, drawingId);
+  }
+
+  function clearDrawingsForPane(paneId: string) {
+    const pane = chartPaneById(paneId);
+    const nextDrawings = setPaneDrawings(paneId, pane.drawings.filter((drawing) => drawing.locked));
+    if (!nextDrawings.some((drawing) => drawing.id === selectedDrawingId)) {
+      setSelectedDrawingId(null);
+    }
+  }
+
+  function clearDrawings() {
+    clearDrawingsForPane(activeChartPane.id);
+  }
+
+  function updateDrawingForPane(
+    paneId: string,
+    updatedDrawing: ChartDrawing,
+    coalesceUndo = false,
+  ) {
+    const pane = chartPaneById(paneId);
+    if (coalesceUndo && drawingUndoBatchOpenRef.current) {
+      if (drawingUndoBatchTimerRef.current != null) {
+        window.clearTimeout(drawingUndoBatchTimerRef.current);
+      }
+    } else {
+      captureDrawingUndoSnapshot(pane.drawings);
+    }
+    drawingUndoBatchOpenRef.current = coalesceUndo;
+    if (coalesceUndo) {
+      drawingUndoBatchTimerRef.current = window.setTimeout(closeDrawingUndoBatch, LIVE_DRAWING_UNDO_COALESCE_MS);
+    }
+    updateChartPane(paneId, (currentPane) => ({
+      ...currentPane,
+      drawings: sanitizeLiveDrawings(
+        currentPane.drawings.map((drawing) => drawing.id === updatedDrawing.id ? updatedDrawing : drawing),
+      ),
+    }));
+  }
+
+  function updateDrawing(updatedDrawing: ChartDrawing, coalesceUndo = false) {
+    updateDrawingForPane(activeChartPane.id, updatedDrawing, coalesceUndo);
+  }
+
+  function removeLastUnlockedDrawing() {
+    const drawing = [...activeChartPane.drawings].reverse().find((item) => !item.locked);
+    if (drawing) {
+      deleteDrawing(drawing.id);
+    }
+  }
+
+  function captureDrawingUndoSnapshot(snapshot: ChartDrawing[]) {
+    closeDrawingUndoBatch();
+    setDrawingUndoStack((current) => {
+      const next = [...current, cloneLiveDrawings(snapshot)];
+      return next.slice(-LIVE_DRAWING_UNDO_LIMIT);
+    });
+  }
+
+  function closeDrawingUndoBatch() {
+    drawingUndoBatchOpenRef.current = false;
+    if (drawingUndoBatchTimerRef.current != null) {
+      window.clearTimeout(drawingUndoBatchTimerRef.current);
+      drawingUndoBatchTimerRef.current = null;
+    }
+  }
+
+  function undoLastDrawingChange() {
+    closeDrawingUndoBatch();
+    const previousDrawings = drawingUndoStack[drawingUndoStack.length - 1];
+    if (!previousDrawings) {
+      return;
+    }
+    setDrawingUndoStack((current) => current.slice(0, -1));
+    updateActiveChartPane((pane) => ({ ...pane, drawings: cloneLiveDrawings(previousDrawings) }));
+    if (selectedDrawingId && !previousDrawings.some((drawing) => drawing.id === selectedDrawingId)) {
+      setSelectedDrawingId(null);
+    }
+  }
+
+  function saveChartLayout() {
+    const payload = buildLiveChartLayoutPayload();
+    const name = normalizeLiveLayoutName(layoutName);
+    void saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, payload);
+    void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, name);
+    setLayoutName(name);
+    setAvailableLayouts(saveNamedLiveChartLayout(name, payload));
+    setChartLayoutSavedAt(Date.now());
+  }
+
+  function buildLiveChartLayoutPayload(): LiveChartLayout {
+    const panes = chartPanes.map(sanitizeLiveChartPaneState);
+    const activePane = panes.find((pane) => pane.id === activeChartPane.id) ?? panes[0];
+    return {
+      activePaneId: activePane?.id,
+      chartSettings: sanitizeChartVisualSettings(activePane?.chartSettings),
+      chartStyle: sanitizeLiveChartStyle(activePane?.chartStyle),
+      drawings: sanitizeLiveDrawings(activePane?.drawings),
+      indicatorInstances: sanitizeLiveIndicatorInstances(activePane?.indicatorInstances),
+      magnetMode: sanitizeLiveMagnetMode(activePane?.magnetMode),
+      paneLayout: chartPaneLayout,
+      panes,
+      showOrderOverlays: activePane?.showOrderOverlays ?? false,
+      smoothCandles: activePane?.smoothCandles ?? false,
+      timeframe: sanitizeLiveTimeframe(activePane?.timeframe),
+    };
+  }
+
+  function loadNamedChartLayout(name: string) {
+    const record = loadLiveChartLayoutRecord(name);
+    if (!record) {
+      return;
+    }
+    applyChartLayout(record.layout);
+    void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, record.name);
+    setLayoutName(record.name);
+    setChartLayoutSavedAt(Date.now());
+  }
+
+  function deleteNamedChartLayout(name: string) {
+    const nextNames = deleteLiveChartLayoutRecord(name);
+    setAvailableLayouts(nextNames);
+    if (normalizeLiveLayoutName(name) === normalizeLiveLayoutName(layoutName)) {
+      setLayoutName(nextNames[0] ?? "Live Default");
+      void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, nextNames[0] ?? null);
+    }
+  }
+
+  function applyChartLayout(layout: Partial<LiveChartLayout>) {
+    const nextLayout = sanitizeChartPaneLayout(layout.paneLayout);
+    const nextPanes = sanitizeLiveChartPanes(layout);
+    const nextActivePane = nextPanes.find((pane) => pane.id === layout.activePaneId) ?? nextPanes[0];
+    setChartPaneLayout(nextLayout);
+    setChartPanes(nextPanes);
+    setActiveChartPaneId(nextActivePane?.id ?? "live-chart-pane-1");
+    setSelectedDrawingId(null);
+    setDrawingUndoStack([]);
+  }
 
   return (
-    <div className="relative h-[520px] min-h-[360px] bg-[#05070a]">
-      <div className="absolute left-4 top-4 z-10 flex flex-wrap gap-2">
-        <span className={`status-pill h-8 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
-          {connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
-        </span>
-        {ticker && (
-          <span className={`status-pill h-8 px-2 text-[11px] ${changeTone}`}>
-            {signedLiveNumber(ticker.changePercent)}% 24h
+    <div className="relative">
+      {timeframeShortcutFeedback && <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div className="flex flex-wrap gap-2">
+          <span className={`status-pill h-8 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
+            {connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
           </span>
+          <span className={`status-pill h-8 px-2 text-[11px] ${changeTone}`}>
+            {ticker ? `${signedLiveNumber(ticker.changePercent)}% 24h` : selectedSourceLabel}
+          </span>
+          <span className="status-pill h-8 px-2 text-[11px]">
+            {formatChartTimeframeLabel(activeChartPane.timeframe)}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button className={`control-button h-9 px-3 text-xs ${chartToolsOpen ? "workspace-tab-active" : ""}`} onClick={() => {
+            setChartSettingsPanelOpen(false);
+            setChartToolsOpen((value) => !value);
+          }} type="button">
+            <SlidersHorizontal size={14} />
+            Tools
+          </button>
+          <button className={`control-button h-9 px-3 text-xs ${chartSettingsPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => {
+            setChartToolsOpen(false);
+            setChartSettingsPanelOpen(true);
+            setChartSettingsOpenSignal((value) => value + 1);
+          }} type="button">
+            <Settings size={14} />
+            Settings
+          </button>
+          <button className={`control-button h-9 px-3 text-xs ${layersPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => setLayersPanelOpen((value) => !value)} type="button">
+            <LayersIcon />
+            Layers
+          </button>
+        </div>
+      </div>
+
+      {(chartToolsOpen || chartSettingsPanelOpen) && (
+        <ChartToolbar
+          activePaneLabel={activePaneLabel}
+          chartSettings={activeChartPane.chartSettings}
+          chartStyle={activeChartPane.chartStyle}
+          clearableDrawingsCount={activeChartPane.drawings.filter((drawing) => !drawing.locked).length}
+          drawingTool={activeChartPane.drawingTool}
+          drawingsCount={activeChartPane.drawings.length}
+          indicatorInstances={activeChartPane.indicatorInstances}
+          layoutName={layoutName}
+          layoutNames={availableLayouts}
+          magnetMode={activeChartPane.magnetMode}
+          multiChart={isMultiChartLayout}
+          onAddIndicator={addIndicator}
+          onChartSettingsChange={(settings) => updateActiveChartPane((pane) => ({ ...pane, chartSettings: sanitizeChartVisualSettings(settings) }))}
+          onChartSettingsReset={() => updateActiveChartPane((pane) => ({ ...pane, chartSettings: DEFAULT_CHART_VISUAL_SETTINGS }))}
+          onChartStyleChange={(chartStyle) => updateActiveChartPane((pane) => ({ ...pane, chartStyle }))}
+          onClearDrawings={clearDrawings}
+          onDeleteLayout={deleteNamedChartLayout}
+          onDrawingToolChange={changeDrawingTool}
+          onLayoutNameChange={setLayoutName}
+          onLoadLayout={loadNamedChartLayout}
+          onMagnetModeChange={(magnetMode) => updateActiveChartPane((pane) => ({ ...pane, magnetMode }))}
+          onPaneLayoutChange={changeChartPaneLayout}
+          onReplayTimeframeChange={changeReplayTimeframe}
+          onSaveLayout={saveChartLayout}
+          onTimeframeChange={changeTimeframe}
+          onRemoveIndicator={removeIndicator}
+          onSettingsClose={() => setChartSettingsPanelOpen(false)}
+          onSmoothCandlesChange={(smoothCandles) => updateActiveChartPane((pane) => ({ ...pane, smoothCandles }))}
+          onToggleOrderOverlays={() => updateActiveChartPane((pane) => ({ ...pane, showOrderOverlays: !pane.showOrderOverlays }))}
+          onUpdateIndicatorSettings={updateIndicatorSettings}
+          orderOverlaysVisible={activeChartPane.showOrderOverlays}
+          paneLayout={chartPaneLayout}
+          replayTimeframe={activeChartPane.timeframe}
+          replayTimeframeOptions={buildLiveTimeframeOptions(chartPanes)}
+          savedLabel={savedLayoutLabel}
+          settingsOpenSignal={chartSettingsOpenSignal}
+          smoothCandles={activeChartPane.smoothCandles}
+          sourceTimeframe={LIVE_SOURCE_TIMEFRAME}
+          timeframe={activeChartPane.timeframe}
+          toolsOpen={chartToolsOpen}
+        />
+      )}
+
+      <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"} p-3`}>
+        <div className="min-w-0">
+          <div className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}>
+            {visibleChartPanes.map((pane, index) => {
+              const paneActive = pane.id === activeChartPane.id;
+              return (
+                <div
+                  className={`chart-pane-shell ${paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""} ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
+                  key={pane.id}
+                  onPointerDownCapture={() => selectChartPane(pane.id)}
+                >
+                  {isMultiChartLayout && (
+                    <div className="chart-pane-header">
+                      <button
+                        className={`chart-pane-select-button ${paneActive ? "chart-pane-select-button-active" : ""}`}
+                        onClick={() => selectChartPane(pane.id)}
+                        type="button"
+                      >
+                        Pane {index + 1}
+                      </button>
+                      <span>{formatChartTimeframeLabel(pane.timeframe)}</span>
+                    </div>
+                  )}
+                  <TradingChart
+                    bars={bars}
+                    canUndoDrawingChange={paneActive && drawingUndoStack.length > 0}
+                    chartSettings={pane.chartSettings}
+                    chartStyle={pane.chartStyle}
+                    confirmOrderLineModifications={false}
+                    drawingTool={pane.drawingTool}
+                    drawings={pane.drawings}
+                    executions={[]}
+                    indicatorInstances={pane.indicatorInstances}
+                    magnetMode={pane.magnetMode}
+                    neutralDrawingTool={lastNeutralDrawingToolRef.current}
+                    onAddDrawing={(drawing) => addDrawingToPane(pane.id, drawing)}
+                    onAmendOrder={() => undefined}
+                    onClearDrawings={() => clearDrawingsForPane(pane.id)}
+                    onClosePositionFraction={() => undefined}
+                    onDeleteDrawing={(drawingId) => deleteDrawingForPane(pane.id, drawingId)}
+                    onDrawingToolChange={(tool) => changeDrawingToolForPane(pane.id, tool)}
+                    onMagnetModeChange={(magnetMode) => changeMagnetModeForPane(pane.id, magnetMode)}
+                    onRemoveIndicator={(instanceId) => removeIndicatorForPane(pane.id, instanceId)}
+                    onSelectDrawing={(drawingId) => {
+                      selectChartPane(pane.id);
+                      setSelectedDrawingId(drawingId);
+                    }}
+                    onToggleIndicatorVisibility={(instanceId) => toggleIndicatorVisibilityForPane(pane.id, instanceId)}
+                    onUndoDrawingChange={paneActive ? undoLastDrawingChange : () => selectChartPane(pane.id)}
+                    onUpdateDrawing={(drawing, coalesceUndo) => updateDrawingForPane(pane.id, drawing, coalesceUndo)}
+                    onUpdateIndicatorSettings={(instanceId, settings) =>
+                      updateIndicatorSettingsForPane(pane.id, instanceId, settings)
+                    }
+                    onUpdatePosition={() => undefined}
+                    orders={[]}
+                    position={null}
+                    pnlMultiplier={1}
+                    replayFocusTrade={null}
+                    selectedDrawingId={paneActive ? selectedDrawingId : null}
+                    showOrderOverlays={pane.showOrderOverlays}
+                    symbol={symbolCode || symbol}
+                    currency="USD"
+                    datasetTimeframe={LIVE_SOURCE_TIMEFRAME}
+                    timeframe={pane.timeframe}
+                    undoShortcutLabel="⌘Z"
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {bars.length === 0 && (
+            <div className="mt-3 rounded-md border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-400">
+              {symbol ? "Loading live chart data..." : "Select a symbol to load the chart."}
+            </div>
+          )}
+        </div>
+        {layersPanelOpen && (
+          <ChartObjectsPanel
+            chartStyle={activeChartPane.chartStyle}
+            drawings={activeChartPane.drawings}
+            indicatorInstances={activeChartPane.indicatorInstances}
+            onClearDrawings={clearDrawings}
+            onCollapse={() => setLayersPanelOpen(false)}
+            onDeleteDrawing={deleteDrawing}
+            onRemoveIndicator={removeIndicator}
+            onSelectDrawing={setSelectedDrawingId}
+            onToggleIndicatorVisibility={toggleIndicatorVisibility}
+            onToggleOrderOverlays={() => updateActiveChartPane((pane) => ({ ...pane, showOrderOverlays: !pane.showOrderOverlays }))}
+            onUpdateDrawing={(drawing) => updateDrawing(drawing)}
+            onUpdateIndicatorSettings={updateIndicatorSettings}
+            orderOverlaysVisible={activeChartPane.showOrderOverlays}
+            selectedDrawingId={selectedDrawingId}
+            smoothCandles={activeChartPane.chartStyle === "heikinAshi" || activeChartPane.smoothCandles}
+          />
         )}
       </div>
-      <div className="h-full w-full" ref={containerRef} />
-      {candles.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <div className="rounded-md border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-400">
-            {symbol ? "Loading live chart data..." : "Select a symbol to load the chart."}
-          </div>
-        </div>
-      )}
     </div>
   );
+}
+
+function LayersIcon() {
+  return <Layers size={14} />;
+}
+
+function TimeframeShortcutOverlay({
+  feedback,
+}: {
+  feedback: TimeframeShortcutFeedback;
+}) {
+  return (
+    <div
+      aria-live="polite"
+      className="timeframe-shortcut-overlay"
+      role="status"
+    >
+      <div className={`timeframe-shortcut-dialog timeframe-shortcut-dialog-${feedback.status}`}>
+        <span className="timeframe-shortcut-status" aria-hidden="true" />
+        <div className="timeframe-shortcut-title">
+          Interval
+        </div>
+        <div className="timeframe-shortcut-input">
+          <span className="timeframe-shortcut-value">{feedback.value}</span>
+          <span className="timeframe-shortcut-caret" aria-hidden="true" />
+        </div>
+        <div className="timeframe-shortcut-description">
+          {feedback.description}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function loadLiveChartLayout(): Partial<LiveChartLayout> | null {
+  try {
+    const activeName = getCachedAppStorageItem<string | null>(
+      ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY,
+      null,
+    );
+    const activeRecord = activeName ? loadLiveChartLayoutRecord(activeName) : null;
+    if (activeRecord) {
+      return sanitizeLiveChartLayout(activeRecord.layout);
+    }
+
+    const parsed = getCachedAppStorageItem<unknown>(LIVE_CHART_LAYOUT_STORAGE_KEY, null);
+    if (typeof parsed !== "object" || parsed == null) {
+      return null;
+    }
+    return sanitizeLiveChartLayout(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeLiveChartLayout(value: unknown): LiveChartLayout {
+  const layout = isPlainRecord(value) ? value : {};
+  const paneLayout = sanitizeChartPaneLayout(layout.paneLayout);
+  const panes = sanitizeLiveChartPanes({ ...layout, paneLayout });
+  const activePane = panes.find((pane) => pane.id === layout.activePaneId) ?? panes[0];
+  return {
+    activePaneId: activePane?.id,
+    chartSettings: sanitizeChartVisualSettings(
+      layout.chartSettings as Partial<ChartVisualSettings> | null | undefined,
+    ),
+    chartStyle: sanitizeLiveChartStyle(layout.chartStyle),
+    drawings: sanitizeLiveDrawings(layout.drawings),
+    indicatorInstances: sanitizeLiveIndicatorInstances(layout.indicatorInstances),
+    magnetMode: sanitizeLiveMagnetMode(layout.magnetMode),
+    paneLayout,
+    panes,
+    showOrderOverlays: layout.showOrderOverlays === true,
+    smoothCandles: layout.smoothCandles === true,
+    timeframe: sanitizeLiveTimeframe(layout.timeframe),
+  };
+}
+
+function sanitizeLiveChartPanes(layout: Partial<LiveChartLayout>): LiveChartPaneState[] {
+  const paneLayout = sanitizeChartPaneLayout(layout.paneLayout ?? DEFAULT_CHART_PANE_LAYOUT);
+  const paneCount = chartPaneLayoutById(paneLayout).panes;
+  const legacyPane = {
+    chartSettings: layout.chartSettings,
+    chartStyle: layout.chartStyle,
+    drawingTool: "crosshair" as DrawingTool,
+    drawings: layout.drawings,
+    id: "live-chart-pane-1",
+    indicatorInstances: layout.indicatorInstances,
+    magnetMode: layout.magnetMode,
+    showOrderOverlays: layout.showOrderOverlays,
+    smoothCandles: layout.smoothCandles,
+    timeframe: layout.timeframe,
+  };
+  const rawPanes =
+    Array.isArray(layout.panes) && layout.panes.length > 0
+      ? layout.panes
+      : [legacyPane];
+  const panes = rawPanes.map((pane, index) => sanitizeLiveChartPaneState(pane, index));
+  const seenIds = new Set<string>();
+  const uniquePanes = panes.map((pane, index) => {
+    const fallbackId = `live-chart-pane-${index + 1}`;
+    const id = seenIds.has(pane.id) ? fallbackId : pane.id;
+    seenIds.add(id);
+    return { ...pane, id };
+  });
+
+  while (uniquePanes.length < paneCount) {
+    uniquePanes.push(createDefaultLiveChartPane(uniquePanes.length, uniquePanes[0]));
+  }
+
+  return uniquePanes.slice(0, Math.max(paneCount, uniquePanes.length));
+}
+
+function sanitizeLiveChartPaneState(value: unknown, index = 0): LiveChartPaneState {
+  const candidate = isPlainRecord(value) ? value : {};
+  const fallback = createDefaultLiveChartPane(index);
+  const id =
+    typeof candidate.id === "string" && candidate.id.trim().length > 0
+      ? candidate.id.trim().slice(0, 80)
+      : fallback.id;
+  return {
+    ...fallback,
+    chartSettings: sanitizeChartVisualSettings(
+      candidate.chartSettings as Partial<ChartVisualSettings> | null | undefined,
+    ),
+    chartStyle: sanitizeLiveChartStyle(candidate.chartStyle),
+    drawingTool: sanitizeLiveDrawingTool(candidate.drawingTool),
+    drawings: sanitizeLiveDrawings(candidate.drawings),
+    id,
+    indicatorInstances: sanitizeLiveIndicatorInstances(candidate.indicatorInstances),
+    magnetMode: sanitizeLiveMagnetMode(candidate.magnetMode),
+    showOrderOverlays: candidate.showOrderOverlays === true,
+    smoothCandles: candidate.smoothCandles === true,
+    timeframe: sanitizeLiveTimeframe(candidate.timeframe),
+  };
+}
+
+function createDefaultLiveChartPane(
+  index: number,
+  template?: Partial<LiveChartPaneState> | null,
+): LiveChartPaneState {
+  return {
+    chartSettings: sanitizeChartVisualSettings(template?.chartSettings),
+    chartStyle: sanitizeLiveChartStyle(template?.chartStyle),
+    drawingTool: sanitizeLiveDrawingTool(template?.drawingTool),
+    drawings: [],
+    id: `live-chart-pane-${index + 1}`,
+    indicatorInstances: sanitizeLiveIndicatorInstances(template?.indicatorInstances),
+    magnetMode: sanitizeLiveMagnetMode(template?.magnetMode),
+    showOrderOverlays: template?.showOrderOverlays === true,
+    smoothCandles: template?.smoothCandles === true,
+    timeframe: sanitizeLiveTimeframe(template?.timeframe ?? LIVE_SOURCE_TIMEFRAME),
+  };
+}
+
+function sanitizeLiveDrawings(value: unknown): ChartDrawing[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((drawing): ChartDrawing[] => {
+    if (!isPlainRecord(drawing)) {
+      return [];
+    }
+    const candidate = drawing as Partial<ChartDrawing>;
+    const isValid =
+      typeof candidate.id === "string" &&
+      [
+        "fib",
+        "horizontal",
+        "vertical",
+        "longPosition",
+        "measure",
+        "rectangle",
+        "shortPosition",
+        "text",
+        "trendline",
+      ].includes(candidate.tool ?? "") &&
+      typeof candidate.color === "string" &&
+      typeof candidate.createdAt === "string" &&
+      (candidate.fillOpacity == null ||
+        (typeof candidate.fillOpacity === "number" && Number.isFinite(candidate.fillOpacity))) &&
+      (candidate.fibExtendLeft == null || typeof candidate.fibExtendLeft === "boolean") &&
+      (candidate.fibExtendRight == null || typeof candidate.fibExtendRight === "boolean") &&
+      (candidate.label == null || typeof candidate.label === "string") &&
+      (candidate.labelBackgroundOpacity == null ||
+        (typeof candidate.labelBackgroundOpacity === "number" && Number.isFinite(candidate.labelBackgroundOpacity))) &&
+      (candidate.lineStyle == null || ["solid", "dashed", "dotted"].includes(candidate.lineStyle)) &&
+      (candidate.lineWidth == null ||
+        (typeof candidate.lineWidth === "number" && Number.isFinite(candidate.lineWidth))) &&
+      (candidate.locked == null || typeof candidate.locked === "boolean") &&
+      (candidate.rewardColor == null || typeof candidate.rewardColor === "string") &&
+      (candidate.riskColor == null || typeof candidate.riskColor === "string") &&
+      (candidate.visible == null || typeof candidate.visible === "boolean") &&
+      Array.isArray(candidate.points) &&
+      candidate.points.every(
+        (point) =>
+          typeof point.time === "number" &&
+          typeof point.price === "number" &&
+          Number.isFinite(point.time) &&
+          Number.isFinite(point.price) &&
+          (point.logical == null ||
+            (typeof point.logical === "number" && Number.isFinite(point.logical))),
+      );
+
+    if (!isValid) {
+      return [];
+    }
+
+    const normalized =
+      candidate.tool === "fib"
+        ? ({
+            ...candidate,
+            fibExtendLeft: candidate.fibExtendLeft === true,
+            fibExtendRight: candidate.fibExtendRight !== false,
+            fibLevels: normalizeFibLevels(candidate.fibLevels, candidate.color),
+          } as ChartDrawing)
+        : (candidate as ChartDrawing);
+    const riskAdjusted = normalizeRiskRewardDrawing(normalized);
+    return [
+      riskAdjusted.tool === "measure" && riskAdjusted.lineStyle === "dashed"
+        ? { ...riskAdjusted, lineStyle: "solid" }
+        : riskAdjusted,
+    ];
+  });
+}
+
+function cloneLiveDrawings(drawings: ChartDrawing[]) {
+  return drawings.map((drawing) => ({
+    ...drawing,
+    fibLevels: drawing.fibLevels?.map((level) => ({ ...level })),
+    points: drawing.points.map((point) => ({ ...point })),
+  }));
+}
+
+function sanitizeLiveChartStyle(value: unknown): ChartStyle {
+  return ["area", "candles", "heikinAshi", "line"].includes(value as ChartStyle)
+    ? (value as ChartStyle)
+    : "candles";
+}
+
+function sanitizeLiveMagnetMode(value: unknown): MagnetMode {
+  return value === "weak" || value === "strong" ? value : "off";
+}
+
+function sanitizeLiveDrawingTool(value: unknown): DrawingTool {
+  return [
+    "cursor",
+    "crosshair",
+    "fib",
+    "horizontal",
+    "longPosition",
+    "measure",
+    "rectangle",
+    "shortPosition",
+    "text",
+    "trendline",
+    "vertical",
+  ].includes(value as DrawingTool)
+    ? (value as DrawingTool)
+    : "crosshair";
+}
+
+function sanitizeLiveIndicatorInstances(value: unknown): ChartIndicatorInstance[] {
+  if (!Array.isArray(value)) {
+    return [createIndicatorInstance("ema")];
+  }
+  return value
+    .map((item) => sanitizeLiveIndicatorInstance(item))
+    .filter((item): item is ChartIndicatorInstance => item != null);
+}
+
+function sanitizeLiveIndicatorInstance(value: unknown): ChartIndicatorInstance | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+  const candidate = value as Partial<ChartIndicatorInstance>;
+  if (!isIndicatorKind(candidate.kind)) {
+    return null;
+  }
+  const base = createIndicatorInstance(candidate.kind, candidate.settings);
+  return {
+    ...base,
+    id:
+      typeof candidate.id === "string" && candidate.id.trim().length > 0
+        ? candidate.id.trim().slice(0, 96)
+        : base.id,
+    visible: candidate.visible !== false,
+    createdAt:
+      typeof candidate.createdAt === "string" && candidate.createdAt.length > 0
+        ? candidate.createdAt
+        : base.createdAt,
+    settings: mergeIndicatorSettings(candidate.kind, candidate.settings),
+  };
+}
+
+function sanitizeLiveTimeframe(value: unknown): ChartTimeframe {
+  const normalized = normalizeChartTimeframe(value) ?? LIVE_SOURCE_TIMEFRAME;
+  return canAggregateTimeframe(normalized, LIVE_SOURCE_TIMEFRAME)
+    ? normalized
+    : LIVE_SOURCE_TIMEFRAME;
+}
+
+function buildLiveTimeframeOptions(panes: LiveChartPaneState[]) {
+  const orderedTimeframes = [
+    LIVE_SOURCE_TIMEFRAME,
+    ...panes.map((pane) => sanitizeLiveTimeframe(pane.timeframe)),
+    ...TIMEFRAMES.map((timeframe) => timeframe.id),
+  ];
+  const seen = new Set<string>();
+  return orderedTimeframes.flatMap((timeframe) => {
+    const normalized = normalizeChartTimeframe(timeframe);
+    if (!normalized || seen.has(normalized) || !canAggregateTimeframe(normalized, LIVE_SOURCE_TIMEFRAME)) {
+      return [];
+    }
+    seen.add(normalized);
+    const stepBars = Math.max(
+      1,
+      Math.round(getTimeframeSeconds(normalized) / getTimeframeSeconds(LIVE_SOURCE_TIMEFRAME)),
+    );
+    return [
+      {
+        label: `${formatChartTimeframeLabel(normalized)} bars`,
+        sublabel: stepBars === 1 ? "Live source" : `${stepBars} source bars`,
+        value: normalized,
+      },
+    ];
+  });
+}
+
+function buildTimeframeShortcutFeedback(
+  rawValue: string,
+  sourceTimeframe: ChartTimeframe | null,
+): TimeframeShortcutFeedback {
+  const compactValue = rawValue.trim().replace(/\s+/g, "");
+  const digitsOnly = /^\d+$/.test(compactValue);
+  const candidateValue = digitsOnly ? `${compactValue}m` : compactValue;
+  const normalized = normalizeChartTimeframe(candidateValue);
+
+  if (!normalized) {
+    return {
+      description: "Invalid interval",
+      status: "invalid",
+      value: compactValue,
+    };
+  }
+
+  const value = digitsOnly ? compactValue : formatChartTimeframeLabel(normalized);
+  if (!canAggregateTimeframe(normalized, sourceTimeframe)) {
+    const sourceLabel = sourceTimeframe
+      ? formatChartTimeframeLabel(sourceTimeframe)
+      : "source";
+    return {
+      description: `Unavailable from ${sourceLabel} source`,
+      status: "unavailable",
+      value,
+    };
+  }
+
+  return {
+    description: formatTimeframeShortcutDescription(normalized),
+    status: "ready",
+    timeframe: normalized,
+    value,
+  };
+}
+
+function formatTimeframeShortcutDescription(timeframe: ChartTimeframe) {
+  if (timeframe === "1M") {
+    return "1 month";
+  }
+
+  const match = /^(\d+)(m|H|D|W)$/.exec(timeframe);
+  if (!match) {
+    return formatChartTimeframeLabel(timeframe);
+  }
+
+  const value = Number.parseInt(match[1], 10);
+  const unit =
+    match[2] === "m"
+      ? "minute"
+      : match[2] === "H"
+        ? "hour"
+        : match[2] === "D"
+          ? "day"
+          : "week";
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
+}
+
+function loadActiveLiveChartLayoutName() {
+  return normalizeLiveLayoutName(
+    getCachedAppStorageItem<string | null>(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, null) ?? "Live Default",
+  );
+}
+
+function loadLiveChartLayoutRecord(name: string) {
+  const normalized = normalizeLiveLayoutName(name);
+  return loadLiveChartLayoutRecords().find(
+    (record) => normalizeLiveLayoutName(record.name) === normalized,
+  );
+}
+
+function loadLiveChartLayoutRecords(): LiveChartLayoutRecord[] {
+  try {
+    const parsed = getCachedAppStorageItem<unknown>(LIVE_CHART_LAYOUTS_STORAGE_KEY, []);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((record): record is LiveChartLayoutRecord => {
+        if (!isPlainRecord(record)) {
+          return false;
+        }
+        return (
+          typeof record.name === "string" &&
+          typeof record.updatedAt === "string" &&
+          typeof record.layout === "object" &&
+          record.layout != null
+        );
+      })
+      .map((record) => ({
+        ...record,
+        layout: sanitizeLiveChartLayout(record.layout),
+        name: normalizeLiveLayoutName(record.name),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function saveNamedLiveChartLayout(name: string, layout: LiveChartLayout) {
+  const normalizedName = normalizeLiveLayoutName(name);
+  const records = loadLiveChartLayoutRecords().filter(
+    (record) => normalizeLiveLayoutName(record.name) !== normalizedName,
+  );
+  const nextRecords = [
+    {
+      layout: sanitizeLiveChartLayout(layout),
+      name: normalizedName,
+      updatedAt: new Date().toISOString(),
+    },
+    ...records,
+  ].slice(0, 12);
+  void saveAppStorageItem(LIVE_CHART_LAYOUTS_STORAGE_KEY, nextRecords);
+  return nextRecords.map((record) => record.name);
+}
+
+function deleteLiveChartLayoutRecord(name: string) {
+  const normalizedName = normalizeLiveLayoutName(name);
+  const nextRecords = loadLiveChartLayoutRecords().filter(
+    (record) => normalizeLiveLayoutName(record.name) !== normalizedName,
+  );
+  void saveAppStorageItem(LIVE_CHART_LAYOUTS_STORAGE_KEY, nextRecords);
+  return nextRecords.map((record) => record.name);
+}
+
+function normalizeLiveLayoutName(name: string) {
+  const trimmed = name.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 48) : "Live Default";
 }
 
 function LiveInstrumentSuggestionList({ children }: { children: ReactNode }) {
@@ -1883,7 +2993,7 @@ async function fetchBinanceKlines(
   symbol: string,
   interval: (typeof LIVE_TIMEFRAMES)[number]["binanceInterval"],
   signal: AbortSignal,
-): Promise<CandlestickData[]> {
+): Promise<Candle[]> {
   const normalized = normalizeLiveSymbolInput(symbol);
   if (!normalized) {
     return [];
@@ -1903,8 +3013,8 @@ async function fetchBinanceKlines(
   }
   return payload
     .map(liveCandleFromRestKline)
-    .filter((candle): candle is CandlestickData => candle !== null)
-    .sort((left, right) => Number(left.time) - Number(right.time));
+    .filter((candle): candle is Candle => candle !== null)
+    .sort((left, right) => left.time - right.time);
 }
 
 async function fetchLiveMarketCatalog(): Promise<LiveMarketCatalog> {
@@ -1948,22 +3058,23 @@ async function fetchDukascopyCandles(
   interval: (typeof LIVE_TIMEFRAMES)[number]["dukascopyInterval"],
   signal: AbortSignal,
   limit = 260,
-): Promise<CandlestickData[]> {
+): Promise<Candle[]> {
   const response = await getDukascopyCandles(symbol, interval, limit);
   if (signal.aborted) {
     return [];
   }
-  return response.candles.map(liveCandleFromApiCandle);
-}
-
-function liveCandleFromApiCandle(candle: Candle): CandlestickData {
-  return {
-    close: candle.close,
-    high: candle.high,
-    low: candle.low,
-    open: candle.open,
-    time: candle.time as UTCTimestamp,
-  };
+  return response.candles
+    .map((candle) =>
+      createLiveCandle(
+        candle.time,
+        candle.open,
+        candle.high,
+        candle.low,
+        candle.close,
+        candle.volume,
+      ),
+    )
+    .sort((left, right) => left.time - right.time);
 }
 
 function defaultBinanceInstruments(): BinanceInstrument[] {
@@ -2073,7 +3184,7 @@ function liveTickerFromBinanceRest(payload: BinanceRestTickerPayload): LiveTicke
   };
 }
 
-function liveTickerFromCandles(symbol: LiveWatchlistSymbol, candles: CandlestickData[]): LiveTicker | null {
+function liveTickerFromCandles(symbol: LiveWatchlistSymbol, candles: Candle[]): LiveTicker | null {
   if (candles.length === 0) {
     return null;
   }
@@ -2090,12 +3201,12 @@ function liveTickerFromCandles(symbol: LiveWatchlistSymbol, candles: Candlestick
     low: Math.min(...candles.map((candle) => Number(candle.low))),
     quoteVolume: 0,
     symbol: symbol.symbol,
-    updatedAt: Number(lastCandle.time) * 1000,
-    volume: candles.length,
+    updatedAt: lastCandle.time * 1000,
+    volume: candles.reduce((total, candle) => total + candle.volume, 0),
   };
 }
 
-function liveCandleFromBinance(payload: BinanceKlinePayload): CandlestickData | null {
+function liveCandleFromBinance(payload: BinanceKlinePayload): Candle | null {
   const kline = payload.k;
   if (!kline) {
     return null;
@@ -2108,16 +3219,10 @@ function liveCandleFromBinance(payload: BinanceKlinePayload): CandlestickData | 
   if (!Number.isFinite(time) || open == null || high == null || low == null || close == null) {
     return null;
   }
-  return {
-    close,
-    high,
-    low,
-    open,
-    time: time as UTCTimestamp,
-  };
+  return createLiveCandle(time, open, high, low, close, liveNumber(kline.v) ?? 0);
 }
 
-function liveCandleFromRestKline(value: unknown): CandlestickData | null {
+function liveCandleFromRestKline(value: unknown): Candle | null {
   if (!Array.isArray(value) || value.length < 5) {
     return null;
   }
@@ -2129,21 +3234,37 @@ function liveCandleFromRestKline(value: unknown): CandlestickData | null {
   if (!Number.isFinite(time) || open == null || high == null || low == null || close == null) {
     return null;
   }
+  return createLiveCandle(time, open, high, low, close, liveNumber(value[5]) ?? 0);
+}
+
+function createLiveCandle(
+  time: number,
+  open: number,
+  high: number,
+  low: number,
+  close: number,
+  volume: number,
+): Candle {
   return {
     close,
+    ema_20: null,
+    ema_50: null,
     high,
     low,
     open,
-    time: time as UTCTimestamp,
+    rsi_14: null,
+    time,
+    timestamp: new Date(time * 1000).toISOString(),
+    volume: Number.isFinite(volume) ? volume : 0,
   };
 }
 
-function upsertLiveCandle(candles: CandlestickData[], candle: CandlestickData) {
-  const existingIndex = candles.findIndex((item) => Number(item.time) === Number(candle.time));
+function upsertLiveCandle(candles: Candle[], candle: Candle) {
+  const existingIndex = candles.findIndex((item) => item.time === candle.time);
   if (existingIndex >= 0) {
     return candles.map((item, index) => index === existingIndex ? candle : item);
   }
-  const next = [...candles, candle].sort((left, right) => Number(left.time) - Number(right.time));
+  const next = [...candles, candle].sort((left, right) => left.time - right.time);
   return next.slice(-500);
 }
 
@@ -2223,10 +3344,6 @@ function isLiveFeedProvider(value: unknown): value is LiveFeedProvider {
 
 function isLiveAssetClass(value: unknown): value is LiveAssetClass {
   return value === "commodity" || value === "crypto" || value === "equity" || value === "etf" || value === "forex" || value === "index" || value === "other";
-}
-
-function liveTimeframeConfig(value: LiveTimeframe) {
-  return LIVE_TIMEFRAMES.find((timeframe) => timeframe.value === value) ?? LIVE_TIMEFRAMES[0];
 }
 
 function filterBinanceInstruments(instruments: BinanceInstrument[], search: string) {
