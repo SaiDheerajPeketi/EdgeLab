@@ -1,4 +1,4 @@
-import type { BacktestSession, DatasetCatalog, DatasetInstrument, Trade } from "./api";
+import type { BacktestSession, DatasetCatalog, Trade } from "./api";
 
 export const DEFAULT_CURRENCY = "USD";
 export const MIXED_CURRENCY = "MIXED";
@@ -10,11 +10,9 @@ export function normalizeCurrencyCode(value: string | null | undefined) {
 
 export function currencyForSession(
   session: BacktestSession | null | undefined,
-  datasets: DatasetCatalog | null | undefined,
+  _datasets: DatasetCatalog | null | undefined,
 ) {
-  return normalizeCurrencyCode(
-    session?.currency ?? datasetCurrencyForSession(session, datasets) ?? DEFAULT_CURRENCY,
-  );
+  return normalizeCurrencyCode(session?.currency ?? DEFAULT_CURRENCY);
 }
 
 export function currencyForSessions(
@@ -50,34 +48,4 @@ export function currencyForTrades(
     return normalizeCurrencyCode(fallbackCurrency);
   }
   return currencyForSessions(sessions, datasets);
-}
-
-function datasetCurrencyForSession(
-  session: BacktestSession | null | undefined,
-  datasets: DatasetCatalog | null | undefined,
-) {
-  if (!session || !datasets) {
-    return null;
-  }
-  const instrument = findDatasetInstrument(session, datasets.instruments);
-  return instrument?.currency ?? null;
-}
-
-function findDatasetInstrument(
-  session: BacktestSession,
-  instruments: DatasetInstrument[],
-) {
-  const keys = [session.instrument, session.symbol]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .map((value) => value.trim().toUpperCase());
-  if (keys.length === 0) {
-    return null;
-  }
-  return (
-    instruments.find((instrument) =>
-      [instrument.id, instrument.symbol, instrument.name]
-        .map((value) => value.trim().toUpperCase())
-        .some((value) => keys.includes(value)),
-    ) ?? null
-  );
 }
