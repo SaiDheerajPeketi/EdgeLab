@@ -7778,8 +7778,10 @@ function AreaSparkline({
   const gradientId = useId().replace(/:/g, "");
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const width = 900;
-  const margin = { bottom: 30, left: 76, right: 18, top: 18 };
   const domain = chartDomain(values);
+  const ticks = chartTicks(domain.min, domain.max, 5);
+  const yAxisWidth = chartAxisLabelWidth(ticks.map((tick) => formatCompactMoney(tick, currency)));
+  const margin = { bottom: 30, left: yAxisWidth, right: 24, top: 18 };
   const points = chartPoints(values, width, height, margin, domain);
   const path = linePath(points);
   const zeroY = chartY(0, height, margin, domain);
@@ -7788,7 +7790,6 @@ function AreaSparkline({
     : "";
   const stroke = tone === "rose" ? "#fb7185" : "#34d399";
   const glow = tone === "rose" ? "rgba(251, 113, 133, 0.22)" : "rgba(52, 211, 153, 0.22)";
-  const ticks = chartTicks(domain.min, domain.max, 5);
   const lastPoint = points[points.length - 1];
   const firstPoint = points[0];
   const activePoint = activeIndex == null ? null : points[activeIndex] ?? null;
@@ -7987,7 +7988,10 @@ function BarBreakdown({
   const range = domain.max - domain.min || 1;
   const zeroBottom = ((0 - domain.min) / range) * 100;
   const ticks = chartTicks(domain.min, domain.max, 5);
-  const minWidth = Math.max(360, visibleRows.length * 58);
+  const tickLabels = ticks.map((tick) => (percent ? `${tick.toFixed(0)}%` : formatCompactMoney(tick, currency)));
+  const axisWidth = chartAxisLabelWidth(tickLabels, { max: 150, min: 58 });
+  const axisLabelWidth = Math.max(46, axisWidth - 12);
+  const minWidth = Math.max(360, axisWidth + visibleRows.length * 58);
   const activeLabel = activeRow?.label ?? "";
   const activeValueLabel = activeRow ? (percent ? `${activeRow.value.toFixed(1)}%` : formatMoney(activeRow.value, currency)) : "";
   const activeTooltipLeft = activeIndex == null
@@ -8011,17 +8015,21 @@ function BarBreakdown({
         <div className="relative" onPointerLeave={() => setActiveIndex(null)}>
           {ticks.map((tick) => {
             const top = ((domain.max - tick) / range) * 100;
+            const tickLabel = percent ? `${tick.toFixed(0)}%` : formatCompactMoney(tick, currency);
             return (
               <div className="absolute left-0 right-0" key={tick} style={{ top: `${top}%` }}>
-                <div className="ml-14 border-t border-dashed border-white/10" />
-                <span className="absolute -top-2 left-0 w-12 text-right text-[10px] font-semibold tabular-nums text-slate-600">
-                  {percent ? `${tick.toFixed(0)}%` : formatCompactMoney(tick, currency)}
+                <div className="border-t border-dashed border-white/10" style={{ marginLeft: axisWidth }} />
+                <span
+                  className="absolute -top-2 left-0 text-right text-[10px] font-semibold tabular-nums text-slate-600"
+                  style={{ width: axisLabelWidth }}
+                >
+                  {tickLabel}
                 </span>
               </div>
             );
           })}
-          <div className="absolute left-14 right-0 border-t border-white/20" style={{ bottom: `${zeroBottom}%` }} />
-          <div className="absolute inset-y-0 left-14 right-0 flex items-stretch gap-2">
+          <div className="absolute right-0 border-t border-white/20" style={{ bottom: `${zeroBottom}%`, left: axisWidth }} />
+          <div className="absolute inset-y-0 right-0 flex items-stretch gap-2" style={{ left: axisWidth }}>
             {visibleRows.map((row, rowIndex) => {
               const heightPercent = row.value === 0 ? 1.5 : Math.max(2, (Math.abs(row.value) / range) * 100);
               const bottomPercent = row.value >= 0 ? zeroBottom : zeroBottom - heightPercent;
@@ -8068,7 +8076,7 @@ function BarBreakdown({
             </div>
           )}
         </div>
-        <div className="ml-14 flex gap-2 pt-2">
+        <div className="flex gap-2 pt-2" style={{ marginLeft: axisWidth }}>
           {visibleRows.map((row, rowIndex) => (
             <div
               className={`min-w-10 flex-1 rounded px-1 text-center transition ${activeIndex === rowIndex ? "bg-white/5" : ""}`}
@@ -9388,6 +9396,16 @@ function chartTicks(min: number, max: number, count: number) {
   }
   const step = (max - min) / (count - 1);
   return Array.from({ length: count }, (_, index) => min + step * index);
+}
+
+function chartAxisLabelWidth(
+  labels: string[],
+  options: { max?: number; min?: number } = {},
+) {
+  const min = options.min ?? 76;
+  const max = options.max ?? 160;
+  const longestLabel = labels.reduce((longest, label) => Math.max(longest, label.length), 0);
+  return Math.min(max, Math.max(min, Math.ceil(longestLabel * 7.5 + 24)));
 }
 
 function clampPercent(value: number, min: number, max: number) {
