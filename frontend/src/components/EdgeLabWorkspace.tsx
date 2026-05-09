@@ -307,6 +307,8 @@ type LiveJournalController = {
   addTrade: (payload: LiveTradeInput) => void;
   updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Playbook | null;
   deletePlaybook: (playbookId: number) => void;
+  updateSession: (sessionId: number, payload: Partial<Omit<LiveJournalSession, "created_at" | "id">>) => LiveJournalSession | null;
+  updateTradeStrategy: (tradeId: number, strategyName: string | null) => void;
   data: LiveJournalData;
 };
 
@@ -342,6 +344,7 @@ type NotebookEditorState = {
 };
 
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
+const LIVE_JOURNAL_STRATEGIES_STORAGE_KEY = "live-journal-strategies.v1";
 const BACKTEST_STRATEGIES_STORAGE_KEY = "backtest-strategies.v1";
 const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
 const NOTEBOOK_TEMPLATE_STORAGE_KEY = "notebook-template.v1";
@@ -2357,7 +2360,14 @@ function JournalSessionsPage({
   playbooks,
   sessionById,
   sessions,
+  strategies,
 }: JournalPageProps) {
+  const strategyListId = useId().replace(/:/g, "");
+  const savedStrategyNames = useLiveJournalStrategyNames();
+  const strategyNameOptions = useMemo(
+    () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
+    [savedStrategyNames, strategies],
+  );
   const [name, setName] = useState("Live Trading Session");
   const [strategy, setStrategy] = useState("Discretionary");
   const [instrument, setInstrument] = useState("OANDA:EURUSD");
@@ -2435,7 +2445,17 @@ function JournalSessionsPage({
             </label>
             <label className="form-field">
               Strategy
-              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStrategy(event.target.value)} value={strategy} />
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                list={strategyListId}
+                onChange={(event) => setStrategy(event.target.value)}
+                value={strategy}
+              />
+              <datalist id={strategyListId}>
+                {strategyNameOptions.map((strategyName) => (
+                  <option key={strategyName} value={strategyName} />
+                ))}
+              </datalist>
             </label>
             <label className="form-field">
               Instrument
@@ -2550,6 +2570,7 @@ function JournalTradesPage({
   closedTrades,
   journal,
   sessions,
+  strategies,
 }: JournalPageProps) {
   return (
     <PageScaffold
@@ -2558,7 +2579,7 @@ function JournalTradesPage({
       description="Manually record actual taken trades here. These entries feed only Journal sessions, strategies, and reports."
     >
       <div className="grid gap-4 2xl:grid-cols-[380px_minmax(0,1fr)]">
-        <LiveTradeForm journal={journal} sessions={sessions} />
+        <LiveTradeForm journal={journal} sessions={sessions} strategies={strategies} />
         <LiveTradeTable sessionById={new Map(sessions.map((session) => [session.id, session]))} trades={closedTrades} />
       </div>
     </PageScaffold>
@@ -2745,65 +2766,364 @@ function JournalReportsPage({
   );
 }
 
-function JournalStrategiesPage({ strategies }: JournalPageProps) {
-  const [selectedName, setSelectedName] = useState<string | null>(strategies[0]?.name ?? null);
-  const selected = strategies.find((strategy) => strategy.name === selectedName) ?? strategies[0] ?? null;
+function JournalStrategiesPage({
+  closedTrades,
+  journal,
+  playbooks,
+  sessions,
+  strategies,
+}: JournalPageProps) {
+  const savedStrategyNames = useLiveJournalStrategyNames();
+  const strategyRows = useMemo(
+    () => mergeLiveStrategyGroups(strategies, savedStrategyNames),
+    [savedStrategyNames, strategies],
+  );
+  const [selectedName, setSelectedName] = useState<string | null>(strategyRows[0]?.name ?? null);
+  const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<LiveStrategyGroup | null>(null);
+  const [mutatingName, setMutatingName] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
+  );
+  const selected = strategyRows.find((strategy) => strategy.name === selectedName) ?? strategyRows[0] ?? null;
+  const selectedCurrency = selected ? currencyForLiveSessions(selected.sessions) : "USD";
+  const selectedDays = useMemo(
+    () => groupTradesByDay(selected?.trades ?? []),
+    [selected],
+  );
+
+  useEffect(() => {
+    if (strategyRows.length === 0) {
+      if (selectedName !== null) {
+        setSelectedName(null);
+      }
+      return;
+    }
+    if (!selectedName || !strategyRows.some((strategy) => sameStrategyName(strategy.name, selectedName))) {
+      setSelectedName(strategyRows[0].name);
+    }
+  }, [selectedName, strategyRows]);
+
+  async function createStrategy(name: string) {
+    const nextName = normalizeBacktestStrategyName(name);
+    if (!nextName) {
+      throw new Error("Strategy name is required");
+    }
+    if (strategyRows.some((strategy) => sameStrategyName(strategy.name, nextName))) {
+      throw new Error("A strategy with this name already exists");
+    }
+    await persistLiveJournalStrategyNames([...savedStrategyNames, nextName]);
+    setSelectedName(nextName);
+  }
+
+  async function renameStrategy(currentName: string, nextValue: string) {
+    const nextName = normalizeBacktestStrategyName(nextValue);
+    if (!nextName) {
+      throw new Error("Strategy name is required");
+    }
+    if (
+      !sameStrategyName(currentName, nextName) &&
+      strategyRows.some((strategy) => sameStrategyName(strategy.name, nextName))
+    ) {
+      throw new Error("A strategy with this name already exists");
+    }
+
+    setMutatingName(currentName);
+    setMutationError(null);
+    try {
+      await persistLiveJournalStrategyNames(renameSavedStrategyName(savedStrategyNames, currentName, nextName));
+      applyJournalStrategyNameChange(currentName, nextName);
+      setSelectedName(nextName);
+    } finally {
+      setMutatingName(null);
+    }
+  }
+
+  async function deleteStrategy(strategy: LiveStrategyGroup) {
+    setMutatingName(strategy.name);
+    setMutationError(null);
+    try {
+      await persistLiveJournalStrategyNames(removeSavedStrategyName(savedStrategyNames, strategy.name));
+      applyJournalStrategyNameChange(strategy.name, "Unassigned");
+      setSelectedName("Unassigned");
+      setDeleteTarget(null);
+    } finally {
+      setMutatingName(null);
+    }
+  }
+
+  function applyJournalStrategyNameChange(currentName: string, nextName: string) {
+    const sessionById = new Map(sessions.map((session) => [session.id, session]));
+    for (const session of sessions) {
+      if (sameStrategyName(session.strategy_name || "Unassigned", currentName)) {
+        journal.updateSession(session.id, { strategy_name: nextName });
+      }
+    }
+    for (const trade of closedTrades) {
+      const session = sessionById.get(trade.session_id);
+      const strategyName = trade.strategy_name || session?.strategy_name || "Unassigned";
+      if (sameStrategyName(strategyName, currentName)) {
+        journal.updateTradeStrategy(trade.id, nextName);
+      }
+    }
+  }
+
+  function openCreateDialog() {
+    setEditingName(null);
+    setDialogMode("create");
+    setMutationError(null);
+  }
+
+  function openEditDialog(name: string) {
+    setEditingName(name);
+    setDialogMode("edit");
+    setMutationError(null);
+  }
+
+  function closeDialog() {
+    setDialogMode(null);
+    setEditingName(null);
+  }
 
   return (
     <PageScaffold
       eyebrow="Journal Strategies"
       title="Live Strategy Performance"
       description="Strategy analytics from actual trades only. Backtest strategy stats remain in Backtesting."
+      actions={
+        <button className="control-button workspace-tab-active" onClick={openCreateDialog} type="button">
+          <Plus size={15} />
+          Create strategy
+        </button>
+      }
     >
+      {mutationError && (
+        <div className="rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+          {mutationError}
+        </div>
+      )}
       <FeatureCard>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <CardLabel icon={Target} label={`Journal strategies (${strategyRows.length})`} />
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="status-pill">{sessions.length} sessions</span>
+            <span className="status-pill">{closedTrades.length} trades</span>
+          </div>
+        </div>
         <div className="overflow-auto">
-          <table className="w-full min-w-[860px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
               <tr>
                 <th className="px-3 py-3 font-medium">Strategy</th>
                 <th className="px-3 py-3 font-medium">Sessions</th>
                 <th className="px-3 py-3 font-medium">Trades</th>
+                <th className="px-3 py-3 font-medium">Average loser</th>
+                <th className="px-3 py-3 font-medium">Average winner</th>
                 <th className="px-3 py-3 font-medium">Net P&L</th>
                 <th className="px-3 py-3 font-medium">Win rate</th>
-                <th className="px-3 py-3 font-medium">Avg R</th>
+                <th className="px-3 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {strategies.map((strategy) => (
-                <tr
-                  className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selected?.name === strategy.name ? "bg-cyan-300/10" : ""}`}
-                  key={strategy.name}
-                  onClick={() => setSelectedName(strategy.name)}
-                >
-                  <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
-                  <td className="px-3 py-4">{strategy.sessions.length}</td>
-                  <td className="px-3 py-4">{strategy.aggregate.totalTrades}</td>
-                  <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl)}</td>
-                  <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
-                  <td className="px-3 py-4">{formatOptionalNumber(strategy.aggregate.averageR)}</td>
-                </tr>
-              ))}
+              {strategyRows.map((strategy) => {
+                const strategyCurrency = currencyForLiveSessions(strategy.sessions);
+                return (
+                  <tr
+                    className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selected?.name === strategy.name ? "bg-cyan-300/10" : ""}`}
+                    key={strategy.name}
+                    onClick={() => setSelectedName(strategy.name)}
+                  >
+                    <td className="px-3 py-4 font-semibold text-white">{strategy.name}</td>
+                    <td className="px-3 py-4">{strategy.sessions.length}</td>
+                    <td className="px-3 py-4">{strategy.aggregate.totalTrades}</td>
+                    <td className="px-3 py-4 text-rose-300">{formatMoney(strategy.aggregate.averageLoss, strategyCurrency)}</td>
+                    <td className="px-3 py-4 text-emerald-300">{formatMoney(strategy.aggregate.averageWin, strategyCurrency)}</td>
+                    <td className={`px-3 py-4 font-semibold ${toneForNumber(strategy.aggregate.netPnl)}`}>{formatMoney(strategy.aggregate.netPnl, strategyCurrency)}</td>
+                    <td className="px-3 py-4">{formatPercent(strategy.aggregate.winRate)}</td>
+                    <td className="px-3 py-4">
+                      <div className="flex gap-2">
+                        <button
+                          className="icon-button h-8 w-8"
+                          disabled={mutatingName === strategy.name}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditDialog(strategy.name);
+                          }}
+                          title="Edit strategy"
+                          type="button"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                          disabled={mutatingName === strategy.name}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDeleteTarget(strategy);
+                            setMutationError(null);
+                          }}
+                          title="Delete strategy"
+                          type="button"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          {strategies.length === 0 && <EmptyState icon={Target} message="Record live trades with strategies to populate this list." />}
+          {strategyRows.length === 0 && <EmptyState icon={Target} message="Create a live strategy or record trades with strategy names." />}
         </div>
       </FeatureCard>
       <FeatureCard>
         {selected ? (
-          <div>
-            <CardLabel icon={Target} label="Live strategy detail" />
-            <h3 className="mt-3 text-xl font-semibold text-white">{selected.name}</h3>
-            <div className="mt-4 grid gap-2 md:grid-cols-4">
-              <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl)} tone={toneForNumber(selected.aggregate.netPnl)} />
-              <CompactMetric label="Win rate" value={formatPercent(selected.aggregate.winRate)} />
-              <CompactMetric label="Profit factor" value={formatRatio(selected.aggregate.profitFactor)} />
-              <CompactMetric label="Sessions" value={String(selected.sessions.length)} />
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.58fr)_minmax(0,0.42fr)]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardLabel icon={Target} label="Live strategy detail" />
+                  <h3 className="mt-3 text-xl font-semibold text-white">{selected.name}</h3>
+                </div>
+                <div className="flex gap-2">
+                  <button className="control-button h-9" disabled={mutatingName === selected.name} onClick={() => openEditDialog(selected.name)} type="button">
+                    <Pencil size={14} />
+                    Edit
+                  </button>
+                  <button
+                    className="icon-button h-9 w-9 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                    disabled={mutatingName === selected.name}
+                    onClick={() => {
+                      setDeleteTarget(selected);
+                      setMutationError(null);
+                    }}
+                    title="Delete strategy"
+                    type="button"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2 md:grid-cols-3">
+                <CompactMetric label="Net P&L" value={formatMoney(selected.aggregate.netPnl, selectedCurrency)} tone={toneForNumber(selected.aggregate.netPnl)} />
+                <CompactMetric label="Win rate" value={formatPercent(selected.aggregate.winRate)} />
+                <CompactMetric label="Profit factor" value={formatRatio(selected.aggregate.profitFactor)} />
+                <CompactMetric label="Avg R" value={formatOptionalNumber(selected.aggregate.averageR)} />
+                <CompactMetric label="Max DD" value={formatMoney(selected.aggregate.maxDrawdown, selectedCurrency)} tone="text-rose-300" />
+                <CompactMetric label="Sessions" value={String(selected.sessions.length)} />
+              </div>
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={LineChart} label="Live equity curve" />
+                  <div className="mt-3">
+                    <AreaSparkline currency={selectedCurrency} height={190} values={cumulativeValues(selected.trades)} />
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={BarChart3} label="Daily P&L" />
+                  <BarBreakdown
+                    chartHeight={190}
+                    currency={selectedCurrency}
+                    maxItems={8}
+                    rows={selectedDays.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+                <CardLabel icon={ClipboardList} label="Recent trades" />
+                <div className="mt-3 grid gap-2">
+                  {selected.trades.slice().sort(compareTradesAscending).reverse().slice(0, 6).map((trade) => (
+                    <div className="grid gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto]" key={trade.id}>
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-white">{formatDateTime(trade.exit_time ?? trade.entry_time)}</div>
+                        <div className="text-xs text-slate-500">{trade.side} · {formatCompactNumber(trade.quantity)}</div>
+                      </div>
+                      <div className={`font-semibold tabular-nums ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl, selectedCurrency)}</div>
+                      <div className="text-slate-500 tabular-nums">{formatOptionalNumber(trade.r_multiple)}R</div>
+                    </div>
+                  ))}
+                  {selected.trades.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No live trades linked yet.</div>}
+                </div>
+              </div>
+            </div>
+            <div className="min-w-0 rounded-md border border-white/10 bg-black/20 p-3">
+              <CardLabel icon={PlaySquare} label="Linked live sessions" />
+              <div className="mt-3 grid gap-2">
+                {selected.sessions.map((session) => (
+                  <div className="rounded-md bg-white/5 px-3 py-2" key={session.id}>
+                    <div className="font-semibold text-white">{session.name}</div>
+                    <div className="text-xs text-slate-500">
+                      {session.instrument} · {session.account} · {session.status}
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <MiniMetric label="Balance" value={formatMoney(session.initial_balance, session.currency)} />
+                      <MiniMetric label="Playbook" value={session.playbook_id == null ? "None" : playbookById.get(session.playbook_id)?.name ?? "Missing"} />
+                    </div>
+                  </div>
+                ))}
+                {selected.sessions.length === 0 && <div className="text-sm text-slate-500">No sessions linked yet.</div>}
+              </div>
             </div>
           </div>
         ) : (
           <EmptyState icon={Target} message="No live strategy selected." />
         )}
       </FeatureCard>
+      {dialogMode && (
+        <StrategyNameDialog
+          initialName={dialogMode === "edit" ? editingName ?? "" : ""}
+          mode={dialogMode}
+          onClose={closeDialog}
+          onSave={async (name) => {
+            try {
+              if (dialogMode === "edit" && editingName) {
+                await renameStrategy(editingName, name);
+              } else {
+                await createStrategy(name);
+              }
+              closeDialog();
+            } catch (error) {
+              setMutationError(error instanceof Error ? error.message : "Could not save strategy");
+              throw error;
+            }
+          }}
+        />
+      )}
+      {deleteTarget && (
+        <ModalFrame title="Delete strategy" onClose={() => setDeleteTarget(null)}>
+          <div className="grid gap-4 text-sm text-slate-300">
+            <p>
+              Delete <span className="font-semibold text-white">{deleteTarget.name}</span>? Linked live sessions and trades will stay intact and move to Unassigned.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <CompactMetric label="Sessions" value={String(deleteTarget.sessions.length)} />
+              <CompactMetric label="Trades" value={String(deleteTarget.aggregate.totalTrades)} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="control-button" onClick={() => setDeleteTarget(null)} type="button">
+                Cancel
+              </button>
+              <button
+                className="control-button border-rose-300/30 bg-rose-400/10 text-rose-100 hover:bg-rose-400/20"
+                disabled={mutatingName === deleteTarget.name}
+                onClick={() => {
+                  void deleteStrategy(deleteTarget).catch((error) => {
+                    setMutationError(error instanceof Error ? error.message : "Could not delete strategy");
+                  });
+                }}
+                type="button"
+              >
+                <Trash2 size={15} />
+                {mutatingName === deleteTarget.name ? "Deleting" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </ModalFrame>
+      )}
     </PageScaffold>
   );
 }
@@ -2814,6 +3134,8 @@ function JournalPlaybooksPage({
   playbooks,
   sessions,
 }: JournalPageProps) {
+  const currency = currencyForLiveSessions(sessions);
+
   return (
     <PageScaffold
       eyebrow="Journal Playbooks"
@@ -2828,6 +3150,7 @@ function JournalPlaybooksPage({
         onDeletePlaybook={journal.deletePlaybook}
         onUpdatePlaybook={journal.updatePlaybook}
         playbooks={playbooks}
+        currency={currency}
         sessions={sessions}
         trades={closedTrades}
       />
@@ -2920,10 +3243,18 @@ function JournalSettingsPage(_: JournalPageProps) {
 function LiveTradeForm({
   journal,
   sessions,
+  strategies,
 }: {
   journal: LiveJournalController;
   sessions: LiveJournalSession[];
+  strategies: LiveStrategyGroup[];
 }) {
+  const strategyListId = useId().replace(/:/g, "");
+  const savedStrategyNames = useLiveJournalStrategyNames();
+  const strategyNameOptions = useMemo(
+    () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
+    [savedStrategyNames, strategies],
+  );
   const defaultSessionId = String(sessions[0]?.id ?? 1);
   const defaultSession = sessions[0];
   const [sessionId, setSessionId] = useState(defaultSessionId);
@@ -3019,7 +3350,17 @@ function LiveTradeForm({
         </div>
         <label className="form-field">
           Strategy
-          <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStrategy(event.target.value)} value={strategy} />
+          <input
+            className="input-control h-10 normal-case tracking-normal"
+            list={strategyListId}
+            onChange={(event) => setStrategy(event.target.value)}
+            value={strategy}
+          />
+          <datalist id={strategyListId}>
+            {strategyNameOptions.map((strategyName) => (
+              <option key={strategyName} value={strategyName} />
+            ))}
+          </datalist>
         </label>
         <div className="grid gap-2">
           <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Emotion</div>
@@ -8149,35 +8490,51 @@ function NetworkMark() {
 }
 
 function useBacktestStrategyNames() {
+  return useStoredStrategyNames(BACKTEST_STRATEGIES_STORAGE_KEY);
+}
+
+function useLiveJournalStrategyNames() {
+  return useStoredStrategyNames(LIVE_JOURNAL_STRATEGIES_STORAGE_KEY);
+}
+
+function useStoredStrategyNames(storageKey: string) {
   const [names, setNames] = useState<string[]>(() =>
     normalizeBacktestStrategyNames(
-      getCachedAppStorageItem<unknown>(BACKTEST_STRATEGIES_STORAGE_KEY, []),
+      getCachedAppStorageItem<unknown>(storageKey, []),
     ),
   );
 
   useEffect(() => {
     let active = true;
-    void loadAppStorageItem<unknown>(BACKTEST_STRATEGIES_STORAGE_KEY, []).then((value) => {
+    void loadAppStorageItem<unknown>(storageKey, []).then((value) => {
       if (active) {
         setNames(normalizeBacktestStrategyNames(value));
       }
     });
     const unsubscribe = subscribeAppStorageItem<unknown>(
-      BACKTEST_STRATEGIES_STORAGE_KEY,
+      storageKey,
       (value) => setNames(normalizeBacktestStrategyNames(value)),
     );
     return () => {
       active = false;
       unsubscribe();
     };
-  }, []);
+  }, [storageKey]);
 
   return names;
 }
 
 async function persistBacktestStrategyNames(names: string[]) {
+  return persistStoredStrategyNames(BACKTEST_STRATEGIES_STORAGE_KEY, names);
+}
+
+async function persistLiveJournalStrategyNames(names: string[]) {
+  return persistStoredStrategyNames(LIVE_JOURNAL_STRATEGIES_STORAGE_KEY, names);
+}
+
+async function persistStoredStrategyNames(storageKey: string, names: string[]) {
   const nextNames = normalizeBacktestStrategyNames(names);
-  await saveAppStorageItem(BACKTEST_STRATEGIES_STORAGE_KEY, nextNames);
+  await saveAppStorageItem(storageKey, nextNames);
   return nextNames;
 }
 
@@ -8216,6 +8573,32 @@ function sameStrategyName(left: string, right: string) {
 }
 
 function mergeStrategyGroups(strategies: StrategyGroup[], savedNames: string[]): StrategyGroup[] {
+  const rows = strategies.slice();
+  for (const name of savedNames) {
+    if (rows.some((strategy) => sameStrategyName(strategy.name, name))) {
+      continue;
+    }
+    rows.push({
+      aggregate: aggregateTrades([]),
+      name,
+      sessions: [],
+      trades: [],
+    });
+  }
+  return rows.sort((left, right) => {
+    const leftHasActivity = left.sessions.length > 0 || left.aggregate.totalTrades > 0;
+    const rightHasActivity = right.sessions.length > 0 || right.aggregate.totalTrades > 0;
+    if (leftHasActivity !== rightHasActivity) {
+      return leftHasActivity ? -1 : 1;
+    }
+    if (leftHasActivity && left.aggregate.netPnl !== right.aggregate.netPnl) {
+      return right.aggregate.netPnl - left.aggregate.netPnl;
+    }
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function mergeLiveStrategyGroups(strategies: LiveStrategyGroup[], savedNames: string[]): LiveStrategyGroup[] {
   const rows = strategies.slice();
   for (const name of savedNames) {
     if (rows.some((strategy) => sameStrategyName(strategy.name, name))) {
@@ -8773,6 +9156,42 @@ function useLiveJournalData(): LiveJournalController {
     }));
   }
 
+  function updateSession(
+    sessionId: number,
+    payload: Partial<Omit<LiveJournalSession, "created_at" | "id">>,
+  ) {
+    const existing = data.sessions.find((session) => session.id === sessionId);
+    if (!existing) {
+      return null;
+    }
+    const updated: LiveJournalSession = {
+      ...existing,
+      ...payload,
+      name: payload.name?.trim() || existing.name,
+      strategy_name: payload.strategy_name?.trim() || existing.strategy_name || "Unassigned",
+      instrument: payload.instrument?.trim() || existing.instrument,
+      notes: payload.notes ?? existing.notes,
+      playbook_id: payload.playbook_id === undefined ? existing.playbook_id : payload.playbook_id,
+    };
+    setData((current) => ({
+      ...current,
+      sessions: current.sessions.map((session) =>
+        session.id === sessionId ? { ...session, ...updated } : session,
+      ),
+    }));
+    return updated;
+  }
+
+  function updateTradeStrategy(tradeId: number, strategyName: string | null) {
+    const nextName = strategyName?.trim() || null;
+    setData((current) => ({
+      ...current,
+      trades: current.trades.map((trade) =>
+        trade.id === tradeId ? { ...trade, strategy_name: nextName } : trade,
+      ),
+    }));
+  }
+
   function addTrade(payload: LiveTradeInput) {
     setData((current) => {
       const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession();
@@ -8824,7 +9243,16 @@ function useLiveJournalData(): LiveJournalController {
     });
   }
 
-  return { addPlaybook, addSession, addTrade, updatePlaybook, deletePlaybook, data };
+  return {
+    addPlaybook,
+    addSession,
+    addTrade,
+    updatePlaybook,
+    deletePlaybook,
+    updateSession,
+    updateTradeStrategy,
+    data,
+  };
 }
 
 function loadLiveJournalData(): LiveJournalData {
@@ -8956,6 +9384,16 @@ function groupLiveStrategies(
       trades: group.trades,
     }))
     .sort((a, b) => b.aggregate.netPnl - a.aggregate.netPnl);
+}
+
+function currencyForLiveSessions(sessions: LiveJournalSession[], fallbackCurrency = "USD") {
+  const currencies = uniqueStrings(
+    sessions.map((session) => normalizeCurrencyCode(session.currency || fallbackCurrency)),
+  );
+  if (currencies.length === 0) {
+    return normalizeCurrencyCode(fallbackCurrency);
+  }
+  return currencies.length === 1 ? currencies[0] : MIXED_CURRENCY;
 }
 
 function nextNumericId(items: Array<{ id: number }>) {
