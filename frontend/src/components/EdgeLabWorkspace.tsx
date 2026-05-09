@@ -2548,6 +2548,14 @@ function journalStrategySelectOptions(strategyNames: string[], value: string) {
   return selectOptionsWithValue(options, value || "Unassigned");
 }
 
+function normalizeLiveJournalStrategyName(value: string | null | undefined, fallback = "Unassigned") {
+  const name = normalizeBacktestStrategyName(value ?? "");
+  if (!name || sameStrategyName(name, "Discretionary")) {
+    return fallback;
+  }
+  return name;
+}
+
 function costFixedValueForMode(mode: OrderCommissionMode, value: number) {
   return mode === "FIXED" ? formatNumberInput(value) : "0";
 }
@@ -2581,7 +2589,7 @@ function JournalSessionsPage({
     [savedStrategyNames, strategies],
   );
   const [name, setName] = useState("Live Trading Session");
-  const [strategy, setStrategy] = useState("Discretionary");
+  const [strategy, setStrategy] = useState("Unassigned");
   const [instrument, setInstrument] = useState("OANDA:EURUSD");
   const [balance, setBalance] = useState("100000");
   const [currency, setCurrency] = useState(settings.default_currency);
@@ -2761,7 +2769,7 @@ function JournalSessionsPage({
       name: name.trim() || "Live Trading Session",
       notes: notes.trim(),
       playbook_id: playbookId ? Number(playbookId) : null,
-      strategy_name: strategy.trim() || "Unassigned",
+      strategy_name: normalizeLiveJournalStrategyName(strategy),
     });
     setName("Live Trading Session");
     setNotes("");
@@ -5405,7 +5413,7 @@ function LiveTradeForm({
   const [accountIds, setAccountIds] = useState<number[]>(defaultAccountIds);
   const [playbookId, setPlaybookId] = useState(defaultSession?.playbook_id == null ? "" : String(defaultSession.playbook_id));
   const [side, setSide] = useState<"LONG" | "SHORT">("LONG");
-  const [strategy, setStrategy] = useState(defaultSession?.strategy_name ?? "Discretionary");
+  const [strategy, setStrategy] = useState(normalizeLiveJournalStrategyName(defaultSession?.strategy_name));
   const [entryTime, setEntryTime] = useState(defaultDateTimeLocal(-60));
   const [exitTime, setExitTime] = useState(defaultDateTimeLocal(0));
   const [entryPrice, setEntryPrice] = useState("1.00000");
@@ -5505,7 +5513,7 @@ function LiveTradeForm({
       setAccountIds(filterLiveAccountIds(tradeAccounts, activeAccounts));
       setPlaybookId(initialTrade.playbook_id == null ? "" : String(initialTrade.playbook_id));
       setSide(initialTrade.side);
-      setStrategy(initialTrade.strategy_name || tradeSession?.strategy_name || "Unassigned");
+      setStrategy(normalizeLiveJournalStrategyName(initialTrade.strategy_name || tradeSession?.strategy_name));
       setEntryTime(dateTimeLocalFromIso(initialTrade.entry_time));
       setExitTime(dateTimeLocalFromIso(initialTrade.exit_time ?? initialTrade.entry_time));
       setEntryPrice(formatNumberInput(nextEntryType === "MISSED" ? initialTrade.planned_entry_price ?? initialTrade.entry_price : initialTrade.entry_price));
@@ -5536,7 +5544,7 @@ function LiveTradeForm({
     if (fixedSessionId != null && String(selectedSession.id) !== sessionId) {
       setSessionId(String(selectedSession.id));
     }
-    setStrategy(selectedSession.strategy_name || "Unassigned");
+    setStrategy(normalizeLiveJournalStrategyName(selectedSession.strategy_name));
     setPlaybookId(selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id));
     const sessionAccounts = selectedSession.account_ids?.filter((accountId) =>
       activeAccounts.some((account) => account.id === accountId),
@@ -5653,7 +5661,7 @@ function LiveTradeForm({
       sessionId: Number(sessionId) || sessions[0]?.id || 1,
       side,
       stopLoss: entryType === "TAKEN" ? parsedStopLoss : null,
-      strategyName: strategy.trim() || null,
+      strategyName: normalizeLiveJournalStrategyName(strategy),
       takeProfit: entryType === "TAKEN" ? parsedTakeProfit : null,
     };
     if (initialTrade) {
@@ -11786,7 +11794,7 @@ function useLiveJournalData(): LiveJournalController {
       ...existing,
       ...payload,
       name: payload.name?.trim() || existing.name,
-      strategy_name: payload.strategy_name?.trim() || existing.strategy_name || "Unassigned",
+      strategy_name: normalizeLiveJournalStrategyName(payload.strategy_name ?? existing.strategy_name),
       instrument: payload.instrument?.trim() || existing.instrument,
       notes: payload.notes ?? existing.notes,
       playbook_id: payload.playbook_id === undefined ? existing.playbook_id : payload.playbook_id,
@@ -11908,7 +11916,7 @@ function useLiveJournalData(): LiveJournalController {
       side: payload.side,
       status: "CLOSED",
       stop_loss: isMissed ? null : payload.stopLoss,
-      strategy_name: payload.strategyName ?? session.strategy_name,
+      strategy_name: normalizeLiveJournalStrategyName(payload.strategyName ?? session.strategy_name),
       take_profit: isMissed ? null : payload.takeProfit,
     };
     return { sessions, trade };
@@ -12222,7 +12230,7 @@ function normalizeLiveJournalSession(
     notes: session.notes ?? "",
     playbook_id: session.playbook_id ?? null,
     status: session.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE",
-    strategy_name: session.strategy_name?.trim() || "Unassigned",
+    strategy_name: normalizeLiveJournalStrategyName(session.strategy_name),
   };
 }
 
@@ -12268,7 +12276,7 @@ function sanitizeJournalTrade(
     screenshot_url: trade.screenshot_url ?? null,
     status: "CLOSED",
     stop_loss: entryType === "MISSED" ? null : trade.stop_loss ?? null,
-    strategy_name: trade.strategy_name ?? session?.strategy_name ?? null,
+    strategy_name: normalizeLiveJournalStrategyName(trade.strategy_name ?? session?.strategy_name),
     take_profit: entryType === "MISSED" ? null : trade.take_profit ?? null,
   };
 }
