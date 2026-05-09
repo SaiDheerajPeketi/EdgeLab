@@ -32,6 +32,24 @@ class BarsResponse(BaseModel):
     bars: list[Candle]
 
 
+class DukascopyInstrument(BaseModel):
+    symbol: str
+    label: str
+    description: str
+    asset_class: str
+    base_currency: str
+    quote_currency: str
+    tags: list[str] = Field(default_factory=list)
+
+
+class DukascopyInstrumentsResponse(BaseModel):
+    instruments: list[DukascopyInstrument]
+
+
+class DukascopyCandlesResponse(BaseModel):
+    candles: list[Candle]
+
+
 class DatasetMeta(BaseModel):
     csv_path: str
     rows: int

@@ -84,11 +84,18 @@ import type {
   ISeriesApi,
   UTCTimestamp,
 } from "lightweight-charts";
-import { exportAppDataBundle, importAppDataBundle, importBacktestTrades } from "../lib/api";
+import {
+  exportAppDataBundle,
+  getDukascopyCandles,
+  getDukascopyInstruments,
+  importAppDataBundle,
+  importBacktestTrades,
+} from "../lib/api";
 import type {
   AppDataBundle,
   BacktestSession,
   BacktestTradeImportResult,
+  Candle,
   DatasetCatalog,
   DatasetRefreshResponse,
   DatasetRefreshStatus,
@@ -792,8 +799,15 @@ type SharedPageProps = {
   tradeViewLogScrollTop: number | null;
 };
 
+type LiveFeedProvider = "binance" | "dukascopy";
+
+type LiveAssetClass = "commodity" | "crypto" | "equity" | "etf" | "forex" | "index" | "other";
+
 type LiveWatchlistSymbol = {
+  assetClass?: LiveAssetClass;
   color: string;
+  description?: string;
+  feed: LiveFeedProvider;
   label: string;
   symbol: string;
 };
@@ -817,6 +831,16 @@ type LiveTicker = {
 };
 
 type LiveConnectionStatus = "connecting" | "error" | "idle" | "live";
+
+type DukascopyInstrument = {
+  assetClass: LiveAssetClass;
+  baseCurrency: string;
+  description: string;
+  label: string;
+  quoteCurrency: string;
+  symbol: string;
+  tags: string[];
+};
 
 type BinanceTickerPayload = {
   E?: number;
@@ -862,14 +886,39 @@ const LIVE_WATCHLIST_STORAGE_KEY = "live-watchlists.v1";
 const BINANCE_REST_BASE = "https://data-api.binance.vision";
 const BINANCE_WS_BASE = "wss://data-stream.binance.vision";
 const LIVE_MAX_WATCHLIST_SYMBOLS = 40;
-const LIVE_TIMEFRAMES = [
-  { interval: "1m", label: "1m" },
-  { interval: "5m", label: "5m" },
-  { interval: "15m", label: "15m" },
-  { interval: "1h", label: "1H" },
-  { interval: "4h", label: "4H" },
-  { interval: "1d", label: "1D" },
+type LiveTimeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+
+const LIVE_TIMEFRAMES: Array<{
+  binanceInterval: "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+  dukascopyInterval: "1MIN" | "5MIN" | "15MIN" | "1HOUR" | "1DAY";
+  label: string;
+  value: LiveTimeframe;
+}> = [
+  { binanceInterval: "1m", dukascopyInterval: "1MIN", label: "1m", value: "1m" },
+  { binanceInterval: "5m", dukascopyInterval: "5MIN", label: "5m", value: "5m" },
+  { binanceInterval: "15m", dukascopyInterval: "15MIN", label: "15m", value: "15m" },
+  { binanceInterval: "1h", dukascopyInterval: "1HOUR", label: "1H", value: "1h" },
+  { binanceInterval: "4h", dukascopyInterval: "1HOUR", label: "4H", value: "4h" },
+  { binanceInterval: "1d", dukascopyInterval: "1DAY", label: "1D", value: "1d" },
 ] as const;
+const DUKASCOPY_POLL_INTERVAL_MS = 30000;
+
+const DUKASCOPY_FEATURED_SYMBOLS = [
+  "EUR/USD",
+  "GBP/USD",
+  "USD/JPY",
+  "XAU/USD",
+  "XAG/USD",
+  "E_Brent",
+  "E_Light",
+  "E_SandP-500",
+  "E_NQ-100",
+  "E_D&J-Ind",
+  "E_DAAX",
+  "AAPL.US/USD",
+  "TSLA.US/USD",
+  "SPY.US/USD",
+];
 
 const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
   {
@@ -888,6 +937,27 @@ const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
       "POLUSDT",
     ].map((symbol) => liveWatchlistSymbol(symbol)),
   },
+  {
+    id: "dukascopy-cross-asset",
+    name: "Dukascopy Cross Asset",
+    symbols: [
+      { assetClass: "forex", description: "Euro vs US Dollar", label: "EUR/USD", symbol: "EUR/USD" },
+      { assetClass: "forex", description: "Pound Sterling vs US Dollar", label: "GBP/USD", symbol: "GBP/USD" },
+      { assetClass: "forex", description: "US Dollar vs Japanese Yen", label: "USD/JPY", symbol: "USD/JPY" },
+      { assetClass: "commodity", description: "Spot gold", label: "XAU/USD", symbol: "XAU/USD" },
+      { assetClass: "commodity", description: "US Brent Crude Oil", label: "BRENT", symbol: "E_Brent" },
+      { assetClass: "index", description: "USA 500 Index", label: "S&P 500", symbol: "E_SandP-500" },
+      { assetClass: "index", description: "USA 100 Technical Index", label: "NASDAQ 100", symbol: "E_NQ-100" },
+      { assetClass: "index", description: "Germany 40 Index", label: "DAX 40", symbol: "E_DAAX" },
+      { assetClass: "equity", description: "APPLE INC", label: "AAPL", symbol: "AAPL.US/USD" },
+      { assetClass: "etf", description: "SPDR S&P 500 ETF", label: "SPY", symbol: "SPY.US/USD" },
+    ].map((instrument) => liveWatchlistSymbol(instrument.symbol, {
+      assetClass: instrument.assetClass as LiveAssetClass,
+      description: instrument.description,
+      feed: "dukascopy",
+      label: instrument.label,
+    })),
+  },
 ];
 
 function LiveMarketsPage() {
@@ -896,15 +966,28 @@ function LiveMarketsPage() {
   const [selectedWatchlistId, setSelectedWatchlistId] = useState(() => watchlists[0]?.id ?? "");
   const selectedWatchlist = watchlists.find((watchlist) => watchlist.id === selectedWatchlistId) ?? watchlists[0] ?? null;
   const symbols = useMemo(() => selectedWatchlist?.symbols ?? [], [selectedWatchlist]);
-  const [selectedSymbol, setSelectedSymbol] = useState(() => symbols[0]?.symbol ?? "BTCUSDT");
+  const [selectedSymbolKey, setSelectedSymbolKey] = useState(() => liveSymbolKey(symbols[0] ?? liveWatchlistSymbol("BTCUSDT")));
+  const selectedLiveSymbol = symbols.find((item) => liveSymbolKey(item) === selectedSymbolKey) ?? symbols[0] ?? null;
+  const selectedSymbol = selectedLiveSymbol?.symbol ?? "";
+  const selectedFeed = selectedLiveSymbol?.feed ?? "binance";
   const [symbolDraft, setSymbolDraft] = useState("");
-  const [timeframe, setTimeframe] = useState<(typeof LIVE_TIMEFRAMES)[number]["interval"]>("1m");
+  const [feedDraft, setFeedDraft] = useState<LiveFeedProvider>("binance");
+  const [dukascopySearch, setDukascopySearch] = useState("");
+  const [dukascopyCatalog, setDukascopyCatalog] = useState<DukascopyInstrument[]>(() => defaultDukascopyInstruments());
+  const [dukascopyCatalogStatus, setDukascopyCatalogStatus] = useState<"error" | "idle" | "loading" | "ready">("idle");
+  const [timeframe, setTimeframe] = useState<LiveTimeframe>("1m");
   const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
   const [candles, setCandles] = useState<CandlestickData[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
   const [feedError, setFeedError] = useState<string | null>(null);
-  const selectedTicker = selectedSymbol ? tickers[selectedSymbol] ?? null : null;
-  const liveTimeframeOptions = LIVE_TIMEFRAMES.map((item) => ({ label: item.label, value: item.interval }));
+  const selectedTicker = selectedLiveSymbol ? tickers[liveSymbolKey(selectedLiveSymbol)] ?? null : null;
+  const liveTimeframeOptions = LIVE_TIMEFRAMES.map((item) => ({ label: item.label, value: item.value }));
+  const timeframeConfig = liveTimeframeConfig(timeframe);
+  const dukascopySearchResults = useMemo(
+    () => filterDukascopyInstruments(dukascopyCatalog, dukascopySearch),
+    [dukascopyCatalog, dukascopySearch],
+  );
+  const selectedSourceLabel = selectedFeed === "binance" ? "Binance Spot" : "Dukascopy";
 
   useEffect(() => {
     if (!watchlists.some((watchlist) => watchlist.id === selectedWatchlistId)) {
@@ -914,23 +997,24 @@ function LiveMarketsPage() {
 
   useEffect(() => {
     if (symbols.length === 0) {
-      setSelectedSymbol("");
+      setSelectedSymbolKey("");
       return;
     }
-    if (!symbols.some((item) => item.symbol === selectedSymbol)) {
-      setSelectedSymbol(symbols[0].symbol);
+    if (!symbols.some((item) => liveSymbolKey(item) === selectedSymbolKey)) {
+      setSelectedSymbolKey(liveSymbolKey(symbols[0]));
     }
-  }, [selectedSymbol, symbols]);
+  }, [selectedSymbolKey, symbols]);
 
   useEffect(() => {
-    if (symbols.length === 0) {
+    const binanceSymbols = symbols.filter((item) => item.feed === "binance").map((item) => item.symbol);
+    if (binanceSymbols.length === 0) {
       setTickers({});
       return;
     }
     const controller = new AbortController();
-    void fetchBinanceTickers(symbols.map((item) => item.symbol), controller.signal)
+    void fetchBinanceTickers(binanceSymbols, controller.signal)
       .then((nextTickers) => {
-        setTickers((current) => ({ ...current, ...nextTickers }));
+        setTickers((current) => ({ ...current, ...prefixLiveTickers("binance", nextTickers) }));
         setFeedError(null);
       })
       .catch((error) => {
@@ -942,16 +1026,25 @@ function LiveMarketsPage() {
   }, [symbols]);
 
   useEffect(() => {
-    if (!selectedSymbol) {
+    if (!selectedLiveSymbol) {
       setCandles([]);
       return;
     }
     const controller = new AbortController();
     setCandles([]);
-    void fetchBinanceKlines(selectedSymbol, timeframe, controller.signal)
+    const candleRequest = selectedLiveSymbol.feed === "binance"
+      ? fetchBinanceKlines(selectedLiveSymbol.symbol, timeframeConfig.binanceInterval, controller.signal)
+      : fetchDukascopyCandles(selectedLiveSymbol.symbol, timeframeConfig.dukascopyInterval, controller.signal);
+    void candleRequest
       .then((nextCandles) => {
         setCandles(nextCandles);
         setFeedError(null);
+        if (selectedLiveSymbol.feed === "dukascopy") {
+          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextCandles);
+          if (ticker) {
+            setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
+          }
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
@@ -959,17 +1052,17 @@ function LiveMarketsPage() {
         }
       });
     return () => controller.abort();
-  }, [selectedSymbol, timeframe]);
+  }, [selectedLiveSymbol, timeframeConfig.binanceInterval, timeframeConfig.dukascopyInterval]);
 
   useEffect(() => {
-    const streamSymbols = uniqueLiveSymbols(symbols.map((item) => item.symbol));
+    const streamSymbols = uniqueLiveSymbols(symbols.filter((item) => item.feed === "binance").map((item) => item.symbol));
     if (streamSymbols.length === 0) {
-      setConnectionStatus("idle");
+      setConnectionStatus(symbols.some((item) => item.feed === "dukascopy") ? "live" : "idle");
       return undefined;
     }
     const streams = [
       ...streamSymbols.map((symbol) => `${symbol.toLowerCase()}@ticker`),
-      selectedSymbol ? `${selectedSymbol.toLowerCase()}@kline_${timeframe}` : "",
+      selectedLiveSymbol?.feed === "binance" ? `${selectedLiveSymbol.symbol.toLowerCase()}@kline_${timeframeConfig.binanceInterval}` : "",
     ].filter(Boolean);
     const socket = new WebSocket(`${BINANCE_WS_BASE}/stream?streams=${streams.join("/")}`);
     let closedByEffect = false;
@@ -995,11 +1088,11 @@ function LiveMarketsPage() {
       if (isBinanceTickerPayload(payload)) {
         const ticker = liveTickerFromBinance(payload);
         if (ticker) {
-          setTickers((current) => ({ ...current, [ticker.symbol]: ticker }));
+          setTickers((current) => ({ ...current, [liveSymbolStorageKey("binance", ticker.symbol)]: ticker }));
         }
         return;
       }
-      if (isBinanceKlinePayload(payload) && payload.s === selectedSymbol) {
+      if (isBinanceKlinePayload(payload) && payload.s === selectedLiveSymbol?.symbol) {
         const candle = liveCandleFromBinance(payload);
         if (candle) {
           setCandles((current) => upsertLiveCandle(current, candle));
@@ -1010,7 +1103,48 @@ function LiveMarketsPage() {
       closedByEffect = true;
       socket.close();
     };
-  }, [selectedSymbol, symbols, timeframe]);
+  }, [selectedLiveSymbol, symbols, timeframeConfig.binanceInterval]);
+
+  useEffect(() => {
+    if (selectedFeed !== "dukascopy" || !selectedLiveSymbol) {
+      return undefined;
+    }
+    const interval = window.setInterval(() => {
+      const controller = new AbortController();
+      void fetchDukascopyCandles(selectedLiveSymbol.symbol, timeframeConfig.dukascopyInterval, controller.signal, 260)
+        .then((nextCandles) => {
+          setCandles(nextCandles);
+          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextCandles);
+          if (ticker) {
+            setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
+          }
+        })
+        .catch(() => {
+          setConnectionStatus("error");
+        });
+    }, DUKASCOPY_POLL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [selectedFeed, selectedLiveSymbol, timeframeConfig.dukascopyInterval]);
+
+  useEffect(() => {
+    if (feedDraft !== "dukascopy" || dukascopyCatalogStatus === "loading" || dukascopyCatalogStatus === "ready") {
+      return;
+    }
+    const controller = new AbortController();
+    setDukascopyCatalogStatus("loading");
+    void fetchDukascopyInstruments(controller.signal)
+      .then((instruments) => {
+        setDukascopyCatalog(instruments);
+        setDukascopyCatalogStatus("ready");
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setDukascopyCatalogStatus("error");
+          setFeedError(importErrorMessage(error));
+        }
+      });
+    return () => controller.abort();
+  }, [dukascopyCatalog.length, dukascopyCatalogStatus, feedDraft]);
 
   function persistWatchlist(nextWatchlist: LiveWatchlist) {
     setWatchlists((current) =>
@@ -1027,7 +1161,7 @@ function LiveMarketsPage() {
     };
     setWatchlists((current) => [...current, nextWatchlist]);
     setSelectedWatchlistId(id);
-    setSelectedSymbol("");
+    setSelectedSymbolKey("");
   }
 
   async function deleteWatchlist() {
@@ -1057,13 +1191,23 @@ function LiveMarketsPage() {
     if (!selectedWatchlist) {
       return;
     }
-    const symbol = normalizeLiveSymbolInput(symbolDraft);
+    const symbol = feedDraft === "binance" ? normalizeLiveSymbolInput(symbolDraft) : symbolDraft.trim();
     if (!symbol) {
-      setFeedError("Enter a Binance spot symbol, for example BTCUSDT.");
+      setFeedError(feedDraft === "binance" ? "Enter a Binance spot symbol, for example BTCUSDT." : "Select or enter a Dukascopy instrument, for example EUR/USD.");
       return;
     }
-    if (selectedWatchlist.symbols.some((item) => item.symbol === symbol)) {
-      setSelectedSymbol(symbol);
+    const instrument = feedDraft === "dukascopy" ? findDukascopyInstrument(dukascopyCatalog, symbol) : null;
+    const nextSymbol = feedDraft === "dukascopy" && instrument
+      ? liveWatchlistSymbol(instrument.symbol, {
+        assetClass: instrument.assetClass,
+        description: instrument.description,
+        feed: "dukascopy",
+        label: instrument.label,
+      })
+      : liveWatchlistSymbol(symbol, { feed: feedDraft });
+    const nextSymbolKey = liveSymbolKey(nextSymbol);
+    if (selectedWatchlist.symbols.some((item) => liveSymbolKey(item) === nextSymbolKey)) {
+      setSelectedSymbolKey(nextSymbolKey);
       setSymbolDraft("");
       return;
     }
@@ -1071,26 +1215,25 @@ function LiveMarketsPage() {
       setFeedError(`A watchlist can hold up to ${LIVE_MAX_WATCHLIST_SYMBOLS} symbols.`);
       return;
     }
-    const nextSymbol = liveWatchlistSymbol(symbol);
     persistWatchlist({
       ...selectedWatchlist,
       symbols: [...selectedWatchlist.symbols, nextSymbol],
     });
-    setSelectedSymbol(symbol);
+    setSelectedSymbolKey(nextSymbolKey);
     setSymbolDraft("");
     setFeedError(null);
   }
 
-  function removeSymbol(symbol: string) {
+  function removeSymbol(symbolKey: string) {
     if (!selectedWatchlist) {
       return;
     }
     persistWatchlist({
       ...selectedWatchlist,
-      symbols: selectedWatchlist.symbols.filter((item) => item.symbol !== symbol),
+      symbols: selectedWatchlist.symbols.filter((item) => liveSymbolKey(item) !== symbolKey),
     });
-    if (selectedSymbol === symbol) {
-      setSelectedSymbol(selectedWatchlist.symbols.find((item) => item.symbol !== symbol)?.symbol ?? "");
+    if (selectedSymbolKey === symbolKey) {
+      setSelectedSymbolKey(liveSymbolKey(selectedWatchlist.symbols.find((item) => liveSymbolKey(item) !== symbolKey) ?? selectedWatchlist.symbols[0]));
     }
   }
 
@@ -1140,7 +1283,7 @@ function LiveMarketsPage() {
                   </button>
                 </div>
               </div>
-              <span className="status-pill h-8 px-2 text-[11px]">Binance Spot</span>
+              <span className="status-pill h-8 px-2 text-[11px]">{selectedSourceLabel}</span>
             </div>
             {selectedWatchlist && (
               <label className="form-field mt-3">
@@ -1152,27 +1295,121 @@ function LiveMarketsPage() {
                 />
               </label>
             )}
-            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <input
-                className="input-control h-10 normal-case tracking-normal"
-                onChange={(event) => setSymbolDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addSymbol();
-                  }
-                }}
-                placeholder="Add symbol, e.g. BTCUSDT"
-                value={symbolDraft}
-              />
-              <button className="control-button workspace-tab-active h-10 justify-center" onClick={addSymbol} type="button">
-                <Plus size={15} />
-                Add symbol
-              </button>
+            <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
+                  <TinyTab
+                    active={feedDraft === "binance"}
+                    onClick={() => {
+                      setFeedDraft("binance");
+                      setDukascopySearch("");
+                      setSymbolDraft("");
+                    }}
+                  >
+                    Binance
+                  </TinyTab>
+                  <TinyTab
+                    active={feedDraft === "dukascopy"}
+                    onClick={() => {
+                      setFeedDraft("dukascopy");
+                      setSymbolDraft("");
+                    }}
+                  >
+                    Dukascopy
+                  </TinyTab>
+                </div>
+                <span className="text-xs font-semibold text-slate-500">
+                  {feedDraft === "binance" ? "Crypto spot streams" : `${dukascopyCatalog.length || "1,600+"} instruments`}
+                </span>
+              </div>
+
+              {feedDraft === "binance" ? (
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <input
+                    className="input-control h-10 normal-case tracking-normal"
+                    onChange={(event) => setSymbolDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addSymbol();
+                      }
+                    }}
+                    placeholder="Add symbol, e.g. BTCUSDT"
+                    value={symbolDraft}
+                  />
+                  <button className="control-button workspace-tab-active h-10 justify-center" onClick={addSymbol} type="button">
+                    <Plus size={15} />
+                    Add crypto
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="relative">
+                    <input
+                      className="input-control h-10 normal-case tracking-normal"
+                      onChange={(event) => {
+                        setDukascopySearch(event.target.value);
+                        setSymbolDraft(event.target.value);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addSymbol();
+                        }
+                      }}
+                      placeholder="Search Dukascopy, e.g. EUR/USD, Gold, Apple"
+                      value={dukascopySearch}
+                    />
+                    {dukascopySearch.trim().length > 0 && dukascopySearchResults.length > 0 && (
+                      <div className="absolute left-0 right-0 top-12 z-20 max-h-72 overflow-auto rounded-md border border-white/10 bg-[#080c11] p-1 shadow-panel">
+                        {dukascopySearchResults.map((instrument) => (
+                          <button
+                            className="flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+                            key={instrument.symbol}
+                            onClick={() => {
+                              setSymbolDraft(instrument.symbol);
+                              setDukascopySearch(`${instrument.label} · ${instrument.description}`);
+                            }}
+                            type="button"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold text-white">{instrument.label}</span>
+                              <span className="block truncate text-xs text-slate-500">{instrument.description}</span>
+                            </span>
+                            <span className="status-pill h-7 px-2 text-[10px] capitalize">{instrument.assetClass}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button className="control-button workspace-tab-active h-10 justify-center" onClick={addSymbol} type="button">
+                    <Plus size={15} />
+                    Add market
+                  </button>
+                </div>
+              )}
+
+              {feedDraft === "dukascopy" && dukascopySearch.trim().length === 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {featuredDukascopyInstruments(dukascopyCatalog).slice(0, 8).map((instrument) => (
+                    <button
+                      className="status-pill h-8 px-2 text-[11px] transition hover:border-cyan-300/35 hover:text-cyan-100"
+                      key={instrument.symbol}
+                      onClick={() => {
+                        setSymbolDraft(instrument.symbol);
+                        setDukascopySearch(`${instrument.label} · ${instrument.description}`);
+                      }}
+                      type="button"
+                    >
+                      {instrument.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <div className="overflow-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-white/10 text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">Symbol</th>
@@ -1184,13 +1421,14 @@ function LiveMarketsPage() {
               </thead>
               <tbody>
                 {symbols.map((item) => {
-                  const ticker = tickers[item.symbol];
-                  const active = item.symbol === selectedSymbol;
+                  const itemKey = liveSymbolKey(item);
+                  const ticker = tickers[itemKey];
+                  const active = itemKey === selectedSymbolKey;
                   return (
                     <tr
                       className={`cursor-pointer border-b border-white/10 text-slate-300 transition hover:bg-white/5 ${active ? "bg-cyan-300/10 ring-1 ring-inset ring-cyan-300/30" : ""}`}
-                      key={item.symbol}
-                      onClick={() => setSelectedSymbol(item.symbol)}
+                      key={itemKey}
+                      onClick={() => setSelectedSymbolKey(itemKey)}
                     >
                       <td className="px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
@@ -1198,11 +1436,13 @@ function LiveMarketsPage() {
                             className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[10px] font-black text-white"
                             style={{ backgroundColor: item.color }}
                           >
-                            {item.symbol.slice(0, 2)}
+                            {liveSymbolMonogram(item)}
                           </span>
                           <span className="min-w-0">
                             <span className="block truncate text-base font-semibold text-white">{item.label}</span>
-                            <span className="text-xs text-slate-500">Spot · {liveQuoteAsset(item.symbol)}</span>
+                            <span className="block truncate text-xs text-slate-500">
+                              {liveFeedLabel(item.feed)} · {liveAssetClassLabel(item)}
+                            </span>
                           </span>
                         </div>
                       </td>
@@ -1220,7 +1460,7 @@ function LiveMarketsPage() {
                           className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
                           onClick={(event) => {
                             event.stopPropagation();
-                            removeSymbol(item.symbol);
+                            removeSymbol(itemKey);
                           }}
                           title="Remove symbol"
                           type="button"
@@ -1234,7 +1474,7 @@ function LiveMarketsPage() {
                 {symbols.length === 0 && (
                   <tr>
                     <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={5}>
-                      Add a Binance spot symbol to start this watchlist.
+                      Add a Binance or Dukascopy market to start this watchlist.
                     </td>
                   </tr>
                 )}
@@ -1248,10 +1488,15 @@ function LiveMarketsPage() {
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-xl font-semibold text-white">{selectedSymbol || "No symbol selected"}</h2>
+                  <h2 className="truncate text-xl font-semibold text-white">{selectedLiveSymbol?.label || selectedSymbol || "No symbol selected"}</h2>
                   <span className="status-pill h-7 px-2 text-[10px]">{timeframe.toUpperCase()}</span>
+                  <span className="status-pill h-7 px-2 text-[10px]">{selectedSourceLabel}</span>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">Live candlesticks and 24h ticker from Binance public market data.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {selectedFeed === "binance"
+                    ? "Live candlesticks and 24h ticker from Binance public market data."
+                    : "Dukascopy cross-asset candles for forex, commodities, indices, equities, and ETFs."}
+                </p>
               </div>
               <div className={`text-right text-2xl font-semibold tabular-nums ${toneForNumber(selectedTicker?.change ?? 0)}`}>
                 {selectedTicker ? formatLivePrice(selectedTicker.last) : "--"}
@@ -1260,7 +1505,7 @@ function LiveMarketsPage() {
             <LiveCandlestickChart
               candles={candles}
               connectionStatus={connectionStatus}
-              symbol={selectedSymbol}
+              symbol={selectedLiveSymbol?.label ?? selectedSymbol}
               ticker={selectedTicker}
               timeframe={timeframe}
             />
@@ -1268,9 +1513,9 @@ function LiveMarketsPage() {
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <ResultMetricCard icon={BadgeDollarSign} label="Last price" value={selectedTicker ? formatLivePrice(selectedTicker.last) : "--"} tone={toneForNumber(selectedTicker?.change ?? 0)} />
-            <ResultMetricCard icon={TrendingUp} label="24h high" value={selectedTicker ? formatLivePrice(selectedTicker.high) : "--"} />
-            <ResultMetricCard icon={TrendingDown} label="24h low" value={selectedTicker ? formatLivePrice(selectedTicker.low) : "--"} />
-            <ResultMetricCard icon={BarChart3} label="Quote volume" value={selectedTicker ? formatCompactNumber(selectedTicker.quoteVolume) : "--"} />
+            <ResultMetricCard icon={TrendingUp} label={selectedFeed === "binance" ? "24h high" : "Range high"} value={selectedTicker ? formatLivePrice(selectedTicker.high) : "--"} />
+            <ResultMetricCard icon={TrendingDown} label={selectedFeed === "binance" ? "24h low" : "Range low"} value={selectedTicker ? formatLivePrice(selectedTicker.low) : "--"} />
+            <ResultMetricCard icon={BarChart3} label={selectedFeed === "binance" ? "Quote volume" : "Volume"} value={selectedTicker ? formatCompactNumber(selectedFeed === "binance" ? selectedTicker.quoteVolume : selectedTicker.volume) : "--"} />
           </div>
 
           {feedError && (
@@ -1385,11 +1630,23 @@ function LiveCandlestickChart({
   );
 }
 
-function liveWatchlistSymbol(symbol: string): LiveWatchlistSymbol {
-  const normalized = normalizeLiveSymbolInput(symbol);
+function liveWatchlistSymbol(
+  symbol: string,
+  options: {
+    assetClass?: LiveAssetClass;
+    description?: string;
+    feed?: LiveFeedProvider;
+    label?: string;
+  } = {},
+): LiveWatchlistSymbol {
+  const feed = options.feed ?? "binance";
+  const normalized = feed === "binance" ? normalizeLiveSymbolInput(symbol) : symbol.trim();
   return {
     color: liveSymbolColor(normalized),
-    label: normalized,
+    assetClass: options.assetClass ?? (feed === "binance" ? "crypto" : "other"),
+    description: options.description,
+    feed,
+    label: options.label ?? normalized,
     symbol: normalized,
   };
 }
@@ -1399,9 +1656,14 @@ function sanitizeLiveWatchlists(value: unknown): LiveWatchlist[] {
   const sanitized = source
     .map((watchlist, index) => sanitizeLiveWatchlist(watchlist, index))
     .filter((watchlist) => watchlist.name.trim().length > 0);
-  return sanitized.length > 0
+  const next = sanitized.length > 0
     ? sanitized
     : DEFAULT_LIVE_WATCHLISTS.map((watchlist, index) => sanitizeLiveWatchlist(watchlist, index));
+  const hasDukascopy = next.some((watchlist) => watchlist.symbols.some((symbol) => symbol.feed === "dukascopy"));
+  if (!hasDukascopy && next.some((watchlist) => watchlist.id === "crypto-majors")) {
+    return [...next, sanitizeLiveWatchlist(DEFAULT_LIVE_WATCHLISTS[1], next.length)];
+  }
+  return next;
 }
 
 function sanitizeLiveWatchlist(value: unknown, index = 0): LiveWatchlist {
@@ -1425,17 +1687,22 @@ function sanitizeLiveSymbols(value: unknown[]): LiveWatchlistSymbol[] {
   for (const item of value) {
     const record = isPlainRecord(item) ? item : null;
     const rawSymbol = record && typeof record.symbol === "string" ? record.symbol : typeof item === "string" ? item : "";
-    const symbol = normalizeLiveSymbolInput(rawSymbol);
+    const feed = isLiveFeedProvider(record?.feed) ? record.feed : "binance";
+    const symbol = feed === "binance" ? normalizeLiveSymbolInput(rawSymbol) : rawSymbol.trim();
     if (!symbol || seen.has(symbol)) {
       continue;
     }
-    seen.add(symbol);
+    seen.add(liveSymbolStorageKey(feed, symbol));
     const label = record && typeof record.label === "string"
-      ? record.label.trim().toUpperCase().slice(0, 20) || symbol
+      ? record.label.trim().slice(0, 40) || symbol
       : symbol;
     const rawColor = record && typeof record.color === "string" ? record.color.trim() : "";
+    const rawAssetClass = record && typeof record.assetClass === "string" ? record.assetClass : undefined;
     symbols.push({
+      assetClass: isLiveAssetClass(rawAssetClass) ? rawAssetClass : feed === "binance" ? "crypto" : "other",
       color: isValidLiveColor(rawColor) ? rawColor : liveSymbolColor(symbol),
+      description: record && typeof record.description === "string" ? record.description.trim() : undefined,
+      feed,
       label,
       symbol,
     });
@@ -1492,9 +1759,15 @@ async function fetchBinanceTickers(symbols: string[], signal: AbortSignal): Prom
   return tickers;
 }
 
+function prefixLiveTickers(feed: LiveFeedProvider, tickers: Record<string, LiveTicker>) {
+  return Object.fromEntries(
+    Object.entries(tickers).map(([symbol, ticker]) => [liveSymbolStorageKey(feed, symbol), ticker]),
+  );
+}
+
 async function fetchBinanceKlines(
   symbol: string,
-  interval: (typeof LIVE_TIMEFRAMES)[number]["interval"],
+  interval: (typeof LIVE_TIMEFRAMES)[number]["binanceInterval"],
   signal: AbortSignal,
 ): Promise<CandlestickData[]> {
   const normalized = normalizeLiveSymbolInput(symbol);
@@ -1518,6 +1791,72 @@ async function fetchBinanceKlines(
     .map(liveCandleFromRestKline)
     .filter((candle): candle is CandlestickData => candle !== null)
     .sort((left, right) => Number(left.time) - Number(right.time));
+}
+
+async function fetchDukascopyInstruments(signal: AbortSignal): Promise<DukascopyInstrument[]> {
+  const response = await getDukascopyInstruments("", 500);
+  if (signal.aborted) {
+    return [];
+  }
+  return response.instruments.map((instrument) => ({
+    assetClass: isLiveAssetClass(instrument.asset_class) ? instrument.asset_class : "other",
+    baseCurrency: instrument.base_currency,
+    description: instrument.description,
+    label: instrument.label,
+    quoteCurrency: instrument.quote_currency,
+    symbol: instrument.symbol,
+    tags: instrument.tags,
+  }));
+}
+
+async function fetchDukascopyCandles(
+  symbol: string,
+  interval: (typeof LIVE_TIMEFRAMES)[number]["dukascopyInterval"],
+  signal: AbortSignal,
+  limit = 260,
+): Promise<CandlestickData[]> {
+  const response = await getDukascopyCandles(symbol, interval, limit);
+  if (signal.aborted) {
+    return [];
+  }
+  return response.candles.map(liveCandleFromApiCandle);
+}
+
+function liveCandleFromApiCandle(candle: Candle): CandlestickData {
+  return {
+    close: candle.close,
+    high: candle.high,
+    low: candle.low,
+    open: candle.open,
+    time: candle.time as UTCTimestamp,
+  };
+}
+
+function defaultDukascopyInstruments(): DukascopyInstrument[] {
+  return [
+    ["EUR/USD", "EUR/USD", "Euro vs US Dollar", "forex", "EUR", "USD"],
+    ["GBP/USD", "GBP/USD", "Pound Sterling vs US Dollar", "forex", "GBP", "USD"],
+    ["USD/JPY", "USD/JPY", "US Dollar vs Japanese Yen", "forex", "USD", "JPY"],
+    ["XAU/USD", "XAU/USD", "Spot gold", "commodity", "XAU", "USD"],
+    ["XAG/USD", "XAG/USD", "Spot silver", "commodity", "XAG", "USD"],
+    ["E_Brent", "BRENT", "US Brent Crude Oil", "commodity", "BRENT", "USD"],
+    ["E_Light", "WTI", "US Light Crude Oil", "commodity", "WTI", "USD"],
+    ["E_SandP-500", "S&P 500", "USA 500 Index", "index", "SPX", "USD"],
+    ["E_NQ-100", "NASDAQ 100", "USA 100 Technical Index", "index", "NDX", "USD"],
+    ["E_D&J-Ind", "DOW 30", "USA 30 Index", "index", "DJI", "USD"],
+    ["E_DAAX", "DAX 40", "Germany 40 Index", "index", "DAX", "EUR"],
+    ["AAPL.US/USD", "AAPL", "APPLE INC", "equity", "AAPL.US", "USD"],
+    ["TSLA.US/USD", "TSLA", "TESLA MOTORS INC", "equity", "TSLA.US", "USD"],
+    ["SPY.US/USD", "SPY", "SPDR S&P 500 ETF", "etf", "SPY.US", "USD"],
+  ].map(([symbol, label, description, assetClass, baseCurrency, quoteCurrency]) => ({
+    assetClass: assetClass as LiveAssetClass,
+    baseCurrency,
+    description,
+    label,
+    quoteCurrency,
+    symbol,
+    tags: [],
+  }));
 }
 
 function parseBinanceCombinedPayload(raw: unknown): unknown {
@@ -1582,6 +1921,28 @@ function liveTickerFromBinanceRest(payload: BinanceRestTickerPayload): LiveTicke
     symbol,
     updatedAt: Number.isFinite(payload.closeTime) ? payload.closeTime ?? Date.now() : Date.now(),
     volume: liveNumber(payload.volume) ?? 0,
+  };
+}
+
+function liveTickerFromCandles(symbol: LiveWatchlistSymbol, candles: CandlestickData[]): LiveTicker | null {
+  if (candles.length === 0) {
+    return null;
+  }
+  const lastCandle = candles[candles.length - 1];
+  const previousCandle = candles[candles.length - 2] ?? lastCandle;
+  const last = Number(lastCandle.close);
+  const previous = Number(previousCandle.close);
+  const change = last - previous;
+  return {
+    change,
+    changePercent: previous !== 0 ? (change / previous) * 100 : 0,
+    high: Math.max(...candles.map((candle) => Number(candle.high))),
+    last,
+    low: Math.min(...candles.map((candle) => Number(candle.low))),
+    quoteVolume: 0,
+    symbol: symbol.symbol,
+    updatedAt: Number(lastCandle.time) * 1000,
+    volume: candles.length,
   };
 }
 
@@ -1683,9 +2044,66 @@ function isValidLiveColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value);
 }
 
-function liveQuoteAsset(symbol: string) {
-  const quoteAssets = ["USDT", "FDUSD", "USDC", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR", "BRL", "GBP"];
-  return quoteAssets.find((quote) => symbol.endsWith(quote)) ?? "Spot";
+function liveSymbolKey(symbol: LiveWatchlistSymbol) {
+  return liveSymbolStorageKey(symbol.feed, symbol.symbol);
+}
+
+function liveSymbolStorageKey(feed: LiveFeedProvider, symbol: string) {
+  return `${feed}:${symbol}`;
+}
+
+function liveFeedLabel(feed: LiveFeedProvider) {
+  return feed === "binance" ? "Binance" : "Dukascopy";
+}
+
+function liveAssetClassLabel(symbol: LiveWatchlistSymbol) {
+  if (symbol.feed === "binance") {
+    const quoteAssets = ["USDT", "FDUSD", "USDC", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR", "BRL", "GBP"];
+    return `Spot ${quoteAssets.find((quote) => symbol.symbol.endsWith(quote)) ?? ""}`.trim();
+  }
+  return symbol.assetClass ? symbol.assetClass.charAt(0).toUpperCase() + symbol.assetClass.slice(1) : "Market";
+}
+
+function liveSymbolMonogram(symbol: LiveWatchlistSymbol) {
+  return symbol.label.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || symbol.symbol.slice(0, 2).toUpperCase();
+}
+
+function isLiveFeedProvider(value: unknown): value is LiveFeedProvider {
+  return value === "binance" || value === "dukascopy";
+}
+
+function isLiveAssetClass(value: unknown): value is LiveAssetClass {
+  return value === "commodity" || value === "crypto" || value === "equity" || value === "etf" || value === "forex" || value === "index" || value === "other";
+}
+
+function liveTimeframeConfig(value: LiveTimeframe) {
+  return LIVE_TIMEFRAMES.find((timeframe) => timeframe.value === value) ?? LIVE_TIMEFRAMES[0];
+}
+
+function filterDukascopyInstruments(instruments: DukascopyInstrument[], search: string) {
+  const query = search.trim().toLowerCase();
+  const source = query
+    ? instruments.filter((instrument) =>
+      [instrument.symbol, instrument.label, instrument.description, instrument.assetClass].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    )
+    : featuredDukascopyInstruments(instruments);
+  return source.slice(0, 24);
+}
+
+function featuredDukascopyInstruments(instruments: DukascopyInstrument[]) {
+  const bySymbol = new Map(instruments.map((instrument) => [instrument.symbol, instrument]));
+  return DUKASCOPY_FEATURED_SYMBOLS.map((symbol) => bySymbol.get(symbol)).filter((instrument): instrument is DukascopyInstrument => Boolean(instrument));
+}
+
+function findDukascopyInstrument(instruments: DukascopyInstrument[], value: string) {
+  const normalized = value.trim().toLowerCase();
+  return instruments.find((instrument) =>
+    instrument.symbol.toLowerCase() === normalized ||
+    instrument.label.toLowerCase() === normalized ||
+    `${instrument.label} · ${instrument.description}`.toLowerCase() === normalized,
+  ) ?? defaultDukascopyInstruments().find((instrument) => instrument.symbol.toLowerCase() === normalized || instrument.label.toLowerCase() === normalized) ?? null;
 }
 
 function resolveStateAction<T>(action: SetStateAction<T>, previous: T): T {

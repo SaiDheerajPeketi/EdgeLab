@@ -79,6 +79,24 @@ export type BarsResponse = {
   bars: Candle[];
 };
 
+export type DukascopyInstrument = {
+  symbol: string;
+  label: string;
+  description: string;
+  asset_class: string;
+  base_currency: string;
+  quote_currency: string;
+  tags: string[];
+};
+
+export type DukascopyInstrumentsResponse = {
+  instruments: DukascopyInstrument[];
+};
+
+export type DukascopyCandlesResponse = {
+  candles: Candle[];
+};
+
 export type Playbook = {
   id: number;
   name: string;
@@ -495,6 +513,23 @@ export function getBars(offset = 0, limit = 300, sessionId?: number) {
     query.set("session_id", String(sessionId));
   }
   return request<BarsResponse>(`/market-data/bars?${query.toString()}`);
+}
+
+export function getDukascopyInstruments(search = "", limit = 160) {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (search.trim()) {
+    query.set("search", search.trim());
+  }
+  return request<DukascopyInstrumentsResponse>(`/live/dukascopy/instruments?${query.toString()}`);
+}
+
+export function getDukascopyCandles(instrument: string, interval: string, limit = 260) {
+  const query = new URLSearchParams({
+    instrument,
+    interval,
+    limit: String(limit),
+  });
+  return request<DukascopyCandlesResponse>(`/live/dukascopy/candles?${query.toString()}`);
 }
 
 export function getLatestBacktest() {

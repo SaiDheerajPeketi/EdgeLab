@@ -1,4 +1,8 @@
-from datetime import datetime
+import json
+import re
+from datetime import datetime, timezone
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import DateTime, select
@@ -42,6 +46,9 @@ from app.schemas import (
     DatasetRefreshStatus,
     DatasetSettingsRead,
     DatasetSettingsUpdate,
+    DukascopyCandlesResponse,
+    DukascopyInstrument,
+    DukascopyInstrumentsResponse,
     JournalUpdate,
     MetricsResponse,
     OrderCreate,
@@ -64,6 +71,13 @@ router = APIRouter()
 market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
+
+DUKASCOPY_URL = "https://freeserv.dukascopy.com/2.0/index.php"
+DUKASCOPY_HEADERS = {
+    "User-Agent": "edgelab-local-datafeed",
+    "Referer": "https://freeserv.dukascopy.com/2.0/?path=chart/index&instrument=EUR/USD",
+}
+DUKASCOPY_INTERVALS = {"1MIN", "5MIN", "15MIN", "1HOUR", "1DAY"}
 
 
 APP_DATA_TABLES = [
@@ -123,6 +137,80 @@ def dataset_error_response(exc: Exception) -> HTTPException:
     if isinstance(exc, (FileNotFoundError, ValueError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Dataset operation failed")
+
+
+def fetch_dukascopy_json(path: str, params: dict[str, str]) -> object:
+    query = urlencode({"path": path, "jsonp": "_edgelab", **params})
+    request = Request(f"{DUKASCOPY_URL}?{query}", headers=DUKASCOPY_HEADERS)
+    try:
+        with urlopen(request, timeout=15) as response:
+            body = response.read().decode("utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Dukascopy datafeed request failed") from exc
+
+    match = re.match(r"^[^(]*\((.*)\);?$", body, re.S)
+    payload = match.group(1) if match else body
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Dukascopy returned invalid data") from exc
+
+
+def dukascopy_asset_class(symbol: str, payload: dict[str, object]) -> str:
+    description = str(payload.get("description") or "").lower()
+    tags = [str(tag) for tag in payload.get("tag_list") or []]
+    base_currency = str(payload.get("base_currency") or "")
+    if "/" in symbol and "." not in symbol and symbol.startswith(("XAU", "XAG", "XPD", "XPT")):
+        return "commodity"
+    if symbol.startswith(("E_", "CHI.IDX", "DOLLAR.IDX")) or ".IDX/" in symbol or "index" in description:
+        return "index"
+    if symbol.endswith(".CMD/USD") or "oil" in description or "gold" in description or "silver" in description:
+        return "commodity"
+    if "ETF" in description.upper():
+        return "etf"
+    if "." in base_currency or ".US/" in symbol or ".HK/" in symbol or ".GB/" in symbol:
+        return "equity"
+    if "/" in symbol and "FX_CFD_ALL" in tags:
+        return "forex"
+    return "other"
+
+
+def dukascopy_label(symbol: str, payload: dict[str, object]) -> str:
+    base_currency = str(payload.get("base_currency") or "")
+    description = str(payload.get("description") or "")
+    if symbol == "E_SandP-500":
+        return "S&P 500"
+    if symbol == "E_NQ-100":
+        return "NASDAQ 100"
+    if symbol == "E_D&J-Ind":
+        return "DOW 30"
+    if symbol == "E_DAAX":
+        return "DAX 40"
+    if symbol == "E_Brent":
+        return "BRENT"
+    if symbol == "E_Light":
+        return "WTI"
+    if base_currency:
+        return base_currency.replace(".US", "").replace(".GB", "").replace(".DE", "")
+    return description or symbol
+
+
+def dukascopy_row_to_candle(row: object) -> dict[str, object] | None:
+    if not isinstance(row, list) or len(row) < 5 or row[0] is None:
+        return None
+    timestamp_ms = int(row[0])
+    return {
+        "time": timestamp_ms // 1000,
+        "timestamp": datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc),
+        "open": float(row[1]),
+        "high": float(row[2]),
+        "low": float(row[3]),
+        "close": float(row[4]),
+        "volume": float(row[5]) if len(row) > 5 and row[5] is not None else 0.0,
+        "ema_20": None,
+        "ema_50": None,
+        "rsi_14": None,
+    }
 
 
 @router.get("/health")
@@ -325,6 +413,77 @@ def market_data_bars(
         return service.get_bars(offset=offset, limit=limit, warmup=warmup)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/live/dukascopy/instruments", response_model=DukascopyInstrumentsResponse)
+def dukascopy_instruments(
+    search: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=120, ge=1, le=500),
+) -> DukascopyInstrumentsResponse:
+    data = fetch_dukascopy_json("common/instruments", {})
+    if not isinstance(data, dict) or not isinstance(data.get("instruments"), dict):
+        raise HTTPException(status_code=502, detail="Dukascopy instrument catalog is unavailable")
+
+    needle = (search or "").strip().lower()
+    instruments: list[DukascopyInstrument] = []
+    for symbol, raw_payload in data["instruments"].items():
+        if not isinstance(symbol, str) or not isinstance(raw_payload, dict):
+            continue
+        payload = raw_payload
+        description = str(payload.get("description") or symbol)
+        label = dukascopy_label(symbol, payload)
+        haystack = " ".join([symbol, label, description]).lower()
+        if needle and needle not in haystack:
+            continue
+        instruments.append(
+            DukascopyInstrument(
+                symbol=symbol,
+                label=label,
+                description=description,
+                asset_class=dukascopy_asset_class(symbol, payload),
+                base_currency=str(payload.get("base_currency") or ""),
+                quote_currency=str(payload.get("quote_currency") or ""),
+                tags=[str(tag) for tag in payload.get("tag_list") or []],
+            )
+        )
+
+    instruments.sort(key=lambda item: (0 if item.asset_class in {"forex", "commodity", "index"} else 1, item.label))
+    return DukascopyInstrumentsResponse(instruments=instruments[:limit])
+
+
+@router.get("/live/dukascopy/candles", response_model=DukascopyCandlesResponse)
+def dukascopy_candles(
+    instrument: str = Query(min_length=1, max_length=80),
+    interval: str = Query(default="1HOUR", max_length=12),
+    limit: int = Query(default=260, ge=1, le=1000),
+) -> DukascopyCandlesResponse:
+    normalized_interval = interval.upper()
+    if normalized_interval not in DUKASCOPY_INTERVALS:
+        raise HTTPException(status_code=400, detail="Unsupported Dukascopy interval")
+
+    data = fetch_dukascopy_json(
+        "chart/json3",
+        {
+            "splits": "true",
+            "stocks": "true",
+            "time_direction": "P",
+            "last_update": str(int(datetime.now(tz=timezone.utc).timestamp() * 1000)),
+            "offer_side": "B",
+            "instrument": instrument,
+            "interval": normalized_interval,
+            "limit": str(limit),
+        },
+    )
+    if not isinstance(data, list):
+        raise HTTPException(status_code=502, detail="Dukascopy candle feed is unavailable")
+
+    candles = [
+        candle
+        for candle in (dukascopy_row_to_candle(row) for row in data)
+        if candle is not None
+    ]
+    candles.sort(key=lambda item: int(item["time"]))
+    return DukascopyCandlesResponse(candles=candles)
 
 
 @router.post("/backtests", response_model=BacktestState)
