@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  CalendarDays,
   Network,
   PlaySquare,
   Settings,
@@ -46,6 +47,7 @@ const sections: Array<{
     shortLabel: "LV",
     items: [
       { id: "live", label: "Live Markets", icon: Activity },
+      { id: "economicCalendar", label: "Economic Calendar", icon: CalendarDays },
     ],
   },
   {

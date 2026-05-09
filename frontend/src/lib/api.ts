@@ -111,6 +111,25 @@ export type DukascopyCandlesResponse = {
   candles: Candle[];
 };
 
+export type EconomicCalendarEvent = {
+  title: string;
+  currency: string;
+  starts_at: string;
+  impact: string;
+  forecast: string | null;
+  previous: string | null;
+  actual: string | null;
+};
+
+export type EconomicCalendarResponse = {
+  provider: "forex_factory";
+  source_url: string;
+  updated_at: string;
+  cache_expires_at: string;
+  stale: boolean;
+  events: EconomicCalendarEvent[];
+};
+
 export type Playbook = {
   id: number;
   name: string;
@@ -552,6 +571,11 @@ export function getDukascopyCandles(instrument: string, interval: string, limit 
     limit: String(limit),
   });
   return request<DukascopyCandlesResponse>(`/live/dukascopy/candles?${query.toString()}`);
+}
+
+export function getForexFactoryCalendar(refresh = false) {
+  const query = new URLSearchParams({ refresh: refresh ? "true" : "false" });
+  return request<EconomicCalendarResponse>(`/economic-calendar/forex-factory?${query.toString()}`);
 }
 
 export function getLatestBacktest() {

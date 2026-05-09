@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -51,6 +51,8 @@ from app.schemas import (
     DukascopyCandlesResponse,
     DukascopyInstrument,
     DukascopyInstrumentsResponse,
+    EconomicCalendarEvent,
+    EconomicCalendarResponse,
     JournalUpdate,
     MetricsResponse,
     OrderCreate,
@@ -84,6 +86,14 @@ DUKASCOPY_HEADERS = {
     "Referer": "https://freeserv.dukascopy.com/2.0/?path=chart/index&instrument=EUR/USD",
 }
 DUKASCOPY_INTERVALS = {"1MIN", "5MIN", "15MIN", "1HOUR", "1DAY"}
+FOREX_FACTORY_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+FOREX_FACTORY_CACHE_TTL_SECONDS = 180
+FOREX_FACTORY_HEADERS = {
+    "Accept": "application/json",
+    "Referer": "https://www.forexfactory.com/calendar",
+    "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1; +https://github.com/SaiDheerajPeketi/EdgeLab)",
+}
+forex_factory_calendar_cache: tuple[datetime, list[EconomicCalendarEvent]] | None = None
 
 
 APP_DATA_TABLES = [
@@ -181,6 +191,73 @@ def fetch_dukascopy_json(path: str, params: dict[str, str]) -> object:
         return json.loads(payload)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail="Dukascopy returned invalid data") from exc
+
+
+def parse_forex_factory_datetime(value: object) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Missing event date")
+    parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def clean_calendar_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def normalize_forex_factory_event(value: object) -> EconomicCalendarEvent | None:
+    if not isinstance(value, dict):
+        return None
+    title = str(value.get("title") or "").strip()
+    currency = str(value.get("country") or value.get("currency") or "").strip().upper()
+    if not title or not currency:
+        return None
+    try:
+        starts_at = parse_forex_factory_datetime(value.get("date"))
+    except (TypeError, ValueError):
+        return None
+    impact = str(value.get("impact") or "Unknown").strip() or "Unknown"
+    return EconomicCalendarEvent(
+        title=title,
+        currency=currency,
+        starts_at=starts_at,
+        impact=impact,
+        forecast=clean_calendar_value(value.get("forecast")),
+        previous=clean_calendar_value(value.get("previous")),
+        actual=clean_calendar_value(value.get("actual")),
+    )
+
+
+def fetch_forex_factory_calendar() -> list[EconomicCalendarEvent]:
+    request = Request(FOREX_FACTORY_CALENDAR_URL, headers=FOREX_FACTORY_HEADERS)
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Forex Factory calendar returned invalid data") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Forex Factory calendar request failed") from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=502, detail="Forex Factory calendar is unavailable")
+    events = [
+        event
+        for event in (normalize_forex_factory_event(row) for row in payload)
+        if event is not None
+    ]
+    events.sort(key=lambda item: item.starts_at)
+    return events
+
+
+def forex_factory_calendar_response(events: list[EconomicCalendarEvent], updated_at: datetime, stale: bool) -> EconomicCalendarResponse:
+    return EconomicCalendarResponse(
+        source_url=FOREX_FACTORY_CALENDAR_URL,
+        updated_at=updated_at,
+        cache_expires_at=updated_at + timedelta(seconds=FOREX_FACTORY_CACHE_TTL_SECONDS),
+        stale=stale,
+        events=events,
+    )
 
 
 def dukascopy_asset_class(symbol: str, payload: dict[str, object]) -> str:
@@ -564,6 +641,29 @@ def dukascopy_candles(
     ]
     candles.sort(key=lambda item: int(item["time"]))
     return DukascopyCandlesResponse(candles=candles)
+
+
+@router.get("/economic-calendar/forex-factory", response_model=EconomicCalendarResponse)
+def forex_factory_calendar(
+    refresh: bool = Query(default=False),
+) -> EconomicCalendarResponse:
+    global forex_factory_calendar_cache
+
+    now = datetime.now(tz=timezone.utc)
+    if forex_factory_calendar_cache is not None and not refresh:
+        fetched_at, events = forex_factory_calendar_cache
+        if now - fetched_at < timedelta(seconds=FOREX_FACTORY_CACHE_TTL_SECONDS):
+            return forex_factory_calendar_response(events, fetched_at, stale=False)
+
+    try:
+        events = fetch_forex_factory_calendar()
+        forex_factory_calendar_cache = (now, events)
+        return forex_factory_calendar_response(events, now, stale=False)
+    except HTTPException:
+        if forex_factory_calendar_cache is None:
+            raise
+        fetched_at, events = forex_factory_calendar_cache
+        return forex_factory_calendar_response(events, fetched_at, stale=True)
 
 
 @router.post("/backtests", response_model=BacktestState)

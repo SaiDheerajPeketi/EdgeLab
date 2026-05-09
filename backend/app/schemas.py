@@ -64,6 +64,25 @@ class DukascopyCandlesResponse(BaseModel):
     candles: list[Candle]
 
 
+class EconomicCalendarEvent(BaseModel):
+    title: str
+    currency: str
+    starts_at: datetime
+    impact: str
+    forecast: str | None = None
+    previous: str | None = None
+    actual: str | None = None
+
+
+class EconomicCalendarResponse(BaseModel):
+    provider: Literal["forex_factory"] = "forex_factory"
+    source_url: str
+    updated_at: datetime
+    cache_expires_at: datetime
+    stale: bool = False
+    events: list[EconomicCalendarEvent]
+
+
 class DatasetMeta(BaseModel):
     csv_path: str
     rows: int
