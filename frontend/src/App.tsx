@@ -30,7 +30,12 @@ import { PendingOrders } from "./components/PendingOrders";
 import { PlaybookBoard } from "./components/PlaybookBoard";
 import { PositionPanel } from "./components/PositionPanel";
 import { ReplayController } from "./components/ReplayController";
-import { ResultsPanel, type ResultsPanelView, type ResultsTradeOutcomeFilter } from "./components/ResultsPanel";
+import {
+  ResultsPanel,
+  type ResultsPanelView,
+  type ResultsTradeOutcomeFilter,
+  type ResultsTradeScroll,
+} from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
@@ -209,6 +214,9 @@ export default function App() {
   const backtestHeaderActionsRef = useRef<HTMLDivElement | null>(null);
   const backtestPanelScrollRef = useRef(0);
   const pendingBacktestPanelScrollRestoreRef = useRef<number | null>(null);
+  const resultsPanelTradeScrollRef = useRef<ResultsTradeScroll>({ left: 0, top: 0 });
+  const pendingResultsPanelTradeScrollRestoreRef = useRef<ResultsTradeScroll | null>(null);
+  const pendingNotebookScrollResetRef = useRef(false);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
   const skipNextToolsClickRef = useRef(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
@@ -822,6 +830,25 @@ export default function App() {
       window.cancelAnimationFrame(secondFrame);
     };
   }, [activeWorkspace, sessionGateOpen, workspacePanel]);
+
+  useEffect(() => {
+    if (activeWorkspace !== "notebook" || !pendingNotebookScrollResetRef.current) {
+      return;
+    }
+
+    pendingNotebookScrollResetRef.current = false;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.scrollTo({ left: 0, top: 0 });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [activeWorkspace, notebookFocusTradeId]);
 
   const current = state?.current_candle;
   const orders = state?.orders ?? [];
@@ -1484,6 +1511,7 @@ export default function App() {
     setReplayFocusTrade(null);
     setNotebookFocusTradeId(trade.id);
     setNotebookReturnTarget(activeWorkspace === "tradeView" || activeWorkspace === "dayView" ? activeWorkspace : null);
+    pendingNotebookScrollResetRef.current = true;
     setActiveWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1499,6 +1527,7 @@ export default function App() {
     setNotebookFocusTradeId(trade.id);
     setNotebookReturnTarget(panel === "results" ? "backtestResults" : "backtestReview");
     backtestPanelScrollRef.current = window.scrollY;
+    pendingNotebookScrollResetRef.current = true;
     setActiveWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1510,6 +1539,9 @@ export default function App() {
   function returnToBacktestPanel() {
     const returnPanel = notebookReturnTarget === "backtestResults" ? "results" : "review";
     pendingBacktestPanelScrollRestoreRef.current = backtestPanelScrollRef.current;
+    if (returnPanel === "results") {
+      pendingResultsPanelTradeScrollRestoreRef.current = resultsPanelTradeScrollRef.current;
+    }
     setNotebookReturnTarget(null);
     setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
@@ -2100,7 +2132,14 @@ export default function App() {
                   onFilterChange={setResultsPanelFilter}
                   onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
                   onSearchChange={setResultsPanelSearch}
+                  onTradeScrollChange={(scroll) => {
+                    resultsPanelTradeScrollRef.current = scroll;
+                  }}
+                  onTradeScrollRestored={() => {
+                    pendingResultsPanelTradeScrollRestoreRef.current = null;
+                  }}
                   onViewChange={setResultsPanelView}
+                  restoreTradeScroll={pendingResultsPanelTradeScrollRestoreRef.current}
                   search={resultsPanelSearch}
                   sessions={state?.session ? [state.session] : []}
                   trades={currentSessionTrades}

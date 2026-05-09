@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   Activity,
@@ -27,8 +27,11 @@ type Props = {
   currency?: string;
   filter?: ResultsTradeOutcomeFilter;
   onFilterChange?: (filter: ResultsTradeOutcomeFilter) => void;
+  onTradeScrollChange?: (scroll: ResultsTradeScroll) => void;
+  onTradeScrollRestored?: () => void;
   sessions: BacktestSession[];
   search?: string;
+  restoreTradeScroll?: ResultsTradeScroll | null;
   trades: Trade[];
   onInspectTrade?: (trade: Trade) => void;
   onSearchChange?: (value: string) => void;
@@ -37,6 +40,7 @@ type Props = {
 };
 
 export type ResultsPanelView = "overview" | "trades";
+export type ResultsTradeScroll = { left: number; top: number };
 export type ResultsTradeOutcomeFilter = "ALL" | "WIN" | "LOSS" | "BREAKEVEN";
 
 type Aggregate = {
@@ -73,8 +77,11 @@ export function ResultsPanel({
   currency = "USD",
   filter,
   onFilterChange,
+  onTradeScrollChange,
+  onTradeScrollRestored,
   sessions,
   search,
+  restoreTradeScroll,
   trades,
   onInspectTrade,
   onSearchChange,
@@ -270,6 +277,9 @@ export function ResultsPanel({
           onFilterChange={setPanelFilter}
           onInspectTrade={onInspectTrade}
           onSearchChange={setPanelSearch}
+          onTradeScrollChange={onTradeScrollChange}
+          onTradeScrollRestored={onTradeScrollRestored}
+          restoreTradeScroll={restoreTradeScroll}
           search={currentTradeSearch}
           sessionById={sessionById}
           trades={filteredTrades}
@@ -501,6 +511,9 @@ function TradeResults({
   onFilterChange,
   onInspectTrade,
   onSearchChange,
+  onTradeScrollChange,
+  onTradeScrollRestored,
+  restoreTradeScroll,
   search,
   sessionById,
   trades,
@@ -511,11 +524,31 @@ function TradeResults({
   onFilterChange: (filter: ResultsTradeOutcomeFilter) => void;
   onInspectTrade?: (trade: Trade) => void;
   onSearchChange: (value: string) => void;
+  onTradeScrollChange?: (scroll: ResultsTradeScroll) => void;
+  onTradeScrollRestored?: () => void;
+  restoreTradeScroll?: ResultsTradeScroll | null;
   search: string;
   sessionById: Map<number, BacktestSession>;
   trades: Trade[];
   totalTrades: number;
 }) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!restoreTradeScroll) {
+      return;
+    }
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+    const maxScrollLeft = Math.max(0, scrollContainer.scrollWidth - scrollContainer.clientWidth);
+    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    scrollContainer.scrollLeft = Math.min(restoreTradeScroll.left, maxScrollLeft);
+    scrollContainer.scrollTop = Math.min(restoreTradeScroll.top, maxScrollTop);
+    onTradeScrollRestored?.();
+  }, [onTradeScrollRestored, restoreTradeScroll, trades.length]);
+
   return (
     <section className="terminal-panel min-w-0 p-4">
       <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
@@ -549,7 +582,16 @@ function TradeResults({
           </div>
         </div>
       </div>
-      <div className="overflow-auto">
+      <div
+        className="overflow-auto"
+        onScroll={(event) => {
+          onTradeScrollChange?.({
+            left: event.currentTarget.scrollLeft,
+            top: event.currentTarget.scrollTop,
+          });
+        }}
+        ref={scrollContainerRef}
+      >
         <table className="w-full min-w-[1280px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
