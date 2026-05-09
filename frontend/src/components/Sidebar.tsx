@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   CalendarDays,
+  Calculator,
   Network,
   PlaySquare,
   Settings,
@@ -47,6 +48,7 @@ const sections: Array<{
     shortLabel: "LV",
     items: [
       { id: "live", label: "Live Markets", icon: Activity },
+      { id: "positionSizeCalculator", label: "Position Size", icon: Calculator },
       { id: "economicCalendar", label: "Economic Calendar", icon: CalendarDays },
     ],
   },

@@ -7,6 +7,7 @@ export type WorkspaceView =
   | "dayView"
   | "journal"
   | "live"
+  | "positionSizeCalculator"
   | "journalAccounts"
   | "journalDashboard"
   | "journalDayView"

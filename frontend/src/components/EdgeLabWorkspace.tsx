@@ -24,6 +24,7 @@ import {
   BarChart3,
   BookOpen,
   Bold,
+  Calculator,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -761,6 +762,8 @@ export function EdgeLabWorkspace({
       return <JournalWorkspacePage journal={liveJournal} view="journalTrades" />;
     case "live":
       return <LiveMarketsPage />;
+    case "positionSizeCalculator":
+      return <PositionSizeCalculatorPage />;
     case "journalAccounts":
     case "journalDashboard":
     case "journalDayView":
@@ -1685,6 +1688,550 @@ function LiveMarketsPage() {
       {confirmDialog}
     </PageScaffold>
   );
+}
+
+type PositionRiskMode = "percent" | "money";
+
+type PositionInstrumentProfile = {
+  assetClass: string;
+  base: string;
+  contractSize: number;
+  defaultPrice: number;
+  label: string;
+  pipSize: number;
+  quote: string;
+  symbol: string;
+};
+
+const POSITION_INSTRUMENT_PROFILES: PositionInstrumentProfile[] = [
+  { assetClass: "FX Major", base: "EUR", contractSize: 100000, defaultPrice: 1.08, label: "EUR/USD", pipSize: 0.0001, quote: "USD", symbol: "EURUSD" },
+  { assetClass: "FX Major", base: "GBP", contractSize: 100000, defaultPrice: 1.25, label: "GBP/USD", pipSize: 0.0001, quote: "USD", symbol: "GBPUSD" },
+  { assetClass: "FX Major", base: "USD", contractSize: 100000, defaultPrice: 155, label: "USD/JPY", pipSize: 0.01, quote: "JPY", symbol: "USDJPY" },
+  { assetClass: "FX Major", base: "USD", contractSize: 100000, defaultPrice: 1.37, label: "USD/CAD", pipSize: 0.0001, quote: "CAD", symbol: "USDCAD" },
+  { assetClass: "FX Major", base: "USD", contractSize: 100000, defaultPrice: 0.91, label: "USD/CHF", pipSize: 0.0001, quote: "CHF", symbol: "USDCHF" },
+  { assetClass: "FX Major", base: "AUD", contractSize: 100000, defaultPrice: 0.66, label: "AUD/USD", pipSize: 0.0001, quote: "USD", symbol: "AUDUSD" },
+  { assetClass: "FX Major", base: "NZD", contractSize: 100000, defaultPrice: 0.6, label: "NZD/USD", pipSize: 0.0001, quote: "USD", symbol: "NZDUSD" },
+  { assetClass: "FX Cross", base: "EUR", contractSize: 100000, defaultPrice: 0.86, label: "EUR/GBP", pipSize: 0.0001, quote: "GBP", symbol: "EURGBP" },
+  { assetClass: "FX Cross", base: "EUR", contractSize: 100000, defaultPrice: 168, label: "EUR/JPY", pipSize: 0.01, quote: "JPY", symbol: "EURJPY" },
+  { assetClass: "FX Cross", base: "GBP", contractSize: 100000, defaultPrice: 194, label: "GBP/JPY", pipSize: 0.01, quote: "JPY", symbol: "GBPJPY" },
+  { assetClass: "FX Cross", base: "AUD", contractSize: 100000, defaultPrice: 102, label: "AUD/JPY", pipSize: 0.01, quote: "JPY", symbol: "AUDJPY" },
+  { assetClass: "FX Cross", base: "EUR", contractSize: 100000, defaultPrice: 1.64, label: "EUR/AUD", pipSize: 0.0001, quote: "AUD", symbol: "EURAUD" },
+  { assetClass: "FX Cross", base: "EUR", contractSize: 100000, defaultPrice: 1.47, label: "EUR/CAD", pipSize: 0.0001, quote: "CAD", symbol: "EURCAD" },
+  { assetClass: "FX Cross", base: "GBP", contractSize: 100000, defaultPrice: 1.9, label: "GBP/AUD", pipSize: 0.0001, quote: "AUD", symbol: "GBPAUD" },
+  { assetClass: "FX Cross", base: "CAD", contractSize: 100000, defaultPrice: 113, label: "CAD/JPY", pipSize: 0.01, quote: "JPY", symbol: "CADJPY" },
+  { assetClass: "Metal", base: "XAU", contractSize: 100, defaultPrice: 2350, label: "XAU/USD", pipSize: 0.01, quote: "USD", symbol: "XAUUSD" },
+  { assetClass: "Metal", base: "XAG", contractSize: 5000, defaultPrice: 28, label: "XAG/USD", pipSize: 0.001, quote: "USD", symbol: "XAGUSD" },
+  { assetClass: "CFD", base: "NAS", contractSize: 1, defaultPrice: 18000, label: "NAS100", pipSize: 1, quote: "USD", symbol: "NAS100" },
+  { assetClass: "CFD", base: "SPX", contractSize: 1, defaultPrice: 5200, label: "SPX500", pipSize: 1, quote: "USD", symbol: "SPX500" },
+  { assetClass: "CFD", base: "US30", contractSize: 1, defaultPrice: 39000, label: "US30", pipSize: 1, quote: "USD", symbol: "US30" },
+  { assetClass: "Custom", base: "", contractSize: 100000, defaultPrice: 1, label: "Custom symbol", pipSize: 0.0001, quote: "USD", symbol: "CUSTOM" },
+];
+
+const POSITION_INSTRUMENT_OPTIONS = POSITION_INSTRUMENT_PROFILES.map((profile) => ({
+  label: profile.label,
+  sublabel: `${profile.assetClass} · ${profile.contractSize.toLocaleString()} units · pip ${profile.pipSize}`,
+  value: profile.symbol,
+}));
+
+const POSITION_RISK_PRESETS = ["0.25", "0.5", "1", "1.5", "2"];
+
+function PositionSizeCalculatorPage() {
+  const defaultProfile = POSITION_INSTRUMENT_PROFILES[0];
+  const [instrumentSymbol, setInstrumentSymbol] = useState(defaultProfile.symbol);
+  const [accountCurrency, setAccountCurrency] = useState("USD");
+  const [accountSize, setAccountSize] = useState("10000");
+  const [riskMode, setRiskMode] = useState<PositionRiskMode>("percent");
+  const [riskPercent, setRiskPercent] = useState("1");
+  const [riskAmount, setRiskAmount] = useState("100");
+  const [stopLossPips, setStopLossPips] = useState("20");
+  const [entryPrice, setEntryPrice] = useState(formatPositionDecimal(defaultProfile.defaultPrice, 5));
+  const [contractSize, setContractSize] = useState(formatPositionDecimal(defaultProfile.contractSize, 0));
+  const [pipSize, setPipSize] = useState(formatPositionDecimal(defaultProfile.pipSize, 5));
+  const [quoteCurrency, setQuoteCurrency] = useState(defaultProfile.quote);
+  const [conversionRate, setConversionRate] = useState("1");
+  const [conversionTouched, setConversionTouched] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+
+  const selectedProfile = POSITION_INSTRUMENT_PROFILES.find((profile) => profile.symbol === instrumentSymbol) ?? defaultProfile;
+  const accountBalance = positivePositionNumber(accountSize);
+  const riskAmountValue =
+    riskMode === "money"
+      ? positivePositionNumber(riskAmount)
+      : (accountBalance * positivePositionNumber(riskPercent)) / 100;
+  const riskPercentValue = accountBalance > 0 ? (riskAmountValue / accountBalance) * 100 : 0;
+  const stopLossValue = positivePositionNumber(stopLossPips);
+  const entryPriceValue = positivePositionNumber(entryPrice);
+  const contractSizeValue = positivePositionNumber(contractSize);
+  const pipSizeValue = positivePositionNumber(pipSize);
+  const conversionRateValue = positivePositionNumber(conversionRate);
+  const pipValuePerLot = contractSizeValue * pipSizeValue * conversionRateValue;
+  const stopValuePerLot = stopLossValue * pipValuePerLot;
+  const lots = stopValuePerLot > 0 ? riskAmountValue / stopValuePerLot : 0;
+  const units = lots * contractSizeValue;
+  const notionalQuote = units * entryPriceValue;
+  const notionalAccount = notionalQuote * conversionRateValue;
+  const isValidSize = riskAmountValue > 0 && stopValuePerLot > 0 && Number.isFinite(lots);
+  const inferredConversion = inferPositionConversionRate({
+    accountCurrency,
+    entryPrice: entryPriceValue,
+    profile: selectedProfile,
+    quoteCurrency,
+  });
+  const riskTone = positionRiskTone(riskPercentValue);
+  const riskHeatWidth = Math.min(100, Math.max(3, riskPercentValue * 20));
+
+  useEffect(() => {
+    const profile = POSITION_INSTRUMENT_PROFILES.find((item) => item.symbol === instrumentSymbol) ?? defaultProfile;
+    setEntryPrice(formatPositionDecimal(profile.defaultPrice, 5));
+    setContractSize(formatPositionDecimal(profile.contractSize, 0));
+    setPipSize(formatPositionDecimal(profile.pipSize, 5));
+    setQuoteCurrency(profile.quote);
+    setConversionTouched(false);
+  }, [defaultProfile, instrumentSymbol]);
+
+  useEffect(() => {
+    if (!conversionTouched) {
+      setConversionRate(formatPositionDecimal(inferredConversion, 6));
+    }
+  }, [conversionTouched, inferredConversion]);
+
+  useEffect(() => {
+    if (riskMode === "percent") {
+      setRiskAmount(formatPositionDecimal((accountBalance * positivePositionNumber(riskPercent)) / 100, 2));
+    }
+  }, [accountBalance, riskMode, riskPercent]);
+
+  useEffect(() => {
+    if (riskMode === "money") {
+      setRiskPercent(formatPositionDecimal(accountBalance > 0 ? (positivePositionNumber(riskAmount) / accountBalance) * 100 : 0, 3));
+    }
+  }, [accountBalance, riskAmount, riskMode]);
+
+  function resetCalculator() {
+    setInstrumentSymbol(defaultProfile.symbol);
+    setAccountCurrency("USD");
+    setAccountSize("10000");
+    setRiskMode("percent");
+    setRiskPercent("1");
+    setRiskAmount("100");
+    setStopLossPips("20");
+    setConversionTouched(false);
+    setCopyStatus("");
+  }
+
+  async function copyPositionBrief() {
+    if (!isValidSize) {
+      return;
+    }
+    const lines = [
+      `Position size: ${formatPositionLots(lots)} lots (${formatWholeNumber(units)} units)`,
+      `Instrument: ${selectedProfile.label}`,
+      `Account risk: ${formatMoney(riskAmountValue, accountCurrency)} (${formatPositionDecimal(riskPercentValue, 2)}%)`,
+      `Stop: ${formatPositionDecimal(stopLossValue, 2)} pips`,
+      `Pip value per lot: ${formatMoney(pipValuePerLot, accountCurrency)}`,
+      `Quote-to-account rate: ${formatPositionDecimal(conversionRateValue, 6)}`,
+    ];
+    await copyTextToClipboard(lines.join("\n"));
+    setCopyStatus("Copied");
+    window.setTimeout(() => setCopyStatus(""), 1600);
+  }
+
+  return (
+    <PageScaffold
+      eyebrow="Risk Tools"
+      title="Position Size Calculator"
+      description="Calculate trade size from account risk, stop distance, contract size, and quote-to-account conversion."
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="status-pill h-9 px-2 text-[11px]">Myfxbook-style sizing</span>
+          <button className="control-button h-9" onClick={resetCalculator} type="button">
+            <RefreshCw size={15} />
+            Reset
+          </button>
+        </div>
+      }
+    >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={Calculator} label="Recommended size" tone="text-cyan-100" value={isValidSize ? `${formatPositionLots(lots)} lots` : "-"} />
+        <ResultMetricCard icon={WalletCards} label="Units" value={isValidSize ? formatWholeNumber(units) : "-"} />
+        <ResultMetricCard icon={BadgeDollarSign} label="Risk amount" tone={riskTone} value={formatMoney(riskAmountValue, accountCurrency)} />
+        <ResultMetricCard icon={Gauge} label="Per pip / lot" value={pipValuePerLot > 0 ? formatMoney(pipValuePerLot, accountCurrency) : "-"} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.62fr)_minmax(340px,0.38fr)]">
+        <FeatureCard className="overflow-visible">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardLabel icon={SlidersHorizontal} label="Sizing console" />
+              <div className="mt-1 text-xs text-slate-500">{selectedProfile.assetClass} · {selectedProfile.base || "Custom"} / {quoteCurrency}</div>
+            </div>
+            <ReportSegmentedTabs
+              active={riskMode}
+              onChange={setRiskMode}
+              options={[
+                { label: "Risk %", value: "percent" },
+                { label: "Fixed risk", value: "money" },
+              ]}
+            />
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(220px,1.3fr)_minmax(130px,0.7fr)_minmax(130px,0.7fr)]">
+            <label className="grid gap-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Instrument</span>
+              <ThemedSelect
+                ariaLabel="Instrument"
+                className="h-10"
+                onChange={setInstrumentSymbol}
+                options={POSITION_INSTRUMENT_OPTIONS}
+                portal
+                value={instrumentSymbol}
+              />
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Account ccy</span>
+              <ThemedSelect
+                ariaLabel="Account currency"
+                className="h-10"
+                onChange={(value) => {
+                  setAccountCurrency(value);
+                  setConversionTouched(false);
+                }}
+                options={selectOptionsWithValue(CURRENCY_OPTIONS, accountCurrency)}
+                portal
+                value={accountCurrency}
+              />
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Quote ccy</span>
+              <ThemedSelect
+                ariaLabel="Quote currency"
+                className="h-10"
+                onChange={(value) => {
+                  setQuoteCurrency(value);
+                  setConversionTouched(false);
+                }}
+                options={selectOptionsWithValue(CURRENCY_OPTIONS, quoteCurrency)}
+                portal
+                value={quoteCurrency}
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <PositionNumberField label="Account size" onChange={setAccountSize} value={accountSize} />
+            <PositionNumberField
+              label="Risk %"
+              onChange={(value) => {
+                setRiskMode("percent");
+                setRiskPercent(value);
+              }}
+              suffix="%"
+              value={riskPercent}
+            />
+            <PositionNumberField
+              label="Risk amount"
+              onChange={(value) => {
+                setRiskMode("money");
+                setRiskAmount(value);
+              }}
+              value={riskAmount}
+            />
+            <PositionNumberField label="Stop pips" onChange={setStopLossPips} value={stopLossPips} />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {POSITION_RISK_PRESETS.map((preset) => (
+              <button
+                className={`control-button h-8 px-2 text-xs ${riskMode === "percent" && riskPercent === preset ? "workspace-tab-active" : ""}`}
+                key={preset}
+                onClick={() => {
+                  setRiskMode("percent");
+                  setRiskPercent(preset);
+                }}
+                type="button"
+              >
+                {preset}%
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardLabel icon={Settings} label="Contract model" />
+              <span className={`status-pill h-8 px-2 text-[11px] ${conversionTouched ? "text-amber-100" : "text-emerald-100"}`}>
+                {conversionTouched ? "Manual conversion" : "Auto conversion"}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <PositionNumberField label="Entry price" onChange={setEntryPrice} value={entryPrice} />
+              <PositionNumberField label="Contract units" onChange={setContractSize} value={contractSize} />
+              <PositionNumberField label="Pip size" onChange={setPipSize} value={pipSize} />
+              <label className="grid gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Quote to account</span>
+                <div className="flex gap-2">
+                  <input
+                    className="input-control h-10 normal-case tracking-normal"
+                    min="0"
+                    onChange={(event) => {
+                      setConversionTouched(true);
+                      setConversionRate(event.target.value);
+                    }}
+                    step="any"
+                    type="number"
+                    value={conversionRate}
+                  />
+                  <button
+                    className="control-button h-10 px-2"
+                    onClick={() => {
+                      setConversionTouched(false);
+                      setConversionRate(formatPositionDecimal(inferredConversion, 6));
+                    }}
+                    title="Reset conversion"
+                    type="button"
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+              </label>
+            </div>
+          </div>
+        </FeatureCard>
+
+        <FeatureCard className="overflow-hidden p-0">
+          <div className="border-b border-white/10 p-4">
+            <CardLabel icon={Calculator} label="Execution size" />
+            <div className="mt-5 rounded-md border border-cyan-300/15 bg-cyan-300/[0.06] p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200/80">Standard lots</div>
+              <div className="mt-2 text-5xl font-semibold tabular-nums text-white">{isValidSize ? formatPositionLots(lots) : "-"}</div>
+              <div className="mt-2 text-sm text-slate-500">{isValidSize ? `${formatWholeNumber(units)} units on ${selectedProfile.label}` : "Enter risk, stop, and contract values"}</div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <MiniMetric label="Mini lots" value={isValidSize ? formatPositionLots(lots * 10) : "-"} />
+              <MiniMetric label="Micro lots" value={isValidSize ? formatPositionLots(lots * 100) : "-"} />
+              <MiniMetric label="Stop value / lot" value={stopValuePerLot > 0 ? formatMoney(stopValuePerLot, accountCurrency) : "-"} />
+              <MiniMetric label="Exposure" value={notionalAccount > 0 ? formatCompactMoney(notionalAccount, accountCurrency) : "-"} />
+            </div>
+          </div>
+
+          <div className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <CardLabel icon={Gauge} label="Risk heat" />
+              <span className={`text-sm font-semibold tabular-nums ${riskTone}`}>{formatPositionDecimal(riskPercentValue, 2)}%</span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+              <div className={`h-full rounded-full ${positionRiskBarClass(riskPercentValue)}`} style={{ width: `${riskHeatWidth}%` }} />
+            </div>
+            <div className="mt-4 grid gap-2">
+              {[
+                ["Risk", formatMoney(riskAmountValue, accountCurrency), riskTone],
+                ["Pip value", pipValuePerLot > 0 ? formatMoney(pipValuePerLot, accountCurrency) : "-", "text-slate-100"],
+                ["Conversion", formatPositionDecimal(conversionRateValue, 6), conversionTouched ? "text-amber-200" : "text-emerald-200"],
+                ["Notional", notionalAccount > 0 ? formatCompactMoney(notionalAccount, accountCurrency) : "-", "text-slate-100"],
+              ].map(([label, value, tone]) => (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2" key={label}>
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{label}</span>
+                  <span className={`text-sm font-semibold tabular-nums ${tone}`}>{value}</span>
+                </div>
+              ))}
+            </div>
+            <button className="control-button workspace-tab-active mt-4 w-full justify-center" disabled={!isValidSize} onClick={() => void copyPositionBrief()} type="button">
+              <Copy size={15} />
+              {copyStatus || "Copy execution brief"}
+            </button>
+          </div>
+        </FeatureCard>
+      </div>
+
+      <FeatureCard className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div>
+            <CardLabel icon={List} label="Lot ladder" />
+            <div className="mt-1 text-xs text-slate-500">Same risk budget expressed across common execution units</div>
+          </div>
+          <span className="status-pill h-8 px-2 text-[11px]">{accountCurrency} account</span>
+        </div>
+        <div className="overflow-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Unit</th>
+                <th className="px-4 py-3 font-medium">Quantity</th>
+                <th className="px-4 py-3 font-medium">Pip value</th>
+                <th className="px-4 py-3 font-medium">Risk at stop</th>
+                <th className="px-4 py-3 font-medium">Notional</th>
+              </tr>
+            </thead>
+            <tbody>
+              {buildPositionLadderRows({
+                accountCurrency,
+                conversionRate: conversionRateValue,
+                contractSize: contractSizeValue,
+                entryPrice: entryPriceValue,
+                lots,
+                pipSize: pipSizeValue,
+                stopLossPips: stopLossValue,
+              }).map((row) => (
+                <tr className="border-t border-white/10 text-slate-300" key={row.label}>
+                  <td className="px-4 py-3 font-semibold text-white">{row.label}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.quantity}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.pipValue}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.riskAtStop}</td>
+                  <td className="px-4 py-3 tabular-nums">{row.notional}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </FeatureCard>
+    </PageScaffold>
+  );
+}
+
+function PositionNumberField({
+  label,
+  onChange,
+  suffix,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  suffix?: string;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+      <div className="relative">
+        <input
+          className={`input-control h-10 normal-case tracking-normal ${suffix ? "pr-9" : ""}`}
+          min="0"
+          onChange={(event) => onChange(event.target.value)}
+          step="any"
+          type="number"
+          value={value}
+        />
+        {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">{suffix}</span>}
+      </div>
+    </label>
+  );
+}
+
+function positivePositionNumber(value: string) {
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function formatPositionDecimal(value: number, maximumFractionDigits = 4) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return Number(value.toFixed(maximumFractionDigits)).toString();
+}
+
+function formatPositionLots(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: value < 1 ? 3 : 2,
+    minimumFractionDigits: value < 1 ? 3 : 2,
+  }).format(value);
+}
+
+function formatWholeNumber(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "-";
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function inferPositionConversionRate({
+  accountCurrency,
+  entryPrice,
+  profile,
+  quoteCurrency,
+}: {
+  accountCurrency: string;
+  entryPrice: number;
+  profile: PositionInstrumentProfile;
+  quoteCurrency: string;
+}) {
+  if (quoteCurrency === accountCurrency) {
+    return 1;
+  }
+  if (profile.base === accountCurrency && entryPrice > 0) {
+    return 1 / entryPrice;
+  }
+  return 1;
+}
+
+function positionRiskTone(value: number) {
+  if (value >= 3) {
+    return "text-rose-300";
+  }
+  if (value >= 1.5) {
+    return "text-amber-200";
+  }
+  return "text-emerald-300";
+}
+
+function positionRiskBarClass(value: number) {
+  if (value >= 3) {
+    return "bg-rose-300";
+  }
+  if (value >= 1.5) {
+    return "bg-amber-300";
+  }
+  return "bg-emerald-300";
+}
+
+function buildPositionLadderRows({
+  accountCurrency,
+  conversionRate,
+  contractSize,
+  entryPrice,
+  lots,
+  pipSize,
+  stopLossPips,
+}: {
+  accountCurrency: string;
+  conversionRate: number;
+  contractSize: number;
+  entryPrice: number;
+  lots: number;
+  pipSize: number;
+  stopLossPips: number;
+}) {
+  const normalizedLots = Number.isFinite(lots) && lots > 0 ? lots : 0;
+  const rows = [
+    { label: "Standard lots", multiplier: normalizedLots },
+    { label: "Mini lots", multiplier: normalizedLots * 10 },
+    { label: "Micro lots", multiplier: normalizedLots * 100 },
+    { label: "Units", multiplier: normalizedLots * contractSize },
+  ];
+  return rows.map((row) => {
+    const rowLots =
+      row.label === "Mini lots"
+        ? row.multiplier / 10
+        : row.label === "Micro lots"
+          ? row.multiplier / 100
+          : row.label === "Units"
+            ? row.multiplier / contractSize
+            : row.multiplier;
+    const rowUnits = rowLots * contractSize;
+    const pipValue = rowLots * contractSize * pipSize * conversionRate;
+    const riskAtStop = pipValue * stopLossPips;
+    const notional = rowUnits * entryPrice * conversionRate;
+    return {
+      label: row.label,
+      notional: notional > 0 ? formatCompactMoney(notional, accountCurrency) : "-",
+      pipValue: pipValue > 0 ? formatMoney(pipValue, accountCurrency) : "-",
+      quantity: row.label === "Units" ? formatWholeNumber(row.multiplier) : formatPositionLots(row.multiplier),
+      riskAtStop: riskAtStop > 0 ? formatMoney(riskAtStop, accountCurrency) : "-",
+    };
+  });
 }
 
 const ECONOMIC_IMPACT_FILTERS = [
@@ -16424,10 +16971,31 @@ function exportResultsSummaryCsv({
 }
 
 async function copyTextToClipboard(text: string) {
-  if (typeof navigator === "undefined") {
+  if (typeof navigator === "undefined" && typeof document === "undefined") {
     return;
   }
-  await navigator.clipboard?.writeText(text);
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Fall back to a temporary textarea below when browser clipboard permissions are unavailable.
+  }
+  if (typeof document === "undefined") {
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.left = "-9999px";
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }
 
 function buildResultsSummaryText({
