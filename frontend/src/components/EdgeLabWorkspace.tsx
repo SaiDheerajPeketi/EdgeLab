@@ -275,6 +275,7 @@ type StrategyGroup = {
 };
 
 type LiveJournalSession = {
+  account_ids?: number[];
   account: string;
   created_at: string;
   currency: string;
@@ -288,39 +289,103 @@ type LiveJournalSession = {
   strategy_name: string;
 };
 
+type LiveJournalAccount = {
+  broker: string;
+  color: string;
+  created_at: string;
+  currency: string;
+  id: number;
+  initial_balance: number;
+  name: string;
+  notes: string;
+  status: "ACTIVE" | "ARCHIVED";
+};
+
+type JournalEntryType = "MISSED" | "TAKEN";
+
+type JournalTrade = Trade & {
+  account_ids?: number[];
+  journal_entry_type?: JournalEntryType;
+  missed_reason?: string | null;
+  planned_entry_price?: number | null;
+  planned_exit_price?: number | null;
+  planned_stop_loss?: number | null;
+  planned_take_profit?: number | null;
+};
+
+type MissedJournalTrade = JournalTrade & { journal_entry_type: "MISSED" };
+type TakenJournalTrade = JournalTrade & { journal_entry_type?: "TAKEN" };
+
+type LiveJournalSettings = {
+  default_commission_mode: OrderCommissionMode;
+  default_commission_value: number;
+  default_account_ids: number[];
+  default_broker: string;
+  default_currency: string;
+  default_entry_type: JournalEntryType;
+  default_fee_mode: OrderCommissionMode;
+  default_fee_value: number;
+  default_risk_percent: number;
+  require_account_for_taken_trades: boolean;
+};
+
 type LiveJournalData = {
+  accounts: LiveJournalAccount[];
   playbooks: Playbook[];
   sessions: LiveJournalSession[];
-  trades: Trade[];
+  settings: LiveJournalSettings;
+  trades: JournalTrade[];
 };
 
 type LiveStrategyGroup = {
   aggregate: Aggregate;
   name: string;
   sessions: LiveJournalSession[];
-  trades: Trade[];
+  trades: JournalTrade[];
 };
 
 type LiveJournalController = {
+  addAccount: (payload: LiveJournalAccountInput) => LiveJournalAccount;
   addPlaybook: (payload: PlaybookPayload) => Playbook;
   addSession: (payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) => void;
   addTrade: (payload: LiveTradeInput) => void;
+  deleteAccount: (accountId: number) => void;
+  deleteSession: (sessionId: number) => void;
   updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Playbook | null;
   deletePlaybook: (playbookId: number) => void;
+  updateAccount: (accountId: number, payload: Partial<LiveJournalAccountInput> & { status?: LiveJournalAccount["status"] }) => LiveJournalAccount | null;
   updateSession: (sessionId: number, payload: Partial<Omit<LiveJournalSession, "created_at" | "id">>) => LiveJournalSession | null;
+  updateSettings: (payload: Partial<LiveJournalSettings>) => void;
   updateTradeStrategy: (tradeId: number, strategyName: string | null) => void;
   data: LiveJournalData;
 };
 
+type LiveJournalAccountInput = {
+  broker: string;
+  color: string;
+  currency: string;
+  initial_balance: number;
+  name: string;
+  notes: string;
+};
+
 type LiveTradeInput = {
+  accountIds: number[];
   emotionalState: string | null;
-  entryPrice: number;
+  entryPrice: number | null;
+  entryType: JournalEntryType;
   entryTime: string;
-  exitPrice: number;
+  exitPrice: number | null;
   exitTime: string;
   mistakeTags: string[];
+  missedReason: string | null;
   notes: string | null;
-  quantity: number;
+  playbookId: number | null;
+  plannedEntryPrice: number | null;
+  plannedExitPrice: number | null;
+  plannedStopLoss: number | null;
+  plannedTakeProfit: number | null;
+  quantity: number | null;
   screenshotUrl: string | null;
   sessionId: number;
   side: "LONG" | "SHORT";
@@ -2291,7 +2356,7 @@ function JournalWorkspacePage({
     () => new Map(journal.data.sessions.map((session) => [session.id, session])),
     [journal.data.sessions],
   );
-  const closedTrades = useMemo(
+  const journalEntries = useMemo(
     () =>
       journal.data.trades
         .filter((trade) => trade.status === "CLOSED")
@@ -2299,19 +2364,26 @@ function JournalWorkspacePage({
         .sort(compareTradesAscending),
     [journal.data.trades],
   );
+  const closedTrades = useMemo(
+    () => journalEntries.filter(isTakenJournalTrade),
+    [journalEntries],
+  );
   const aggregate = useMemo(() => aggregateTrades(closedTrades), [closedTrades]);
   const days = useMemo(() => groupTradesByDay(closedTrades), [closedTrades]);
   const strategies = useMemo(
-    () => groupLiveStrategies(journal.data.sessions, journal.data.trades),
-    [journal.data.sessions, journal.data.trades],
+    () => groupLiveStrategies(journal.data.sessions, journalEntries),
+    [journal.data.sessions, journalEntries],
   );
 
   const shared = {
+    accounts: journal.data.accounts,
     aggregate,
     closedTrades,
     days,
     journal,
+    journalEntries,
     playbooks: journal.data.playbooks,
+    settings: journal.data.settings,
     sessionById,
     sessions: journal.data.sessions,
     strategies,
@@ -2344,22 +2416,26 @@ function JournalWorkspacePage({
 }
 
 type JournalPageProps = {
+  accounts: LiveJournalAccount[];
   aggregate: Aggregate;
-  closedTrades: Trade[];
+  closedTrades: JournalTrade[];
   days: DayGroup[];
   journal: LiveJournalController;
+  journalEntries: JournalTrade[];
   playbooks: Playbook[];
+  settings: LiveJournalSettings;
   sessionById: Map<number, LiveJournalSession>;
   sessions: LiveJournalSession[];
   strategies: LiveStrategyGroup[];
 };
 
 function JournalSessionsPage({
-  aggregate,
+  accounts,
   journal,
+  journalEntries,
   playbooks,
-  sessionById,
   sessions,
+  settings,
   strategies,
 }: JournalPageProps) {
   const strategyListId = useId().replace(/:/g, "");
@@ -2372,23 +2448,119 @@ function JournalSessionsPage({
   const [strategy, setStrategy] = useState("Discretionary");
   const [instrument, setInstrument] = useState("OANDA:EURUSD");
   const [balance, setBalance] = useState("100000");
+  const [currency, setCurrency] = useState(settings.default_currency);
+  const [accountIds, setAccountIds] = useState<number[]>(settings.default_account_ids);
   const [playbookId, setPlaybookId] = useState("");
+  const [notes, setNotes] = useState("");
+  const activeAccounts = accounts.filter((account) => account.status === "ACTIVE");
   const playbookById = useMemo(
     () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
     [playbooks],
   );
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(sessions[0]?.id ?? null);
+  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0] ?? null;
+  const [editDraft, setEditDraft] = useState({
+    accountIds: selectedSession?.account_ids ?? [],
+    currency: selectedSession?.currency ?? settings.default_currency,
+    instrument: selectedSession?.instrument ?? "Manual",
+    name: selectedSession?.name ?? "Live Trading Session",
+    notes: selectedSession?.notes ?? "",
+    playbookId: selectedSession?.playbook_id == null ? "" : String(selectedSession.playbook_id),
+    strategy: selectedSession?.strategy_name ?? "Unassigned",
+  });
+  const sessionRows = useMemo(
+    () =>
+      sessions.map((session) => {
+        const entries = journalEntries.filter((trade) => trade.session_id === session.id);
+        const takenTrades = entries.filter(isTakenJournalTrade);
+        const missedTrades = entries.filter(isMissedJournalTrade);
+        return {
+          aggregate: aggregateTrades(takenTrades),
+          entries,
+          missedTrades,
+          session,
+          takenTrades,
+        };
+      }),
+    [journalEntries, sessions],
+  );
+  const totalTakenTrades = sessionRows.reduce((sum, row) => sum + row.takenTrades.length, 0);
+  const totalMissedSetups = sessionRows.reduce((sum, row) => sum + row.missedTrades.length, 0);
+
+  useEffect(() => {
+    if (!selectedSession && sessions[0]) {
+      setSelectedSessionId(sessions[0].id);
+    }
+  }, [selectedSession, sessions]);
+
+  useEffect(() => {
+    if (!selectedSession) {
+      return;
+    }
+    setEditDraft({
+      accountIds: selectedSession.account_ids ?? [],
+      currency: selectedSession.currency ?? settings.default_currency,
+      instrument: selectedSession.instrument ?? "Manual",
+      name: selectedSession.name,
+      notes: selectedSession.notes ?? "",
+      playbookId: selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id),
+      strategy: selectedSession.strategy_name ?? "Unassigned",
+    });
+  }, [selectedSession, settings.default_currency]);
+
+  useEffect(() => {
+    setCurrency(settings.default_currency);
+    setAccountIds(settings.default_account_ids);
+  }, [settings.default_account_ids, settings.default_currency]);
+
+  function toggleAccount(accountId: number) {
+    setAccountIds((current) =>
+      current.includes(accountId) ? current.filter((id) => id !== accountId) : [...current, accountId],
+    );
+  }
+
+  function toggleEditAccount(accountId: number) {
+    setEditDraft((current) => ({
+      ...current,
+      accountIds: current.accountIds.includes(accountId)
+        ? current.accountIds.filter((id) => id !== accountId)
+        : [...current.accountIds, accountId],
+    }));
+  }
 
   function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const selectedAccounts = accounts.filter((account) => accountIds.includes(account.id));
     journal.addSession({
-      account: "Manual",
-      currency: "USD",
-      initial_balance: Number(balance) || 0,
+      account: selectedAccounts.map((account) => account.name).join(", ") || settings.default_broker || "Manual",
+      account_ids: accountIds,
+      currency: selectedAccounts.length > 0 ? currencyForJournalAccounts(selectedAccounts, currency) : normalizeCurrencyCode(currency),
+      initial_balance: selectedAccounts.length > 0 ? selectedAccounts.reduce((sum, account) => sum + account.initial_balance, 0) : Number(balance) || 0,
       instrument: instrument.trim() || "Manual",
       name: name.trim() || "Live Trading Session",
-      notes: "",
+      notes: notes.trim(),
       playbook_id: playbookId ? Number(playbookId) : null,
       strategy_name: strategy.trim() || "Unassigned",
+    });
+    setName("Live Trading Session");
+    setNotes("");
+  }
+
+  function saveSelectedSession() {
+    if (!selectedSession) {
+      return;
+    }
+    const selectedAccounts = accounts.filter((account) => editDraft.accountIds.includes(account.id));
+    journal.updateSession(selectedSession.id, {
+      account: selectedAccounts.map((account) => account.name).join(", ") || selectedSession.account,
+      account_ids: editDraft.accountIds,
+      currency: selectedAccounts.length > 0 ? currencyForJournalAccounts(selectedAccounts, editDraft.currency) : normalizeCurrencyCode(editDraft.currency),
+      initial_balance: selectedAccounts.length > 0 ? selectedAccounts.reduce((sum, account) => sum + account.initial_balance, 0) : selectedSession.initial_balance,
+      instrument: editDraft.instrument,
+      name: editDraft.name,
+      notes: editDraft.notes,
+      playbook_id: editDraft.playbookId ? Number(editDraft.playbookId) : null,
+      strategy_name: editDraft.strategy,
     });
   }
 
@@ -2396,8 +2568,14 @@ function JournalSessionsPage({
     <PageScaffold
       eyebrow="Journal Sessions"
       title="Live Session Management"
-      description="Actual-trade sessions are separate from replay sessions. Their metrics are built only from manually recorded live trades."
+      description="Group Journal entries into live trading sessions with strategy, playbook, and account context."
     >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={PlaySquare} label="Sessions" value={String(sessions.length)} />
+        <ResultMetricCard icon={ClipboardList} label="Taken trades" value={String(totalTakenTrades)} />
+        <ResultMetricCard icon={Clock3} label="Missed setups" value={String(totalMissedSetups)} />
+        <ResultMetricCard icon={WalletCards} label="Linked accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
+      </div>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <FeatureCard>
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -2405,30 +2583,80 @@ function JournalSessionsPage({
             <span className="status-pill">{sessions.length} sessions</span>
           </div>
           <div className="overflow-auto">
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="w-full min-w-[1120px] text-left text-sm">
               <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
                 <tr>
                   <th className="px-3 py-3 font-medium">Session</th>
                   <th className="px-3 py-3 font-medium">Instrument</th>
                   <th className="px-3 py-3 font-medium">Strategy</th>
+                  <th className="px-3 py-3 font-medium">Accounts</th>
                   <th className="px-3 py-3 font-medium">Playbook</th>
                   <th className="px-3 py-3 font-medium">Trades</th>
+                  <th className="px-3 py-3 font-medium">Missed</th>
                   <th className="px-3 py-3 font-medium">Net P&L</th>
                   <th className="px-3 py-3 font-medium">Win rate</th>
+                  <th className="px-3 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((session) => {
-                  const rowAggregate = aggregateTrades(journal.data.trades.filter((trade) => trade.session_id === session.id));
+                {sessionRows.map(({ aggregate: rowAggregate, missedTrades, session, takenTrades }) => {
+                  const rowAccounts = accounts.filter((account) => session.account_ids?.includes(account.id));
+                  const rowCurrency = rowAccounts.length > 0 ? currencyForJournalAccounts(rowAccounts, session.currency) : session.currency;
                   return (
-                    <tr className="border-t border-white/10 text-slate-300" key={session.id}>
-                      <td className="px-3 py-4 font-semibold text-white">{session.name}</td>
+                    <tr
+                      className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selectedSession?.id === session.id ? "bg-cyan-300/10" : ""}`}
+                      key={session.id}
+                      onClick={() => setSelectedSessionId(session.id)}
+                    >
+                      <td className="px-3 py-4">
+                        <div className="font-semibold text-white">{session.name}</div>
+                        <div className="text-xs text-slate-500">{session.status}</div>
+                      </td>
                       <td className="px-3 py-4">{session.instrument}</td>
                       <td className="px-3 py-4">{session.strategy_name}</td>
+                      <td className="px-3 py-4">
+                        <div className="flex max-w-48 flex-wrap gap-1">
+                          {rowAccounts.map((account) => (
+                            <span className="inline-flex items-center gap-1 rounded bg-black/30 px-2 py-1 text-xs font-semibold text-slate-200" key={account.id}>
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color }} />
+                              {account.name}
+                            </span>
+                          ))}
+                          {rowAccounts.length === 0 && <span className="text-xs text-slate-600">Unlinked</span>}
+                        </div>
+                      </td>
                       <td className="px-3 py-4">{session.playbook_id ? playbookById.get(session.playbook_id)?.name ?? "Missing rules" : "Unlinked"}</td>
-                      <td className="px-3 py-4">{rowAggregate.totalTrades}</td>
-                      <td className={`px-3 py-4 font-semibold ${toneForNumber(rowAggregate.netPnl)}`}>{formatMoney(rowAggregate.netPnl)}</td>
+                      <td className="px-3 py-4">{takenTrades.length}</td>
+                      <td className="px-3 py-4">{missedTrades.length}</td>
+                      <td className={`px-3 py-4 font-semibold ${toneForNumber(rowAggregate.netPnl)}`}>{formatMoney(rowAggregate.netPnl, rowCurrency)}</td>
                       <td className="px-3 py-4">{formatPercent(rowAggregate.winRate)}</td>
+                      <td className="px-3 py-4">
+                        <div className="flex gap-2">
+                          <button
+                            className="control-button h-8 px-2 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              journal.updateSession(session.id, { status: session.status === "ARCHIVED" ? "ACTIVE" : "ARCHIVED" });
+                            }}
+                            type="button"
+                          >
+                            {session.status === "ARCHIVED" ? "Restore" : "Archive"}
+                          </button>
+                          <button
+                            className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (window.confirm(`Delete "${session.name}" and its Journal entries?`)) {
+                                journal.deleteSession(session.id);
+                              }
+                            }}
+                            title="Delete session"
+                            type="button"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -2461,6 +2689,27 @@ function JournalSessionsPage({
               Instrument
               <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setInstrument(event.target.value)} value={instrument} />
             </label>
+            <div className="grid gap-2">
+              <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Accounts</div>
+              <div className="grid gap-2">
+                {activeAccounts.map((account) => (
+                  <button
+                    className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
+                      accountIds.includes(account.id)
+                        ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
+                        : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
+                    }`}
+                    key={account.id}
+                    onClick={() => toggleAccount(account.id)}
+                    type="button"
+                  >
+                    <span>{account.name}</span>
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account.color }} />
+                  </button>
+                ))}
+                {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">Create an account first or keep this session unlinked.</div>}
+              </div>
+            </div>
             <label className="form-field">
               Playbook rules
               <ThemedSelect
@@ -2480,30 +2729,119 @@ function JournalSessionsPage({
               Starting balance
               <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setBalance(event.target.value)} type="number" value={balance} />
             </label>
+            <label className="form-field">
+              Currency
+              <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setCurrency(event.target.value.toUpperCase())} value={currency} />
+            </label>
+            <label className="form-field">
+              Notes
+              <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
+            </label>
             <button className="control-button workspace-tab-active justify-center" type="submit">
               <Plus size={15} />
               Save session
             </button>
           </form>
-          <div className="mt-4 grid gap-2">
-            <CompactMetric label="Live total P&L" value={formatMoney(aggregate.netPnl)} tone={toneForNumber(aggregate.netPnl)} />
-            <CompactMetric label="Latest session" value={sessionById.get(sessions.at(-1)?.id ?? 0)?.name ?? "-"} />
-          </div>
         </FeatureCard>
       </div>
+      {selectedSession && (
+        <FeatureCard>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <CardLabel icon={Settings} label="Selected session" />
+            <span className="status-pill">{selectedSession.status}</span>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="form-field">
+                Session name
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
+              </label>
+              <label className="form-field">
+                Strategy
+                <input className="input-control h-10 normal-case tracking-normal" list={strategyListId} onChange={(event) => setEditDraft((current) => ({ ...current, strategy: event.target.value }))} value={editDraft.strategy} />
+              </label>
+              <label className="form-field">
+                Instrument
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
+              </label>
+              <label className="form-field">
+                Playbook
+                <ThemedSelect
+                  className="h-10"
+                  onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
+                  options={[
+                    { label: "No playbook", value: "" },
+                    ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
+                  ]}
+                  value={editDraft.playbookId}
+                />
+              </label>
+              <label className="form-field">
+                Currency
+                <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setEditDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} value={editDraft.currency} />
+              </label>
+              <label className="form-field md:col-span-2">
+                Notes
+                <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
+              </label>
+            </div>
+            <div className="grid content-start gap-3">
+              <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Linked accounts</div>
+                <div className="grid gap-2">
+                  {activeAccounts.map((account) => (
+                    <button
+                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
+                        editDraft.accountIds.includes(account.id)
+                          ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
+                          : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
+                      }`}
+                      key={account.id}
+                      onClick={() => toggleEditAccount(account.id)}
+                      type="button"
+                    >
+                      <span>{account.name}</span>
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account.color }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
+                <Save size={15} />
+                Save session changes
+              </button>
+            </div>
+          </div>
+        </FeatureCard>
+      )}
     </PageScaffold>
   );
 }
 
 function JournalDashboardPage({
+  accounts,
   aggregate,
   closedTrades,
   days,
+  journalEntries,
+  sessionById,
   sessions,
 }: JournalPageProps) {
   const latestDay = days[0];
-  const startingBalance = sessions[0]?.initial_balance ?? 0;
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+  const activeAccounts = accounts.filter((account) => account.status === "ACTIVE");
+  const currency = currencyForJournalAccounts(activeAccounts, sessions[0]?.currency ?? "USD");
+  const startingBalance = activeAccounts.length > 0
+    ? activeAccounts.reduce((sum, account) => sum + account.initial_balance, 0)
+    : sessions[0]?.initial_balance ?? 0;
   const liveBalance = startingBalance + aggregate.netPnl;
+  const missedEntries = journalEntries.filter(isMissedJournalTrade);
+  const latestDayCurrency = latestDay
+    ? currencyForJournalTrades(latestDay.trades as JournalTrade[], accountById, sessionById, currency)
+    : currency;
 
   return (
     <PageScaffold
@@ -2515,32 +2853,35 @@ function JournalDashboardPage({
         <FeatureCard>
           <CardLabel icon={TrendingUp} label="Live daily P&L" />
           <div className={`mt-6 text-4xl font-semibold tabular-nums ${toneForNumber(latestDay?.aggregate.netPnl)}`}>
-            {formatMoney(latestDay?.aggregate.netPnl ?? 0)}
+            {formatMoney(latestDay?.aggregate.netPnl ?? 0, latestDayCurrency)}
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <CompactMetric label="Trades" value={String(latestDay?.aggregate.totalTrades ?? 0)} />
             <CompactMetric label="Win" value={formatPercent(latestDay?.aggregate.winRate ?? 0)} />
-            <CompactMetric label="Avg R" value={formatOptionalNumber(latestDay?.aggregate.averageR)} />
+            <CompactMetric label="Missed" value={String(missedEntries.filter((trade) => (trade.entry_time ?? "").slice(0, 10) === latestDay?.date).length)} />
           </div>
         </FeatureCard>
         <FeatureCard>
           <CardLabel icon={Activity} label="Recent actual trades" />
           <div className="mt-4 grid max-h-72 gap-2 overflow-auto">
-            {closedTrades.slice(-8).reverse().map((trade) => (
-              <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm" key={trade.id}>
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold text-white">{trade.strategy_name || "Unassigned"} - {trade.side}</span>
-                  <span className="text-xs text-slate-500">{formatDateTime(trade.exit_time)}</span>
-                </span>
-                <span className={`font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</span>
-              </div>
-            ))}
+            {(closedTrades as JournalTrade[]).slice(-8).reverse().map((trade) => {
+              const rowCurrency = currencyForJournalTrade(trade, accountById, sessionById, currency);
+              return (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm" key={trade.id}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-white">{trade.strategy_name || "Unassigned"} - {trade.side}</span>
+                    <span className="text-xs text-slate-500">{formatDateTime(trade.exit_time)}</span>
+                  </span>
+                  <span className={`font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl, rowCurrency)}</span>
+                </div>
+              );
+            })}
             {closedTrades.length === 0 && <EmptyState icon={ClipboardList} message="Record a live trade to populate Journal activity." />}
           </div>
         </FeatureCard>
         <FeatureCard>
           <CardLabel icon={WalletCards} label="Live account balance" />
-          <div className="mt-6 text-4xl font-semibold tabular-nums text-white">{formatMoney(liveBalance)}</div>
+          <div className="mt-6 text-4xl font-semibold tabular-nums text-white">{formatMoney(liveBalance, currency)}</div>
           <p className="mt-3 text-sm text-slate-500">Starting balance plus actual recorded trade P&L.</p>
         </FeatureCard>
       </div>
@@ -2557,7 +2898,7 @@ function JournalDashboardPage({
             <AreaSparkline values={drawdownValues(closedTrades)} height={220} tone="rose" />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown)} tone="text-rose-300" />
+            <CompactMetric label="Max DD" value={formatMoney(aggregate.maxDrawdown, currency)} tone="text-rose-300" />
             <CompactMetric label="PF" value={formatRatio(aggregate.profitFactor)} />
           </div>
         </FeatureCard>
@@ -2567,8 +2908,11 @@ function JournalDashboardPage({
 }
 
 function JournalTradesPage({
-  closedTrades,
+  accounts,
+  journalEntries,
   journal,
+  playbooks,
+  settings,
   sessions,
   strategies,
 }: JournalPageProps) {
@@ -2576,17 +2920,26 @@ function JournalTradesPage({
     <PageScaffold
       eyebrow="Journal Trades"
       title="Live Trade Log"
-      description="Manually record actual taken trades here. These entries feed only Journal sessions, strategies, and reports."
+      description="Record taken trades and missed setups with strategy, playbook, and optional account links."
     >
       <div className="grid gap-4 2xl:grid-cols-[380px_minmax(0,1fr)]">
-        <LiveTradeForm journal={journal} sessions={sessions} strategies={strategies} />
-        <LiveTradeTable sessionById={new Map(sessions.map((session) => [session.id, session]))} trades={closedTrades} />
+        <LiveTradeForm accounts={accounts} journal={journal} playbooks={playbooks} sessions={sessions} settings={settings} strategies={strategies} />
+        <LiveTradeTable
+          accountById={new Map(accounts.map((account) => [account.id, account]))}
+          playbookById={new Map(playbooks.map((playbook) => [playbook.id, playbook]))}
+          sessionById={new Map(sessions.map((session) => [session.id, session]))}
+          trades={journalEntries}
+        />
       </div>
     </PageScaffold>
   );
 }
 
-function JournalDayViewPage({ days }: JournalPageProps) {
+function JournalDayViewPage({ accounts, days, journalEntries, sessionById }: JournalPageProps) {
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
   return (
     <PageScaffold
       eyebrow="Journal Day View"
@@ -2601,10 +2954,12 @@ function JournalDayViewPage({ days }: JournalPageProps) {
                 <div>
                   <div className="text-sm font-semibold text-white">{day.label}</div>
                   <div className={`mt-1 text-sm font-semibold ${toneForNumber(day.aggregate.netPnl)}`}>
-                    Net P&L {formatMoney(day.aggregate.netPnl)}
+                    Net P&L {formatMoney(day.aggregate.netPnl, currencyForJournalTrades(day.trades as JournalTrade[], accountById, sessionById))}
                   </div>
                 </div>
-                <span className="status-pill">{day.aggregate.totalTrades} actual trades</span>
+                <span className="status-pill">
+                  {day.aggregate.totalTrades} taken · {journalEntries.filter((trade) => isMissedJournalTrade(trade) && trade.entry_time.slice(0, 10) === day.date).length} missed
+                </span>
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
                 <AreaSparkline values={cumulativeValues(day.trades)} height={150} />
@@ -2617,7 +2972,7 @@ function JournalDayViewPage({ days }: JournalPageProps) {
               </div>
             </FeatureCard>
           ))}
-          {days.length === 0 && <EmptyState icon={CalendarDays} message="Live trade days appear after recording actual trades." />}
+          {days.length === 0 && <EmptyState icon={CalendarDays} message="Taken-trade days appear after recording Journal trades." />}
         </div>
         <FeatureCard>
           <CardLabel icon={CalendarDays} label="Calendar navigator" />
@@ -2630,15 +2985,22 @@ function JournalDayViewPage({ days }: JournalPageProps) {
   );
 }
 
-function JournalNotesPage({ closedTrades }: JournalPageProps) {
-  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(closedTrades.at(-1)?.id ?? null);
-  const selectedTrade = closedTrades.find((trade) => trade.id === selectedTradeId) ?? closedTrades.at(-1) ?? null;
+function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPageProps) {
+  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(journalEntries.at(-1)?.id ?? null);
+  const selectedTrade = journalEntries.find((trade) => trade.id === selectedTradeId) ?? journalEntries.at(-1) ?? null;
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+  const selectedCurrency = selectedTrade
+    ? currencyForJournalTrade(selectedTrade, accountById, sessionById)
+    : "USD";
 
   return (
     <PageScaffold
       eyebrow="Journal Notes"
       title="Live Trade Notes"
-      description="Notes, tags, and emotional review for actual trades only."
+      description="Notes, tags, missed reasons, and emotional review for Journal entries."
     >
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <FeatureCard className="p-0">
@@ -2649,24 +3011,26 @@ function JournalNotesPage({ closedTrades }: JournalPageProps) {
             </div>
           </div>
           <div className="grid gap-2 p-3">
-            <NotebookFolder
-              label={`All live notes (${closedTrades.length})`}
-              active
-              onClick={() => undefined}
-            />
-            {closedTrades.slice().reverse().map((trade) => (
-              <button
-                className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-                  selectedTrade?.id === trade.id ? "border-cyan-300/30 bg-cyan-300/10" : "border-white/10 bg-black/20 hover:border-white/20"
-                }`}
+              <NotebookFolder
+                label={`All live notes (${journalEntries.length})`}
+                active
+                onClick={() => undefined}
+              />
+              {journalEntries.slice().reverse().map((trade) => (
+                <button
+                  className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                    selectedTrade?.id === trade.id ? "border-cyan-300/30 bg-cyan-300/10" : "border-white/10 bg-black/20 hover:border-white/20"
+                  }`}
                 key={trade.id}
                 onClick={() => setSelectedTradeId(trade.id)}
-                type="button"
-              >
-                <span className="block font-semibold text-white">{trade.strategy_name || "Unassigned"} : {shortDate(trade.entry_time)}</span>
-                <span className={`text-xs font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</span>
-              </button>
-            ))}
+                  type="button"
+                >
+                  <span className="block font-semibold text-white">{trade.strategy_name || "Unassigned"} : {shortDate(trade.entry_time)}</span>
+                  <span className={`text-xs font-semibold ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                    {isMissedJournalTrade(trade) ? "Missed setup" : formatMoney(trade.realized_pnl, currencyForJournalTrade(trade, accountById, sessionById))}
+                  </span>
+                </button>
+              ))}
           </div>
         </FeatureCard>
         <FeatureCard>
@@ -2674,15 +3038,20 @@ function JournalNotesPage({ closedTrades }: JournalPageProps) {
             <>
               <h2 className="text-xl font-semibold text-white">{selectedTrade.strategy_name || "Live trade"} : {shortDate(selectedTrade.entry_time)}</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Entry {formatDateTime(selectedTrade.entry_time)} - Exit {formatDateTime(selectedTrade.exit_time)}
+                Entry {formatDateTime(selectedTrade.entry_time)} - {isMissedJournalTrade(selectedTrade) ? "Missed setup" : `Exit ${formatDateTime(selectedTrade.exit_time)}`}
               </p>
               <div className="mt-4 grid gap-2 md:grid-cols-5">
                 <CompactMetric label="Side" value={selectedTrade.side} />
-                <CompactMetric label="P&L" value={formatMoney(selectedTrade.realized_pnl)} tone={toneForNumber(selectedTrade.realized_pnl)} />
-                <CompactMetric label="R multiple" value={formatOptionalNumber(selectedTrade.r_multiple)} />
+                <CompactMetric label={isMissedJournalTrade(selectedTrade) ? "Planned entry" : "P&L"} value={isMissedJournalTrade(selectedTrade) ? formatPrice(selectedTrade.planned_entry_price) : formatMoney(selectedTrade.realized_pnl, selectedCurrency)} tone={isMissedJournalTrade(selectedTrade) ? "text-amber-200" : toneForNumber(selectedTrade.realized_pnl)} />
+                <CompactMetric label={isMissedJournalTrade(selectedTrade) ? "Planned exit" : "R multiple"} value={isMissedJournalTrade(selectedTrade) ? formatPrice(selectedTrade.planned_exit_price) : formatOptionalNumber(selectedTrade.r_multiple)} />
                 <CompactMetric label="Emotion" value={selectedTrade.emotional_state || "-"} />
                 <CompactMetric label="Tags" value={selectedTrade.mistake_tags.join(", ") || "-"} />
               </div>
+              {isMissedJournalTrade(selectedTrade) && selectedTrade.missed_reason && (
+                <div className="mt-4 rounded-md border border-amber-300/20 bg-amber-300/10 px-3 py-3 text-sm text-amber-50">
+                  {selectedTrade.missed_reason}
+                </div>
+              )}
               {selectedTrade.screenshot_url && (
                 <div className="mt-4 overflow-hidden rounded-md border border-white/10 bg-black/20">
                   <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
@@ -2706,61 +3075,231 @@ function JournalNotesPage({ closedTrades }: JournalPageProps) {
 }
 
 function JournalReportsPage({
-  aggregate,
-  closedTrades,
-  days,
+  accounts,
+  journalEntries,
+  playbooks,
+  sessionById,
+  sessions,
   strategies,
 }: JournalPageProps) {
-  const [tab, setTab] = useState<"daytime" | "overview" | "performance" | "risk" | "strategies">("performance");
-  const rRows = useMemo(() => groupByRMultiple(closedTrades), [closedTrades]);
-  const hourRows = useMemo(() => groupByHour(closedTrades), [closedTrades]);
+  const [tab, setTab] = useState<"accounts" | "daytime" | "missed" | "overview" | "performance" | "risk" | "strategies">("performance");
+  const [accountFilter, setAccountFilter] = useState("ALL");
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
+  );
+  const scopedEntries = useMemo(() => {
+    if (accountFilter === "ALL") {
+      return journalEntries;
+    }
+    const accountId = Number(accountFilter);
+    return journalEntries.filter((trade) =>
+      liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(accountId),
+    );
+  }, [accountFilter, journalEntries, sessionById]);
+  const takenTrades = useMemo(() => scopedEntries.filter(isTakenJournalTrade), [scopedEntries]);
+  const missedTrades = useMemo(() => scopedEntries.filter(isMissedJournalTrade), [scopedEntries]);
+  const aggregate = useMemo(() => aggregateTrades(takenTrades), [takenTrades]);
+  const days = useMemo(() => groupTradesByDay(takenTrades), [takenTrades]);
+  const reportCurrency = useMemo(() => {
+    if (accountFilter !== "ALL") {
+      return accountById.get(Number(accountFilter))?.currency ?? "USD";
+    }
+    return currencyForJournalTrades(takenTrades, accountById, sessionById, currencyForJournalAccounts(accounts));
+  }, [accountById, accountFilter, accounts, sessionById, takenTrades]);
+  const rRows = useMemo(() => groupByRMultiple(takenTrades), [takenTrades]);
+  const hourRows = useMemo(() => groupByHour(takenTrades), [takenTrades]);
+  const weekdayRows = useMemo(() => groupByWeekday(takenTrades), [takenTrades]);
+  const accountRows = useMemo(
+    () =>
+      accounts
+        .map((account) => {
+          const trades = journalEntries.filter((trade) =>
+            isTakenJournalTrade(trade) &&
+            liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(account.id),
+          );
+          return {
+            account,
+            aggregate: aggregateTrades(trades),
+            label: account.name,
+          };
+        })
+        .filter((row) => row.aggregate.totalTrades > 0 || row.account.status === "ACTIVE"),
+    [accounts, journalEntries, sessionById],
+  );
+  const strategyRows = useMemo(
+    () => groupLiveStrategies(sessions, scopedEntries).filter((strategy) => strategy.aggregate.totalTrades > 0),
+    [scopedEntries, sessions],
+  );
+  const missedByStrategy = useMemo(() => {
+    const grouped = new Map<string, JournalTrade[]>();
+    for (const trade of missedTrades) {
+      const session = sessionById.get(trade.session_id);
+      const label = trade.strategy_name || session?.strategy_name || "Unassigned";
+      grouped.set(label, [...(grouped.get(label) ?? []), trade]);
+    }
+    return Array.from(grouped.entries())
+      .map(([label, trades]) => ({ label, trades }))
+      .sort((a, b) => b.trades.length - a.trades.length);
+  }, [missedTrades, sessionById]);
 
   return (
     <PageScaffold
       eyebrow="Journal Reports"
       title="Live Journal Performance Reports"
-      description="Reports calculated from actual manually recorded trades only."
+      description="Performance reports for taken trades with missed setups tracked separately."
+      actions={
+        <ThemedSelect
+          className="h-10 min-w-56"
+          onChange={setAccountFilter}
+          options={[
+            { label: "All journal accounts", value: "ALL" },
+            ...accounts.map((account) => ({
+              label: account.name,
+              sublabel: `${account.broker || "Manual"} · ${account.currency}`,
+              value: String(account.id),
+            })),
+          ]}
+          value={accountFilter}
+        />
+      }
     >
-      <div className="flex gap-2 overflow-x-auto rounded-md border border-white/10 bg-black/20 p-1">
-        {[
-          ["performance", "Performance"],
-          ["overview", "Overview"],
-          ["daytime", "Day & Time"],
-          ["risk", "Risk"],
-          ["strategies", "Strategies"],
-        ].map(([id, label]) => (
-          <TinyTab active={tab === id} key={id} onClick={() => setTab(id as typeof tab)}>
-            {label}
-          </TinyTab>
-        ))}
+      <div className="terminal-panel p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+            {[
+              ["performance", "Performance"],
+              ["overview", "Overview"],
+              ["accounts", "Accounts"],
+              ["daytime", "Day & Time"],
+              ["risk", "Risk"],
+              ["strategies", "Strategies"],
+              ["missed", "Missed"],
+            ].map(([id, label]) => (
+              <button
+                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-xs font-semibold transition ${
+                  tab === id ? "bg-cyan-300/10 text-cyan-100 ring-1 ring-cyan-300/20" : "text-slate-400 hover:bg-white/5 hover:text-white"
+                }`}
+                key={id}
+                onClick={() => setTab(id as typeof tab)}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="status-pill h-8 px-2 text-[11px]">{takenTrades.length} taken</span>
+            <span className="status-pill h-8 px-2 text-[11px]">{missedTrades.length} missed</span>
+            {reportCurrency === MIXED_CURRENCY && <span className="status-pill h-8 px-2 text-[11px]">Mixed currencies</span>}
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, reportCurrency)} />
+        <ResultMetricCard icon={BadgeDollarSign} label="Gross P&L" tone={toneForNumber(aggregate.grossPnl)} value={formatMoney(aggregate.grossPnl, reportCurrency)} />
+        <ResultMetricCard icon={WalletCards} label="Commissions" value={formatMoney(aggregate.totalCommissions, reportCurrency)} />
+        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(aggregate.totalFees, reportCurrency)} />
+        <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(aggregate.winRate)} />
+        <ResultMetricCard icon={Target} label="Taken" value={String(aggregate.totalTrades)} />
+        <ResultMetricCard icon={Clock3} label="Missed" value={String(missedTrades.length)} />
+        <ResultMetricCard icon={TrendingDown} label="Max DD" tone="text-rose-300" value={formatMoney(aggregate.maxDrawdown, reportCurrency)} />
       </div>
       {tab === "performance" && (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
+            <FeatureCard className="overflow-hidden p-0">
+              <MetricChartHeader icon={LineChart} label="Journal equity" meta={`${takenTrades.length} taken trades`} tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, reportCurrency)} />
+              <div className="px-4 pb-4">
+                <AreaSparkline currency={reportCurrency} height={288} values={cumulativeValues(takenTrades)} />
+              </div>
+            </FeatureCard>
+            <FeatureCard className="overflow-hidden p-0">
+              <MetricChartHeader icon={BarChart3} label="Daily P&L" meta={`${days.length} trading days`} tone={toneForNumber(bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl)} value={formatMoney(bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)} />
+              <div className="px-4 pb-4">
+                <BarBreakdown chartHeight={288} currency={reportCurrency} maxItems={18} rows={days.slice().reverse().map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))} />
+              </div>
+            </FeatureCard>
+          </div>
           <FeatureCard>
-            <CardLabel icon={LineChart} label="Live equity curve" />
-            <AreaSparkline values={cumulativeValues(closedTrades)} height={260} />
-          </FeatureCard>
-          <FeatureCard>
-            <CardLabel icon={BarChart3} label="Live P&L by day" />
-            <BarBreakdown
-              currency="USD"
-              rows={days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
-            />
-          </FeatureCard>
-          <FeatureCard className="xl:col-span-2">
-            <StatsGrid aggregate={aggregate} currency="USD" />
+            <StatsGrid aggregate={aggregate} currency={reportCurrency} />
           </FeatureCard>
         </div>
       )}
-      {tab === "overview" && <FeatureCard><StatsGrid aggregate={aggregate} currency="USD" /></FeatureCard>}
-      {tab === "daytime" && <ReportBreakdown leftTitle="Live net P&L by hour" rightTitle="Live win % by hour" rows={hourRows} />}
-      {tab === "risk" && <ReportBreakdown leftTitle="Live net P&L by R multiple" rightTitle="Live win % by R bucket" rows={rRows} />}
+      {tab === "overview" && (
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <InsightMetric currency={reportCurrency} row={bestRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Best day" />
+            <InsightMetric currency={reportCurrency} row={worstRow(days.map((day) => ({ aggregate: day.aggregate, label: day.label })))} title="Weakest day" />
+            <InsightMetric currency={reportCurrency} row={bestWinRateRow(strategyRows.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name })))} title="Best win rate" />
+            <InsightMetric currency={reportCurrency} row={mostActiveRow(strategyRows.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name })))} title="Most active" />
+          </div>
+          <FeatureCard><StatsGrid aggregate={aggregate} currency={reportCurrency} /></FeatureCard>
+          <LiveTradeTable accountById={accountById} playbookById={playbookById} sessionById={sessionById} trades={scopedEntries.slice(-20)} />
+        </div>
+      )}
+      {tab === "accounts" && (
+        <ReportBreakdown
+          currency={reportCurrency}
+          leftTitle="Net P&L by account"
+          rightTitle="Win % by account"
+          rows={accountRows.map((row) => ({ aggregate: row.aggregate, label: row.account.name }))}
+        />
+      )}
+      {tab === "daytime" && (
+        <div className="grid gap-4">
+          <ReportBreakdown currency={reportCurrency} leftTitle="Net P&L by hour" rightTitle="Win % by hour" rows={hourRows} />
+          <ReportBreakdown currency={reportCurrency} leftTitle="Net P&L by weekday" rightTitle="Win % by weekday" rows={weekdayRows} />
+        </div>
+      )}
+      {tab === "risk" && <ReportBreakdown currency={reportCurrency} leftTitle="Net P&L by R multiple" rightTitle="Win % by R bucket" rows={rRows} />}
       {tab === "strategies" && (
         <ReportBreakdown
-          leftTitle="Live P&L by strategy"
-          rightTitle="Live win % by strategy"
-          rows={strategies.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name }))}
+          currency={reportCurrency}
+          leftTitle="P&L by strategy"
+          rightTitle="Win % by strategy"
+          rows={(strategyRows.length > 0 ? strategyRows : strategies).map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name }))}
         />
+      )}
+      {tab === "missed" && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.58fr)_minmax(0,0.42fr)]">
+          <FeatureCard>
+            <CardLabel icon={Clock3} label="Missed setup clusters" />
+            <div className="mt-4 grid gap-2">
+              {missedByStrategy.map((row) => (
+                <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3" key={row.label}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-semibold text-white">{row.label}</span>
+                    <span className="status-pill">{row.trades.length} missed</span>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    {row.trades.slice(0, 3).map((trade) => trade.missed_reason || trade.notes || "No reason logged").join(" · ")}
+                  </div>
+                </div>
+              ))}
+              {missedByStrategy.length === 0 && <EmptyState icon={Clock3} message="Missed setups appear here when logged." />}
+            </div>
+          </FeatureCard>
+          <FeatureCard>
+            <CardLabel icon={ClipboardList} label="Recent missed entries" />
+            <div className="mt-4 grid gap-2">
+              {missedTrades.slice().reverse().slice(0, 8).map((trade) => (
+                <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm" key={trade.id}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-white">{trade.strategy_name || sessionById.get(trade.session_id)?.strategy_name || "Unassigned"}</span>
+                    <span className="text-xs text-slate-500">{shortDate(trade.entry_time)}</span>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">{trade.missed_reason || trade.notes || "No reason logged"}</div>
+                </div>
+              ))}
+              {missedTrades.length === 0 && <EmptyState icon={ClipboardList} message="No missed setups in this scope." />}
+            </div>
+          </FeatureCard>
+        </div>
       )}
     </PageScaffold>
   );
@@ -3158,82 +3697,502 @@ function JournalPlaybooksPage({
   );
 }
 
-function JournalAccountsPage({ aggregate, closedTrades, sessions }: JournalPageProps) {
-  const startingBalance = sessions[0]?.initial_balance ?? 0;
+function JournalAccountsPage({
+  accounts,
+  aggregate,
+  journal,
+  journalEntries,
+  sessionById,
+  sessions,
+  settings,
+}: JournalPageProps) {
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(accounts[0]?.id ?? null);
+  const [name, setName] = useState("Primary Account");
+  const [broker, setBroker] = useState(settings.default_broker);
+  const [currency, setCurrency] = useState(settings.default_currency);
+  const [initialBalance, setInitialBalance] = useState("100000");
+  const [color, setColor] = useState("#22d3ee");
+  const [notes, setNotes] = useState("");
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
+  const [editDraft, setEditDraft] = useState({
+    broker: selectedAccount?.broker ?? settings.default_broker,
+    color: selectedAccount?.color ?? "#22d3ee",
+    currency: selectedAccount?.currency ?? settings.default_currency,
+    initialBalance: String(selectedAccount?.initial_balance ?? 0),
+    name: selectedAccount?.name ?? "Journal Account",
+    notes: selectedAccount?.notes ?? "",
+  });
+  const accountRows = useMemo(
+    () =>
+      accounts.map((account) => {
+        const takenTrades = journalEntries.filter((trade) =>
+          isTakenJournalTrade(trade) &&
+          liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(account.id),
+        );
+        const missedTrades = journalEntries.filter((trade) =>
+          isMissedJournalTrade(trade) &&
+          liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(account.id),
+        );
+        const linkedSessions = sessions.filter((session) => session.account_ids?.includes(account.id));
+        const accountAggregate = aggregateTrades(takenTrades);
+        return {
+          account,
+          aggregate: accountAggregate,
+          balance: account.initial_balance + accountAggregate.netPnl,
+          days: groupTradesByDay(takenTrades),
+          missedTrades,
+          sessions: linkedSessions,
+          trades: takenTrades,
+        };
+      }),
+    [accounts, journalEntries, sessionById, sessions],
+  );
+  const selectedRow = accountRows.find((row) => row.account.id === selectedAccount?.id) ?? accountRows[0] ?? null;
+  const activeRows = accountRows.filter((row) => row.account.status === "ACTIVE");
+  const totalBalance = activeRows.reduce((sum, row) => sum + row.balance, 0);
+  const accountCurrency = currencyForJournalAccounts(activeRows.map((row) => row.account), settings.default_currency);
+
+  useEffect(() => {
+    if (!selectedAccount && accounts[0]) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [accounts, selectedAccount]);
+
+  useEffect(() => {
+    if (!selectedAccount) {
+      return;
+    }
+    setEditDraft({
+      broker: selectedAccount.broker,
+      color: selectedAccount.color,
+      currency: selectedAccount.currency,
+      initialBalance: String(selectedAccount.initial_balance),
+      name: selectedAccount.name,
+      notes: selectedAccount.notes,
+    });
+  }, [selectedAccount]);
+
+  function submitAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const account = journal.addAccount({
+      broker,
+      color,
+      currency,
+      initial_balance: Number(initialBalance) || 0,
+      name,
+      notes,
+    });
+    setSelectedAccountId(account.id);
+    setName("Journal Account");
+    setNotes("");
+  }
+
+  function saveSelectedAccount() {
+    if (!selectedAccount) {
+      return;
+    }
+    journal.updateAccount(selectedAccount.id, {
+      broker: editDraft.broker,
+      color: editDraft.color,
+      currency: editDraft.currency,
+      initial_balance: Number(editDraft.initialBalance) || 0,
+      name: editDraft.name,
+      notes: editDraft.notes,
+    });
+  }
+
   return (
     <PageScaffold
       eyebrow="Journal Accounts"
-      title="Live Account Management"
-      description="Live account metrics are calculated from actual recorded trades only."
+      title="Journal Account Management"
+      description="Manage live accounts used by Journal entries while keeping missed setups account-optional."
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.7fr)_minmax(0,0.3fr)]">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={WalletCards} label="Active accounts" value={String(activeRows.length)} />
+        <ResultMetricCard icon={BadgeDollarSign} label="Account balance" tone={toneForNumber(totalBalance)} value={formatMoney(totalBalance, accountCurrency)} />
+        <ResultMetricCard icon={TrendingUp} label="Journal P&L" tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, accountCurrency)} />
+        <ResultMetricCard icon={Clock3} label="Unlinked missed" value={String(journalEntries.filter((trade) => isMissedJournalTrade(trade) && liveTradeAccountIds(trade, sessionById.get(trade.session_id)).length === 0).length)} />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <FeatureCard>
-          <CardLabel icon={WalletCards} label="Manual live accounts" />
-          <div className="mt-4 grid gap-2 md:grid-cols-3">
-            {sessions.map((session) => (
-              <div className="rounded-md border border-white/10 bg-black/20 p-3" key={session.id}>
-                <div className="font-semibold text-white">{session.account}</div>
-                <div className="mt-1 text-xs text-slate-500">{session.name}</div>
-                <div className="mt-3 text-lg font-semibold tabular-nums text-white">
-                  {formatMoney(session.initial_balance + aggregateTrades(closedTrades.filter((trade) => trade.session_id === session.id)).netPnl)}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <CardLabel icon={WalletCards} label="Journal accounts" />
+            <span className="status-pill">{accounts.length} accounts</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {accountRows.map((row) => (
+              <button
+                className={`rounded-md border p-3 text-left transition ${
+                  selectedAccount?.id === row.account.id
+                    ? "border-cyan-300/35 bg-cyan-300/10"
+                    : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/5"
+                }`}
+                key={row.account.id}
+                onClick={() => setSelectedAccountId(row.account.id)}
+                type="button"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-white">{row.account.name}</span>
+                    <span className="mt-1 block text-xs text-slate-500">{row.account.broker || "Manual"} · {row.account.currency}</span>
+                  </span>
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.account.color }} />
                 </div>
-              </div>
+                <div className={`mt-4 text-xl font-semibold tabular-nums ${toneForNumber(row.balance)}`}>
+                  {formatMoney(row.balance, row.account.currency)}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <MiniMetric label="Trades" value={String(row.aggregate.totalTrades)} />
+                  <MiniMetric label="Win" value={formatPercent(row.aggregate.winRate)} />
+                  <MiniMetric label="Missed" value={String(row.missedTrades.length)} />
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="status-pill">{row.account.status}</span>
+                  <span className={`text-xs font-semibold ${toneForNumber(row.aggregate.netPnl)}`}>
+                    {formatMoney(row.aggregate.netPnl, row.account.currency)}
+                  </span>
+                </div>
+              </button>
             ))}
+            {accountRows.length === 0 && <EmptyState icon={WalletCards} message="Create a Journal account to link live trades." />}
           </div>
         </FeatureCard>
         <FeatureCard>
-          <CardLabel icon={Gauge} label="Live account total" />
-          <div className="mt-6 text-3xl font-semibold text-white">{formatMoney(startingBalance + aggregate.netPnl)}</div>
-          <div className="mt-4 grid gap-2">
-            <CompactMetric label="Recorded P&L" value={formatMoney(aggregate.netPnl)} tone={toneForNumber(aggregate.netPnl)} />
-            <CompactMetric label="Sessions" value={String(sessions.length)} />
-          </div>
+          <CardLabel icon={Plus} label="Create account" />
+          <form className="mt-4 grid gap-3" onSubmit={submitAccount}>
+            <label className="form-field">
+              Account name
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setName(event.target.value)} value={name} />
+            </label>
+            <label className="form-field">
+              Broker
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setBroker(event.target.value)} value={broker} />
+            </label>
+            <div className="grid grid-cols-[minmax(0,1fr)_64px] gap-2">
+              <label className="form-field">
+                Currency
+                <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setCurrency(event.target.value.toUpperCase())} value={currency} />
+              </label>
+              <label className="form-field">
+                Color
+                <input className="input-control h-10 p-1" onChange={(event) => setColor(event.target.value)} type="color" value={color} />
+              </label>
+            </div>
+            <label className="form-field">
+              Starting balance
+              <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setInitialBalance(event.target.value)} type="number" value={initialBalance} />
+            </label>
+            <label className="form-field">
+              Notes
+              <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
+            </label>
+            <button className="control-button workspace-tab-active justify-center" type="submit">
+              <Plus size={15} />
+              Save account
+            </button>
+          </form>
         </FeatureCard>
       </div>
+      {selectedRow && (
+        <FeatureCard>
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.58fr)_minmax(0,0.42fr)]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardLabel icon={WalletCards} label="Account detail" />
+                  <h3 className="mt-3 text-xl font-semibold text-white">{selectedRow.account.name}</h3>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="control-button h-9"
+                    onClick={() =>
+                      journal.updateAccount(selectedRow.account.id, {
+                        status: selectedRow.account.status === "ARCHIVED" ? "ACTIVE" : "ARCHIVED",
+                      })
+                    }
+                    type="button"
+                  >
+                    {selectedRow.account.status === "ARCHIVED" ? "Restore" : "Archive"}
+                  </button>
+                  <button
+                    className="icon-button h-9 w-9 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                    onClick={() => {
+                      const linkedCount = selectedRow.sessions.length + selectedRow.trades.length + selectedRow.missedTrades.length;
+                      const message = linkedCount > 0
+                        ? `Delete "${selectedRow.account.name}" and unlink it from ${linkedCount} journal records?`
+                        : `Delete "${selectedRow.account.name}"?`;
+                      if (window.confirm(message)) {
+                        journal.deleteAccount(selectedRow.account.id);
+                      }
+                    }}
+                    title="Delete account"
+                    type="button"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2 md:grid-cols-4">
+                <CompactMetric label="Balance" value={formatMoney(selectedRow.balance, selectedRow.account.currency)} tone={toneForNumber(selectedRow.balance)} />
+                <CompactMetric label="Net P&L" value={formatMoney(selectedRow.aggregate.netPnl, selectedRow.account.currency)} tone={toneForNumber(selectedRow.aggregate.netPnl)} />
+                <CompactMetric label="Win rate" value={formatPercent(selectedRow.aggregate.winRate)} />
+                <CompactMetric label="Max DD" value={formatMoney(selectedRow.aggregate.maxDrawdown, selectedRow.account.currency)} tone="text-rose-300" />
+              </div>
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={LineChart} label="Account equity" />
+                  <div className="mt-3">
+                    <AreaSparkline currency={selectedRow.account.currency} height={190} values={cumulativeValues(selectedRow.trades)} />
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={BarChart3} label="Daily P&L" />
+                  <BarBreakdown
+                    chartHeight={190}
+                    currency={selectedRow.account.currency}
+                    maxItems={10}
+                    rows={selectedRow.days.map((day) => ({ label: day.date.slice(5), value: day.aggregate.netPnl }))}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+                <CardLabel icon={ClipboardList} label="Recent account trades" />
+                <div className="mt-3 grid gap-2">
+                  {selectedRow.trades.slice().sort(compareTradesAscending).reverse().slice(0, 6).map((trade) => (
+                    <div className="grid gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto]" key={trade.id}>
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-white">{trade.strategy_name || sessionById.get(trade.session_id)?.strategy_name || "Unassigned"}</div>
+                        <div className="text-xs text-slate-500">{formatDateTime(trade.exit_time ?? trade.entry_time)} · {trade.side}</div>
+                      </div>
+                      <div className={`font-semibold tabular-nums ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl, selectedRow.account.currency)}</div>
+                      <div className="text-slate-500 tabular-nums">{formatOptionalNumber(trade.r_multiple)}R</div>
+                    </div>
+                  ))}
+                  {selectedRow.trades.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No taken trades linked to this account yet.</div>}
+                </div>
+              </div>
+            </div>
+            <div className="grid content-start gap-4">
+              <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                <CardLabel icon={Pencil} label="Edit account" />
+                <div className="mt-3 grid gap-3">
+                  <label className="form-field">
+                    Name
+                    <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
+                  </label>
+                  <label className="form-field">
+                    Broker
+                    <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, broker: event.target.value }))} value={editDraft.broker} />
+                  </label>
+                  <div className="grid grid-cols-[minmax(0,1fr)_64px] gap-2">
+                    <label className="form-field">
+                      Currency
+                      <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setEditDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} value={editDraft.currency} />
+                    </label>
+                    <label className="form-field">
+                      Color
+                      <input className="input-control h-10 p-1" onChange={(event) => setEditDraft((current) => ({ ...current, color: event.target.value }))} type="color" value={editDraft.color} />
+                    </label>
+                  </div>
+                  <label className="form-field">
+                    Starting balance
+                    <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setEditDraft((current) => ({ ...current, initialBalance: event.target.value }))} type="number" value={editDraft.initialBalance} />
+                  </label>
+                  <label className="form-field">
+                    Notes
+                    <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
+                  </label>
+                  <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedAccount} type="button">
+                    <Save size={15} />
+                    Save account changes
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                <CardLabel icon={PlaySquare} label="Linked sessions" />
+                <div className="mt-3 grid gap-2">
+                  {selectedRow.sessions.map((session) => (
+                    <div className="rounded-md bg-white/5 px-3 py-2 text-sm" key={session.id}>
+                      <div className="font-semibold text-white">{session.name}</div>
+                      <div className="text-xs text-slate-500">{session.instrument} · {session.status}</div>
+                    </div>
+                  ))}
+                  {selectedRow.sessions.length === 0 && <div className="text-sm text-slate-500">No sessions linked yet.</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </FeatureCard>
+      )}
     </PageScaffold>
   );
 }
 
-function JournalSettingsPage(_: JournalPageProps) {
+function JournalSettingsPage({
+  accounts,
+  journal,
+  journalEntries,
+  sessions,
+  settings,
+}: JournalPageProps) {
+  const [defaultBroker, setDefaultBroker] = useState(settings.default_broker);
+  const [defaultCurrency, setDefaultCurrency] = useState(settings.default_currency);
+  const [defaultEntryType, setDefaultEntryType] = useState<JournalEntryType>(settings.default_entry_type);
+  const [defaultRiskPercent, setDefaultRiskPercent] = useState(String(settings.default_risk_percent));
+  const [defaultAccountIds, setDefaultAccountIds] = useState<number[]>(settings.default_account_ids);
+  const [requireAccount, setRequireAccount] = useState(settings.require_account_for_taken_trades);
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(settings.default_commission_mode);
+  const [commissionFixed, setCommissionFixed] = useState(settings.default_commission_mode === "FIXED" ? formatNumberInput(settings.default_commission_value) : "0");
+  const [commissionPercent, setCommissionPercent] = useState(settings.default_commission_mode === "PERCENT" ? formatNumberInput(settings.default_commission_value) : "0");
+  const [feeMode, setFeeMode] = useState<OrderCommissionMode>(settings.default_fee_mode);
+  const [feeFixed, setFeeFixed] = useState(settings.default_fee_mode === "FIXED" ? formatNumberInput(settings.default_fee_value) : "0");
+  const [feePercent, setFeePercent] = useState(settings.default_fee_mode === "PERCENT" ? formatNumberInput(settings.default_fee_value) : "0");
+  const [status, setStatus] = useState<string | null>(null);
+  const activeAccounts = accounts.filter((account) => account.status === "ACTIVE");
+
+  useEffect(() => {
+    setDefaultBroker(settings.default_broker);
+    setDefaultCurrency(settings.default_currency);
+    setDefaultEntryType(settings.default_entry_type);
+    setDefaultRiskPercent(String(settings.default_risk_percent));
+    setDefaultAccountIds(settings.default_account_ids);
+    setRequireAccount(settings.require_account_for_taken_trades);
+    setCommissionMode(settings.default_commission_mode);
+    setCommissionFixed(settings.default_commission_mode === "FIXED" ? formatNumberInput(settings.default_commission_value) : "0");
+    setCommissionPercent(settings.default_commission_mode === "PERCENT" ? formatNumberInput(settings.default_commission_value) : "0");
+    setFeeMode(settings.default_fee_mode);
+    setFeeFixed(settings.default_fee_mode === "FIXED" ? formatNumberInput(settings.default_fee_value) : "0");
+    setFeePercent(settings.default_fee_mode === "PERCENT" ? formatNumberInput(settings.default_fee_value) : "0");
+  }, [settings]);
+
+  function toggleDefaultAccount(accountId: number) {
+    setDefaultAccountIds((current) =>
+      current.includes(accountId) ? current.filter((id) => id !== accountId) : [...current, accountId],
+    );
+  }
+
+  function saveSettings() {
+    journal.updateSettings({
+      default_account_ids: defaultAccountIds,
+      default_broker: defaultBroker,
+      default_commission_mode: commissionMode,
+      default_commission_value: costValueForPayload(commissionMode, commissionFixed, commissionPercent),
+      default_currency: defaultCurrency,
+      default_entry_type: defaultEntryType,
+      default_fee_mode: feeMode,
+      default_fee_value: costValueForPayload(feeMode, feeFixed, feePercent),
+      default_risk_percent: numberFromTextOrZero(defaultRiskPercent),
+      require_account_for_taken_trades: requireAccount,
+    });
+    setStatus("Saved");
+    window.setTimeout(() => setStatus(null), 1800);
+  }
+
   return (
     <PageScaffold
       eyebrow="Journal Settings"
       title="Live Journal Settings"
-      description="Defaults for manually recorded actual trades."
+      description="Personal defaults for new Journal accounts, sessions, and entries."
     >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={WalletCards} label="Accounts" value={String(accounts.length)} />
+        <ResultMetricCard icon={PlaySquare} label="Sessions" value={String(sessions.length)} />
+        <ResultMetricCard icon={ClipboardList} label="Journal entries" value={String(journalEntries.length)} />
+        <ResultMetricCard icon={Clock3} label="Missed setups" value={String(journalEntries.filter(isMissedJournalTrade).length)} />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.58fr)_minmax(0,0.42fr)]">
+        <FeatureCard>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <CardLabel icon={Settings} label="Entry defaults" />
+            {status && <span className="status-pill">{status}</span>}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="form-field">
+              Default broker
+              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setDefaultBroker(event.target.value)} value={defaultBroker} />
+            </label>
+            <label className="form-field">
+              Default currency
+              <input className="input-control h-10 uppercase" maxLength={12} onChange={(event) => setDefaultCurrency(event.target.value.toUpperCase())} value={defaultCurrency} />
+            </label>
+            <label className="form-field">
+              Default live risk %
+              <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setDefaultRiskPercent(event.target.value)} type="number" value={defaultRiskPercent} />
+            </label>
+            <label className="form-field">
+              Default entry type
+              <ThemedSelect
+                className="h-10"
+                onChange={(value) => setDefaultEntryType(value as JournalEntryType)}
+                options={[
+                  { label: "Taken trade", value: "TAKEN" },
+                  { label: "Missed setup", value: "MISSED" },
+                ]}
+                value={defaultEntryType}
+              />
+            </label>
+          </div>
+          <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+            <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Default accounts</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {activeAccounts.map((account) => (
+                <button
+                  className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition ${
+                    defaultAccountIds.includes(account.id)
+                      ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
+                      : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
+                  }`}
+                  key={account.id}
+                  onClick={() => toggleDefaultAccount(account.id)}
+                  type="button"
+                >
+                  <span>{account.name}</span>
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: account.color }} />
+                </button>
+              ))}
+              {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500 md:col-span-2">Create a Journal account to set account defaults.</div>}
+            </div>
+            <label className="mt-3 flex items-center gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
+              <input checked={requireAccount} onChange={(event) => setRequireAccount(event.target.checked)} type="checkbox" />
+              Require at least one account for taken trades
+            </label>
+          </div>
+        </FeatureCard>
+        <FeatureCard>
+          <CardLabel icon={BadgeDollarSign} label="Trade cost defaults" />
+          <div className="mt-4 grid gap-3">
+            <CostConfigCard
+              fixedValue={commissionFixed}
+              mode={commissionMode}
+              onFixedValueChange={setCommissionFixed}
+              onModeChange={setCommissionMode}
+              onPercentValueChange={setCommissionPercent}
+              percentValue={commissionPercent}
+              title="Default commissions"
+            />
+            <CostConfigCard
+              fixedValue={feeFixed}
+              mode={feeMode}
+              onFixedValueChange={setFeeFixed}
+              onModeChange={setFeeMode}
+              onPercentValueChange={setFeePercent}
+              percentValue={feePercent}
+              title="Default fees"
+            />
+            <button className="control-button workspace-tab-active justify-center" onClick={saveSettings} type="button">
+              <Save size={15} />
+              Save journal defaults
+            </button>
+          </div>
+        </FeatureCard>
+      </div>
       <FeatureCard>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="form-field">
-            Default live risk %
-            <input className="input-control h-10 normal-case tracking-normal" defaultValue="1" type="number" />
-          </label>
-          <label className="form-field">
-            Default account
-            <input className="input-control h-10 normal-case tracking-normal" defaultValue="Manual" />
-          </label>
-          <label className="form-field">
-            Commission mode
-            <ThemedSelect
-              className="h-10"
-              defaultValue="Manual entry"
-              options={[
-                { label: "Manual entry", value: "Manual entry" },
-                { label: "Flat per trade", value: "Flat per trade" },
-                { label: "Percent of notional", value: "Percent of notional" },
-              ]}
-            />
-          </label>
-          <label className="form-field">
-            Journal import source
-            <ThemedSelect
-              className="h-10"
-              defaultValue="Manual"
-              options={[
-                { label: "Manual", value: "Manual" },
-                { label: "Broker CSV", value: "Broker CSV" },
-              ]}
-            />
-          </label>
+        <CardLabel icon={Database} label="Journal data summary" />
+        <div className="mt-4 grid gap-2 md:grid-cols-4">
+          <CompactMetric label="Taken trades" value={String(journalEntries.filter(isTakenJournalTrade).length)} />
+          <CompactMetric label="Missed setups" value={String(journalEntries.filter(isMissedJournalTrade).length)} />
+          <CompactMetric label="Linked accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
+          <CompactMetric label="Default currency" value={defaultCurrency} />
         </div>
       </FeatureCard>
     </PageScaffold>
@@ -3241,12 +4200,18 @@ function JournalSettingsPage(_: JournalPageProps) {
 }
 
 function LiveTradeForm({
+  accounts,
   journal,
+  playbooks,
   sessions,
+  settings,
   strategies,
 }: {
+  accounts: LiveJournalAccount[];
   journal: LiveJournalController;
+  playbooks: Playbook[];
   sessions: LiveJournalSession[];
+  settings: LiveJournalSettings;
   strategies: LiveStrategyGroup[];
 }) {
   const strategyListId = useId().replace(/:/g, "");
@@ -3255,9 +4220,23 @@ function LiveTradeForm({
     () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
     [savedStrategyNames, strategies],
   );
+  const activeAccounts = useMemo(
+    () => accounts.filter((account) => account.status === "ACTIVE"),
+    [accounts],
+  );
   const defaultSessionId = String(sessions[0]?.id ?? 1);
   const defaultSession = sessions[0];
+  const defaultAccountIds = useMemo(
+    () =>
+      settings.default_account_ids.filter((accountId) =>
+        activeAccounts.some((account) => account.id === accountId),
+      ),
+    [activeAccounts, settings.default_account_ids],
+  );
   const [sessionId, setSessionId] = useState(defaultSessionId);
+  const [entryType, setEntryType] = useState<JournalEntryType>(settings.default_entry_type);
+  const [accountIds, setAccountIds] = useState<number[]>(defaultAccountIds);
+  const [playbookId, setPlaybookId] = useState(defaultSession?.playbook_id == null ? "" : String(defaultSession.playbook_id));
   const [side, setSide] = useState<"LONG" | "SHORT">("LONG");
   const [strategy, setStrategy] = useState(defaultSession?.strategy_name ?? "Discretionary");
   const [entryTime, setEntryTime] = useState(defaultDateTimeLocal(-60));
@@ -3271,6 +4250,25 @@ function LiveTradeForm({
   const [screenshotUrl, setScreenshotUrl] = useState("");
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
+  const [missedReason, setMissedReason] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const selectedSession = sessions.find((session) => String(session.id) === sessionId);
+    if (!selectedSession) {
+      return;
+    }
+    setStrategy(selectedSession.strategy_name || "Unassigned");
+    setPlaybookId(selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id));
+    const sessionAccounts = selectedSession.account_ids?.filter((accountId) =>
+      activeAccounts.some((account) => account.id === accountId),
+    ) ?? [];
+    setAccountIds(sessionAccounts.length > 0 ? sessionAccounts : defaultAccountIds);
+  }, [activeAccounts, defaultAccountIds, sessionId, sessions]);
+
+  useEffect(() => {
+    setEntryType(settings.default_entry_type);
+  }, [settings.default_entry_type]);
 
   function handleScreenshotFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -3286,31 +4284,56 @@ function LiveTradeForm({
     reader.readAsDataURL(file);
   }
 
+  function toggleAccount(accountId: number) {
+    setAccountIds((current) =>
+      current.includes(accountId)
+        ? current.filter((id) => id !== accountId)
+        : [...current, accountId],
+    );
+  }
+
   function submitTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsedEntry = Number(entryPrice);
-    const parsedExit = Number(exitPrice);
-    const parsedQuantity = Number(quantity);
-    if (!Number.isFinite(parsedEntry) || !Number.isFinite(parsedExit) || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+    const parsedEntry = parseOptionalFloat(entryPrice);
+    const parsedExit = parseOptionalFloat(exitPrice);
+    const parsedQuantity = parseOptionalFloat(quantity);
+    const parsedStopLoss = parseOptionalFloat(stopLoss);
+    const parsedTakeProfit = parseOptionalFloat(takeProfit);
+    if (entryType === "TAKEN" && (parsedEntry == null || parsedExit == null || parsedQuantity == null || parsedQuantity <= 0)) {
+      setFormError("Taken trades need entry, exit, and size.");
       return;
     }
+    if (entryType === "TAKEN" && settings.require_account_for_taken_trades && accountIds.length === 0) {
+      setFormError("Select at least one account for a taken trade, or mark the entry as missed.");
+      return;
+    }
+    setFormError(null);
     journal.addTrade({
+      accountIds: entryType === "MISSED" ? accountIds : accountIds,
       emotionalState: emotion || null,
-      entryPrice: parsedEntry,
+      entryPrice: entryType === "TAKEN" ? parsedEntry : null,
+      entryType,
       entryTime,
-      exitPrice: parsedExit,
+      exitPrice: entryType === "TAKEN" ? parsedExit : null,
       exitTime,
       mistakeTags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      missedReason: entryType === "MISSED" ? missedReason.trim() || null : null,
       notes: notes.trim() || null,
+      playbookId: playbookId ? Number(playbookId) : null,
+      plannedEntryPrice: entryType === "MISSED" ? parsedEntry : null,
+      plannedExitPrice: entryType === "MISSED" ? parsedExit : null,
+      plannedStopLoss: entryType === "MISSED" ? parsedStopLoss : null,
+      plannedTakeProfit: entryType === "MISSED" ? parsedTakeProfit : null,
       quantity: parsedQuantity,
       screenshotUrl: screenshotUrl.trim() || null,
       sessionId: Number(sessionId) || sessions[0]?.id || 1,
       side,
-      stopLoss: stopLoss.trim() ? Number(stopLoss) : null,
+      stopLoss: entryType === "TAKEN" ? parsedStopLoss : null,
       strategyName: strategy.trim() || null,
-      takeProfit: takeProfit.trim() ? Number(takeProfit) : null,
+      takeProfit: entryType === "TAKEN" ? parsedTakeProfit : null,
     });
     setNotes("");
+    setMissedReason("");
     setScreenshotUrl("");
     setTags("");
   }
@@ -3319,6 +4342,22 @@ function LiveTradeForm({
     <FeatureCard>
       <CardLabel icon={Plus} label="Record actual trade" />
       <form className="mt-4 grid gap-3" onSubmit={submitTrade}>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            className={`control-button justify-center ${entryType === "TAKEN" ? "workspace-tab-active" : ""}`}
+            onClick={() => setEntryType("TAKEN")}
+            type="button"
+          >
+            Taken
+          </button>
+          <button
+            className={`control-button justify-center ${entryType === "MISSED" ? "workspace-tab-active" : ""}`}
+            onClick={() => setEntryType("MISSED")}
+            type="button"
+          >
+            Missed
+          </button>
+        </div>
         <label className="form-field">
           Live session
           <ThemedSelect
@@ -3362,6 +4401,58 @@ function LiveTradeForm({
             ))}
           </datalist>
         </label>
+        <label className="form-field">
+          Playbook
+          <ThemedSelect
+            className="h-10"
+            onChange={setPlaybookId}
+            options={[
+              { label: "No playbook", value: "" },
+              ...playbooks.map((playbook) => ({
+                label: playbook.name,
+                sublabel: playbook.description ?? undefined,
+                value: String(playbook.id),
+              })),
+            ]}
+            value={playbookId}
+          />
+        </label>
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+              Accounts
+            </div>
+            {entryType === "MISSED" && <span className="text-[11px] text-slate-600">Optional for missed entries</span>}
+          </div>
+          <div className="grid gap-2">
+            {activeAccounts.map((account) => {
+              const active = accountIds.includes(account.id);
+              return (
+                <button
+                  className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition ${
+                    active
+                      ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50"
+                      : "border-white/10 bg-black/20 text-slate-400 hover:border-white/20 hover:text-white"
+                  }`}
+                  key={account.id}
+                  onClick={() => toggleAccount(account.id)}
+                  type="button"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">{account.name}</span>
+                    <span className="text-xs text-slate-500">{account.broker || "Manual"} · {account.currency}</span>
+                  </span>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: account.color }} />
+                </button>
+              );
+            })}
+            {activeAccounts.length === 0 && (
+              <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
+                Create an account from Journal Accounts, or save a missed entry without one.
+              </div>
+            )}
+          </div>
+        </div>
         <div className="grid gap-2">
           <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Emotion</div>
           <div className="flex flex-wrap gap-1.5 rounded-md border border-white/10 bg-black/20 p-1">
@@ -3391,11 +4482,11 @@ function LiveTradeForm({
         </div>
         <div className="grid grid-cols-2 gap-2">
           <label className="form-field">
-            Entry
+            {entryType === "MISSED" ? "Planned entry" : "Entry"}
             <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
           </label>
           <label className="form-field">
-            Exit
+            {entryType === "MISSED" ? "Planned exit" : "Exit"}
             <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
           </label>
         </div>
@@ -3417,6 +4508,17 @@ function LiveTradeForm({
           Tags
           <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTags(event.target.value)} placeholder="FOMO, Late entry" value={tags} />
         </label>
+        {entryType === "MISSED" && (
+          <label className="form-field">
+            Missed reason
+            <textarea
+              className="input-control min-h-20 py-3 normal-case tracking-normal"
+              onChange={(event) => setMissedReason(event.target.value)}
+              placeholder="Why was the setup missed?"
+              value={missedReason}
+            />
+          </label>
+        )}
         <div className="grid gap-2">
           <label className="form-field">
             Screenshot URL
@@ -3441,8 +4543,13 @@ function LiveTradeForm({
           Notes
           <textarea className="input-control min-h-24 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
         </label>
+        {formError && (
+          <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">
+            {formError}
+          </div>
+        )}
         <button className="control-button workspace-tab-active justify-center" type="submit">
-          Save actual trade
+          {entryType === "MISSED" ? "Save missed setup" : "Save actual trade"}
         </button>
       </form>
     </FeatureCard>
@@ -3450,75 +4557,117 @@ function LiveTradeForm({
 }
 
 function LiveTradeTable({
+  accountById,
+  playbookById,
   sessionById,
   trades,
 }: {
+  accountById: Map<number, LiveJournalAccount>;
+  playbookById: Map<number, Playbook>;
   sessionById: Map<number, LiveJournalSession>;
-  trades: Trade[];
+  trades: JournalTrade[];
 }) {
+  const sortedTrades = trades.slice().sort(compareTradesAscending).reverse();
   return (
     <FeatureCard>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <CardLabel icon={ClipboardList} label="Live trade ledger" />
-        <span className="text-xs text-slate-500">{trades.length} actual exits</span>
+        <CardLabel icon={ClipboardList} label="Journal ledger" />
+        <span className="text-xs text-slate-500">
+          {trades.filter(isTakenJournalTrade).length} taken · {trades.filter(isMissedJournalTrade).length} missed
+        </span>
       </div>
       <div className="overflow-auto">
-        <table className="w-full min-w-[1120px] text-left text-sm">
+        <table className="w-full min-w-[1320px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
+              <th className="px-3 py-3 font-medium">Type</th>
               <th className="px-3 py-3 font-medium">Session</th>
-              <th className="px-3 py-3 font-medium">Entry</th>
-              <th className="px-3 py-3 font-medium">Exit</th>
+              <th className="px-3 py-3 font-medium">Accounts</th>
+              <th className="px-3 py-3 font-medium">Entry / Plan</th>
+              <th className="px-3 py-3 font-medium">Exit / Target</th>
               <th className="px-3 py-3 font-medium">Side</th>
               <th className="px-3 py-3 font-medium">Size</th>
               <th className="px-3 py-3 font-medium">P&L</th>
+              <th className="px-3 py-3 font-medium">Costs</th>
               <th className="px-3 py-3 font-medium">R</th>
               <th className="px-3 py-3 font-medium">Strategy</th>
+              <th className="px-3 py-3 font-medium">Playbook</th>
               <th className="px-3 py-3 font-medium">Emotion</th>
-              <th className="px-3 py-3 font-medium">Tags</th>
-              <th className="px-3 py-3 font-medium">Screenshot</th>
+              <th className="px-3 py-3 font-medium">Review</th>
             </tr>
           </thead>
           <tbody>
-            {trades.map((trade) => (
-              <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
-                <td className="px-3 py-4">
-                  <div className="font-semibold text-white">{sessionById.get(trade.session_id)?.name ?? "Live session"}</div>
-                  <div className="text-xs text-slate-500">{sessionById.get(trade.session_id)?.instrument ?? "Manual"}</div>
-                </td>
-                <td className="px-3 py-4">
-                  <div className="font-semibold text-white">{formatPrice(trade.entry_price)}</div>
-                  <div className="text-xs text-slate-500">{formatDateTime(trade.entry_time)}</div>
-                </td>
-                <td className="px-3 py-4">
-                  <div className="font-semibold text-white">{formatPrice(trade.exit_price)}</div>
-                  <div className="text-xs text-slate-500">{formatDateTime(trade.exit_time)}</div>
-                </td>
-                <td className="px-3 py-4">
-                  <span className={`rounded px-2 py-1 text-xs font-semibold ${trade.side === "LONG" ? "bg-emerald-300/10 text-emerald-200" : "bg-rose-300/10 text-rose-200"}`}>
-                    {trade.side}
-                  </span>
-                </td>
-                <td className="px-3 py-4">{formatCompactNumber(trade.quantity)}</td>
-                <td className={`px-3 py-4 font-semibold ${toneForNumber(trade.realized_pnl)}`}>{formatMoney(trade.realized_pnl)}</td>
-                <td className="px-3 py-4">{formatOptionalNumber(trade.r_multiple)}</td>
-                <td className="px-3 py-4">{trade.strategy_name || "-"}</td>
-                <td className="px-3 py-4">{trade.emotional_state || "-"}</td>
-                <td className="px-3 py-4">{trade.mistake_tags.join(", ") || "-"}</td>
-                <td className="px-3 py-4">
-                  {trade.screenshot_url ? (
-                    <a className="font-semibold text-cyan-200 hover:text-cyan-100" href={trade.screenshot_url} rel="noreferrer" target="_blank">
-                      View
-                    </a>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-              </tr>
-            ))}
+            {sortedTrades.map((trade) => {
+              const session = sessionById.get(trade.session_id);
+              const accountIds = liveTradeAccountIds(trade, session);
+              const accounts = accountIds
+                .map((accountId) => accountById.get(accountId))
+                .filter((account): account is LiveJournalAccount => Boolean(account));
+              const currency = currencyForJournalTrade(trade, accountById, sessionById);
+              const missed = isMissedJournalTrade(trade);
+              const reviewText = missed
+                ? trade.missed_reason || trade.notes || "-"
+                : trade.mistake_tags.join(", ") || trade.notes || "-";
+              return (
+                <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
+                  <td className="px-3 py-4">
+                    <span className={`rounded px-2 py-1 text-xs font-semibold ${missed ? "bg-amber-300/10 text-amber-200" : "bg-cyan-300/10 text-cyan-100"}`}>
+                      {missed ? "MISSED" : "TAKEN"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="font-semibold text-white">{session?.name ?? "Live session"}</div>
+                    <div className="text-xs text-slate-500">{session?.instrument ?? "Manual"}</div>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="flex max-w-44 flex-wrap gap-1">
+                      {accounts.map((account) => (
+                        <span className="inline-flex items-center gap-1 rounded bg-black/30 px-2 py-1 text-xs font-semibold text-slate-200" key={account.id}>
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color }} />
+                          {account.name}
+                        </span>
+                      ))}
+                      {accounts.length === 0 && <span className="text-xs text-slate-600">Unlinked</span>}
+                    </div>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="font-semibold text-white">{formatPrice(missed ? trade.planned_entry_price : trade.entry_price)}</div>
+                    <div className="text-xs text-slate-500">{formatDateTime(trade.entry_time)}</div>
+                  </td>
+                  <td className="px-3 py-4">
+                    <div className="font-semibold text-white">{formatPrice(missed ? trade.planned_exit_price : trade.exit_price)}</div>
+                    <div className="text-xs text-slate-500">{missed ? `Stop ${formatPrice(trade.planned_stop_loss)} · TP ${formatPrice(trade.planned_take_profit)}` : formatDateTime(trade.exit_time)}</div>
+                  </td>
+                  <td className="px-3 py-4">
+                    <span className={`rounded px-2 py-1 text-xs font-semibold ${trade.side === "LONG" ? "bg-emerald-300/10 text-emerald-200" : "bg-rose-300/10 text-rose-200"}`}>
+                      {trade.side}
+                    </span>
+                  </td>
+                  <td className="px-3 py-4">{missed && trade.quantity === 0 ? "-" : formatCompactNumber(trade.quantity)}</td>
+                  <td className={`px-3 py-4 font-semibold ${missed ? "text-slate-500" : toneForNumber(trade.realized_pnl)}`}>
+                    {missed ? "Missed" : formatMoney(trade.realized_pnl, currency)}
+                  </td>
+                  <td className="px-3 py-4 text-xs text-slate-500">
+                    {missed ? "-" : `${formatMoney(trade.commission_amount ?? 0, currency)} / ${formatMoney(trade.fee_amount ?? 0, currency)}`}
+                  </td>
+                  <td className="px-3 py-4">{missed ? "-" : formatOptionalNumber(trade.r_multiple)}</td>
+                  <td className="px-3 py-4">{trade.strategy_name || session?.strategy_name || "-"}</td>
+                  <td className="px-3 py-4">{trade.playbook_id ? playbookById.get(trade.playbook_id)?.name ?? "Missing" : "-"}</td>
+                  <td className="px-3 py-4">{trade.emotional_state || "-"}</td>
+                  <td className="px-3 py-4">
+                    <div className="max-w-52 truncate" title={reviewText}>{reviewText}</div>
+                    {trade.screenshot_url && (
+                      <a className="mt-1 inline-block text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={trade.screenshot_url} rel="noreferrer" target="_blank">
+                        Screenshot
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-        {trades.length === 0 && <EmptyState icon={ClipboardList} message="Record an actual trade to populate the live ledger." />}
+        {trades.length === 0 && <EmptyState icon={ClipboardList} message="Record a Journal entry to populate the ledger." />}
       </div>
     </FeatureCard>
   );
@@ -9093,17 +10242,111 @@ function useLiveJournalData(): LiveJournalController {
     }
   }, [data]);
 
+  function addAccount(payload: LiveJournalAccountInput) {
+    const account: LiveJournalAccount = {
+      broker: payload.broker.trim() || data.settings.default_broker || "Manual",
+      color: normalizeAccountColor(payload.color),
+      created_at: new Date().toISOString(),
+      currency: normalizeCurrencyCode(payload.currency || data.settings.default_currency),
+      id: nextNumericId(data.accounts),
+      initial_balance: Math.max(0, payload.initial_balance || 0),
+      name: payload.name.trim() || "Journal Account",
+      notes: payload.notes.trim(),
+      status: "ACTIVE",
+    };
+    setData((current) => ({
+      ...current,
+      accounts: [...current.accounts, account],
+    }));
+    return account;
+  }
+
+  function updateAccount(
+    accountId: number,
+    payload: Partial<LiveJournalAccountInput> & { status?: LiveJournalAccount["status"] },
+  ) {
+    const existing = data.accounts.find((account) => account.id === accountId);
+    if (!existing) {
+      return null;
+    }
+    const updated: LiveJournalAccount = {
+      ...existing,
+      broker: payload.broker == null ? existing.broker : payload.broker.trim() || "Manual",
+      color: payload.color == null ? existing.color : normalizeAccountColor(payload.color),
+      currency: payload.currency == null ? existing.currency : normalizeCurrencyCode(payload.currency),
+      initial_balance:
+        payload.initial_balance == null || !Number.isFinite(payload.initial_balance)
+          ? existing.initial_balance
+          : Math.max(0, payload.initial_balance),
+      name: payload.name == null ? existing.name : payload.name.trim() || existing.name,
+      notes: payload.notes == null ? existing.notes : payload.notes.trim(),
+      status: payload.status ?? existing.status,
+    };
+    setData((current) => {
+      const accounts = current.accounts.map((account) =>
+        account.id === accountId ? updated : account,
+      );
+      return {
+        ...current,
+        accounts,
+        sessions: current.sessions.map((session) =>
+          session.account_ids?.includes(accountId)
+            ? normalizeLiveJournalSession(session, accounts, current.settings)
+            : session,
+        ),
+        settings: {
+          ...current.settings,
+          default_account_ids: filterLiveAccountIds(current.settings.default_account_ids, accounts),
+        },
+      };
+    });
+    return updated;
+  }
+
+  function deleteAccount(accountId: number) {
+    setData((current) => {
+      const accounts = current.accounts.filter((account) => account.id !== accountId);
+      const settings = {
+        ...current.settings,
+        default_account_ids: filterLiveAccountIds(current.settings.default_account_ids, accounts),
+      };
+      return {
+        ...current,
+        accounts,
+        sessions: current.sessions.map((session) =>
+          normalizeLiveJournalSession(
+            {
+              ...session,
+              account_ids: (session.account_ids ?? []).filter((id) => id !== accountId),
+            },
+            accounts,
+            settings,
+          ),
+        ),
+        settings,
+        trades: current.trades.map((trade) => ({
+          ...trade,
+          account_ids: (trade.account_ids ?? []).filter((id) => id !== accountId),
+        })),
+      };
+    });
+  }
+
   function addSession(payload: Omit<LiveJournalSession, "created_at" | "id" | "status">) {
     setData((current) => ({
       ...current,
       sessions: [
         ...current.sessions,
-        {
-          ...payload,
-          created_at: new Date().toISOString(),
-          id: nextNumericId(current.sessions),
-          status: "ACTIVE",
-        },
+        normalizeLiveJournalSession(
+          {
+            ...payload,
+            created_at: new Date().toISOString(),
+            id: nextNumericId(current.sessions),
+            status: "ACTIVE",
+          },
+          current.accounts,
+          current.settings,
+        ),
       ],
     }));
   }
@@ -9176,10 +10419,40 @@ function useLiveJournalData(): LiveJournalController {
     setData((current) => ({
       ...current,
       sessions: current.sessions.map((session) =>
-        session.id === sessionId ? { ...session, ...updated } : session,
+        session.id === sessionId ? normalizeLiveJournalSession(updated, current.accounts, current.settings) : session,
       ),
     }));
     return updated;
+  }
+
+  function deleteSession(sessionId: number) {
+    setData((current) => {
+      const sessions = current.sessions.filter((session) => session.id !== sessionId);
+      return {
+        ...current,
+        sessions: sessions.length > 0 ? sessions : [defaultLiveSession(current.accounts, current.settings)],
+        trades: current.trades.filter((trade) => trade.session_id !== sessionId),
+      };
+    });
+  }
+
+  function updateSettings(payload: Partial<LiveJournalSettings>) {
+    setData((current) => {
+      const settings = sanitizeLiveJournalSettings(
+        {
+          ...current.settings,
+          ...payload,
+        },
+        current.accounts,
+      );
+      return {
+        ...current,
+        settings,
+        sessions: current.sessions.map((session) =>
+          normalizeLiveJournalSession(session, current.accounts, settings),
+        ),
+      };
+    });
   }
 
   function updateTradeStrategy(tradeId: number, strategyName: string | null) {
@@ -9194,36 +10467,60 @@ function useLiveJournalData(): LiveJournalController {
 
   function addTrade(payload: LiveTradeInput) {
     setData((current) => {
-      const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession();
+      const session = current.sessions.find((item) => item.id === payload.sessionId) ?? current.sessions[0] ?? defaultLiveSession(current.accounts, current.settings);
       const sessions = current.sessions.length > 0 ? current.sessions : [session];
-      const realizedPnl =
-        payload.side === "LONG"
-          ? (payload.exitPrice - payload.entryPrice) * payload.quantity
-          : (payload.entryPrice - payload.exitPrice) * payload.quantity;
+      const isMissed = payload.entryType === "MISSED";
+      const entryPrice = payload.entryPrice ?? payload.plannedEntryPrice ?? 0;
+      const exitPrice = isMissed ? payload.plannedExitPrice : payload.exitPrice;
+      const quantity = isMissed ? payload.quantity ?? 0 : payload.quantity ?? 0;
+      const grossPnl =
+        !isMissed && exitPrice != null
+          ? payload.side === "LONG"
+            ? (exitPrice - entryPrice) * quantity
+            : (entryPrice - exitPrice) * quantity
+          : 0;
+      const notional = Math.abs(entryPrice * quantity);
+      const commissionAmount = isMissed
+        ? 0
+        : journalCostAmount(current.settings.default_commission_mode, current.settings.default_commission_value, notional);
+      const feeAmount = isMissed
+        ? 0
+        : journalCostAmount(current.settings.default_fee_mode, current.settings.default_fee_value, notional);
+      const realizedPnl = grossPnl - commissionAmount - feeAmount;
       const riskAmount =
-        payload.stopLoss == null
+        payload.stopLoss == null || isMissed
           ? null
-          : Math.abs(payload.entryPrice - payload.stopLoss) * payload.quantity;
-      const trade: Trade = {
-        commission_amount: 0,
-        commission_mode: "NONE",
-        commission_value: 0,
+          : Math.abs(entryPrice - payload.stopLoss) * quantity;
+      const directAccountIds = filterLiveAccountIds(payload.accountIds, current.accounts);
+      const sessionAccountIds = filterLiveAccountIds(session.account_ids ?? [], current.accounts);
+      const accountIds = directAccountIds.length > 0 ? directAccountIds : isMissed ? [] : sessionAccountIds;
+      const trade: JournalTrade = {
+        account_ids: accountIds,
+        commission_amount: commissionAmount,
+        commission_mode: isMissed ? "NONE" : current.settings.default_commission_mode,
+        commission_value: isMissed ? 0 : current.settings.default_commission_value,
         emotional_state: payload.emotionalState,
         entry_offset: 0,
-        entry_price: payload.entryPrice,
+        entry_price: entryPrice,
         entry_time: toIsoFromDateTimeLocal(payload.entryTime),
         exit_offset: null,
-        exit_price: payload.exitPrice,
-        exit_time: toIsoFromDateTimeLocal(payload.exitTime),
-        fee_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
+        exit_price: exitPrice,
+        exit_time: isMissed ? toIsoFromDateTimeLocal(payload.entryTime) : toIsoFromDateTimeLocal(payload.exitTime),
+        fee_amount: feeAmount,
+        fee_mode: isMissed ? "NONE" : current.settings.default_fee_mode,
+        fee_value: isMissed ? 0 : current.settings.default_fee_value,
         id: nextNumericId(current.trades),
-        gross_pnl: realizedPnl,
+        gross_pnl: grossPnl,
+        journal_entry_type: payload.entryType,
         mistake_tags: payload.mistakeTags,
+        missed_reason: isMissed ? payload.missedReason : null,
         notes: payload.notes,
-        playbook_id: session.playbook_id ?? null,
-        quantity: payload.quantity,
+        planned_entry_price: payload.plannedEntryPrice,
+        planned_exit_price: payload.plannedExitPrice,
+        planned_stop_loss: payload.plannedStopLoss,
+        planned_take_profit: payload.plannedTakeProfit,
+        playbook_id: payload.playbookId ?? session.playbook_id ?? null,
+        quantity,
         r_multiple: riskAmount != null && riskAmount > 0 ? realizedPnl / riskAmount : null,
         realized_pnl: realizedPnl,
         remaining_quantity: 0,
@@ -9231,9 +10528,9 @@ function useLiveJournalData(): LiveJournalController {
         session_id: session.id,
         side: payload.side,
         status: "CLOSED",
-        stop_loss: payload.stopLoss,
+        stop_loss: isMissed ? null : payload.stopLoss,
         strategy_name: payload.strategyName ?? session.strategy_name,
-        take_profit: payload.takeProfit,
+        take_profit: isMissed ? null : payload.takeProfit,
       };
       return {
         ...current,
@@ -9244,12 +10541,17 @@ function useLiveJournalData(): LiveJournalController {
   }
 
   return {
+    addAccount,
     addPlaybook,
     addSession,
     addTrade,
-    updatePlaybook,
+    deleteAccount,
+    deleteSession,
     deletePlaybook,
+    updateAccount,
+    updatePlaybook,
     updateSession,
+    updateSettings,
     updateTradeStrategy,
     data,
   };
@@ -9261,7 +10563,7 @@ function loadLiveJournalData(): LiveJournalData {
       getCachedAppStorageItem<unknown>(LIVE_JOURNAL_STORAGE_KEY, null),
     );
   } catch {
-    return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
+    return defaultLiveJournalData();
   }
 }
 
@@ -9271,45 +10573,108 @@ async function hydrateLiveJournalData(): Promise<LiveJournalData> {
 
 function sanitizeLiveJournalData(value: unknown): LiveJournalData {
   if (typeof value !== "object" || value == null) {
-    return { playbooks: [], sessions: [defaultLiveSession()], trades: [] };
+    return defaultLiveJournalData();
   }
   const candidate = value as Partial<LiveJournalData>;
-  const sessions = Array.isArray(candidate.sessions)
+  const rawSessions = Array.isArray(candidate.sessions)
     ? candidate.sessions
         .filter(isLiveJournalSession)
         .map((session) => ({ ...session, playbook_id: session.playbook_id ?? null }))
     : [];
+  const accountsFromStorage = Array.isArray(candidate.accounts)
+    ? candidate.accounts.filter(isLiveJournalAccount).map(sanitizeLiveJournalAccount)
+    : [];
+  const accounts = accountsFromStorage.length > 0
+    ? accountsFromStorage
+    : buildLegacyJournalAccounts(rawSessions);
+  const settings = sanitizeLiveJournalSettings(candidate.settings, accounts);
+  const sessions = (rawSessions.length > 0 ? rawSessions : [defaultLiveSession(accounts, settings)]).map((session) =>
+    normalizeLiveJournalSession(session, accounts, settings),
+  );
+  const sessionById = new Map(sessions.map((session) => [session.id, session]));
   const trades = Array.isArray(candidate.trades)
     ? candidate.trades
         .filter(isTradeLike)
-        .map((trade) => ({
-          ...trade,
-          commission_amount: trade.commission_amount ?? 0,
-          commission_mode: normalizeCommissionMode(trade.commission_mode),
-          commission_value: trade.commission_value ?? 0,
-          fee_amount: trade.fee_amount ?? 0,
-          fee_mode: normalizeCommissionMode(trade.fee_mode),
-          fee_value: trade.fee_value ?? 0,
-          gross_pnl: trade.gross_pnl ?? trade.realized_pnl,
-        }))
+        .map((trade) => sanitizeJournalTrade(trade as JournalTrade, sessionById, accounts))
     : [];
   const playbooks = Array.isArray(candidate.playbooks)
     ? candidate.playbooks.filter(isPlaybookLike)
     : [];
   return {
+    accounts,
     playbooks,
-    sessions: sessions.length > 0 ? sessions : [defaultLiveSession()],
+    settings,
+    sessions,
     trades,
   };
 }
 
-function defaultLiveSession(): LiveJournalSession {
+function defaultLiveJournalData(): LiveJournalData {
+  const settings = defaultLiveJournalSettings();
+  const account = defaultLiveAccount(settings);
   return {
-    account: "Manual",
+    accounts: [account],
+    playbooks: [],
+    sessions: [defaultLiveSession([account], settings)],
+    settings: {
+      ...settings,
+      default_account_ids: [account.id],
+    },
+    trades: [],
+  };
+}
+
+function defaultLiveJournalSettings(): LiveJournalSettings {
+  return {
+    default_account_ids: [1],
+    default_broker: "Manual",
+    default_commission_mode: normalizeCommissionMode(loadOrderCommissionMode()),
+    default_commission_value: costValueForPayload(
+      normalizeCommissionMode(loadOrderCommissionMode()),
+      loadOrderCommissionFixed(),
+      loadOrderCommissionPercent(),
+    ),
+    default_currency: normalizeCurrencyCode("USD"),
+    default_entry_type: "TAKEN",
+    default_fee_mode: normalizeCommissionMode(loadOrderFeeMode()),
+    default_fee_value: costValueForPayload(
+      normalizeCommissionMode(loadOrderFeeMode()),
+      loadOrderFeeFixed(),
+      loadOrderFeePercent(),
+    ),
+    default_risk_percent: numberFromTextOrZero(loadOrderDefaultRiskPercent()),
+    require_account_for_taken_trades: true,
+  };
+}
+
+function defaultLiveAccount(settings = defaultLiveJournalSettings()): LiveJournalAccount {
+  return {
+    broker: settings.default_broker || "Manual",
+    color: "#22d3ee",
     created_at: new Date().toISOString(),
-    currency: "USD",
+    currency: normalizeCurrencyCode(settings.default_currency),
     id: 1,
     initial_balance: 100000,
+    name: "Primary Journal Account",
+    notes: "",
+    status: "ACTIVE",
+  };
+}
+
+function defaultLiveSession(
+  accounts: LiveJournalAccount[] = [defaultLiveAccount()],
+  settings = defaultLiveJournalSettings(),
+): LiveJournalSession {
+  const activeAccountIds = filterLiveAccountIds(settings.default_account_ids, accounts);
+  const accountIds = activeAccountIds.length > 0 ? activeAccountIds : accounts[0] ? [accounts[0].id] : [];
+  const accountRows = accounts.filter((account) => accountIds.includes(account.id));
+  return {
+    account: accountRows.length > 0 ? accountRows.map((account) => account.name).join(", ") : "Manual",
+    account_ids: accountIds,
+    created_at: new Date().toISOString(),
+    currency: accountRows.length > 0 ? currencyForJournalAccounts(accountRows, settings.default_currency) : normalizeCurrencyCode(settings.default_currency),
+    id: 1,
+    initial_balance: accountRows.length > 0 ? accountRows.reduce((sum, account) => sum + account.initial_balance, 0) : 100000,
     instrument: "Manual",
     name: "Primary Live Journal",
     notes: "",
@@ -9331,6 +10696,277 @@ function isLiveJournalSession(value: unknown): value is LiveJournalSession {
     typeof candidate.instrument === "string" &&
     typeof candidate.initial_balance === "number"
   );
+}
+
+function isLiveJournalAccount(value: unknown): value is LiveJournalAccount {
+  if (typeof value !== "object" || value == null) {
+    return false;
+  }
+  const candidate = value as Partial<LiveJournalAccount>;
+  return (
+    typeof candidate.id === "number" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.currency === "string" &&
+    typeof candidate.initial_balance === "number"
+  );
+}
+
+function sanitizeLiveJournalAccount(account: LiveJournalAccount): LiveJournalAccount {
+  return {
+    broker: account.broker?.trim() || "Manual",
+    color: normalizeAccountColor(account.color),
+    created_at: typeof account.created_at === "string" ? account.created_at : new Date().toISOString(),
+    currency: normalizeCurrencyCode(account.currency),
+    id: account.id,
+    initial_balance: Number.isFinite(account.initial_balance) ? Math.max(0, account.initial_balance) : 0,
+    name: account.name.trim() || "Journal Account",
+    notes: account.notes?.trim() ?? "",
+    status: account.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE",
+  };
+}
+
+function sanitizeLiveJournalSettings(
+  value: unknown,
+  accounts: LiveJournalAccount[] = [],
+): LiveJournalSettings {
+  const defaults = defaultLiveJournalSettings();
+  const candidate = typeof value === "object" && value != null
+    ? value as Partial<LiveJournalSettings>
+    : {};
+  const defaultAccountIds = Array.isArray(candidate.default_account_ids)
+    ? candidate.default_account_ids
+    : defaults.default_account_ids;
+  return {
+    default_account_ids: filterLiveAccountIds(defaultAccountIds, accounts),
+    default_broker: candidate.default_broker?.trim() || defaults.default_broker,
+    default_commission_mode: normalizeCommissionMode(candidate.default_commission_mode ?? defaults.default_commission_mode),
+    default_commission_value: safeNonNegativeNumber(candidate.default_commission_value, defaults.default_commission_value),
+    default_currency: normalizeCurrencyCode(candidate.default_currency ?? defaults.default_currency),
+    default_entry_type: candidate.default_entry_type === "MISSED" ? "MISSED" : "TAKEN",
+    default_fee_mode: normalizeCommissionMode(candidate.default_fee_mode ?? defaults.default_fee_mode),
+    default_fee_value: safeNonNegativeNumber(candidate.default_fee_value, defaults.default_fee_value),
+    default_risk_percent: safeNonNegativeNumber(candidate.default_risk_percent, defaults.default_risk_percent),
+    require_account_for_taken_trades: Boolean(candidate.require_account_for_taken_trades),
+  };
+}
+
+function buildLegacyJournalAccounts(sessions: LiveJournalSession[]) {
+  if (sessions.length === 0) {
+    return [defaultLiveAccount()];
+  }
+  const palette = ["#22d3ee", "#34d399", "#f59e0b", "#a78bfa", "#fb7185", "#60a5fa"];
+  const accounts: LiveJournalAccount[] = [];
+  for (const session of sessions) {
+    const name = session.account?.trim() || "Manual";
+    const currency = normalizeCurrencyCode(session.currency);
+    const key = `${name.toLowerCase()}|${currency}`;
+    if (accounts.some((account) => `${account.name.toLowerCase()}|${account.currency}` === key)) {
+      continue;
+    }
+    accounts.push({
+      broker: name,
+      color: palette[accounts.length % palette.length],
+      created_at: session.created_at || new Date().toISOString(),
+      currency,
+      id: accounts.length + 1,
+      initial_balance: Number.isFinite(session.initial_balance) ? session.initial_balance : 0,
+      name,
+      notes: "",
+      status: "ACTIVE",
+    });
+  }
+  return accounts.length > 0 ? accounts : [defaultLiveAccount()];
+}
+
+function normalizeLiveJournalSession(
+  session: LiveJournalSession,
+  accounts: LiveJournalAccount[],
+  settings: LiveJournalSettings,
+): LiveJournalSession {
+  const explicitAccountIds = Array.isArray(session.account_ids);
+  const inferredAccount = accounts.find((account) =>
+    sameStrategyName(account.name, session.account || "") &&
+    normalizeCurrencyCode(account.currency) === normalizeCurrencyCode(session.currency),
+  );
+  const fallbackIds = inferredAccount
+    ? [inferredAccount.id]
+    : filterLiveAccountIds(settings.default_account_ids, accounts);
+  const accountIds = filterLiveAccountIds(
+    explicitAccountIds ? session.account_ids ?? [] : fallbackIds,
+    accounts,
+  );
+  const linkedAccounts = accounts.filter((account) => accountIds.includes(account.id));
+  return {
+    ...session,
+    account: linkedAccounts.length > 0
+      ? linkedAccounts.map((account) => account.name).join(", ")
+      : session.account?.trim() || "Manual",
+    account_ids: accountIds,
+    currency: linkedAccounts.length > 0
+      ? currencyForJournalAccounts(linkedAccounts, session.currency || settings.default_currency)
+      : normalizeCurrencyCode(session.currency || settings.default_currency),
+    initial_balance: linkedAccounts.length > 0
+      ? linkedAccounts.reduce((sum, account) => sum + account.initial_balance, 0)
+      : safeNonNegativeNumber(session.initial_balance, 0),
+    instrument: session.instrument?.trim() || "Manual",
+    name: session.name?.trim() || "Live Trading Session",
+    notes: session.notes ?? "",
+    playbook_id: session.playbook_id ?? null,
+    status: session.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE",
+    strategy_name: session.strategy_name?.trim() || "Unassigned",
+  };
+}
+
+function sanitizeJournalTrade(
+  trade: JournalTrade,
+  sessionById: Map<number, LiveJournalSession>,
+  accounts: LiveJournalAccount[],
+): JournalTrade {
+  const entryType: JournalEntryType = trade.journal_entry_type === "MISSED" ? "MISSED" : "TAKEN";
+  const session = sessionById.get(trade.session_id);
+  const fallbackAccountIds = entryType === "TAKEN" ? session?.account_ids ?? [] : [];
+  const accountIds = filterLiveAccountIds(
+    Array.isArray(trade.account_ids) ? trade.account_ids : fallbackAccountIds,
+    accounts,
+  );
+  const realizedPnl = safeFiniteNumber(trade.realized_pnl, 0);
+  return {
+    ...trade,
+    account_ids: accountIds,
+    commission_amount: entryType === "MISSED" ? 0 : safeNonNegativeNumber(trade.commission_amount, 0),
+    commission_mode: entryType === "MISSED" ? "NONE" : normalizeCommissionMode(trade.commission_mode),
+    commission_value: entryType === "MISSED" ? 0 : safeNonNegativeNumber(trade.commission_value, 0),
+    emotional_state: trade.emotional_state ?? null,
+    entry_price: safeFiniteNumber(trade.entry_price, 0),
+    exit_price: trade.exit_price == null ? null : safeFiniteNumber(trade.exit_price, 0),
+    fee_amount: entryType === "MISSED" ? 0 : safeNonNegativeNumber(trade.fee_amount, 0),
+    fee_mode: entryType === "MISSED" ? "NONE" : normalizeCommissionMode(trade.fee_mode),
+    fee_value: entryType === "MISSED" ? 0 : safeNonNegativeNumber(trade.fee_value, 0),
+    gross_pnl: entryType === "MISSED" ? 0 : safeFiniteNumber(trade.gross_pnl, realizedPnl),
+    journal_entry_type: entryType,
+    mistake_tags: Array.isArray(trade.mistake_tags) ? trade.mistake_tags.filter((tag) => typeof tag === "string") : [],
+    missed_reason: entryType === "MISSED" ? trade.missed_reason ?? trade.notes ?? null : null,
+    notes: trade.notes ?? null,
+    planned_entry_price: trade.planned_entry_price ?? (entryType === "MISSED" ? trade.entry_price : null),
+    planned_exit_price: trade.planned_exit_price ?? (entryType === "MISSED" ? trade.exit_price : null),
+    planned_stop_loss: trade.planned_stop_loss ?? null,
+    planned_take_profit: trade.planned_take_profit ?? null,
+    playbook_id: trade.playbook_id ?? session?.playbook_id ?? null,
+    quantity: safeNonNegativeNumber(trade.quantity, 0),
+    realized_pnl: entryType === "MISSED" ? 0 : realizedPnl,
+    remaining_quantity: safeNonNegativeNumber(trade.remaining_quantity, 0),
+    r_multiple: entryType === "MISSED" ? null : trade.r_multiple ?? null,
+    screenshot_url: trade.screenshot_url ?? null,
+    status: "CLOSED",
+    stop_loss: entryType === "MISSED" ? null : trade.stop_loss ?? null,
+    strategy_name: trade.strategy_name ?? session?.strategy_name ?? null,
+    take_profit: entryType === "MISSED" ? null : trade.take_profit ?? null,
+  };
+}
+
+function filterLiveAccountIds(ids: unknown, accounts: LiveJournalAccount[]) {
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+  const validIds = new Set(accounts.map((account) => account.id));
+  const filtered: number[] = [];
+  for (const id of ids) {
+    if (typeof id !== "number" || !validIds.has(id) || filtered.includes(id)) {
+      continue;
+    }
+    filtered.push(id);
+  }
+  return filtered;
+}
+
+function liveTradeAccountIds(trade: JournalTrade, session?: LiveJournalSession) {
+  const ids = trade.account_ids && trade.account_ids.length > 0
+    ? trade.account_ids
+    : isTakenJournalTrade(trade)
+      ? session?.account_ids ?? []
+      : [];
+  return Array.from(new Set(ids));
+}
+
+function isTakenJournalTrade(trade: JournalTrade): trade is TakenJournalTrade {
+  return trade.journal_entry_type !== "MISSED";
+}
+
+function isMissedJournalTrade(trade: JournalTrade): trade is MissedJournalTrade {
+  return trade.journal_entry_type === "MISSED";
+}
+
+function parseOptionalFloat(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function journalCostAmount(mode: OrderCommissionMode, value: number, notional: number) {
+  if (mode === "FIXED") {
+    return Math.max(0, value);
+  }
+  if (mode === "PERCENT") {
+    return Math.max(0, notional * value / 100);
+  }
+  return 0;
+}
+
+function currencyForJournalAccounts(accounts: LiveJournalAccount[], fallbackCurrency = "USD") {
+  const currencies = uniqueStrings(
+    accounts.map((account) => normalizeCurrencyCode(account.currency || fallbackCurrency)),
+  );
+  if (currencies.length === 0) {
+    return normalizeCurrencyCode(fallbackCurrency);
+  }
+  return currencies.length === 1 ? currencies[0] : MIXED_CURRENCY;
+}
+
+function currencyForJournalTrade(
+  trade: JournalTrade,
+  accountById: Map<number, LiveJournalAccount>,
+  sessionById: Map<number, LiveJournalSession>,
+  fallbackCurrency = "USD",
+) {
+  const session = sessionById.get(trade.session_id);
+  const accounts = liveTradeAccountIds(trade, session)
+    .map((accountId) => accountById.get(accountId))
+    .filter((account): account is LiveJournalAccount => Boolean(account));
+  if (accounts.length > 0) {
+    return currencyForJournalAccounts(accounts, fallbackCurrency);
+  }
+  return normalizeCurrencyCode(session?.currency || fallbackCurrency);
+}
+
+function currencyForJournalTrades(
+  trades: JournalTrade[],
+  accountById: Map<number, LiveJournalAccount>,
+  sessionById: Map<number, LiveJournalSession>,
+  fallbackCurrency = "USD",
+) {
+  const currencies = uniqueStrings(
+    trades.map((trade) => currencyForJournalTrade(trade, accountById, sessionById, fallbackCurrency)),
+  );
+  if (currencies.length === 0) {
+    return normalizeCurrencyCode(fallbackCurrency);
+  }
+  return currencies.length === 1 ? currencies[0] : MIXED_CURRENCY;
+}
+
+function normalizeAccountColor(value: string | null | undefined) {
+  const color = value?.trim();
+  return color && /^#[0-9a-f]{6}$/i.test(color) ? color : "#22d3ee";
+}
+
+function safeFiniteNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function safeNonNegativeNumber(value: unknown, fallback: number) {
+  return Math.max(0, safeFiniteNumber(value, fallback));
 }
 
 function isPlaybookLike(value: unknown): value is Playbook {
@@ -9359,9 +10995,9 @@ function isTradeLike(value: unknown): value is Trade {
 
 function groupLiveStrategies(
   sessions: LiveJournalSession[],
-  trades: Trade[],
+  trades: JournalTrade[],
 ): LiveStrategyGroup[] {
-  const grouped = new Map<string, { sessions: Map<number, LiveJournalSession>; trades: Trade[] }>();
+  const grouped = new Map<string, { sessions: Map<number, LiveJournalSession>; trades: JournalTrade[] }>();
   for (const session of sessions) {
     const name = session.strategy_name || "Unassigned";
     grouped.set(name, grouped.get(name) ?? { sessions: new Map(), trades: [] });
@@ -9374,7 +11010,9 @@ function groupLiveStrategies(
     if (session) {
       grouped.get(name)?.sessions.set(session.id, session);
     }
-    grouped.get(name)?.trades.push(trade);
+    if (isTakenJournalTrade(trade)) {
+      grouped.get(name)?.trades.push(trade);
+    }
   }
   return Array.from(grouped.entries())
     .map(([name, group]) => ({
