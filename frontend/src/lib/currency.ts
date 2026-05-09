@@ -13,7 +13,7 @@ export function currencyForSession(
   datasets: DatasetCatalog | null | undefined,
 ) {
   return normalizeCurrencyCode(
-    session?.currency ?? datasetCurrencyForSession(session, datasets) ?? DEFAULT_CURRENCY,
+    datasetCurrencyForSession(session, datasets) ?? session?.currency ?? DEFAULT_CURRENCY,
   );
 }
 
