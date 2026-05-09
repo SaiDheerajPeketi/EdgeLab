@@ -29,10 +29,17 @@ type SidebarGroup = {
 type SidebarEntry = SidebarItem | SidebarGroup;
 
 const sections: Array<{
-  label: "Backtesting" | "Journal";
+  label: "App" | "Backtesting" | "Journal";
   shortLabel: string;
   items: SidebarEntry[];
 }> = [
+  {
+    label: "App",
+    shortLabel: "APP",
+    items: [
+      { id: "globalSettings", label: "Global Settings", icon: Settings },
+    ],
+  },
   {
     label: "Backtesting",
     shortLabel: "BT",

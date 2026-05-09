@@ -1,12 +1,29 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import DateTime, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import SessionLocal, get_db
-from app.models import AppStorageItem, utcnow
+from app.models import (
+    AppStorageItem,
+    BacktestSession,
+    DatasetAsset,
+    DatasetSettings,
+    DatasetTimeframe,
+    Execution,
+    Order,
+    Playbook,
+    Position,
+    Trade,
+    TradeNote,
+    utcnow,
+)
 from app.schemas import (
+    AppDataBundle,
+    AppDataImportResult,
     AppStoragePayload,
     AppStorageRead,
     BacktestAdvanceRequest,
@@ -47,6 +64,52 @@ router = APIRouter()
 market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
+
+
+APP_DATA_TABLES = [
+    ("dataset_settings", DatasetSettings),
+    ("dataset_assets", DatasetAsset),
+    ("dataset_timeframes", DatasetTimeframe),
+    ("app_storage", AppStorageItem),
+    ("playbooks", Playbook),
+    ("backtest_sessions", BacktestSession),
+    ("positions", Position),
+    ("orders", Order),
+    ("trades", Trade),
+    ("executions", Execution),
+    ("trade_notes", TradeNote),
+]
+
+
+def serialize_bundle_row(row: object) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for column in row.__table__.columns:
+        value = getattr(row, column.name)
+        payload[column.name] = value.isoformat() if isinstance(value, datetime) else value
+    return payload
+
+
+def parse_bundle_datetime(value: object) -> datetime | object:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+    return value
+
+
+def bundle_row_to_model(model: type, payload: dict[str, object]) -> object:
+    values: dict[str, object] = {}
+    for column in model.__table__.columns:
+        if column.name not in payload:
+            continue
+        value = payload[column.name]
+        if value is not None and isinstance(column.type, DateTime):
+            value = parse_bundle_datetime(value)
+        values[column.name] = value
+    return model(**values)
 
 
 def dataset_error_response(exc: Exception) -> HTTPException:
@@ -134,6 +197,46 @@ def update_dataset_asset(
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
+
+
+@router.get("/app-data/export", response_model=AppDataBundle)
+def export_app_data(db: Session = Depends(get_db)) -> AppDataBundle:
+    tables = {
+        table_name: [
+            serialize_bundle_row(row)
+            for row in db.scalars(select(model)).all()
+        ]
+        for table_name, model in APP_DATA_TABLES
+    }
+    return AppDataBundle(exported_at=utcnow(), tables=tables)
+
+
+@router.post("/app-data/import", response_model=AppDataImportResult)
+def import_app_data(
+    bundle: AppDataBundle,
+    db: Session = Depends(get_db),
+) -> AppDataImportResult:
+    if bundle.app != "edgelab":
+        raise HTTPException(status_code=400, detail="Import file is not an EdgeLab data bundle")
+    if bundle.version > 1:
+        raise HTTPException(status_code=400, detail="Import bundle version is newer than this app supports")
+
+    try:
+        for _table_name, model in reversed(APP_DATA_TABLES):
+            db.query(model).delete(synchronize_session=False)
+        db.flush()
+
+        summary: dict[str, int] = {}
+        for table_name, model in APP_DATA_TABLES:
+            rows = bundle.tables.get(table_name, [])
+            summary[table_name] = len(rows)
+            for row in rows:
+                db.add(bundle_row_to_model(model, row))
+        db.commit()
+        return AppDataImportResult(imported_at=utcnow(), summary=summary)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
 
 
 @router.get("/app-storage/{namespace}/{key}", response_model=AppStorageRead)

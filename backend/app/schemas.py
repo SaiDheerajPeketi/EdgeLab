@@ -114,6 +114,19 @@ class AppStorageRead(BaseModel):
     updated_at: datetime | None = None
 
 
+class AppDataBundle(BaseModel):
+    app: Literal["edgelab"] = "edgelab"
+    version: int = 1
+    exported_at: datetime | None = None
+    tables: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
+class AppDataImportResult(BaseModel):
+    ok: bool = True
+    imported_at: datetime
+    summary: dict[str, int] = Field(default_factory=dict)
+
+
 class PlaybookCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None

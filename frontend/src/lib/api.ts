@@ -376,6 +376,19 @@ export type AppStorageItem<T = unknown> = {
   updated_at: string | null;
 };
 
+export type AppDataBundle = {
+  app: "edgelab";
+  version: number;
+  exported_at: string | null;
+  tables: Record<string, Array<Record<string, unknown>>>;
+};
+
+export type AppDataImportResult = {
+  ok: boolean;
+  imported_at: string;
+  summary: Record<string, number>;
+};
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 
@@ -455,6 +468,17 @@ export function deleteAppStorageItem(namespace: string, key: string) {
       method: "DELETE",
     },
   );
+}
+
+export function exportAppDataBundle() {
+  return request<AppDataBundle>("/app-data/export");
+}
+
+export function importAppDataBundle(bundle: AppDataBundle) {
+  return request<AppDataImportResult>("/app-data/import", {
+    method: "POST",
+    body: JSON.stringify(bundle),
+  });
 }
 
 export function getMeta(sessionId?: number) {

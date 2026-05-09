@@ -73,8 +73,9 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { importBacktestTrades } from "../lib/api";
+import { exportAppDataBundle, importAppDataBundle, importBacktestTrades } from "../lib/api";
 import type {
+  AppDataBundle,
   BacktestSession,
   BacktestTradeImportResult,
   DatasetCatalog,
@@ -700,6 +701,8 @@ export function EdgeLabWorkspace({
       return <AccountsPage {...shared} />;
     case "dashboard":
       return <DashboardPage {...shared} />;
+    case "globalSettings":
+      return <GlobalSettingsPage datasets={datasets} playbooks={playbooks} sessions={sessions} trades={trades} />;
     case "dayView":
       return <DayViewPage {...shared} />;
     case "journal":
@@ -775,6 +778,225 @@ type SharedPageProps = {
   tradeViewFilters: TradeViewFilterState;
   tradeViewLogScrollTop: number | null;
 };
+
+function GlobalSettingsPage({
+  datasets,
+  playbooks,
+  sessions,
+  trades,
+}: {
+  datasets: DatasetCatalog | null;
+  playbooks: Playbook[];
+  sessions: BacktestSession[];
+  trades: Trade[];
+}) {
+  const { confirm, confirmDialog } = useThemedConfirm();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [bundle, setBundle] = useState<AppDataBundle | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const datasetTimeframes = datasets?.instruments.reduce((sum, instrument) => sum + instrument.timeframes.length, 0) ?? 0;
+  const bundleRows = useMemo(() => bundle ? appDataBundleRows(bundle) : [], [bundle]);
+  const bundleTotalRows = useMemo(() => bundleRows.reduce((sum, row) => sum + row.count, 0), [bundleRows]);
+
+  async function exportBundle() {
+    setIsExporting(true);
+    setExportStatus(null);
+    setError(null);
+    try {
+      const exportedBundle = await exportAppDataBundle();
+      const filename = `edgelab-data-${bundleDateSlug(exportedBundle.exported_at)}.json`;
+      downloadTextFile(filename, JSON.stringify(exportedBundle, null, 2), "application/json");
+      setExportStatus(`Exported ${appDataBundleRecordCount(exportedBundle).toLocaleString()} records`);
+    } catch (exportError) {
+      setError(importErrorMessage(exportError));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function readBundleFile(file: File | null | undefined) {
+    if (!file) {
+      return;
+    }
+    setError(null);
+    setImportStatus(null);
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const nextBundle = parseAppDataBundle(parsed);
+      setBundle(nextBundle);
+      setFileName(file.name);
+      setImportStatus(`Ready to import ${appDataBundleRecordCount(nextBundle).toLocaleString()} records`);
+    } catch (readError) {
+      setBundle(null);
+      setFileName("");
+      setError(readError instanceof Error ? readError.message : "Could not read import bundle");
+    }
+  }
+
+  function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    void readBundleFile(event.target.files?.[0]);
+    event.target.value = "";
+  }
+
+  function handleDrop(event: ReactDragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    void readBundleFile(event.dataTransfer.files?.[0]);
+  }
+
+  async function importBundle() {
+    if (!bundle) {
+      return;
+    }
+    const confirmed = await confirm({
+      confirmLabel: "Import bundle",
+      detail: "This replaces current sessions, trades, orders, playbooks, Journal data, notes, chart layouts, app settings, and dataset catalog metadata with the selected bundle.",
+      message: (
+        <>
+          Replace current app data with <span className="font-semibold text-white">{fileName || "this bundle"}</span>?
+        </>
+      ),
+      title: "Import app data bundle",
+      tone: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+    setIsImporting(true);
+    setError(null);
+    setImportStatus(null);
+    try {
+      const result = await importAppDataBundle(bundle);
+      const totalRows = Object.values(result.summary).reduce((sum, count) => sum + count, 0);
+      setImportStatus(`Imported ${totalRows.toLocaleString()} records. Reloading workspace...`);
+      purgeLegacyAppLocalStorage();
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (importError) {
+      setError(importErrorMessage(importError));
+      setIsImporting(false);
+    }
+  }
+
+  return (
+    <PageScaffold
+      eyebrow="Global Settings"
+      title="App Data"
+      description="Export or restore the full EdgeLab data bundle for this workspace."
+    >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={PlaySquare} label="Backtest sessions" value={String(sessions.length)} />
+        <ResultMetricCard icon={ClipboardList} label="Backtest trades" value={String(trades.length)} />
+        <ResultMetricCard icon={BookOpen} label="Playbooks" value={String(playbooks.length)} />
+        <ResultMetricCard icon={Database} label="Dataset assets" value={String(datasets?.instruments.length ?? 0)} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <FeatureCard>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardLabel icon={FileDown} label="Export data" />
+              <h2 className="mt-3 text-xl font-semibold text-white">Create a complete app bundle</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                Downloads a JSON bundle with backtest records, Journal data, notes, playbooks, chart layouts, presets, order defaults, and dataset catalog settings.
+              </p>
+            </div>
+            <span className="status-pill h-8 px-2 text-[11px]">JSON bundle</span>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            <MiniMetric label="Sessions" value={String(sessions.length)} />
+            <MiniMetric label="Trades" value={String(trades.length)} />
+            <MiniMetric label="Timeframes" value={String(datasetTimeframes)} />
+          </div>
+          <div className="mt-4 rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm leading-6 text-slate-400">
+            Market CSV files are referenced by path and are not embedded in the JSON export.
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            {exportStatus ? (
+              <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-200">
+                <CheckCircle2 size={15} />
+                {exportStatus}
+              </span>
+            ) : (
+              <span className="text-sm text-slate-500">Use this before moving machines or testing destructive changes.</span>
+            )}
+            <button className="control-button workspace-tab-active h-10" disabled={isExporting} onClick={() => void exportBundle()} type="button">
+              <FileDown size={15} />
+              {isExporting ? "Exporting..." : "Export data"}
+            </button>
+          </div>
+        </FeatureCard>
+
+        <FeatureCard>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardLabel icon={FileUp} label="Import data" />
+              <h2 className="mt-3 text-xl font-semibold text-white">Restore from a bundle</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                Select an EdgeLab export file, review its contents, then replace the current workspace data in one controlled import.
+              </p>
+            </div>
+            <span className="status-pill h-8 px-2 text-[11px]">Replace mode</span>
+          </div>
+          <input
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleImportFileChange}
+            ref={fileInputRef}
+            type="file"
+          />
+          <button
+            className="mt-4 w-full rounded-md border border-dashed border-cyan-300/25 bg-cyan-300/[0.04] px-4 py-8 text-left transition hover:border-cyan-300/45 hover:bg-cyan-300/[0.07]"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={handleDrop}
+            type="button"
+          >
+            <span className="flex flex-wrap items-center justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-white">{fileName || "Drop an EdgeLab JSON bundle here"}</span>
+                <span className="mt-1 block text-sm leading-6 text-slate-500">
+                  {bundle ? `${bundleTotalRows.toLocaleString()} records detected` : "Click this area to choose a file"}
+                </span>
+              </span>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-cyan-300/25 bg-cyan-300/10 text-cyan-100">
+                <FileUp size={17} />
+              </span>
+            </span>
+          </button>
+
+          {bundle && (
+            <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <CardLabel icon={Database} label="Bundle preview" />
+                <span className="text-xs text-slate-500">{formatDateTime(bundle.exported_at)}</span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {bundleRows.map((row) => (
+                  <MiniMetric key={row.key} label={row.label} value={row.count.toLocaleString()} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <span className={`text-sm ${error ? "text-rose-200" : importStatus ? "text-cyan-100" : "text-slate-500"}`}>
+              {error ?? importStatus ?? "Import replaces existing app data after confirmation."}
+            </span>
+            <button className="control-button workspace-tab-active h-10" disabled={!bundle || isImporting} onClick={() => void importBundle()} type="button">
+              <FileUp size={15} />
+              {isImporting ? "Importing..." : "Import data"}
+            </button>
+          </div>
+        </FeatureCard>
+      </div>
+      {confirmDialog}
+    </PageScaffold>
+  );
+}
 
 function DashboardPage({
   closedTrades,
@@ -12869,6 +13091,101 @@ function downloadTextFile(filename: string, contents: string, type: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+const APP_DATA_TABLE_LABELS: Record<string, string> = {
+  app_storage: "App storage",
+  backtest_sessions: "Backtest sessions",
+  dataset_assets: "Dataset assets",
+  dataset_settings: "Dataset settings",
+  dataset_timeframes: "Dataset timeframes",
+  executions: "Executions",
+  orders: "Orders",
+  playbooks: "Playbooks",
+  positions: "Positions",
+  trade_notes: "Trade notes",
+  trades: "Trades",
+};
+
+const APP_DATA_TABLE_ORDER = [
+  "backtest_sessions",
+  "trades",
+  "orders",
+  "executions",
+  "positions",
+  "trade_notes",
+  "playbooks",
+  "app_storage",
+  "dataset_settings",
+  "dataset_assets",
+  "dataset_timeframes",
+];
+
+function appDataBundleRows(bundle: AppDataBundle) {
+  const knownRows = APP_DATA_TABLE_ORDER
+    .filter((key) => key in bundle.tables)
+    .map((key) => ({
+      count: bundle.tables[key]?.length ?? 0,
+      key,
+      label: APP_DATA_TABLE_LABELS[key] ?? key,
+    }));
+  const extraRows = Object.keys(bundle.tables)
+    .filter((key) => !APP_DATA_TABLE_ORDER.includes(key))
+    .sort()
+    .map((key) => ({
+      count: bundle.tables[key]?.length ?? 0,
+      key,
+      label: APP_DATA_TABLE_LABELS[key] ?? key,
+    }));
+  return [...knownRows, ...extraRows];
+}
+
+function appDataBundleRecordCount(bundle: AppDataBundle) {
+  return appDataBundleRows(bundle).reduce((sum, row) => sum + row.count, 0);
+}
+
+function bundleDateSlug(value: string | null | undefined) {
+  const date = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  return safeDate.toISOString().slice(0, 19).replace(/[:T]/g, "-");
+}
+
+function parseAppDataBundle(value: unknown): AppDataBundle {
+  if (!isPlainRecord(value) || value.app !== "edgelab" || typeof value.version !== "number") {
+    throw new Error("Choose a valid EdgeLab data bundle.");
+  }
+  if (!isPlainRecord(value.tables)) {
+    throw new Error("This EdgeLab bundle is missing table data.");
+  }
+  const tables: AppDataBundle["tables"] = {};
+  for (const [key, rows] of Object.entries(value.tables)) {
+    if (!Array.isArray(rows) || !rows.every(isPlainRecord)) {
+      throw new Error(`Bundle table "${key}" is not valid.`);
+    }
+    tables[key] = rows as Array<Record<string, unknown>>;
+  }
+  return {
+    app: "edgelab",
+    exported_at: typeof value.exported_at === "string" ? value.exported_at : null,
+    tables,
+    version: value.version,
+  };
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function purgeLegacyAppLocalStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith("edgelab.")) {
+      window.localStorage.removeItem(key);
+    }
+  }
 }
 
 function dataUrlToBlob(url: string) {
