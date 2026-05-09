@@ -2591,7 +2591,6 @@ function JournalSessionsPage({
   const [name, setName] = useState("Live Trading Session");
   const [strategy, setStrategy] = useState("Unassigned");
   const [instrument, setInstrument] = useState("OANDA:EURUSD");
-  const [balance, setBalance] = useState("100000");
   const [currency, setCurrency] = useState(settings.default_currency);
   const [createCommissionMode, setCreateCommissionMode] = useState<OrderCommissionMode>(settings.default_commission_mode);
   const [createCommissionFixed, setCreateCommissionFixed] = useState(costFixedValueForMode(settings.default_commission_mode, settings.default_commission_value));
@@ -2599,14 +2598,12 @@ function JournalSessionsPage({
   const [createBrokerageMode, setCreateBrokerageMode] = useState<OrderCommissionMode>(settings.default_fee_mode);
   const [createBrokerageFixed, setCreateBrokerageFixed] = useState(costFixedValueForMode(settings.default_fee_mode, settings.default_fee_value));
   const [createBrokeragePercent, setCreateBrokeragePercent] = useState(costPercentValueForMode(settings.default_fee_mode, settings.default_fee_value));
-  const [accountIds, setAccountIds] = useState<number[]>(settings.default_account_ids);
   const [playbookId, setPlaybookId] = useState("");
   const [notes, setNotes] = useState("");
   const createStrategyOptions = useMemo(
     () => journalStrategySelectOptions(strategyNameOptions, strategy),
     [strategy, strategyNameOptions],
   );
-  const activeAccounts = accounts.filter((account) => account.status === "ACTIVE");
   const playbookById = useMemo(
     () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
     [playbooks],
@@ -2614,7 +2611,6 @@ function JournalSessionsPage({
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(sessions[0]?.id ?? null);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0] ?? null;
   const [editDraft, setEditDraft] = useState({
-    accountIds: selectedSession?.account_ids ?? [],
     brokerageFixed: costFixedValueForMode(selectedSession?.brokerage_mode ?? settings.default_fee_mode, selectedSession?.brokerage_value ?? settings.default_fee_value),
     brokerageMode: selectedSession?.brokerage_mode ?? settings.default_fee_mode,
     brokeragePercent: costPercentValueForMode(selectedSession?.brokerage_mode ?? settings.default_fee_mode, selectedSession?.brokerage_value ?? settings.default_fee_value),
@@ -2657,14 +2653,7 @@ function JournalSessionsPage({
   const selectedSessionRow = selectedSession
     ? sessionRows.find((row) => row.session.id === selectedSession.id) ?? null
     : null;
-  const selectedSessionAccounts = selectedSession
-    ? accounts.filter((account) => selectedSession.account_ids?.includes(account.id))
-    : [];
-  const selectedSessionCurrency = selectedSession
-    ? selectedSessionAccounts.length > 0
-      ? currencyForJournalAccounts(selectedSessionAccounts, selectedSession.currency)
-      : selectedSession.currency
-    : settings.default_currency;
+  const selectedSessionCurrency = selectedSession?.currency ?? settings.default_currency;
   const editingSessionTrade = editingSessionTradeId == null
     ? null
     : journalEntries.find((trade) => trade.id === editingSessionTradeId && trade.session_id === selectedSession?.id) ?? null;
@@ -2689,7 +2678,6 @@ function JournalSessionsPage({
       return;
     }
     setEditDraft({
-      accountIds: selectedSession.account_ids ?? [],
       brokerageFixed: costFixedValueForMode(selectedSession.brokerage_mode, selectedSession.brokerage_value),
       brokerageMode: selectedSession.brokerage_mode,
       brokeragePercent: costPercentValueForMode(selectedSession.brokerage_mode, selectedSession.brokerage_value),
@@ -2708,7 +2696,6 @@ function JournalSessionsPage({
 
   useEffect(() => {
     setCurrency(settings.default_currency);
-    setAccountIds(settings.default_account_ids);
     setCreateCommissionMode(settings.default_commission_mode);
     setCreateCommissionFixed(costFixedValueForMode(settings.default_commission_mode, settings.default_commission_value));
     setCreateCommissionPercent(costPercentValueForMode(settings.default_commission_mode, settings.default_commission_value));
@@ -2716,28 +2703,12 @@ function JournalSessionsPage({
     setCreateBrokerageFixed(costFixedValueForMode(settings.default_fee_mode, settings.default_fee_value));
     setCreateBrokeragePercent(costPercentValueForMode(settings.default_fee_mode, settings.default_fee_value));
   }, [
-    settings.default_account_ids,
     settings.default_commission_mode,
     settings.default_commission_value,
     settings.default_currency,
     settings.default_fee_mode,
     settings.default_fee_value,
   ]);
-
-  function toggleAccount(accountId: number) {
-    setAccountIds((current) =>
-      current.includes(accountId) ? current.filter((id) => id !== accountId) : [...current, accountId],
-    );
-  }
-
-  function toggleEditAccount(accountId: number) {
-    setEditDraft((current) => ({
-      ...current,
-      accountIds: current.accountIds.includes(accountId)
-        ? current.accountIds.filter((id) => id !== accountId)
-        : [...current.accountIds, accountId],
-    }));
-  }
 
   function selectSession(sessionId: number, mode: "addTrade" | "edit" = "addTrade") {
     setSelectedSessionId(sessionId);
@@ -2751,16 +2722,15 @@ function JournalSessionsPage({
 
   function submitSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const selectedAccounts = accounts.filter((account) => accountIds.includes(account.id));
     journal.addSession({
-      account: selectedAccounts.map((account) => account.name).join(", ") || settings.default_broker || "Manual",
-      account_ids: accountIds,
+      account: "Manual",
+      account_ids: [],
       brokerage_mode: createBrokerageMode,
       brokerage_value: costValueForPayload(createBrokerageMode, createBrokerageFixed, createBrokeragePercent),
       commission_mode: createCommissionMode,
       commission_value: costValueForPayload(createCommissionMode, createCommissionFixed, createCommissionPercent),
-      currency: selectedAccounts.length > 0 ? currencyForJournalAccounts(selectedAccounts, currency) : normalizeCurrencyCode(currency),
-      initial_balance: selectedAccounts.length > 0 ? selectedAccounts.reduce((sum, account) => sum + account.initial_balance, 0) : Number(balance) || 0,
+      currency: normalizeCurrencyCode(currency),
+      initial_balance: 0,
       instrument: instrument.trim() || "Manual",
       name: name.trim() || "Live Trading Session",
       notes: notes.trim(),
@@ -2775,16 +2745,15 @@ function JournalSessionsPage({
     if (!selectedSession) {
       return;
     }
-    const selectedAccounts = accounts.filter((account) => editDraft.accountIds.includes(account.id));
     journal.updateSession(selectedSession.id, {
-      account: selectedAccounts.map((account) => account.name).join(", ") || selectedSession.account,
-      account_ids: editDraft.accountIds,
+      account: "Manual",
+      account_ids: [],
       brokerage_mode: editDraft.brokerageMode,
       brokerage_value: costValueForPayload(editDraft.brokerageMode, editDraft.brokerageFixed, editDraft.brokeragePercent),
       commission_mode: editDraft.commissionMode,
       commission_value: costValueForPayload(editDraft.commissionMode, editDraft.commissionFixed, editDraft.commissionPercent),
-      currency: selectedAccounts.length > 0 ? currencyForJournalAccounts(selectedAccounts, editDraft.currency) : normalizeCurrencyCode(editDraft.currency),
-      initial_balance: selectedAccounts.length > 0 ? selectedAccounts.reduce((sum, account) => sum + account.initial_balance, 0) : selectedSession.initial_balance,
+      currency: normalizeCurrencyCode(editDraft.currency),
+      initial_balance: selectedSession.initial_balance,
       instrument: editDraft.instrument,
       name: editDraft.name,
       notes: editDraft.notes,
@@ -2798,13 +2767,13 @@ function JournalSessionsPage({
     <PageScaffold
       eyebrow="Journal Sessions"
       title="Live Session Management"
-      description="Group Journal entries into live trading sessions with strategy, playbook, and account context."
+      description="Group Journal entries into live trading sessions with strategy, playbook, instrument, and cost defaults."
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ResultMetricCard icon={PlaySquare} label="Sessions" value={String(sessions.length)} />
         <ResultMetricCard icon={ClipboardList} label="Taken trades" value={String(totalTakenTrades)} />
         <ResultMetricCard icon={Clock3} label="Missed setups" value={String(totalMissedSetups)} />
-        <ResultMetricCard icon={WalletCards} label="Linked accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
+        <ResultMetricCard icon={WalletCards} label="Trade accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
       </div>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <FeatureCard>
@@ -2819,7 +2788,6 @@ function JournalSessionsPage({
                   <th className="px-3 py-3 font-medium">Session</th>
                   <th className="px-3 py-3 font-medium">Instrument</th>
                   <th className="px-3 py-3 font-medium">Strategy</th>
-                  <th className="px-3 py-3 font-medium">Accounts</th>
                   <th className="px-3 py-3 font-medium">Playbook</th>
                   <th className="px-3 py-3 font-medium">Trades</th>
                   <th className="px-3 py-3 font-medium">Missed</th>
@@ -2830,8 +2798,7 @@ function JournalSessionsPage({
               </thead>
               <tbody>
                 {sessionRows.map(({ aggregate: rowAggregate, missedTrades, session, takenTrades }) => {
-                  const rowAccounts = accounts.filter((account) => session.account_ids?.includes(account.id));
-                  const rowCurrency = rowAccounts.length > 0 ? currencyForJournalAccounts(rowAccounts, session.currency) : session.currency;
+                  const rowCurrency = session.currency;
                   return (
                     <tr
                       className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selectedSession?.id === session.id ? "bg-cyan-300/10" : ""}`}
@@ -2844,14 +2811,6 @@ function JournalSessionsPage({
                       </td>
                       <td className="px-3 py-4">{session.instrument}</td>
                       <td className="px-3 py-4">{session.strategy_name}</td>
-                      <td className="px-3 py-4">
-                        <div className="flex max-w-48 flex-wrap gap-1">
-                          {rowAccounts.map((account) => (
-                            <JournalAccountBadge account={account} compact key={account.id} />
-                          ))}
-                          {rowAccounts.length === 0 && <span className="text-xs text-slate-600">Unlinked</span>}
-                        </div>
-                      </td>
                       <td className="px-3 py-4">{session.playbook_id ? playbookById.get(session.playbook_id)?.name ?? "Missing rules" : "Unlinked"}</td>
                       <td className="px-3 py-4">{takenTrades.length}</td>
                       <td className="px-3 py-4">{missedTrades.length}</td>
@@ -2923,20 +2882,6 @@ function JournalSessionsPage({
               Instrument
               <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setInstrument(event.target.value)} value={instrument} />
             </label>
-            <div className="grid gap-2">
-              <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Accounts</div>
-              <div className="grid gap-2">
-                {activeAccounts.map((account) => (
-                  <JournalAccountToggle
-                    account={account}
-                    active={accountIds.includes(account.id)}
-                    key={account.id}
-                    onClick={() => toggleAccount(account.id)}
-                  />
-                ))}
-                {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">Create an account first or keep this session unlinked.</div>}
-              </div>
-            </div>
             <label className="form-field">
               Playbook rules
               <ThemedSelect
@@ -2951,10 +2896,6 @@ function JournalSessionsPage({
                 ]}
                 value={playbookId}
               />
-            </label>
-            <label className="form-field">
-              Starting balance
-              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setBalance(event.target.value)} type="number" value={balance} />
             </label>
             <label className="form-field">
               Currency
@@ -3041,12 +2982,6 @@ function JournalSessionsPage({
                     <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, selectedSessionCurrency)} />
                     <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, selectedSessionCurrency)} />
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {selectedSessionAccounts.map((account) => (
-                      <JournalAccountBadge account={account} key={account.id} />
-                    ))}
-                    {selectedSessionAccounts.length === 0 && <span className="text-xs text-slate-600">No linked accounts</span>}
-                  </div>
                 </div>
                 {selectedSessionRow && (
                   <div className="rounded-md border border-white/10 bg-black/20 p-3">
@@ -3072,127 +3007,113 @@ function JournalSessionsPage({
             )}
             {showSessionSettings && (
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="form-field">
-                  Session name
-                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
-                </label>
-                <label className="form-field">
-                  Strategy
-                  <ThemedSelect
-                    className="h-10"
-                    onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
-                    options={editStrategyOptions}
-                    portal
-                    value={editDraft.strategy}
-                  />
-                </label>
-                <label className="form-field">
-                  Instrument
-                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
-                </label>
-                <label className="form-field">
-                  Playbook
-                  <ThemedSelect
-                    className="h-10"
-                    onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
-                    options={[
-                      { label: "No playbook", value: "" },
-                      ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
-                    ]}
-                    value={editDraft.playbookId}
-                  />
-                </label>
-                <label className="form-field">
-                  Currency
-                  <ThemedSelect
-                    className="h-10"
-                    onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
-                    options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
-                    portal
-                    value={editDraft.currency}
-                  />
-                </label>
-                <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
-                    <span className="text-xs text-slate-500">Applied to new trades in this session</span>
-                  </div>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <CostConfigCard
-                      fixedValue={editDraft.commissionFixed}
-                      mode={editDraft.commissionMode}
-                      onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
-                      onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
-                      onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
-                      percentValue={editDraft.commissionPercent}
-                      title="Commission"
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="form-field">
+                    Session name
+                    <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
+                  </label>
+                  <label className="form-field">
+                    Strategy
+                    <ThemedSelect
+                      className="h-10"
+                      onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
+                      options={editStrategyOptions}
+                      portal
+                      value={editDraft.strategy}
                     />
-                    <CostConfigCard
-                      fixedValue={editDraft.brokerageFixed}
-                      mode={editDraft.brokerageMode}
-                      onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
-                      onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
-                      onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
-                      percentValue={editDraft.brokeragePercent}
-                      title="Brokerage"
+                  </label>
+                  <label className="form-field">
+                    Instrument
+                    <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
+                  </label>
+                  <label className="form-field">
+                    Playbook
+                    <ThemedSelect
+                      className="h-10"
+                      onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
+                      options={[
+                        { label: "No playbook", value: "" },
+                        ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
+                      ]}
+                      value={editDraft.playbookId}
                     />
-                  </div>
-                </div>
-                <label className="form-field md:col-span-2">
-                  Notes
-                  <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
-                </label>
-              </div>
-              <div className="grid content-start gap-3">
-                <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Linked accounts</div>
-                  <div className="grid gap-2">
-                    {activeAccounts.map((account) => (
-                      <JournalAccountToggle
-                        account={account}
-                        active={editDraft.accountIds.includes(account.id)}
-                        key={account.id}
-                        onClick={() => toggleEditAccount(account.id)}
+                  </label>
+                  <label className="form-field">
+                    Currency
+                    <ThemedSelect
+                      className="h-10"
+                      onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
+                      options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
+                      portal
+                      value={editDraft.currency}
+                    />
+                  </label>
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
+                      <span className="text-xs text-slate-500">Applied to new trades in this session</span>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <CostConfigCard
+                        fixedValue={editDraft.commissionFixed}
+                        mode={editDraft.commissionMode}
+                        onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
+                        onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
+                        onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
+                        percentValue={editDraft.commissionPercent}
+                        title="Commission"
                       />
-                    ))}
-                    {activeAccounts.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No active accounts available.</div>}
-                  </div>
-                </div>
-                {selectedSessionRow && (
-                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                    <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
-                    <div className="grid gap-2">
-                      {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
-                        <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
-                          <span className="min-w-0">
-                            <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
-                            <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-2">
-                            <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
-                              {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
-                            </span>
-                            <button
-                              className="icon-button h-8 w-8"
-                              onClick={() => setEditingSessionTradeId(trade.id)}
-                              title="Edit entry"
-                              type="button"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                          </span>
-                        </div>
-                      ))}
-                      {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
+                      <CostConfigCard
+                        fixedValue={editDraft.brokerageFixed}
+                        mode={editDraft.brokerageMode}
+                        onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
+                        onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
+                        onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
+                        percentValue={editDraft.brokeragePercent}
+                        title="Brokerage"
+                      />
                     </div>
                   </div>
-                )}
-                <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
-                  <Save size={15} />
-                  Save session changes
-                </button>
-              </div>
+                  <label className="form-field md:col-span-2">
+                    Notes
+                    <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
+                  </label>
+                </div>
+                <div className="grid content-start gap-3">
+                  {selectedSessionRow && (
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
+                      <div className="grid gap-2">
+                        {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
+                          <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
+                              <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                                {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
+                              </span>
+                              <button
+                                className="icon-button h-8 w-8"
+                                onClick={() => setEditingSessionTradeId(trade.id)}
+                                title="Edit entry"
+                                type="button"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            </span>
+                          </div>
+                        ))}
+                        {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
+                      </div>
+                    </div>
+                  )}
+                  <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
+                    <Save size={15} />
+                    Save session changes
+                  </button>
+                </div>
               </div>
             )}
           </FeatureCard>
@@ -3238,8 +3159,11 @@ function JournalDashboardPage({
   const currency = currencyForJournalAccounts(activeAccounts, sessions[0]?.currency ?? "USD");
   const startingBalance = activeAccounts.length > 0
     ? activeAccounts.reduce((sum, account) => sum + account.initial_balance, 0)
-    : sessions[0]?.initial_balance ?? 0;
-  const liveBalance = startingBalance + aggregate.netPnl;
+    : 0;
+  const accountLinkedTrades = closedTrades.filter((trade) =>
+    liveTradeAccountIds(trade as JournalTrade).length > 0,
+  );
+  const liveBalance = startingBalance + aggregateTrades(accountLinkedTrades).netPnl;
   const missedEntries = journalEntries.filter(isMissedJournalTrade);
   const latestDayCurrency = latestDay
     ? currencyForJournalTrades(latestDay.trades as JournalTrade[], accountById, sessionById, currency)
@@ -3427,7 +3351,7 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
     }
     return journalEntries.filter((trade) => {
       const session = sessionById.get(trade.session_id);
-      const linkedAccounts = liveTradeAccountIds(trade, session)
+      const linkedAccounts = liveTradeAccountIds(trade)
         .map((accountId) => accountById.get(accountId))
         .filter((account): account is LiveJournalAccount => Boolean(account));
       return [
@@ -3452,7 +3376,7 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
     ? currencyForJournalTrade(selectedTrade, accountById, sessionById)
     : "USD";
   const selectedAccounts = selectedTrade
-    ? liveTradeAccountIds(selectedTrade, sessionById.get(selectedTrade.session_id))
+    ? liveTradeAccountIds(selectedTrade)
       .map((accountId) => accountById.get(accountId))
       .filter((account): account is LiveJournalAccount => Boolean(account))
     : [];
@@ -3571,9 +3495,9 @@ function JournalReportsPage({
     }
     const accountId = Number(accountFilter);
     return journalEntries.filter((trade) =>
-      liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(accountId),
+      liveTradeAccountIds(trade).includes(accountId),
     );
-  }, [accountFilter, journalEntries, sessionById]);
+  }, [accountFilter, journalEntries]);
   const takenTrades = useMemo(() => scopedEntries.filter(isTakenJournalTrade), [scopedEntries]);
   const missedTrades = useMemo(() => scopedEntries.filter(isMissedJournalTrade), [scopedEntries]);
   const aggregate = useMemo(() => aggregateTrades(takenTrades), [takenTrades]);
@@ -3593,7 +3517,7 @@ function JournalReportsPage({
         .map((account) => {
           const trades = journalEntries.filter((trade) =>
             isTakenJournalTrade(trade) &&
-            liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(account.id),
+            liveTradeAccountIds(trade).includes(account.id),
           );
           return {
             account,
@@ -3602,7 +3526,7 @@ function JournalReportsPage({
           };
         })
         .filter((row) => row.aggregate.totalTrades > 0 || row.account.status === "ACTIVE"),
-    [accounts, journalEntries, sessionById],
+    [accounts, journalEntries],
   );
   const strategyRows = useMemo(
     () => groupLiveStrategies(sessions, scopedEntries).filter((strategy) => strategy.aggregate.totalTrades > 0),
@@ -4080,11 +4004,9 @@ function JournalStrategiesPage({
                 {selected.sessions.map((session) => (
                   <div className="rounded-md bg-white/5 px-3 py-2" key={session.id}>
                     <div className="font-semibold text-white">{session.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {session.instrument} · {session.account} · {session.status}
-                    </div>
+                    <div className="text-xs text-slate-500">{session.instrument} · {session.currency} · {session.status}</div>
                     <div className="mt-2 grid grid-cols-2 gap-2">
-                      <MiniMetric label="Balance" value={formatMoney(session.initial_balance, session.currency)} />
+                      <MiniMetric label="Trades" value={String(selected.trades.filter((trade) => trade.session_id === session.id).length)} />
                       <MiniMetric label="Playbook" value={session.playbook_id == null ? "None" : playbookById.get(session.playbook_id)?.name ?? "Missing"} />
                     </div>
                   </div>
@@ -4184,7 +4106,6 @@ function JournalPlaybooksPage({
 
 function JournalAccountsPage({
   accounts,
-  aggregate,
   journal,
   journalEntries,
   sessionById,
@@ -4212,13 +4133,12 @@ function JournalAccountsPage({
       accounts.map((account) => {
         const takenTrades = journalEntries.filter((trade) =>
           isTakenJournalTrade(trade) &&
-          liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(account.id),
+          liveTradeAccountIds(trade).includes(account.id),
         );
         const missedTrades = journalEntries.filter((trade) =>
           isMissedJournalTrade(trade) &&
-          liveTradeAccountIds(trade, sessionById.get(trade.session_id)).includes(account.id),
+          liveTradeAccountIds(trade).includes(account.id),
         );
-        const linkedSessions = sessions.filter((session) => session.account_ids?.includes(account.id));
         const accountAggregate = aggregateTrades(takenTrades);
         return {
           account,
@@ -4226,14 +4146,15 @@ function JournalAccountsPage({
           balance: account.initial_balance + accountAggregate.netPnl,
           days: groupTradesByDay(takenTrades),
           missedTrades,
-          sessions: linkedSessions,
           trades: takenTrades,
         };
       }),
-    [accounts, journalEntries, sessionById, sessions],
+    [accounts, journalEntries],
   );
   const selectedRow = accountRows.find((row) => row.account.id === selectedAccount?.id) ?? accountRows[0] ?? null;
   const activeRows = accountRows.filter((row) => row.account.status === "ACTIVE");
+  const activeAccountTrades = activeRows.flatMap((row) => row.trades);
+  const accountAggregate = aggregateTrades(activeAccountTrades);
   const totalBalance = activeRows.reduce((sum, row) => sum + row.balance, 0);
   const accountCurrency = currencyForJournalAccounts(activeRows.map((row) => row.account), settings.default_currency);
 
@@ -4295,8 +4216,8 @@ function JournalAccountsPage({
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ResultMetricCard icon={WalletCards} label="Active accounts" value={String(activeRows.length)} />
         <ResultMetricCard icon={BadgeDollarSign} label="Account balance" tone={toneForNumber(totalBalance)} value={formatMoney(totalBalance, accountCurrency)} />
-        <ResultMetricCard icon={TrendingUp} label="Journal P&L" tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, accountCurrency)} />
-        <ResultMetricCard icon={Clock3} label="Unlinked missed" value={String(journalEntries.filter((trade) => isMissedJournalTrade(trade) && liveTradeAccountIds(trade, sessionById.get(trade.session_id)).length === 0).length)} />
+        <ResultMetricCard icon={TrendingUp} label="Account P&L" tone={toneForNumber(accountAggregate.netPnl)} value={formatMoney(accountAggregate.netPnl, accountCurrency)} />
+        <ResultMetricCard icon={Clock3} label="Unlinked missed" value={String(journalEntries.filter((trade) => isMissedJournalTrade(trade) && liveTradeAccountIds(trade).length === 0).length)} />
       </div>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <FeatureCard>
@@ -4421,7 +4342,7 @@ function JournalAccountsPage({
                   <button
                     className="icon-button h-9 w-9 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
                     onClick={() => {
-                      const linkedCount = selectedRow.sessions.length + selectedRow.trades.length + selectedRow.missedTrades.length;
+                      const linkedCount = selectedRow.trades.length + selectedRow.missedTrades.length;
                       const message = linkedCount > 0
                         ? `Delete "${selectedRow.account.name}" and unlink it from ${linkedCount} journal records?`
                         : `Delete "${selectedRow.account.name}"?`;
@@ -4487,7 +4408,6 @@ function JournalAccountsPage({
                       </p>
                     </div>
                     <div className="grid min-w-56 grid-cols-3 gap-2">
-                      <MiniMetric label="Sessions" value={String(selectedRow.sessions.length)} />
                       <MiniMetric label="Missed" value={String(selectedRow.missedTrades.length)} />
                       <MiniMetric label="Currency" value={selectedRow.account.currency} />
                     </div>
@@ -4540,18 +4460,6 @@ function JournalAccountsPage({
                     <Save size={15} />
                     Save account changes
                   </button>
-                </div>
-              </div>
-              <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                <CardLabel icon={PlaySquare} label="Linked sessions" />
-                <div className="mt-3 grid gap-2">
-                  {selectedRow.sessions.map((session) => (
-                    <div className="rounded-md bg-white/5 px-3 py-2 text-sm" key={session.id}>
-                      <div className="font-semibold text-white">{session.name}</div>
-                      <div className="text-xs text-slate-500">{session.instrument} · {session.status}</div>
-                    </div>
-                  ))}
-                  {selectedRow.sessions.length === 0 && <div className="text-sm text-slate-500">No sessions linked yet.</div>}
                 </div>
               </div>
             </div>
@@ -4728,7 +4636,7 @@ function JournalSettingsPage({
         <div className="mt-4 grid gap-2 md:grid-cols-4">
           <CompactMetric label="Taken trades" value={String(journalEntries.filter(isTakenJournalTrade).length)} />
           <CompactMetric label="Missed setups" value={String(journalEntries.filter(isMissedJournalTrade).length)} />
-          <CompactMetric label="Linked accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
+          <CompactMetric label="Trade accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
           <CompactMetric label="Default currency" value={defaultCurrency} />
         </div>
       </FeatureCard>
@@ -5510,12 +5418,22 @@ function LiveTradeForm({
     quantity,
     side,
   ]);
+  const accountCopyCount = selectedAccounts.length;
+  const saveTradeLabel = initialTrade
+    ? "Save trade changes"
+    : entryType === "MISSED"
+      ? accountCopyCount > 1
+        ? `Save ${accountCopyCount} missed entries`
+        : "Save missed setup"
+      : accountCopyCount > 1
+        ? `Save ${accountCopyCount} account trades`
+        : "Save actual trade";
 
   useEffect(() => {
     if (initialTrade) {
       const tradeSession = sessions.find((session) => session.id === initialTrade.session_id) ?? defaultSession;
       const nextEntryType: JournalEntryType = isMissedJournalTrade(initialTrade) ? "MISSED" : "TAKEN";
-      const tradeAccounts = liveTradeAccountIds(initialTrade, tradeSession);
+      const tradeAccounts = liveTradeAccountIds(initialTrade);
       const commission = normalizeCommissionMode(initialTrade.commission_mode);
       const brokerage = normalizeCommissionMode(initialTrade.fee_mode);
       setSessionId(String(tradeSession?.id ?? initialTrade.session_id));
@@ -5556,10 +5474,7 @@ function LiveTradeForm({
     }
     setStrategy(normalizeLiveJournalStrategyName(selectedSession.strategy_name));
     setPlaybookId(selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id));
-    const sessionAccounts = selectedSession.account_ids?.filter((accountId) =>
-      activeAccounts.some((account) => account.id === accountId),
-    ) ?? [];
-    setAccountIds(sessionAccounts.length > 0 ? sessionAccounts : defaultAccountIds);
+    setAccountIds(defaultAccountIds);
     setCommissionMode(selectedSession.commission_mode);
     setCommissionFixed(costFixedValueForMode(selectedSession.commission_mode, selectedSession.commission_value));
     setCommissionPercent(costPercentValueForMode(selectedSession.commission_mode, selectedSession.commission_value));
@@ -5788,7 +5703,13 @@ function LiveTradeForm({
               Accounts
             </div>
             <span className="text-[11px] text-slate-600">
-              {entryType === "MISSED" ? "Optional for missed entries" : "Select multiple for copy trades"}
+              {entryType === "MISSED"
+                ? accountCopyCount > 1
+                  ? `Creates ${accountCopyCount} missed entries`
+                  : "Optional for missed entries"
+                : accountCopyCount > 1
+                  ? `Creates ${accountCopyCount} account trades`
+                  : "Select multiple for copied trades"}
             </span>
           </div>
           <div className="grid gap-2">
@@ -5935,7 +5856,7 @@ function LiveTradeForm({
           </div>
         )}
         <button className="control-button workspace-tab-active justify-center" type="submit">
-          {initialTrade ? "Save trade changes" : entryType === "MISSED" ? "Save missed setup" : "Save actual trade"}
+          {saveTradeLabel}
         </button>
       </form>
     </FeatureCard>
@@ -5988,7 +5909,7 @@ function LiveTradeTable({
           <tbody>
             {sortedTrades.map((trade) => {
               const session = sessionById.get(trade.session_id);
-              const accountIds = liveTradeAccountIds(trade, session);
+              const accountIds = liveTradeAccountIds(trade);
               const accounts = accountIds
                 .map((accountId) => accountById.get(accountId))
                 .filter((account): account is LiveJournalAccount => Boolean(account));
@@ -11682,11 +11603,6 @@ function useLiveJournalData(): LiveJournalController {
       return {
         ...current,
         accounts,
-        sessions: current.sessions.map((session) =>
-          session.account_ids?.includes(accountId)
-            ? normalizeLiveJournalSession(session, accounts, current.settings)
-            : session,
-        ),
         settings: {
           ...current.settings,
           default_account_ids: filterLiveAccountIds(current.settings.default_account_ids, accounts),
@@ -11706,16 +11622,6 @@ function useLiveJournalData(): LiveJournalController {
       return {
         ...current,
         accounts,
-        sessions: current.sessions.map((session) =>
-          normalizeLiveJournalSession(
-            {
-              ...session,
-              account_ids: (session.account_ids ?? []).filter((id) => id !== accountId),
-            },
-            accounts,
-            settings,
-          ),
-        ),
         settings,
         trades: current.trades.map((trade) => ({
           ...trade,
@@ -11858,7 +11764,7 @@ function useLiveJournalData(): LiveJournalController {
     }));
   }
 
-  function buildTradeFromPayload(
+  function buildTradesFromPayload(
     current: LiveJournalData,
     payload: LiveTradeInput,
     existing?: JournalTrade,
@@ -11888,11 +11794,24 @@ function useLiveJournalData(): LiveJournalController {
         ? null
         : Math.abs(entryPrice - payload.stopLoss) * quantity;
     const directAccountIds = filterLiveAccountIds(payload.accountIds, current.accounts);
-    const sessionAccountIds = filterLiveAccountIds(session.account_ids ?? [], current.accounts);
-    const accountIds = directAccountIds.length > 0 ? directAccountIds : isMissed ? [] : sessionAccountIds;
-    const trade: JournalTrade = {
+    const accountTargets: Array<number | null> = directAccountIds.length > 0 ? directAccountIds : [null];
+    const usedIds = new Set(current.trades.filter((trade) => trade.id !== existing?.id).map((trade) => trade.id));
+    let nextId = nextNumericId(current.trades);
+    const allocateId = (index: number) => {
+      if (index === 0 && existing) {
+        return existing.id;
+      }
+      while (usedIds.has(nextId)) {
+        nextId += 1;
+      }
+      const id = nextId;
+      usedIds.add(id);
+      nextId += 1;
+      return id;
+    };
+    const trades = accountTargets.map((accountId, index): JournalTrade => ({
       ...existing,
-      account_ids: accountIds,
+      account_ids: accountId == null ? [] : [accountId],
       commission_amount: commissionAmount,
       commission_mode: isMissed ? "NONE" : commissionMode,
       commission_value: isMissed ? 0 : commissionValue,
@@ -11906,7 +11825,7 @@ function useLiveJournalData(): LiveJournalController {
       fee_amount: brokerageAmount,
       fee_mode: isMissed ? "NONE" : brokerageMode,
       fee_value: isMissed ? 0 : brokerageValue,
-      id: existing?.id ?? nextNumericId(current.trades),
+      id: allocateId(index),
       gross_pnl: grossPnl,
       journal_entry_type: payload.entryType,
       mistake_tags: payload.mistakeTags,
@@ -11928,17 +11847,17 @@ function useLiveJournalData(): LiveJournalController {
       stop_loss: isMissed ? null : payload.stopLoss,
       strategy_name: normalizeLiveJournalStrategyName(payload.strategyName ?? session.strategy_name),
       take_profit: isMissed ? null : payload.takeProfit,
-    };
-    return { sessions, trade };
+    }));
+    return { sessions, trades };
   }
 
   function addTrade(payload: LiveTradeInput) {
     setData((current) => {
-      const { sessions, trade } = buildTradeFromPayload(current, payload);
+      const { sessions, trades } = buildTradesFromPayload(current, payload);
       return {
         ...current,
         sessions,
-        trades: [...current.trades, trade],
+        trades: [...current.trades, ...trades],
       };
     });
   }
@@ -11949,11 +11868,11 @@ function useLiveJournalData(): LiveJournalController {
       if (!existing) {
         return current;
       }
-      const { sessions, trade } = buildTradeFromPayload(current, payload, existing);
+      const { sessions, trades } = buildTradesFromPayload(current, payload, existing);
       return {
         ...current,
         sessions,
-        trades: current.trades.map((item) => (item.id === tradeId ? trade : item)),
+        trades: current.trades.flatMap((item) => (item.id === tradeId ? trades : [item])),
       };
     });
   }
@@ -12011,10 +11930,20 @@ function sanitizeLiveJournalData(value: unknown): LiveJournalData {
     normalizeLiveJournalSession(session, accounts, settings),
   );
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
+  const rawSessionById = new Map(rawSessions.map((session) => [session.id, session]));
   const trades = Array.isArray(candidate.trades)
-    ? candidate.trades
+    ? splitMultiAccountJournalTrades(
+      candidate.trades
         .filter(isTradeLike)
-        .map((trade) => sanitizeJournalTrade(trade as JournalTrade, sessionById, accounts))
+        .map((trade) =>
+          sanitizeJournalTrade(
+            trade as JournalTrade,
+            sessionById,
+            accounts,
+            rawSessionById.get((trade as JournalTrade).session_id),
+          ),
+        ),
+    )
     : [];
   const playbooks = Array.isArray(candidate.playbooks)
     ? candidate.playbooks.filter(isPlaybookLike)
@@ -12084,20 +12013,17 @@ function defaultLiveSession(
   accounts: LiveJournalAccount[] = [defaultLiveAccount()],
   settings = defaultLiveJournalSettings(),
 ): LiveJournalSession {
-  const activeAccountIds = filterLiveAccountIds(settings.default_account_ids, accounts);
-  const accountIds = activeAccountIds.length > 0 ? activeAccountIds : accounts[0] ? [accounts[0].id] : [];
-  const accountRows = accounts.filter((account) => accountIds.includes(account.id));
   return {
-    account: accountRows.length > 0 ? accountRows.map((account) => account.name).join(", ") : "Manual",
-    account_ids: accountIds,
+    account: "Manual",
+    account_ids: [],
     brokerage_mode: settings.default_fee_mode,
     brokerage_value: settings.default_fee_value,
     commission_mode: settings.default_commission_mode,
     commission_value: settings.default_commission_value,
     created_at: new Date().toISOString(),
-    currency: accountRows.length > 0 ? currencyForJournalAccounts(accountRows, settings.default_currency) : normalizeCurrencyCode(settings.default_currency),
+    currency: normalizeCurrencyCode(settings.default_currency),
     id: 1,
-    initial_balance: accountRows.length > 0 ? accountRows.reduce((sum, account) => sum + account.initial_balance, 0) : 100000,
+    initial_balance: 0,
     instrument: "Manual",
     name: "Primary Live Journal",
     notes: "",
@@ -12201,40 +12127,50 @@ function buildLegacyJournalAccounts(sessions: LiveJournalSession[]) {
   return accounts.length > 0 ? accounts : [defaultLiveAccount()];
 }
 
+function legacyJournalSessionAccountIds(
+  session: LiveJournalSession | undefined,
+  accounts: LiveJournalAccount[],
+) {
+  if (!session) {
+    return [];
+  }
+  const explicitIds = filterLiveAccountIds(session.account_ids ?? [], accounts);
+  if (explicitIds.length > 0) {
+    return explicitIds;
+  }
+  const sessionCurrency = normalizeCurrencyCode(session.currency);
+  const accountNames = (session.account ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (accountNames.length === 0) {
+    return [];
+  }
+  return accounts
+    .filter((account) =>
+      normalizeCurrencyCode(account.currency) === sessionCurrency &&
+      accountNames.some((name) =>
+        sameStrategyName(account.name, name) || sameStrategyName(account.broker, name),
+      ),
+    )
+    .map((account) => account.id);
+}
+
 function normalizeLiveJournalSession(
   session: LiveJournalSession,
   accounts: LiveJournalAccount[],
   settings: LiveJournalSettings,
 ): LiveJournalSession {
-  const explicitAccountIds = Array.isArray(session.account_ids);
-  const inferredAccount = accounts.find((account) =>
-    sameStrategyName(account.name, session.account || "") &&
-    normalizeCurrencyCode(account.currency) === normalizeCurrencyCode(session.currency),
-  );
-  const fallbackIds = inferredAccount
-    ? [inferredAccount.id]
-    : filterLiveAccountIds(settings.default_account_ids, accounts);
-  const accountIds = filterLiveAccountIds(
-    explicitAccountIds ? session.account_ids ?? [] : fallbackIds,
-    accounts,
-  );
-  const linkedAccounts = accounts.filter((account) => accountIds.includes(account.id));
   return {
     ...session,
-    account: linkedAccounts.length > 0
-      ? linkedAccounts.map((account) => account.name).join(", ")
-      : session.account?.trim() || "Manual",
-    account_ids: accountIds,
+    account: "Manual",
+    account_ids: [],
     brokerage_mode: normalizeCommissionMode(session.brokerage_mode ?? settings.default_fee_mode),
     brokerage_value: safeNonNegativeNumber(session.brokerage_value, settings.default_fee_value),
     commission_mode: normalizeCommissionMode(session.commission_mode ?? settings.default_commission_mode),
     commission_value: safeNonNegativeNumber(session.commission_value, settings.default_commission_value),
-    currency: linkedAccounts.length > 0
-      ? currencyForJournalAccounts(linkedAccounts, session.currency || settings.default_currency)
-      : normalizeCurrencyCode(session.currency || settings.default_currency),
-    initial_balance: linkedAccounts.length > 0
-      ? linkedAccounts.reduce((sum, account) => sum + account.initial_balance, 0)
-      : safeNonNegativeNumber(session.initial_balance, 0),
+    currency: normalizeCurrencyCode(session.currency || settings.default_currency),
+    initial_balance: safeNonNegativeNumber(session.initial_balance, 0),
     instrument: session.instrument?.trim() || "Manual",
     name: session.name?.trim() || "Live Trading Session",
     notes: session.notes ?? "",
@@ -12248,14 +12184,15 @@ function sanitizeJournalTrade(
   trade: JournalTrade,
   sessionById: Map<number, LiveJournalSession>,
   accounts: LiveJournalAccount[],
+  legacySession?: LiveJournalSession,
 ): JournalTrade {
   const entryType: JournalEntryType = trade.journal_entry_type === "MISSED" ? "MISSED" : "TAKEN";
   const session = sessionById.get(trade.session_id);
-  const fallbackAccountIds = entryType === "TAKEN" ? session?.account_ids ?? [] : [];
-  const accountIds = filterLiveAccountIds(
-    Array.isArray(trade.account_ids) ? trade.account_ids : fallbackAccountIds,
-    accounts,
-  );
+  const explicitAccountIds = filterLiveAccountIds(trade.account_ids ?? [], accounts);
+  const fallbackAccountIds = entryType === "TAKEN"
+    ? legacyJournalSessionAccountIds(legacySession, accounts)
+    : [];
+  const accountIds = explicitAccountIds.length > 0 ? explicitAccountIds : fallbackAccountIds;
   const realizedPnl = safeFiniteNumber(trade.realized_pnl, 0);
   return {
     ...trade,
@@ -12291,6 +12228,35 @@ function sanitizeJournalTrade(
   };
 }
 
+function splitMultiAccountJournalTrades(trades: JournalTrade[]) {
+  const usedIds = new Set(trades.map((trade) => safeFiniteNumber(trade.id, 0)));
+  let nextId = Math.max(0, ...usedIds) + 1;
+  const rows: JournalTrade[] = [];
+  for (const trade of trades) {
+    const accountIds = Array.from(new Set((trade.account_ids ?? []).filter((id) => typeof id === "number")));
+    if (accountIds.length <= 1) {
+      rows.push({
+        ...trade,
+        account_ids: accountIds,
+      });
+      continue;
+    }
+    accountIds.forEach((accountId, index) => {
+      while (usedIds.has(nextId)) {
+        nextId += 1;
+      }
+      const id = index === 0 ? trade.id : nextId++;
+      usedIds.add(id);
+      rows.push({
+        ...trade,
+        account_ids: [accountId],
+        id,
+      });
+    });
+  }
+  return rows;
+}
+
 function filterLiveAccountIds(ids: unknown, accounts: LiveJournalAccount[]) {
   if (!Array.isArray(ids)) {
     return [];
@@ -12306,13 +12272,8 @@ function filterLiveAccountIds(ids: unknown, accounts: LiveJournalAccount[]) {
   return filtered;
 }
 
-function liveTradeAccountIds(trade: JournalTrade, session?: LiveJournalSession) {
-  const ids = trade.account_ids && trade.account_ids.length > 0
-    ? trade.account_ids
-    : isTakenJournalTrade(trade)
-      ? session?.account_ids ?? []
-      : [];
-  return Array.from(new Set(ids));
+function liveTradeAccountIds(trade: JournalTrade) {
+  return Array.from(new Set(trade.account_ids ?? []));
 }
 
 function isTakenJournalTrade(trade: JournalTrade): trade is TakenJournalTrade {
@@ -12359,7 +12320,7 @@ function currencyForJournalTrade(
   fallbackCurrency = "USD",
 ) {
   const session = sessionById.get(trade.session_id);
-  const accounts = liveTradeAccountIds(trade, session)
+  const accounts = liveTradeAccountIds(trade)
     .map((accountId) => accountById.get(accountId))
     .filter((account): account is LiveJournalAccount => Boolean(account));
   if (accounts.length > 0) {
