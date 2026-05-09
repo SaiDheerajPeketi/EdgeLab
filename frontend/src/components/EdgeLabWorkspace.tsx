@@ -4107,8 +4107,8 @@ function NotebookTradeDetail({
                 </button>
               ))}
               <button
-                aria-pressed={editorState.link}
-                className={`notebook-editor-button ${editorState.link || linkPopoverOpen ? "notebook-editor-button-active" : ""}`}
+                aria-pressed={linkPopoverOpen}
+                className={`notebook-editor-button ${linkPopoverOpen ? "notebook-editor-button-active" : ""}`}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={openLinkPopover}
                 title="Link"

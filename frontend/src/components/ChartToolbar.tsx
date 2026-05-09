@@ -776,11 +776,6 @@ export function ChartToolbar({
           >
             <Settings2 size={15} />
             Settings
-            {settingsPresets.length > 0 && (
-              <span className="rounded bg-cyan-300/15 px-1.5 py-0.5 text-[10px] text-cyan-100">
-                {settingsPresets.length}
-              </span>
-            )}
           </button>
           {settingsPanel}
         </div>
