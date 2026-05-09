@@ -3449,50 +3449,234 @@ function JournalDashboardPage({
 function JournalTradesPage({
   accounts,
   journalEntries,
-  journal,
   journalLedgerRestoreScroll,
   onJournalLedgerScrollChange,
   onJournalLedgerScrollRestored,
   onOpenJournalNote,
   playbooks,
-  settings,
   sessions,
-  strategies,
 }: JournalPageProps) {
-  const [editingTradeId, setEditingTradeId] = useState<number | null>(null);
-  const editingTrade = editingTradeId == null
-    ? null
-    : journalEntries.find((trade) => trade.id === editingTradeId) ?? null;
+  const [accountFilter, setAccountFilter] = useState("ALL");
+  const [entryTypeFilter, setEntryTypeFilter] = useState<"ALL" | JournalEntryType>("ALL");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("ALL");
+  const [sideFilter, setSideFilter] = useState<"ALL" | "LONG" | "SHORT">("ALL");
+  const [strategyFilter, setStrategyFilter] = useState("ALL");
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
+  );
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+  const strategyOptions = useMemo(() => {
+    const names = uniqueStrings(
+      journalEntries.map((trade) => {
+        const session = sessionById.get(trade.session_id);
+        return trade.strategy_name || session?.strategy_name || "Unassigned";
+      }),
+    ).sort((left, right) => left.localeCompare(right));
+    return [
+      { label: "All strategies", value: "ALL" },
+      ...names.map((name) => ({ label: name, value: name })),
+    ];
+  }, [journalEntries, sessionById]);
+  const filteredEntries = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return journalEntries.filter((trade) => {
+      const session = sessionById.get(trade.session_id);
+      const linkedAccountIds = liveTradeAccountIds(trade);
+      const linkedAccounts = linkedAccountIds
+        .map((accountId) => accountById.get(accountId))
+        .filter((account): account is LiveJournalAccount => Boolean(account));
+      const playbook = trade.playbook_id ? playbookById.get(trade.playbook_id) : null;
+      const strategyName = trade.strategy_name || session?.strategy_name || "Unassigned";
+      if (entryTypeFilter === "TAKEN" && !isTakenJournalTrade(trade)) {
+        return false;
+      }
+      if (entryTypeFilter === "MISSED" && !isMissedJournalTrade(trade)) {
+        return false;
+      }
+      if (sessionFilter !== "ALL" && String(trade.session_id) !== sessionFilter) {
+        return false;
+      }
+      if (accountFilter === "UNLINKED" && linkedAccountIds.length > 0) {
+        return false;
+      }
+      if (accountFilter !== "ALL" && accountFilter !== "UNLINKED" && !linkedAccountIds.includes(Number(accountFilter))) {
+        return false;
+      }
+      if (sideFilter !== "ALL" && trade.side !== sideFilter) {
+        return false;
+      }
+      if (strategyFilter !== "ALL" && !sameStrategyName(strategyName, strategyFilter)) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return [
+        `#${trade.id}`,
+        strategyName,
+        session?.name,
+        session?.instrument,
+        trade.side,
+        isMissedJournalTrade(trade) ? "missed" : "taken",
+        trade.emotional_state,
+        trade.missed_reason,
+        richTextToPlainText(trade.notes),
+        shortDate(trade.entry_time),
+        playbook?.name,
+        ...trade.mistake_tags,
+        ...linkedAccounts.map((account) => account.name),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [accountById, accountFilter, entryTypeFilter, journalEntries, playbookById, searchTerm, sessionById, sessionFilter, sideFilter, strategyFilter]);
+  const filtersActive =
+    accountFilter !== "ALL" ||
+    entryTypeFilter !== "ALL" ||
+    sessionFilter !== "ALL" ||
+    sideFilter !== "ALL" ||
+    strategyFilter !== "ALL" ||
+    Boolean(searchTerm.trim());
+  const filteredTakenCount = filteredEntries.filter(isTakenJournalTrade).length;
+  const filteredMissedCount = filteredEntries.filter(isMissedJournalTrade).length;
+
+  function resetFilters() {
+    setAccountFilter("ALL");
+    setEntryTypeFilter("ALL");
+    setSearchTerm("");
+    setSessionFilter("ALL");
+    setSideFilter("ALL");
+    setStrategyFilter("ALL");
+  }
+
   return (
     <PageScaffold
       eyebrow="Journal Trades"
-      title="Live Trade Log"
-      description="Record taken trades and missed setups with strategy, playbook, and optional account links."
+      title="Live Trade Ledger"
+      description="Review recorded Journal entries. New trades are added from the focused session workspace."
     >
-      <div className="grid gap-4 2xl:grid-cols-[380px_minmax(0,1fr)]">
-        <LiveTradeForm
-          allTrades={journalEntries}
-          accounts={accounts}
-          initialTrade={editingTrade}
-          journal={journal}
-          onCancelEdit={() => setEditingTradeId(null)}
-          onSaved={() => setEditingTradeId(null)}
-          playbooks={playbooks}
-          sessions={sessions}
-          settings={settings}
-          strategies={strategies}
-          title={editingTrade ? "Edit journal trade" : "Record actual trade"}
-        />
+      <FeatureCard>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <CardLabel icon={Filter} label="Ledger filters" />
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="status-pill h-8 px-2 text-[11px]">{filteredEntries.length} entries</span>
+            <span className="status-pill h-8 px-2 text-[11px]">{filteredTakenCount} taken</span>
+            <span className="status-pill h-8 px-2 text-[11px]">{filteredMissedCount} missed</span>
+            <button className="control-button h-8 px-2 text-xs" disabled={!filtersActive} onClick={resetFilters} type="button">
+              <X size={13} />
+              Reset
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_repeat(5,minmax(140px,0.72fr))]">
+          <label className="form-field lg:col-span-2 xl:col-span-1">
+            Search
+            <div className="flex h-10 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-3 text-sm focus-within:border-cyan-300/40 focus-within:ring-2 focus-within:ring-cyan-300/10">
+              <Search className="shrink-0 text-slate-500" size={15} />
+              <input
+                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-600"
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Strategy, account, session, tag..."
+                value={searchTerm}
+              />
+            </div>
+          </label>
+          <label className="form-field">
+            Type
+            <ThemedSelect
+              className="h-10"
+              onChange={(value) => setEntryTypeFilter(value as "ALL" | JournalEntryType)}
+              options={[
+                { label: "All entries", value: "ALL" },
+                { label: "Taken trades", value: "TAKEN" },
+                { label: "Missed setups", value: "MISSED" },
+              ]}
+              portal
+              value={entryTypeFilter}
+            />
+          </label>
+          <label className="form-field">
+            Session
+            <ThemedSelect
+              className="h-10"
+              onChange={setSessionFilter}
+              options={[
+                { label: "All sessions", value: "ALL" },
+                ...sessions.map((session) => ({
+                  label: session.name,
+                  sublabel: `${session.instrument} · ${session.currency}`,
+                  value: String(session.id),
+                })),
+              ]}
+              portal
+              value={sessionFilter}
+            />
+          </label>
+          <label className="form-field">
+            Account
+            <ThemedSelect
+              className="h-10"
+              onChange={setAccountFilter}
+              options={[
+                { label: "All accounts", value: "ALL" },
+                { label: "Unlinked", sublabel: "No account attached", value: "UNLINKED" },
+                ...accounts.map((account) => ({
+                  label: account.name,
+                  sublabel: `${account.broker || "Manual"} · ${account.currency}`,
+                  value: String(account.id),
+                })),
+              ]}
+              portal
+              value={accountFilter}
+            />
+          </label>
+          <label className="form-field">
+            Side
+            <ThemedSelect
+              className="h-10"
+              onChange={(value) => setSideFilter(value as "ALL" | "LONG" | "SHORT")}
+              options={[
+                { label: "All sides", value: "ALL" },
+                { label: "Long", value: "LONG" },
+                { label: "Short", value: "SHORT" },
+              ]}
+              portal
+              value={sideFilter}
+            />
+          </label>
+          <label className="form-field">
+            Strategy
+            <ThemedSelect
+              className="h-10"
+              onChange={setStrategyFilter}
+              options={strategyOptions}
+              portal
+              value={strategyFilter}
+            />
+          </label>
+        </div>
+      </FeatureCard>
+      <div className="grid gap-4">
         <LiveTradeTable
-          accountById={new Map(accounts.map((account) => [account.id, account]))}
-          onEditTrade={(trade) => setEditingTradeId(trade.id)}
+          accountById={accountById}
           onOpenReview={onOpenJournalNote}
           onScrollChange={onJournalLedgerScrollChange}
           onScrollRestored={onJournalLedgerScrollRestored}
-          playbookById={new Map(playbooks.map((playbook) => [playbook.id, playbook]))}
+          playbookById={playbookById}
           restoreScroll={journalLedgerRestoreScroll}
-          sessionById={new Map(sessions.map((session) => [session.id, session]))}
-          trades={journalEntries}
+          sessionById={sessionById}
+          trades={filteredEntries}
         />
       </div>
     </PageScaffold>
