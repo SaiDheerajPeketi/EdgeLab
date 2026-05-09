@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -421,6 +421,21 @@ type NotebookEditorState = {
   orderedList: boolean;
   strike: boolean;
   underline: boolean;
+};
+
+type ThemedConfirmTone = "danger" | "default";
+
+type ThemedConfirmOptions = {
+  cancelLabel?: string;
+  confirmLabel?: string;
+  detail?: ReactNode;
+  message: ReactNode;
+  title: string;
+  tone?: ThemedConfirmTone;
+};
+
+type ThemedConfirmRequest = ThemedConfirmOptions & {
+  resolve: (confirmed: boolean) => void;
 };
 
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
@@ -1170,6 +1185,7 @@ function AccountsPage({
   const [isImporting, setIsImporting] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
   const [mapping, setMapping] = useState<Record<ImportMappingField, string>>(EMPTY_IMPORT_MAPPING);
+  const { confirm, confirmDialog } = useThemedConfirm();
   const [importForm, setImportForm] = useState<ImportFormState>({
     account_name: "Imported Backtest",
     source_name: "",
@@ -1323,7 +1339,17 @@ function AccountsPage({
   }
 
   async function handleDeleteSession(session: BacktestSession) {
-    const confirmed = window.confirm(`Delete "${session.name}" and all trades in it?`);
+    const confirmed = await confirm({
+      confirmLabel: "Delete session",
+      message: (
+        <>
+          Delete <span className="font-semibold text-white">{session.name}</span> and all trades in it?
+        </>
+      ),
+      detail: "This removes the imported/replay session and its trade history from Backtest results.",
+      title: "Delete backtest session",
+      tone: "danger",
+    });
     if (!confirmed) {
       return;
     }
@@ -1668,6 +1694,7 @@ function AccountsPage({
           </form>
         </ModalFrame>
       )}
+      {confirmDialog}
     </PageScaffold>
   );
 }
@@ -2710,6 +2737,7 @@ function JournalSessionsPage({
   settings,
   strategies,
 }: JournalPageProps & { onOpenSessionTrades: (sessionId: number) => void }) {
+  const { confirm, confirmDialog } = useThemedConfirm();
   const savedStrategyNames = useLiveJournalStrategyNames();
   const strategyNameOptions = useMemo(
     () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
@@ -2871,6 +2899,28 @@ function JournalSessionsPage({
       strategy_name: editDraft.strategy,
     });
     setShowSessionSettings(false);
+  }
+
+  async function handleDeleteSession(session: LiveJournalSession) {
+    const row = sessionRows.find((sessionRow) => sessionRow.session.id === session.id);
+    const entryCount = row?.entries.length ?? 0;
+    const confirmed = await confirm({
+      confirmLabel: "Delete session",
+      detail: entryCount > 0
+        ? `This removes ${entryCount} Journal ${entryCount === 1 ? "entry" : "entries"} attached to this live session.`
+        : "This removes the session setup. No Journal entries are attached.",
+      message: (
+        <>
+          Delete <span className="font-semibold text-white">{session.name}</span>?
+        </>
+      ),
+      title: "Delete journal session",
+      tone: "danger",
+    });
+    if (confirmed) {
+      journal.deleteSession(session.id);
+      setShowSessionSettings((current) => selectedSession?.id === session.id ? false : current);
+    }
   }
 
   return (
@@ -3050,9 +3100,7 @@ function JournalSessionsPage({
                             className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
                             onClick={(event) => {
                               event.stopPropagation();
-                              if (window.confirm(`Delete "${session.name}" and its Journal entries?`)) {
-                                journal.deleteSession(session.id);
-                              }
+                              void handleDeleteSession(session);
                             }}
                             title="Delete session"
                             type="button"
@@ -3213,6 +3261,7 @@ function JournalSessionsPage({
           </FeatureCard>
         </div>
       )}
+      {confirmDialog}
     </PageScaffold>
   );
 }
@@ -3693,6 +3742,7 @@ function JournalTradesPage({
 }
 
 function JournalDayViewPage({ accounts, days, journal, journalEntries, onOpenJournalNote, playbooks, sessionById }: JournalPageProps) {
+  const { confirm, confirmDialog } = useThemedConfirm();
   const [mode, setMode] = useState<DayViewMode>("day");
   const [selectedDate, setSelectedDate] = useState(() => days[0]?.date ?? "");
   const [calendarMonth, setCalendarMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
@@ -3765,6 +3815,13 @@ function JournalDayViewPage({ accounts, days, journal, journalEntries, onOpenJou
       return;
     }
     exportJournalTradeLogCsv(selectedPeriod.trades as JournalTrade[], accountById, playbookById, sessionById);
+  }
+
+  async function deleteJournalTrade(trade: JournalTrade) {
+    const confirmed = await confirm(journalTradeDeleteConfirmOptions(trade));
+    if (confirmed) {
+      journal.deleteTrade(trade.id);
+    }
   }
 
   return (
@@ -3911,11 +3968,7 @@ function JournalDayViewPage({ accounts, days, journal, journalEntries, onOpenJou
                               </button>
                               <button
                                 className="control-button h-9 border-rose-300/20 px-2 text-xs text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
-                                onClick={() => {
-                                  if (confirmDeleteJournalTrade(journalTrade)) {
-                                    journal.deleteTrade(journalTrade.id);
-                                  }
-                                }}
+                                onClick={() => void deleteJournalTrade(journalTrade)}
                                 type="button"
                               >
                                 <Trash2 size={13} />
@@ -3987,6 +4040,7 @@ function JournalDayViewPage({ accounts, days, journal, journalEntries, onOpenJou
       ) : (
         <EmptyState icon={CalendarDays} message="Taken-trade days appear after recording Journal trades." />
       )}
+      {confirmDialog}
     </PageScaffold>
   );
 }
@@ -4005,6 +4059,7 @@ function JournalNotesPage({
   focusTradeId?: number | null;
   onBack?: () => void;
 }) {
+  const { confirm, confirmDialog } = useThemedConfirm();
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(focusTradeId ?? journalEntries.at(-1)?.id ?? null);
   const [searchTerm, setSearchTerm] = useState("");
   const [screenshotActionStatus, setScreenshotActionStatus] = useState<string | null>(null);
@@ -4085,8 +4140,12 @@ function JournalNotesPage({
     exportJournalTradeLogCsv(filteredEntries, accountById, playbookById, sessionById);
   }
 
-  function deleteSelectedTrade() {
-    if (!selectedTrade || !confirmDeleteJournalTrade(selectedTrade)) {
+  async function deleteSelectedTrade() {
+    if (!selectedTrade) {
+      return;
+    }
+    const confirmed = await confirm(journalTradeDeleteConfirmOptions(selectedTrade));
+    if (!confirmed) {
       return;
     }
     journal.deleteTrade(selectedTrade.id);
@@ -4137,7 +4196,7 @@ function JournalNotesPage({
           <button
             className="control-button h-10 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
             disabled={!selectedTrade}
-            onClick={deleteSelectedTrade}
+            onClick={() => void deleteSelectedTrade()}
             type="button"
           >
             <Trash2 size={15} />
@@ -4315,6 +4374,7 @@ function JournalNotesPage({
           )}
         </FeatureCard>
       </div>
+      {confirmDialog}
     </PageScaffold>
   );
 }
@@ -4980,6 +5040,7 @@ function JournalAccountsPage({
   sessions,
   settings,
 }: JournalPageProps) {
+  const { confirm, confirmDialog } = useThemedConfirm();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(accounts[0]?.id ?? null);
   const [name, setName] = useState("Primary Account");
   const [broker, setBroker] = useState(settings.default_broker);
@@ -5073,6 +5134,29 @@ function JournalAccountsPage({
       name: editDraft.name,
       notes: editDraft.notes,
     });
+  }
+
+  async function handleDeleteSelectedAccount() {
+    if (!selectedRow) {
+      return;
+    }
+    const linkedCount = selectedRow.trades.length + selectedRow.missedTrades.length;
+    const confirmed = await confirm({
+      confirmLabel: "Delete account",
+      detail: linkedCount > 0
+        ? `This unlinks ${linkedCount} Journal ${linkedCount === 1 ? "record" : "records"} from this account. Trades and missed setups stay in the Journal.`
+        : "This removes the account profile. Journal entries stay intact.",
+      message: (
+        <>
+          Delete <span className="font-semibold text-white">{selectedRow.account.name}</span>?
+        </>
+      ),
+      title: "Delete journal account",
+      tone: "danger",
+    });
+    if (confirmed) {
+      journal.deleteAccount(selectedRow.account.id);
+    }
   }
 
   return (
@@ -5209,15 +5293,7 @@ function JournalAccountsPage({
                   </button>
                   <button
                     className="icon-button h-9 w-9 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
-                    onClick={() => {
-                      const linkedCount = selectedRow.trades.length + selectedRow.missedTrades.length;
-                      const message = linkedCount > 0
-                        ? `Delete "${selectedRow.account.name}" and unlink it from ${linkedCount} journal records?`
-                        : `Delete "${selectedRow.account.name}"?`;
-                      if (window.confirm(message)) {
-                        journal.deleteAccount(selectedRow.account.id);
-                      }
-                    }}
+                    onClick={() => void handleDeleteSelectedAccount()}
                     title="Delete account"
                     type="button"
                   >
@@ -5334,6 +5410,7 @@ function JournalAccountsPage({
           </div>
         </FeatureCard>
       )}
+      {confirmDialog}
     </PageScaffold>
   );
 }
@@ -6881,8 +6958,19 @@ function LiveTradeTable({
   sessionById: Map<number, LiveJournalSession>;
   trades: JournalTrade[];
 }) {
+  const { confirm, confirmDialog } = useThemedConfirm();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sortedTrades = trades.slice().sort(compareTradesAscending).reverse();
+
+  async function confirmAndDeleteTrade(trade: JournalTrade) {
+    if (!onDeleteTrade) {
+      return;
+    }
+    const confirmed = await confirm(journalTradeDeleteConfirmOptions(trade));
+    if (confirmed) {
+      onDeleteTrade(trade);
+    }
+  }
 
   useEffect(() => {
     if (!restoreScroll || !scrollerRef.current) {
@@ -7020,11 +7108,7 @@ function LiveTradeTable({
                       {onDeleteTrade && (
                         <button
                           className="control-button h-8 whitespace-nowrap border-rose-300/20 px-2 text-xs text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
-                          onClick={() => {
-                            if (confirmDeleteJournalTrade(trade)) {
-                              onDeleteTrade(trade);
-                            }
-                          }}
+                          onClick={() => void confirmAndDeleteTrade(trade)}
                           title="Delete journal entry"
                           type="button"
                         >
@@ -7041,6 +7125,7 @@ function LiveTradeTable({
         </table>
         {trades.length === 0 && <EmptyState icon={ClipboardList} message="Record a Journal entry to populate the ledger." />}
       </div>
+      {confirmDialog}
     </FeatureCard>
   );
 }
@@ -11274,6 +11359,101 @@ function ModalFrame({
   );
 }
 
+function useThemedConfirm() {
+  const [request, setRequest] = useState<ThemedConfirmRequest | null>(null);
+  const requestRef = useRef<ThemedConfirmRequest | null>(null);
+
+  useEffect(() => {
+    requestRef.current = request;
+  }, [request]);
+
+  useEffect(
+    () => () => {
+      requestRef.current?.resolve(false);
+    },
+    [],
+  );
+
+  const confirm = useCallback(
+    (options: ThemedConfirmOptions) =>
+      new Promise<boolean>((resolve) => {
+        setRequest({ ...options, resolve });
+      }),
+    [],
+  );
+
+  const close = useCallback((confirmed: boolean) => {
+    setRequest((current) => {
+      current?.resolve(confirmed);
+      return null;
+    });
+  }, []);
+
+  return {
+    confirm,
+    confirmDialog: request ? (
+      <ThemedConfirmDialog
+        onCancel={() => close(false)}
+        onConfirm={() => close(true)}
+        request={request}
+      />
+    ) : null,
+  };
+}
+
+function ThemedConfirmDialog({
+  onCancel,
+  onConfirm,
+  request,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  request: ThemedConfirmRequest;
+}) {
+  const danger = request.tone === "danger";
+  return (
+    <ModalFrame title={request.title} onClose={onCancel}>
+      <div className="grid gap-4">
+        <div className="flex gap-3">
+          <div
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border ${
+              danger
+                ? "border-rose-300/25 bg-rose-300/10 text-rose-100"
+                : "border-cyan-300/25 bg-cyan-300/10 text-cyan-100"
+            }`}
+          >
+            {danger ? <Trash2 size={17} /> : <Info size={17} />}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm leading-6 text-slate-300">{request.message}</div>
+            {request.detail && (
+              <div className="mt-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-slate-400">
+                {request.detail}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className="control-button" onClick={onCancel} type="button">
+            {request.cancelLabel ?? "Cancel"}
+          </button>
+          <button
+            className={`control-button ${
+              danger
+                ? "border-rose-300/25 bg-rose-300/10 text-rose-100 hover:bg-rose-300/20"
+                : "workspace-tab-active"
+            }`}
+            onClick={onConfirm}
+            type="button"
+          >
+            {request.confirmLabel ?? "Confirm"}
+          </button>
+        </div>
+      </div>
+    </ModalFrame>
+  );
+}
+
 function useCloseOnOutsidePointer(
   active: boolean,
   refs: Array<{ current: HTMLElement | null }>,
@@ -13523,12 +13703,19 @@ function journalTradeReviewText(trade: JournalTrade, fallback = "Open review") {
   return trade.mistake_tags.join(", ") || notesText || fallback;
 }
 
-function confirmDeleteJournalTrade(trade: JournalTrade) {
-  if (typeof window === "undefined") {
-    return false;
-  }
+function journalTradeDeleteConfirmOptions(trade: JournalTrade): ThemedConfirmOptions {
   const label = isMissedJournalTrade(trade) ? "missed setup" : "journal trade";
-  return window.confirm(`Delete this ${label} entry? This cannot be undone.`);
+  return {
+    confirmLabel: "Delete entry",
+    detail: "This removes the entry from the Journal ledger, notes, reports, and account balances.",
+    message: (
+      <>
+        Delete this <span className="font-semibold text-white">{label}</span> entry?
+      </>
+    ),
+    title: "Delete journal entry",
+    tone: "danger",
+  };
 }
 
 function parseOptionalFloat(value: string) {
