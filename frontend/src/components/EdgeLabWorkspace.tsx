@@ -1299,7 +1299,7 @@ function AccountsPage({
       </div>
 
       {modalOpen && (
-        <ModalFrame title="Import backtest CSV" onClose={() => setModalOpen(false)}>
+        <ModalFrame maxWidth="wide" title="Import backtest CSV" onClose={() => setModalOpen(false)}>
           <form className="grid gap-4" onSubmit={submitImport}>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="form-field">
@@ -7008,23 +7008,28 @@ function ResultsTradeTable({
 
 function ModalFrame({
   children,
+  maxWidth = "default",
   onClose,
   title,
 }: {
   children: ReactNode;
+  maxWidth?: "default" | "wide";
   onClose: () => void;
   title: string;
 }) {
+  const widthClass = maxWidth === "wide" ? "w-[min(760px,100%)]" : "w-[min(520px,100%)]";
   return (
-    <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-md border border-white/10 bg-[#080c11] p-4 shadow-panel">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-white">{title}</h2>
-          <button className="icon-button h-8 w-8" onClick={onClose} type="button">
+    <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 px-4 py-6">
+      <div className={`grid max-h-[calc(100vh-48px)] ${widthClass} grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-cyan-300/15 bg-[#071018] shadow-panel`}>
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <h2 className="truncate text-lg font-semibold text-white">{title}</h2>
+          <button className="icon-button h-9 w-9" onClick={onClose} type="button">
             <X size={15} />
           </button>
         </div>
-        {children}
+        <div className="min-h-0 overflow-y-auto p-4">
+          {children}
+        </div>
       </div>
     </div>
   );
