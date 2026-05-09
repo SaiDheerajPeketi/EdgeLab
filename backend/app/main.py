@@ -7,8 +7,8 @@ from app.db import init_db
 
 
 app = FastAPI(
-    title="Personal EdgeLab API",
-    description="CSV-powered backtesting, trade journaling, and performance metrics.",
+    title="EdgeLab API",
+    description="Find your edge with CSV-powered backtesting, trade journaling, and performance metrics.",
     version="0.1.0",
 )
 

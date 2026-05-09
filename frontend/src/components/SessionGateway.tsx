@@ -315,10 +315,10 @@ export function SessionGateway({
         <div className="min-w-0">
           <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-cyan-100">
             <Target size={14} />
-            Backtesting Session
+            EdgeLab / Find your edge
           </div>
           <h1 className="max-w-3xl text-3xl font-semibold tracking-normal text-white xl:text-5xl">
-            Choose the session before the chart.
+            Choose the session that sharpens your edge.
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
             Start with a strategy, attach the rules you want to grade against, then enter replay with the right market and date window.

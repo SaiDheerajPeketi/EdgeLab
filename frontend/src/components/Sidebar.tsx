@@ -133,8 +133,13 @@ export function Sidebar({
         </div>
         {!compact && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-black text-white">EdgeLab</div>
-            <div className="truncate text-xs text-slate-500">EdgeLab workspace</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="truncate text-sm font-black text-white">EdgeLab</div>
+              <span className="shrink-0 rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">
+                TBS
+              </span>
+            </div>
+            <div className="truncate text-xs text-slate-500">Find your edge</div>
           </div>
         )}
       </div>
