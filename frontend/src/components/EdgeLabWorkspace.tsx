@@ -7588,6 +7588,18 @@ function BarBreakdown({
   const zeroBottom = ((0 - domain.min) / range) * 100;
   const ticks = chartTicks(domain.min, domain.max, 5);
   const minWidth = Math.max(360, visibleRows.length * 58);
+  const activeLabel = activeRow?.label ?? "";
+  const activeValueLabel = activeRow ? (percent ? `${activeRow.value.toFixed(1)}%` : formatMoney(activeRow.value, currency)) : "";
+  const activeTooltipLeft = activeIndex == null
+    ? 50
+    : clampPercent(((activeIndex + 0.5) / Math.max(visibleRows.length, 1)) * 100, 10, 90);
+  const activeTooltipStyle = activeRow
+    ? {
+        [activeRow.value >= 0 ? "top" : "bottom"]: "0.5rem",
+        left: `${activeTooltipLeft}%`,
+        transform: "translateX(-50%)",
+      }
+    : undefined;
 
   if (visibleRows.length === 0) {
     return <EmptyState icon={BarChart3} message="No chart data yet." />;
@@ -7609,14 +7621,6 @@ function BarBreakdown({
             );
           })}
           <div className="absolute left-14 right-0 border-t border-white/20" style={{ bottom: `${zeroBottom}%` }} />
-          {activeRow && (
-            <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30">
-              <div className="max-w-40 truncate font-semibold text-white">{activeRow.label}</div>
-              <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeRow.value)}`}>
-                {percent ? `${activeRow.value.toFixed(1)}%` : formatMoney(activeRow.value, currency)}
-              </div>
-            </div>
-          )}
           <div className="absolute inset-y-0 left-14 right-0 flex items-stretch gap-2">
             {visibleRows.map((row, rowIndex) => {
               const heightPercent = row.value === 0 ? 1.5 : Math.max(2, (Math.abs(row.value) / range) * 100);
@@ -7652,6 +7656,17 @@ function BarBreakdown({
               );
             })}
           </div>
+          {activeRow && activeTooltipStyle && (
+            <div
+              className="pointer-events-none absolute z-20 max-w-48 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30 backdrop-blur"
+              style={activeTooltipStyle}
+            >
+              <div className="truncate font-semibold text-white" title={activeLabel}>{activeLabel}</div>
+              <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeRow.value)}`}>
+                {activeValueLabel}
+              </div>
+            </div>
+          )}
         </div>
         <div className="ml-14 flex gap-2 pt-2">
           {visibleRows.map((row, rowIndex) => (
