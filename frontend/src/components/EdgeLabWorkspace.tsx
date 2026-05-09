@@ -109,6 +109,9 @@ import {
   hydrateOrderCommissionPercent,
   hydrateOrderDefaultQuantity,
   hydrateOrderDefaultRiskPercent,
+  hydrateOrderFeeFixed,
+  hydrateOrderFeeMode,
+  hydrateOrderFeePercent,
   hydrateOrderRiskBase,
   hydrateOrderSizingMode,
   loadOrderCommissionFixed,
@@ -116,6 +119,9 @@ import {
   loadOrderCommissionPercent,
   loadOrderDefaultQuantity,
   loadOrderDefaultRiskPercent,
+  loadOrderFeeFixed,
+  loadOrderFeeMode,
+  loadOrderFeePercent,
   loadOrderRiskBase,
   loadOrderSizingMode,
   type OrderCommissionMode,
@@ -126,6 +132,9 @@ import {
   saveOrderCommissionPercent,
   saveOrderDefaultQuantity,
   saveOrderDefaultRiskPercent,
+  saveOrderFeeFixed,
+  saveOrderFeeMode,
+  saveOrderFeePercent,
   saveOrderRiskBase,
   saveOrderSizingMode,
   subscribeOrderCommissionFixed,
@@ -133,6 +142,9 @@ import {
   subscribeOrderCommissionPercent,
   subscribeOrderDefaultQuantity,
   subscribeOrderDefaultRiskPercent,
+  subscribeOrderFeeFixed,
+  subscribeOrderFeeMode,
+  subscribeOrderFeePercent,
   subscribeOrderRiskBase,
   subscribeOrderSizingMode,
 } from "../lib/orderSettings";
@@ -215,6 +227,7 @@ type Aggregate = {
   profitFactor: number | null;
   recoveryFactor: number | null;
   totalCommissions: number;
+  totalFees: number;
   totalTrades: number;
   winRate: number;
   wins: number;
@@ -951,6 +964,7 @@ type ImportMappingField =
   | "quantity"
   | "realized_pnl"
   | "commission_amount"
+  | "fee_amount"
   | "symbol"
   | "strategy_name"
   | "stop_loss"
@@ -962,6 +976,24 @@ type ImportMappingField =
 type CsvPreview = {
   headers: string[];
   rows: Record<string, string>[];
+};
+
+type ImportFormState = {
+  account_name: string;
+  source_name: string;
+  csv_text: string;
+  initial_balance: string;
+  currency: string;
+  default_commission_mode: OrderCommissionMode;
+  default_commission_fixed: string;
+  default_commission_percent: string;
+  default_fee_mode: OrderCommissionMode;
+  default_fee_fixed: string;
+  default_fee_percent: string;
+  symbol: string;
+  instrument: string;
+  timeframe: string;
+  strategy_name: string;
 };
 
 const IMPORT_FIELD_DEFINITIONS: Array<{
@@ -976,7 +1008,8 @@ const IMPORT_FIELD_DEFINITIONS: Array<{
   { key: "exit_price", label: "Exit price", required: true },
   { key: "quantity", label: "Quantity", required: true },
   { key: "realized_pnl", label: "P&L" },
-  { key: "commission_amount", label: "Fees" },
+  { key: "commission_amount", label: "Commission" },
+  { key: "fee_amount", label: "Fees" },
   { key: "symbol", label: "Symbol" },
   { key: "strategy_name", label: "Strategy" },
   { key: "stop_loss", label: "Stop loss" },
@@ -994,7 +1027,8 @@ const IMPORT_FIELD_ALIASES: Record<ImportMappingField, string[]> = {
   exit_price: ["exitprice", "closeprice", "priceout", "exitfill", "avgexit", "exit"],
   quantity: ["quantity", "qty", "contracts", "shares", "lots", "volume", "size"],
   realized_pnl: ["pnl", "pl", "profit", "profitloss", "realizedpnl", "netpnl", "netprofit", "result"],
-  commission_amount: ["commission", "commissions", "fee", "fees", "brokerfee", "brokerfees", "cost"],
+  commission_amount: ["commission", "commissions", "brokercommission", "brokercommissions"],
+  fee_amount: ["fee", "fees", "brokerfee", "brokerfees", "transactionfee", "transactionfees", "cost"],
   symbol: ["symbol", "ticker", "instrument", "market", "contract", "asset"],
   strategy_name: ["strategy", "strategyname", "setup", "playbook", "system"],
   stop_loss: ["stoploss", "stop", "sl", "stopprice"],
@@ -1026,12 +1060,18 @@ function AccountsPage({
   const [isImporting, setIsImporting] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
   const [mapping, setMapping] = useState<Record<ImportMappingField, string>>(EMPTY_IMPORT_MAPPING);
-  const [importForm, setImportForm] = useState({
+  const [importForm, setImportForm] = useState<ImportFormState>({
     account_name: "Imported Backtest",
     source_name: "",
     csv_text: "",
     initial_balance: "100000",
     currency,
+    default_commission_mode: loadOrderCommissionMode(),
+    default_commission_fixed: loadOrderCommissionFixed(),
+    default_commission_percent: loadOrderCommissionPercent(),
+    default_fee_mode: loadOrderFeeMode(),
+    default_fee_fixed: loadOrderFeeFixed(),
+    default_fee_percent: loadOrderFeePercent(),
     symbol: "",
     instrument: "",
     timeframe: "Imported",
@@ -1065,7 +1105,35 @@ function AccountsPage({
     [csvPreview],
   );
 
-  function updateImportField(field: keyof typeof importForm, value: string) {
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      hydrateOrderCommissionMode(),
+      hydrateOrderCommissionFixed(),
+      hydrateOrderCommissionPercent(),
+      hydrateOrderFeeMode(),
+      hydrateOrderFeeFixed(),
+      hydrateOrderFeePercent(),
+    ]).then(([commissionMode, commissionFixed, commissionPercent, feeMode, feeFixed, feePercent]) => {
+      if (!active) {
+        return;
+      }
+      setImportForm((current) => ({
+        ...current,
+        default_commission_mode: commissionMode,
+        default_commission_fixed: commissionFixed,
+        default_commission_percent: commissionPercent,
+        default_fee_mode: feeMode,
+        default_fee_fixed: feeFixed,
+        default_fee_percent: feePercent,
+      }));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function updateImportField<K extends keyof ImportFormState>(field: K, value: ImportFormState[K]) {
     setImportForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -1121,6 +1189,18 @@ function AccountsPage({
         instrument: importForm.instrument.trim() || null,
         timeframe: importForm.timeframe.trim() || "Imported",
         strategy_name: importForm.strategy_name.trim() || null,
+        default_commission_mode: importForm.default_commission_mode,
+        default_commission_value: costValueForPayload(
+          importForm.default_commission_mode,
+          importForm.default_commission_fixed,
+          importForm.default_commission_percent,
+        ),
+        default_fee_mode: importForm.default_fee_mode,
+        default_fee_value: costValueForPayload(
+          importForm.default_fee_mode,
+          importForm.default_fee_fixed,
+          importForm.default_fee_percent,
+        ),
         column_mapping: cleanImportMapping(mapping),
       });
       setImportResult(result);
@@ -1358,6 +1438,26 @@ function AccountsPage({
                   value={importForm.strategy_name}
                 />
               </label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <CostConfigCard
+                fixedValue={importForm.default_commission_fixed}
+                mode={normalizeCommissionMode(importForm.default_commission_mode)}
+                onFixedValueChange={(value) => updateImportField("default_commission_fixed", value)}
+                onModeChange={(value) => updateImportField("default_commission_mode", value)}
+                onPercentValueChange={(value) => updateImportField("default_commission_percent", value)}
+                percentValue={importForm.default_commission_percent}
+                title="Default Commissions"
+              />
+              <CostConfigCard
+                fixedValue={importForm.default_fee_fixed}
+                mode={normalizeCommissionMode(importForm.default_fee_mode)}
+                onFixedValueChange={(value) => updateImportField("default_fee_fixed", value)}
+                onModeChange={(value) => updateImportField("default_fee_mode", value)}
+                onPercentValueChange={(value) => updateImportField("default_fee_percent", value)}
+                percentValue={importForm.default_fee_percent}
+                title="Default Fees"
+              />
             </div>
 
             <label className="form-field">
@@ -3338,6 +3438,10 @@ function NotebookTradeDetail({
   const [commissionValue, setCommissionValue] = useState(() =>
     formatNumberInput(trade.commission_value),
   );
+  const [feeMode, setFeeMode] = useState<OrderCommissionMode>(() =>
+    normalizeCommissionMode(trade.fee_mode),
+  );
+  const [feeValue, setFeeValue] = useState(() => formatNumberInput(trade.fee_value));
   const [tags, setTags] = useState<string[]>(trade.mistake_tags);
   const [customTag, setCustomTag] = useState("");
   const [snapshotUrl, setSnapshotUrl] = useState(trade.screenshot_url ?? "");
@@ -3366,12 +3470,16 @@ function NotebookTradeDetail({
   const savedStrategy = tradeStrategyName(trade, session ?? undefined);
   const savedCommissionMode = normalizeCommissionMode(trade.commission_mode);
   const savedCommissionValue = formatNumberInput(trade.commission_value);
+  const savedFeeMode = normalizeCommissionMode(trade.fee_mode);
+  const savedFeeValue = formatNumberInput(trade.fee_value);
   const hasChanges =
     notes !== savedNotes ||
     strategy !== savedStrategy ||
     emotion !== (trade.emotional_state ?? "") ||
     commissionMode !== savedCommissionMode ||
     (commissionMode !== "NONE" && commissionValue !== savedCommissionValue) ||
+    feeMode !== savedFeeMode ||
+    (feeMode !== "NONE" && feeValue !== savedFeeValue) ||
     snapshotUrl !== (trade.screenshot_url ?? "") ||
     !sameStringList(tags, trade.mistake_tags);
 
@@ -3398,6 +3506,8 @@ function NotebookTradeDetail({
     setEmotion(trade.emotional_state ?? "");
     setCommissionMode(normalizeCommissionMode(trade.commission_mode));
     setCommissionValue(formatNumberInput(trade.commission_value));
+    setFeeMode(normalizeCommissionMode(trade.fee_mode));
+    setFeeValue(formatNumberInput(trade.fee_value));
     setTags(trade.mistake_tags);
     setCustomTag("");
     setSnapshotUrl(trade.screenshot_url ?? "");
@@ -3567,6 +3677,8 @@ function NotebookTradeDetail({
         strategy_name: strategy || null,
         commission_mode: commissionMode,
         commission_value: commissionMode === "NONE" ? 0 : numberFromTextOrZero(commissionValue),
+        fee_mode: feeMode,
+        fee_value: feeMode === "NONE" ? 0 : numberFromTextOrZero(feeValue),
       });
       persistStrategyMistakeTags(activeStrategyScope, tags);
     } catch (error) {
@@ -3582,7 +3694,8 @@ function NotebookTradeDetail({
       `${session?.symbol ? formatMarketSymbol(session.symbol) : "Trade"} : ${shortDate(trade.entry_time)}`,
       `${trade.side} ${formatCompactNumber(trade.quantity)} @ ${formatPrice(trade.entry_price)}`,
       `Exit: ${formatPrice(trade.exit_price)} | P&L: ${formatMoney(trade.realized_pnl, currency)} | R: ${formatOptionalNumber(trade.r_multiple)}`,
-      trade.commission_amount > 0 ? `Fees: ${formatMoney(trade.commission_amount, currency)}` : null,
+      trade.commission_amount > 0 ? `Commission: ${formatMoney(trade.commission_amount, currency)}` : null,
+      trade.fee_amount > 0 ? `Fees: ${formatMoney(trade.fee_amount, currency)}` : null,
       strategy ? `Strategy: ${strategy}` : null,
       tags.length > 0 ? `Tags: ${tags.join(", ")}` : null,
       plainNotes ? `Notes:\n${plainNotes}` : null,
@@ -3886,7 +3999,8 @@ function NotebookTradeDetail({
             value={formatMoney(trade.gross_pnl ?? trade.realized_pnl, currency)}
             tone={toneForNumber(trade.gross_pnl ?? trade.realized_pnl)}
           />
-          <CompactMetric label="Fees" value={formatMoney(trade.commission_amount ?? 0, currency)} />
+          <CompactMetric label="Commission" value={formatMoney(trade.commission_amount ?? 0, currency)} />
+          <CompactMetric label="Fees" value={formatMoney(trade.fee_amount ?? 0, currency)} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -3911,7 +4025,7 @@ function NotebookTradeDetail({
 
       <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,0.7fr)]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(220px,0.7fr)_minmax(220px,0.7fr)]">
             <label className="form-field">
               <span>Strategy</span>
               <ThemedSelect
@@ -3944,7 +4058,7 @@ function NotebookTradeDetail({
             </label>
             <section className="rounded-md border border-white/10 bg-black/20 p-2">
               <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                Fees
+                Commissions
               </div>
               <div className="grid grid-cols-3 gap-1.5">
                 {([
@@ -3964,7 +4078,7 @@ function NotebookTradeDetail({
               </div>
               {commissionMode !== "NONE" && (
                 <label className="form-field mt-2">
-                  <span>{commissionMode === "FIXED" ? "Fixed fee" : "Percent fee"}</span>
+                  <span>{commissionMode === "FIXED" ? "Fixed commission" : "Percent commission"}</span>
                   <input
                     className="input-control h-10"
                     min="0"
@@ -3972,6 +4086,40 @@ function NotebookTradeDetail({
                     step={commissionMode === "FIXED" ? "0.01" : "0.0001"}
                     type="number"
                     value={commissionValue}
+                  />
+                </label>
+              )}
+            </section>
+            <section className="rounded-md border border-white/10 bg-black/20 p-2">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Fees
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {([
+                  { label: "None", value: "NONE" },
+                  { label: "Fixed", value: "FIXED" },
+                  { label: "Percent", value: "PERCENT" },
+                ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
+                  <button
+                    className={`segmented px-2 text-xs ${feeMode === option.value ? "segmented-active" : ""}`}
+                    key={option.value}
+                    onClick={() => setFeeMode(option.value)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {feeMode !== "NONE" && (
+                <label className="form-field mt-2">
+                  <span>{feeMode === "FIXED" ? "Fixed fee" : "Percent fee"}</span>
+                  <input
+                    className="input-control h-10"
+                    min="0"
+                    onChange={(event) => setFeeValue(event.target.value)}
+                    step={feeMode === "FIXED" ? "0.01" : "0.0001"}
+                    type="number"
+                    value={feeValue}
                   />
                 </label>
               )}
@@ -4405,6 +4553,65 @@ function normalizeCommissionMode(value: unknown): OrderCommissionMode {
   return value === "FIXED" || value === "PERCENT" ? value : "NONE";
 }
 
+function CostConfigCard({
+  fixedValue,
+  mode,
+  onFixedValueChange,
+  onModeChange,
+  onPercentValueChange,
+  percentValue,
+  title,
+}: {
+  fixedValue: string;
+  mode: OrderCommissionMode;
+  onFixedValueChange: (value: string) => void;
+  onModeChange: (value: OrderCommissionMode) => void;
+  onPercentValueChange: (value: string) => void;
+  percentValue: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-md border border-white/10 bg-black/20 p-3">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {title}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {([
+          { label: "None", value: "NONE" },
+          { label: "Fixed", value: "FIXED" },
+          { label: "Percent", value: "PERCENT" },
+        ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
+          <button
+            className={`segmented ${mode === option.value ? "segmented-active" : ""}`}
+            key={option.value}
+            onClick={() => onModeChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {mode !== "NONE" && (
+        <label className="form-field mt-3">
+          <span>{mode === "FIXED" ? "Fixed amount" : "Percent amount"}</span>
+          <input
+            className="input-control h-10"
+            min="0"
+            onChange={(event) =>
+              mode === "FIXED"
+                ? onFixedValueChange(event.target.value)
+                : onPercentValueChange(event.target.value)
+            }
+            step={mode === "FIXED" ? "0.01" : "0.0001"}
+            type="number"
+            value={mode === "FIXED" ? fixedValue : percentValue}
+          />
+        </label>
+      )}
+    </section>
+  );
+}
+
 function formatNumberInput(value: number | null | undefined) {
   return Number.isFinite(value) ? String(value) : "0";
 }
@@ -4412,6 +4619,16 @@ function formatNumberInput(value: number | null | undefined) {
 function numberFromTextOrZero(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function costValueForPayload(mode: OrderCommissionMode, fixedValue: string, percentValue: string) {
+  if (mode === "FIXED") {
+    return numberFromTextOrZero(fixedValue);
+  }
+  if (mode === "PERCENT") {
+    return numberFromTextOrZero(percentValue);
+  }
+  return 0;
 }
 
 function findEditorAnchor(node: Node | null, editor: HTMLElement) {
@@ -4655,9 +4872,10 @@ function ReportsPage({
         </div>
       </section>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
         <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, currency)} />
-        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(filteredAggregate.totalCommissions, currency)} />
+        <ResultMetricCard icon={WalletCards} label="Commissions" value={formatMoney(filteredAggregate.totalCommissions, currency)} />
+        <ResultMetricCard icon={WalletCards} label="Fees" value={formatMoney(filteredAggregate.totalFees, currency)} />
         <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(filteredAggregate.winRate)} />
         <ResultMetricCard icon={Target} label="Trades" value={String(filteredAggregate.totalTrades)} />
         <ResultMetricCard icon={Gauge} label="Avg R" tone={toneForNumber(filteredAggregate.averageR)} value={formatOptionalNumber(filteredAggregate.averageR)} />
@@ -5769,6 +5987,9 @@ function BacktestOrderSettings() {
   );
   const [fixedCommission, setFixedCommission] = useState(() => loadOrderCommissionFixed());
   const [percentCommission, setPercentCommission] = useState(() => loadOrderCommissionPercent());
+  const [feeMode, setFeeMode] = useState<OrderCommissionMode>(() => loadOrderFeeMode());
+  const [fixedFee, setFixedFee] = useState(() => loadOrderFeeFixed());
+  const [percentFee, setPercentFee] = useState(() => loadOrderFeePercent());
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -5782,7 +6003,10 @@ function BacktestOrderSettings() {
       hydrateOrderCommissionMode(),
       hydrateOrderCommissionFixed(),
       hydrateOrderCommissionPercent(),
-    ]).then(([confirmLineEdits, nextSizingMode, nextRiskBase, nextQuantity, nextRiskPercent, nextCommissionMode, nextFixedCommission, nextPercentCommission]) => {
+      hydrateOrderFeeMode(),
+      hydrateOrderFeeFixed(),
+      hydrateOrderFeePercent(),
+    ]).then(([confirmLineEdits, nextSizingMode, nextRiskBase, nextQuantity, nextRiskPercent, nextCommissionMode, nextFixedCommission, nextPercentCommission, nextFeeMode, nextFixedFee, nextPercentFee]) => {
       if (!active) {
         return;
       }
@@ -5794,6 +6018,9 @@ function BacktestOrderSettings() {
       setCommissionMode(nextCommissionMode);
       setFixedCommission(nextFixedCommission);
       setPercentCommission(nextPercentCommission);
+      setFeeMode(nextFeeMode);
+      setFixedFee(nextFixedFee);
+      setPercentFee(nextPercentFee);
     });
     const unsubscribers = [
       subscribeOrderLineModificationConfirmation(setConfirmOrderLineModifications),
@@ -5804,6 +6031,9 @@ function BacktestOrderSettings() {
       subscribeOrderCommissionMode(setCommissionMode),
       subscribeOrderCommissionFixed(setFixedCommission),
       subscribeOrderCommissionPercent(setPercentCommission),
+      subscribeOrderFeeMode(setFeeMode),
+      subscribeOrderFeeFixed(setFixedFee),
+      subscribeOrderFeePercent(setPercentFee),
     ];
     return () => {
       active = false;
@@ -5861,6 +6091,25 @@ function BacktestOrderSettings() {
     setPercentCommission(value);
     if (isNonNegativeNumberText(value)) {
       void saveOrderCommissionPercent(value).then(() => markSaved());
+    }
+  }
+
+  function updateFeeMode(value: OrderCommissionMode) {
+    setFeeMode(value);
+    void saveOrderFeeMode(value).then(() => markSaved());
+  }
+
+  function updateFixedFee(value: string) {
+    setFixedFee(value);
+    if (isNonNegativeNumberText(value)) {
+      void saveOrderFeeFixed(value).then(() => markSaved());
+    }
+  }
+
+  function updatePercentFee(value: string) {
+    setPercentFee(value);
+    if (isNonNegativeNumberText(value)) {
+      void saveOrderFeePercent(value).then(() => markSaved());
     }
   }
 
@@ -5946,52 +6195,32 @@ function BacktestOrderSettings() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Universal commissions / fees
+              Session cost defaults
             </div>
             <div className="mt-1 text-sm text-slate-400">
-              Applied to new backtest orders and deducted from closed trade P&L.
+              Used to prefill new session creation. Each session stores its own commission and fee rules.
             </div>
           </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          {([
-            { label: "No fees", value: "NONE" },
-            { label: "Fixed", value: "FIXED" },
-            { label: "Percent", value: "PERCENT" },
-          ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
-            <button
-              className={`segmented ${commissionMode === option.value ? "segmented-active" : ""}`}
-              key={option.value}
-              onClick={() => updateCommissionMode(option.value)}
-              type="button"
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="form-field">
-            Default fixed fee
-            <input
-              className="input-control h-10 normal-case tracking-normal"
-              min="0"
-              onChange={(event) => updateFixedCommission(event.target.value)}
-              step="0.01"
-              type="number"
-              value={fixedCommission}
-            />
-          </label>
-          <label className="form-field">
-            Default percent fee
-            <input
-              className="input-control h-10 normal-case tracking-normal"
-              min="0"
-              onChange={(event) => updatePercentCommission(event.target.value)}
-              step="0.0001"
-              type="number"
-              value={percentCommission}
-            />
-          </label>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <CostConfigCard
+            fixedValue={fixedCommission}
+            mode={commissionMode}
+            onFixedValueChange={updateFixedCommission}
+            onModeChange={updateCommissionMode}
+            onPercentValueChange={updatePercentCommission}
+            percentValue={percentCommission}
+            title="Default Commissions"
+          />
+          <CostConfigCard
+            fixedValue={fixedFee}
+            mode={feeMode}
+            onFixedValueChange={updateFixedFee}
+            onModeChange={updateFeeMode}
+            onPercentValueChange={updatePercentFee}
+            percentValue={percentFee}
+            title="Default Fees"
+          />
         </div>
       </div>
 
@@ -8066,6 +8295,8 @@ function tradeMatchesLogSearch(
     trade.realized_pnl,
     trade.commission_amount,
     trade.commission_mode,
+    trade.fee_amount,
+    trade.fee_mode,
     trade.r_multiple,
     strategyName,
     session?.name,
@@ -8149,6 +8380,9 @@ function exportTradeLogCsv(
     "Take Profit",
     "Currency",
     "Gross P&L",
+    "Commission",
+    "Commission Mode",
+    "Commission Value",
     "Fees",
     "Fee Mode",
     "Fee Value",
@@ -8181,6 +8415,9 @@ function exportTradeLogCsv(
       trade.commission_amount ?? 0,
       trade.commission_mode ?? "NONE",
       trade.commission_value ?? 0,
+      trade.fee_amount ?? 0,
+      trade.fee_mode ?? "NONE",
+      trade.fee_value ?? 0,
       trade.realized_pnl,
       trade.r_multiple ?? "",
       tradeStrategyName(trade, session),
@@ -8215,7 +8452,8 @@ function exportResultsSummaryCsv({
   const rows: unknown[][] = [
     ["Section", "Metric", "Value", "Extra"],
     ["Summary", "Net P&L", aggregate.netPnl, currency],
-    ["Summary", "Fees", aggregate.totalCommissions, currency],
+    ["Summary", "Commissions", aggregate.totalCommissions, currency],
+    ["Summary", "Fees", aggregate.totalFees, currency],
     ["Summary", "Closed trades", aggregate.totalTrades, ""],
     ["Summary", "Win rate", `${(aggregate.winRate * 100).toFixed(1)}%`, ""],
     ["Summary", "Profit factor", formatRatio(aggregate.profitFactor), ""],
@@ -8433,6 +8671,9 @@ function useLiveJournalData(): LiveJournalController {
         exit_offset: null,
         exit_price: payload.exitPrice,
         exit_time: toIsoFromDateTimeLocal(payload.exitTime),
+        fee_amount: 0,
+        fee_mode: "NONE",
+        fee_value: 0,
         id: nextNumericId(current.trades),
         gross_pnl: realizedPnl,
         mistake_tags: payload.mistakeTags,
@@ -8493,6 +8734,9 @@ function sanitizeLiveJournalData(value: unknown): LiveJournalData {
           commission_amount: trade.commission_amount ?? 0,
           commission_mode: normalizeCommissionMode(trade.commission_mode),
           commission_value: trade.commission_value ?? 0,
+          fee_amount: trade.fee_amount ?? 0,
+          fee_mode: normalizeCommissionMode(trade.fee_mode),
+          fee_value: trade.fee_value ?? 0,
           gross_pnl: trade.gross_pnl ?? trade.realized_pnl,
         }))
     : [];
@@ -8608,6 +8852,7 @@ function aggregateTrades(trades: Trade[]): Aggregate {
   const closed = trades.filter((trade) => trade.status === "CLOSED").slice().sort(compareTradesAscending);
   const netPnl = closed.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
   const totalCommissions = closed.reduce((sum, trade) => sum + (trade.commission_amount ?? 0), 0);
+  const totalFees = closed.reduce((sum, trade) => sum + (trade.fee_amount ?? 0), 0);
   const wins = closed.filter((trade) => (trade.realized_pnl ?? 0) > 0);
   const losses = closed.filter((trade) => (trade.realized_pnl ?? 0) < 0);
   const breakeven = closed.filter((trade) => (trade.realized_pnl ?? 0) === 0);
@@ -8638,6 +8883,7 @@ function aggregateTrades(trades: Trade[]): Aggregate {
     profitFactor: grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : null,
     recoveryFactor: maxDrawdown < 0 ? netPnl / Math.abs(maxDrawdown) : null,
     totalCommissions,
+    totalFees,
     totalTrades: closed.length,
     winRate: closed.length > 0 ? wins.length / closed.length : 0,
     wins: wins.length,

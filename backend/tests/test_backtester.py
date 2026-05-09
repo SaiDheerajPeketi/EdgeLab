@@ -116,6 +116,67 @@ def test_percent_commission_is_deducted_from_closed_trade(tmp_path: Path):
     assert state.metrics.net_pnl == pytest.approx(37.96)
 
 
+def test_commission_and_fee_are_deducted_separately(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+            commission_mode="FIXED",
+            commission_value=4,
+            fee_mode="FIXED",
+            fee_value=1.5,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert state.trades[0].gross_pnl == pytest.approx(40)
+    assert state.trades[0].commission_amount == pytest.approx(4)
+    assert state.trades[0].fee_amount == pytest.approx(1.5)
+    assert state.trades[0].realized_pnl == pytest.approx(34.5)
+    assert state.metrics.net_pnl == pytest.approx(34.5)
+
+
+def test_session_cost_defaults_apply_when_order_omits_costs(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(
+        db,
+        BacktestCreate(
+            initial_offset=0,
+            default_commission_mode="FIXED",
+            default_commission_value=3,
+            default_fee_mode="PERCENT",
+            default_fee_value=0.1,
+        ),
+    )
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert state.orders[0].commission_mode == "FIXED"
+    assert state.orders[0].commission_value == pytest.approx(3)
+    assert state.orders[0].fee_mode == "PERCENT"
+    assert state.orders[0].fee_value == pytest.approx(0.1)
+    assert state.trades[0].commission_amount == pytest.approx(3)
+    assert state.trades[0].fee_amount == pytest.approx(2.04)
+    assert state.trades[0].realized_pnl == pytest.approx(34.96)
+
+
 def test_pnl_multiplier_calibrates_session_pnl_without_changing_r(tmp_path: Path):
     service, db = make_service(tmp_path, DEFAULT_ROWS)
     state = service.create_session(

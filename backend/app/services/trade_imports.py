@@ -17,7 +17,7 @@ from app.schemas import (
     BacktestTradeImport,
     BacktestTradeImportResult,
 )
-from app.services.backtester import to_trade_read
+from app.services.backtester import _commission_value, _normalize_commission_mode, to_trade_read
 
 
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
@@ -77,6 +77,10 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "commission_amount": (
         "commission",
         "commissions",
+        "brokercommission",
+        "brokercommissions",
+    ),
+    "fee_amount": (
         "fee",
         "fees",
         "brokerfee",
@@ -133,7 +137,17 @@ def import_trade_csv(
 
     for index, row in enumerate(rows, start=2):
         try:
-            parsed = _parse_trade_row(row, headers, mapping, index, payload.strategy_name)
+            parsed = _parse_trade_row(
+                row,
+                headers,
+                mapping,
+                index,
+                payload.strategy_name,
+                payload.default_commission_mode,
+                payload.default_commission_value,
+                payload.default_fee_mode,
+                payload.default_fee_value,
+            )
         except ValueError as exc:
             if len(errors) < 25:
                 errors.append(str(exc))
@@ -174,6 +188,13 @@ def import_trade_csv(
         initial_balance=payload.initial_balance,
         realized_pnl=realized_pnl,
         status="COMPLETE",
+        default_commission_mode=_normalize_commission_mode(payload.default_commission_mode),
+        default_commission_value=_commission_value(
+            payload.default_commission_mode,
+            payload.default_commission_value,
+        ),
+        default_fee_mode=_normalize_commission_mode(payload.default_fee_mode),
+        default_fee_value=_commission_value(payload.default_fee_mode, payload.default_fee_value),
     )
     db.add(session)
     db.flush()
@@ -201,6 +222,9 @@ def import_trade_csv(
             commission_mode=row["commission_mode"],
             commission_value=row["commission_value"],
             commission_amount=row["commission_amount"],
+            fee_mode=row["fee_mode"],
+            fee_value=row["fee_value"],
+            fee_amount=row["fee_amount"],
             strategy_name=row["strategy_name"],
             notes=row["notes"],
             mistake_tags=json.dumps(row["tags"]),
@@ -248,6 +272,10 @@ def _parse_trade_row(
     mapping: dict[str, str],
     row_number: int,
     default_strategy: str | None,
+    default_commission_mode: str | None,
+    default_commission_value: float | None,
+    default_fee_mode: str | None,
+    default_fee_value: float | None,
 ) -> dict[str, Any]:
     entry_time = _parse_datetime(_field(row, headers, mapping, "entry_time"), "entry time", row_number)
     exit_value = _field(row, headers, mapping, "exit_time")
@@ -257,14 +285,36 @@ def _parse_trade_row(
     exit_price = _parse_float(_field(row, headers, mapping, "exit_price"), "exit price", row_number)
     quantity = _parse_float(_field(row, headers, mapping, "quantity"), "quantity", row_number)
     pnl_value = _field(row, headers, mapping, "realized_pnl")
-    commission_amount = _parse_optional_float(_field(row, headers, mapping, "commission_amount")) or 0.0
+    commission_mode, commission_value, commission_amount = _row_cost_config(
+        row,
+        headers,
+        mapping,
+        "commission_amount",
+        default_commission_mode,
+        default_commission_value,
+        entry_price,
+        exit_price,
+        quantity,
+    )
+    fee_mode, fee_value, fee_amount = _row_cost_config(
+        row,
+        headers,
+        mapping,
+        "fee_amount",
+        default_fee_mode,
+        default_fee_value,
+        entry_price,
+        exit_price,
+        quantity,
+    )
+    total_costs = commission_amount + fee_amount
     price_derived_pnl = (exit_price - entry_price) * quantity * (1 if side == "LONG" else -1)
     realized_pnl = (
         _parse_float(pnl_value, "realized P&L", row_number)
         if pnl_value
-        else price_derived_pnl - commission_amount
+        else price_derived_pnl - total_costs
     )
-    gross_pnl = realized_pnl + commission_amount if pnl_value else price_derived_pnl
+    gross_pnl = realized_pnl + total_costs if pnl_value else price_derived_pnl
     return {
         "entry_time": entry_time,
         "exit_time": exit_time,
@@ -274,9 +324,12 @@ def _parse_trade_row(
         "quantity": quantity,
         "gross_pnl": gross_pnl,
         "realized_pnl": realized_pnl,
-        "commission_mode": "FIXED" if commission_amount > 0 else "NONE",
-        "commission_value": commission_amount,
+        "commission_mode": commission_mode,
+        "commission_value": commission_value,
         "commission_amount": commission_amount,
+        "fee_mode": fee_mode,
+        "fee_value": fee_value,
+        "fee_amount": fee_amount,
         "symbol": _clean_text(_field(row, headers, mapping, "symbol")),
         "strategy_name": _clean_text(_field(row, headers, mapping, "strategy_name"))
         or _clean_text(default_strategy),
@@ -299,6 +352,32 @@ def _field(row: dict[str, str], headers: list[str], mapping: dict[str, str], fie
         if header and row.get(header, "").strip():
             return row[header].strip()
     return ""
+
+
+def _row_cost_config(
+    row: dict[str, str],
+    headers: list[str],
+    mapping: dict[str, str],
+    field: str,
+    default_mode: str | None,
+    default_value: float | None,
+    entry_price: float,
+    exit_price: float,
+    quantity: float,
+) -> tuple[str, float, float]:
+    explicit_amount = _parse_optional_float(_field(row, headers, mapping, field))
+    if explicit_amount is not None:
+        amount = max(explicit_amount, 0.0)
+        return ("FIXED" if amount > 0 else "NONE"), amount, amount
+
+    mode = _normalize_commission_mode(default_mode)
+    value = _commission_value(mode, default_value)
+    if mode == "NONE" or value <= 0:
+        return "NONE", 0.0, 0.0
+    if mode == "FIXED":
+        return mode, value, value
+    amount = (abs(entry_price * quantity) + abs(exit_price * quantity)) * (value / 100)
+    return mode, value, amount
 
 
 def _parse_datetime(value: str, label: str, row_number: int) -> datetime:

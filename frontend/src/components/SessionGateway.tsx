@@ -30,6 +30,21 @@ import type {
 } from "../lib/api";
 import { currencyForSession, currencyForSessions } from "../lib/currency";
 import { formatMoney, formatPercent } from "../lib/format";
+import {
+  hydrateOrderCommissionFixed,
+  hydrateOrderCommissionMode,
+  hydrateOrderCommissionPercent,
+  hydrateOrderFeeFixed,
+  hydrateOrderFeeMode,
+  hydrateOrderFeePercent,
+  loadOrderCommissionFixed,
+  loadOrderCommissionMode,
+  loadOrderCommissionPercent,
+  loadOrderFeeFixed,
+  loadOrderFeeMode,
+  loadOrderFeePercent,
+  type OrderCommissionMode,
+} from "../lib/orderSettings";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
 import { ThemedSelect } from "./ThemedSelect";
@@ -49,6 +64,12 @@ type Props = {
 };
 
 type PlaybookMode = "none" | "existing" | "new";
+
+const COST_MODE_OPTIONS: Array<{ label: string; value: OrderCommissionMode }> = [
+  { label: "None", value: "NONE" },
+  { label: "Fixed", value: "FIXED" },
+  { label: "Percent", value: "PERCENT" },
+];
 
 const CURRENCY_OPTIONS = [
   "USD",
@@ -107,6 +128,14 @@ export function SessionGateway({
   const [riskRules, setRiskRules] = useState("Risk 1% or less until the setup is validated.");
   const [sessionNotes, setSessionNotes] = useState("");
   const [startingBalance, setStartingBalance] = useState("100000");
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(() =>
+    loadOrderCommissionMode(),
+  );
+  const [fixedCommission, setFixedCommission] = useState(() => loadOrderCommissionFixed());
+  const [percentCommission, setPercentCommission] = useState(() => loadOrderCommissionPercent());
+  const [feeMode, setFeeMode] = useState<OrderCommissionMode>(() => loadOrderFeeMode());
+  const [fixedFee, setFixedFee] = useState(() => loadOrderFeeFixed());
+  const [percentFee, setPercentFee] = useState(() => loadOrderFeePercent());
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -193,6 +222,31 @@ export function SessionGateway({
     }
   }, [deletingSession, editingSession, sessions]);
 
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      hydrateOrderCommissionMode(),
+      hydrateOrderCommissionFixed(),
+      hydrateOrderCommissionPercent(),
+      hydrateOrderFeeMode(),
+      hydrateOrderFeeFixed(),
+      hydrateOrderFeePercent(),
+    ]).then(([nextCommissionMode, nextFixedCommission, nextPercentCommission, nextFeeMode, nextFixedFee, nextPercentFee]) => {
+      if (!active) {
+        return;
+      }
+      setCommissionMode(nextCommissionMode);
+      setFixedCommission(nextFixedCommission);
+      setPercentCommission(nextPercentCommission);
+      setFeeMode(nextFeeMode);
+      setFixedFee(nextFixedFee);
+      setPercentFee(nextPercentFee);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   function selectInstrument(instrument: DatasetInstrument) {
     setInstrumentId(instrument.id);
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
@@ -232,6 +286,10 @@ export function SessionGateway({
         start_timestamp: startDate ? new Date(startDate).toISOString() : null,
         end_timestamp: endDate ? new Date(endDate).toISOString() : null,
         initial_balance: Number(startingBalance) || 100000,
+        default_commission_mode: commissionMode,
+        default_commission_value: costValueForPayload(commissionMode, fixedCommission, percentCommission),
+        default_fee_mode: feeMode,
+        default_fee_value: costValueForPayload(feeMode, fixedFee, percentFee),
       });
     } finally {
       setSubmitting(false);
@@ -468,6 +526,26 @@ export function SessionGateway({
             />
           </label>
         </div>
+        <div className="mt-3 grid gap-3 xl:grid-cols-2">
+          <CostConfigCard
+            fixedValue={fixedCommission}
+            mode={commissionMode}
+            onFixedValueChange={setFixedCommission}
+            onModeChange={setCommissionMode}
+            onPercentValueChange={setPercentCommission}
+            percentValue={percentCommission}
+            title="Default Commissions"
+          />
+          <CostConfigCard
+            fixedValue={fixedFee}
+            mode={feeMode}
+            onFixedValueChange={setFixedFee}
+            onModeChange={setFeeMode}
+            onPercentValueChange={setPercentFee}
+            percentValue={percentFee}
+            title="Default Fees"
+          />
+        </div>
 
         <div className="session-step">
           <div className="session-step-number">2</div>
@@ -702,6 +780,61 @@ function ModeButton({
   );
 }
 
+function CostConfigCard({
+  fixedValue,
+  mode,
+  onFixedValueChange,
+  onModeChange,
+  onPercentValueChange,
+  percentValue,
+  title,
+}: {
+  fixedValue: string;
+  mode: OrderCommissionMode;
+  onFixedValueChange: (value: string) => void;
+  onModeChange: (value: OrderCommissionMode) => void;
+  onPercentValueChange: (value: string) => void;
+  percentValue: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-md border border-white/10 bg-black/20 p-3">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {title}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {COST_MODE_OPTIONS.map((option) => (
+          <button
+            className={`segmented ${mode === option.value ? "segmented-active" : ""}`}
+            key={option.value}
+            onClick={() => onModeChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {mode !== "NONE" && (
+        <label className="form-field mt-3">
+          <span>{mode === "FIXED" ? "Fixed amount" : "Percent amount"}</span>
+          <input
+            className="input-control h-10"
+            min="0"
+            onChange={(event) =>
+              mode === "FIXED"
+                ? onFixedValueChange(event.target.value)
+                : onPercentValueChange(event.target.value)
+            }
+            step={mode === "FIXED" ? "0.01" : "0.0001"}
+            type="number"
+            value={mode === "FIXED" ? fixedValue : percentValue}
+          />
+        </label>
+      )}
+    </section>
+  );
+}
+
 function SessionActionButtons({
   onDelete,
   onEdit,
@@ -757,6 +890,22 @@ function SessionEditDialog({
   const [currency, setCurrency] = useState(session.currency ?? "USD");
   const [timezone, setTimezone] = useState(session.timezone ?? "UTC");
   const [pnlMultiplier, setPnlMultiplier] = useState(String(session.pnl_multiplier ?? 1));
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(
+    session.default_commission_mode ?? "NONE",
+  );
+  const [fixedCommission, setFixedCommission] = useState(() =>
+    session.default_commission_mode === "FIXED" ? formatCostValue(session.default_commission_value) : "0",
+  );
+  const [percentCommission, setPercentCommission] = useState(() =>
+    session.default_commission_mode === "PERCENT" ? formatCostValue(session.default_commission_value) : "0",
+  );
+  const [feeMode, setFeeMode] = useState<OrderCommissionMode>(session.default_fee_mode ?? "NONE");
+  const [fixedFee, setFixedFee] = useState(() =>
+    session.default_fee_mode === "FIXED" ? formatCostValue(session.default_fee_value) : "0",
+  );
+  const [percentFee, setPercentFee] = useState(() =>
+    session.default_fee_mode === "PERCENT" ? formatCostValue(session.default_fee_value) : "0",
+  );
   const [status, setStatus] = useState<BacktestSession["status"]>(session.status);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -769,6 +918,16 @@ function SessionEditDialog({
     setCurrency(session.currency ?? "USD");
     setTimezone(session.timezone ?? "UTC");
     setPnlMultiplier(String(session.pnl_multiplier ?? 1));
+    setCommissionMode(session.default_commission_mode ?? "NONE");
+    setFixedCommission(
+      session.default_commission_mode === "FIXED" ? formatCostValue(session.default_commission_value) : "0",
+    );
+    setPercentCommission(
+      session.default_commission_mode === "PERCENT" ? formatCostValue(session.default_commission_value) : "0",
+    );
+    setFeeMode(session.default_fee_mode ?? "NONE");
+    setFixedFee(session.default_fee_mode === "FIXED" ? formatCostValue(session.default_fee_value) : "0");
+    setPercentFee(session.default_fee_mode === "PERCENT" ? formatCostValue(session.default_fee_value) : "0");
     setStatus(session.status);
     setError(null);
   }, [session]);
@@ -803,6 +962,10 @@ function SessionEditDialog({
         timezone: timezone.trim() || null,
         pnl_multiplier: multiplierValue,
         status,
+        default_commission_mode: commissionMode,
+        default_commission_value: costValueForPayload(commissionMode, fixedCommission, percentCommission),
+        default_fee_mode: feeMode,
+        default_fee_value: costValueForPayload(feeMode, fixedFee, percentFee),
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Could not save session");
@@ -938,6 +1101,26 @@ function SessionEditDialog({
                 value={timezone}
               />
             </label>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <CostConfigCard
+              fixedValue={fixedCommission}
+              mode={commissionMode}
+              onFixedValueChange={setFixedCommission}
+              onModeChange={setCommissionMode}
+              onPercentValueChange={setPercentCommission}
+              percentValue={percentCommission}
+              title="Default Commissions"
+            />
+            <CostConfigCard
+              fixedValue={fixedFee}
+              mode={feeMode}
+              onFixedValueChange={setFixedFee}
+              onModeChange={setFeeMode}
+              onPercentValueChange={setPercentFee}
+              percentValue={percentFee}
+              title="Default Fees"
+            />
           </div>
           {error && (
             <div className="rounded-md border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-100">
@@ -1378,6 +1561,25 @@ function selectOptionsWithValue(
     return options;
   }
   return [makeMissingOption(value), ...options];
+}
+
+function costValueForPayload(mode: OrderCommissionMode, fixedValue: string, percentValue: string) {
+  if (mode === "FIXED") {
+    return numberOrZero(fixedValue);
+  }
+  if (mode === "PERCENT") {
+    return numberOrZero(percentValue);
+  }
+  return 0;
+}
+
+function numberOrZero(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function formatCostValue(value: number | null | undefined) {
+  return String(Number.isFinite(value) ? value : 0);
 }
 
 function timezoneOption(timezone: string) {

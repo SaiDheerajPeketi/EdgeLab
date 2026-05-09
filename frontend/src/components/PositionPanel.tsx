@@ -1,11 +1,6 @@
 import { ArrowDownToLine, ArrowUpToLine, BadgeDollarSign } from "lucide-react";
 import type { Position } from "../lib/api";
 import { formatPrice } from "../lib/format";
-import {
-  loadOrderCommissionFixed,
-  loadOrderCommissionMode,
-  loadOrderCommissionPercent,
-} from "../lib/orderSettings";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -15,6 +10,7 @@ type Props = {
 
 export function PositionPanel({ currency = "USD", position }: Props) {
   const placeOrder = useBacktestStore((store) => store.placeOrder);
+  const session = useBacktestStore((store) => store.state?.session ?? null);
   const isFlat = !position || position.side === "FLAT" || position.quantity <= 0;
   const closeSide = position?.side === "LONG" ? "SELL" : "BUY";
 
@@ -22,19 +18,18 @@ export function PositionPanel({ currency = "USD", position }: Props) {
     if (!position || isFlat) {
       return;
     }
-    const commissionMode = loadOrderCommissionMode();
     void placeOrder({
       side: closeSide,
       order_type: "MARKET",
       quantity: position.quantity * fraction,
       reduce_only: true,
-      commission_mode: commissionMode,
-      commission_value:
-        commissionMode === "FIXED"
-          ? numberOrZero(loadOrderCommissionFixed())
-          : commissionMode === "PERCENT"
-            ? numberOrZero(loadOrderCommissionPercent())
-            : 0,
+      commission_mode: session?.default_commission_mode ?? "NONE",
+      commission_value: costValueForPayload(
+        session?.default_commission_mode,
+        session?.default_commission_value,
+      ),
+      fee_mode: session?.default_fee_mode ?? "NONE",
+      fee_value: costValueForPayload(session?.default_fee_mode, session?.default_fee_value),
       strategy_name: position.strategy_name,
       playbook_id: position.playbook_id,
     });
@@ -107,7 +102,6 @@ function money(value: number, currency: string) {
   }).format(value);
 }
 
-function numberOrZero(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+function costValueForPayload(mode: string | null | undefined, value: number | null | undefined) {
+  return mode === "FIXED" || mode === "PERCENT" ? Math.max(Number(value) || 0, 0) : 0;
 }

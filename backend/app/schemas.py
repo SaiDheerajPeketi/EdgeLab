@@ -148,6 +148,10 @@ class BacktestCreate(BaseModel):
     end_timestamp: datetime | None = None
     initial_balance: float = Field(default=100_000.0, gt=0)
     initial_offset: int = Field(default=0, ge=0)
+    default_commission_mode: CommissionMode = "NONE"
+    default_commission_value: float | None = Field(default=0.0, ge=0)
+    default_fee_mode: CommissionMode = "NONE"
+    default_fee_value: float | None = Field(default=0.0, ge=0)
 
 
 class BacktestSessionUpdate(BaseModel):
@@ -159,6 +163,10 @@ class BacktestSessionUpdate(BaseModel):
     playbook_id: int | None = None
     status: Literal["ACTIVE", "COMPLETE"] | None = None
     initial_balance: float | None = Field(default=None, gt=0)
+    default_commission_mode: CommissionMode | None = None
+    default_commission_value: float | None = Field(default=None, ge=0)
+    default_fee_mode: CommissionMode | None = None
+    default_fee_value: float | None = Field(default=None, ge=0)
 
 
 class BacktestSessionRead(BaseModel):
@@ -183,6 +191,10 @@ class BacktestSessionRead(BaseModel):
     current_offset: int
     initial_balance: float
     realized_pnl: float
+    default_commission_mode: CommissionMode = "NONE"
+    default_commission_value: float = 0.0
+    default_fee_mode: CommissionMode = "NONE"
+    default_fee_value: float = 0.0
     created_at: datetime
     updated_at: datetime
 
@@ -197,6 +209,10 @@ class BacktestTradeImport(BaseModel):
     instrument: str | None = Field(default=None, max_length=80)
     timeframe: str | None = Field(default=None, max_length=20)
     strategy_name: str | None = Field(default=None, max_length=120)
+    default_commission_mode: CommissionMode = "NONE"
+    default_commission_value: float | None = Field(default=0.0, ge=0)
+    default_fee_mode: CommissionMode = "NONE"
+    default_fee_value: float | None = Field(default=0.0, ge=0)
     column_mapping: dict[str, str] = Field(default_factory=dict)
 
 
@@ -236,6 +252,8 @@ class OrderCreate(BaseModel):
     reduce_only: bool = False
     commission_mode: CommissionMode = "NONE"
     commission_value: float | None = Field(default=0.0, ge=0)
+    fee_mode: CommissionMode = "NONE"
+    fee_value: float | None = Field(default=0.0, ge=0)
     strategy_name: str | None = None
     playbook_id: int | None = None
     mistake_tags: list[str] = Field(default_factory=list)
@@ -264,6 +282,8 @@ class OrderUpdate(BaseModel):
     reduce_only: bool | None = None
     commission_mode: CommissionMode | None = None
     commission_value: float | None = Field(default=None, ge=0)
+    fee_mode: CommissionMode | None = None
+    fee_value: float | None = Field(default=None, ge=0)
     strategy_name: str | None = None
     playbook_id: int | None = None
     mistake_tags: list[str] | None = None
@@ -289,6 +309,8 @@ class OrderRead(BaseModel):
     reduce_only: bool
     commission_mode: CommissionMode
     commission_value: float
+    fee_mode: CommissionMode
+    fee_value: float
     strategy_name: str | None
     mistake_tags: list[str]
     notes: str | None
@@ -338,6 +360,9 @@ class TradeRead(BaseModel):
     commission_mode: CommissionMode
     commission_value: float
     commission_amount: float
+    fee_mode: CommissionMode
+    fee_value: float
+    fee_amount: float
     strategy_name: str | None
     playbook_id: int | None
     notes: str | None
@@ -364,6 +389,9 @@ class JournalUpdate(BaseModel):
     commission_mode: CommissionMode | None = None
     commission_value: float | None = Field(default=None, ge=0)
     commission_amount: float | None = Field(default=None, ge=0)
+    fee_mode: CommissionMode | None = None
+    fee_value: float | None = Field(default=None, ge=0)
+    fee_amount: float | None = Field(default=None, ge=0)
 
 
 class TradeStrategyUpdate(BaseModel):

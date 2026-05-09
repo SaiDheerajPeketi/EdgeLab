@@ -82,11 +82,6 @@ import {
 } from "./lib/backtestSettings";
 import { currencyForSession } from "./lib/currency";
 import {
-  loadOrderCommissionFixed,
-  loadOrderCommissionMode,
-  loadOrderCommissionPercent,
-} from "./lib/orderSettings";
-import {
   getCachedAppStorageItem,
   loadAppStorageItem,
   saveAppStorageItem,
@@ -827,19 +822,18 @@ export default function App() {
     if (!position || position.side === "FLAT" || position.quantity <= 0) {
       return;
     }
-    const commissionMode = loadOrderCommissionMode();
     void placeOrder({
       side: position.side === "LONG" ? "SELL" : "BUY",
       order_type: "MARKET",
       quantity: position.quantity * fraction,
       reduce_only: true,
-      commission_mode: commissionMode,
-      commission_value:
-        commissionMode === "FIXED"
-          ? numberOrZero(loadOrderCommissionFixed())
-          : commissionMode === "PERCENT"
-            ? numberOrZero(loadOrderCommissionPercent())
-            : 0,
+      commission_mode: state?.session.default_commission_mode ?? "NONE",
+      commission_value: costValueForPayload(
+        state?.session.default_commission_mode,
+        state?.session.default_commission_value,
+      ),
+      fee_mode: state?.session.default_fee_mode ?? "NONE",
+      fee_value: costValueForPayload(state?.session.default_fee_mode, state?.session.default_fee_value),
       strategy_name: position.strategy_name,
       playbook_id: position.playbook_id,
     });
@@ -2812,9 +2806,8 @@ function money(value: number, currency = "USD") {
   }).format(value);
 }
 
-function numberOrZero(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+function costValueForPayload(mode: string | null | undefined, value: number | null | undefined) {
+  return mode === "FIXED" || mode === "PERCENT" ? Math.max(Number(value) || 0, 0) : 0;
 }
 
 function findLatestRiskRewardDrawing(drawings: ChartDrawing[]) {

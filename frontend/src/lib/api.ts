@@ -121,6 +121,10 @@ export type BacktestSession = {
   current_offset: number;
   initial_balance: number;
   realized_pnl: number;
+  default_commission_mode: CommissionMode;
+  default_commission_value: number;
+  default_fee_mode: CommissionMode;
+  default_fee_value: number;
   created_at: string;
   updated_at: string;
 };
@@ -157,6 +161,8 @@ export type Order = {
   reduce_only: boolean;
   commission_mode: CommissionMode;
   commission_value: number;
+  fee_mode: CommissionMode;
+  fee_value: number;
   strategy_name: string | null;
   mistake_tags: string[];
   notes: string | null;
@@ -204,6 +210,9 @@ export type Trade = {
   commission_mode: CommissionMode;
   commission_value: number;
   commission_amount: number;
+  fee_mode: CommissionMode;
+  fee_value: number;
+  fee_amount: number;
   strategy_name: string | null;
   playbook_id: number | null;
   notes: string | null;
@@ -265,6 +274,8 @@ export type OrderPayload = {
   reduce_only?: boolean;
   commission_mode?: CommissionMode;
   commission_value?: number | null;
+  fee_mode?: CommissionMode;
+  fee_value?: number | null;
   strategy_name?: string | null;
   playbook_id?: number | null;
   mistake_tags?: string[];
@@ -286,6 +297,10 @@ export type BacktestCreatePayload = {
   end_timestamp?: string | null;
   initial_balance?: number;
   initial_offset?: number;
+  default_commission_mode?: CommissionMode;
+  default_commission_value?: number | null;
+  default_fee_mode?: CommissionMode;
+  default_fee_value?: number | null;
 };
 
 export type BacktestSessionUpdatePayload = {
@@ -297,6 +312,10 @@ export type BacktestSessionUpdatePayload = {
   playbook_id?: number | null;
   status?: "ACTIVE" | "COMPLETE";
   initial_balance?: number;
+  default_commission_mode?: CommissionMode | null;
+  default_commission_value?: number | null;
+  default_fee_mode?: CommissionMode | null;
+  default_fee_value?: number | null;
 };
 
 export type BacktestTradeImportPayload = {
@@ -309,6 +328,10 @@ export type BacktestTradeImportPayload = {
   instrument?: string | null;
   timeframe?: string | null;
   strategy_name?: string | null;
+  default_commission_mode?: CommissionMode;
+  default_commission_value?: number | null;
+  default_fee_mode?: CommissionMode;
+  default_fee_value?: number | null;
   column_mapping?: Record<string, string>;
 };
 
@@ -337,6 +360,9 @@ export type JournalPayload = {
   commission_mode?: CommissionMode | null;
   commission_value?: number | null;
   commission_amount?: number | null;
+  fee_mode?: CommissionMode | null;
+  fee_value?: number | null;
+  fee_amount?: number | null;
 };
 
 export type TradeStrategyPayload = {

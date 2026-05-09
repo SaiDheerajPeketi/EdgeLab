@@ -70,6 +70,10 @@ def _migrate_sqlite_columns() -> None:
                     "end_at": "DATETIME",
                     "start_offset": "INTEGER DEFAULT 0 NOT NULL",
                     "end_offset": "INTEGER",
+                    "default_commission_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
+                    "default_commission_value": "FLOAT DEFAULT 0.0 NOT NULL",
+                    "default_fee_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
+                    "default_fee_value": "FLOAT DEFAULT 0.0 NOT NULL",
                 },
             )
         if "orders" in tables:
@@ -80,6 +84,8 @@ def _migrate_sqlite_columns() -> None:
                 {
                     "commission_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
                     "commission_value": "FLOAT DEFAULT 0.0 NOT NULL",
+                    "fee_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
+                    "fee_value": "FLOAT DEFAULT 0.0 NOT NULL",
                 },
             )
         if "trades" in tables:
@@ -92,6 +98,9 @@ def _migrate_sqlite_columns() -> None:
                     "commission_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
                     "commission_value": "FLOAT DEFAULT 0.0 NOT NULL",
                     "commission_amount": "FLOAT DEFAULT 0.0 NOT NULL",
+                    "fee_mode": "VARCHAR(16) DEFAULT 'NONE' NOT NULL",
+                    "fee_value": "FLOAT DEFAULT 0.0 NOT NULL",
+                    "fee_amount": "FLOAT DEFAULT 0.0 NOT NULL",
                 },
             )
         if "dataset_assets" in tables:

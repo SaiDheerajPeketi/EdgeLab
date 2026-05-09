@@ -5,16 +5,10 @@ import type { ChartDrawing } from "../lib/charting";
 import { normalizeRiskRewardDrawing } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import {
-  hydrateOrderCommissionFixed,
-  hydrateOrderCommissionMode,
-  hydrateOrderCommissionPercent,
   hydrateOrderDefaultQuantity,
   hydrateOrderDefaultRiskPercent,
   hydrateOrderRiskBase,
   hydrateOrderSizingMode,
-  loadOrderCommissionFixed,
-  loadOrderCommissionMode,
-  loadOrderCommissionPercent,
   loadOrderDefaultQuantity,
   loadOrderDefaultRiskPercent,
   loadOrderRiskBase,
@@ -24,9 +18,6 @@ import {
   type OrderSizingMode,
   saveOrderRiskBase,
   saveOrderSizingMode,
-  subscribeOrderCommissionFixed,
-  subscribeOrderCommissionMode,
-  subscribeOrderCommissionPercent,
   subscribeOrderDefaultQuantity,
   subscribeOrderDefaultRiskPercent,
   subscribeOrderRiskBase,
@@ -56,11 +47,10 @@ export function OrderTicket({
   const [quantity, setQuantity] = useState(() => loadOrderDefaultQuantity());
   const [riskPercent, setRiskPercent] = useState(() => loadOrderDefaultRiskPercent());
   const [riskBase, setRiskBase] = useState<OrderRiskBase>(() => loadOrderRiskBase());
-  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>(() =>
-    loadOrderCommissionMode(),
-  );
-  const [fixedCommission, setFixedCommission] = useState(() => loadOrderCommissionFixed());
-  const [percentCommission, setPercentCommission] = useState(() => loadOrderCommissionPercent());
+  const [commissionMode, setCommissionMode] = useState<OrderCommissionMode>("NONE");
+  const [commissionValue, setCommissionValue] = useState("0");
+  const [feeMode, setFeeMode] = useState<OrderCommissionMode>("NONE");
+  const [feeValue, setFeeValue] = useState("0");
   const riskBaseHydratedRef = useRef(false);
   const sizingModeHydratedRef = useRef(false);
   const [limitPrice, setLimitPrice] = useState("");
@@ -128,6 +118,14 @@ export function OrderTicket({
   useEffect(() => {
     setPlaybookId(state?.session.playbook_id ? String(state.session.playbook_id) : "");
   }, [state?.session.id, state?.session.playbook_id]);
+
+  useEffect(() => {
+    const session = state?.session;
+    setCommissionMode(session?.default_commission_mode ?? "NONE");
+    setCommissionValue(formatCostValue(session?.default_commission_value));
+    setFeeMode(session?.default_fee_mode ?? "NONE");
+    setFeeValue(formatCostValue(session?.default_fee_value));
+  }, [state?.session.id, state?.session.default_commission_mode, state?.session.default_commission_value, state?.session.default_fee_mode, state?.session.default_fee_value]);
 
   useEffect(() => {
     let active = true;
@@ -211,31 +209,6 @@ export function OrderTicket({
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    void Promise.all([
-      hydrateOrderCommissionMode(),
-      hydrateOrderCommissionFixed(),
-      hydrateOrderCommissionPercent(),
-    ]).then(([nextMode, nextFixed, nextPercent]) => {
-      if (!active) {
-        return;
-      }
-      setCommissionMode(nextMode);
-      setFixedCommission(nextFixed);
-      setPercentCommission(nextPercent);
-    });
-    const unsubscribers = [
-      subscribeOrderCommissionMode(setCommissionMode),
-      subscribeOrderCommissionFixed(setFixedCommission),
-      subscribeOrderCommissionPercent(setPercentCommission),
-    ];
-    return () => {
-      active = false;
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
-    };
-  }, []);
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (isSubmitting) {
@@ -254,12 +227,9 @@ export function OrderTicket({
       breakeven_trigger_r: numberOrNull(breakeven),
       reduce_only: reduceOnly,
       commission_mode: commissionMode,
-      commission_value:
-        commissionMode === "FIXED"
-          ? numberOrNull(fixedCommission) ?? 0
-          : commissionMode === "PERCENT"
-            ? numberOrNull(percentCommission) ?? 0
-            : 0,
+      commission_value: costValueForPayload(commissionMode, commissionValue),
+      fee_mode: feeMode,
+      fee_value: costValueForPayload(feeMode, feeValue),
       strategy_name: sessionStrategy || null,
       playbook_id: playbookId ? Number(playbookId) : null,
       mistake_tags: [],
@@ -437,43 +407,21 @@ export function OrderTicket({
           </div>
         )}
 
-        <div className="rounded-md border border-white/10 bg-black/20 p-2">
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-            Commissions / fees
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {([
-              { label: "None", value: "NONE" },
-              { label: "Fixed", value: "FIXED" },
-              { label: "Percent", value: "PERCENT" },
-            ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
-              <button
-                className={`segmented ${commissionMode === option.value ? "segmented-active" : ""}`}
-                key={option.value}
-                onClick={() => setCommissionMode(option.value)}
-                type="button"
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          {commissionMode !== "NONE" && (
-            <label className="form-field mt-2">
-              <span>{commissionMode === "FIXED" ? "Fixed fee" : "Percent fee"}</span>
-              <input
-                className="input-control h-10"
-                min="0"
-                onChange={(event) =>
-                  commissionMode === "FIXED"
-                    ? setFixedCommission(event.target.value)
-                    : setPercentCommission(event.target.value)
-                }
-                step={commissionMode === "FIXED" ? "0.01" : "0.0001"}
-                type="number"
-                value={commissionMode === "FIXED" ? fixedCommission : percentCommission}
-              />
-            </label>
-          )}
+        <div className="grid gap-2">
+          <OrderCostControls
+            mode={commissionMode}
+            onModeChange={setCommissionMode}
+            onValueChange={setCommissionValue}
+            title="Commissions"
+            value={commissionValue}
+          />
+          <OrderCostControls
+            mode={feeMode}
+            onModeChange={setFeeMode}
+            onValueChange={setFeeValue}
+            title="Fees"
+            value={feeValue}
+          />
         </div>
 
         {riskRewardValues && (
@@ -549,6 +497,68 @@ function numberOrNull(value: string) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function costValueForPayload(mode: OrderCommissionMode, value: string) {
+  if (mode === "NONE") {
+    return 0;
+  }
+  return numberOrNull(value) ?? 0;
+}
+
+function formatCostValue(value: number | null | undefined) {
+  return String(Number.isFinite(value) ? value : 0);
+}
+
+function OrderCostControls({
+  mode,
+  onModeChange,
+  onValueChange,
+  title,
+  value,
+}: {
+  mode: OrderCommissionMode;
+  onModeChange: (value: OrderCommissionMode) => void;
+  onValueChange: (value: string) => void;
+  title: string;
+  value: string;
+}) {
+  return (
+    <section className="rounded-md border border-white/10 bg-black/20 p-2">
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+        {title}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {([
+          { label: "None", value: "NONE" },
+          { label: "Fixed", value: "FIXED" },
+          { label: "Percent", value: "PERCENT" },
+        ] as Array<{ label: string; value: OrderCommissionMode }>).map((option) => (
+          <button
+            className={`segmented ${mode === option.value ? "segmented-active" : ""}`}
+            key={option.value}
+            onClick={() => onModeChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {mode !== "NONE" && (
+        <label className="form-field mt-2">
+          <span>{mode === "FIXED" ? "Fixed amount" : "Percent amount"}</span>
+          <input
+            className="input-control h-10"
+            min="0"
+            onChange={(event) => onValueChange(event.target.value)}
+            step={mode === "FIXED" ? "0.01" : "0.0001"}
+            type="number"
+            value={value}
+          />
+        </label>
+      )}
+    </section>
+  );
 }
 
 function extractRiskRewardOrderValues(

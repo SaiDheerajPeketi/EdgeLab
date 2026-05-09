@@ -199,6 +199,9 @@ function legacyStorageKeyFor(key: string) {
     "order-commission-percent.v1": "edgelab.order-commission-percent.v1",
     "order-default-quantity.v1": "edgelab.order-default-quantity.v1",
     "order-default-risk-percent.v1": "edgelab.order-default-risk-percent.v1",
+    "order-fee-fixed.v1": "edgelab.order-fee-fixed.v1",
+    "order-fee-mode.v1": "edgelab.order-fee-mode.v1",
+    "order-fee-percent.v1": "edgelab.order-fee-percent.v1",
     "order-line-modification-confirmation.v1": "edgelab.order-line-modification-confirmation.v1",
     "order-risk-base.v1": "edgelab.order-risk-base.v1",
     "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
@@ -218,6 +221,9 @@ function legacyStoresPlainString(key: string) {
     key === "order-commission-percent.v1" ||
     key === "order-default-quantity.v1" ||
     key === "order-default-risk-percent.v1" ||
+    key === "order-fee-fixed.v1" ||
+    key === "order-fee-mode.v1" ||
+    key === "order-fee-percent.v1" ||
     key === "order-risk-base.v1" ||
     key === "order-sizing-mode.v1"
   );
