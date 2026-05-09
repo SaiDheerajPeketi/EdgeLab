@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   Activity,
   BarChart3,
@@ -295,7 +295,7 @@ function OverviewResults({
             {trades.length} exits
           </span>
         </div>
-        <EquitySparkline trades={trades} />
+        <EquitySparkline currency={currency} trades={trades} />
         <div className="mt-3 grid grid-cols-2 gap-2">
           <SidePill currency={currency} label="Long P&L" value={aggregate.longPnl} />
           <SidePill currency={currency} label="Short P&L" value={aggregate.shortPnl} />
@@ -400,6 +400,7 @@ function SummaryLine({
 }
 
 function OutcomeBars({ aggregate }: { aggregate: Aggregate }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const losses = Math.max(0, aggregate.totalTrades - aggregate.wins - aggregate.breakevenTrades);
   const rows = [
     { label: "Wins", value: aggregate.wins, tone: "bg-emerald-300", text: "text-emerald-300" },
@@ -408,22 +409,41 @@ function OutcomeBars({ aggregate }: { aggregate: Aggregate }) {
   ];
 
   return (
-    <>
-      {rows.map((row) => {
+    <div className="grid gap-2" onPointerLeave={() => setActiveIndex(null)}>
+      {rows.map((row, rowIndex) => {
         const width = aggregate.totalTrades > 0 ? (row.value / aggregate.totalTrades) * 100 : 0;
+        const active = activeIndex === rowIndex;
         return (
-          <div className="grid gap-1" key={row.label}>
+          <button
+            aria-label={`${row.label}: ${row.value} trades, ${width.toFixed(1)}%`}
+            className={`grid gap-1 rounded-md px-1 py-1 text-left outline-none transition ${
+              active ? "bg-white/5" : "hover:bg-white/[0.03]"
+            } focus-visible:ring-1 focus-visible:ring-cyan-300/40`}
+            key={row.label}
+            onBlur={() => setActiveIndex(null)}
+            onFocus={() => setActiveIndex(rowIndex)}
+            onPointerEnter={() => setActiveIndex(rowIndex)}
+            title={`${row.label}: ${row.value} trades · ${width.toFixed(1)}%`}
+            type="button"
+          >
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-slate-500">{row.label}</span>
-              <span className={`font-semibold tabular-nums ${row.text}`}>{row.value}</span>
+              <span className={`font-semibold tabular-nums ${row.text}`}>
+                {row.value} <span className="text-slate-600">/ {width.toFixed(0)}%</span>
+              </span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${width}%` }} />
+              <div
+                className={`h-full rounded-full transition-all ${row.tone} ${
+                  active ? "brightness-125" : "opacity-80"
+                }`}
+                style={{ width: `${width}%` }}
+              />
             </div>
-          </div>
+          </button>
         );
       })}
-    </>
+    </div>
   );
 }
 
@@ -572,18 +592,70 @@ function SidePill({ currency, label, value }: { currency: string; label: string;
   );
 }
 
-function EquitySparkline({ trades }: { trades: Trade[] }) {
-  const values = cumulativePnl(trades);
+function EquitySparkline({ currency, trades }: { currency: string; trades: Trade[] }) {
+  const orderedTrades = useMemo(() => trades.slice().sort(compareTradesAscending), [trades]);
+  const values = useMemo(() => cumulativePnl(orderedTrades), [orderedTrades]);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const height = 170;
   const width = 640;
-  const path = toSvgPath(values, width, height);
-  const zeroY = zeroLineY(values, height);
+  const domain = sparklineDomain(values);
+  const points = sparklinePoints(values, width, height, domain);
+  const path = toSvgPath(points);
+  const zeroY = sparklineY(0, height, domain);
   const areaPath = path ? `${path} L ${width} ${height} L 0 ${height} Z` : "";
+  const activePoint = activeIndex == null ? null : points[activeIndex] ?? null;
+  const activeValue = activeIndex == null ? null : values[activeIndex] ?? null;
+  const activeTrade = activeIndex != null && activeIndex > 0 ? orderedTrades[activeIndex - 1] ?? null : null;
+
+  function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const rawIndex = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * (values.length - 1);
+    setActiveIndex(Math.max(0, Math.min(values.length - 1, Math.round(rawIndex))));
+  }
+
+  function moveActiveIndex(delta: number) {
+    setActiveIndex((current) => {
+      const nextIndex = (current ?? values.length - 1) + delta;
+      return Math.max(0, Math.min(values.length - 1, nextIndex));
+    });
+  }
 
   return (
-    <div className="h-[170px] overflow-hidden rounded-md border border-white/10 bg-[#070b10]">
+    <div
+      aria-label="Interactive session equity curve"
+      className="relative h-[170px] overflow-hidden rounded-md border border-white/10 bg-[#070b10] outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/40"
+      onBlur={() => setActiveIndex(null)}
+      onFocus={() => setActiveIndex((current) => current ?? values.length - 1)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          moveActiveIndex(-1);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          moveActiveIndex(1);
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          setActiveIndex(0);
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          setActiveIndex(values.length - 1);
+        }
+      }}
+      role="img"
+      tabIndex={values.length > 1 ? 0 : -1}
+    >
       {values.length > 1 ? (
-        <svg className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+        <>
+        <svg
+          className="h-full w-full cursor-crosshair"
+          onPointerLeave={() => setActiveIndex(null)}
+          onPointerMove={handlePointerMove}
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${width} ${height}`}
+        >
           <defs>
             <linearGradient id="session-equity-fill" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="rgba(103, 232, 249, 0.22)" />
@@ -606,7 +678,53 @@ function EquitySparkline({ trades }: { trades: Trade[] }) {
             strokeWidth="2.25"
             vectorEffect="non-scaling-stroke"
           />
+          {activePoint && (
+            <g>
+              <line
+                stroke="rgba(226, 232, 240, 0.28)"
+                strokeDasharray="4 6"
+                strokeWidth="1"
+                x1={activePoint.x}
+                x2={activePoint.x}
+                y1="0"
+                y2={height}
+              />
+              <line
+                stroke="rgba(226, 232, 240, 0.16)"
+                strokeDasharray="4 6"
+                strokeWidth="1"
+                x1="0"
+                x2={width}
+                y1={activePoint.y}
+                y2={activePoint.y}
+              />
+              <circle cx={activePoint.x} cy={activePoint.y} fill="#67e8f9" r="5" stroke="#020617" strokeWidth="2.5" />
+            </g>
+          )}
         </svg>
+        {activePoint && activeValue != null && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30 backdrop-blur"
+            style={{
+              left: `${clampPercent((activePoint.x / width) * 100, 12, 88)}%`,
+              top: `${clampPercent((activePoint.y / height) * 100, 16, 84)}%`,
+              transform: activePoint.y < height * 0.36 ? "translate(-50%, 14px)" : "translate(-50%, calc(-100% - 12px))",
+            }}
+          >
+            <div className="font-semibold text-white">
+              {activeTrade ? formatDateTime(activeTrade.exit_time ?? activeTrade.entry_time) : "Start"}
+            </div>
+            <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeValue)}`}>
+              {formatMoney(activeValue, currency)}
+            </div>
+            {activeTrade && (
+              <div className={`mt-1 tabular-nums ${toneForNumber(activeTrade.realized_pnl)}`}>
+                Trade {formatMoney(activeTrade.realized_pnl, currency)}
+              </div>
+            )}
+          </div>
+        )}
+        </>
       ) : (
         <div className="grid h-full place-items-center text-sm text-slate-500">
           No closed trades yet
@@ -708,28 +826,53 @@ function computeMaxDrawdown(trades: Trade[]) {
   return maxDrawdown;
 }
 
-function toSvgPath(values: number[], width: number, height: number) {
-  if (values.length < 2) {
-    return "";
-  }
+function sparklineDomain(values: number[]) {
   const min = Math.min(...values, 0);
   const max = Math.max(...values, 0);
-  const range = max - min || 1;
-  const step = width / (values.length - 1);
+  if (min === max) {
+    const padding = Math.max(1, Math.abs(min) * 0.12);
+    return { max: max + padding, min: min - padding };
+  }
+  const padding = (max - min) * 0.08;
+  return { max: max + padding, min: min - padding };
+}
+
+function sparklinePoints(
+  values: number[],
+  width: number,
+  height: number,
+  domain: { max: number; min: number },
+) {
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  const range = domain.max - domain.min || 1;
   return values
     .map((value, index) => {
       const x = index * step;
-      const y = height - ((value - min) / range) * height;
-      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
+      const y = sparklineY(value, height, domain, range);
+      return { x, y };
+    });
+}
+
+function sparklineY(
+  value: number,
+  height: number,
+  domain: { max: number; min: number },
+  range = domain.max - domain.min || 1,
+) {
+  return height - ((value - domain.min) / range) * height;
+}
+
+function toSvgPath(points: Array<{ x: number; y: number }>) {
+  if (points.length < 2) {
+    return "";
+  }
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
     .join(" ");
 }
 
-function zeroLineY(values: number[], height: number) {
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 0);
-  const range = max - min || 1;
-  return height - ((0 - min) / range) * height;
+function clampPercent(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function holdMinutes(trade: Trade) {

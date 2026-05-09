@@ -1,5 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from "react";
+import type {
+  ChangeEvent,
+  Dispatch,
+  FormEvent,
+  KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  SetStateAction,
+} from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -7191,6 +7200,7 @@ function AreaSparkline({
   values: number[];
 }) {
   const gradientId = useId().replace(/:/g, "");
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const width = 900;
   const margin = { bottom: 30, left: 76, right: 18, top: 18 };
   const domain = chartDomain(values);
@@ -7205,11 +7215,63 @@ function AreaSparkline({
   const ticks = chartTicks(domain.min, domain.max, 5);
   const lastPoint = points[points.length - 1];
   const firstPoint = points[0];
+  const activePoint = activeIndex == null ? null : points[activeIndex] ?? null;
+  const activeValue = activeIndex == null ? null : values[activeIndex] ?? null;
+
+  function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * width;
+    const plotWidth = width - margin.left - margin.right;
+    const rawIndex = ((x - margin.left) / Math.max(plotWidth, 1)) * (values.length - 1);
+    setActiveIndex(Math.max(0, Math.min(values.length - 1, Math.round(rawIndex))));
+  }
+
+  function moveActiveIndex(delta: number) {
+    setActiveIndex((current) => {
+      const nextIndex = (current ?? values.length - 1) + delta;
+      return Math.max(0, Math.min(values.length - 1, nextIndex));
+    });
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveActiveIndex(-1);
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveActiveIndex(1);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setActiveIndex(0);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(values.length - 1);
+    }
+  }
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/10 bg-black/20" style={{ height }}>
+    <div
+      aria-label="Interactive performance chart"
+      className="relative overflow-hidden rounded-md border border-white/10 bg-black/20 outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/40"
+      onBlur={() => setActiveIndex(null)}
+      onFocus={() => setActiveIndex((current) => current ?? values.length - 1)}
+      onKeyDown={handleKeyDown}
+      role="img"
+      style={{ height }}
+      tabIndex={values.length > 1 ? 0 : -1}
+    >
       {values.length > 1 ? (
-        <svg className="h-full w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+        <>
+        <svg
+          className="h-full w-full cursor-crosshair"
+          onPointerLeave={() => setActiveIndex(null)}
+          onPointerMove={handlePointerMove}
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${width} ${height}`}
+        >
           <defs>
             <linearGradient id={`${gradientId}-fill`} x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor={stroke} stopOpacity="0.34" />
@@ -7254,6 +7316,29 @@ function AreaSparkline({
           <path d={areaPath} fill={`url(#${gradientId}-fill)`} />
           <path d={path} fill="none" stroke={glow} strokeLinecap="round" strokeWidth="7" />
           <path d={path} fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
+          {activePoint && (
+            <g>
+              <line
+                stroke="rgba(226, 232, 240, 0.26)"
+                strokeDasharray="4 6"
+                strokeWidth="1"
+                x1={activePoint.x}
+                x2={activePoint.x}
+                y1={margin.top}
+                y2={height - margin.bottom}
+              />
+              <line
+                stroke="rgba(226, 232, 240, 0.18)"
+                strokeDasharray="4 6"
+                strokeWidth="1"
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={activePoint.y}
+                y2={activePoint.y}
+              />
+              <circle cx={activePoint.x} cy={activePoint.y} fill={stroke} r="5" stroke="#020617" strokeWidth="2.5" />
+            </g>
+          )}
           {firstPoint && <circle cx={firstPoint.x} cy={firstPoint.y} fill="#0f172a" r="3.5" stroke={stroke} strokeWidth="2" />}
           {lastPoint && (
             <>
@@ -7277,6 +7362,24 @@ function AreaSparkline({
             Latest
           </text>
         </svg>
+        {activePoint && activeValue != null && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30 backdrop-blur"
+            style={{
+              left: `${clampPercent((activePoint.x / width) * 100, 12, 88)}%`,
+              top: `${clampPercent((activePoint.y / height) * 100, 16, 84)}%`,
+              transform: activePoint.y < height * 0.36 ? "translate(-50%, 14px)" : "translate(-50%, calc(-100% - 12px))",
+            }}
+          >
+            <div className="font-semibold text-white">
+              {activeIndex === 0 ? "Start" : activeIndex === values.length - 1 ? "Latest" : `Point ${activeIndex}`}
+            </div>
+            <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeValue)}`}>
+              {formatMoney(activeValue, currency)}
+            </div>
+          </div>
+        )}
+        </>
       ) : (
         <div className="grid h-full place-items-center text-sm text-slate-500">No chart data</div>
       )}
@@ -7297,9 +7400,11 @@ function BarBreakdown({
   percent?: boolean;
   rows: Array<{ label: string; value: number }>;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const visibleRows = rows
     .filter((row) => Number.isFinite(row.value))
     .slice(0, maxItems);
+  const activeRow = activeIndex == null ? null : visibleRows[activeIndex] ?? null;
   const rawMin = Math.min(0, ...visibleRows.map((row) => row.value));
   const rawMax = Math.max(0, ...visibleRows.map((row) => row.value));
   const domain = percent ? { max: Math.max(100, rawMax), min: 0 } : expandFlatDomain(rawMin, rawMax);
@@ -7315,7 +7420,7 @@ function BarBreakdown({
   return (
     <div className="mt-4 overflow-x-auto rounded-md border border-white/10 bg-black/20 px-3 py-3">
       <div className="grid min-w-0 grid-rows-[minmax(0,1fr)_42px]" style={{ height: chartHeight, minWidth }}>
-        <div className="relative">
+        <div className="relative" onPointerLeave={() => setActiveIndex(null)}>
           {ticks.map((tick) => {
             const top = ((domain.max - tick) / range) * 100;
             return (
@@ -7328,30 +7433,56 @@ function BarBreakdown({
             );
           })}
           <div className="absolute left-14 right-0 border-t border-white/20" style={{ bottom: `${zeroBottom}%` }} />
+          {activeRow && (
+            <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30">
+              <div className="max-w-40 truncate font-semibold text-white">{activeRow.label}</div>
+              <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeRow.value)}`}>
+                {percent ? `${activeRow.value.toFixed(1)}%` : formatMoney(activeRow.value, currency)}
+              </div>
+            </div>
+          )}
           <div className="absolute inset-y-0 left-14 right-0 flex items-stretch gap-2">
-            {visibleRows.map((row) => {
+            {visibleRows.map((row, rowIndex) => {
               const heightPercent = row.value === 0 ? 1.5 : Math.max(2, (Math.abs(row.value) / range) * 100);
               const bottomPercent = row.value >= 0 ? zeroBottom : zeroBottom - heightPercent;
+              const active = activeIndex === rowIndex;
               return (
-                <div className="relative min-w-10 flex-1" key={row.label}>
+                <button
+                  aria-label={`${row.label}: ${percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}`}
+                  className="relative min-w-10 flex-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/40"
+                  key={row.label}
+                  onBlur={() => setActiveIndex(null)}
+                  onFocus={() => setActiveIndex(rowIndex)}
+                  onPointerEnter={() => setActiveIndex(rowIndex)}
+                  title={`${row.label}: ${percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}`}
+                  type="button"
+                >
                   <div
                     className={`absolute left-1/2 w-7 -translate-x-1/2 rounded-t-sm ${
-                      row.value >= 0 ? "bg-emerald-400/70 shadow-[0_0_20px_rgba(52,211,153,0.16)]" : "bg-rose-400/70 shadow-[0_0_20px_rgba(251,113,133,0.14)]"
+                      row.value >= 0
+                        ? active
+                          ? "bg-emerald-300 shadow-[0_0_24px_rgba(52,211,153,0.26)]"
+                          : "bg-emerald-400/70 shadow-[0_0_20px_rgba(52,211,153,0.16)]"
+                        : active
+                          ? "bg-rose-300 shadow-[0_0_24px_rgba(251,113,133,0.24)]"
+                          : "bg-rose-400/70 shadow-[0_0_20px_rgba(251,113,133,0.14)]"
                     }`}
                     style={{
                       bottom: `${Math.max(0, bottomPercent)}%`,
                       height: `${Math.min(100, heightPercent)}%`,
                     }}
-                    title={`${row.label}: ${percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}`}
                   />
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
         <div className="ml-14 flex gap-2 pt-2">
-          {visibleRows.map((row) => (
-            <div className="min-w-10 flex-1 text-center" key={row.label}>
+          {visibleRows.map((row, rowIndex) => (
+            <div
+              className={`min-w-10 flex-1 rounded px-1 text-center transition ${activeIndex === rowIndex ? "bg-white/5" : ""}`}
+              key={row.label}
+            >
               <div className="truncate text-[10px] font-semibold text-slate-500" title={row.label}>
                 {row.label}
               </div>
@@ -8594,6 +8725,10 @@ function chartTicks(min: number, max: number, count: number) {
   }
   const step = (max - min) / (count - 1);
   return Array.from({ length: count }, (_, index) => min + step * index);
+}
+
+function clampPercent(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function bestRow(rows: Array<{ aggregate: Aggregate; label: string }>) {
