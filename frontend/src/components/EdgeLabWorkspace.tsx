@@ -3572,6 +3572,7 @@ function JournalNotesPage({
 }) {
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(focusTradeId ?? journalEntries.at(-1)?.id ?? null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [screenshotActionStatus, setScreenshotActionStatus] = useState<string | null>(null);
   const selectedTrade = journalEntries.find((trade) => trade.id === selectedTradeId) ?? journalEntries.at(-1) ?? null;
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
@@ -3626,6 +3627,7 @@ function JournalNotesPage({
   const selectedNotesHtml = selectedTrade ? normalizeStoredNoteHtml(selectedTrade.notes) : "";
   const selectedHasNotes = Boolean(selectedTrade) && !isRichTextEmpty(selectedNotesHtml);
   const selectedIsMissed = selectedTrade ? isMissedJournalTrade(selectedTrade) : false;
+  const selectedScreenshotUrl = selectedTrade?.screenshot_url ?? "";
 
   useEffect(() => {
     if (focusTradeId != null && journalEntries.some((trade) => trade.id === focusTradeId)) {
@@ -3640,14 +3642,57 @@ function JournalNotesPage({
     setSelectedTradeId(journalEntries.at(-1)?.id ?? null);
   }, [journalEntries, selectedTradeId]);
 
+  useEffect(() => {
+    setScreenshotActionStatus(null);
+  }, [selectedTradeId]);
+
+  function exportFilteredNotesCsv() {
+    exportJournalTradeLogCsv(filteredEntries, accountById, playbookById, sessionById);
+  }
+
+  function openSelectedScreenshot() {
+    if (!selectedScreenshotUrl) {
+      setScreenshotActionStatus("No screenshot attached");
+      return;
+    }
+    setScreenshotActionStatus(openScreenshotFullSize(selectedScreenshotUrl) ? "Screenshot opened" : "Could not open screenshot");
+  }
+
+  async function copySelectedScreenshot() {
+    if (!selectedScreenshotUrl) {
+      setScreenshotActionStatus("No screenshot attached");
+      return;
+    }
+    setScreenshotActionStatus(null);
+    try {
+      await copyTradeSnapshotToClipboard(selectedScreenshotUrl);
+      setScreenshotActionStatus("Screenshot copied");
+    } catch {
+      try {
+        await navigator.clipboard?.writeText(selectedScreenshotUrl);
+        setScreenshotActionStatus("Screenshot link copied");
+      } catch {
+        setScreenshotActionStatus("Screenshot could not be copied");
+      }
+    }
+  }
+
   return (
     <PageScaffold
-      actions={onBack && (
-        <button className="control-button h-10" onClick={onBack} type="button">
-          <ArrowLeft size={15} />
-          {backLabel}
-        </button>
-      )}
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onBack && (
+            <button className="control-button h-10" onClick={onBack} type="button">
+              <ArrowLeft size={15} />
+              {backLabel}
+            </button>
+          )}
+          <button className="control-button h-10" disabled={filteredEntries.length === 0} onClick={exportFilteredNotesCsv} type="button">
+            <FileDown size={15} />
+            Export CSV
+          </button>
+        </div>
+      }
       eyebrow="Journal Notes"
       title="Live Trade Notes"
       description="Notes, tags, missed reasons, and emotional review for Journal entries."
@@ -3785,15 +3830,27 @@ function JournalNotesPage({
                   </div>
                 )}
               </div>
-              {selectedTrade.screenshot_url && (
+              {selectedScreenshotUrl && (
                 <div className="mt-4 overflow-hidden rounded-md border border-white/10 bg-black/20">
-                  <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
                     <CardLabel icon={Eye} label="Screenshot" />
-                    <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={selectedTrade.screenshot_url} rel="noreferrer" target="_blank">
-                      Open full size
-                    </a>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button className="control-button h-8 px-2 text-xs" onClick={() => void copySelectedScreenshot()} type="button">
+                        <Copy size={13} />
+                        Copy screenshot
+                      </button>
+                      <button className="control-button h-8 px-2 text-xs" onClick={openSelectedScreenshot} type="button">
+                        <Eye size={13} />
+                        Open full size
+                      </button>
+                    </div>
                   </div>
-                  <img alt="Live trade screenshot" className="max-h-80 w-full object-contain" src={selectedTrade.screenshot_url} />
+                  <img alt="Live trade screenshot" className="max-h-80 w-full object-contain" src={selectedScreenshotUrl} />
+                  {screenshotActionStatus && (
+                    <div className="border-t border-white/10 px-3 py-2 text-xs font-semibold text-cyan-100">
+                      {screenshotActionStatus}
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -6545,28 +6602,40 @@ function NotebookPage({
     void saveAppStorageItem(NOTEBOOK_FAVORITES_STORAGE_KEY, nextIds);
   }
 
+  function exportVisibleNotesCsv() {
+    exportTradeLogCsv(visibleTrades, sessionById, datasets);
+  }
+
+  const returnAction = onReturnToTradeView ? (
+    <button className="control-button" onClick={onReturnToTradeView} type="button">
+      <ArrowLeft size={15} />
+      Back to Trades
+    </button>
+  ) : onReturnToDayView ? (
+    <button className="control-button" onClick={onReturnToDayView} type="button">
+      <ArrowLeft size={15} />
+      Back to Day View
+    </button>
+  ) : onReturnToBacktestPanel ? (
+    <button className="control-button" onClick={onReturnToBacktestPanel} type="button">
+      <ArrowLeft size={15} />
+      {notebookReturnToBacktestPanel === "results" ? "Back to Results" : "Back to Review"}
+    </button>
+  ) : null;
+
   return (
     <PageScaffold
       eyebrow="Backtest Notebook"
       title="Backtest Trade Notes"
       description="An EdgeLab notebook linked to closed replay trades and session review."
       actions={
-        onReturnToTradeView ? (
-          <button className="control-button" onClick={onReturnToTradeView} type="button">
-            <ArrowLeft size={15} />
-            Back to Trades
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {returnAction}
+          <button className="control-button" disabled={visibleTrades.length === 0} onClick={exportVisibleNotesCsv} type="button">
+            <FileDown size={15} />
+            Export CSV
           </button>
-        ) : onReturnToDayView ? (
-          <button className="control-button" onClick={onReturnToDayView} type="button">
-            <ArrowLeft size={15} />
-            Back to Day View
-          </button>
-        ) : onReturnToBacktestPanel ? (
-          <button className="control-button" onClick={onReturnToBacktestPanel} type="button">
-            <ArrowLeft size={15} />
-            {notebookReturnToBacktestPanel === "results" ? "Back to Results" : "Back to Review"}
-          </button>
-        ) : undefined
+        </div>
       }
     >
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -6919,6 +6988,15 @@ function NotebookTradeDetail({
         setSnapshotActionStatus("Snapshot could not be copied");
       }
     }
+  }
+
+  function openSnapshotFullSize() {
+    const url = snapshotUrl || trade.screenshot_url;
+    if (!url) {
+      setSnapshotActionStatus("Snapshot is not ready");
+      return;
+    }
+    setSnapshotActionStatus(openScreenshotFullSize(url) ? "Snapshot opened" : "Could not open snapshot");
   }
 
   function addTags(value: string) {
@@ -7753,6 +7831,15 @@ function NotebookTradeDetail({
                 >
                   <Copy size={14} />
                   Copy
+                </button>
+                <button
+                  className="control-button h-9"
+                  disabled={!snapshotUrl && !trade.screenshot_url}
+                  onClick={openSnapshotFullSize}
+                  type="button"
+                >
+                  <Eye size={14} />
+                  Open
                 </button>
                 <button
                   className="control-button h-9"
@@ -11849,6 +11936,99 @@ function exportTradeLogCsv(
   );
 }
 
+function exportJournalTradeLogCsv(
+  trades: JournalTrade[],
+  accountById: Map<number, LiveJournalAccount>,
+  playbookById: Map<number, Playbook>,
+  sessionById: Map<number, LiveJournalSession>,
+) {
+  const headers = [
+    "Trade ID",
+    "Entry Type",
+    "Session",
+    "Instrument",
+    "Accounts",
+    "Side",
+    "Status",
+    "Entry Time",
+    "Exit Time",
+    "Entry Price",
+    "Exit Price",
+    "Planned Entry",
+    "Planned Exit",
+    "Planned Stop",
+    "Planned Target",
+    "Quantity",
+    "Currency",
+    "Gross P&L",
+    "Commission",
+    "Commission Mode",
+    "Commission Value",
+    "Brokerage",
+    "Brokerage Mode",
+    "Brokerage Value",
+    "Net P&L",
+    "R Multiple",
+    "Strategy",
+    "Playbook",
+    "Emotion",
+    "Tags",
+    "Missed Reason",
+    "Notes",
+    "Screenshot URL",
+  ];
+  const rows = trades.map((trade) => {
+    const session = sessionById.get(trade.session_id);
+    const accounts = liveTradeAccountIds(trade)
+      .map((accountId) => accountById.get(accountId)?.name)
+      .filter(Boolean)
+      .join("; ");
+    const playbook = trade.playbook_id ? playbookById.get(trade.playbook_id) : null;
+    const missed = isMissedJournalTrade(trade);
+    const currency = currencyForJournalTrade(trade, accountById, sessionById);
+    return [
+      trade.id,
+      missed ? "MISSED" : "TAKEN",
+      session?.name ?? `Session #${trade.session_id}`,
+      session?.instrument ?? "",
+      accounts,
+      trade.side,
+      trade.status,
+      trade.entry_time,
+      missed ? "" : (trade.exit_time ?? ""),
+      missed ? "" : (trade.entry_price ?? ""),
+      missed ? "" : (trade.exit_price ?? ""),
+      trade.planned_entry_price ?? "",
+      trade.planned_exit_price ?? "",
+      trade.planned_stop_loss ?? "",
+      trade.planned_take_profit ?? "",
+      missed && trade.quantity === 0 ? "" : trade.quantity,
+      currency,
+      missed ? "" : (trade.gross_pnl ?? trade.realized_pnl),
+      missed ? "" : (trade.commission_amount ?? 0),
+      missed ? "" : (trade.commission_mode ?? "NONE"),
+      missed ? "" : (trade.commission_value ?? 0),
+      missed ? "" : (trade.fee_amount ?? 0),
+      missed ? "" : (trade.fee_mode ?? "NONE"),
+      missed ? "" : (trade.fee_value ?? 0),
+      missed ? "" : trade.realized_pnl,
+      missed ? "" : (trade.r_multiple ?? ""),
+      trade.strategy_name || session?.strategy_name || "",
+      playbook?.name ?? "",
+      trade.emotional_state ?? "",
+      trade.mistake_tags.join("; "),
+      trade.missed_reason ?? "",
+      richTextToPlainText(trade.notes),
+      trade.screenshot_url ?? "",
+    ];
+  });
+  downloadTextFile(
+    `journal-trades-${new Date().toISOString().slice(0, 10)}.csv`,
+    [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"),
+    "text/csv;charset=utf-8",
+  );
+}
+
 function exportResultsSummaryCsv({
   aggregate,
   currency,
@@ -11958,6 +12138,48 @@ function downloadTextFile(filename: string, contents: string, type: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function dataUrlToBlob(url: string) {
+  const commaIndex = url.indexOf(",");
+  if (commaIndex === -1) {
+    return new Blob([url], { type: "application/octet-stream" });
+  }
+  const metadata = url.slice(0, commaIndex);
+  const payload = url.slice(commaIndex + 1);
+  const mime = metadata.match(/^data:([^;,]+)/)?.[1] ?? "application/octet-stream";
+  if (metadata.includes(";base64")) {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new Blob([bytes], { type: mime });
+  }
+  return new Blob([decodeURIComponent(payload)], { type: mime });
+}
+
+function openScreenshotFullSize(url: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return false;
+  }
+  let objectUrl: string | null = null;
+  const targetUrl = trimmed.startsWith("data:")
+    ? (() => {
+        objectUrl = URL.createObjectURL(dataUrlToBlob(trimmed));
+        return objectUrl;
+      })()
+    : trimmed;
+  const opened = window.open(targetUrl, "_blank", "noopener,noreferrer");
+  if (objectUrl) {
+    const revokableUrl = objectUrl;
+    window.setTimeout(() => URL.revokeObjectURL(revokableUrl), 60_000);
+  }
+  return Boolean(opened);
 }
 
 function useLiveJournalData(): LiveJournalController {
