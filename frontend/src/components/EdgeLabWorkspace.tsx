@@ -6115,6 +6115,11 @@ function BacktestOrderSettings() {
 
   return (
     <div className="mt-5 grid gap-4">
+      {status && (
+        <div className="flex justify-end">
+          <span className="status-pill">{status}</span>
+        </div>
+      )}
       <div className="rounded-md border border-white/10 bg-black/20 p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -6125,7 +6130,6 @@ function BacktestOrderSettings() {
               New order tickets open with this sizing method.
             </div>
           </div>
-          {status && <span className="status-pill">{status}</span>}
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <button
