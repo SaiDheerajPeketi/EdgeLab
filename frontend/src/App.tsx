@@ -30,7 +30,7 @@ import { PendingOrders } from "./components/PendingOrders";
 import { PlaybookBoard } from "./components/PlaybookBoard";
 import { PositionPanel } from "./components/PositionPanel";
 import { ReplayController } from "./components/ReplayController";
-import { ResultsPanel } from "./components/ResultsPanel";
+import { ResultsPanel, type ResultsPanelView, type ResultsTradeOutcomeFilter } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
@@ -183,6 +183,9 @@ export default function App() {
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [notebookFocusTradeId, setNotebookFocusTradeId] = useState<number | null>(null);
   const [notebookReturnTarget, setNotebookReturnTarget] = useState<NotebookReturnTarget>(null);
+  const [resultsPanelView, setResultsPanelView] = useState<ResultsPanelView>("overview");
+  const [resultsPanelSearch, setResultsPanelSearch] = useState("");
+  const [resultsPanelFilter, setResultsPanelFilter] = useState<ResultsTradeOutcomeFilter>("ALL");
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
   const sidebarCollapsed = true;
@@ -204,6 +207,8 @@ export default function App() {
     useState(loadOrderLineModificationConfirmation);
   const backtestHeaderRef = useRef<HTMLElement | null>(null);
   const backtestHeaderActionsRef = useRef<HTMLDivElement | null>(null);
+  const backtestPanelScrollRef = useRef(0);
+  const pendingBacktestPanelScrollRestoreRef = useRef<number | null>(null);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
   const skipNextToolsClickRef = useRef(false);
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
@@ -792,6 +797,31 @@ export default function App() {
     setBacktestHeaderVisible(isElementMoreThanHalfVisible(headerTarget));
     return () => observer.disconnect();
   }, [activeWorkspace, isChartFullscreen, sessionGateOpen]);
+
+  useEffect(() => {
+    if (
+      activeWorkspace !== "backtest" ||
+      sessionGateOpen ||
+      workspacePanel === "none" ||
+      pendingBacktestPanelScrollRestoreRef.current == null
+    ) {
+      return;
+    }
+
+    const scrollTop = pendingBacktestPanelScrollRestoreRef.current;
+    pendingBacktestPanelScrollRestoreRef.current = null;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollTop });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [activeWorkspace, sessionGateOpen, workspacePanel]);
 
   const current = state?.current_candle;
   const orders = state?.orders ?? [];
@@ -1468,6 +1498,7 @@ export default function App() {
     setReplayFocusTrade(null);
     setNotebookFocusTradeId(trade.id);
     setNotebookReturnTarget(panel === "results" ? "backtestResults" : "backtestReview");
+    backtestPanelScrollRef.current = window.scrollY;
     setActiveWorkspace("notebook");
     setSessionGateOpen(false);
     setLeftPaneOpen(false);
@@ -1478,6 +1509,7 @@ export default function App() {
 
   function returnToBacktestPanel() {
     const returnPanel = notebookReturnTarget === "backtestResults" ? "results" : "review";
+    pendingBacktestPanelScrollRestoreRef.current = backtestPanelScrollRef.current;
     setNotebookReturnTarget(null);
     setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
@@ -2064,9 +2096,15 @@ export default function App() {
                 <ResultsPanel
                   activeSessionId={state?.session.id ?? null}
                   currency={sessionCurrency}
+                  filter={resultsPanelFilter}
+                  onFilterChange={setResultsPanelFilter}
                   onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
+                  onSearchChange={setResultsPanelSearch}
+                  onViewChange={setResultsPanelView}
+                  search={resultsPanelSearch}
                   sessions={state?.session ? [state.session] : []}
                   trades={currentSessionTrades}
+                  view={resultsPanelView}
                 />
               </section>
             )}

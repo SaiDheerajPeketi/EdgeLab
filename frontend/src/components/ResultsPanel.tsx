@@ -25,13 +25,19 @@ import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
 type Props = {
   activeSessionId: number | null;
   currency?: string;
+  filter?: ResultsTradeOutcomeFilter;
+  onFilterChange?: (filter: ResultsTradeOutcomeFilter) => void;
   sessions: BacktestSession[];
+  search?: string;
   trades: Trade[];
   onInspectTrade?: (trade: Trade) => void;
+  onSearchChange?: (value: string) => void;
+  onViewChange?: (view: ResultsPanelView) => void;
+  view?: ResultsPanelView;
 };
 
-type ResultsView = "overview" | "trades";
-type TradeOutcomeFilter = "ALL" | "WIN" | "LOSS" | "BREAKEVEN";
+export type ResultsPanelView = "overview" | "trades";
+export type ResultsTradeOutcomeFilter = "ALL" | "WIN" | "LOSS" | "BREAKEVEN";
 
 type Aggregate = {
   averageHoldMinutes: number | null;
@@ -65,13 +71,22 @@ type Aggregate = {
 export function ResultsPanel({
   activeSessionId,
   currency = "USD",
+  filter,
+  onFilterChange,
   sessions,
+  search,
   trades,
   onInspectTrade,
+  onSearchChange,
+  onViewChange,
+  view,
 }: Props) {
-  const [view, setView] = useState<ResultsView>("overview");
-  const [tradeSearch, setTradeSearch] = useState("");
-  const [outcomeFilter, setOutcomeFilter] = useState<TradeOutcomeFilter>("ALL");
+  const [localView, setLocalView] = useState<ResultsPanelView>("overview");
+  const [localTradeSearch, setLocalTradeSearch] = useState("");
+  const [localOutcomeFilter, setLocalOutcomeFilter] = useState<ResultsTradeOutcomeFilter>("ALL");
+  const currentView = view ?? localView;
+  const currentTradeSearch = search ?? localTradeSearch;
+  const currentOutcomeFilter = filter ?? localOutcomeFilter;
   const scopedSessions = useMemo(
     () =>
       activeSessionId == null
@@ -108,17 +123,17 @@ export function ResultsPanel({
     () =>
       closedTrades.filter((trade) => {
         const pnl = trade.realized_pnl ?? 0;
-        if (outcomeFilter === "WIN" && pnl <= 0) {
+        if (currentOutcomeFilter === "WIN" && pnl <= 0) {
           return false;
         }
-        if (outcomeFilter === "LOSS" && pnl >= 0) {
+        if (currentOutcomeFilter === "LOSS" && pnl >= 0) {
           return false;
         }
-        if (outcomeFilter === "BREAKEVEN" && pnl !== 0) {
+        if (currentOutcomeFilter === "BREAKEVEN" && pnl !== 0) {
           return false;
         }
-        const search = tradeSearch.trim().toLowerCase();
-        if (!search) {
+        const normalizedSearch = currentTradeSearch.trim().toLowerCase();
+        if (!normalizedSearch) {
           return true;
         }
         const session = sessionById.get(trade.session_id);
@@ -132,15 +147,36 @@ export function ResultsPanel({
           trade.mistake_tags.join(" "),
         ]
           .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(search));
+          .some((value) => String(value).toLowerCase().includes(normalizedSearch));
       }),
-    [closedTrades, outcomeFilter, sessionById, tradeSearch],
+    [closedTrades, currentOutcomeFilter, currentTradeSearch, sessionById],
   );
   const progress = activeSession ? sessionProgress(activeSession) : null;
   const sessionLabel = activeSession?.name ?? "Current replay";
   const sessionMeta = activeSession
     ? `${formatMarketSymbol(activeSession.symbol)} · ${activeSession.timeframe ?? "M1"} · ${sessionStrategyName(activeSession)}`
     : "Open a replay session to populate this report.";
+
+  function setPanelView(nextView: ResultsPanelView) {
+    onViewChange?.(nextView);
+    if (view == null) {
+      setLocalView(nextView);
+    }
+  }
+
+  function setPanelSearch(nextSearch: string) {
+    onSearchChange?.(nextSearch);
+    if (search == null) {
+      setLocalTradeSearch(nextSearch);
+    }
+  }
+
+  function setPanelFilter(nextFilter: ResultsTradeOutcomeFilter) {
+    onFilterChange?.(nextFilter);
+    if (filter == null) {
+      setLocalOutcomeFilter(nextFilter);
+    }
+  }
 
   function copySummary() {
     void copyTextToClipboard(
@@ -207,11 +243,11 @@ export function ResultsPanel({
               CSV
             </button>
             <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
-              <ResultTabButton active={view === "overview"} onClick={() => setView("overview")}>
+              <ResultTabButton active={currentView === "overview"} onClick={() => setPanelView("overview")}>
                 <BarChart3 size={14} />
                 Overview
               </ResultTabButton>
-              <ResultTabButton active={view === "trades"} onClick={() => setView("trades")}>
+              <ResultTabButton active={currentView === "trades"} onClick={() => setPanelView("trades")}>
                 <Activity size={14} />
                 Trades
               </ResultTabButton>
@@ -220,7 +256,7 @@ export function ResultsPanel({
         </div>
       </div>
 
-      {view === "overview" ? (
+      {currentView === "overview" ? (
         <OverviewResults
           aggregate={aggregate}
           currency={currency}
@@ -230,11 +266,11 @@ export function ResultsPanel({
       ) : (
         <TradeResults
           currency={currency}
-          filter={outcomeFilter}
-          onFilterChange={setOutcomeFilter}
+          filter={currentOutcomeFilter}
+          onFilterChange={setPanelFilter}
           onInspectTrade={onInspectTrade}
-          onSearchChange={setTradeSearch}
-          search={tradeSearch}
+          onSearchChange={setPanelSearch}
+          search={currentTradeSearch}
           sessionById={sessionById}
           trades={filteredTrades}
           totalTrades={closedTrades.length}
@@ -471,8 +507,8 @@ function TradeResults({
   totalTrades,
 }: {
   currency: string;
-  filter: TradeOutcomeFilter;
-  onFilterChange: (filter: TradeOutcomeFilter) => void;
+  filter: ResultsTradeOutcomeFilter;
+  onFilterChange: (filter: ResultsTradeOutcomeFilter) => void;
   onInspectTrade?: (trade: Trade) => void;
   onSearchChange: (value: string) => void;
   search: string;
