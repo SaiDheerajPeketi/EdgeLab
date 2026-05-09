@@ -3851,10 +3851,14 @@ function JournalReportsPage({
   const hourRows = useMemo(() => groupByHour(takenTrades), [takenTrades]);
   const weekdayRows = useMemo(() => groupByWeekday(takenTrades), [takenTrades]);
   const accountRows = useMemo(
-    () =>
-      accounts
+    () => {
+      const scopedAccounts = accountFilter === "ALL"
+        ? accounts
+        : accounts.filter((account) => account.id === Number(accountFilter));
+      const sourceTrades = accountFilter === "ALL" ? journalEntries : scopedEntries;
+      return scopedAccounts
         .map((account) => {
-          const trades = journalEntries.filter((trade) =>
+          const trades = sourceTrades.filter((trade) =>
             isTakenJournalTrade(trade) &&
             liveTradeAccountIds(trade).includes(account.id),
           );
@@ -3864,8 +3868,9 @@ function JournalReportsPage({
             label: account.name,
           };
         })
-        .filter((row) => row.aggregate.totalTrades > 0 || row.account.status === "ACTIVE"),
-    [accounts, journalEntries],
+        .filter((row) => row.aggregate.totalTrades > 0 || (accountFilter === "ALL" && row.account.status === "ACTIVE"));
+    },
+    [accountFilter, accounts, journalEntries, scopedEntries],
   );
   const strategyRows = useMemo(
     () => groupLiveStrategies(sessions, scopedEntries).filter((strategy) => strategy.aggregate.totalTrades > 0),
@@ -4013,7 +4018,7 @@ function JournalReportsPage({
           currency={reportCurrency}
           leftTitle="P&L by strategy"
           rightTitle="Win % by strategy"
-          rows={(strategyRows.length > 0 ? strategyRows : strategies).map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name }))}
+          rows={strategyRows.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name }))}
         />
       )}
       {tab === "missed" && (
