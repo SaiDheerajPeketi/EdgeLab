@@ -4,8 +4,6 @@ Find your edge.
 
 EdgeLab is a local trading research workspace built with FastAPI, Pandas, QuantStats, SQLite, React, Tailwind, Zustand, Lucide icons, and Lightweight Charts.
 
-Legacy tag: TBS.
-
 The current pass focuses on manual bar replay: long/short orders, market/limit/stop entries, TP/SL brackets, risk-percent sizing, breakeven stops, partial exits, session metrics, strategy breakdowns, a calendar heatmap, and a trade review drawer.
 
 ## Run The Backend
