@@ -2367,6 +2367,8 @@ function JournalWorkspacePage({
     | "journalTrades";
 }) {
   const [sessionTradeEntryId, setSessionTradeEntryId] = useState<number | null>(null);
+  const [focusedJournalNoteTradeId, setFocusedJournalNoteTradeId] = useState<number | null>(null);
+  const [journalNoteReturnView, setJournalNoteReturnView] = useState<typeof view | null>(null);
   const sessionById = useMemo(
     () => new Map(journal.data.sessions.map((session) => [session.id, session])),
     [journal.data.sessions],
@@ -2390,6 +2392,12 @@ function JournalWorkspacePage({
     [journal.data.sessions, journalEntries],
   );
 
+  function openJournalNote(trade: JournalTrade) {
+    setFocusedJournalNoteTradeId(trade.id);
+    setJournalNoteReturnView(view);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const shared = {
     accounts: journal.data.accounts,
     aggregate,
@@ -2397,6 +2405,7 @@ function JournalWorkspacePage({
     days,
     journal,
     journalEntries,
+    onOpenJournalNote: openJournalNote,
     playbooks: journal.data.playbooks,
     settings: journal.data.settings,
     sessionById,
@@ -2408,6 +2417,8 @@ function JournalWorkspacePage({
     if (view !== "journalSessions") {
       setSessionTradeEntryId(null);
     }
+    setFocusedJournalNoteTradeId(null);
+    setJournalNoteReturnView(null);
   }, [view]);
 
   useEffect(() => {
@@ -2415,6 +2426,27 @@ function JournalWorkspacePage({
       setSessionTradeEntryId(null);
     }
   }, [journal.data.sessions, sessionTradeEntryId]);
+
+  useEffect(() => {
+    if (focusedJournalNoteTradeId != null && !journalEntries.some((trade) => trade.id === focusedJournalNoteTradeId)) {
+      setFocusedJournalNoteTradeId(null);
+      setJournalNoteReturnView(null);
+    }
+  }, [focusedJournalNoteTradeId, journalEntries]);
+
+  if (focusedJournalNoteTradeId != null) {
+    return (
+      <JournalNotesPage
+        {...shared}
+        backLabel={`Back to ${journalViewLabel(journalNoteReturnView ?? view)}`}
+        focusTradeId={focusedJournalNoteTradeId}
+        onBack={() => {
+          setFocusedJournalNoteTradeId(null);
+          setJournalNoteReturnView(null);
+        }}
+      />
+    );
+  }
 
   switch (view) {
     case "journalAccounts":
@@ -2451,6 +2483,7 @@ type JournalPageProps = {
   days: DayGroup[];
   journal: LiveJournalController;
   journalEntries: JournalTrade[];
+  onOpenJournalNote: (trade: JournalTrade) => void;
   playbooks: Playbook[];
   settings: LiveJournalSettings;
   sessionById: Map<number, LiveJournalSession>;
@@ -2518,6 +2551,33 @@ function JournalAccountToggle({
       </span>
     </button>
   );
+}
+
+function journalViewLabel(view: string) {
+  switch (view) {
+    case "journalAccounts":
+      return "Journal Accounts";
+    case "journalDashboard":
+      return "Journal Dashboard";
+    case "journalDayView":
+      return "Journal Day View";
+    case "journalNotes":
+      return "Journal Notes";
+    case "journalPlaybooks":
+      return "Journal Playbooks";
+    case "journalReports":
+      return "Journal Results";
+    case "journalSessions":
+      return "Journal Sessions";
+    case "journalSettings":
+      return "Journal Settings";
+    case "journalStrategies":
+      return "Journal Strategies";
+    case "journalTrades":
+      return "Journal Trades";
+    default:
+      return "Journal";
+  }
 }
 
 function JournalBooleanToggle({
@@ -3112,6 +3172,7 @@ function JournalSessionTradeEntryPage({
   journal,
   journalEntries,
   onBack,
+  onOpenJournalNote,
   playbooks,
   sessionById,
   sessionId,
@@ -3266,6 +3327,7 @@ function JournalSessionTradeEntryPage({
       <LiveTradeTable
         accountById={accountById}
         onEditTrade={(trade) => setEditingTradeId(trade.id)}
+        onOpenReview={onOpenJournalNote}
         playbookById={playbookById}
         sessionById={sessionById}
         trades={sessionEntries}
@@ -3370,6 +3432,7 @@ function JournalTradesPage({
   accounts,
   journalEntries,
   journal,
+  onOpenJournalNote,
   playbooks,
   settings,
   sessions,
@@ -3402,6 +3465,7 @@ function JournalTradesPage({
         <LiveTradeTable
           accountById={new Map(accounts.map((account) => [account.id, account]))}
           onEditTrade={(trade) => setEditingTradeId(trade.id)}
+          onOpenReview={onOpenJournalNote}
           playbookById={new Map(playbooks.map((playbook) => [playbook.id, playbook]))}
           sessionById={new Map(sessions.map((session) => [session.id, session]))}
           trades={journalEntries}
@@ -3469,8 +3533,19 @@ function JournalDayViewPage({ accounts, days, journalEntries, sessionById }: Jou
   );
 }
 
-function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPageProps) {
-  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(journalEntries.at(-1)?.id ?? null);
+function JournalNotesPage({
+  accounts,
+  backLabel = "Back",
+  focusTradeId = null,
+  journalEntries,
+  onBack,
+  sessionById,
+}: JournalPageProps & {
+  backLabel?: string;
+  focusTradeId?: number | null;
+  onBack?: () => void;
+}) {
+  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(focusTradeId ?? journalEntries.at(-1)?.id ?? null);
   const [searchTerm, setSearchTerm] = useState("");
   const selectedTrade = journalEntries.find((trade) => trade.id === selectedTradeId) ?? journalEntries.at(-1) ?? null;
   const accountById = useMemo(
@@ -3513,9 +3588,30 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
       .map((accountId) => accountById.get(accountId))
       .filter((account): account is LiveJournalAccount => Boolean(account))
     : [];
+  const selectedNotesHtml = selectedTrade ? normalizeStoredNoteHtml(selectedTrade.notes) : "";
+  const selectedHasNotes = Boolean(selectedTrade) && !isRichTextEmpty(selectedNotesHtml);
+
+  useEffect(() => {
+    if (focusTradeId != null && journalEntries.some((trade) => trade.id === focusTradeId)) {
+      setSelectedTradeId(focusTradeId);
+    }
+  }, [focusTradeId, journalEntries]);
+
+  useEffect(() => {
+    if (selectedTradeId != null && journalEntries.some((trade) => trade.id === selectedTradeId)) {
+      return;
+    }
+    setSelectedTradeId(journalEntries.at(-1)?.id ?? null);
+  }, [journalEntries, selectedTradeId]);
 
   return (
     <PageScaffold
+      actions={onBack && (
+        <button className="control-button h-10" onClick={onBack} type="button">
+          <ArrowLeft size={15} />
+          {backLabel}
+        </button>
+      )}
       eyebrow="Journal Notes"
       title="Live Trade Notes"
       description="Notes, tags, missed reasons, and emotional review for Journal entries."
@@ -3582,6 +3678,22 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
                   {selectedTrade.missed_reason}
                 </div>
               )}
+              <div className="mt-4 rounded-md border border-white/10 bg-black/20">
+                <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                  <CardLabel icon={NotebookPen} label="Review notes" />
+                  <span className="text-xs text-slate-600">{selectedHasNotes ? "Saved note" : "No note yet"}</span>
+                </div>
+                {selectedHasNotes ? (
+                  <div
+                    className="notebook-rich-editor min-h-32 px-4 py-3 text-sm leading-6 text-slate-300"
+                    dangerouslySetInnerHTML={{ __html: selectedNotesHtml }}
+                  />
+                ) : (
+                  <div className="px-4 py-6 text-sm text-slate-500">
+                    No review notes have been saved for this Journal entry.
+                  </div>
+                )}
+              </div>
               {selectedTrade.screenshot_url && (
                 <div className="mt-4 overflow-hidden rounded-md border border-white/10 bg-black/20">
                   <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
@@ -3593,7 +3705,6 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
                   <img alt="Live trade screenshot" className="max-h-80 w-full object-contain" src={selectedTrade.screenshot_url} />
                 </div>
               )}
-              <RichTextEditorStub />
             </>
           ) : (
             <EmptyState icon={NotebookPen} message="Record a live trade to start live notes." />
@@ -3607,6 +3718,7 @@ function JournalNotesPage({ accounts, journalEntries, sessionById }: JournalPage
 function JournalReportsPage({
   accounts,
   journalEntries,
+  onOpenJournalNote,
   playbooks,
   sessionById,
   sessions,
@@ -3775,7 +3887,7 @@ function JournalReportsPage({
             <InsightMetric currency={reportCurrency} row={mostActiveRow(strategyRows.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name })))} title="Most active" />
           </div>
           <FeatureCard><StatsGrid aggregate={aggregate} currency={reportCurrency} /></FeatureCard>
-          <LiveTradeTable accountById={accountById} playbookById={playbookById} sessionById={sessionById} trades={scopedEntries.slice(-20)} />
+          <LiveTradeTable accountById={accountById} onOpenReview={onOpenJournalNote} playbookById={playbookById} sessionById={sessionById} trades={scopedEntries.slice(-20)} />
         </div>
       )}
       {tab === "accounts" && (
@@ -3807,15 +3919,15 @@ function JournalReportsPage({
             <CardLabel icon={Clock3} label="Missed setup clusters" />
             <div className="mt-4 grid gap-2">
               {missedByStrategy.map((row) => (
-                <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3" key={row.label}>
+                <button className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/10" key={row.label} onClick={() => onOpenJournalNote(row.trades[0])} type="button">
                   <div className="flex items-center justify-between gap-3">
                     <span className="truncate font-semibold text-white">{row.label}</span>
                     <span className="status-pill">{row.trades.length} missed</span>
                   </div>
                   <div className="mt-2 text-xs text-slate-500">
-                    {row.trades.slice(0, 3).map((trade) => trade.missed_reason || trade.notes || "No reason logged").join(" · ")}
+                    {row.trades.slice(0, 3).map((trade) => journalTradeReviewText(trade, "No reason logged")).join(" · ")}
                   </div>
-                </div>
+                </button>
               ))}
               {missedByStrategy.length === 0 && <EmptyState icon={Clock3} message="Missed setups appear here when logged." />}
             </div>
@@ -3824,13 +3936,13 @@ function JournalReportsPage({
             <CardLabel icon={ClipboardList} label="Recent missed entries" />
             <div className="mt-4 grid gap-2">
               {missedTrades.slice().reverse().slice(0, 8).map((trade) => (
-                <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm" key={trade.id}>
+                <button className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-left text-sm transition hover:border-cyan-300/30 hover:bg-cyan-300/10" key={trade.id} onClick={() => onOpenJournalNote(trade)} type="button">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-white">{trade.strategy_name || sessionById.get(trade.session_id)?.strategy_name || "Unassigned"}</span>
                     <span className="text-xs text-slate-500">{shortDate(trade.entry_time)}</span>
                   </div>
-                  <div className="mt-2 text-xs text-slate-500">{trade.missed_reason || trade.notes || "No reason logged"}</div>
-                </div>
+                  <div className="mt-2 text-xs text-slate-500">{journalTradeReviewText(trade, "No reason logged")}</div>
+                </button>
               ))}
               {missedTrades.length === 0 && <EmptyState icon={ClipboardList} message="No missed setups in this scope." />}
             </div>
@@ -6050,12 +6162,14 @@ function LiveTradeForm({
 function LiveTradeTable({
   accountById,
   onEditTrade,
+  onOpenReview,
   playbookById,
   sessionById,
   trades,
 }: {
   accountById: Map<number, LiveJournalAccount>;
   onEditTrade?: (trade: JournalTrade) => void;
+  onOpenReview?: (trade: JournalTrade) => void;
   playbookById: Map<number, Playbook>;
   sessionById: Map<number, LiveJournalSession>;
   trades: JournalTrade[];
@@ -6099,9 +6213,7 @@ function LiveTradeTable({
                 .filter((account): account is LiveJournalAccount => Boolean(account));
               const currency = currencyForJournalTrade(trade, accountById, sessionById);
               const missed = isMissedJournalTrade(trade);
-              const reviewText = missed
-                ? trade.missed_reason || trade.notes || "-"
-                : trade.mistake_tags.join(", ") || trade.notes || "-";
+              const reviewText = journalTradeReviewText(trade);
               return (
                 <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
                   <td className="px-3 py-4">
@@ -6146,7 +6258,18 @@ function LiveTradeTable({
                   <td className="px-3 py-4">{trade.playbook_id ? playbookById.get(trade.playbook_id)?.name ?? "Missing" : "-"}</td>
                   <td className="px-3 py-4">{trade.emotional_state || "-"}</td>
                   <td className="px-3 py-4">
-                    <div className="max-w-52 truncate" title={reviewText}>{reviewText}</div>
+                    {onOpenReview ? (
+                      <button
+                        className="max-w-52 truncate text-left font-semibold text-cyan-100 underline-offset-4 transition hover:text-cyan-50 hover:underline"
+                        onClick={() => onOpenReview(trade)}
+                        title={reviewText}
+                        type="button"
+                      >
+                        {reviewText}
+                      </button>
+                    ) : (
+                      <div className="max-w-52 truncate" title={reviewText}>{reviewText}</div>
+                    )}
                     {trade.screenshot_url && (
                       <a className="mt-1 inline-block text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={trade.screenshot_url} rel="noreferrer" target="_blank">
                         Screenshot
@@ -12466,6 +12589,14 @@ function isTakenJournalTrade(trade: JournalTrade): trade is TakenJournalTrade {
 
 function isMissedJournalTrade(trade: JournalTrade): trade is MissedJournalTrade {
   return trade.journal_entry_type === "MISSED";
+}
+
+function journalTradeReviewText(trade: JournalTrade, fallback = "Open review") {
+  const notesText = richTextToPlainText(trade.notes).trim();
+  if (isMissedJournalTrade(trade)) {
+    return trade.missed_reason?.trim() || notesText || fallback;
+  }
+  return trade.mistake_tags.join(", ") || notesText || fallback;
 }
 
 function parseOptionalFloat(value: string) {
