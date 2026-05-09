@@ -6206,6 +6206,8 @@ function LiveTradeForm({
   const [brokerageFixed, setBrokerageFixed] = useState(costFixedValueForMode(defaultSession?.brokerage_mode ?? settings.default_fee_mode, defaultSession?.brokerage_value ?? settings.default_fee_value));
   const [brokeragePercent, setBrokeragePercent] = useState(costPercentValueForMode(defaultSession?.brokerage_mode ?? settings.default_fee_mode, defaultSession?.brokerage_value ?? settings.default_fee_value));
   const [formError, setFormError] = useState<string | null>(null);
+  const submitInFlightRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const selectedSession = useMemo(
     () => sessions.find((session) => String(session.id) === sessionId) ?? sessions[0] ?? null,
     [sessionId, sessions],
@@ -6272,6 +6274,27 @@ function LiveTradeForm({
     quantity,
     side,
   ]);
+  const parsedEntryForSubmit = parseOptionalFloat(entryPrice);
+  const parsedExitForSubmit = parseOptionalFloat(exitPrice);
+  const parsedQuantityForSubmit = parseOptionalFloat(quantity);
+  const missedDraftHasDetails =
+    missedReason.trim().length > 0 ||
+    !isRichTextEmpty(notes) ||
+    screenshotUrl.trim().length > 0 ||
+    tags.length > 0 ||
+    parsedEntryForSubmit != null ||
+    parsedExitForSubmit != null ||
+    parseOptionalFloat(stopLoss) != null ||
+    parseOptionalFloat(takeProfit) != null;
+  const canSubmitTrade =
+    !submitting &&
+    (initialTrade != null ||
+      (entryType === "TAKEN"
+        ? parsedEntryForSubmit != null &&
+          parsedExitForSubmit != null &&
+          parsedQuantityForSubmit != null &&
+          parsedQuantityForSubmit > 0
+        : missedDraftHasDetails));
   const accountCopyCount = selectedAccounts.length;
   const saveTradeLabel = initialTrade
     ? "Save trade changes"
@@ -6406,8 +6429,57 @@ function LiveTradeForm({
     addTags(customTag);
   }
 
+  function resetTradeDraft() {
+    const draftSession = fixedSession ?? selectedSession ?? defaultSession;
+    if (draftSession) {
+      setSessionId(String(draftSession.id));
+      setStrategy(normalizeLiveJournalStrategyName(draftSession.strategy_name));
+      setPlaybookId(draftSession.playbook_id == null ? "" : String(draftSession.playbook_id));
+      setCommissionMode(draftSession.commission_mode);
+      setCommissionFixed(costFixedValueForMode(draftSession.commission_mode, draftSession.commission_value));
+      setCommissionPercent(costPercentValueForMode(draftSession.commission_mode, draftSession.commission_value));
+      setBrokerageMode(draftSession.brokerage_mode);
+      setBrokerageFixed(costFixedValueForMode(draftSession.brokerage_mode, draftSession.brokerage_value));
+      setBrokeragePercent(costPercentValueForMode(draftSession.brokerage_mode, draftSession.brokerage_value));
+    }
+    setEntryType(settings.default_entry_type);
+    setAccountIds(defaultAccountIds);
+    setSide("LONG");
+    setEntryTime("");
+    setExitTime("");
+    setEntryPrice("");
+    setExitPrice("");
+    setQuantity("");
+    setStopLoss("");
+    setTakeProfit("");
+    setEmotion("Calm");
+    setScreenshotUrl("");
+    setTags([]);
+    setCustomTag("");
+    setNotes("");
+    setMissedReason("");
+    setFormError(null);
+  }
+
+  function releaseSubmitLock(delay = 0) {
+    const release = () => {
+      submitInFlightRef.current = false;
+      setSubmitting(false);
+    };
+    if (delay > 0 && typeof window !== "undefined") {
+      window.setTimeout(release, delay);
+      return;
+    }
+    release();
+  }
+
   function submitTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitInFlightRef.current) {
+      return;
+    }
+    submitInFlightRef.current = true;
+    setSubmitting(true);
     const parsedEntry = parseOptionalFloat(entryPrice);
     const parsedExit = parseOptionalFloat(exitPrice);
     const parsedQuantity = parseOptionalFloat(quantity);
@@ -6415,10 +6487,17 @@ function LiveTradeForm({
     const parsedTakeProfit = parseOptionalFloat(takeProfit);
     if (entryType === "TAKEN" && (parsedEntry == null || parsedExit == null || parsedQuantity == null || parsedQuantity <= 0)) {
       setFormError("Taken trades need entry, exit, and size.");
+      releaseSubmitLock();
       return;
     }
     if (entryType === "TAKEN" && settings.require_account_for_taken_trades && accountIds.length === 0) {
       setFormError("Select at least one account for a taken trade, or mark the entry as missed.");
+      releaseSubmitLock();
+      return;
+    }
+    if (entryType === "MISSED" && !missedDraftHasDetails) {
+      setFormError("Add a missed reason, note, screenshot, tag, or planned level before saving.");
+      releaseSubmitLock();
       return;
     }
     setFormError(null);
@@ -6454,14 +6533,11 @@ function LiveTradeForm({
       journal.updateTrade(initialTrade.id, payload);
     } else {
       journal.addTrade(payload);
-      setNotes("");
-      setMissedReason("");
-      setScreenshotUrl("");
-      setTags([]);
-      setCustomTag("");
     }
     persistStrategyMistakeTags(activeStrategyScope, tags);
+    resetTradeDraft();
     onSaved?.();
+    releaseSubmitLock(350);
   }
 
   return (
@@ -6727,8 +6803,8 @@ function LiveTradeForm({
             {formError}
           </div>
         )}
-        <button className={`control-button workspace-tab-active justify-center ${fullSpanClass}`} type="submit">
-          {saveTradeLabel}
+        <button className={`control-button workspace-tab-active justify-center ${fullSpanClass}`} disabled={!canSubmitTrade} type="submit">
+          {submitting ? "Saving..." : saveTradeLabel}
         </button>
       </form>
     </FeatureCard>
