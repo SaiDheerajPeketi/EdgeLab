@@ -5,6 +5,7 @@ export type WorkspaceView =
   | "globalSettings"
   | "dayView"
   | "journal"
+  | "live"
   | "journalAccounts"
   | "journalDashboard"
   | "journalDayView"

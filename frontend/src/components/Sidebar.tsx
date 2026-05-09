@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   BookOpen,
   Network,
@@ -29,7 +30,7 @@ type SidebarGroup = {
 type SidebarEntry = SidebarItem | SidebarGroup;
 
 const sections: Array<{
-  label: "App" | "Backtesting" | "Journal";
+  label: "App" | "Backtesting" | "Journal" | "Live";
   shortLabel: string;
   items: SidebarEntry[];
 }> = [
@@ -38,6 +39,13 @@ const sections: Array<{
     shortLabel: "APP",
     items: [
       { id: "globalSettings", label: "Global Settings", icon: Settings },
+    ],
+  },
+  {
+    label: "Live",
+    shortLabel: "LV",
+    items: [
+      { id: "live", label: "Live Markets", icon: Activity },
     ],
   },
   {

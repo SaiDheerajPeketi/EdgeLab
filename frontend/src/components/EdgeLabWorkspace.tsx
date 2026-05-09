@@ -73,6 +73,17 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import {
+  ColorType,
+  CrosshairMode,
+  createChart,
+} from "lightweight-charts";
+import type {
+  CandlestickData,
+  IChartApi,
+  ISeriesApi,
+  UTCTimestamp,
+} from "lightweight-charts";
 import { exportAppDataBundle, importAppDataBundle, importBacktestTrades } from "../lib/api";
 import type {
   AppDataBundle,
@@ -708,6 +719,8 @@ export function EdgeLabWorkspace({
     case "journal":
     case "journalTrades":
       return <JournalWorkspacePage journal={liveJournal} view="journalTrades" />;
+    case "live":
+      return <LiveMarketsPage />;
     case "journalAccounts":
     case "journalDashboard":
     case "journalDayView":
@@ -778,6 +791,942 @@ type SharedPageProps = {
   tradeViewFilters: TradeViewFilterState;
   tradeViewLogScrollTop: number | null;
 };
+
+type LiveWatchlistSymbol = {
+  color: string;
+  label: string;
+  symbol: string;
+};
+
+type LiveWatchlist = {
+  id: string;
+  name: string;
+  symbols: LiveWatchlistSymbol[];
+};
+
+type LiveTicker = {
+  change: number;
+  changePercent: number;
+  high: number;
+  last: number;
+  low: number;
+  quoteVolume: number;
+  symbol: string;
+  updatedAt: number;
+  volume: number;
+};
+
+type LiveConnectionStatus = "connecting" | "error" | "idle" | "live";
+
+type BinanceTickerPayload = {
+  E?: number;
+  P?: string;
+  c?: string;
+  e?: string;
+  h?: string;
+  l?: string;
+  p?: string;
+  q?: string;
+  s?: string;
+  v?: string;
+};
+
+type BinanceRestTickerPayload = {
+  closeTime?: number;
+  highPrice?: string;
+  lastPrice?: string;
+  lowPrice?: string;
+  priceChange?: string;
+  priceChangePercent?: string;
+  quoteVolume?: string;
+  symbol?: string;
+  volume?: string;
+};
+
+type BinanceKlinePayload = {
+  E?: number;
+  e?: string;
+  k?: {
+    c?: string;
+    h?: string;
+    i?: string;
+    l?: string;
+    o?: string;
+    t?: number;
+    v?: string;
+  };
+  s?: string;
+};
+
+const LIVE_WATCHLIST_STORAGE_KEY = "live-watchlists.v1";
+const BINANCE_REST_BASE = "https://data-api.binance.vision";
+const BINANCE_WS_BASE = "wss://data-stream.binance.vision";
+const LIVE_MAX_WATCHLIST_SYMBOLS = 40;
+const LIVE_TIMEFRAMES = [
+  { interval: "1m", label: "1m" },
+  { interval: "5m", label: "5m" },
+  { interval: "15m", label: "15m" },
+  { interval: "1h", label: "1H" },
+  { interval: "4h", label: "4H" },
+  { interval: "1d", label: "1D" },
+] as const;
+
+const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
+  {
+    id: "crypto-majors",
+    name: "Crypto Majors",
+    symbols: [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "LINKUSDT",
+      "AVAXUSDT",
+      "POLUSDT",
+    ].map((symbol) => liveWatchlistSymbol(symbol)),
+  },
+];
+
+function LiveMarketsPage() {
+  const { confirm, confirmDialog } = useThemedConfirm();
+  const [watchlists, setWatchlists] = useLiveWatchlists();
+  const [selectedWatchlistId, setSelectedWatchlistId] = useState(() => watchlists[0]?.id ?? "");
+  const selectedWatchlist = watchlists.find((watchlist) => watchlist.id === selectedWatchlistId) ?? watchlists[0] ?? null;
+  const symbols = useMemo(() => selectedWatchlist?.symbols ?? [], [selectedWatchlist]);
+  const [selectedSymbol, setSelectedSymbol] = useState(() => symbols[0]?.symbol ?? "BTCUSDT");
+  const [symbolDraft, setSymbolDraft] = useState("");
+  const [timeframe, setTimeframe] = useState<(typeof LIVE_TIMEFRAMES)[number]["interval"]>("1m");
+  const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
+  const [candles, setCandles] = useState<CandlestickData[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const selectedTicker = selectedSymbol ? tickers[selectedSymbol] ?? null : null;
+  const liveTimeframeOptions = LIVE_TIMEFRAMES.map((item) => ({ label: item.label, value: item.interval }));
+
+  useEffect(() => {
+    if (!watchlists.some((watchlist) => watchlist.id === selectedWatchlistId)) {
+      setSelectedWatchlistId(watchlists[0]?.id ?? "");
+    }
+  }, [selectedWatchlistId, watchlists]);
+
+  useEffect(() => {
+    if (symbols.length === 0) {
+      setSelectedSymbol("");
+      return;
+    }
+    if (!symbols.some((item) => item.symbol === selectedSymbol)) {
+      setSelectedSymbol(symbols[0].symbol);
+    }
+  }, [selectedSymbol, symbols]);
+
+  useEffect(() => {
+    if (symbols.length === 0) {
+      setTickers({});
+      return;
+    }
+    const controller = new AbortController();
+    void fetchBinanceTickers(symbols.map((item) => item.symbol), controller.signal)
+      .then((nextTickers) => {
+        setTickers((current) => ({ ...current, ...nextTickers }));
+        setFeedError(null);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setFeedError(importErrorMessage(error));
+        }
+      });
+    return () => controller.abort();
+  }, [symbols]);
+
+  useEffect(() => {
+    if (!selectedSymbol) {
+      setCandles([]);
+      return;
+    }
+    const controller = new AbortController();
+    setCandles([]);
+    void fetchBinanceKlines(selectedSymbol, timeframe, controller.signal)
+      .then((nextCandles) => {
+        setCandles(nextCandles);
+        setFeedError(null);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setFeedError(importErrorMessage(error));
+        }
+      });
+    return () => controller.abort();
+  }, [selectedSymbol, timeframe]);
+
+  useEffect(() => {
+    const streamSymbols = uniqueLiveSymbols(symbols.map((item) => item.symbol));
+    if (streamSymbols.length === 0) {
+      setConnectionStatus("idle");
+      return undefined;
+    }
+    const streams = [
+      ...streamSymbols.map((symbol) => `${symbol.toLowerCase()}@ticker`),
+      selectedSymbol ? `${selectedSymbol.toLowerCase()}@kline_${timeframe}` : "",
+    ].filter(Boolean);
+    const socket = new WebSocket(`${BINANCE_WS_BASE}/stream?streams=${streams.join("/")}`);
+    let closedByEffect = false;
+    setConnectionStatus("connecting");
+    socket.onopen = () => {
+      setConnectionStatus("live");
+      setFeedError(null);
+    };
+    socket.onerror = () => {
+      setConnectionStatus("error");
+      setFeedError("Live feed connection failed");
+    };
+    socket.onclose = () => {
+      if (!closedByEffect) {
+        setConnectionStatus("error");
+      }
+    };
+    socket.onmessage = (event) => {
+      const payload = parseBinanceCombinedPayload(event.data);
+      if (!payload) {
+        return;
+      }
+      if (isBinanceTickerPayload(payload)) {
+        const ticker = liveTickerFromBinance(payload);
+        if (ticker) {
+          setTickers((current) => ({ ...current, [ticker.symbol]: ticker }));
+        }
+        return;
+      }
+      if (isBinanceKlinePayload(payload) && payload.s === selectedSymbol) {
+        const candle = liveCandleFromBinance(payload);
+        if (candle) {
+          setCandles((current) => upsertLiveCandle(current, candle));
+        }
+      }
+    };
+    return () => {
+      closedByEffect = true;
+      socket.close();
+    };
+  }, [selectedSymbol, symbols, timeframe]);
+
+  function persistWatchlist(nextWatchlist: LiveWatchlist) {
+    setWatchlists((current) =>
+      current.map((watchlist) => watchlist.id === nextWatchlist.id ? sanitizeLiveWatchlist(nextWatchlist) : watchlist),
+    );
+  }
+
+  function createWatchlist() {
+    const id = `live-watchlist-${Date.now()}`;
+    const nextWatchlist: LiveWatchlist = {
+      id,
+      name: `Watchlist ${watchlists.length + 1}`,
+      symbols: [],
+    };
+    setWatchlists((current) => [...current, nextWatchlist]);
+    setSelectedWatchlistId(id);
+    setSelectedSymbol("");
+  }
+
+  async function deleteWatchlist() {
+    if (!selectedWatchlist || watchlists.length <= 1) {
+      return;
+    }
+    const confirmed = await confirm({
+      confirmLabel: "Delete watchlist",
+      detail: "Symbols inside this list are removed from the Live workspace only. No backtest or journal data is affected.",
+      message: (
+        <>
+          Delete <span className="font-semibold text-white">{selectedWatchlist.name}</span>?
+        </>
+      ),
+      title: "Delete live watchlist",
+      tone: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+    const nextWatchlists = watchlists.filter((watchlist) => watchlist.id !== selectedWatchlist.id);
+    setWatchlists(nextWatchlists);
+    setSelectedWatchlistId(nextWatchlists[0]?.id ?? "");
+  }
+
+  function addSymbol() {
+    if (!selectedWatchlist) {
+      return;
+    }
+    const symbol = normalizeLiveSymbolInput(symbolDraft);
+    if (!symbol) {
+      setFeedError("Enter a Binance spot symbol, for example BTCUSDT.");
+      return;
+    }
+    if (selectedWatchlist.symbols.some((item) => item.symbol === symbol)) {
+      setSelectedSymbol(symbol);
+      setSymbolDraft("");
+      return;
+    }
+    if (selectedWatchlist.symbols.length >= LIVE_MAX_WATCHLIST_SYMBOLS) {
+      setFeedError(`A watchlist can hold up to ${LIVE_MAX_WATCHLIST_SYMBOLS} symbols.`);
+      return;
+    }
+    const nextSymbol = liveWatchlistSymbol(symbol);
+    persistWatchlist({
+      ...selectedWatchlist,
+      symbols: [...selectedWatchlist.symbols, nextSymbol],
+    });
+    setSelectedSymbol(symbol);
+    setSymbolDraft("");
+    setFeedError(null);
+  }
+
+  function removeSymbol(symbol: string) {
+    if (!selectedWatchlist) {
+      return;
+    }
+    persistWatchlist({
+      ...selectedWatchlist,
+      symbols: selectedWatchlist.symbols.filter((item) => item.symbol !== symbol),
+    });
+    if (selectedSymbol === symbol) {
+      setSelectedSymbol(selectedWatchlist.symbols.find((item) => item.symbol !== symbol)?.symbol ?? "");
+    }
+  }
+
+  return (
+    <PageScaffold
+      eyebrow="Live Markets"
+      title="Live Chart Watchlists"
+      description="Build watchlists and monitor Binance Spot public market data in real time."
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className={`status-pill h-9 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
+            {connectionStatus === "live" ? "Live feed" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Feed offline" : "No symbols"}
+          </span>
+          <ThemedSelect
+            className="h-10 min-w-28"
+            onChange={(value) => setTimeframe(value as typeof timeframe)}
+            options={liveTimeframeOptions}
+            value={timeframe}
+          />
+        </div>
+      }
+    >
+      <div className="grid gap-4 2xl:grid-cols-[minmax(360px,0.42fr)_minmax(0,0.58fr)]">
+        <FeatureCard className="order-2 p-0 2xl:order-1">
+          <div className="border-b border-white/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <CardLabel icon={Activity} label="Watchlist" />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <ThemedSelect
+                    className="h-10 min-w-52"
+                    onChange={setSelectedWatchlistId}
+                    options={watchlists.map((watchlist) => ({ label: watchlist.name, value: watchlist.id }))}
+                    value={selectedWatchlist?.id ?? ""}
+                  />
+                  <button className="icon-button h-10 w-10" onClick={createWatchlist} title="Create watchlist" type="button">
+                    <Plus size={16} />
+                  </button>
+                  <button
+                    className="icon-button h-10 w-10 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                    disabled={watchlists.length <= 1}
+                    onClick={() => void deleteWatchlist()}
+                    title="Delete watchlist"
+                    type="button"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+              <span className="status-pill h-8 px-2 text-[11px]">Binance Spot</span>
+            </div>
+            {selectedWatchlist && (
+              <label className="form-field mt-3">
+                Watchlist name
+                <input
+                  className="input-control h-10 normal-case tracking-normal"
+                  onChange={(event) => persistWatchlist({ ...selectedWatchlist, name: event.target.value })}
+                  value={selectedWatchlist.name}
+                />
+              </label>
+            )}
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <input
+                className="input-control h-10 normal-case tracking-normal"
+                onChange={(event) => setSymbolDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addSymbol();
+                  }
+                }}
+                placeholder="Add symbol, e.g. BTCUSDT"
+                value={symbolDraft}
+              />
+              <button className="control-button workspace-tab-active h-10 justify-center" onClick={addSymbol} type="button">
+                <Plus size={15} />
+                Add symbol
+              </button>
+            </div>
+          </div>
+          <div className="overflow-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="border-b border-white/10 text-xs uppercase tracking-[0.16em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Symbol</th>
+                  <th className="px-3 py-3 text-right font-medium">Last</th>
+                  <th className="px-3 py-3 text-right font-medium">Chg</th>
+                  <th className="px-3 py-3 text-right font-medium">Chg%</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {symbols.map((item) => {
+                  const ticker = tickers[item.symbol];
+                  const active = item.symbol === selectedSymbol;
+                  return (
+                    <tr
+                      className={`cursor-pointer border-b border-white/10 text-slate-300 transition hover:bg-white/5 ${active ? "bg-cyan-300/10 ring-1 ring-inset ring-cyan-300/30" : ""}`}
+                      key={item.symbol}
+                      onClick={() => setSelectedSymbol(item.symbol)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span
+                            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[10px] font-black text-white"
+                            style={{ backgroundColor: item.color }}
+                          >
+                            {item.symbol.slice(0, 2)}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-base font-semibold text-white">{item.label}</span>
+                            <span className="text-xs text-slate-500">Spot · {liveQuoteAsset(item.symbol)}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-right text-lg font-semibold tabular-nums text-slate-100">
+                        {ticker ? formatLivePrice(ticker.last) : "--"}
+                      </td>
+                      <td className={`px-3 py-3 text-right text-lg font-semibold tabular-nums ${toneForNumber(ticker?.change ?? 0)}`}>
+                        {ticker ? signedLiveNumber(ticker.change) : "--"}
+                      </td>
+                      <td className={`px-3 py-3 text-right text-lg font-semibold tabular-nums ${toneForNumber(ticker?.changePercent ?? 0)}`}>
+                        {ticker ? `${signedLiveNumber(ticker.changePercent)}%` : "--"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeSymbol(item.symbol);
+                          }}
+                          title="Remove symbol"
+                          type="button"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {symbols.length === 0 && (
+                  <tr>
+                    <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={5}>
+                      Add a Binance spot symbol to start this watchlist.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </FeatureCard>
+
+        <div className="order-1 grid min-w-0 gap-4 2xl:order-2">
+          <FeatureCard className="overflow-hidden p-0">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-xl font-semibold text-white">{selectedSymbol || "No symbol selected"}</h2>
+                  <span className="status-pill h-7 px-2 text-[10px]">{timeframe.toUpperCase()}</span>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">Live candlesticks and 24h ticker from Binance public market data.</p>
+              </div>
+              <div className={`text-right text-2xl font-semibold tabular-nums ${toneForNumber(selectedTicker?.change ?? 0)}`}>
+                {selectedTicker ? formatLivePrice(selectedTicker.last) : "--"}
+              </div>
+            </div>
+            <LiveCandlestickChart
+              candles={candles}
+              connectionStatus={connectionStatus}
+              symbol={selectedSymbol}
+              ticker={selectedTicker}
+              timeframe={timeframe}
+            />
+          </FeatureCard>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <ResultMetricCard icon={BadgeDollarSign} label="Last price" value={selectedTicker ? formatLivePrice(selectedTicker.last) : "--"} tone={toneForNumber(selectedTicker?.change ?? 0)} />
+            <ResultMetricCard icon={TrendingUp} label="24h high" value={selectedTicker ? formatLivePrice(selectedTicker.high) : "--"} />
+            <ResultMetricCard icon={TrendingDown} label="24h low" value={selectedTicker ? formatLivePrice(selectedTicker.low) : "--"} />
+            <ResultMetricCard icon={BarChart3} label="Quote volume" value={selectedTicker ? formatCompactNumber(selectedTicker.quoteVolume) : "--"} />
+          </div>
+
+          {feedError && (
+            <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
+              {feedError}
+            </div>
+          )}
+        </div>
+      </div>
+      {confirmDialog}
+    </PageScaffold>
+  );
+}
+
+function LiveCandlestickChart({
+  candles,
+  connectionStatus,
+  symbol,
+  ticker,
+  timeframe,
+}: {
+  candles: CandlestickData[];
+  connectionStatus: LiveConnectionStatus;
+  symbol: string;
+  ticker: LiveTicker | null;
+  timeframe: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const chartKey = `${symbol}-${timeframe}`;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+    const chart = createChart(container, {
+      autoSize: true,
+      crosshair: {
+        mode: CrosshairMode.Normal,
+      },
+      grid: {
+        horzLines: { color: "rgba(148, 163, 184, 0.12)" },
+        vertLines: { color: "rgba(148, 163, 184, 0.08)" },
+      },
+      layout: {
+        background: { color: "#05070a", type: ColorType.Solid },
+        fontFamily: "Inter, ui-sans-serif, system-ui",
+        textColor: "#94a3b8",
+      },
+      localization: {
+        priceFormatter: formatLivePrice,
+      },
+      rightPriceScale: {
+        borderColor: "rgba(148, 163, 184, 0.18)",
+        scaleMargins: { bottom: 0.18, top: 0.08 },
+      },
+      timeScale: {
+        borderColor: "rgba(148, 163, 184, 0.18)",
+        rightOffset: 8,
+        timeVisible: true,
+      },
+    });
+    const candlesSeries = chart.addCandlestickSeries({
+      borderDownColor: "#fb7185",
+      borderUpColor: "#2dd4bf",
+      downColor: "#fb7185",
+      wickDownColor: "#fda4af",
+      wickUpColor: "#5eead4",
+      upColor: "#2dd4bf",
+    });
+    chartRef.current = chart;
+    candleSeriesRef.current = candlesSeries;
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    candleSeriesRef.current?.setData(candles);
+    if (candles.length > 0) {
+      chartRef.current?.timeScale().fitContent();
+    }
+  }, [candles, chartKey]);
+
+  const changeTone = toneForNumber(ticker?.changePercent ?? 0);
+
+  return (
+    <div className="relative h-[520px] min-h-[360px] bg-[#05070a]">
+      <div className="absolute left-4 top-4 z-10 flex flex-wrap gap-2">
+        <span className={`status-pill h-8 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
+          {connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
+        </span>
+        {ticker && (
+          <span className={`status-pill h-8 px-2 text-[11px] ${changeTone}`}>
+            {signedLiveNumber(ticker.changePercent)}% 24h
+          </span>
+        )}
+      </div>
+      <div className="h-full w-full" ref={containerRef} />
+      {candles.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="rounded-md border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-400">
+            {symbol ? "Loading live chart data..." : "Select a symbol to load the chart."}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function liveWatchlistSymbol(symbol: string): LiveWatchlistSymbol {
+  const normalized = normalizeLiveSymbolInput(symbol);
+  return {
+    color: liveSymbolColor(normalized),
+    label: normalized,
+    symbol: normalized,
+  };
+}
+
+function sanitizeLiveWatchlists(value: unknown): LiveWatchlist[] {
+  const source = Array.isArray(value) ? value : DEFAULT_LIVE_WATCHLISTS;
+  const sanitized = source
+    .map((watchlist, index) => sanitizeLiveWatchlist(watchlist, index))
+    .filter((watchlist) => watchlist.name.trim().length > 0);
+  return sanitized.length > 0
+    ? sanitized
+    : DEFAULT_LIVE_WATCHLISTS.map((watchlist, index) => sanitizeLiveWatchlist(watchlist, index));
+}
+
+function sanitizeLiveWatchlist(value: unknown, index = 0): LiveWatchlist {
+  const record = isPlainRecord(value) ? value : {};
+  const rawId = typeof record.id === "string" ? record.id.trim() : "";
+  const rawName = typeof record.name === "string" ? record.name.trim() : "";
+  const symbols = Array.isArray(record.symbols)
+    ? sanitizeLiveSymbols(record.symbols)
+    : [];
+
+  return {
+    id: rawId || `live-watchlist-${index + 1}`,
+    name: rawName || `Watchlist ${index + 1}`,
+    symbols,
+  };
+}
+
+function sanitizeLiveSymbols(value: unknown[]): LiveWatchlistSymbol[] {
+  const seen = new Set<string>();
+  const symbols: LiveWatchlistSymbol[] = [];
+  for (const item of value) {
+    const record = isPlainRecord(item) ? item : null;
+    const rawSymbol = record && typeof record.symbol === "string" ? record.symbol : typeof item === "string" ? item : "";
+    const symbol = normalizeLiveSymbolInput(rawSymbol);
+    if (!symbol || seen.has(symbol)) {
+      continue;
+    }
+    seen.add(symbol);
+    const label = record && typeof record.label === "string"
+      ? record.label.trim().toUpperCase().slice(0, 20) || symbol
+      : symbol;
+    const rawColor = record && typeof record.color === "string" ? record.color.trim() : "";
+    symbols.push({
+      color: isValidLiveColor(rawColor) ? rawColor : liveSymbolColor(symbol),
+      label,
+      symbol,
+    });
+    if (symbols.length >= LIVE_MAX_WATCHLIST_SYMBOLS) {
+      break;
+    }
+  }
+  return symbols;
+}
+
+function uniqueLiveSymbols(symbols: string[]) {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of symbols) {
+    const symbol = normalizeLiveSymbolInput(value);
+    if (!symbol || seen.has(symbol)) {
+      continue;
+    }
+    seen.add(symbol);
+    unique.push(symbol);
+  }
+  return unique.slice(0, LIVE_MAX_WATCHLIST_SYMBOLS);
+}
+
+function normalizeLiveSymbolInput(value: string) {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+async function fetchBinanceTickers(symbols: string[], signal: AbortSignal): Promise<Record<string, LiveTicker>> {
+  const uniqueSymbols = uniqueLiveSymbols(symbols);
+  if (uniqueSymbols.length === 0) {
+    return {};
+  }
+  const query = new URLSearchParams({
+    symbols: JSON.stringify(uniqueSymbols),
+  });
+  const response = await fetch(`${BINANCE_REST_BASE}/api/v3/ticker/24hr?${query}`, { signal });
+  if (!response.ok) {
+    throw new Error(`Binance ticker request failed (${response.status})`);
+  }
+  const payload = await response.json() as unknown;
+  const rows = Array.isArray(payload) ? payload : [payload];
+  const tickers: Record<string, LiveTicker> = {};
+  for (const row of rows) {
+    const ticker = isBinanceTickerPayload(row)
+      ? liveTickerFromBinance(row)
+      : isBinanceRestTickerPayload(row)
+        ? liveTickerFromBinanceRest(row)
+        : null;
+    if (ticker) {
+      tickers[ticker.symbol] = ticker;
+    }
+  }
+  return tickers;
+}
+
+async function fetchBinanceKlines(
+  symbol: string,
+  interval: (typeof LIVE_TIMEFRAMES)[number]["interval"],
+  signal: AbortSignal,
+): Promise<CandlestickData[]> {
+  const normalized = normalizeLiveSymbolInput(symbol);
+  if (!normalized) {
+    return [];
+  }
+  const query = new URLSearchParams({
+    interval,
+    limit: "240",
+    symbol: normalized,
+  });
+  const response = await fetch(`${BINANCE_REST_BASE}/api/v3/klines?${query}`, { signal });
+  if (!response.ok) {
+    throw new Error(`Binance candle request failed (${response.status})`);
+  }
+  const payload = await response.json() as unknown;
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+  return payload
+    .map(liveCandleFromRestKline)
+    .filter((candle): candle is CandlestickData => candle !== null)
+    .sort((left, right) => Number(left.time) - Number(right.time));
+}
+
+function parseBinanceCombinedPayload(raw: unknown): unknown {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isPlainRecord(parsed) && "data" in parsed ? parsed.data : parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isBinanceTickerPayload(value: unknown): value is BinanceTickerPayload {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  return typeof value.s === "string" && typeof value.c === "string" && !isPlainRecord(value.k);
+}
+
+function isBinanceRestTickerPayload(value: unknown): value is BinanceRestTickerPayload {
+  return isPlainRecord(value) && typeof value.symbol === "string" && typeof value.lastPrice === "string";
+}
+
+function isBinanceKlinePayload(value: unknown): value is BinanceKlinePayload {
+  return isPlainRecord(value) && typeof value.s === "string" && isPlainRecord(value.k);
+}
+
+function liveTickerFromBinance(payload: BinanceTickerPayload): LiveTicker | null {
+  const symbol = normalizeLiveSymbolInput(payload.s ?? "");
+  const last = liveNumber(payload.c);
+  if (!symbol || last == null) {
+    return null;
+  }
+  return {
+    change: liveNumber(payload.p) ?? 0,
+    changePercent: liveNumber(payload.P) ?? 0,
+    high: liveNumber(payload.h) ?? last,
+    last,
+    low: liveNumber(payload.l) ?? last,
+    quoteVolume: liveNumber(payload.q) ?? 0,
+    symbol,
+    updatedAt: Number.isFinite(payload.E) ? payload.E ?? Date.now() : Date.now(),
+    volume: liveNumber(payload.v) ?? 0,
+  };
+}
+
+function liveTickerFromBinanceRest(payload: BinanceRestTickerPayload): LiveTicker | null {
+  const symbol = normalizeLiveSymbolInput(payload.symbol ?? "");
+  const last = liveNumber(payload.lastPrice);
+  if (!symbol || last == null) {
+    return null;
+  }
+  return {
+    change: liveNumber(payload.priceChange) ?? 0,
+    changePercent: liveNumber(payload.priceChangePercent) ?? 0,
+    high: liveNumber(payload.highPrice) ?? last,
+    last,
+    low: liveNumber(payload.lowPrice) ?? last,
+    quoteVolume: liveNumber(payload.quoteVolume) ?? 0,
+    symbol,
+    updatedAt: Number.isFinite(payload.closeTime) ? payload.closeTime ?? Date.now() : Date.now(),
+    volume: liveNumber(payload.volume) ?? 0,
+  };
+}
+
+function liveCandleFromBinance(payload: BinanceKlinePayload): CandlestickData | null {
+  const kline = payload.k;
+  if (!kline) {
+    return null;
+  }
+  const time = Math.floor((kline.t ?? 0) / 1000);
+  const open = liveNumber(kline.o);
+  const high = liveNumber(kline.h);
+  const low = liveNumber(kline.l);
+  const close = liveNumber(kline.c);
+  if (!Number.isFinite(time) || open == null || high == null || low == null || close == null) {
+    return null;
+  }
+  return {
+    close,
+    high,
+    low,
+    open,
+    time: time as UTCTimestamp,
+  };
+}
+
+function liveCandleFromRestKline(value: unknown): CandlestickData | null {
+  if (!Array.isArray(value) || value.length < 5) {
+    return null;
+  }
+  const time = Math.floor(Number(value[0]) / 1000);
+  const open = liveNumber(value[1]);
+  const high = liveNumber(value[2]);
+  const low = liveNumber(value[3]);
+  const close = liveNumber(value[4]);
+  if (!Number.isFinite(time) || open == null || high == null || low == null || close == null) {
+    return null;
+  }
+  return {
+    close,
+    high,
+    low,
+    open,
+    time: time as UTCTimestamp,
+  };
+}
+
+function upsertLiveCandle(candles: CandlestickData[], candle: CandlestickData) {
+  const existingIndex = candles.findIndex((item) => Number(item.time) === Number(candle.time));
+  if (existingIndex >= 0) {
+    return candles.map((item, index) => index === existingIndex ? candle : item);
+  }
+  const next = [...candles, candle].sort((left, right) => Number(left.time) - Number(right.time));
+  return next.slice(-500);
+}
+
+function formatLivePrice(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) {
+    return "--";
+  }
+  const absolute = Math.abs(value);
+  const maximumFractionDigits = absolute >= 1000 ? 2 : absolute >= 1 ? 4 : absolute >= 0.01 ? 6 : 8;
+  const minimumFractionDigits = absolute >= 1 ? 2 : 0;
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits,
+    minimumFractionDigits,
+  }).format(value);
+}
+
+function signedLiveNumber(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) {
+    return "--";
+  }
+  const absolute = Math.abs(value);
+  const formatted = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: absolute >= 1 ? 2 : 4,
+    minimumFractionDigits: absolute >= 1 ? 2 : 0,
+  }).format(absolute);
+  if (value > 0) {
+    return `+${formatted}`;
+  }
+  if (value < 0) {
+    return `-${formatted}`;
+  }
+  return formatted;
+}
+
+function liveNumber(value: unknown) {
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(number) ? number : null;
+}
+
+function liveSymbolColor(symbol: string) {
+  const palette = ["#0891b2", "#0f766e", "#2563eb", "#7c3aed", "#be123c", "#c2410c", "#4d7c0f", "#0369a1"];
+  const hash = Array.from(symbol).reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  return palette[hash % palette.length];
+}
+
+function isValidLiveColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function liveQuoteAsset(symbol: string) {
+  const quoteAssets = ["USDT", "FDUSD", "USDC", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR", "BRL", "GBP"];
+  return quoteAssets.find((quote) => symbol.endsWith(quote)) ?? "Spot";
+}
+
+function resolveStateAction<T>(action: SetStateAction<T>, previous: T): T {
+  return typeof action === "function" ? (action as (previousValue: T) => T)(previous) : action;
+}
+
+function useLiveWatchlists(): [LiveWatchlist[], Dispatch<SetStateAction<LiveWatchlist[]>>] {
+  const [watchlists, setWatchlistsState] = useState<LiveWatchlist[]>(() =>
+    sanitizeLiveWatchlists(getCachedAppStorageItem<unknown>(LIVE_WATCHLIST_STORAGE_KEY, DEFAULT_LIVE_WATCHLISTS)),
+  );
+
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(LIVE_WATCHLIST_STORAGE_KEY, DEFAULT_LIVE_WATCHLISTS).then((value) => {
+      if (active) {
+        setWatchlistsState(sanitizeLiveWatchlists(value));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      LIVE_WATCHLIST_STORAGE_KEY,
+      (value) => setWatchlistsState(sanitizeLiveWatchlists(value)),
+    );
+    return unsubscribe;
+  }, []);
+
+  const setWatchlists: Dispatch<SetStateAction<LiveWatchlist[]>> = useCallback((action) => {
+    setWatchlistsState((current) => {
+      const next = sanitizeLiveWatchlists(resolveStateAction(action, current));
+      void saveAppStorageItem(LIVE_WATCHLIST_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  return [watchlists, setWatchlists];
+}
 
 function GlobalSettingsPage({
   datasets,
