@@ -4929,7 +4929,7 @@ function JournalScreenshotInput({
         )}
       </div>
       <div
-        className={`grid min-h-36 cursor-pointer place-items-center rounded-md border border-dashed px-4 py-5 text-center transition focus:outline-none focus:ring-2 focus:ring-cyan-300/35 ${
+        className={`grid min-h-28 cursor-pointer place-items-center rounded-md border border-dashed px-4 py-4 text-center transition focus:outline-none focus:ring-2 focus:ring-cyan-300/35 ${
           dragActive ? "border-cyan-300/50 bg-cyan-300/10" : "border-white/10 bg-white/[0.03] hover:border-white/20"
         }`}
         onClick={() => fileInputRef.current?.click()}
@@ -4957,16 +4957,16 @@ function JournalScreenshotInput({
       >
         {value ? (
           <div className="grid w-full gap-3">
-            <img alt="Trade screenshot preview" className="max-h-52 w-full rounded-md object-contain" src={value} />
+            <img alt="Trade screenshot preview" className="max-h-40 w-full rounded-md object-contain" src={value} />
             <div className="text-xs text-slate-500">{uploaded ? "Uploaded image attached" : "Linked screenshot URL"}</div>
           </div>
         ) : (
           <div>
-            <div className="mx-auto grid h-11 w-11 place-items-center rounded-md border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
-              <Image size={18} />
+            <div className="mx-auto grid h-10 w-10 place-items-center rounded-md border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
+              <Image size={17} />
             </div>
-            <p className="mt-3 text-sm font-semibold text-slate-200">No screenshot attached</p>
-            <p className="mt-1 text-xs text-slate-500">Click, drop, paste, or link an image</p>
+            <p className="mt-2 text-sm font-semibold text-slate-200">Click or drop screenshot</p>
+            <p className="mt-1 text-xs text-slate-500">Paste also works</p>
           </div>
         )}
       </div>
@@ -4990,6 +4990,54 @@ function JournalScreenshotInput({
       />
       {uploadMessage && <div className="mt-2 text-xs text-rose-200">{uploadMessage}</div>}
     </section>
+  );
+}
+
+function JournalDateTimeInput({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const dateValue = datePartFromDateTimeLocal(value);
+  const timeValue = timePartFromDateTimeLocal(value);
+
+  function updateDate(nextDate: string) {
+    onChange(composeDateTimeLocal(nextDate, timeValue));
+  }
+
+  function updateTime(nextTime: string) {
+    onChange(composeDateTimeLocal(dateValue, sanitizeTimeDraft(nextTime)));
+  }
+
+  function commitTime(nextTime: string) {
+    onChange(composeDateTimeLocal(dateValue, normalizeTimeValue(nextTime, timeValue || "00:00")));
+  }
+
+  return (
+    <div className="grid gap-2">
+      <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</div>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_96px]">
+        <ThemedDatePicker
+          ariaLabel={`${label} date`}
+          onChange={updateDate}
+          placeholder="Date"
+          value={dateValue}
+        />
+        <input
+          className="input-control h-10 text-center normal-case tracking-normal"
+          inputMode="numeric"
+          maxLength={5}
+          onBlur={(event) => commitTime(event.target.value)}
+          onChange={(event) => updateTime(event.target.value)}
+          placeholder="HH:MM"
+          value={timeValue}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -5878,14 +5926,16 @@ function LiveTradeForm({
         </div>
         <div className={`grid gap-3 ${fullSpanClass}`}>
           <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Trade details</div>
-          <div className={`grid gap-3 ${wideLayout ? "xl:grid-cols-[minmax(260px,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(280px,1.05fr)]" : ""}`}>
-            <div className="grid gap-2">
-              <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Emotion</div>
-              <div className="flex min-h-10 flex-wrap gap-1.5 rounded-md border border-white/10 bg-black/20 p-1">
+          <div className={`grid gap-3 ${wideLayout ? "xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)_minmax(0,1.45fr)]" : ""}`}>
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Mindset</div>
+              <div className="flex flex-wrap gap-1.5">
                 {LIVE_EMOTIONS.map((item) => (
                   <button
-                    className={`h-8 rounded px-2.5 text-xs font-semibold transition ${
-                      emotion === item ? "bg-white text-ink-950" : "text-slate-400 hover:bg-white/10 hover:text-white"
+                    className={`h-8 rounded border px-2.5 text-xs font-semibold transition ${
+                      emotion === item
+                        ? "border-cyan-200 bg-white text-ink-950"
+                        : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:bg-white/10 hover:text-white"
                     }`}
                     key={item}
                     onClick={() => setEmotion(item)}
@@ -5896,39 +5946,37 @@ function LiveTradeForm({
                 ))}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="form-field">
-                Entry time
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryTime(event.target.value)} type="datetime-local" value={entryTime} />
-              </label>
-              <label className="form-field">
-                Exit time
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitTime(event.target.value)} type="datetime-local" value={exitTime} />
-              </label>
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Timing</div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <JournalDateTimeInput label="Entry" onChange={setEntryTime} value={entryTime} />
+                <JournalDateTimeInput label="Exit" onChange={setExitTime} value={exitTime} />
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="form-field">
-                {entryType === "MISSED" ? "Planned entry" : "Entry"}
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
-              </label>
-              <label className="form-field">
-                {entryType === "MISSED" ? "Planned exit" : "Exit"}
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
-              </label>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <label className="form-field">
-                Size
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} value={quantity} />
-              </label>
-              <label className="form-field">
-                SL
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" value={stopLoss} />
-              </label>
-              <label className="form-field">
-                TP
-                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" value={takeProfit} />
-              </label>
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Price and size</div>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                <label className="form-field">
+                  {entryType === "MISSED" ? "Planned entry" : "Entry"}
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
+                </label>
+                <label className="form-field">
+                  {entryType === "MISSED" ? "Planned exit" : "Exit"}
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
+                </label>
+                <label className="form-field">
+                  Size
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} value={quantity} />
+                </label>
+                <label className="form-field">
+                  SL
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" value={stopLoss} />
+                </label>
+                <label className="form-field">
+                  TP
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" value={takeProfit} />
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -5969,26 +6017,30 @@ function LiveTradeForm({
             </div>
           </div>
         )}
-        <div className={halfSpanClass}>
-          <JournalTagPicker
-            attachedMistakeTags={attachedMistakeTags}
-            customTag={customTag}
-            mistakeOptions={mistakeOptions}
-            onAddTags={addTags}
-            onCustomTagChange={setCustomTag}
-            onCustomTagKeyDown={handleCustomTagKeyDown}
-            onDeleteSuggestion={deleteMistakeSuggestion}
-            onRemoveTag={removeTag}
-            onToggleTag={(tag) =>
-              setTags((current) =>
-                current.includes(tag) ? current.filter((currentTag) => currentTag !== tag) : [...current, tag],
-              )
-            }
-            tags={tags}
-          />
+        <div className={`grid gap-3 ${fullSpanClass}`}>
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Review assets</div>
+          <div className={`grid gap-3 ${wideLayout ? "xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,0.7fr)]" : ""}`}>
+            <JournalTagPicker
+              attachedMistakeTags={attachedMistakeTags}
+              customTag={customTag}
+              mistakeOptions={mistakeOptions}
+              onAddTags={addTags}
+              onCustomTagChange={setCustomTag}
+              onCustomTagKeyDown={handleCustomTagKeyDown}
+              onDeleteSuggestion={deleteMistakeSuggestion}
+              onRemoveTag={removeTag}
+              onToggleTag={(tag) =>
+                setTags((current) =>
+                  current.includes(tag) ? current.filter((currentTag) => currentTag !== tag) : [...current, tag],
+                )
+              }
+              tags={tags}
+            />
+            <JournalScreenshotInput onChange={setScreenshotUrl} value={screenshotUrl} />
+          </div>
         </div>
         {entryType === "MISSED" && (
-          <label className={`form-field ${halfSpanClass}`}>
+          <label className={`form-field ${fullSpanClass}`}>
             Missed reason
             <textarea
               className="input-control min-h-20 py-3 normal-case tracking-normal"
@@ -5998,9 +6050,6 @@ function LiveTradeForm({
             />
           </label>
         )}
-        <div className={halfSpanClass}>
-          <JournalScreenshotInput onChange={setScreenshotUrl} value={screenshotUrl} />
-        </div>
         <div className={`grid gap-2 ${fullSpanClass}`}>
           <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Notes</div>
           <JournalRichNoteEditor onChange={setNotes} value={notes} />
@@ -12597,6 +12646,41 @@ function dateTimeLocalFromIso(value: string | null | undefined) {
   }
   const localOffset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - localOffset).toISOString().slice(0, 16);
+}
+
+function datePartFromDateTimeLocal(value: string) {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : defaultDateTimeLocal(0).slice(0, 10);
+}
+
+function timePartFromDateTimeLocal(value: string) {
+  const match = value.match(/T([^Z]*)/);
+  return match ? sanitizeTimeDraft(match[1].slice(0, 5)) : defaultDateTimeLocal(0).slice(11, 16);
+}
+
+function composeDateTimeLocal(date: string, time: string) {
+  const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : defaultDateTimeLocal(0).slice(0, 10);
+  return `${safeDate}T${time || "00:00"}`;
+}
+
+function sanitizeTimeDraft(value: string) {
+  return value.replace(/[^\d:]/g, "").slice(0, 5);
+}
+
+function normalizeTimeValue(value: string, fallback = "00:00") {
+  const trimmed = value.trim();
+  const colonMatch = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
+  const compactMatch = trimmed.match(/^(\d{1,2})(\d{2})$/);
+  const [, rawHour, rawMinute] = colonMatch ?? compactMatch ?? [];
+  if (rawHour == null || rawMinute == null) {
+    return fallback;
+  }
+  const hour = Math.min(23, Math.max(0, Number(rawHour)));
+  const minute = Math.min(59, Math.max(0, Number(rawMinute)));
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return fallback;
+  }
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function toIsoFromDateTimeLocal(value: string) {
