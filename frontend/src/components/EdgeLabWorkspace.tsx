@@ -360,6 +360,7 @@ type LiveJournalController = {
   addTrade: (payload: LiveTradeInput) => void;
   deleteAccount: (accountId: number) => void;
   deleteSession: (sessionId: number) => void;
+  deleteTrade: (tradeId: number) => void;
   updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Playbook | null;
   deletePlaybook: (playbookId: number) => void;
   updateAccount: (accountId: number, payload: Partial<LiveJournalAccountInput> & { status?: LiveJournalAccount["status"] }) => LiveJournalAccount | null;
@@ -3341,6 +3342,12 @@ function JournalSessionTradeEntryPage({
       </div>
       <LiveTradeTable
         accountById={accountById}
+        onDeleteTrade={(trade) => {
+          journal.deleteTrade(trade.id);
+          if (editingTradeId === trade.id) {
+            setEditingTradeId(null);
+          }
+        }}
         onEditTrade={(trade) => setEditingTradeId(trade.id)}
         onScrollChange={onJournalLedgerScrollChange}
         onScrollRestored={onJournalLedgerScrollRestored}
@@ -3448,6 +3455,7 @@ function JournalDashboardPage({
 
 function JournalTradesPage({
   accounts,
+  journal,
   journalEntries,
   journalLedgerRestoreScroll,
   onJournalLedgerScrollChange,
@@ -3670,6 +3678,7 @@ function JournalTradesPage({
       <div className="grid gap-4">
         <LiveTradeTable
           accountById={accountById}
+          onDeleteTrade={(trade) => journal.deleteTrade(trade.id)}
           onOpenReview={onOpenJournalNote}
           onScrollChange={onJournalLedgerScrollChange}
           onScrollRestored={onJournalLedgerScrollRestored}
@@ -3683,7 +3692,7 @@ function JournalTradesPage({
   );
 }
 
-function JournalDayViewPage({ accounts, days, journalEntries, onOpenJournalNote, playbooks, sessionById }: JournalPageProps) {
+function JournalDayViewPage({ accounts, days, journal, journalEntries, onOpenJournalNote, playbooks, sessionById }: JournalPageProps) {
   const [mode, setMode] = useState<DayViewMode>("day");
   const [selectedDate, setSelectedDate] = useState(() => days[0]?.date ?? "");
   const [calendarMonth, setCalendarMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
@@ -3895,10 +3904,24 @@ function JournalDayViewPage({ accounts, days, journalEntries, onOpenJournalNote,
                           </td>
                           <td className="px-3 py-3 text-slate-200">{formatOptionalNumber(journalTrade.r_multiple)}</td>
                           <td className="px-3 py-3">
-                            <button className="control-button h-9 px-2 text-xs" onClick={() => onOpenJournalNote(journalTrade)} type="button">
-                              <NotebookPen size={13} />
-                              Trade notes
-                            </button>
+                            <div className="flex flex-wrap gap-2">
+                              <button className="control-button h-9 px-2 text-xs" onClick={() => onOpenJournalNote(journalTrade)} type="button">
+                                <NotebookPen size={13} />
+                                Trade notes
+                              </button>
+                              <button
+                                className="control-button h-9 border-rose-300/20 px-2 text-xs text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                                onClick={() => {
+                                  if (confirmDeleteJournalTrade(journalTrade)) {
+                                    journal.deleteTrade(journalTrade.id);
+                                  }
+                                }}
+                                type="button"
+                              >
+                                <Trash2 size={13} />
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -3972,6 +3995,7 @@ function JournalNotesPage({
   accounts,
   backLabel = "Back",
   focusTradeId = null,
+  journal,
   journalEntries,
   onBack,
   playbooks,
@@ -4061,6 +4085,18 @@ function JournalNotesPage({
     exportJournalTradeLogCsv(filteredEntries, accountById, playbookById, sessionById);
   }
 
+  function deleteSelectedTrade() {
+    if (!selectedTrade || !confirmDeleteJournalTrade(selectedTrade)) {
+      return;
+    }
+    journal.deleteTrade(selectedTrade.id);
+    if (onBack) {
+      onBack();
+      return;
+    }
+    setSelectedTradeId(journalEntries.filter((trade) => trade.id !== selectedTrade.id).at(-1)?.id ?? null);
+  }
+
   function openSelectedScreenshot() {
     if (!selectedScreenshotUrl) {
       setScreenshotActionStatus("No screenshot attached");
@@ -4098,6 +4134,15 @@ function JournalNotesPage({
               {backLabel}
             </button>
           )}
+          <button
+            className="control-button h-10 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+            disabled={!selectedTrade}
+            onClick={deleteSelectedTrade}
+            type="button"
+          >
+            <Trash2 size={15} />
+            Delete
+          </button>
           <button className="control-button h-10" disabled={filteredEntries.length === 0} onClick={exportFilteredNotesCsv} type="button">
             <FileDown size={15} />
             Export CSV
@@ -4276,6 +4321,7 @@ function JournalNotesPage({
 
 function JournalReportsPage({
   accounts,
+  journal,
   journalLedgerRestoreScroll,
   journalEntries,
   onJournalLedgerScrollChange,
@@ -4456,6 +4502,7 @@ function JournalReportsPage({
           <FeatureCard><StatsGrid aggregate={aggregate} currency={reportCurrency} /></FeatureCard>
           <LiveTradeTable
             accountById={accountById}
+            onDeleteTrade={(trade) => journal.deleteTrade(trade.id)}
             onOpenReview={onOpenJournalNote}
             onScrollChange={onJournalLedgerScrollChange}
             onScrollRestored={onJournalLedgerScrollRestored}
@@ -6813,6 +6860,7 @@ function LiveTradeForm({
 
 function LiveTradeTable({
   accountById,
+  onDeleteTrade,
   onEditTrade,
   onOpenReview,
   onScrollChange,
@@ -6823,6 +6871,7 @@ function LiveTradeTable({
   trades,
 }: {
   accountById: Map<number, LiveJournalAccount>;
+  onDeleteTrade?: (trade: JournalTrade) => void;
   onEditTrade?: (trade: JournalTrade) => void;
   onOpenReview?: (trade: JournalTrade) => void;
   onScrollChange?: (position: ScrollSnapshot) => void;
@@ -6966,6 +7015,21 @@ function LiveTradeTable({
                         <button className="control-button h-8 whitespace-nowrap px-2 text-xs" onClick={() => onEditTrade(trade)} title="Edit trade" type="button">
                           <Pencil size={13} />
                           Edit
+                        </button>
+                      )}
+                      {onDeleteTrade && (
+                        <button
+                          className="control-button h-8 whitespace-nowrap border-rose-300/20 px-2 text-xs text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                          onClick={() => {
+                            if (confirmDeleteJournalTrade(trade)) {
+                              onDeleteTrade(trade);
+                            }
+                          }}
+                          title="Delete journal entry"
+                          type="button"
+                        >
+                          <Trash2 size={13} />
+                          Delete
                         </button>
                       )}
                     </div>
@@ -12894,6 +12958,13 @@ function useLiveJournalData(): LiveJournalController {
     });
   }
 
+  function deleteTrade(tradeId: number) {
+    setData((current) => ({
+      ...current,
+      trades: current.trades.filter((trade) => trade.id !== tradeId),
+    }));
+  }
+
   function updateSettings(payload: Partial<LiveJournalSettings>) {
     setData((current) => {
       const settings = sanitizeLiveJournalSettings(
@@ -13043,6 +13114,7 @@ function useLiveJournalData(): LiveJournalController {
     addTrade,
     deleteAccount,
     deleteSession,
+    deleteTrade,
     deletePlaybook,
     updateAccount,
     updatePlaybook,
@@ -13449,6 +13521,14 @@ function journalTradeReviewText(trade: JournalTrade, fallback = "Open review") {
     return trade.missed_reason?.trim() || notesText || fallback;
   }
   return trade.mistake_tags.join(", ") || notesText || fallback;
+}
+
+function confirmDeleteJournalTrade(trade: JournalTrade) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const label = isMissedJournalTrade(trade) ? "missed setup" : "journal trade";
+  return window.confirm(`Delete this ${label} entry? This cannot be undone.`);
 }
 
 function parseOptionalFloat(value: string) {
