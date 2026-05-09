@@ -532,6 +532,11 @@ type ResultFilterState = TradeViewFilterState;
 
 const DEFAULT_RESULT_FILTERS: ResultFilterState = DEFAULT_TRADE_VIEW_FILTERS;
 
+type ScrollSnapshot = {
+  left: number;
+  top: number;
+};
+
 export function EdgeLabWorkspace({
   activeSession,
   datasets,
@@ -2369,6 +2374,10 @@ function JournalWorkspacePage({
   const [sessionTradeEntryId, setSessionTradeEntryId] = useState<number | null>(null);
   const [focusedJournalNoteTradeId, setFocusedJournalNoteTradeId] = useState<number | null>(null);
   const [journalNoteReturnView, setJournalNoteReturnView] = useState<typeof view | null>(null);
+  const journalPageScrollRef = useRef(0);
+  const journalLedgerScrollRef = useRef<ScrollSnapshot>({ left: 0, top: 0 });
+  const pendingJournalPageScrollRestoreRef = useRef<number | null>(null);
+  const pendingJournalLedgerScrollRestoreRef = useRef<ScrollSnapshot | null>(null);
   const sessionById = useMemo(
     () => new Map(journal.data.sessions.map((session) => [session.id, session])),
     [journal.data.sessions],
@@ -2393,9 +2402,25 @@ function JournalWorkspacePage({
   );
 
   function openJournalNote(trade: JournalTrade) {
+    journalPageScrollRef.current = window.scrollY;
     setFocusedJournalNoteTradeId(trade.id);
     setJournalNoteReturnView(view);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function closeFocusedJournalNote() {
+    pendingJournalPageScrollRestoreRef.current = journalPageScrollRef.current;
+    pendingJournalLedgerScrollRestoreRef.current = journalLedgerScrollRef.current;
+    setFocusedJournalNoteTradeId(null);
+    setJournalNoteReturnView(null);
+  }
+
+  function handleJournalLedgerScroll(position: ScrollSnapshot) {
+    journalLedgerScrollRef.current = position;
+  }
+
+  function clearJournalLedgerScrollRestore() {
+    pendingJournalLedgerScrollRestoreRef.current = null;
   }
 
   const shared = {
@@ -2404,7 +2429,10 @@ function JournalWorkspacePage({
     closedTrades,
     days,
     journal,
+    journalLedgerRestoreScroll: pendingJournalLedgerScrollRestoreRef.current,
     journalEntries,
+    onJournalLedgerScrollChange: handleJournalLedgerScroll,
+    onJournalLedgerScrollRestored: clearJournalLedgerScrollRestore,
     onOpenJournalNote: openJournalNote,
     playbooks: journal.data.playbooks,
     settings: journal.data.settings,
@@ -2419,6 +2447,8 @@ function JournalWorkspacePage({
     }
     setFocusedJournalNoteTradeId(null);
     setJournalNoteReturnView(null);
+    pendingJournalPageScrollRestoreRef.current = null;
+    pendingJournalLedgerScrollRestoreRef.current = null;
   }, [view]);
 
   useEffect(() => {
@@ -2434,16 +2464,32 @@ function JournalWorkspacePage({
     }
   }, [focusedJournalNoteTradeId, journalEntries]);
 
+  useEffect(() => {
+    if (focusedJournalNoteTradeId != null || pendingJournalPageScrollRestoreRef.current == null) {
+      return;
+    }
+    const scrollTop = pendingJournalPageScrollRestoreRef.current;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollTop });
+        pendingJournalPageScrollRestoreRef.current = null;
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [focusedJournalNoteTradeId, sessionTradeEntryId, view]);
+
   if (focusedJournalNoteTradeId != null) {
     return (
       <JournalNotesPage
         {...shared}
         backLabel={`Back to ${journalViewLabel(journalNoteReturnView ?? view)}`}
         focusTradeId={focusedJournalNoteTradeId}
-        onBack={() => {
-          setFocusedJournalNoteTradeId(null);
-          setJournalNoteReturnView(null);
-        }}
+        onBack={closeFocusedJournalNote}
       />
     );
   }
@@ -2482,7 +2528,10 @@ type JournalPageProps = {
   closedTrades: JournalTrade[];
   days: DayGroup[];
   journal: LiveJournalController;
+  journalLedgerRestoreScroll: ScrollSnapshot | null;
   journalEntries: JournalTrade[];
+  onJournalLedgerScrollChange: (position: ScrollSnapshot) => void;
+  onJournalLedgerScrollRestored: () => void;
   onOpenJournalNote: (trade: JournalTrade) => void;
   playbooks: Playbook[];
   settings: LiveJournalSettings;
@@ -3170,8 +3219,11 @@ function JournalSessionsPage({
 function JournalSessionTradeEntryPage({
   accounts,
   journal,
+  journalLedgerRestoreScroll,
   journalEntries,
   onBack,
+  onJournalLedgerScrollChange,
+  onJournalLedgerScrollRestored,
   onOpenJournalNote,
   playbooks,
   sessionById,
@@ -3290,8 +3342,11 @@ function JournalSessionTradeEntryPage({
       <LiveTradeTable
         accountById={accountById}
         onEditTrade={(trade) => setEditingTradeId(trade.id)}
+        onScrollChange={onJournalLedgerScrollChange}
+        onScrollRestored={onJournalLedgerScrollRestored}
         onOpenReview={onOpenJournalNote}
         playbookById={playbookById}
+        restoreScroll={journalLedgerRestoreScroll}
         sessionById={sessionById}
         trades={sessionEntries}
       />
@@ -3395,6 +3450,9 @@ function JournalTradesPage({
   accounts,
   journalEntries,
   journal,
+  journalLedgerRestoreScroll,
+  onJournalLedgerScrollChange,
+  onJournalLedgerScrollRestored,
   onOpenJournalNote,
   playbooks,
   settings,
@@ -3429,7 +3487,10 @@ function JournalTradesPage({
           accountById={new Map(accounts.map((account) => [account.id, account]))}
           onEditTrade={(trade) => setEditingTradeId(trade.id)}
           onOpenReview={onOpenJournalNote}
+          onScrollChange={onJournalLedgerScrollChange}
+          onScrollRestored={onJournalLedgerScrollRestored}
           playbookById={new Map(playbooks.map((playbook) => [playbook.id, playbook]))}
+          restoreScroll={journalLedgerRestoreScroll}
           sessionById={new Map(sessions.map((session) => [session.id, session]))}
           trades={journalEntries}
         />
@@ -3747,7 +3808,10 @@ function JournalNotesPage({
 
 function JournalReportsPage({
   accounts,
+  journalLedgerRestoreScroll,
   journalEntries,
+  onJournalLedgerScrollChange,
+  onJournalLedgerScrollRestored,
   onOpenJournalNote,
   playbooks,
   sessionById,
@@ -3917,7 +3981,16 @@ function JournalReportsPage({
             <InsightMetric currency={reportCurrency} row={mostActiveRow(strategyRows.map((strategy) => ({ aggregate: strategy.aggregate, label: strategy.name })))} title="Most active" />
           </div>
           <FeatureCard><StatsGrid aggregate={aggregate} currency={reportCurrency} /></FeatureCard>
-          <LiveTradeTable accountById={accountById} onOpenReview={onOpenJournalNote} playbookById={playbookById} sessionById={sessionById} trades={scopedEntries.slice(-20)} />
+          <LiveTradeTable
+            accountById={accountById}
+            onOpenReview={onOpenJournalNote}
+            onScrollChange={onJournalLedgerScrollChange}
+            onScrollRestored={onJournalLedgerScrollRestored}
+            playbookById={playbookById}
+            restoreScroll={journalLedgerRestoreScroll}
+            sessionById={sessionById}
+            trades={scopedEntries.slice(-20)}
+          />
         </div>
       )}
       {tab === "accounts" && (
@@ -6193,18 +6266,48 @@ function LiveTradeTable({
   accountById,
   onEditTrade,
   onOpenReview,
+  onScrollChange,
+  onScrollRestored,
   playbookById,
+  restoreScroll,
   sessionById,
   trades,
 }: {
   accountById: Map<number, LiveJournalAccount>;
   onEditTrade?: (trade: JournalTrade) => void;
   onOpenReview?: (trade: JournalTrade) => void;
+  onScrollChange?: (position: ScrollSnapshot) => void;
+  onScrollRestored?: () => void;
   playbookById: Map<number, Playbook>;
+  restoreScroll?: ScrollSnapshot | null;
   sessionById: Map<number, LiveJournalSession>;
   trades: JournalTrade[];
 }) {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sortedTrades = trades.slice().sort(compareTradesAscending).reverse();
+
+  useEffect(() => {
+    if (!restoreScroll || !scrollerRef.current) {
+      return;
+    }
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const scroller = scrollerRef.current;
+        if (scroller) {
+          scroller.scrollLeft = restoreScroll.left;
+          scroller.scrollTop = restoreScroll.top;
+        }
+        onScrollRestored?.();
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [onScrollRestored, restoreScroll]);
+
   return (
     <FeatureCard>
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -6213,7 +6316,16 @@ function LiveTradeTable({
           {trades.filter(isTakenJournalTrade).length} taken · {trades.filter(isMissedJournalTrade).length} missed
         </span>
       </div>
-      <div className="overflow-auto">
+      <div
+        className="overflow-auto"
+        onScroll={(event) => {
+          onScrollChange?.({
+            left: event.currentTarget.scrollLeft,
+            top: event.currentTarget.scrollTop,
+          });
+        }}
+        ref={scrollerRef}
+      >
         <table className="w-full min-w-[1260px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
