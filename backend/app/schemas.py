@@ -32,6 +32,20 @@ class BarsResponse(BaseModel):
     bars: list[Candle]
 
 
+class BinanceInstrument(BaseModel):
+    symbol: str
+    label: str
+    description: str
+    asset_class: str = "crypto"
+    base_asset: str
+    quote_asset: str
+    status: str
+
+
+class BinanceInstrumentsResponse(BaseModel):
+    instruments: list[BinanceInstrument]
+
+
 class DukascopyInstrument(BaseModel):
     symbol: str
     label: str

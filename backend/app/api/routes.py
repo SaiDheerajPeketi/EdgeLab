@@ -39,6 +39,8 @@ from app.schemas import (
     BacktestTradeImport,
     BacktestTradeImportResult,
     BarsResponse,
+    BinanceInstrument,
+    BinanceInstrumentsResponse,
     DatasetAssetUpdate,
     DatasetCatalogResponse,
     DatasetMeta,
@@ -72,6 +74,10 @@ market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_d
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
 
+BINANCE_REST_URLS = (
+    "https://data-api.binance.vision/api/v3",
+    "https://api.binance.com/api/v3",
+)
 DUKASCOPY_URL = "https://freeserv.dukascopy.com/2.0/index.php"
 DUKASCOPY_HEADERS = {
     "User-Agent": "edgelab-local-datafeed",
@@ -137,6 +143,27 @@ def dataset_error_response(exc: Exception) -> HTTPException:
     if isinstance(exc, (FileNotFoundError, ValueError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Dataset operation failed")
+
+
+def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
+    request = Request(url, headers=headers or {"User-Agent": "edgelab-local-datafeed"})
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Market catalog returned invalid data") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Market catalog request failed") from exc
+
+
+def fetch_binance_exchange_info() -> object:
+    last_error: HTTPException | None = None
+    for base_url in BINANCE_REST_URLS:
+        try:
+            return fetch_json_url(f"{base_url}/exchangeInfo")
+        except HTTPException as exc:
+            last_error = exc
+    raise last_error or HTTPException(status_code=502, detail="Binance instrument catalog is unavailable")
 
 
 def fetch_dukascopy_json(path: str, params: dict[str, str]) -> object:
@@ -418,7 +445,7 @@ def market_data_bars(
 @router.get("/live/dukascopy/instruments", response_model=DukascopyInstrumentsResponse)
 def dukascopy_instruments(
     search: str | None = Query(default=None, max_length=80),
-    limit: int = Query(default=120, ge=1, le=500),
+    limit: int = Query(default=120, ge=1, le=5000),
 ) -> DukascopyInstrumentsResponse:
     data = fetch_dukascopy_json("common/instruments", {})
     if not isinstance(data, dict) or not isinstance(data.get("instruments"), dict):
@@ -449,6 +476,59 @@ def dukascopy_instruments(
 
     instruments.sort(key=lambda item: (0 if item.asset_class in {"forex", "commodity", "index"} else 1, item.label))
     return DukascopyInstrumentsResponse(instruments=instruments[:limit])
+
+
+@router.get("/live/binance/instruments", response_model=BinanceInstrumentsResponse)
+def binance_instruments(
+    search: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=3000, ge=1, le=5000),
+) -> BinanceInstrumentsResponse:
+    data = fetch_binance_exchange_info()
+    if not isinstance(data, dict) or not isinstance(data.get("symbols"), list):
+        raise HTTPException(status_code=502, detail="Binance instrument catalog is unavailable")
+
+    needle = (search or "").strip().lower()
+    quote_rank = {
+        "USDT": 0,
+        "USDC": 1,
+        "FDUSD": 2,
+        "BTC": 3,
+        "ETH": 4,
+        "BNB": 5,
+        "EUR": 6,
+        "TRY": 7,
+    }
+    instruments: list[BinanceInstrument] = []
+    for raw_payload in data["symbols"]:
+        if not isinstance(raw_payload, dict):
+            continue
+        symbol = str(raw_payload.get("symbol") or "").strip().upper()
+        base_asset = str(raw_payload.get("baseAsset") or "").strip().upper()
+        quote_asset = str(raw_payload.get("quoteAsset") or "").strip().upper()
+        status = str(raw_payload.get("status") or "").strip().upper()
+        if not symbol or not base_asset or not quote_asset or status != "TRADING":
+            continue
+        if raw_payload.get("isSpotTradingAllowed") is False:
+            continue
+        label = f"{base_asset}/{quote_asset}"
+        description = f"{base_asset} / {quote_asset} spot pair"
+        haystack = " ".join([symbol, label, description, base_asset, quote_asset]).lower()
+        if needle and needle not in haystack:
+            continue
+        instruments.append(
+            BinanceInstrument(
+                symbol=symbol,
+                label=label,
+                description=description,
+                asset_class="crypto",
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                status=status,
+            )
+        )
+
+    instruments.sort(key=lambda item: (quote_rank.get(item.quote_asset, 99), item.base_asset, item.symbol))
+    return BinanceInstrumentsResponse(instruments=instruments[:limit])
 
 
 @router.get("/live/dukascopy/candles", response_model=DukascopyCandlesResponse)

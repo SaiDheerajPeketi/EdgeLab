@@ -79,6 +79,20 @@ export type BarsResponse = {
   bars: Candle[];
 };
 
+export type BinanceInstrument = {
+  asset_class: string;
+  base_asset: string;
+  description: string;
+  label: string;
+  quote_asset: string;
+  status: string;
+  symbol: string;
+};
+
+export type BinanceInstrumentsResponse = {
+  instruments: BinanceInstrument[];
+};
+
 export type DukascopyInstrument = {
   symbol: string;
   label: string;
@@ -513,6 +527,14 @@ export function getBars(offset = 0, limit = 300, sessionId?: number) {
     query.set("session_id", String(sessionId));
   }
   return request<BarsResponse>(`/market-data/bars?${query.toString()}`);
+}
+
+export function getBinanceInstruments(search = "", limit = 3000) {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (search.trim()) {
+    query.set("search", search.trim());
+  }
+  return request<BinanceInstrumentsResponse>(`/live/binance/instruments?${query.toString()}`);
 }
 
 export function getDukascopyInstruments(search = "", limit = 160) {
