@@ -2365,6 +2365,7 @@ function JournalWorkspacePage({
     | "journalStrategies"
     | "journalTrades";
 }) {
+  const [sessionTradeEntryId, setSessionTradeEntryId] = useState<number | null>(null);
   const sessionById = useMemo(
     () => new Map(journal.data.sessions.map((session) => [session.id, session])),
     [journal.data.sessions],
@@ -2402,6 +2403,18 @@ function JournalWorkspacePage({
     strategies,
   };
 
+  useEffect(() => {
+    if (view !== "journalSessions") {
+      setSessionTradeEntryId(null);
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (sessionTradeEntryId != null && !journal.data.sessions.some((session) => session.id === sessionTradeEntryId)) {
+      setSessionTradeEntryId(null);
+    }
+  }, [journal.data.sessions, sessionTradeEntryId]);
+
   switch (view) {
     case "journalAccounts":
       return <JournalAccountsPage {...shared} />;
@@ -2416,7 +2429,9 @@ function JournalWorkspacePage({
     case "journalReports":
       return <JournalReportsPage {...shared} />;
     case "journalSessions":
-      return <JournalSessionsPage {...shared} />;
+      return sessionTradeEntryId == null
+        ? <JournalSessionsPage {...shared} onOpenSessionTrades={setSessionTradeEntryId} />
+        : <JournalSessionTradeEntryPage {...shared} onBack={() => setSessionTradeEntryId(null)} sessionId={sessionTradeEntryId} />;
     case "journalSettings":
       return <JournalSettingsPage {...shared} />;
     case "journalStrategies":
@@ -2578,11 +2593,12 @@ function JournalSessionsPage({
   accounts,
   journal,
   journalEntries,
+  onOpenSessionTrades,
   playbooks,
   sessions,
   settings,
   strategies,
-}: JournalPageProps) {
+}: JournalPageProps & { onOpenSessionTrades: (sessionId: number) => void }) {
   const savedStrategyNames = useLiveJournalStrategyNames();
   const strategyNameOptions = useMemo(
     () => mergeLiveStrategyGroups(strategies, savedStrategyNames).map((strategy) => strategy.name),
@@ -2628,10 +2644,8 @@ function JournalSessionsPage({
     () => journalStrategySelectOptions(strategyNameOptions, editDraft.strategy),
     [editDraft.strategy, strategyNameOptions],
   );
-  const [editingSessionTradeId, setEditingSessionTradeId] = useState<number | null>(null);
   const [showSessionSettings, setShowSessionSettings] = useState(false);
   const selectedSessionCardRef = useRef<HTMLDivElement | null>(null);
-  const addTradeSectionRef = useRef<HTMLDivElement | null>(null);
   const sessionRows = useMemo(
     () =>
       sessions.map((session) => {
@@ -2654,24 +2668,12 @@ function JournalSessionsPage({
     ? sessionRows.find((row) => row.session.id === selectedSession.id) ?? null
     : null;
   const selectedSessionCurrency = selectedSession?.currency ?? settings.default_currency;
-  const editingSessionTrade = editingSessionTradeId == null
-    ? null
-    : journalEntries.find((trade) => trade.id === editingSessionTradeId && trade.session_id === selectedSession?.id) ?? null;
 
   useEffect(() => {
     if (!selectedSession && sessions[0]) {
       setSelectedSessionId(sessions[0].id);
     }
   }, [selectedSession, sessions]);
-
-  useEffect(() => {
-    if (editingSessionTradeId == null) {
-      return;
-    }
-    requestAnimationFrame(() => {
-      addTradeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [editingSessionTradeId]);
 
   useEffect(() => {
     if (!selectedSession) {
@@ -2691,7 +2693,6 @@ function JournalSessionsPage({
       playbookId: selectedSession.playbook_id == null ? "" : String(selectedSession.playbook_id),
       strategy: selectedSession.strategy_name ?? "Unassigned",
     });
-    setEditingSessionTradeId(null);
   }, [selectedSession, settings.default_currency]);
 
   useEffect(() => {
@@ -2710,13 +2711,11 @@ function JournalSessionsPage({
     settings.default_fee_value,
   ]);
 
-  function selectSession(sessionId: number, mode: "addTrade" | "edit" = "addTrade") {
+  function editSession(sessionId: number) {
     setSelectedSessionId(sessionId);
-    setEditingSessionTradeId(null);
-    setShowSessionSettings(mode === "edit");
+    setShowSessionSettings(true);
     requestAnimationFrame(() => {
-      const target = mode === "edit" ? selectedSessionCardRef.current : addTradeSectionRef.current;
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      selectedSessionCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
 
@@ -2766,8 +2765,8 @@ function JournalSessionsPage({
   return (
     <PageScaffold
       eyebrow="Journal Sessions"
-      title="Live Session Management"
-      description="Group Journal entries into live trading sessions with strategy, playbook, instrument, and cost defaults."
+      title="Select a Live Session"
+      description="Choose a session to open a focused trade-entry workspace, or manage session setup and defaults here."
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ResultMetricCard icon={PlaySquare} label="Sessions" value={String(sessions.length)} />
@@ -2775,11 +2774,97 @@ function JournalSessionsPage({
         <ResultMetricCard icon={Clock3} label="Missed setups" value={String(totalMissedSetups)} />
         <ResultMetricCard icon={WalletCards} label="Trade accounts" value={String(accounts.filter((account) => account.status === "ACTIVE").length)} />
       </div>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-4">
+        <FeatureCard>
+          <CardLabel icon={Plus} label="Create session" />
+          <form className="mt-4 grid gap-4" onSubmit={submitSession}>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <label className="form-field">
+                Session name
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setName(event.target.value)} value={name} />
+              </label>
+              <label className="form-field">
+                Strategy
+                <ThemedSelect
+                  className="h-10"
+                  onChange={setStrategy}
+                  options={createStrategyOptions}
+                  portal
+                  value={strategy}
+                />
+              </label>
+              <label className="form-field">
+                Instrument
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setInstrument(event.target.value)} value={instrument} />
+              </label>
+              <label className="form-field">
+                Playbook rules
+                <ThemedSelect
+                  className="h-10"
+                  onChange={setPlaybookId}
+                  options={[
+                    { label: "No playbook", value: "" },
+                    ...playbooks.map((playbook) => ({
+                      label: playbook.name,
+                      value: String(playbook.id),
+                    })),
+                  ]}
+                  value={playbookId}
+                />
+              </label>
+              <label className="form-field">
+                Currency
+                <ThemedSelect
+                  className="h-10"
+                  onChange={setCurrency}
+                  options={selectOptionsWithValue(CURRENCY_OPTIONS, currency)}
+                  portal
+                  value={currency}
+                />
+              </label>
+            </div>
+            <div className="rounded-md border border-white/10 bg-black/20 p-3">
+              <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Session trade costs
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <CostConfigCard
+                  fixedValue={createCommissionFixed}
+                  mode={createCommissionMode}
+                  onFixedValueChange={setCreateCommissionFixed}
+                  onModeChange={setCreateCommissionMode}
+                  onPercentValueChange={setCreateCommissionPercent}
+                  percentValue={createCommissionPercent}
+                  title="Commission default"
+                />
+                <CostConfigCard
+                  fixedValue={createBrokerageFixed}
+                  mode={createBrokerageMode}
+                  onFixedValueChange={setCreateBrokerageFixed}
+                  onModeChange={setCreateBrokerageMode}
+                  onPercentValueChange={setCreateBrokeragePercent}
+                  percentValue={createBrokeragePercent}
+                  title="Brokerage default"
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <label className="form-field">
+                Notes
+                <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
+              </label>
+              <div className="flex items-end">
+                <button className="control-button workspace-tab-active h-10 w-full justify-center" type="submit">
+                  <Plus size={15} />
+                  Save session
+                </button>
+              </div>
+            </div>
+          </form>
+        </FeatureCard>
         <FeatureCard>
           <div className="mb-4 flex items-center justify-between gap-3">
             <CardLabel icon={PlaySquare} label="Live sessions" />
-            <span className="status-pill">{sessions.length} sessions</span>
           </div>
           <div className="overflow-auto">
             <table className="w-full min-w-[1120px] text-left text-sm">
@@ -2793,7 +2878,7 @@ function JournalSessionsPage({
                   <th className="px-3 py-3 font-medium">Missed</th>
                   <th className="px-3 py-3 font-medium">Net P&L</th>
                   <th className="px-3 py-3 font-medium">Win rate</th>
-                  <th className="px-3 py-3 font-medium">Actions</th>
+                  <th className="px-3 py-3 font-medium">Open / Edit</th>
                 </tr>
               </thead>
               <tbody>
@@ -2801,9 +2886,9 @@ function JournalSessionsPage({
                   const rowCurrency = session.currency;
                   return (
                     <tr
-                      className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${selectedSession?.id === session.id ? "bg-cyan-300/10" : ""}`}
+                      className={`cursor-pointer border-t border-white/10 text-slate-300 hover:bg-white/5 ${showSessionSettings && selectedSession?.id === session.id ? "bg-cyan-300/10" : ""}`}
                       key={session.id}
-                      onClick={() => selectSession(session.id)}
+                      onClick={() => onOpenSessionTrades(session.id)}
                     >
                       <td className="px-3 py-4">
                         <div className="font-semibold text-white">{session.name}</div>
@@ -2819,10 +2904,21 @@ function JournalSessionsPage({
                       <td className="px-3 py-4">
                         <div className="flex gap-2">
                           <button
-                            className="control-button h-8 px-2 text-xs"
+                            className="control-button h-8 whitespace-nowrap px-2 text-xs"
                             onClick={(event) => {
                               event.stopPropagation();
-                              selectSession(session.id, "edit");
+                              onOpenSessionTrades(session.id);
+                            }}
+                            type="button"
+                          >
+                            <ArrowRight size={13} />
+                            Open
+                          </button>
+                          <button
+                            className="control-button h-8 whitespace-nowrap px-2 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              editSession(session.id);
                             }}
                             type="button"
                           >
@@ -2830,7 +2926,7 @@ function JournalSessionsPage({
                             Edit
                           </button>
                           <button
-                            className="control-button h-8 px-2 text-xs"
+                            className="control-button h-8 whitespace-nowrap px-2 text-xs"
                             onClick={(event) => {
                               event.stopPropagation();
                               journal.updateSession(session.id, { status: session.status === "ARCHIVED" ? "ACTIVE" : "ARCHIVED" });
@@ -2857,106 +2953,32 @@ function JournalSessionsPage({
                     </tr>
                   );
                 })}
+                {sessionRows.length === 0 && (
+                  <tr>
+                    <td className="border-t border-white/10 px-3 py-8 text-center text-sm text-slate-500" colSpan={9}>
+                      Create a session, then open it to add trades.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </FeatureCard>
-        <FeatureCard>
-          <CardLabel icon={Plus} label="Create live session" />
-          <form className="mt-4 grid gap-3" onSubmit={submitSession}>
-            <label className="form-field">
-              Session name
-              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setName(event.target.value)} value={name} />
-            </label>
-            <label className="form-field">
-              Strategy
-              <ThemedSelect
-                className="h-10"
-                onChange={setStrategy}
-                options={createStrategyOptions}
-                portal
-                value={strategy}
-              />
-            </label>
-            <label className="form-field">
-              Instrument
-              <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setInstrument(event.target.value)} value={instrument} />
-            </label>
-            <label className="form-field">
-              Playbook rules
-              <ThemedSelect
-                className="h-10"
-                onChange={setPlaybookId}
-                options={[
-                  { label: "No playbook", value: "" },
-                  ...playbooks.map((playbook) => ({
-                    label: playbook.name,
-                    value: String(playbook.id),
-                  })),
-                ]}
-                value={playbookId}
-              />
-            </label>
-            <label className="form-field">
-              Currency
-              <ThemedSelect
-                className="h-10"
-                onChange={setCurrency}
-                options={selectOptionsWithValue(CURRENCY_OPTIONS, currency)}
-                portal
-                value={currency}
-              />
-            </label>
-            <div className="rounded-md border border-white/10 bg-black/20 p-3">
-              <div className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Session trade costs
-              </div>
-              <div className="grid gap-3">
-                <CostConfigCard
-                  fixedValue={createCommissionFixed}
-                  mode={createCommissionMode}
-                  onFixedValueChange={setCreateCommissionFixed}
-                  onModeChange={setCreateCommissionMode}
-                  onPercentValueChange={setCreateCommissionPercent}
-                  percentValue={createCommissionPercent}
-                  title="Commission default"
-                />
-                <CostConfigCard
-                  fixedValue={createBrokerageFixed}
-                  mode={createBrokerageMode}
-                  onFixedValueChange={setCreateBrokerageFixed}
-                  onModeChange={setCreateBrokerageMode}
-                  onPercentValueChange={setCreateBrokeragePercent}
-                  percentValue={createBrokeragePercent}
-                  title="Brokerage default"
-                />
-              </div>
-            </div>
-            <label className="form-field">
-              Notes
-              <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setNotes(event.target.value)} value={notes} />
-            </label>
-            <button className="control-button workspace-tab-active justify-center" type="submit">
-              <Plus size={15} />
-              Save session
-            </button>
-          </form>
-        </FeatureCard>
       </div>
-      {selectedSession && (
+      {showSessionSettings && selectedSession && (
         <div ref={selectedSessionCardRef}>
           <FeatureCard>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <CardLabel icon={Settings} label="Selected session" />
+              <CardLabel icon={Settings} label="Edit session" />
               <div className="flex flex-wrap items-center gap-2">
                 <span className="status-pill">{selectedSession.status}</span>
                 <button
-                  className={`control-button h-9 ${showSessionSettings ? "workspace-tab-active" : ""}`}
-                  onClick={() => setShowSessionSettings((current) => !current)}
+                  className="control-button h-9"
+                  onClick={() => setShowSessionSettings(false)}
                   type="button"
                 >
-                  {showSessionSettings ? <X size={14} /> : <Pencil size={14} />}
-                  {showSessionSettings ? "Close edit" : "Edit session"}
+                  <X size={14} />
+                  Close edit
                 </button>
               </div>
             </div>
@@ -2968,175 +2990,285 @@ function JournalSessionsPage({
                 <CompactMetric label="Win rate" value={formatPercent(selectedSessionRow.aggregate.winRate)} />
               </div>
             )}
-            {!showSessionSettings && (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.48fr)_minmax(0,0.52fr)]">
-                <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-white">{selectedSession.name}</div>
-                      <div className="mt-1 text-xs text-slate-500">{selectedSession.instrument} · {selectedSession.strategy_name || "Unassigned"}</div>
-                    </div>
-                    <span className="status-pill h-7 px-2 text-[10px]">{selectedSession.currency}</span>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="form-field">
+                  Session name
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
+                </label>
+                <label className="form-field">
+                  Strategy
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
+                    options={editStrategyOptions}
+                    portal
+                    value={editDraft.strategy}
+                  />
+                </label>
+                <label className="form-field">
+                  Instrument
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
+                </label>
+                <label className="form-field">
+                  Playbook
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
+                    options={[
+                      { label: "No playbook", value: "" },
+                      ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
+                    ]}
+                    value={editDraft.playbookId}
+                  />
+                </label>
+                <label className="form-field">
+                  Currency
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
+                    options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
+                    portal
+                    value={editDraft.currency}
+                  />
+                </label>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
+                    <span className="text-xs text-slate-500">Applied to new trades in this session</span>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, selectedSessionCurrency)} />
-                    <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, selectedSessionCurrency)} />
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <CostConfigCard
+                      fixedValue={editDraft.commissionFixed}
+                      mode={editDraft.commissionMode}
+                      onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
+                      onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
+                      onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
+                      percentValue={editDraft.commissionPercent}
+                      title="Commission"
+                    />
+                    <CostConfigCard
+                      fixedValue={editDraft.brokerageFixed}
+                      mode={editDraft.brokerageMode}
+                      onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
+                      onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
+                      onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
+                      percentValue={editDraft.brokeragePercent}
+                      title="Brokerage"
+                    />
                   </div>
                 </div>
+                <label className="form-field md:col-span-2">
+                  Notes
+                  <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
+                </label>
+              </div>
+              <div className="grid content-start gap-3">
                 {selectedSessionRow && (
                   <div className="rounded-md border border-white/10 bg-black/20 p-3">
                     <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
                     <div className="grid gap-2">
-                      {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 3).map((trade) => (
+                      {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
                         <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
                             <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
                           </span>
-                          <button className="control-button h-8 px-2 text-xs" onClick={() => setEditingSessionTradeId(trade.id)} type="button">
-                            <Pencil size={13} />
-                            Edit
-                          </button>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                              {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
+                            </span>
+                            <button
+                              className="icon-button h-8 w-8"
+                              onClick={() => onOpenSessionTrades(selectedSession.id)}
+                              title="Open session trades"
+                              type="button"
+                            >
+                              <ArrowRight size={14} />
+                            </button>
+                          </span>
                         </div>
                       ))}
                       {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
                     </div>
                   </div>
                 )}
+                <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
+                  <Save size={15} />
+                  Save session changes
+                </button>
               </div>
-            )}
-            {showSessionSettings && (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.45fr)]">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="form-field">
-                    Session name
-                    <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, name: event.target.value }))} value={editDraft.name} />
-                  </label>
-                  <label className="form-field">
-                    Strategy
-                    <ThemedSelect
-                      className="h-10"
-                      onChange={(value) => setEditDraft((current) => ({ ...current, strategy: value }))}
-                      options={editStrategyOptions}
-                      portal
-                      value={editDraft.strategy}
-                    />
-                  </label>
-                  <label className="form-field">
-                    Instrument
-                    <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, instrument: event.target.value }))} value={editDraft.instrument} />
-                  </label>
-                  <label className="form-field">
-                    Playbook
-                    <ThemedSelect
-                      className="h-10"
-                      onChange={(value) => setEditDraft((current) => ({ ...current, playbookId: value }))}
-                      options={[
-                        { label: "No playbook", value: "" },
-                        ...playbooks.map((playbook) => ({ label: playbook.name, value: String(playbook.id) })),
-                      ]}
-                      value={editDraft.playbookId}
-                    />
-                  </label>
-                  <label className="form-field">
-                    Currency
-                    <ThemedSelect
-                      className="h-10"
-                      onChange={(value) => setEditDraft((current) => ({ ...current, currency: value }))}
-                      options={selectOptionsWithValue(CURRENCY_OPTIONS, editDraft.currency)}
-                      portal
-                      value={editDraft.currency}
-                    />
-                  </label>
-                  <div className="rounded-md border border-white/10 bg-black/20 p-3 md:col-span-2">
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <CardLabel icon={BadgeDollarSign} label="Session cost defaults" />
-                      <span className="text-xs text-slate-500">Applied to new trades in this session</span>
-                    </div>
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      <CostConfigCard
-                        fixedValue={editDraft.commissionFixed}
-                        mode={editDraft.commissionMode}
-                        onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, commissionFixed: value }))}
-                        onModeChange={(value) => setEditDraft((current) => ({ ...current, commissionMode: value }))}
-                        onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, commissionPercent: value }))}
-                        percentValue={editDraft.commissionPercent}
-                        title="Commission"
-                      />
-                      <CostConfigCard
-                        fixedValue={editDraft.brokerageFixed}
-                        mode={editDraft.brokerageMode}
-                        onFixedValueChange={(value) => setEditDraft((current) => ({ ...current, brokerageFixed: value }))}
-                        onModeChange={(value) => setEditDraft((current) => ({ ...current, brokerageMode: value }))}
-                        onPercentValueChange={(value) => setEditDraft((current) => ({ ...current, brokeragePercent: value }))}
-                        percentValue={editDraft.brokeragePercent}
-                        title="Brokerage"
-                      />
-                    </div>
-                  </div>
-                  <label className="form-field md:col-span-2">
-                    Notes
-                    <textarea className="input-control min-h-24 py-3 normal-case tracking-normal" onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} value={editDraft.notes} />
-                  </label>
-                </div>
-                <div className="grid content-start gap-3">
-                  {selectedSessionRow && (
-                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                      <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent entries</div>
-                      <div className="grid gap-2">
-                        {selectedSessionRow.entries.slice().sort(compareTradesAscending).reverse().slice(0, 4).map((trade) => (
-                          <div className="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm" key={trade.id}>
-                            <span className="min-w-0">
-                              <span className="block truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</span>
-                              <span className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {isMissedJournalTrade(trade) ? "Missed" : trade.side}</span>
-                            </span>
-                            <span className="flex shrink-0 items-center gap-2">
-                              <span className={`font-semibold tabular-nums ${isMissedJournalTrade(trade) ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
-                                {isMissedJournalTrade(trade) ? "Missed" : formatMoney(trade.realized_pnl, selectedSessionCurrency)}
-                              </span>
-                              <button
-                                className="icon-button h-8 w-8"
-                                onClick={() => setEditingSessionTradeId(trade.id)}
-                                title="Edit entry"
-                                type="button"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                            </span>
-                          </div>
-                        ))}
-                        {selectedSessionRow.entries.length === 0 && <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">No journal entries in this session yet.</div>}
-                      </div>
-                    </div>
-                  )}
-                  <button className="control-button workspace-tab-active justify-center" onClick={saveSelectedSession} type="button">
-                    <Save size={15} />
-                    Save session changes
-                  </button>
-                </div>
-              </div>
-            )}
+            </div>
           </FeatureCard>
         </div>
       )}
-      {selectedSession && (
-        <div ref={addTradeSectionRef}>
-          <LiveTradeForm
-            allTrades={journalEntries}
-            accounts={accounts}
-            fixedSessionId={selectedSession.id}
-            initialTrade={editingSessionTrade}
-            journal={journal}
-            onCancelEdit={() => setEditingSessionTradeId(null)}
-            onSaved={() => setEditingSessionTradeId(null)}
-            playbooks={playbooks}
-            sessions={sessions}
-            settings={settings}
-            strategies={strategies}
-            title={editingSessionTrade ? "Edit selected session trade" : "Add trade to selected session"}
-          />
+    </PageScaffold>
+  );
+}
+
+function JournalSessionTradeEntryPage({
+  accounts,
+  journal,
+  journalEntries,
+  onBack,
+  playbooks,
+  sessionById,
+  sessionId,
+  sessions,
+  settings,
+  strategies,
+}: JournalPageProps & { onBack: () => void; sessionId: number }) {
+  const selectedSession = sessions.find((session) => session.id === sessionId) ?? null;
+  const [editingTradeId, setEditingTradeId] = useState<number | null>(null);
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
+  );
+  const sessionEntries = useMemo(
+    () => journalEntries.filter((trade) => trade.session_id === sessionId),
+    [journalEntries, sessionId],
+  );
+  const takenTrades = useMemo(() => sessionEntries.filter(isTakenJournalTrade), [sessionEntries]);
+  const missedTrades = useMemo(() => sessionEntries.filter(isMissedJournalTrade), [sessionEntries]);
+  const aggregate = useMemo(() => aggregateTrades(takenTrades), [takenTrades]);
+  const recentEntries = useMemo(
+    () => sessionEntries.slice().sort(compareTradesAscending).reverse().slice(0, 6),
+    [sessionEntries],
+  );
+  const editingTrade = editingTradeId == null
+    ? null
+    : sessionEntries.find((trade) => trade.id === editingTradeId) ?? null;
+  const sessionCurrency = selectedSession?.currency ?? settings.default_currency;
+  const playbookName = selectedSession?.playbook_id
+    ? playbookById.get(selectedSession.playbook_id)?.name ?? "Missing rules"
+    : "No playbook";
+
+  useEffect(() => {
+    setEditingTradeId(null);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (editingTradeId != null && !sessionEntries.some((trade) => trade.id === editingTradeId)) {
+      setEditingTradeId(null);
+    }
+  }, [editingTradeId, sessionEntries]);
+
+  if (!selectedSession) {
+    return (
+      <PageScaffold
+        actions={
+          <button className="control-button h-10" onClick={onBack} type="button">
+            <ArrowLeft size={15} />
+            Back to sessions
+          </button>
+        }
+        eyebrow="Journal Session Trades"
+        title="Session not found"
+        description="The selected Journal session is no longer available."
+      >
+        <EmptyState icon={PlaySquare} message="Return to Journal Sessions and choose another session." />
+      </PageScaffold>
+    );
+  }
+
+  return (
+    <PageScaffold
+      actions={
+        <button className="control-button h-10" onClick={onBack} type="button">
+          <ArrowLeft size={15} />
+          Back to sessions
+        </button>
+      }
+      eyebrow="Journal Session Trades"
+      title={selectedSession.name}
+      description="Add taken trades and missed setups for this selected live session."
+    >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={BadgeDollarSign} label="Session P&L" tone={toneForNumber(aggregate.netPnl)} value={formatMoney(aggregate.netPnl, sessionCurrency)} />
+        <ResultMetricCard icon={ClipboardList} label="Taken trades" value={String(takenTrades.length)} />
+        <ResultMetricCard icon={Clock3} label="Missed setups" value={String(missedTrades.length)} />
+        <ResultMetricCard icon={Activity} label="Win rate" value={formatPercent(aggregate.winRate)} />
+      </div>
+      <div className="grid gap-4">
+        <LiveTradeForm
+          allTrades={journalEntries}
+          accounts={accounts}
+          fixedSessionId={selectedSession.id}
+          initialTrade={editingTrade}
+          journal={journal}
+          onCancelEdit={() => setEditingTradeId(null)}
+          onSaved={() => setEditingTradeId(null)}
+          playbooks={playbooks}
+          sessions={sessions}
+          settings={settings}
+          strategies={strategies}
+          layout="wide"
+          title={editingTrade ? "Edit session trade" : "Add trade to session"}
+        />
+        <div className="grid content-start gap-4 xl:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
+          <FeatureCard>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <CardLabel icon={PlaySquare} label="Selected session" />
+              <span className="status-pill">{selectedSession.status}</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MiniMetric label="Instrument" value={selectedSession.instrument} />
+              <MiniMetric label="Currency" value={selectedSession.currency} />
+              <MiniMetric label="Strategy" value={selectedSession.strategy_name || "Unassigned"} />
+              <MiniMetric label="Playbook" value={playbookName} />
+              <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, sessionCurrency)} />
+              <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, sessionCurrency)} />
+            </div>
+            {selectedSession.notes && (
+              <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-slate-400">
+                {selectedSession.notes}
+              </p>
+            )}
+          </FeatureCard>
+          <FeatureCard>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <CardLabel icon={ClipboardList} label="Recent entries" />
+              <span className="text-xs text-slate-500">{sessionEntries.length} entries</span>
+            </div>
+            <div className="grid gap-2">
+              {recentEntries.map((trade) => {
+                const missed = isMissedJournalTrade(trade);
+                const currency = currencyForJournalTrade(trade, accountById, sessionById, sessionCurrency);
+                return (
+                  <div className="grid gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto]" key={trade.id}>
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</div>
+                      <div className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {missed ? "Missed" : trade.side}</div>
+                    </div>
+                    <div className={`font-semibold tabular-nums ${missed ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
+                      {missed ? "Missed" : formatMoney(trade.realized_pnl, currency)}
+                    </div>
+                    <button className="icon-button h-8 w-8" onClick={() => setEditingTradeId(trade.id)} title="Edit entry" type="button">
+                      <Pencil size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+              {recentEntries.length === 0 && (
+                <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
+                  Add the first trade for this session from the form.
+                </div>
+              )}
+            </div>
+          </FeatureCard>
         </div>
-      )}
+      </div>
+      <LiveTradeTable
+        accountById={accountById}
+        onEditTrade={(trade) => setEditingTradeId(trade.id)}
+        playbookById={playbookById}
+        sessionById={sessionById}
+        trades={sessionEntries}
+      />
     </PageScaffold>
   );
 }
@@ -4797,9 +4929,10 @@ function JournalScreenshotInput({
         )}
       </div>
       <div
-        className={`grid min-h-36 place-items-center rounded-md border border-dashed px-4 py-5 text-center transition ${
+        className={`grid min-h-36 cursor-pointer place-items-center rounded-md border border-dashed px-4 py-5 text-center transition focus:outline-none focus:ring-2 focus:ring-cyan-300/35 ${
           dragActive ? "border-cyan-300/50 bg-cyan-300/10" : "border-white/10 bg-white/[0.03] hover:border-white/20"
         }`}
+        onClick={() => fileInputRef.current?.click()}
         onDragEnter={(event) => {
           event.preventDefault();
           setDragActive(true);
@@ -4812,7 +4945,14 @@ function JournalScreenshotInput({
         }}
         onDragOver={(event) => event.preventDefault()}
         onDrop={handleDrop}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
         onPaste={handlePaste}
+        role="button"
         tabIndex={0}
       >
         {value ? (
@@ -4826,21 +4966,17 @@ function JournalScreenshotInput({
               <Image size={18} />
             </div>
             <p className="mt-3 text-sm font-semibold text-slate-200">No screenshot attached</p>
-            <p className="mt-1 text-xs text-slate-500">Drop, paste, upload, or link an image</p>
+            <p className="mt-1 text-xs text-slate-500">Click, drop, paste, or link an image</p>
           </div>
         )}
       </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="mt-3">
         <input
           className="input-control h-10 normal-case tracking-normal"
           onChange={(event) => onChange(event.target.value)}
           placeholder="Paste screenshot URL"
           value={uploaded ? "" : value}
         />
-        <button className="control-button h-10" onClick={() => fileInputRef.current?.click()} type="button">
-          <FileUp size={15} />
-          Upload
-        </button>
       </div>
       <input
         accept="image/*"
@@ -5290,6 +5426,7 @@ function LiveTradeForm({
   sessions,
   settings,
   strategies,
+  layout = "compact",
   title = "Record actual trade",
 }: {
   allTrades?: JournalTrade[];
@@ -5297,6 +5434,7 @@ function LiveTradeForm({
   fixedSessionId?: number;
   initialTrade?: JournalTrade | null;
   journal: LiveJournalController;
+  layout?: "compact" | "wide";
   onCancelEdit?: () => void;
   onSaved?: () => void;
   playbooks: Playbook[];
@@ -5428,6 +5566,13 @@ function LiveTradeForm({
       : accountCopyCount > 1
         ? `Save ${accountCopyCount} account trades`
         : "Save actual trade";
+  const wideLayout = layout === "wide";
+  const formClassName = wideLayout
+    ? "mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-12"
+    : "mt-4 grid gap-3";
+  const fullSpanClass = wideLayout ? "lg:col-span-2 xl:col-span-12" : "";
+  const halfSpanClass = wideLayout ? "lg:col-span-1 xl:col-span-6" : "";
+  const thirdSpanClass = wideLayout ? "lg:col-span-1 xl:col-span-4" : "";
 
   useEffect(() => {
     if (initialTrade) {
@@ -5614,8 +5759,8 @@ function LiveTradeForm({
           </button>
         )}
       </div>
-      <form className="mt-4 grid gap-3" onSubmit={submitTrade}>
-        <div className="grid grid-cols-2 gap-2">
+      <form className={formClassName} onSubmit={submitTrade}>
+        <div className={`grid grid-cols-2 gap-2 ${thirdSpanClass}`}>
           <button
             className={`control-button justify-center ${entryType === "TAKEN" ? "workspace-tab-active" : ""}`}
             onClick={() => setEntryType("TAKEN")}
@@ -5632,7 +5777,7 @@ function LiveTradeForm({
           </button>
         </div>
         {fixedSessionId == null ? (
-          <label className="form-field">
+          <label className={`form-field ${thirdSpanClass}`}>
             Live session
             <ThemedSelect
               className="h-10"
@@ -5647,7 +5792,7 @@ function LiveTradeForm({
             />
           </label>
         ) : selectedSession ? (
-          <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
+          <div className={`rounded-md border border-white/10 bg-black/20 px-3 py-2 ${thirdSpanClass}`}>
             <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">Session</div>
             <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-semibold text-white">{selectedSession.name}</span>
@@ -5655,7 +5800,7 @@ function LiveTradeForm({
             </div>
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-2">
+        <div className={`grid grid-cols-2 gap-2 ${thirdSpanClass}`}>
           <button
             className={`control-button justify-center ${side === "LONG" ? "workspace-tab-active" : ""}`}
             onClick={() => setSide("LONG")}
@@ -5671,7 +5816,7 @@ function LiveTradeForm({
             Short
           </button>
         </div>
-        <label className="form-field">
+        <label className={`form-field ${halfSpanClass}`}>
           Strategy
           <ThemedSelect
             className="h-10"
@@ -5681,7 +5826,7 @@ function LiveTradeForm({
             value={strategy}
           />
         </label>
-        <label className="form-field">
+        <label className={`form-field ${halfSpanClass}`}>
           Playbook
           <ThemedSelect
             className="h-10"
@@ -5697,7 +5842,7 @@ function LiveTradeForm({
             value={playbookId}
           />
         </label>
-        <div className="grid gap-2">
+        <div className={`grid gap-2 ${fullSpanClass}`}>
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
               Accounts
@@ -5712,7 +5857,7 @@ function LiveTradeForm({
                   : "Select multiple for copied trades"}
             </span>
           </div>
-          <div className="grid gap-2">
+          <div className={`grid gap-2 ${wideLayout ? "md:grid-cols-2 xl:grid-cols-3" : ""}`}>
             {activeAccounts.map((account) => {
               const active = accountIds.includes(account.id);
               return (
@@ -5731,60 +5876,66 @@ function LiveTradeForm({
             )}
           </div>
         </div>
-        <div className="grid gap-2">
-          <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Emotion</div>
-          <div className="flex flex-wrap gap-1.5 rounded-md border border-white/10 bg-black/20 p-1">
-            {LIVE_EMOTIONS.map((item) => (
-              <button
-                className={`h-8 rounded px-2.5 text-xs font-semibold transition ${
-                  emotion === item ? "bg-white text-ink-950" : "text-slate-400 hover:bg-white/10 hover:text-white"
-                }`}
-                key={item}
-                onClick={() => setEmotion(item)}
-                type="button"
-              >
-                {item}
-              </button>
-            ))}
+        <div className={`grid gap-3 ${fullSpanClass}`}>
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Trade details</div>
+          <div className={`grid gap-3 ${wideLayout ? "xl:grid-cols-[minmax(260px,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(280px,1.05fr)]" : ""}`}>
+            <div className="grid gap-2">
+              <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Emotion</div>
+              <div className="flex min-h-10 flex-wrap gap-1.5 rounded-md border border-white/10 bg-black/20 p-1">
+                {LIVE_EMOTIONS.map((item) => (
+                  <button
+                    className={`h-8 rounded px-2.5 text-xs font-semibold transition ${
+                      emotion === item ? "bg-white text-ink-950" : "text-slate-400 hover:bg-white/10 hover:text-white"
+                    }`}
+                    key={item}
+                    onClick={() => setEmotion(item)}
+                    type="button"
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="form-field">
+                Entry time
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryTime(event.target.value)} type="datetime-local" value={entryTime} />
+              </label>
+              <label className="form-field">
+                Exit time
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitTime(event.target.value)} type="datetime-local" value={exitTime} />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="form-field">
+                {entryType === "MISSED" ? "Planned entry" : "Entry"}
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
+              </label>
+              <label className="form-field">
+                {entryType === "MISSED" ? "Planned exit" : "Exit"}
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
+              </label>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="form-field">
+                Size
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} value={quantity} />
+              </label>
+              <label className="form-field">
+                SL
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" value={stopLoss} />
+              </label>
+              <label className="form-field">
+                TP
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" value={takeProfit} />
+              </label>
+            </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="form-field">
-            Entry time
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryTime(event.target.value)} type="datetime-local" value={entryTime} />
-          </label>
-          <label className="form-field">
-            Exit time
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitTime(event.target.value)} type="datetime-local" value={exitTime} />
-          </label>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="form-field">
-            {entryType === "MISSED" ? "Planned entry" : "Entry"}
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
-          </label>
-          <label className="form-field">
-            {entryType === "MISSED" ? "Planned exit" : "Exit"}
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
-          </label>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <label className="form-field">
-            Size
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} value={quantity} />
-          </label>
-          <label className="form-field">
-            SL
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" value={stopLoss} />
-          </label>
-          <label className="form-field">
-            TP
-            <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" value={takeProfit} />
-          </label>
-        </div>
         {entryType === "TAKEN" && (
-          <div className="grid gap-3">
-            <div className="grid gap-3 xl:grid-cols-2">
+          <div className={`grid gap-3 ${fullSpanClass}`}>
+            <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Costs and preview</div>
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(320px,0.9fr)]">
               <CostConfigCard
                 fixedValue={commissionFixed}
                 mode={commissionMode}
@@ -5803,39 +5954,41 @@ function LiveTradeForm({
                 percentValue={brokeragePercent}
                 title="Trade brokerage"
               />
-            </div>
-            <div className="rounded-md border border-white/10 bg-black/20 p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <CardLabel icon={BadgeDollarSign} label="Trade preview" />
-                <span className="status-pill h-7 px-2 text-[10px]">{selectedTradeCurrency}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <MiniMetric label="Gross" value={formatMoney(pnlPreview.gross, selectedTradeCurrency)} />
-                <MiniMetric label="Net" value={formatMoney(pnlPreview.net, selectedTradeCurrency)} />
-                <MiniMetric label="Commissions" value={formatMoney(pnlPreview.commissions, selectedTradeCurrency)} />
-                <MiniMetric label="Brokerage" value={formatMoney(pnlPreview.brokerage, selectedTradeCurrency)} />
+              <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <CardLabel icon={BadgeDollarSign} label="Trade preview" />
+                  <span className="status-pill h-7 px-2 text-[10px]">{selectedTradeCurrency}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <MiniMetric label="Gross" value={formatMoney(pnlPreview.gross, selectedTradeCurrency)} />
+                  <MiniMetric label="Net" value={formatMoney(pnlPreview.net, selectedTradeCurrency)} />
+                  <MiniMetric label="Commissions" value={formatMoney(pnlPreview.commissions, selectedTradeCurrency)} />
+                  <MiniMetric label="Brokerage" value={formatMoney(pnlPreview.brokerage, selectedTradeCurrency)} />
+                </div>
               </div>
             </div>
           </div>
         )}
-        <JournalTagPicker
-          attachedMistakeTags={attachedMistakeTags}
-          customTag={customTag}
-          mistakeOptions={mistakeOptions}
-          onAddTags={addTags}
-          onCustomTagChange={setCustomTag}
-          onCustomTagKeyDown={handleCustomTagKeyDown}
-          onDeleteSuggestion={deleteMistakeSuggestion}
-          onRemoveTag={removeTag}
-          onToggleTag={(tag) =>
-            setTags((current) =>
-              current.includes(tag) ? current.filter((currentTag) => currentTag !== tag) : [...current, tag],
-            )
-          }
-          tags={tags}
-        />
+        <div className={halfSpanClass}>
+          <JournalTagPicker
+            attachedMistakeTags={attachedMistakeTags}
+            customTag={customTag}
+            mistakeOptions={mistakeOptions}
+            onAddTags={addTags}
+            onCustomTagChange={setCustomTag}
+            onCustomTagKeyDown={handleCustomTagKeyDown}
+            onDeleteSuggestion={deleteMistakeSuggestion}
+            onRemoveTag={removeTag}
+            onToggleTag={(tag) =>
+              setTags((current) =>
+                current.includes(tag) ? current.filter((currentTag) => currentTag !== tag) : [...current, tag],
+              )
+            }
+            tags={tags}
+          />
+        </div>
         {entryType === "MISSED" && (
-          <label className="form-field">
+          <label className={`form-field ${halfSpanClass}`}>
             Missed reason
             <textarea
               className="input-control min-h-20 py-3 normal-case tracking-normal"
@@ -5845,17 +5998,19 @@ function LiveTradeForm({
             />
           </label>
         )}
-        <JournalScreenshotInput onChange={setScreenshotUrl} value={screenshotUrl} />
-        <div className="grid gap-2">
+        <div className={halfSpanClass}>
+          <JournalScreenshotInput onChange={setScreenshotUrl} value={screenshotUrl} />
+        </div>
+        <div className={`grid gap-2 ${fullSpanClass}`}>
           <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Notes</div>
           <JournalRichNoteEditor onChange={setNotes} value={notes} />
         </div>
         {formError && (
-          <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">
+          <div className={`rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-sm text-rose-100 ${fullSpanClass}`}>
             {formError}
           </div>
         )}
-        <button className="control-button workspace-tab-active justify-center" type="submit">
+        <button className={`control-button workspace-tab-active justify-center ${fullSpanClass}`} type="submit">
           {saveTradeLabel}
         </button>
       </form>
