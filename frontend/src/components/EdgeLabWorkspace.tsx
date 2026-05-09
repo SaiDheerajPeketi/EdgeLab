@@ -3197,10 +3197,6 @@ function JournalSessionTradeEntryPage({
   const takenTrades = useMemo(() => sessionEntries.filter(isTakenJournalTrade), [sessionEntries]);
   const missedTrades = useMemo(() => sessionEntries.filter(isMissedJournalTrade), [sessionEntries]);
   const aggregate = useMemo(() => aggregateTrades(takenTrades), [takenTrades]);
-  const recentEntries = useMemo(
-    () => sessionEntries.slice().sort(compareTradesAscending).reverse().slice(0, 6),
-    [sessionEntries],
-  );
   const editingTrade = editingTradeId == null
     ? null
     : sessionEntries.find((trade) => trade.id === editingTradeId) ?? null;
@@ -3271,58 +3267,25 @@ function JournalSessionTradeEntryPage({
           layout="wide"
           title={editingTrade ? "Edit session trade" : "Add trade to session"}
         />
-        <div className="grid content-start gap-4 xl:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
-          <FeatureCard>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <CardLabel icon={PlaySquare} label="Selected session" />
-              <span className="status-pill">{selectedSession.status}</span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MiniMetric label="Instrument" value={selectedSession.instrument} />
-              <MiniMetric label="Currency" value={selectedSession.currency} />
-              <MiniMetric label="Strategy" value={selectedSession.strategy_name || "Unassigned"} />
-              <MiniMetric label="Playbook" value={playbookName} />
-              <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, sessionCurrency)} />
-              <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, sessionCurrency)} />
-            </div>
-            {selectedSession.notes && (
-              <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-slate-400">
-                {selectedSession.notes}
-              </p>
-            )}
-          </FeatureCard>
-          <FeatureCard>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <CardLabel icon={ClipboardList} label="Recent entries" />
-              <span className="text-xs text-slate-500">{sessionEntries.length} entries</span>
-            </div>
-            <div className="grid gap-2">
-              {recentEntries.map((trade) => {
-                const missed = isMissedJournalTrade(trade);
-                const currency = currencyForJournalTrade(trade, accountById, sessionById, sessionCurrency);
-                return (
-                  <div className="grid gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_auto]" key={trade.id}>
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-white">{trade.strategy_name || selectedSession.strategy_name || "Unassigned"}</div>
-                      <div className="text-xs text-slate-500">{shortDate(trade.entry_time)} · {missed ? "Missed" : trade.side}</div>
-                    </div>
-                    <div className={`font-semibold tabular-nums ${missed ? "text-amber-200" : toneForNumber(trade.realized_pnl)}`}>
-                      {missed ? "Missed" : formatMoney(trade.realized_pnl, currency)}
-                    </div>
-                    <button className="icon-button h-8 w-8" onClick={() => setEditingTradeId(trade.id)} title="Edit entry" type="button">
-                      <Pencil size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-              {recentEntries.length === 0 && (
-                <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
-                  Add the first trade for this session from the form.
-                </div>
-              )}
-            </div>
-          </FeatureCard>
-        </div>
+        <FeatureCard>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <CardLabel icon={PlaySquare} label="Selected session" />
+            <span className="status-pill">{selectedSession.status}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <MiniMetric label="Instrument" value={selectedSession.instrument} />
+            <MiniMetric label="Currency" value={selectedSession.currency} />
+            <MiniMetric label="Strategy" value={selectedSession.strategy_name || "Unassigned"} />
+            <MiniMetric label="Playbook" value={playbookName} />
+            <MiniMetric label="Commission" value={formatCostDefault(selectedSession.commission_mode, selectedSession.commission_value, sessionCurrency)} />
+            <MiniMetric label="Brokerage" value={formatCostDefault(selectedSession.brokerage_mode, selectedSession.brokerage_value, sessionCurrency)} />
+          </div>
+          {selectedSession.notes && (
+            <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-slate-400">
+              {selectedSession.notes}
+            </p>
+          )}
+        </FeatureCard>
       </div>
       <LiveTradeTable
         accountById={accountById}
@@ -3539,6 +3502,7 @@ function JournalNotesPage({
   focusTradeId = null,
   journalEntries,
   onBack,
+  playbooks,
   sessionById,
 }: JournalPageProps & {
   backLabel?: string;
@@ -3551,6 +3515,10 @@ function JournalNotesPage({
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
+  );
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
   );
   const filteredEntries = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -3588,8 +3556,15 @@ function JournalNotesPage({
       .map((accountId) => accountById.get(accountId))
       .filter((account): account is LiveJournalAccount => Boolean(account))
     : [];
+  const selectedSession = selectedTrade ? sessionById.get(selectedTrade.session_id) ?? null : null;
+  const selectedPlaybook = selectedTrade?.playbook_id
+    ? playbookById.get(selectedTrade.playbook_id) ?? null
+    : selectedSession?.playbook_id
+      ? playbookById.get(selectedSession.playbook_id) ?? null
+      : null;
   const selectedNotesHtml = selectedTrade ? normalizeStoredNoteHtml(selectedTrade.notes) : "";
   const selectedHasNotes = Boolean(selectedTrade) && !isRichTextEmpty(selectedNotesHtml);
+  const selectedIsMissed = selectedTrade ? isMissedJournalTrade(selectedTrade) : false;
 
   useEffect(() => {
     if (focusTradeId != null && journalEntries.some((trade) => trade.id === focusTradeId)) {
@@ -3656,24 +3631,79 @@ function JournalNotesPage({
         <FeatureCard>
           {selectedTrade ? (
             <>
-              <h2 className="text-xl font-semibold text-white">{selectedTrade.strategy_name || "Live trade"} : {shortDate(selectedTrade.entry_time)}</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Entry {formatDateTime(selectedTrade.entry_time)} - {isMissedJournalTrade(selectedTrade) ? "Missed setup" : `Exit ${formatDateTime(selectedTrade.exit_time)}`}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-xl font-semibold text-white">{selectedTrade.strategy_name || selectedSession?.strategy_name || "Live trade"}</h2>
+                    <span className={`rounded px-2 py-1 text-xs font-semibold ${selectedIsMissed ? "bg-amber-300/10 text-amber-200" : "bg-cyan-300/10 text-cyan-100"}`}>
+                      {selectedIsMissed ? "MISSED" : "TAKEN"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    #{selectedTrade.id} · {selectedSession?.name ?? "Live session"} · {selectedSession?.instrument ?? "Manual"}
+                  </p>
+                </div>
+                <span className={`text-lg font-semibold tabular-nums ${selectedIsMissed ? "text-amber-200" : toneForNumber(selectedTrade.realized_pnl)}`}>
+                  {selectedIsMissed ? "Missed setup" : formatMoney(selectedTrade.realized_pnl, selectedCurrency)}
+                </span>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-1.5">
                 {selectedAccounts.map((account) => (
                   <JournalAccountBadge account={account} key={account.id} />
                 ))}
                 {selectedAccounts.length === 0 && <span className="status-pill h-7 px-2 text-[10px]">No account link</span>}
               </div>
-              <div className="mt-4 grid gap-2 md:grid-cols-5">
-                <CompactMetric label="Side" value={selectedTrade.side} />
-                <CompactMetric label={isMissedJournalTrade(selectedTrade) ? "Planned entry" : "P&L"} value={isMissedJournalTrade(selectedTrade) ? formatPrice(selectedTrade.planned_entry_price) : formatMoney(selectedTrade.realized_pnl, selectedCurrency)} tone={isMissedJournalTrade(selectedTrade) ? "text-amber-200" : toneForNumber(selectedTrade.realized_pnl)} />
-                <CompactMetric label={isMissedJournalTrade(selectedTrade) ? "Planned exit" : "R multiple"} value={isMissedJournalTrade(selectedTrade) ? formatPrice(selectedTrade.planned_exit_price) : formatOptionalNumber(selectedTrade.r_multiple)} />
-                <CompactMetric label="Emotion" value={selectedTrade.emotional_state || "-"} />
-                <CompactMetric label="Tags" value={selectedTrade.mistake_tags.join(", ") || "-"} />
+              <div className="mt-4 grid gap-3">
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={PlaySquare} label="Session and plan" />
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    <MiniMetric label="Session" value={selectedSession?.name ?? "Live session"} />
+                    <MiniMetric label="Instrument" value={selectedSession?.instrument ?? "Manual"} />
+                    <MiniMetric label="Strategy" value={selectedTrade.strategy_name || selectedSession?.strategy_name || "Unassigned"} />
+                    <MiniMetric label="Playbook" value={selectedPlaybook?.name ?? "No playbook"} />
+                    <MiniMetric label="Session currency" value={selectedSession?.currency ?? selectedCurrency} />
+                    <MiniMetric label="Session status" value={selectedSession?.status ?? "-"} />
+                    <MiniMetric label="Entry type" value={selectedIsMissed ? "Missed setup" : "Taken trade"} />
+                    <MiniMetric label="Trade status" value={selectedTrade.status} />
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={Activity} label="Execution" />
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    <MiniMetric label="Side" value={selectedTrade.side} />
+                    <MiniMetric label="Size" value={selectedIsMissed && selectedTrade.quantity === 0 ? "-" : formatCompactNumber(selectedTrade.quantity)} />
+                    <MiniMetric label="Entry time" value={formatDateTime(selectedTrade.entry_time)} />
+                    <MiniMetric label="Exit time" value={selectedIsMissed ? "-" : formatDateTime(selectedTrade.exit_time)} />
+                    <MiniMetric label={selectedIsMissed ? "Planned entry" : "Entry price"} value={formatPrice(selectedIsMissed ? selectedTrade.planned_entry_price : selectedTrade.entry_price)} />
+                    <MiniMetric label={selectedIsMissed ? "Planned exit" : "Exit price"} value={formatPrice(selectedIsMissed ? selectedTrade.planned_exit_price : selectedTrade.exit_price)} />
+                    <MiniMetric label={selectedIsMissed ? "Planned stop" : "Stop loss"} value={formatPrice(selectedIsMissed ? selectedTrade.planned_stop_loss : selectedTrade.stop_loss)} />
+                    <MiniMetric label={selectedIsMissed ? "Planned target" : "Take profit"} value={formatPrice(selectedIsMissed ? selectedTrade.planned_take_profit : selectedTrade.take_profit)} />
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={BadgeDollarSign} label="P&L and costs" />
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    <CompactMetric label="Gross P&L" value={selectedIsMissed ? "-" : formatMoney(selectedTrade.gross_pnl, selectedCurrency)} tone={selectedIsMissed ? "text-slate-500" : toneForNumber(selectedTrade.gross_pnl)} />
+                    <CompactMetric label="Net P&L" value={selectedIsMissed ? "-" : formatMoney(selectedTrade.realized_pnl, selectedCurrency)} tone={selectedIsMissed ? "text-slate-500" : toneForNumber(selectedTrade.realized_pnl)} />
+                    <CompactMetric label="R multiple" value={selectedIsMissed ? "-" : formatOptionalNumber(selectedTrade.r_multiple)} />
+                    <CompactMetric label="Currency" value={selectedCurrency} />
+                    <MiniMetric label="Commission setting" value={selectedIsMissed ? "None" : formatCostDefault(normalizeCommissionMode(selectedTrade.commission_mode), selectedTrade.commission_value, selectedCurrency)} />
+                    <MiniMetric label="Commission charged" value={selectedIsMissed ? "-" : formatMoney(selectedTrade.commission_amount ?? 0, selectedCurrency)} />
+                    <MiniMetric label="Brokerage setting" value={selectedIsMissed ? "None" : formatCostDefault(normalizeCommissionMode(selectedTrade.fee_mode), selectedTrade.fee_value, selectedCurrency)} />
+                    <MiniMetric label="Brokerage charged" value={selectedIsMissed ? "-" : formatMoney(selectedTrade.fee_amount ?? 0, selectedCurrency)} />
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                  <CardLabel icon={Tags} label="Review context" />
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    <MiniMetric label="Emotion" value={selectedTrade.emotional_state || "-"} />
+                    <MiniMetric label="Tags" value={selectedTrade.mistake_tags.join(", ") || "-"} />
+                    <MiniMetric label="Accounts" value={selectedAccounts.map((account) => account.name).join(", ") || "Unlinked"} />
+                    <MiniMetric label="Screenshot" value={selectedTrade.screenshot_url ? "Attached" : "None"} />
+                  </div>
+                </div>
               </div>
-              {isMissedJournalTrade(selectedTrade) && selectedTrade.missed_reason && (
+              {selectedIsMissed && selectedTrade.missed_reason && (
                 <div className="mt-4 rounded-md border border-amber-300/20 bg-amber-300/10 px-3 py-3 text-sm text-amber-50">
                   {selectedTrade.missed_reason}
                 </div>
@@ -6184,7 +6214,7 @@ function LiveTradeTable({
         </span>
       </div>
       <div className="overflow-auto">
-        <table className="w-full min-w-[1320px] text-left text-sm">
+        <table className="w-full min-w-[1260px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-3 py-3 font-medium">Type</th>
@@ -6200,8 +6230,7 @@ function LiveTradeTable({
               <th className="px-3 py-3 font-medium">Strategy</th>
               <th className="px-3 py-3 font-medium">Playbook</th>
               <th className="px-3 py-3 font-medium">Emotion</th>
-              <th className="px-3 py-3 font-medium">Review</th>
-              {onEditTrade && <th className="px-3 py-3 font-medium">Edit</th>}
+              <th className="px-3 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -6258,31 +6287,28 @@ function LiveTradeTable({
                   <td className="px-3 py-4">{trade.playbook_id ? playbookById.get(trade.playbook_id)?.name ?? "Missing" : "-"}</td>
                   <td className="px-3 py-4">{trade.emotional_state || "-"}</td>
                   <td className="px-3 py-4">
-                    {onOpenReview ? (
-                      <button
-                        className="max-w-52 truncate text-left font-semibold text-cyan-100 underline-offset-4 transition hover:text-cyan-50 hover:underline"
-                        onClick={() => onOpenReview(trade)}
-                        title={reviewText}
-                        type="button"
-                      >
-                        {reviewText}
-                      </button>
-                    ) : (
-                      <div className="max-w-52 truncate" title={reviewText}>{reviewText}</div>
-                    )}
-                    {trade.screenshot_url && (
-                      <a className="mt-1 inline-block text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={trade.screenshot_url} rel="noreferrer" target="_blank">
-                        Screenshot
-                      </a>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {onOpenReview ? (
+                        <button
+                          className="control-button h-8 whitespace-nowrap px-2 text-xs"
+                          onClick={() => onOpenReview(trade)}
+                          title={reviewText}
+                          type="button"
+                        >
+                          <NotebookPen size={13} />
+                          Trade notes
+                        </button>
+                      ) : (
+                        <div className="max-w-52 truncate text-xs text-slate-500" title={reviewText}>{reviewText}</div>
+                      )}
+                      {onEditTrade && (
+                        <button className="control-button h-8 whitespace-nowrap px-2 text-xs" onClick={() => onEditTrade(trade)} title="Edit trade" type="button">
+                          <Pencil size={13} />
+                          Edit
+                        </button>
+                      )}
+                    </div>
                   </td>
-                  {onEditTrade && (
-                    <td className="px-3 py-4">
-                      <button className="icon-button h-8 w-8" onClick={() => onEditTrade(trade)} title="Edit trade" type="button">
-                        <Pencil size={14} />
-                      </button>
-                    </td>
-                  )}
                 </tr>
               );
             })}
