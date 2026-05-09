@@ -81,6 +81,20 @@ const sections: Array<{
   },
 ];
 
+const SIDEBAR_ICON_SIZE = 18;
+
+function sidebarItemClass(compact: boolean, active: boolean) {
+  return `group relative flex h-11 items-center rounded-md border transition focus-visible:ring-1 focus-visible:ring-cyan-300/35 ${
+    compact ? "w-11 justify-center px-0" : "w-full justify-start gap-3 px-3"
+  } ${
+    active
+      ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+      : compact
+        ? "border-white/[0.06] bg-white/[0.03] text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
+        : "border-transparent bg-transparent text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
+  }`;
+}
+
 type Props = {
   activeView: WorkspaceView;
   collapsed: boolean;
@@ -114,8 +128,8 @@ export function Sidebar({
           compact ? "justify-center" : "justify-between"
         }`}
       >
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-md border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
-          <Network size={20} />
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
+          <Network size={SIDEBAR_ICON_SIZE} />
         </div>
         {!compact && (
           <div className="min-w-0 flex-1">
@@ -125,13 +139,11 @@ export function Sidebar({
         )}
       </div>
 
-      <nav className={`flex w-full flex-col ${compact ? "gap-3" : "gap-4"}`}>
+      <nav className="flex w-full flex-col gap-4">
         {sections.map((section) => (
           <div className="w-full" key={section.label}>
             <div
-              className={`mb-2 flex items-center ${
-                compact ? "h-5" : "h-6"
-              } ${
+              className={`mb-2 flex h-6 items-center ${
                 compact ? "justify-center" : "justify-between px-2"
               }`}
             >
@@ -148,7 +160,7 @@ export function Sidebar({
                 </span>
               )}
             </div>
-            <div className={`flex w-full flex-col ${compact ? "gap-1" : "gap-1.5"}`}>
+            <div className="flex w-full flex-col gap-1.5">
               {section.items.map((item) => {
                 if ("children" in item) {
                   const Icon = item.icon;
@@ -156,18 +168,12 @@ export function Sidebar({
                   return (
                     <div className="min-w-0" key={item.label}>
                       <button
-                        className={`group relative flex items-center rounded-md transition ${
-                          compact ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
-                        } ${
-                          active
-                            ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
-                            : "text-slate-400 hover:bg-white/5 hover:text-white"
-                        }`}
+                        className={sidebarItemClass(compact, active)}
                         onClick={() => onNavigate(item.primaryId)}
                         title={`${section.label} / ${item.label}`}
                         type="button"
                       >
-                        <Icon size={18} />
+                        <Icon size={SIDEBAR_ICON_SIZE} />
                         {!compact && (
                           <span className="truncate text-sm font-semibold">{item.label}</span>
                         )}
@@ -205,18 +211,12 @@ export function Sidebar({
                 return (
                   <button
                     key={item.label}
-                    className={`group relative flex items-center rounded-md transition ${
-                      compact ? "h-9 w-10 justify-center" : "h-11 w-full justify-start gap-3 px-3"
-                    } ${
-                      active
-                        ? "border border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
-                        : "text-slate-400 hover:bg-white/5 hover:text-white"
-                    }`}
+                    className={sidebarItemClass(compact, active)}
                     onClick={() => onNavigate(item.id)}
                     title={`${section.label} / ${item.label}`}
                     type="button"
                   >
-                    <Icon size={18} />
+                    <Icon size={SIDEBAR_ICON_SIZE} />
                     {!compact && (
                       <span className="truncate text-sm font-semibold">{item.label}</span>
                     )}
