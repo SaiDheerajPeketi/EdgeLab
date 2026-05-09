@@ -180,6 +180,7 @@ import {
 } from "../lib/tradeSnapshot";
 import type { WorkspaceView } from "../lib/workspace";
 import { useBacktestStore } from "../store/backtestStore";
+import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedDatePicker } from "./ThemedDatePicker";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
@@ -5002,41 +5003,20 @@ function JournalDateTimeInput({
   onChange: (value: string) => void;
   value: string;
 }) {
-  const dateValue = datePartFromDateTimeLocal(value);
-  const timeValue = timePartFromDateTimeLocal(value);
-
-  function updateDate(nextDate: string) {
-    onChange(composeDateTimeLocal(nextDate, timeValue));
-  }
-
-  function updateTime(nextTime: string) {
-    onChange(composeDateTimeLocal(dateValue, sanitizeTimeDraft(nextTime)));
-  }
-
-  function commitTime(nextTime: string) {
-    onChange(composeDateTimeLocal(dateValue, normalizeTimeValue(nextTime, timeValue || "00:00")));
-  }
-
   return (
     <div className="grid gap-2">
       <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</div>
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_96px]">
-        <ThemedDatePicker
-          ariaLabel={`${label} date`}
-          onChange={updateDate}
-          placeholder="Date"
-          value={dateValue}
-        />
-        <input
-          className="input-control h-10 text-center normal-case tracking-normal"
-          inputMode="numeric"
-          maxLength={5}
-          onBlur={(event) => commitTime(event.target.value)}
-          onChange={(event) => updateTime(event.target.value)}
-          placeholder="HH:MM"
-          value={timeValue}
-        />
-      </div>
+      <ReplayDateTimePicker
+        currentTimestamp={null}
+        dateFormat="MMM dd yyyy"
+        dayOfWeekLabels={false}
+        dialogLabel={`${label} Time`}
+        disabled={false}
+        onChange={onChange}
+        placeholder={`Select ${label.toLowerCase()} time`}
+        timeHoursFormat="24-hour"
+        value={value}
+      />
     </div>
   );
 }
@@ -12646,41 +12626,6 @@ function dateTimeLocalFromIso(value: string | null | undefined) {
   }
   const localOffset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - localOffset).toISOString().slice(0, 16);
-}
-
-function datePartFromDateTimeLocal(value: string) {
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] : defaultDateTimeLocal(0).slice(0, 10);
-}
-
-function timePartFromDateTimeLocal(value: string) {
-  const match = value.match(/T([^Z]*)/);
-  return match ? sanitizeTimeDraft(match[1].slice(0, 5)) : defaultDateTimeLocal(0).slice(11, 16);
-}
-
-function composeDateTimeLocal(date: string, time: string) {
-  const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : defaultDateTimeLocal(0).slice(0, 10);
-  return `${safeDate}T${time || "00:00"}`;
-}
-
-function sanitizeTimeDraft(value: string) {
-  return value.replace(/[^\d:]/g, "").slice(0, 5);
-}
-
-function normalizeTimeValue(value: string, fallback = "00:00") {
-  const trimmed = value.trim();
-  const colonMatch = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
-  const compactMatch = trimmed.match(/^(\d{1,2})(\d{2})$/);
-  const [, rawHour, rawMinute] = colonMatch ?? compactMatch ?? [];
-  if (rawHour == null || rawMinute == null) {
-    return fallback;
-  }
-  const hour = Math.min(23, Math.max(0, Number(rawHour)));
-  const minute = Math.min(59, Math.max(0, Number(rawMinute)));
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return fallback;
-  }
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function toIsoFromDateTimeLocal(value: string) {

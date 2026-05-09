@@ -290,22 +290,26 @@ export function ReplayController({
   );
 }
 
-function ReplayDateTimePicker({
+export function ReplayDateTimePicker({
   currentTimestamp,
   dateFormat,
   dayOfWeekLabels,
   disabled,
+  dialogLabel = "Replay Date",
   onChange,
   onOpenChange,
+  placeholder = "Select replay date",
   timeHoursFormat,
   value,
 }: {
   currentTimestamp: string | null;
   dateFormat: ReplayDateFormat;
   dayOfWeekLabels: boolean;
+  dialogLabel?: string;
   disabled: boolean;
   onChange: (value: string) => void;
   onOpenChange?: (open: boolean) => void;
+  placeholder?: string;
   timeHoursFormat: TimeHoursFormat;
   value: string;
 }) {
@@ -464,7 +468,7 @@ function ReplayDateTimePicker({
         dayOfWeekLabels,
         timeHoursFormat,
       })
-    : "Select replay date";
+    : placeholder;
   const is12Hour = timeHoursFormat === "12-hour";
   const currentPeriod = hourPeriod(draftHour);
   const portalHost = currentPortalHost();
@@ -506,7 +510,7 @@ function ReplayDateTimePicker({
                 {MONTH_NAMES[viewMonth - 1]} {viewYear}
               </div>
               <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                Replay Date
+                {dialogLabel}
               </div>
             </div>
             <button
