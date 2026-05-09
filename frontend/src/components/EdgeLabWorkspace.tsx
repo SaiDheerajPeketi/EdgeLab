@@ -3499,60 +3499,287 @@ function JournalTradesPage({
   );
 }
 
-function JournalDayViewPage({ accounts, days, journalEntries, sessionById }: JournalPageProps) {
+function JournalDayViewPage({ accounts, days, journalEntries, onOpenJournalNote, playbooks, sessionById }: JournalPageProps) {
+  const [mode, setMode] = useState<DayViewMode>("day");
+  const [selectedDate, setSelectedDate] = useState(() => days[0]?.date ?? "");
+  const [calendarMonth, setCalendarMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
   );
+  const playbookById = useMemo(
+    () => new Map(playbooks.map((playbook) => [playbook.id, playbook])),
+    [playbooks],
+  );
+  const periods = useMemo(() => buildDayViewPeriods(days, mode), [days, mode]);
+  const selectedPeriod = useMemo(
+    () => findDayViewPeriod(periods, selectedDate, mode),
+    [mode, periods, selectedDate],
+  );
+  const selectedPeriodCurrency = useMemo(
+    () =>
+      selectedPeriod
+        ? currencyForJournalTrades(selectedPeriod.trades as JournalTrade[], accountById, sessionById)
+        : currencyForJournalAccounts(accounts),
+    [accountById, accounts, selectedPeriod, sessionById],
+  );
+  const selectedRange =
+    mode === "week" && selectedPeriod
+      ? { start: selectedPeriod.startDate, end: selectedPeriod.endDate }
+      : null;
+
+  useEffect(() => {
+    if (days.length === 0) {
+      if (selectedDate) {
+        setSelectedDate("");
+      }
+      return;
+    }
+    if (!days.some((day) => day.date === selectedDate)) {
+      const nextDate = days[0].date;
+      setSelectedDate(nextDate);
+      setCalendarMonth(monthCursorFromDateKey(nextDate));
+    }
+  }, [days, selectedDate]);
+
+  function countMissedInRange(startDate: string, endDate: string) {
+    return journalEntries.filter((trade) => {
+      if (!isMissedJournalTrade(trade)) {
+        return false;
+      }
+      return dateKeyInRange(trade.entry_time.slice(0, 10), startDate, endDate);
+    }).length;
+  }
+
+  function countMissedOnDate(date: string) {
+    return countMissedInRange(date, date);
+  }
+
+  function selectDate(date: string) {
+    if (!days.some((day) => day.date === date)) {
+      return;
+    }
+    setSelectedDate(date);
+    setCalendarMonth(monthCursorFromDateKey(date));
+  }
+
+  function selectPeriod(period: DayViewPeriod) {
+    selectDate(period.days[0]?.date ?? period.endDate);
+  }
+
+  function exportSelectedPeriodCsv() {
+    if (!selectedPeriod) {
+      return;
+    }
+    exportJournalTradeLogCsv(selectedPeriod.trades as JournalTrade[], accountById, playbookById, sessionById);
+  }
+
   return (
     <PageScaffold
       eyebrow="Journal Day View"
-      title="Actual Trade Daily Review"
-      description="Daily review for live trades only, using the same P&L, win rate, and calendar rhythm as backtesting."
+      title="Actual Trade Period Review"
+      description="Review live Journal results by day or week, with missed setups tracked separately."
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
+            <TinyTab active={mode === "day"} onClick={() => setMode("day")}>Day</TinyTab>
+            <TinyTab active={mode === "week"} onClick={() => setMode("week")}>Week</TinyTab>
+          </div>
+          <button
+            className="control-button"
+            disabled={!selectedPeriod || selectedPeriod.trades.length === 0}
+            onClick={exportSelectedPeriodCsv}
+            type="button"
+          >
+            <FileDown size={15} />
+            Export CSV
+          </button>
+        </div>
+      }
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="space-y-3">
-          {days.map((day) => (
-            <FeatureCard key={day.date}>
-              {(() => {
-                const dayCurrency = currencyForJournalTrades(day.trades as JournalTrade[], accountById, sessionById);
-                const dayMissedCount = journalEntries.filter((trade) => isMissedJournalTrade(trade) && trade.entry_time.slice(0, 10) === day.date).length;
-                return (
-                  <>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">{day.label}</div>
-                  <div className={`mt-1 text-sm font-semibold ${toneForNumber(day.aggregate.netPnl)}`}>
-                    Net P&L {formatMoney(day.aggregate.netPnl, dayCurrency)}
+      {selectedPeriod ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <FeatureCard>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                    {mode === "week" ? "Selected week" : "Selected day"}
+                  </div>
+                  <h2 className="mt-1 truncate text-xl font-semibold text-white">{selectedPeriod.label}</h2>
+                  <div className="mt-1 text-sm text-slate-500">{selectedPeriod.sublabel}</div>
+                  <div className={`mt-2 text-sm font-semibold ${toneForNumber(selectedPeriod.aggregate.netPnl)}`}>
+                    Net P&L {formatMoney(selectedPeriod.aggregate.netPnl, selectedPeriodCurrency)}
                   </div>
                 </div>
                 <span className="status-pill">
-                  {day.aggregate.totalTrades} taken · {dayMissedCount} missed
+                  {selectedPeriod.aggregate.totalTrades} taken · {countMissedInRange(selectedPeriod.startDate, selectedPeriod.endDate)} missed
                 </span>
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.55fr)_minmax(0,0.45fr)]">
-                <AreaSparkline currency={dayCurrency} values={cumulativeValues(day.trades)} height={150} />
+                <AreaSparkline currency={selectedPeriodCurrency} values={cumulativeValues(selectedPeriod.trades)} height={190} />
                 <div className="grid grid-cols-2 gap-2">
-                  <CompactMetric label="Win rate" value={formatPercent(day.aggregate.winRate)} />
-                  <CompactMetric label="Profit factor" value={formatRatio(day.aggregate.profitFactor)} />
-                  <CompactMetric label="Winners" value={String(day.aggregate.wins)} tone="text-emerald-300" />
-                  <CompactMetric label="Losers" value={String(day.aggregate.losses)} tone="text-rose-300" />
+                  <CompactMetric label="Trades" value={String(selectedPeriod.aggregate.totalTrades)} />
+                  <CompactMetric label="Net P&L" value={formatMoney(selectedPeriod.aggregate.netPnl, selectedPeriodCurrency)} tone={toneForNumber(selectedPeriod.aggregate.netPnl)} />
+                  <CompactMetric label="Winners" value={String(selectedPeriod.aggregate.wins)} tone="text-emerald-300" />
+                  <CompactMetric label="Losers" value={String(selectedPeriod.aggregate.losses)} tone="text-rose-300" />
+                  <CompactMetric label="Win rate" value={formatPercent(selectedPeriod.aggregate.winRate)} />
+                  <CompactMetric label="Profit factor" value={formatRatio(selectedPeriod.aggregate.profitFactor)} />
+                  <CompactMetric label="Avg R" value={formatOptionalNumber(selectedPeriod.aggregate.averageR)} />
+                  <CompactMetric label="Avg hold" value={formatMinutes(selectedPeriod.aggregate.averageHoldMinutes)} />
                 </div>
               </div>
-                  </>
-                );
-              })()}
             </FeatureCard>
-          ))}
-          {days.length === 0 && <EmptyState icon={CalendarDays} message="Taken-trade days appear after recording Journal trades." />}
-        </div>
-        <FeatureCard>
-          <CardLabel icon={CalendarDays} label="Calendar navigator" />
-          <div className="mt-4">
-            <CalendarHeatmap compact days={days} />
+
+            {mode === "week" && (
+              <FeatureCard>
+                <CardLabel icon={CalendarDays} label="Week breakdown" />
+                <div className="mt-3 grid gap-2">
+                  {selectedPeriod.days.map((day) => {
+                    const dayCurrency = currencyForJournalTrades(day.trades as JournalTrade[], accountById, sessionById, selectedPeriodCurrency);
+                    return (
+                      <button
+                        className={`grid gap-2 rounded-md border px-3 py-2 text-left transition sm:grid-cols-[minmax(0,1fr)_120px_88px_88px] sm:items-center ${
+                          day.date === selectedDate
+                            ? "border-cyan-300/30 bg-cyan-300/10"
+                            : "border-white/10 bg-black/20 hover:border-white/20"
+                        }`}
+                        key={day.date}
+                        onClick={() => selectDate(day.date)}
+                        type="button"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-white">{day.label}</span>
+                          <span className="text-xs text-slate-500">{day.aggregate.totalTrades} taken · {countMissedOnDate(day.date)} missed</span>
+                        </span>
+                        <span className={`text-sm font-semibold tabular-nums ${toneForNumber(day.aggregate.netPnl)}`}>
+                          {formatMoney(day.aggregate.netPnl, dayCurrency)}
+                        </span>
+                        <span className="text-xs text-slate-500">{formatPercent(day.aggregate.winRate)}</span>
+                        <span className="text-xs text-slate-500">{formatOptionalNumber(day.aggregate.averageR)}R</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </FeatureCard>
+            )}
+
+            <FeatureCard>
+              <div className="flex items-center justify-between gap-3">
+                <CardLabel icon={ClipboardList} label={`${mode === "week" ? "Period" : "Day"} trades`} />
+                <span className="status-pill">{selectedPeriod.trades.length} taken</span>
+              </div>
+              <div className="mt-3 overflow-auto">
+                <table className="w-full min-w-[980px] text-left text-sm">
+                  <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    <tr>
+                      <th className="px-3 py-3 font-medium">Trade</th>
+                      <th className="px-3 py-3 font-medium">Accounts</th>
+                      <th className="px-3 py-3 font-medium">Entry</th>
+                      <th className="px-3 py-3 font-medium">Exit</th>
+                      <th className="px-3 py-3 font-medium">P&L</th>
+                      <th className="px-3 py-3 font-medium">R</th>
+                      <th className="px-3 py-3 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedPeriod.trades.slice().sort(compareTradesAscending).map((trade) => {
+                      const journalTrade = trade as JournalTrade;
+                      const session = sessionById.get(journalTrade.session_id);
+                      const accountNames = liveTradeAccountIds(journalTrade)
+                        .map((accountId) => accountById.get(accountId)?.name)
+                        .filter(Boolean)
+                        .join(", ");
+                      const tradeCurrency = currencyForJournalTrade(journalTrade, accountById, sessionById, selectedPeriodCurrency);
+                      return (
+                        <tr className="border-t border-white/10 text-slate-300" key={journalTrade.id}>
+                          <td className="px-3 py-3">
+                            <div className="font-semibold text-white">{journalTrade.strategy_name || session?.strategy_name || "Live trade"}</div>
+                            <div className="text-xs text-slate-500">{session?.name ?? "Live session"} · {journalTrade.side}</div>
+                          </td>
+                          <td className="px-3 py-3 text-slate-400">{accountNames || "Unlinked"}</td>
+                          <td className="px-3 py-3">
+                            <div className="font-semibold text-slate-100">{formatPrice(journalTrade.entry_price)}</div>
+                            <div className="text-xs text-slate-500">{formatDateTime(journalTrade.entry_time)}</div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="font-semibold text-slate-100">{formatPrice(journalTrade.exit_price)}</div>
+                            <div className="text-xs text-slate-500">{formatDateTime(journalTrade.exit_time)}</div>
+                          </td>
+                          <td className={`px-3 py-3 font-semibold ${toneForNumber(journalTrade.realized_pnl)}`}>
+                            {formatMoney(journalTrade.realized_pnl, tradeCurrency)}
+                          </td>
+                          <td className="px-3 py-3 text-slate-200">{formatOptionalNumber(journalTrade.r_multiple)}</td>
+                          <td className="px-3 py-3">
+                            <button className="control-button h-9 px-2 text-xs" onClick={() => onOpenJournalNote(journalTrade)} type="button">
+                              <NotebookPen size={13} />
+                              Trade notes
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </FeatureCard>
           </div>
-        </FeatureCard>
-      </div>
+
+          <div className="space-y-4">
+            <FeatureCard>
+              <CardLabel icon={CalendarDays} label="Calendar navigator" />
+              <div className="mt-4">
+                <CalendarHeatmap
+                  compact
+                  currency={selectedPeriodCurrency}
+                  days={days}
+                  month={calendarMonth}
+                  onMonthChange={setCalendarMonth}
+                  onSelectDate={selectDate}
+                  selectedDate={mode === "day" ? selectedDate : null}
+                  selectedRange={selectedRange}
+                />
+              </div>
+            </FeatureCard>
+
+            <FeatureCard>
+              <CardLabel icon={mode === "week" ? CalendarDays : ClipboardList} label={mode === "week" ? "Trading weeks" : "Trading days"} />
+              <div className="mt-3 grid max-h-[420px] gap-2 overflow-auto pr-1">
+                {periods.map((period) => {
+                  const active = period.id === selectedPeriod.id;
+                  const periodCurrency = currencyForJournalTrades(period.trades as JournalTrade[], accountById, sessionById, selectedPeriodCurrency);
+                  return (
+                    <button
+                      className={`rounded-md border px-3 py-2 text-left transition ${
+                        active
+                          ? "border-cyan-300/30 bg-cyan-300/10"
+                          : "border-white/10 bg-black/20 hover:border-white/20"
+                      }`}
+                      key={period.id}
+                      onClick={() => selectPeriod(period)}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-white">{period.label}</span>
+                          <span className="text-xs text-slate-500">
+                            {period.aggregate.totalTrades} taken · {countMissedInRange(period.startDate, period.endDate)} missed
+                          </span>
+                        </span>
+                        <span className={`shrink-0 text-sm font-semibold tabular-nums ${toneForNumber(period.aggregate.netPnl)}`}>
+                          {formatMoney(period.aggregate.netPnl, periodCurrency)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </FeatureCard>
+          </div>
+        </div>
+      ) : (
+        <EmptyState icon={CalendarDays} message="Taken-trade days appear after recording Journal trades." />
+      )}
     </PageScaffold>
   );
 }
