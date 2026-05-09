@@ -672,6 +672,8 @@ function DashboardPage({
   const [calendarMonth, setCalendarMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
   const [calendarInfoOpen, setCalendarInfoOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const filtersMenuRef = useRef<HTMLDivElement | null>(null);
+  useCloseOnOutsidePointer(filtersOpen, [filtersMenuRef], () => setFiltersOpen(false));
   const filteredClosedTrades = useMemo(
     () => filterResultTrades(closedTrades, filters, sessionById),
     [closedTrades, filters, sessionById],
@@ -763,7 +765,7 @@ function DashboardPage({
       title="Backtest Command Center"
       description="Replay performance, recent simulated activity, account balance, and calendar review from backtest sessions only. Live Journal metrics stay separate."
       actions={
-        <div className="relative">
+        <div className="relative" ref={filtersMenuRef}>
           <button
             className={`control-button ${filtersOpen ? "workspace-tab-active" : ""}`}
             onClick={() => setFiltersOpen((value) => !value)}
@@ -3062,6 +3064,7 @@ function NotebookPage({
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "favorites">("all");
   const [filterOpen, setFilterOpen] = useState(false);
+  const filterMenuRef = useRef<HTMLDivElement | null>(null);
   const [favoriteTradeIds, setFavoriteTradeIds] = useState<number[]>(() =>
     sanitizeFavoriteIds(getCachedAppStorageItem<unknown>(NOTEBOOK_FAVORITES_STORAGE_KEY, [])),
   );
@@ -3072,6 +3075,7 @@ function NotebookPage({
     () => new Set(favoriteTradeIds),
     [favoriteTradeIds],
   );
+  useCloseOnOutsidePointer(filterOpen, [filterMenuRef], () => setFilterOpen(false));
   const orderedTrades = useMemo(
     () => closedTrades.slice().reverse(),
     [closedTrades],
@@ -3188,38 +3192,40 @@ function NotebookPage({
                 placeholder="Search notes"
                 value={searchTerm}
               />
-              <button
-                className={`control-button h-8 px-2 text-xs ${filterMode === "favorites" ? "workspace-tab-active" : ""}`}
-                onClick={() => setFilterOpen((current) => !current)}
-                title="Filter note search scope"
-                type="button"
-              >
-                <Filter size={14} />
-                {filterMode === "favorites" ? "Favorites" : "All"}
-              </button>
-              {filterOpen && (
-                <div className="absolute right-0 top-10 z-20 grid w-48 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
-                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Search scope
+              <div className="relative" ref={filterMenuRef}>
+                <button
+                  className={`control-button h-8 px-2 text-xs ${filterMode === "favorites" ? "workspace-tab-active" : ""}`}
+                  onClick={() => setFilterOpen((current) => !current)}
+                  title="Filter note search scope"
+                  type="button"
+                >
+                  <Filter size={14} />
+                  {filterMode === "favorites" ? "Favorites" : "All"}
+                </button>
+                {filterOpen && (
+                  <div className="absolute right-0 top-10 z-20 grid w-48 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                      Search scope
+                    </div>
+                    {[
+                      { id: "all", label: "All notes" },
+                      { id: "favorites", label: "Favorites" },
+                    ].map((option) => (
+                      <button
+                        className={`chart-dropdown-row ${filterMode === option.id ? "chart-dropdown-row-active" : ""}`}
+                        key={option.id}
+                        onClick={() => {
+                          setFilterMode(option.id as "all" | "favorites");
+                          setFilterOpen(false);
+                        }}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
                   </div>
-                  {[
-                    { id: "all", label: "All notes" },
-                    { id: "favorites", label: "Favorites" },
-                  ].map((option) => (
-                    <button
-                      className={`chart-dropdown-row ${filterMode === option.id ? "chart-dropdown-row-active" : ""}`}
-                      key={option.id}
-                      onClick={() => {
-                        setFilterMode(option.id as "all" | "favorites");
-                        setFilterOpen(false);
-                      }}
-                      type="button"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
           <div className="grid gap-2 p-3">
@@ -3311,7 +3317,9 @@ function NotebookTradeDetail({
   const updateJournal = useBacktestStore((state) => state.updateJournal);
   const noteRef = useRef<HTMLDivElement | null>(null);
   const customTagRef = useRef<HTMLInputElement | null>(null);
+  const editorToolbarRef = useRef<HTMLDivElement | null>(null);
   const linkInputRef = useRef<HTMLInputElement | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const savedSelectionRef = useRef<Range | null>(null);
   const editingLinkRef = useRef<HTMLAnchorElement | null>(null);
   const [notes, setNotes] = useState(() => normalizeStoredNoteHtml(trade.notes));
@@ -3366,6 +3374,18 @@ function NotebookTradeDetail({
     (commissionMode !== "NONE" && commissionValue !== savedCommissionValue) ||
     snapshotUrl !== (trade.screenshot_url ?? "") ||
     !sameStringList(tags, trade.mistake_tags);
+
+  function closeEditorPopovers() {
+    setLinkPopoverOpen(false);
+    setLinkText("");
+    setLinkUrl("");
+    setColorMenuOpen(false);
+    setAlignMenuOpen(false);
+    editingLinkRef.current = null;
+  }
+
+  useCloseOnOutsidePointer(moreOpen, [moreMenuRef], () => setMoreOpen(false));
+  useCloseOnOutsidePointer(linkPopoverOpen || colorMenuOpen || alignMenuOpen, [editorToolbarRef], closeEditorPopovers);
 
   useEffect(() => {
     const nextNotes = normalizeStoredNoteHtml(trade.notes);
@@ -3810,7 +3830,7 @@ function NotebookTradeDetail({
             Created: {formatDateTime(trade.entry_time)} - Last updated: {formatDateTime(trade.exit_time)}
           </p>
         </div>
-        <div className="relative flex gap-2">
+        <div className="flex gap-2">
           <button
             className={`icon-button h-9 w-9 ${favorite ? "workspace-tab-active" : ""}`}
             onClick={onToggleFavorite}
@@ -3822,26 +3842,28 @@ function NotebookTradeDetail({
           <button className="icon-button h-9 w-9" onClick={copySummary} title="Copy note summary" type="button">
             <Copy size={15} />
           </button>
-          <button
-            className={`icon-button h-9 w-9 ${moreOpen ? "workspace-tab-active" : ""}`}
-            onClick={() => setMoreOpen((current) => !current)}
-            title="More note actions"
-            type="button"
-          >
-            <MoreHorizontal size={15} />
-          </button>
-          {moreOpen && (
-            <div className="absolute right-0 top-11 z-20 grid min-w-44 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
-              <button
-                className="chart-dropdown-row text-rose-100"
-                onClick={clearNote}
-                type="button"
-              >
-                <X size={14} />
-                Clear note
-              </button>
-            </div>
-          )}
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              className={`icon-button h-9 w-9 ${moreOpen ? "workspace-tab-active" : ""}`}
+              onClick={() => setMoreOpen((current) => !current)}
+              title="More note actions"
+              type="button"
+            >
+              <MoreHorizontal size={15} />
+            </button>
+            {moreOpen && (
+              <div className="absolute right-0 top-11 z-20 grid min-w-44 gap-1 rounded-md border border-white/10 bg-[#080c11] p-2 shadow-panel">
+                <button
+                  className="chart-dropdown-row text-rose-100"
+                  onClick={clearNote}
+                  type="button"
+                >
+                  <X size={14} />
+                  Clear note
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -4051,7 +4073,7 @@ function NotebookTradeDetail({
           </section>
 
           <section className="rounded-md border border-white/10 bg-black/20">
-            <div className="relative flex flex-wrap items-center gap-1 border-b border-white/10 p-2">
+            <div className="relative flex flex-wrap items-center gap-1 border-b border-white/10 p-2" ref={editorToolbarRef}>
               {["Template", "Generate draft"].map((item) => (
                 <button
                   className="notebook-editor-button px-2.5"
@@ -4484,6 +4506,8 @@ function ReportsPage({
   const [riskBreakdown, setRiskBreakdown] = useState<RiskBreakdownMode>("rMultiple");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ResultFilterState>(DEFAULT_RESULT_FILTERS);
+  const filtersMenuRef = useRef<HTMLDivElement | null>(null);
+  useCloseOnOutsidePointer(filtersOpen, [filtersMenuRef], () => setFiltersOpen(false));
   const filteredClosedTrades = useMemo(
     () => filterResultTrades(closedTrades, filters, sessionById),
     [closedTrades, filters, sessionById],
@@ -4568,7 +4592,7 @@ function ReportsPage({
       description="Performance, overview, day/time, risk, tags, calendar, and recaps from replay/backtest trades only."
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="relative">
+          <div className="relative" ref={filtersMenuRef}>
             <button
               className={`control-button ${filtersOpen ? "workspace-tab-active" : ""}`}
               onClick={() => setFiltersOpen((value) => !value)}
@@ -7033,6 +7057,51 @@ function ModalFrame({
       </div>
     </div>
   );
+}
+
+function useCloseOnOutsidePointer(
+  active: boolean,
+  refs: Array<{ current: HTMLElement | null }>,
+  onClose: () => void,
+) {
+  useEffect(() => {
+    if (!active || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const ignoredPortalSelector = [
+      ".themed-select-menu-floating",
+      ".replay-date-popover-floating",
+      ".themed-color-popover",
+    ].join(", ");
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (target instanceof Element && target.closest(ignoredPortalSelector)) {
+        return;
+      }
+      if (refs.some((ref) => ref.current?.contains(target))) {
+        return;
+      }
+      onClose();
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [active, refs, onClose]);
 }
 
 function NotebookFolder({
