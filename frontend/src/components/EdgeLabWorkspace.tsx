@@ -5971,7 +5971,12 @@ function SettingsPage({
     },
   ];
   const [active, setActive] = useState<SettingsSectionId>("data");
+  const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
   const activeSection = sections.find((section) => section.id === active) ?? sections[0];
+
+  useEffect(() => {
+    setSettingsStatus(null);
+  }, [active]);
 
   return (
     <PageScaffold
@@ -6004,7 +6009,12 @@ function SettingsPage({
               <CardLabel icon={activeSection.icon} label={activeSection.label} />
               <p className="mt-2 text-sm text-slate-500">{activeSection.description}</p>
             </div>
-            <span className="status-pill">Personal workspace</span>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {active === "orders" && settingsStatus && (
+                <span className="status-pill">{settingsStatus}</span>
+              )}
+              <span className="status-pill">Personal workspace</span>
+            </div>
           </div>
           {active === "data" ? (
             <BacktestDataSettings
@@ -6015,7 +6025,7 @@ function SettingsPage({
               onUpdateDatasetSettings={onUpdateDatasetSettings}
             />
           ) : active === "orders" ? (
-            <BacktestOrderSettings />
+            <BacktestOrderSettings onStatusChange={setSettingsStatus} />
           ) : active === "notes" ? (
             <BacktestNoteTemplateSettings />
           ) : (
@@ -6029,7 +6039,7 @@ function SettingsPage({
 
 type SettingsSectionId = "data" | "orders" | "notes" | "tags";
 
-function BacktestOrderSettings() {
+function BacktestOrderSettings({ onStatusChange }: { onStatusChange: (status: string | null) => void }) {
   const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
     useState(loadOrderLineModificationConfirmation);
   const [sizingMode, setSizingMode] = useState<OrderSizingMode>(() => loadOrderSizingMode());
@@ -6044,7 +6054,7 @@ function BacktestOrderSettings() {
   const [feeMode, setFeeMode] = useState<OrderCommissionMode>(() => loadOrderFeeMode());
   const [fixedFee, setFixedFee] = useState(() => loadOrderFeeFixed());
   const [percentFee, setPercentFee] = useState(() => loadOrderFeePercent());
-  const [status, setStatus] = useState<string | null>(null);
+  const statusTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -6095,9 +6105,24 @@ function BacktestOrderSettings() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (statusTimeoutRef.current != null) {
+        window.clearTimeout(statusTimeoutRef.current);
+      }
+      onStatusChange(null);
+    };
+  }, [onStatusChange]);
+
   function markSaved(label = "Saved") {
-    setStatus(label);
-    window.setTimeout(() => setStatus((current) => (current === label ? null : current)), 1400);
+    if (statusTimeoutRef.current != null) {
+      window.clearTimeout(statusTimeoutRef.current);
+    }
+    onStatusChange(label);
+    statusTimeoutRef.current = window.setTimeout(() => {
+      onStatusChange(null);
+      statusTimeoutRef.current = null;
+    }, 1400);
   }
 
   function updateConfirmation(enabled: boolean) {
@@ -6169,11 +6194,6 @@ function BacktestOrderSettings() {
 
   return (
     <div className="mt-5 grid gap-4">
-      {status && (
-        <div className="flex justify-end">
-          <span className="status-pill">{status}</span>
-        </div>
-      )}
       <div className="rounded-md border border-white/10 bg-black/20 p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
