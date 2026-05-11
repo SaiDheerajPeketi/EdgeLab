@@ -3,6 +3,7 @@ export type WorkspaceView =
   | "backtest"
   | "dashboard"
   | "economicCalendar"
+  | "financeTracker"
   | "globalSettings"
   | "dayView"
   | "journal"

@@ -1,5 +1,6 @@
 import {
   Activity,
+  BadgeDollarSign,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -41,6 +42,7 @@ const sections: Array<{
     shortLabel: "APP",
     items: [
       { id: "globalSettings", label: "Global Settings", icon: Settings },
+      { id: "financeTracker", label: "Income & Expenses", icon: BadgeDollarSign },
     ],
   },
   {

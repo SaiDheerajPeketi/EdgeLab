@@ -397,6 +397,47 @@ type LiveJournalData = {
   trades: JournalTrade[];
 };
 
+type FinanceAccountKind = "broker" | "propFirm";
+type FinanceAccountStatus = "ACTIVE" | "PAUSED" | "PASSED" | "FAILED" | "ARCHIVED";
+type FinancePropStage = "phase1" | "phase2" | "verification" | "funded" | "live";
+type FinanceEntryType = "income" | "expense";
+
+type FinanceTrackerAccount = {
+  challenge_fee: number;
+  color: string;
+  created_at: string;
+  currency: string;
+  funded_amount: number;
+  id: number;
+  kind: FinanceAccountKind;
+  max_loss_limit: number;
+  name: string;
+  notes: string;
+  profit_target: number;
+  provider: string;
+  stage: FinancePropStage;
+  starting_balance: number;
+  start_date: string;
+  status: FinanceAccountStatus;
+};
+
+type FinanceTrackerEntry = {
+  account_id: number | null;
+  amount: number;
+  category: string;
+  created_at: string;
+  currency: string;
+  date: string;
+  description: string;
+  id: number;
+  type: FinanceEntryType;
+};
+
+type FinanceTrackerData = {
+  accounts: FinanceTrackerAccount[];
+  entries: FinanceTrackerEntry[];
+};
+
 type LiveStrategyGroup = {
   aggregate: Aggregate;
   name: string;
@@ -491,6 +532,7 @@ type ThemedConfirmRequest = ThemedConfirmOptions & {
 
 const LIVE_JOURNAL_STORAGE_KEY = "live-journal.v1";
 const LIVE_JOURNAL_STRATEGIES_STORAGE_KEY = "live-journal-strategies.v1";
+const FINANCE_TRACKER_STORAGE_KEY = "finance-tracker.v1";
 const BACKTEST_STRATEGIES_STORAGE_KEY = "backtest-strategies.v1";
 const NOTEBOOK_FAVORITES_STORAGE_KEY = "notebook-favorites.v1";
 const NOTEBOOK_TEMPLATE_STORAGE_KEY = "notebook-template.v1";
@@ -556,6 +598,26 @@ const CURRENCY_OPTIONS = [
   "HKD",
   "AED",
 ].map((currency) => ({ label: currency, value: currency }));
+const FINANCE_ACCOUNT_KIND_OPTIONS = [
+  { label: "Broker account", sublabel: "Normal live broker or personal trading account", value: "broker" },
+  { label: "Prop firm account", sublabel: "Challenge, verification, funded phase, or live funded account", value: "propFirm" },
+];
+const FINANCE_PROP_STAGE_OPTIONS = [
+  { label: "Challenge phase 1", value: "phase1" },
+  { label: "Challenge phase 2", value: "phase2" },
+  { label: "Verification", value: "verification" },
+  { label: "Funded", value: "funded" },
+  { label: "Live funded", value: "live" },
+];
+const FINANCE_STATUS_OPTIONS = [
+  { label: "Active", value: "ACTIVE" },
+  { label: "Paused", value: "PAUSED" },
+  { label: "Passed", value: "PASSED" },
+  { label: "Failed", value: "FAILED" },
+  { label: "Archived", value: "ARCHIVED" },
+];
+const FINANCE_INCOME_CATEGORIES = ["Payout", "Profit split", "Trading profits", "Rebate", "Refund", "Other income"];
+const FINANCE_EXPENSE_CATEGORIES = ["Challenge fee", "Reset fee", "Brokerage", "Commission", "Platform", "Data feed", "Withdrawal fee", "Tax", "Other expense"];
 const TIMEZONE_IDS = [
   "UTC",
   "America/New_York",
@@ -757,6 +819,8 @@ export function EdgeLabWorkspace({
       return <DayViewPage {...shared} />;
     case "economicCalendar":
       return <EconomicCalendarPage />;
+    case "financeTracker":
+      return <FinanceTrackerPage />;
     case "journal":
     case "journalTrades":
       return <JournalWorkspacePage journal={liveJournal} view="journalTrades" />;
@@ -4481,6 +4545,42 @@ function resolveStateAction<T>(action: SetStateAction<T>, previous: T): T {
   return typeof action === "function" ? (action as (previousValue: T) => T)(previous) : action;
 }
 
+function useFinanceTrackerData(): [FinanceTrackerData, Dispatch<SetStateAction<FinanceTrackerData>>] {
+  const [data, setDataState] = useState<FinanceTrackerData>(() =>
+    sanitizeFinanceTrackerData(getCachedAppStorageItem<unknown>(FINANCE_TRACKER_STORAGE_KEY, defaultFinanceTrackerData())),
+  );
+
+  useEffect(() => {
+    let active = true;
+    void loadAppStorageItem<unknown>(FINANCE_TRACKER_STORAGE_KEY, defaultFinanceTrackerData()).then((value) => {
+      if (active) {
+        setDataState(sanitizeFinanceTrackerData(value));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAppStorageItem<unknown>(
+      FINANCE_TRACKER_STORAGE_KEY,
+      (value) => setDataState(sanitizeFinanceTrackerData(value)),
+    );
+    return unsubscribe;
+  }, []);
+
+  const setData: Dispatch<SetStateAction<FinanceTrackerData>> = useCallback((action) => {
+    setDataState((current) => {
+      const next = sanitizeFinanceTrackerData(resolveStateAction(action, current));
+      void saveAppStorageItem(FINANCE_TRACKER_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  return [data, setData];
+}
+
 function useLiveWatchlists(): [LiveWatchlist[], Dispatch<SetStateAction<LiveWatchlist[]>>] {
   const [watchlists, setWatchlistsState] = useState<LiveWatchlist[]>(() =>
     sanitizeLiveWatchlists(getCachedAppStorageItem<unknown>(LIVE_WATCHLIST_STORAGE_KEY, DEFAULT_LIVE_WATCHLISTS)),
@@ -4917,6 +5017,630 @@ function GlobalSettingsPage({
               {isImporting ? "Importing..." : "Import data"}
             </button>
           </div>
+        </FeatureCard>
+      </div>
+      {confirmDialog}
+    </PageScaffold>
+  );
+}
+
+function FinanceTrackerPage() {
+  const { confirm, confirmDialog } = useThemedConfirm();
+  const [data, setData] = useFinanceTrackerData();
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(() => data.accounts[0]?.id ?? null);
+  const [accountFilter, setAccountFilter] = useState<"ALL" | FinanceAccountKind>("ALL");
+  const [entryTypeFilter, setEntryTypeFilter] = useState<"ALL" | FinanceEntryType>("ALL");
+  const [accountKind, setAccountKind] = useState<FinanceAccountKind>("broker");
+  const [accountName, setAccountName] = useState("Primary Broker");
+  const [provider, setProvider] = useState("");
+  const [accountCurrency, setAccountCurrency] = useState("USD");
+  const [accountColor, setAccountColor] = useState("#22d3ee");
+  const [accountStatus, setAccountStatus] = useState<FinanceAccountStatus>("ACTIVE");
+  const [propStage, setPropStage] = useState<FinancePropStage>("phase1");
+  const [startingBalance, setStartingBalance] = useState("0");
+  const [fundedAmount, setFundedAmount] = useState("100000");
+  const [challengeFee, setChallengeFee] = useState("0");
+  const [profitTarget, setProfitTarget] = useState("0");
+  const [maxLossLimit, setMaxLossLimit] = useState("0");
+  const [startDate, setStartDate] = useState(() => financeToday());
+  const [accountNotes, setAccountNotes] = useState("");
+  const [entryType, setEntryType] = useState<FinanceEntryType>("expense");
+  const [entryAccountId, setEntryAccountId] = useState("none");
+  const [entryAmount, setEntryAmount] = useState("");
+  const [entryCurrency, setEntryCurrency] = useState("USD");
+  const [entryCategory, setEntryCategory] = useState(FINANCE_EXPENSE_CATEGORIES[0]);
+  const [entryDate, setEntryDate] = useState(() => financeToday());
+  const [entryDescription, setEntryDescription] = useState("");
+
+  const accountById = useMemo(
+    () => new Map(data.accounts.map((account) => [account.id, account])),
+    [data.accounts],
+  );
+  const selectedAccount = selectedAccountId == null ? null : accountById.get(selectedAccountId) ?? null;
+  const scopedAccounts = data.accounts.filter((account) => accountFilter === "ALL" || account.kind === accountFilter);
+  const filteredEntries = useMemo(
+    () =>
+      data.entries
+        .filter((entry) => {
+          const account = entry.account_id == null ? null : accountById.get(entry.account_id);
+          if (accountFilter !== "ALL" && account?.kind !== accountFilter) {
+            return false;
+          }
+          if (entryTypeFilter !== "ALL" && entry.type !== entryTypeFilter) {
+            return false;
+          }
+          return true;
+        })
+        .slice()
+        .sort((left, right) => right.date.localeCompare(left.date) || right.id - left.id),
+    [accountById, accountFilter, data.entries, entryTypeFilter],
+  );
+  const selectedAccountEntries = selectedAccount
+    ? data.entries.filter((entry) => entry.account_id === selectedAccount.id)
+    : [];
+  const summaryCurrency = currencyForFinanceEntries(filteredEntries, accountById, scopedAccounts);
+  const incomeTotal = filteredEntries
+    .filter((entry) => entry.type === "income")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const expenseTotal = filteredEntries
+    .filter((entry) => entry.type === "expense")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const netTotal = incomeTotal - expenseTotal;
+  const propExpenseTotal = data.entries
+    .filter((entry) => entry.type === "expense" && financeEntryAccount(entry, accountById)?.kind === "propFirm")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const propChallengeFees = data.accounts
+    .filter((account) => account.kind === "propFirm")
+    .reduce((sum, account) => sum + account.challenge_fee, 0);
+  const activePropAccounts = data.accounts.filter(
+    (account) => account.kind === "propFirm" && account.status !== "ARCHIVED",
+  );
+  const accountOptions = [
+    { label: "General ledger", sublabel: "Income or expense not tied to an account", value: "none" },
+    ...data.accounts.map((account) => ({
+      label: account.name,
+      sublabel: `${financeAccountKindLabel(account.kind)} · ${account.provider || "Manual"} · ${account.currency}`,
+      value: String(account.id),
+    })),
+  ];
+  const accountRows = scopedAccounts.map((account) => {
+    const entries = data.entries.filter((entry) => entry.account_id === account.id);
+    const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amount, 0);
+    const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.amount, 0);
+    return {
+      account,
+      entries,
+      expense,
+      income,
+      net: income - expense,
+    };
+  });
+
+  useEffect(() => {
+    if (selectedAccount || data.accounts.length === 0) {
+      return;
+    }
+    setSelectedAccountId(data.accounts[0].id);
+  }, [data.accounts, selectedAccount]);
+
+  function createAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const id = nextNumericId(data.accounts);
+    const account: FinanceTrackerAccount = sanitizeFinanceAccount({
+      challenge_fee: positivePositionNumber(challengeFee),
+      color: accountColor,
+      created_at: new Date().toISOString(),
+      currency: accountCurrency,
+      funded_amount: accountKind === "propFirm" ? positivePositionNumber(fundedAmount) : 0,
+      id,
+      kind: accountKind,
+      max_loss_limit: accountKind === "propFirm" ? positivePositionNumber(maxLossLimit) : 0,
+      name: accountName,
+      notes: accountNotes,
+      profit_target: accountKind === "propFirm" ? positivePositionNumber(profitTarget) : 0,
+      provider,
+      stage: accountKind === "propFirm" ? propStage : "live",
+      starting_balance: accountKind === "broker" ? positivePositionNumber(startingBalance) : 0,
+      start_date: startDate,
+      status: accountStatus,
+    });
+    setData((current) => ({ ...current, accounts: [account, ...current.accounts] }));
+    setSelectedAccountId(id);
+    setEntryAccountId(String(id));
+    setEntryCurrency(account.currency);
+    setAccountName(accountKind === "propFirm" ? "Prop Firm Challenge" : "Broker Account");
+    setProvider("");
+    setAccountNotes("");
+  }
+
+  function handleEntryTypeChange(value: string) {
+    const nextType = sanitizeFinanceEntryType(value);
+    setEntryType(nextType);
+    setEntryCategory(nextType === "income" ? FINANCE_INCOME_CATEGORIES[0] : FINANCE_EXPENSE_CATEGORIES[0]);
+  }
+
+  function handleEntryAccountChange(value: string) {
+    setEntryAccountId(value);
+    const account = accountById.get(Number(value));
+    if (account) {
+      setEntryCurrency(account.currency);
+    }
+  }
+
+  function addEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = positivePositionNumber(entryAmount);
+    if (amount <= 0) {
+      return;
+    }
+    const accountId = entryAccountId === "none" ? null : Number(entryAccountId);
+    const account = Number.isFinite(accountId) && accountId != null ? accountById.get(accountId) : null;
+    const entry: FinanceTrackerEntry = sanitizeFinanceEntry({
+      account_id: account?.id ?? null,
+      amount,
+      category: entryCategory,
+      created_at: new Date().toISOString(),
+      currency: entryCurrency || account?.currency || "USD",
+      date: entryDate || financeToday(),
+      description: entryDescription,
+      id: nextNumericId(data.entries),
+      type: entryType,
+    }, new Set(data.accounts.map((item) => item.id)));
+    setData((current) => ({ ...current, entries: [entry, ...current.entries] }));
+    setEntryAmount("");
+    setEntryDescription("");
+  }
+
+  function updateAccount(accountId: number, payload: Partial<FinanceTrackerAccount>) {
+    setData((current) => ({
+      ...current,
+      accounts: current.accounts.map((account) =>
+        account.id === accountId ? sanitizeFinanceAccount({ ...account, ...payload }) : account,
+      ),
+    }));
+  }
+
+  async function deleteAccount(account: FinanceTrackerAccount) {
+    const linkedEntries = data.entries.filter((entry) => entry.account_id === account.id).length;
+    const confirmed = await confirm({
+      confirmLabel: "Delete account",
+      detail: linkedEntries > 0
+        ? `${linkedEntries} ledger ${linkedEntries === 1 ? "entry" : "entries"} will stay in the tracker and move to General ledger.`
+        : "This removes the account profile only.",
+      message: (
+        <>
+          Delete <span className="font-semibold text-white">{account.name}</span>?
+        </>
+      ),
+      title: "Delete finance account",
+      tone: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+    setData((current) => ({
+      accounts: current.accounts.filter((item) => item.id !== account.id),
+      entries: current.entries.map((entry) => entry.account_id === account.id ? { ...entry, account_id: null } : entry),
+    }));
+    setSelectedAccountId((current) => current === account.id ? null : current);
+  }
+
+  async function deleteEntry(entry: FinanceTrackerEntry) {
+    const confirmed = await confirm({
+      confirmLabel: "Delete entry",
+      detail: "This only removes the income or expense record from the tracker.",
+      message: (
+        <>
+          Delete <span className="font-semibold text-white">{entry.category}</span> for{" "}
+          <span className={entry.type === "income" ? "font-semibold text-emerald-200" : "font-semibold text-rose-200"}>
+            {formatMoney(entry.amount, entry.currency)}
+          </span>
+          ?
+        </>
+      ),
+      title: "Delete finance entry",
+      tone: "danger",
+    });
+    if (confirmed) {
+      setData((current) => ({
+        ...current,
+        entries: current.entries.filter((item) => item.id !== entry.id),
+      }));
+    }
+  }
+
+  return (
+    <PageScaffold
+      eyebrow="Finance Tracker"
+      title="Income & Expense Tracker"
+      description="Track payouts, operating costs, broker accounts, prop-firm challenges, funded phases, and live account cashflow in one ledger."
+    >
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ResultMetricCard icon={BadgeDollarSign} label="Net cashflow" tone={toneForNumber(netTotal)} value={formatCompactMoney(netTotal, summaryCurrency)} />
+        <ResultMetricCard icon={TrendingUp} label="Income" tone="text-emerald-300" value={formatCompactMoney(incomeTotal, summaryCurrency)} />
+        <ResultMetricCard icon={TrendingDown} label="Expenses" tone="text-rose-300" value={formatCompactMoney(expenseTotal, summaryCurrency)} />
+        <ResultMetricCard icon={WalletCards} label="Prop accounts" value={`${activePropAccounts.length} active`} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.62fr)_minmax(360px,0.38fr)]">
+        <FeatureCard>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardLabel icon={WalletCards} label="Account book" />
+              <h2 className="mt-3 text-xl font-semibold text-white">Broker and prop-firm accounts</h2>
+            </div>
+            <ThemedSelect
+              className="h-10 min-w-44"
+              onChange={(value) => setAccountFilter(value as "ALL" | FinanceAccountKind)}
+              options={[
+                { label: "All accounts", value: "ALL" },
+                { label: "Broker only", value: "broker" },
+                { label: "Prop firm only", value: "propFirm" },
+              ]}
+              value={accountFilter}
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {accountRows.map((row) => (
+              <button
+                className={`rounded-md border p-3 text-left transition ${
+                  selectedAccount?.id === row.account.id
+                    ? "border-cyan-300/35 bg-cyan-300/10"
+                    : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/5"
+                }`}
+                key={row.account.id}
+                onClick={() => setSelectedAccountId(row.account.id)}
+                type="button"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-white">{row.account.name}</span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">
+                      {row.account.provider || "Manual"} · {financeAccountKindLabel(row.account.kind)}
+                    </span>
+                  </span>
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black/40"
+                    style={{ backgroundColor: row.account.color, boxShadow: `0 0 18px ${row.account.color}` }}
+                  />
+                </div>
+                <div className={`mt-4 text-2xl font-semibold tabular-nums ${toneForNumber(row.net)}`}>
+                  {formatMoney(row.net, row.account.currency)}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <MiniMetric label="Income" value={formatCompactMoney(row.income, row.account.currency)} />
+                  <MiniMetric label="Expense" value={formatCompactMoney(row.expense, row.account.currency)} />
+                  <MiniMetric label="Entries" value={String(row.entries.length)} />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="status-pill h-7 px-2 text-[10px]">{financeAccountStatusLabel(row.account.status)}</span>
+                  {row.account.kind === "propFirm" && (
+                    <span className="status-pill h-7 px-2 text-[10px]">{financePropStageLabel(row.account.stage)}</span>
+                  )}
+                  {row.account.kind === "broker" && (
+                    <span className="status-pill h-7 px-2 text-[10px]">{formatCompactMoney(row.account.starting_balance, row.account.currency)} start</span>
+                  )}
+                </div>
+              </button>
+            ))}
+            {accountRows.length === 0 && (
+              <EmptyState icon={WalletCards} message="Create a broker account or prop-firm challenge to start tracking cashflow." />
+            )}
+          </div>
+        </FeatureCard>
+
+        <div className="grid content-start gap-4">
+          <FeatureCard>
+            <CardLabel icon={Plus} label="Create account" />
+            <form className="mt-4 grid gap-3" onSubmit={createAccount}>
+              <div className="grid grid-cols-2 gap-2">
+                {FINANCE_ACCOUNT_KIND_OPTIONS.map((option) => (
+                  <button
+                    className={`control-button justify-center ${accountKind === option.value ? "workspace-tab-active" : ""}`}
+                    key={option.value}
+                    onClick={() => {
+                      const nextKind = option.value as FinanceAccountKind;
+                      setAccountKind(nextKind);
+                      setAccountName(nextKind === "propFirm" ? "Prop Firm Challenge" : "Broker Account");
+                    }}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <label className="form-field">
+                Account name
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setAccountName(event.target.value)} value={accountName} />
+              </label>
+              <label className="form-field">
+                {accountKind === "propFirm" ? "Prop firm" : "Broker"}
+                <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setProvider(event.target.value)} placeholder={accountKind === "propFirm" ? "FTMO, MyForexFunds, FundedNext..." : "IC Markets, Pepperstone, Zerodha..."} value={provider} />
+              </label>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(128px,150px)]">
+                <label className="form-field">
+                  Currency
+                  <ThemedSelect className="h-10" onChange={setAccountCurrency} options={selectOptionsWithValue(CURRENCY_OPTIONS, accountCurrency)} portal value={accountCurrency} />
+                </label>
+                <label className="form-field min-w-0">
+                  Accent
+                  <ThemedColorPicker ariaLabel="Finance account color" compact onChange={setAccountColor} value={accountColor} />
+                </label>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="form-field">
+                  Status
+                  <ThemedSelect className="h-10" onChange={(value) => setAccountStatus(sanitizeFinanceAccountStatus(value))} options={FINANCE_STATUS_OPTIONS} portal value={accountStatus} />
+                </label>
+                <label className="form-field">
+                  Start date
+                  <ThemedDatePicker onChange={setStartDate} value={startDate} />
+                </label>
+              </div>
+              {accountKind === "propFirm" ? (
+                <>
+                  <label className="form-field">
+                    Phase
+                    <ThemedSelect className="h-10" onChange={(value) => setPropStage(sanitizeFinancePropStage(value))} options={FINANCE_PROP_STAGE_OPTIONS} portal value={propStage} />
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="form-field">
+                      Account size
+                      <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setFundedAmount(event.target.value)} type="number" value={fundedAmount} />
+                    </label>
+                    <label className="form-field">
+                      Challenge fee
+                      <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setChallengeFee(event.target.value)} type="number" value={challengeFee} />
+                    </label>
+                    <label className="form-field">
+                      Profit target
+                      <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setProfitTarget(event.target.value)} type="number" value={profitTarget} />
+                    </label>
+                    <label className="form-field">
+                      Max loss
+                      <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setMaxLossLimit(event.target.value)} type="number" value={maxLossLimit} />
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <label className="form-field">
+                  Starting balance
+                  <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setStartingBalance(event.target.value)} type="number" value={startingBalance} />
+                </label>
+              )}
+              <label className="form-field">
+                Notes
+                <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setAccountNotes(event.target.value)} value={accountNotes} />
+              </label>
+              <button className="control-button workspace-tab-active justify-center" disabled={!accountName.trim()} type="submit">
+                <Plus size={15} />
+                Save account
+              </button>
+            </form>
+          </FeatureCard>
+
+          <FeatureCard>
+            <CardLabel icon={BadgeDollarSign} label="Add ledger entry" />
+            <form className="mt-4 grid gap-3" onSubmit={addEntry}>
+              <div className="grid grid-cols-2 gap-2">
+                <button className={`control-button justify-center ${entryType === "income" ? "workspace-tab-active" : ""}`} onClick={() => handleEntryTypeChange("income")} type="button">
+                  <TrendingUp size={15} />
+                  Income
+                </button>
+                <button className={`control-button justify-center ${entryType === "expense" ? "border-rose-300/25 bg-rose-300/10 text-rose-100" : ""}`} onClick={() => handleEntryTypeChange("expense")} type="button">
+                  <TrendingDown size={15} />
+                  Expense
+                </button>
+              </div>
+              <label className="form-field">
+                Account
+                <ThemedSelect className="h-10" onChange={handleEntryAccountChange} options={accountOptions} portal value={entryAccountId} />
+              </label>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
+                <label className="form-field">
+                  Amount
+                  <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setEntryAmount(event.target.value)} step="any" type="number" value={entryAmount} />
+                </label>
+                <label className="form-field">
+                  Currency
+                  <ThemedSelect className="h-10" onChange={setEntryCurrency} options={selectOptionsWithValue(CURRENCY_OPTIONS, entryCurrency)} portal value={entryCurrency} />
+                </label>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="form-field">
+                  Category
+                  <ThemedSelect
+                    className="h-10"
+                    onChange={setEntryCategory}
+                    options={(entryType === "income" ? FINANCE_INCOME_CATEGORIES : FINANCE_EXPENSE_CATEGORIES).map((category) => ({ label: category, value: category }))}
+                    portal
+                    value={entryCategory}
+                  />
+                </label>
+                <label className="form-field">
+                  Date
+                  <ThemedDatePicker onChange={setEntryDate} value={entryDate} />
+                </label>
+              </div>
+              <label className="form-field">
+                Notes
+                <textarea className="input-control min-h-20 py-3 normal-case tracking-normal" onChange={(event) => setEntryDescription(event.target.value)} value={entryDescription} />
+              </label>
+              <button className="control-button workspace-tab-active justify-center" disabled={positivePositionNumber(entryAmount) <= 0} type="submit">
+                <Plus size={15} />
+                Add entry
+              </button>
+            </form>
+          </FeatureCard>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.64fr)_minmax(340px,0.36fr)]">
+        <FeatureCard>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardLabel icon={ClipboardList} label="Finance ledger" />
+              <h2 className="mt-3 text-xl font-semibold text-white">Income and expense history</h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <ThemedSelect
+                className="h-10 min-w-36"
+                onChange={(value) => setEntryTypeFilter(value as "ALL" | FinanceEntryType)}
+                options={[
+                  { label: "All entries", value: "ALL" },
+                  { label: "Income", value: "income" },
+                  { label: "Expenses", value: "expense" },
+                ]}
+                value={entryTypeFilter}
+              />
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-4">
+            <MiniMetric label="Rows" value={filteredEntries.length.toLocaleString()} />
+            <MiniMetric label="Prop expenses" value={formatCompactMoney(propExpenseTotal, summaryCurrency)} />
+            <MiniMetric label="Prop setup fees" value={formatCompactMoney(propChallengeFees, summaryCurrency)} />
+            <MiniMetric label="Scope" value={accountFilter === "ALL" ? "All accounts" : financeAccountKindLabel(accountFilter)} />
+          </div>
+          <div className="mt-4 overflow-auto rounded-md border border-white/10 bg-black/20">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-white/10 text-xs uppercase tracking-[0.16em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-3 py-3 font-medium">Type</th>
+                  <th className="px-3 py-3 font-medium">Account</th>
+                  <th className="px-3 py-3 font-medium">Category</th>
+                  <th className="px-3 py-3 text-right font-medium">Amount</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEntries.map((entry) => {
+                  const account = financeEntryAccount(entry, accountById);
+                  const signed = financeSignedEntryAmount(entry);
+                  return (
+                    <tr className="border-b border-white/10 text-slate-300 last:border-0" key={entry.id}>
+                      <td className="px-4 py-3 text-slate-500">{formatFinanceDate(entry.date)}</td>
+                      <td className="px-3 py-3">
+                        <span className={`status-pill h-7 px-2 text-[10px] ${entry.type === "income" ? "text-emerald-100" : "text-rose-100"}`}>
+                          {entry.type === "income" ? "Income" : "Expense"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-white">{account?.name ?? "General ledger"}</div>
+                          <div className="truncate text-xs text-slate-500">{account ? financeAccountKindLabel(account.kind) : "Unlinked"}</div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-slate-200">{entry.category}</div>
+                          {entry.description && <div className="truncate text-xs text-slate-500">{entry.description}</div>}
+                        </div>
+                      </td>
+                      <td className={`px-3 py-3 text-right text-base font-semibold tabular-nums ${toneForNumber(signed)}`}>
+                        {formatMoney(signed, entry.currency)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          className="icon-button h-8 w-8 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                          onClick={() => void deleteEntry(entry)}
+                          title="Delete entry"
+                          type="button"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredEntries.length === 0 && (
+                  <tr>
+                    <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={6}>
+                      Add income or expense entries to build the ledger.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </FeatureCard>
+
+        <FeatureCard>
+          {selectedAccount ? (
+            <div className="grid gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardLabel icon={WalletCards} label="Selected account" />
+                  <h2 className="mt-3 flex min-w-0 items-center gap-2 text-xl font-semibold text-white">
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: selectedAccount.color, boxShadow: `0 0 18px ${selectedAccount.color}` }}
+                    />
+                    <span className="truncate">{selectedAccount.name}</span>
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selectedAccount.provider || "Manual"} · {financeAccountKindLabel(selectedAccount.kind)} · {selectedAccount.currency}
+                  </p>
+                </div>
+                <button
+                  className="icon-button h-9 w-9 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
+                  onClick={() => void deleteAccount(selectedAccount)}
+                  title="Delete account"
+                  type="button"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <CompactMetric label="Ledger net" tone={toneForNumber(selectedAccountEntries.reduce((sum, entry) => sum + financeSignedEntryAmount(entry), 0))} value={formatMoney(selectedAccountEntries.reduce((sum, entry) => sum + financeSignedEntryAmount(entry), 0), selectedAccount.currency)} />
+                <CompactMetric label="Entries" value={String(selectedAccountEntries.length)} />
+                <CompactMetric label={selectedAccount.kind === "propFirm" ? "Account size" : "Starting"} value={formatMoney(selectedAccount.kind === "propFirm" ? selectedAccount.funded_amount : selectedAccount.starting_balance, selectedAccount.currency)} />
+                <CompactMetric label={selectedAccount.kind === "propFirm" ? "Challenge fee" : "Status"} value={selectedAccount.kind === "propFirm" ? formatMoney(selectedAccount.challenge_fee, selectedAccount.currency) : financeAccountStatusLabel(selectedAccount.status)} />
+              </div>
+              <div className="grid gap-3 rounded-md border border-white/10 bg-black/20 p-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="form-field">
+                    Status
+                    <ThemedSelect
+                      className="h-10"
+                      onChange={(value) => updateAccount(selectedAccount.id, { status: sanitizeFinanceAccountStatus(value) })}
+                      options={FINANCE_STATUS_OPTIONS}
+                      portal
+                      value={selectedAccount.status}
+                    />
+                  </label>
+                  {selectedAccount.kind === "propFirm" ? (
+                    <label className="form-field">
+                      Phase
+                      <ThemedSelect
+                        className="h-10"
+                        onChange={(value) => updateAccount(selectedAccount.id, { stage: sanitizeFinancePropStage(value) })}
+                        options={FINANCE_PROP_STAGE_OPTIONS}
+                        portal
+                        value={selectedAccount.stage}
+                      />
+                    </label>
+                  ) : (
+                    <label className="form-field">
+                      Started
+                      <ThemedDatePicker onChange={(value) => updateAccount(selectedAccount.id, { start_date: value })} value={selectedAccount.start_date} />
+                    </label>
+                  )}
+                </div>
+                {selectedAccount.kind === "propFirm" && (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <MiniMetric label="Profit target" value={formatMoney(selectedAccount.profit_target, selectedAccount.currency)} />
+                    <MiniMetric label="Max loss" value={formatMoney(selectedAccount.max_loss_limit, selectedAccount.currency)} />
+                  </div>
+                )}
+                <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-3 text-sm leading-6 text-slate-400">
+                  {selectedAccount.notes || "No account notes yet."}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState icon={WalletCards} message="Select or create an account to see lifecycle details." />
+          )}
         </FeatureCard>
       </div>
       {confirmDialog}
@@ -17133,6 +17857,180 @@ function purgeLegacyAppLocalStorage() {
       window.localStorage.removeItem(key);
     }
   }
+}
+
+function defaultFinanceTrackerData(): FinanceTrackerData {
+  return {
+    accounts: [],
+    entries: [],
+  };
+}
+
+function sanitizeFinanceTrackerData(value: unknown): FinanceTrackerData {
+  if (!isPlainRecord(value)) {
+    return defaultFinanceTrackerData();
+  }
+  const rawAccounts = Array.isArray(value.accounts) ? value.accounts : [];
+  const accounts = rawAccounts
+    .map(sanitizeFinanceAccount)
+    .filter((account) => account.name.trim().length > 0);
+  const validAccountIds = new Set(accounts.map((account) => account.id));
+  const rawEntries = Array.isArray(value.entries) ? value.entries : [];
+  const entries = rawEntries
+    .map((entry) => sanitizeFinanceEntry(entry, validAccountIds))
+    .filter((entry) => entry.amount > 0 && entry.date.trim().length > 0);
+  return {
+    accounts,
+    entries,
+  };
+}
+
+function sanitizeFinanceAccount(value: unknown): FinanceTrackerAccount {
+  const candidate = isPlainRecord(value) ? value : {};
+  const kind = sanitizeFinanceAccountKind(candidate.kind);
+  const currency = normalizeCurrencyCode(typeof candidate.currency === "string" ? candidate.currency : "USD");
+  const name = typeof candidate.name === "string" && candidate.name.trim()
+    ? candidate.name.trim()
+    : kind === "propFirm" ? "Prop Firm Account" : "Broker Account";
+  return {
+    challenge_fee: kind === "propFirm" ? safeNonNegativeNumber(candidate.challenge_fee, 0) : 0,
+    color: normalizeAccountColor(typeof candidate.color === "string" ? candidate.color : null),
+    created_at: typeof candidate.created_at === "string" ? candidate.created_at : new Date().toISOString(),
+    currency,
+    funded_amount: kind === "propFirm" ? safeNonNegativeNumber(candidate.funded_amount, 0) : 0,
+    id: safePositiveInteger(candidate.id, 1),
+    kind,
+    max_loss_limit: kind === "propFirm" ? safeNonNegativeNumber(candidate.max_loss_limit, 0) : 0,
+    name,
+    notes: typeof candidate.notes === "string" ? candidate.notes : "",
+    profit_target: kind === "propFirm" ? safeNonNegativeNumber(candidate.profit_target, 0) : 0,
+    provider: typeof candidate.provider === "string" ? candidate.provider.trim() : "",
+    stage: kind === "propFirm" ? sanitizeFinancePropStage(candidate.stage) : "live",
+    starting_balance: kind === "broker" ? safeNonNegativeNumber(candidate.starting_balance, 0) : 0,
+    start_date: typeof candidate.start_date === "string" && candidate.start_date.trim() ? candidate.start_date : financeToday(),
+    status: sanitizeFinanceAccountStatus(candidate.status),
+  };
+}
+
+function sanitizeFinanceEntry(value: unknown, validAccountIds: Set<number>): FinanceTrackerEntry {
+  const candidate = isPlainRecord(value) ? value : {};
+  const rawAccountId = typeof candidate.account_id === "number" ? candidate.account_id : Number(candidate.account_id);
+  const accountId = Number.isInteger(rawAccountId) && validAccountIds.has(rawAccountId) ? rawAccountId : null;
+  const type = sanitizeFinanceEntryType(candidate.type);
+  const fallbackCategory = type === "income" ? FINANCE_INCOME_CATEGORIES[0] : FINANCE_EXPENSE_CATEGORIES[0];
+  return {
+    account_id: accountId,
+    amount: safeNonNegativeNumber(candidate.amount, 0),
+    category: typeof candidate.category === "string" && candidate.category.trim() ? candidate.category.trim() : fallbackCategory,
+    created_at: typeof candidate.created_at === "string" ? candidate.created_at : new Date().toISOString(),
+    currency: normalizeCurrencyCode(typeof candidate.currency === "string" ? candidate.currency : "USD"),
+    date: typeof candidate.date === "string" && candidate.date.trim() ? candidate.date : financeToday(),
+    description: typeof candidate.description === "string" ? candidate.description : "",
+    id: safePositiveInteger(candidate.id, 1),
+    type,
+  };
+}
+
+function sanitizeFinanceAccountKind(value: unknown): FinanceAccountKind {
+  return value === "propFirm" ? "propFirm" : "broker";
+}
+
+function sanitizeFinanceAccountStatus(value: unknown): FinanceAccountStatus {
+  return value === "PAUSED" || value === "PASSED" || value === "FAILED" || value === "ARCHIVED"
+    ? value
+    : "ACTIVE";
+}
+
+function sanitizeFinancePropStage(value: unknown): FinancePropStage {
+  return value === "phase2" || value === "verification" || value === "funded" || value === "live"
+    ? value
+    : "phase1";
+}
+
+function sanitizeFinanceEntryType(value: unknown): FinanceEntryType {
+  return value === "income" ? "income" : "expense";
+}
+
+function safePositiveInteger(value: unknown, fallback: number) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function financeToday() {
+  const date = new Date();
+  const localOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - localOffset).toISOString().slice(0, 10);
+}
+
+function financeAccountKindLabel(kind: FinanceAccountKind) {
+  return kind === "propFirm" ? "Prop firm" : "Broker";
+}
+
+function financeAccountStatusLabel(status: FinanceAccountStatus) {
+  const labels: Record<FinanceAccountStatus, string> = {
+    ACTIVE: "Active",
+    ARCHIVED: "Archived",
+    FAILED: "Failed",
+    PASSED: "Passed",
+    PAUSED: "Paused",
+  };
+  return labels[status];
+}
+
+function financePropStageLabel(stage: FinancePropStage) {
+  const labels: Record<FinancePropStage, string> = {
+    funded: "Funded",
+    live: "Live funded",
+    phase1: "Challenge phase 1",
+    phase2: "Challenge phase 2",
+    verification: "Verification",
+  };
+  return labels[stage];
+}
+
+function financeSignedEntryAmount(entry: FinanceTrackerEntry) {
+  return entry.type === "income" ? entry.amount : -entry.amount;
+}
+
+function financeEntryAccount(
+  entry: FinanceTrackerEntry,
+  accountById: Map<number, FinanceTrackerAccount>,
+) {
+  return entry.account_id == null ? null : accountById.get(entry.account_id) ?? null;
+}
+
+function currencyForFinanceEntries(
+  entries: FinanceTrackerEntry[],
+  accountById: Map<number, FinanceTrackerAccount>,
+  accounts: FinanceTrackerAccount[] = [],
+  fallbackCurrency = "USD",
+) {
+  const currencies = new Set<string>();
+  entries.forEach((entry) => {
+    currencies.add(normalizeCurrencyCode(entry.currency || financeEntryAccount(entry, accountById)?.currency || fallbackCurrency));
+  });
+  if (currencies.size === 0) {
+    accounts.forEach((account) => currencies.add(normalizeCurrencyCode(account.currency || fallbackCurrency)));
+  }
+  if (currencies.size === 0) {
+    return normalizeCurrencyCode(fallbackCurrency);
+  }
+  return currencies.size === 1 ? Array.from(currencies)[0] : MIXED_CURRENCY;
+}
+
+function formatFinanceDate(value: string) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString("en-US", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function dataUrlToBlob(url: string) {
