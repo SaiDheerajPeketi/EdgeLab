@@ -2313,6 +2313,19 @@ const ECONOMIC_IMPACT_FILTERS = [
   { label: "Low", value: "Low" },
   { label: "Holiday", value: "Holiday" },
 ];
+const ECONOMIC_EVENT_TYPE_FILTERS = [
+  { label: "All event types", value: "ALL" },
+  { label: "Growth", value: "Growth" },
+  { label: "Inflation", value: "Inflation" },
+  { label: "Employment", value: "Employment" },
+  { label: "Central Bank", value: "Central Bank" },
+  { label: "Housing", value: "Housing" },
+  { label: "Consumer", value: "Consumer" },
+  { label: "Business", value: "Business" },
+  { label: "Bonds", value: "Bonds" },
+  { label: "Speeches", value: "Speeches" },
+  { label: "Misc", value: "Misc" },
+];
 
 function EconomicCalendarPage() {
   const [calendar, setCalendar] = useState<EconomicCalendarResponse | null>(null);
@@ -2322,7 +2335,10 @@ function EconomicCalendarPage() {
   const [impactFilter, setImpactFilter] = useState("ALL");
   const [currencyFilter, setCurrencyFilter] = useState("ALL");
   const [dayFilter, setDayFilter] = useState("ALL");
+  const [eventTypeFilter, setEventTypeFilter] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
+  const [detailEvent, setDetailEvent] = useState<EconomicCalendarEvent | null>(null);
+  const [graphEvent, setGraphEvent] = useState<EconomicCalendarEvent | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2359,11 +2375,12 @@ function EconomicCalendarPage() {
         economicEventMatchesFilters(event, {
           currency: currencyFilter,
           day: dayFilter,
+          eventType: eventTypeFilter,
           impact: impactFilter,
           search: searchTerm,
         }),
       ),
-    [currencyFilter, dayFilter, events, impactFilter, searchTerm],
+    [currencyFilter, dayFilter, eventTypeFilter, events, impactFilter, searchTerm],
   );
   const groupedEvents = useMemo(() => groupEconomicEventsByDay(filteredEvents), [filteredEvents]);
   const highImpactCount = events.filter((event) => normalizeEconomicImpact(event.impact) === "High").length;
@@ -2424,7 +2441,7 @@ function EconomicCalendarPage() {
                 {filteredEvents.length} visible
               </span>
             </div>
-            <div className="mt-4 grid gap-2 lg:grid-cols-[minmax(180px,1fr)_160px_160px_160px]">
+            <div className="mt-4 grid gap-2 md:grid-cols-2 2xl:grid-cols-[minmax(180px,1fr)_150px_150px_150px_170px]">
               <label className="relative min-w-0">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={15} />
                 <input
@@ -2452,6 +2469,12 @@ function EconomicCalendarPage() {
                 options={dayOptions}
                 value={dayFilter}
               />
+              <ThemedSelect
+                className="h-10"
+                onChange={setEventTypeFilter}
+                options={ECONOMIC_EVENT_TYPE_FILTERS}
+                value={eventTypeFilter}
+              />
             </div>
           </div>
 
@@ -2464,7 +2487,12 @@ function EconomicCalendarPage() {
                 </div>
                 <div className="divide-y divide-white/10">
                   {group.events.map((event, index) => (
-                    <EconomicEventRow event={event} key={`${event.starts_at}-${event.currency}-${event.title}-${index}`} />
+                    <EconomicEventRow
+                      event={event}
+                      key={`${event.starts_at}-${event.currency}-${event.title}-${index}`}
+                      onOpenDetail={setDetailEvent}
+                      onOpenGraph={setGraphEvent}
+                    />
                   ))}
                 </div>
               </section>
@@ -2545,9 +2573,20 @@ function EconomicCalendarPage() {
                 </div>
                 <div className="mt-3 text-lg font-semibold text-white">{upcomingEvent.title}</div>
                 <div className="mt-1 text-sm text-slate-500">{formatEconomicEventDateTime(upcomingEvent.starts_at)}</div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="mt-3 grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                  <MiniMetric label="Type" value={economicEventType(upcomingEvent)} />
                   <MiniMetric label="Forecast" value={upcomingEvent.forecast ?? "—"} />
                   <MiniMetric label="Previous" value={upcomingEvent.previous ?? "—"} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="control-button h-9 text-xs" onClick={() => setDetailEvent(upcomingEvent)} type="button">
+                    <FolderPlus size={14} />
+                    Detail
+                  </button>
+                  <button className="control-button h-9 text-xs" onClick={() => setGraphEvent(upcomingEvent)} type="button">
+                    <BarChart3 size={14} />
+                    Graph
+                  </button>
                 </div>
               </div>
             ) : (
@@ -2562,12 +2601,23 @@ function EconomicCalendarPage() {
           {error}
         </div>
       )}
+      {detailEvent && <EconomicEventDetailDialog event={detailEvent} onClose={() => setDetailEvent(null)} />}
+      {graphEvent && <EconomicEventGraphDialog event={graphEvent} onClose={() => setGraphEvent(null)} />}
     </PageScaffold>
   );
 }
 
-function EconomicEventRow({ event }: { event: EconomicCalendarEvent }) {
+function EconomicEventRow({
+  event,
+  onOpenDetail,
+  onOpenGraph,
+}: {
+  event: EconomicCalendarEvent;
+  onOpenDetail: (event: EconomicCalendarEvent) => void;
+  onOpenGraph: (event: EconomicCalendarEvent) => void;
+}) {
   const impact = normalizeEconomicImpact(event.impact);
+  const eventType = economicEventType(event);
   return (
     <div className="grid gap-3 px-4 py-3 text-sm text-slate-300 transition hover:bg-white/[0.035] lg:grid-cols-[84px_84px_minmax(0,1fr)_260px]">
       <div className="font-semibold tabular-nums text-slate-100">{economicEventTimeLabel(event.starts_at)}</div>
@@ -2578,8 +2628,25 @@ function EconomicEventRow({ event }: { event: EconomicCalendarEvent }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${economicImpactDotClass(impact)}`} />
           <span className={`text-[10px] font-bold uppercase tracking-[0.16em] ${economicImpactTone(impact)}`}>{impact}</span>
+          <span className="status-pill h-7 px-2 text-[10px]">{eventType}</span>
         </div>
-        <div className="mt-1 truncate text-base font-semibold text-white">{event.title}</div>
+        <div className="mt-1 flex min-w-0 items-center gap-2">
+          <button
+            className="min-w-0 flex-1 truncate text-left text-base font-semibold text-white transition hover:text-cyan-100"
+            onClick={() => onOpenDetail(event)}
+            type="button"
+          >
+            {event.title}
+          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button className="icon-button h-8 w-8" onClick={() => onOpenDetail(event)} title="Open event detail" type="button">
+              <FolderPlus size={14} />
+            </button>
+            <button className="icon-button h-8 w-8" onClick={() => onOpenGraph(event)} title="Open event graph" type="button">
+              <BarChart3 size={14} />
+            </button>
+          </div>
+        </div>
         <div className="mt-0.5 text-xs text-slate-500">{formatEconomicEventDateTime(event.starts_at)}</div>
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -2589,6 +2656,392 @@ function EconomicEventRow({ event }: { event: EconomicCalendarEvent }) {
       </div>
     </div>
   );
+}
+
+function EconomicEventDetailDialog({
+  event,
+  onClose,
+}: {
+  event: EconomicCalendarEvent;
+  onClose: () => void;
+}) {
+  const impact = normalizeEconomicImpact(event.impact);
+  const eventType = economicEventType(event);
+  const surprise = economicEventSurprise(event);
+  const detailRows = economicEventDetailRows(event);
+  return (
+    <ModalFrame maxWidth="wide" onClose={onClose} title="Economic Event Detail">
+      <div className="grid gap-4">
+        <div className="rounded-md border border-white/10 bg-black/25 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="status-pill h-8 px-2 text-[11px]">{event.currency}</span>
+                <span className={`status-pill h-8 px-2 text-[11px] ${economicImpactTone(impact)}`}>{impact}</span>
+                <span className="status-pill h-8 px-2 text-[11px]">{eventType}</span>
+              </div>
+              <h3 className="mt-3 text-2xl font-semibold text-white">{event.title}</h3>
+              <p className="mt-2 text-sm text-slate-500">{formatEconomicEventDateTime(event.starts_at)}</p>
+            </div>
+            <button className="control-button h-9 text-xs" onClick={() => openEconomicEventSource(event)} type="button">
+              <Globe2 size={14} />
+              Forex Factory day
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MiniMetric label="Actual" value={event.actual ?? "Not released"} />
+          <MiniMetric label="Forecast" value={event.forecast ?? "—"} />
+          <MiniMetric label="Previous" value={event.previous ?? "—"} />
+          <MiniMetric label="Surprise" value={surprise.label} />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.58fr)_minmax(0,0.42fr)]">
+          <div className="rounded-md border border-white/10 bg-black/20 p-4">
+            <CardLabel icon={FileText} label="Event detail" />
+            <div className="mt-3 grid gap-3 text-sm leading-6 text-slate-300">
+              <p>{economicEventDetailNarrative(event)}</p>
+              <div className="grid gap-2">
+                {detailRows.map((row) => (
+                  <div className="grid gap-1 rounded-md border border-white/10 bg-black/20 px-3 py-2 sm:grid-cols-[128px_minmax(0,1fr)]" key={row.label}>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">{row.label}</span>
+                    <span className="font-semibold text-slate-200">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-white/10 bg-black/20 p-4">
+            <CardLabel icon={Gauge} label="Trading context" />
+            <div className="mt-3 grid gap-2">
+              <MiniMetric label="Risk window" value={impact === "High" ? "Major volatility" : impact === "Medium" ? "Moderate volatility" : "Routine watch"} />
+              <MiniMetric label="Event class" value={eventType} />
+              <MiniMetric label="Local release" value={economicEventTimeLabel(event.starts_at)} />
+              <MiniMetric label="Data state" value={event.actual ? "Released" : "Scheduled"} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function EconomicEventGraphDialog({
+  event,
+  onClose,
+}: {
+  event: EconomicCalendarEvent;
+  onClose: () => void;
+}) {
+  const points = economicEventGraphPoints(event);
+  const hasChart = points.length >= 2;
+  const surprise = economicEventSurprise(event);
+  return (
+    <ModalFrame maxWidth="wide" onClose={onClose} title="Economic Event Graph">
+      <div className="grid gap-4">
+        <div className="rounded-md border border-white/10 bg-black/25 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardLabel icon={BarChart3} label="Actual / Forecast / Previous" />
+              <h3 className="mt-3 text-xl font-semibold text-white">{event.title}</h3>
+              <div className="mt-1 text-sm text-slate-500">{event.currency} · {formatEconomicEventDateTime(event.starts_at)}</div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <span className={`status-pill h-8 px-2 text-[11px] ${economicImpactTone(event.impact)}`}>{normalizeEconomicImpact(event.impact)}</span>
+              <span className="status-pill h-8 px-2 text-[11px]">{economicEventType(event)}</span>
+            </div>
+          </div>
+        </div>
+        {hasChart ? (
+          <EconomicEventValueChart points={points} />
+        ) : (
+          <EmptyState icon={BarChart3} message="No numeric chart data is available for this event yet." />
+        )}
+        <div className="grid gap-3 md:grid-cols-3">
+          <MiniMetric label="Previous" value={event.previous ?? "—"} />
+          <MiniMetric label="Forecast" value={event.forecast ?? "—"} />
+          <MiniMetric label="Actual" value={event.actual ?? "Not released"} />
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-slate-500">
+          <span className={`font-semibold ${surprise.tone}`}>{surprise.label}.</span>{" "}
+          The chart compares the current event values available in the calendar feed, so unreleased events show forecast and previous values until an actual value posts.
+        </div>
+      </div>
+    </ModalFrame>
+  );
+}
+
+type EconomicEventChartPoint = {
+  label: "Previous" | "Forecast" | "Actual";
+  raw: string;
+  value: number;
+};
+
+type EconomicEventSurprise = {
+  label: string;
+  shortLabel: string;
+  tone: string;
+};
+
+function economicEventType(event: EconomicCalendarEvent) {
+  const title = event.title.toLowerCase();
+  if (/\b(speaks|speech|testif|testimony|press conference)\b/.test(title)) {
+    return "Speeches";
+  }
+  if (/\b(cpi|ppi|rpi|inflation|price index|prices|deflator|consumer price|producer price)\b/.test(title)) {
+    return "Inflation";
+  }
+  if (/\b(employment|unemployment|payroll|non-farm|nfp|jobless|claimant|earnings|wages|labor|labour|jobs|jolts)\b/.test(title)) {
+    return "Employment";
+  }
+  if (/\b(fomc|fed|federal reserve|ecb|boe|boj|boc|rba|rbnz|snb|rate decision|interest rate|policy rate|monetary|minutes|central bank)\b/.test(title)) {
+    return "Central Bank";
+  }
+  if (/\b(housing|home sales|house price|building permits|construction|mortgage|starts)\b/.test(title)) {
+    return "Housing";
+  }
+  if (/\b(pmi|ism|business|manufacturing|services|industrial|factory|orders|zew|ifo|nab)\b/.test(title)) {
+    return "Business";
+  }
+  if (/\b(consumer confidence|consumer sentiment|consumer credit|household spending|retail sales|personal spending)\b/.test(title)) {
+    return "Consumer";
+  }
+  if (/\b(gdp|growth|trade balance|current account|production|productivity|inventories|spending)\b/.test(title)) {
+    return "Growth";
+  }
+  if (/\b(bond|auction|yield|treasury|gilt|bund)\b/.test(title)) {
+    return "Bonds";
+  }
+  return "Misc";
+}
+
+function economicEventDetailRows(event: EconomicCalendarEvent) {
+  const surprise = economicEventSurprise(event);
+  return [
+    { label: "Release time", value: formatEconomicEventDateTime(event.starts_at) },
+    { label: "Currency", value: event.currency || "—" },
+    { label: "Impact", value: normalizeEconomicImpact(event.impact) },
+    { label: "Event class", value: economicEventType(event) },
+    { label: "Actual", value: event.actual || "Not released" },
+    { label: "Forecast", value: event.forecast || "—" },
+    { label: "Previous", value: event.previous || "—" },
+    { label: "Surprise", value: surprise.label },
+  ];
+}
+
+function economicEventDetailNarrative(event: EconomicCalendarEvent) {
+  const impact = normalizeEconomicImpact(event.impact);
+  const eventType = economicEventType(event);
+  const releaseState = event.actual
+    ? `The latest actual value is ${event.actual}`
+    : "The event is still scheduled and the actual value has not posted yet";
+  const forecastState = event.forecast ? ` against a ${event.forecast} forecast` : " with no forecast value in the feed";
+  const previousState = event.previous ? ` and a ${event.previous} previous reading` : "";
+  return `${event.title} is a ${impact.toLowerCase()} impact ${event.currency} ${eventType.toLowerCase()} event scheduled for ${formatEconomicEventDateTime(event.starts_at)}. ${releaseState}${forecastState}${previousState}.`;
+}
+
+function economicEventSurprise(event: EconomicCalendarEvent): EconomicEventSurprise {
+  const actual = numericCalendarValue(event.actual);
+  const forecast = numericCalendarValue(event.forecast);
+  if (actual == null) {
+    return {
+      label: "Waiting for actual",
+      shortLabel: "Pending actual",
+      tone: "text-slate-500",
+    };
+  }
+  if (forecast == null) {
+    return {
+      label: "No forecast comparison",
+      shortLabel: "No forecast",
+      tone: "text-slate-500",
+    };
+  }
+  const diff = actual - forecast;
+  const absDiff = Math.abs(diff);
+  if (absDiff <= Math.max(0.000001, Math.abs(forecast) * 0.000001)) {
+    return {
+      label: "Inline with forecast",
+      shortLabel: "Inline forecast",
+      tone: "text-slate-400",
+    };
+  }
+  const formatted = formatCalendarDifference(diff, event.actual ?? event.forecast ?? "");
+  return {
+    label: `${formatted} vs forecast`,
+    shortLabel: diff > 0 ? "Above forecast" : "Below forecast",
+    tone: diff > 0 ? "text-emerald-200" : "text-rose-200",
+  };
+}
+
+function economicEventGraphPoints(event: EconomicCalendarEvent): EconomicEventChartPoint[] {
+  return [
+    { label: "Previous" as const, raw: event.previous ?? "", value: numericCalendarValue(event.previous) },
+    { label: "Forecast" as const, raw: event.forecast ?? "", value: numericCalendarValue(event.forecast) },
+    { label: "Actual" as const, raw: event.actual ?? "", value: numericCalendarValue(event.actual) },
+  ].filter((point): point is EconomicEventChartPoint => point.value != null && point.raw.trim().length > 0);
+}
+
+function EconomicEventValueChart({ points }: { points: EconomicEventChartPoint[] }) {
+  const width = 760;
+  const height = 280;
+  const padding = { bottom: 42, left: 52, right: 24, top: 26 };
+  const values = points.map((point) => point.value);
+  const minValue = Math.min(0, ...values);
+  const maxValue = Math.max(0, ...values);
+  const range = maxValue - minValue || 1;
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const yForValue = (value: number) => padding.top + ((maxValue - value) / range) * innerHeight;
+  const xForIndex = (index: number) => {
+    if (points.length === 1) {
+      return padding.left + innerWidth / 2;
+    }
+    return padding.left + (index / (points.length - 1)) * innerWidth;
+  };
+  const zeroY = yForValue(0);
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xForIndex(index)} ${yForValue(point.value)}`).join(" ");
+  const gridValues = [maxValue, (maxValue + minValue) / 2, minValue];
+
+  return (
+    <div className="rounded-md border border-white/10 bg-black/25 p-4">
+      <div className="overflow-hidden rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.12),transparent_36%),rgba(2,6,23,0.72)]">
+        <svg aria-label="Economic event values" className="h-auto w-full" role="img" viewBox={`0 0 ${width} ${height}`}>
+          <defs>
+            <linearGradient id="economicValueBar" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="rgba(103,232,249,0.72)" />
+              <stop offset="100%" stopColor="rgba(59,130,246,0.18)" />
+            </linearGradient>
+          </defs>
+          {gridValues.map((value, index) => {
+            const y = yForValue(value);
+            return (
+              <g key={`${value}-${index}`}>
+                <line stroke="rgba(148,163,184,0.12)" strokeDasharray="4 8" x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
+                <text fill="rgba(148,163,184,0.62)" fontSize="11" textAnchor="end" x={padding.left - 10} y={y + 4}>
+                  {formatCompactCalendarNumber(value)}
+                </text>
+              </g>
+            );
+          })}
+          <line stroke="rgba(226,232,240,0.24)" x1={padding.left} x2={width - padding.right} y1={zeroY} y2={zeroY} />
+          {points.map((point, index) => {
+            const x = xForIndex(index);
+            const y = yForValue(point.value);
+            const barTop = Math.min(y, zeroY);
+            const barHeight = Math.max(4, Math.abs(zeroY - y));
+            return (
+              <g key={point.label}>
+                <rect fill="url(#economicValueBar)" height={barHeight} rx="7" width="46" x={x - 23} y={barTop} />
+                <circle cx={x} cy={y} fill="#020617" r="7" stroke="rgba(103,232,249,0.95)" strokeWidth="3" />
+                <text fill="rgba(226,232,240,0.92)" fontSize="12" fontWeight="700" textAnchor="middle" x={x} y={height - 22}>
+                  {point.label}
+                </text>
+                <text fill="rgba(148,163,184,0.82)" fontSize="11" textAnchor="middle" x={x} y={height - 8}>
+                  {point.raw}
+                </text>
+              </g>
+            );
+          })}
+          <path d={path} fill="none" stroke="rgba(34,211,238,0.9)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function numericCalendarValue(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  const cleaned = value.replace(/,/g, "").trim();
+  if (!cleaned || /^(-|—|n\/a|na|tentative)$/i.test(cleaned)) {
+    return null;
+  }
+  const match = cleaned.match(/[-+]?(?:\d+\.?\d*|\.\d+)\s*([kmbt%])?/i);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number.parseFloat(match[0]);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const suffix = match[1]?.toUpperCase();
+  if (suffix === "K") {
+    return parsed * 1_000;
+  }
+  if (suffix === "M") {
+    return parsed * 1_000_000;
+  }
+  if (suffix === "B") {
+    return parsed * 1_000_000_000;
+  }
+  if (suffix === "T") {
+    return parsed * 1_000_000_000_000;
+  }
+  return parsed;
+}
+
+function calendarValueScale(rawValue: string) {
+  const suffix = rawValue.trim().match(/[kmbt%]\s*$/i)?.[0].trim().toUpperCase();
+  if (suffix === "K") {
+    return { suffix, value: 1_000 };
+  }
+  if (suffix === "M") {
+    return { suffix, value: 1_000_000 };
+  }
+  if (suffix === "B") {
+    return { suffix, value: 1_000_000_000 };
+  }
+  if (suffix === "T") {
+    return { suffix, value: 1_000_000_000_000 };
+  }
+  if (suffix === "%") {
+    return { suffix, value: 1 };
+  }
+  return { suffix: "", value: 1 };
+}
+
+function formatCalendarDifference(value: number, rawReference: string) {
+  const scale = calendarValueScale(rawReference);
+  const scaled = value / scale.value;
+  const precision = Math.abs(scaled) >= 10 ? 1 : 2;
+  const formatted = scaled.toLocaleString([], {
+    maximumFractionDigits: precision,
+    minimumFractionDigits: Math.abs(scaled) < 1 ? 2 : 0,
+    signDisplay: "always",
+  });
+  return `${formatted}${scale.suffix}`;
+}
+
+function formatCompactCalendarNumber(value: number) {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (abs >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (abs >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return value.toLocaleString([], { maximumFractionDigits: 2 });
+}
+
+function openEconomicEventSource(event: EconomicCalendarEvent) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const date = new Date(event.starts_at);
+  if (Number.isNaN(date.getTime())) {
+    window.open("https://www.forexfactory.com/calendar", "_blank", "noopener,noreferrer");
+    return;
+  }
+  const month = date.toLocaleString("en-US", { month: "short" }).toLowerCase();
+  const daySlug = `${month}${date.getDate()}.${date.getFullYear()}`;
+  window.open(`https://www.forexfactory.com/calendar?day=${daySlug}`, "_blank", "noopener,noreferrer");
 }
 
 function normalizeEconomicImpact(impact: string | null | undefined) {
@@ -2703,6 +3156,7 @@ function economicEventMatchesFilters(
   filters: {
     currency: string;
     day: string;
+    eventType: string;
     impact: string;
     search: string;
   },
@@ -2716,6 +3170,10 @@ function economicEventMatchesFilters(
   if (filters.day !== "ALL" && localDateKey(event.starts_at) !== filters.day) {
     return false;
   }
+  const eventType = economicEventType(event);
+  if (filters.eventType !== "ALL" && eventType !== filters.eventType) {
+    return false;
+  }
   const query = filters.search.trim().toLowerCase();
   if (!query) {
     return true;
@@ -2724,6 +3182,7 @@ function economicEventMatchesFilters(
     event.title,
     event.currency,
     event.impact,
+    eventType,
     event.actual,
     event.forecast,
     event.previous,
