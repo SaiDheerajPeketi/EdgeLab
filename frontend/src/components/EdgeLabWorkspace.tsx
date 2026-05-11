@@ -77,6 +77,8 @@ import {
 } from "lucide-react";
 import {
   exportAppDataBundle,
+  getAngelOneInstruments,
+  getApiWebSocketUrl,
   getBinanceInstruments,
   getDukascopyCandles,
   getDukascopyInstruments,
@@ -86,6 +88,7 @@ import {
 } from "../lib/api";
 import type {
   AppDataBundle,
+  AngelOneInstrument as ApiAngelOneInstrument,
   BacktestSession,
   BacktestTradeImportResult,
   BinanceInstrument as ApiBinanceInstrument,
@@ -907,17 +910,21 @@ type SharedPageProps = {
   tradeViewLogScrollTop: number | null;
 };
 
-type LiveFeedProvider = "binance" | "dukascopy";
+type LiveFeedProvider = "angelone" | "binance" | "dukascopy";
 
-type LiveAssetClass = "commodity" | "crypto" | "equity" | "etf" | "forex" | "index" | "other";
+type LiveAssetClass = "commodity" | "crypto" | "derivative" | "equity" | "etf" | "forex" | "index" | "other";
 
 type LiveWatchlistSymbol = {
   assetClass?: LiveAssetClass;
   color: string;
   description?: string;
+  exchange?: string;
+  exchangeType?: number;
   feed: LiveFeedProvider;
+  instrumentType?: string;
   label: string;
   symbol: string;
+  token?: string;
 };
 
 type LiveWatchlist = {
@@ -960,10 +967,45 @@ type BinanceInstrument = {
   symbol: string;
 };
 
+type AngelOneInstrument = {
+  assetClass: LiveAssetClass;
+  description: string;
+  exchange: string;
+  exchangeType: number;
+  expiry?: string | null;
+  instrumentType: string;
+  label: string;
+  lotSize?: number | null;
+  name: string;
+  symbol: string;
+  tickSize?: number | null;
+  token: string;
+};
+
 type LiveMarketCatalog = {
+  angelone: AngelOneInstrument[];
   binance: BinanceInstrument[];
   dukascopy: DukascopyInstrument[];
   refreshedAt: string | null;
+};
+
+type AngelOneCredentials = {
+  apiKey: string;
+  clientCode: string;
+  feedToken: string;
+  jwtToken: string;
+};
+
+type AngelOneTickPayload = {
+  close?: number | null;
+  exchangeType?: number;
+  high?: number | null;
+  last?: number | null;
+  low?: number | null;
+  open?: number | null;
+  timestamp?: number;
+  token?: string;
+  volume?: number | null;
 };
 
 type LiveChartPaneState = {
@@ -1048,6 +1090,7 @@ type BinanceKlinePayload = {
 
 const LIVE_WATCHLIST_STORAGE_KEY = "live-watchlists.v1";
 const LIVE_MARKET_CATALOG_STORAGE_KEY = "live-market-catalog.v1";
+const ANGELONE_CREDENTIALS_STORAGE_KEY = "live-angelone-smartapi.v1";
 const LIVE_CHART_LAYOUT_STORAGE_KEY = "live-chart-layout.v1";
 const LIVE_CHART_LAYOUTS_STORAGE_KEY = "live-chart-layouts.v1";
 const ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY = "active-live-chart-layout.v1";
@@ -1112,6 +1155,18 @@ const DUKASCOPY_FEATURED_SYMBOLS = [
   "SPY.US/USD",
 ];
 
+const ANGELONE_FEATURED_TOKENS = [
+  "1:99926000",
+  "1:99926009",
+  "3:99919000",
+  "1:2885",
+  "1:3045",
+  "1:11536",
+  "1:1594",
+  "1:1333",
+  "1:4963",
+];
+
 const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
   {
     id: "crypto-majors",
@@ -1150,6 +1205,28 @@ const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
       label: instrument.label,
     })),
   },
+  {
+    id: "angelone-india",
+    name: "Angel One India",
+    symbols: [
+      { assetClass: "index", description: "NSE index", exchange: "NSE", exchangeType: 1, label: "Nifty 50", symbol: "Nifty 50", token: "99926000" },
+      { assetClass: "index", description: "NSE index", exchange: "NSE", exchangeType: 1, label: "Nifty Bank", symbol: "Nifty Bank", token: "99926009" },
+      { assetClass: "index", description: "BSE index", exchange: "BSE", exchangeType: 3, label: "SENSEX", symbol: "SENSEX", token: "99919000" },
+      { assetClass: "equity", description: "NSE equity", exchange: "NSE", exchangeType: 1, label: "RELIANCE", symbol: "RELIANCE-EQ", token: "2885" },
+      { assetClass: "equity", description: "NSE equity", exchange: "NSE", exchangeType: 1, label: "SBIN", symbol: "SBIN-EQ", token: "3045" },
+      { assetClass: "equity", description: "NSE equity", exchange: "NSE", exchangeType: 1, label: "TCS", symbol: "TCS-EQ", token: "11536" },
+      { assetClass: "equity", description: "NSE equity", exchange: "NSE", exchangeType: 1, label: "INFY", symbol: "INFY-EQ", token: "1594" },
+      { assetClass: "equity", description: "NSE equity", exchange: "NSE", exchangeType: 1, label: "HDFCBANK", symbol: "HDFCBANK-EQ", token: "1333" },
+    ].map((instrument) => liveWatchlistSymbol(instrument.symbol, {
+      assetClass: instrument.assetClass as LiveAssetClass,
+      description: instrument.description,
+      exchange: instrument.exchange,
+      exchangeType: instrument.exchangeType,
+      feed: "angelone",
+      label: instrument.label,
+      token: instrument.token,
+    })),
+  },
 ];
 
 function LiveMarketsPage() {
@@ -1167,6 +1244,8 @@ function LiveMarketsPage() {
   const [feedDraft, setFeedDraft] = useState<LiveFeedProvider>("binance");
   const [binanceSearch, setBinanceSearch] = useState("");
   const [dukascopySearch, setDukascopySearch] = useState("");
+  const [angelOneSearch, setAngelOneSearch] = useState("");
+  const [angelOneCredentials, setAngelOneCredentials] = useState<AngelOneCredentials>(() => loadAngelOneCredentials());
   const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
   const [liveBars, setLiveBars] = useState<Candle[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
@@ -1180,7 +1259,16 @@ function LiveMarketsPage() {
     () => filterDukascopyInstruments(catalog.dukascopy, dukascopySearch),
     [catalog.dukascopy, dukascopySearch],
   );
-  const selectedSourceLabel = selectedFeed === "binance" ? "Binance Spot" : "Dukascopy";
+  const angelOneSearchResults = useMemo(
+    () => filterAngelOneInstruments(catalog.angelone, angelOneSearch),
+    [angelOneSearch, catalog.angelone],
+  );
+  const selectedSourceLabel = liveSourceLabel(selectedFeed);
+  const angelOneReady = hasAngelOneCredentials(angelOneCredentials);
+
+  useEffect(() => {
+    saveAngelOneCredentials(angelOneCredentials);
+  }, [angelOneCredentials]);
 
   useEffect(() => {
     if (!watchlists.some((watchlist) => watchlist.id === selectedWatchlistId)) {
@@ -1201,7 +1289,6 @@ function LiveMarketsPage() {
   useEffect(() => {
     const binanceSymbols = symbols.filter((item) => item.feed === "binance").map((item) => item.symbol);
     if (binanceSymbols.length === 0) {
-      setTickers({});
       return;
     }
     const controller = new AbortController();
@@ -1220,6 +1307,10 @@ function LiveMarketsPage() {
 
   useEffect(() => {
     if (!selectedLiveSymbol) {
+      setLiveBars([]);
+      return;
+    }
+    if (selectedLiveSymbol.feed === "angelone") {
       setLiveBars([]);
       return;
     }
@@ -1250,7 +1341,7 @@ function LiveMarketsPage() {
   useEffect(() => {
     const streamSymbols = uniqueLiveSymbols(symbols.filter((item) => item.feed === "binance").map((item) => item.symbol));
     if (streamSymbols.length === 0) {
-      setConnectionStatus(symbols.some((item) => item.feed === "dukascopy") ? "live" : "idle");
+      setConnectionStatus(symbols.some((item) => item.feed === "dukascopy" || item.feed === "angelone") ? "live" : "idle");
       return undefined;
     }
     const streams = [
@@ -1297,6 +1388,81 @@ function LiveMarketsPage() {
       socket.close();
     };
   }, [selectedLiveSymbol, symbols]);
+
+  useEffect(() => {
+    const streamSymbols = symbols.filter(isAngelOneLiveSymbol).slice(0, LIVE_MAX_WATCHLIST_SYMBOLS);
+    if (streamSymbols.length === 0) {
+      return undefined;
+    }
+    if (!angelOneReady) {
+      if (selectedFeed === "angelone") {
+        setConnectionStatus("idle");
+        setFeedError("Add Angel One SmartAPI credentials to start the Indian-market live feed.");
+      }
+      return undefined;
+    }
+
+    const socket = new WebSocket(getApiWebSocketUrl("/live/angelone/stream"));
+    let closedByEffect = false;
+    setConnectionStatus("connecting");
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        credentials: angelOneCredentials,
+        symbols: streamSymbols.map((item) => ({
+          exchangeType: item.exchangeType,
+          token: item.token,
+        })),
+      }));
+    };
+    socket.onerror = () => {
+      setConnectionStatus("error");
+      setFeedError("Angel One live feed connection failed");
+    };
+    socket.onclose = () => {
+      if (!closedByEffect) {
+        setConnectionStatus("error");
+      }
+    };
+    socket.onmessage = (event) => {
+      const message = parseAngelOneStreamMessage(event.data);
+      if (!message) {
+        return;
+      }
+      if (message.type === "status") {
+        setConnectionStatus("live");
+        setFeedError(null);
+        return;
+      }
+      if (message.type === "error") {
+        setConnectionStatus("error");
+        setFeedError(message.message || "Angel One live feed failed");
+        return;
+      }
+      if (message.type !== "tick" || !message.tick) {
+        return;
+      }
+      const tickSymbol = findAngelOneSymbolForTick(streamSymbols, message.tick);
+      if (!tickSymbol) {
+        return;
+      }
+      const ticker = liveTickerFromAngelOneTick(tickSymbol, message.tick);
+      if (ticker) {
+        setTickers((current) => ({ ...current, [liveSymbolKey(tickSymbol)]: ticker }));
+      }
+      if (selectedLiveSymbol && liveSymbolKey(selectedLiveSymbol) === liveSymbolKey(tickSymbol)) {
+        const candle = liveCandleFromAngelOneTick(message.tick);
+        if (candle) {
+          setLiveBars((current) => upsertLiveTickCandle(current, candle));
+        }
+      }
+    };
+
+    return () => {
+      closedByEffect = true;
+      socket.close();
+    };
+  }, [angelOneCredentials, angelOneReady, selectedFeed, selectedLiveSymbol, symbols]);
 
   useEffect(() => {
     if (selectedFeed !== "dukascopy" || !selectedLiveSymbol) {
@@ -1364,19 +1530,28 @@ function LiveMarketsPage() {
     if (!selectedWatchlist) {
       return;
     }
-    const rawSymbol = symbolOverride?.trim() || symbolDraft.trim() || (feedDraft === "binance" ? binanceSearch : dukascopySearch).trim();
+    const rawSymbol = symbolOverride?.trim() || symbolDraft.trim() || liveSearchTextForFeed(feedDraft, {
+      angelone: angelOneSearch,
+      binance: binanceSearch,
+      dukascopy: dukascopySearch,
+    }).trim();
     if (!rawSymbol) {
-      setFeedError(feedDraft === "binance" ? "Search and select a Binance spot pair from the catalog." : "Search and select a Dukascopy instrument from the catalog.");
+      setFeedError(liveProviderSelectionError(feedDraft));
       return;
     }
     const binanceInstrument = feedDraft === "binance" ? findBinanceInstrument(catalog.binance, rawSymbol) : null;
     const dukascopyInstrument = feedDraft === "dukascopy" ? findDukascopyInstrument(catalog.dukascopy, rawSymbol) : null;
+    const angelOneInstrument = feedDraft === "angelone" ? findAngelOneInstrument(catalog.angelone, rawSymbol) : null;
     if (feedDraft === "binance" && !binanceInstrument) {
       setFeedError("Choose a Binance spot pair from the refreshed catalog. Use Global Settings to refresh the list if it is missing.");
       return;
     }
     if (feedDraft === "dukascopy" && !dukascopyInstrument) {
       setFeedError("Choose a Dukascopy instrument from the refreshed catalog. Use Global Settings to refresh the list if it is missing.");
+      return;
+    }
+    if (feedDraft === "angelone" && !angelOneInstrument) {
+      setFeedError("Choose an Angel One instrument from the refreshed catalog. Use Global Settings to refresh the list if it is missing.");
       return;
     }
     const nextSymbol = binanceInstrument
@@ -1393,6 +1568,17 @@ function LiveMarketsPage() {
         feed: "dukascopy",
         label: dukascopyInstrument.label,
       })
+      : angelOneInstrument
+      ? liveWatchlistSymbol(angelOneInstrument.symbol, {
+        assetClass: angelOneInstrument.assetClass,
+        description: angelOneInstrument.description,
+        exchange: angelOneInstrument.exchange,
+        exchangeType: angelOneInstrument.exchangeType,
+        feed: "angelone",
+        instrumentType: angelOneInstrument.instrumentType,
+        label: angelOneInstrument.label,
+        token: angelOneInstrument.token,
+      })
       : null;
     if (!nextSymbol) {
       return;
@@ -1403,6 +1589,7 @@ function LiveMarketsPage() {
       setSymbolDraft("");
       setBinanceSearch("");
       setDukascopySearch("");
+      setAngelOneSearch("");
       return;
     }
     if (selectedWatchlist.symbols.length >= LIVE_MAX_WATCHLIST_SYMBOLS) {
@@ -1417,6 +1604,7 @@ function LiveMarketsPage() {
     setSymbolDraft("");
     setBinanceSearch("");
     setDukascopySearch("");
+    setAngelOneSearch("");
     setFeedError(null);
   }
 
@@ -1437,7 +1625,7 @@ function LiveMarketsPage() {
     <PageScaffold
       eyebrow="Live Markets"
       title="Live Chart Watchlists"
-      description="Build watchlists and monitor Binance Spot public market data in real time."
+      description="Build watchlists and monitor Binance, Dukascopy, and Angel One SmartAPI markets in real time."
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className={`status-pill h-9 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
@@ -1493,6 +1681,7 @@ function LiveMarketsPage() {
                     onClick={() => {
                       setFeedDraft("binance");
                       setDukascopySearch("");
+                      setAngelOneSearch("");
                       setBinanceSearch("");
                       setSymbolDraft("");
                     }}
@@ -1504,16 +1693,80 @@ function LiveMarketsPage() {
                     onClick={() => {
                       setFeedDraft("dukascopy");
                       setBinanceSearch("");
+                      setAngelOneSearch("");
                       setSymbolDraft("");
                     }}
                   >
                     Dukascopy
                   </TinyTab>
+                  <TinyTab
+                    active={feedDraft === "angelone"}
+                    onClick={() => {
+                      setFeedDraft("angelone");
+                      setBinanceSearch("");
+                      setDukascopySearch("");
+                      setSymbolDraft("");
+                    }}
+                  >
+                    Angel One
+                  </TinyTab>
                 </div>
                 <span className="text-xs font-semibold text-slate-500">
-                  {feedDraft === "binance" ? `${catalog.binance.length.toLocaleString()} spot pairs` : `${catalog.dukascopy.length.toLocaleString()} instruments`}
+                  {liveCatalogCountLabel(feedDraft, catalog)}
                 </span>
               </div>
+
+              {feedDraft === "angelone" && (
+                <div className="mb-3 rounded-md border border-white/10 bg-black/20 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">SmartAPI credentials</div>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        Required for the live socket. Stored only in this browser.
+                      </p>
+                    </div>
+                    <button
+                      className="control-button h-8 px-2 text-xs"
+                      onClick={() => setAngelOneCredentials(defaultAngelOneCredentials())}
+                      type="button"
+                    >
+                      <X size={13} />
+                      Clear
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    <input
+                      className="input-control h-10 normal-case tracking-normal"
+                      onChange={(event) => setAngelOneCredentials((current) => ({ ...current, clientCode: event.target.value }))}
+                      placeholder="Client code"
+                      value={angelOneCredentials.clientCode}
+                    />
+                    <input
+                      className="input-control h-10 normal-case tracking-normal"
+                      onChange={(event) => setAngelOneCredentials((current) => ({ ...current, apiKey: event.target.value }))}
+                      placeholder="API key"
+                      value={angelOneCredentials.apiKey}
+                    />
+                    <input
+                      className="input-control h-10 normal-case tracking-normal"
+                      onChange={(event) => setAngelOneCredentials((current) => ({ ...current, jwtToken: event.target.value }))}
+                      placeholder="JWT token"
+                      type="password"
+                      value={angelOneCredentials.jwtToken}
+                    />
+                    <input
+                      className="input-control h-10 normal-case tracking-normal"
+                      onChange={(event) => setAngelOneCredentials((current) => ({ ...current, feedToken: event.target.value }))}
+                      placeholder="Feed token"
+                      type="password"
+                      value={angelOneCredentials.feedToken}
+                    />
+                  </div>
+                  <div className={`mt-3 text-xs font-semibold ${angelOneReady ? "text-emerald-200" : "text-amber-200"}`}>
+                    {angelOneReady ? "Ready to connect Angel One SmartAPI feed." : "Fill all four fields before selecting Angel One symbols."}
+                  </div>
+                </div>
+              )}
 
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="relative">
@@ -1556,7 +1809,7 @@ function LiveMarketsPage() {
                         </LiveInstrumentSuggestionList>
                       )}
                     </>
-                  ) : (
+                  ) : feedDraft === "dukascopy" ? (
                     <>
                     <input
                       className="input-control h-10 normal-case tracking-normal"
@@ -1595,6 +1848,46 @@ function LiveMarketsPage() {
                       </LiveInstrumentSuggestionList>
                     )}
                     </>
+                  ) : (
+                    <>
+                      <input
+                        className="input-control h-10 normal-case tracking-normal"
+                        onChange={(event) => {
+                          setAngelOneSearch(event.target.value);
+                          setSymbolDraft("");
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            const first = angelOneSearchResults[0];
+                            addSymbol(first ? `${first.exchangeType}:${first.token}` : undefined);
+                          }
+                        }}
+                        placeholder="Search NSE, BSE, NFO, MCX, e.g. NIFTY, RELIANCE, SBIN"
+                        value={angelOneSearch}
+                      />
+                      {angelOneSearch.trim().length > 0 && angelOneSearchResults.length > 0 && (
+                        <LiveInstrumentSuggestionList>
+                          {angelOneSearchResults.map((instrument) => (
+                            <button
+                              className="flex w-full items-center justify-between gap-3 rounded px-2 py-2 text-left text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+                              key={`${instrument.exchangeType}:${instrument.token}`}
+                              onClick={() => {
+                                setSymbolDraft(`${instrument.exchangeType}:${instrument.token}`);
+                                setAngelOneSearch(`${instrument.label} · ${instrument.exchange}`);
+                              }}
+                              type="button"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate font-semibold text-white">{instrument.label}</span>
+                                <span className="block truncate text-xs text-slate-500">{instrument.symbol} · {instrument.description}</span>
+                              </span>
+                              <span className="status-pill h-7 px-2 text-[10px]">{instrument.exchange}</span>
+                            </button>
+                          ))}
+                        </LiveInstrumentSuggestionList>
+                      )}
+                    </>
                   )}
                 </div>
                 <button className="control-button workspace-tab-active h-10 justify-center" onClick={() => addSymbol()} type="button">
@@ -1630,6 +1923,24 @@ function LiveMarketsPage() {
                       onClick={() => {
                         setSymbolDraft(instrument.symbol);
                         setDukascopySearch(`${instrument.label} · ${instrument.description}`);
+                      }}
+                      type="button"
+                    >
+                      {instrument.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {feedDraft === "angelone" && angelOneSearch.trim().length === 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {featuredAngelOneInstruments(catalog.angelone).slice(0, 9).map((instrument) => (
+                    <button
+                      className="status-pill h-8 px-2 text-[11px] transition hover:border-cyan-300/35 hover:text-cyan-100"
+                      key={`${instrument.exchangeType}:${instrument.token}`}
+                      onClick={() => {
+                        setSymbolDraft(`${instrument.exchangeType}:${instrument.token}`);
+                        setAngelOneSearch(`${instrument.label} · ${instrument.exchange}`);
                       }}
                       type="button"
                     >
@@ -1706,7 +2017,7 @@ function LiveMarketsPage() {
                 {symbols.length === 0 && (
                   <tr>
                     <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={5}>
-                      Add a Binance or Dukascopy market to start this watchlist.
+                      Add a Binance, Dukascopy, or Angel One market to start this watchlist.
                     </td>
                   </tr>
                 )}
@@ -1726,7 +2037,9 @@ function LiveMarketsPage() {
                 <p className="mt-1 text-sm text-slate-500">
                   {selectedFeed === "binance"
                     ? "Live candlesticks and 24h ticker from Binance public market data."
-                    : "Dukascopy cross-asset candles for forex, commodities, indices, equities, and ETFs."}
+                    : selectedFeed === "dukascopy"
+                      ? "Dukascopy cross-asset candles for forex, commodities, indices, equities, and ETFs."
+                      : "Angel One SmartAPI stream for Indian equities, indices, derivatives, commodities, and currency markets."}
                 </p>
               </div>
               <div className={`text-right text-2xl font-semibold tabular-nums ${toneForNumber(selectedTicker?.change ?? 0)}`}>
@@ -4451,19 +4764,27 @@ function liveWatchlistSymbol(
   options: {
     assetClass?: LiveAssetClass;
     description?: string;
+    exchange?: string;
+    exchangeType?: number;
     feed?: LiveFeedProvider;
+    instrumentType?: string;
     label?: string;
+    token?: string;
   } = {},
 ): LiveWatchlistSymbol {
   const feed = options.feed ?? "binance";
   const normalized = feed === "binance" ? normalizeLiveSymbolInput(symbol) : symbol.trim();
   return {
-    color: liveSymbolColor(normalized),
+    color: liveSymbolColor(options.token ?? normalized),
     assetClass: options.assetClass ?? (feed === "binance" ? "crypto" : "other"),
     description: options.description,
+    exchange: options.exchange,
+    exchangeType: options.exchangeType,
     feed,
+    instrumentType: options.instrumentType,
     label: options.label ?? normalized,
     symbol: normalized,
+    token: options.token,
   };
 }
 
@@ -4476,8 +4797,13 @@ function sanitizeLiveWatchlists(value: unknown): LiveWatchlist[] {
     ? sanitized
     : DEFAULT_LIVE_WATCHLISTS.map((watchlist, index) => sanitizeLiveWatchlist(watchlist, index));
   const hasDukascopy = next.some((watchlist) => watchlist.symbols.some((symbol) => symbol.feed === "dukascopy"));
-  if (!hasDukascopy && next.some((watchlist) => watchlist.id === "crypto-majors")) {
-    return [...next, sanitizeLiveWatchlist(DEFAULT_LIVE_WATCHLISTS[1], next.length)];
+  const hasAngelOne = next.some((watchlist) => watchlist.symbols.some((symbol) => symbol.feed === "angelone"));
+  if ((!hasDukascopy || !hasAngelOne) && next.some((watchlist) => watchlist.id === "crypto-majors")) {
+    return [
+      ...next,
+      ...(!hasDukascopy ? [sanitizeLiveWatchlist(DEFAULT_LIVE_WATCHLISTS[1], next.length)] : []),
+      ...(!hasAngelOne ? [sanitizeLiveWatchlist(DEFAULT_LIVE_WATCHLISTS[2], next.length + 1)] : []),
+    ];
   }
   return next;
 }
@@ -4505,22 +4831,31 @@ function sanitizeLiveSymbols(value: unknown[]): LiveWatchlistSymbol[] {
     const rawSymbol = record && typeof record.symbol === "string" ? record.symbol : typeof item === "string" ? item : "";
     const feed = isLiveFeedProvider(record?.feed) ? record.feed : "binance";
     const symbol = feed === "binance" ? normalizeLiveSymbolInput(rawSymbol) : rawSymbol.trim();
-    if (!symbol || seen.has(symbol)) {
+    const token = record && typeof record.token === "string" ? record.token.trim() : undefined;
+    const exchangeType = record && typeof record.exchangeType === "number" ? record.exchangeType : undefined;
+    const key = feed === "angelone" && token && exchangeType ? `angelone:${exchangeType}:${token}` : liveSymbolStorageKey(feed, symbol);
+    if (!symbol || seen.has(key)) {
       continue;
     }
-    seen.add(liveSymbolStorageKey(feed, symbol));
+    seen.add(key);
     const label = record && typeof record.label === "string"
       ? record.label.trim().slice(0, 40) || symbol
       : symbol;
     const rawColor = record && typeof record.color === "string" ? record.color.trim() : "";
     const rawAssetClass = record && typeof record.assetClass === "string" ? record.assetClass : undefined;
+    const exchange = record && typeof record.exchange === "string" ? record.exchange.trim() : undefined;
+    const instrumentType = record && typeof record.instrumentType === "string" ? record.instrumentType.trim() : undefined;
     symbols.push({
       assetClass: isLiveAssetClass(rawAssetClass) ? rawAssetClass : feed === "binance" ? "crypto" : "other",
-      color: isValidLiveColor(rawColor) ? rawColor : liveSymbolColor(symbol),
+      color: isValidLiveColor(rawColor) ? rawColor : liveSymbolColor(token ?? symbol),
       description: record && typeof record.description === "string" ? record.description.trim() : undefined,
+      exchange,
+      exchangeType,
       feed,
+      instrumentType,
       label,
       symbol,
+      token,
     });
     if (symbols.length >= LIVE_MAX_WATCHLIST_SYMBOLS) {
       break;
@@ -4621,11 +4956,13 @@ async function fetchBinanceKlines(
 }
 
 async function fetchLiveMarketCatalog(): Promise<LiveMarketCatalog> {
-  const [binanceResponse, dukascopyResponse] = await Promise.all([
+  const [binanceResponse, dukascopyResponse, angelOneResponse] = await Promise.all([
     getBinanceInstruments("", 5000),
     getDukascopyInstruments("", 5000),
+    getAngelOneInstruments("", 12000, true),
   ]);
   return sanitizeLiveMarketCatalog({
+    angelone: angelOneResponse.instruments.map(apiAngelOneInstrumentToLive),
     binance: binanceResponse.instruments.map(apiBinanceInstrumentToLive),
     dukascopy: dukascopyResponse.instruments.map(apiDukascopyInstrumentToLive),
     refreshedAt: new Date().toISOString(),
@@ -4653,6 +4990,23 @@ function apiDukascopyInstrumentToLive(instrument: ApiDukascopyInstrument): Dukas
     quoteCurrency: instrument.quote_currency,
     symbol: instrument.symbol,
     tags: instrument.tags,
+  };
+}
+
+function apiAngelOneInstrumentToLive(instrument: ApiAngelOneInstrument): AngelOneInstrument {
+  return {
+    assetClass: isLiveAssetClass(instrument.asset_class) ? instrument.asset_class : "other",
+    description: instrument.description,
+    exchange: instrument.exchange,
+    exchangeType: instrument.exchange_type,
+    expiry: instrument.expiry,
+    instrumentType: instrument.instrument_type,
+    label: instrument.label,
+    lotSize: instrument.lot_size,
+    name: instrument.name,
+    symbol: instrument.symbol,
+    tickSize: instrument.tick_size,
+    token: instrument.token,
   };
 }
 
@@ -4719,6 +5073,33 @@ function defaultDukascopyInstruments(): DukascopyInstrument[] {
     quoteCurrency,
     symbol,
     tags: [],
+  }));
+}
+
+function defaultAngelOneInstruments(): AngelOneInstrument[] {
+  return [
+    ["99926000", "Nifty 50", "NIFTY", "NSE", 1, "index", "NSE index"],
+    ["99926009", "Nifty Bank", "BANKNIFTY", "NSE", 1, "index", "NSE index"],
+    ["99919000", "SENSEX", "SENSEX", "BSE", 3, "index", "BSE index"],
+    ["2885", "RELIANCE-EQ", "RELIANCE", "NSE", 1, "equity", "NSE equity"],
+    ["3045", "SBIN-EQ", "SBIN", "NSE", 1, "equity", "NSE equity"],
+    ["11536", "TCS-EQ", "TCS", "NSE", 1, "equity", "NSE equity"],
+    ["1594", "INFY-EQ", "INFY", "NSE", 1, "equity", "NSE equity"],
+    ["1333", "HDFCBANK-EQ", "HDFCBANK", "NSE", 1, "equity", "NSE equity"],
+    ["4963", "ICICIBANK-EQ", "ICICIBANK", "NSE", 1, "equity", "NSE equity"],
+  ].map(([token, symbol, name, exchange, exchangeType, assetClass, description]) => ({
+    assetClass: assetClass as LiveAssetClass,
+    description: description as string,
+    exchange: exchange as string,
+    exchangeType: exchangeType as number,
+    expiry: null,
+    instrumentType: assetClass === "index" ? "AMXIDX" : "",
+    label: name as string,
+    lotSize: 1,
+    name: name as string,
+    symbol: symbol as string,
+    tickSize: null,
+    token: token as string,
   }));
 }
 
@@ -4809,6 +5190,26 @@ function liveTickerFromCandles(symbol: LiveWatchlistSymbol, candles: Candle[]): 
   };
 }
 
+function liveTickerFromAngelOneTick(symbol: LiveWatchlistSymbol, payload: AngelOneTickPayload): LiveTicker | null {
+  const last = liveNumber(payload.last);
+  if (last == null || !isAngelOneLiveSymbol(symbol)) {
+    return null;
+  }
+  const close = liveNumber(payload.close) ?? last;
+  const change = last - close;
+  return {
+    change,
+    changePercent: close !== 0 ? (change / close) * 100 : 0,
+    high: liveNumber(payload.high) ?? last,
+    last,
+    low: liveNumber(payload.low) ?? last,
+    quoteVolume: 0,
+    symbol: symbol.symbol,
+    updatedAt: payload.timestamp && Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now(),
+    volume: liveNumber(payload.volume) ?? 0,
+  };
+}
+
 function liveCandleFromBinance(payload: BinanceKlinePayload): Candle | null {
   const kline = payload.k;
   if (!kline) {
@@ -4840,6 +5241,18 @@ function liveCandleFromRestKline(value: unknown): Candle | null {
   return createLiveCandle(time, open, high, low, close, liveNumber(value[5]) ?? 0);
 }
 
+function liveCandleFromAngelOneTick(payload: AngelOneTickPayload): Candle | null {
+  const last = liveNumber(payload.last);
+  if (last == null) {
+    return null;
+  }
+  const timestamp = payload.timestamp && Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now();
+  const time = Math.floor(timestamp / 60000) * 60;
+  const high = liveNumber(payload.high) ?? last;
+  const low = liveNumber(payload.low) ?? last;
+  return createLiveCandle(time, last, Math.max(high, last), Math.min(low, last), last, liveNumber(payload.volume) ?? 0);
+}
+
 function createLiveCandle(
   time: number,
   open: number,
@@ -4869,6 +5282,25 @@ function upsertLiveCandle(candles: Candle[], candle: Candle) {
   }
   const next = [...candles, candle].sort((left, right) => left.time - right.time);
   return next.slice(-500);
+}
+
+function upsertLiveTickCandle(candles: Candle[], candle: Candle) {
+  const existing = candles.find((item) => item.time === candle.time);
+  if (!existing) {
+    return upsertLiveCandle(candles, candle);
+  }
+  return candles.map((item) =>
+    item.time === candle.time
+      ? {
+          ...item,
+          close: candle.close,
+          high: Math.max(item.high, candle.high, candle.close),
+          low: Math.min(item.low, candle.low, candle.close),
+          timestamp: candle.timestamp,
+          volume: Math.max(item.volume, candle.volume),
+        }
+      : item,
+  );
 }
 
 function formatLivePrice(value: number | null | undefined) {
@@ -4907,6 +5339,39 @@ function liveNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function parseAngelOneStreamMessage(raw: unknown): { message?: string; status?: string; tick?: AngelOneTickPayload; type: string } | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isPlainRecord(parsed) || typeof parsed.type !== "string") {
+      return null;
+    }
+    return {
+      message: typeof parsed.message === "string" ? parsed.message : undefined,
+      status: typeof parsed.status === "string" ? parsed.status : undefined,
+      tick: isPlainRecord(parsed.tick) ? parsed.tick as AngelOneTickPayload : undefined,
+      type: parsed.type,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isAngelOneLiveSymbol(symbol: LiveWatchlistSymbol): symbol is LiveWatchlistSymbol & { exchangeType: number; token: string } {
+  return symbol.feed === "angelone" && typeof symbol.exchangeType === "number" && typeof symbol.token === "string" && symbol.token.trim().length > 0;
+}
+
+function findAngelOneSymbolForTick(symbols: LiveWatchlistSymbol[], payload: AngelOneTickPayload) {
+  const token = String(payload.token ?? "").trim();
+  const exchangeType = typeof payload.exchangeType === "number" ? payload.exchangeType : Number(payload.exchangeType);
+  if (!token || !Number.isFinite(exchangeType)) {
+    return null;
+  }
+  return symbols.find((symbol) => isAngelOneLiveSymbol(symbol) && symbol.token === token && symbol.exchangeType === exchangeType) ?? null;
+}
+
 function liveSymbolColor(symbol: string) {
   const palette = ["#0891b2", "#0f766e", "#2563eb", "#7c3aed", "#be123c", "#c2410c", "#4d7c0f", "#0369a1"];
   const hash = Array.from(symbol).reduce((sum, character) => sum + character.charCodeAt(0), 0);
@@ -4918,6 +5383,9 @@ function isValidLiveColor(value: string) {
 }
 
 function liveSymbolKey(symbol: LiveWatchlistSymbol) {
+  if (isAngelOneLiveSymbol(symbol)) {
+    return `angelone:${symbol.exchangeType}:${symbol.token}`;
+  }
   return liveSymbolStorageKey(symbol.feed, symbol.symbol);
 }
 
@@ -4926,13 +5394,32 @@ function liveSymbolStorageKey(feed: LiveFeedProvider, symbol: string) {
 }
 
 function liveFeedLabel(feed: LiveFeedProvider) {
-  return feed === "binance" ? "Binance" : "Dukascopy";
+  if (feed === "binance") {
+    return "Binance";
+  }
+  if (feed === "dukascopy") {
+    return "Dukascopy";
+  }
+  return "Angel One";
+}
+
+function liveSourceLabel(feed: LiveFeedProvider) {
+  if (feed === "binance") {
+    return "Binance Spot";
+  }
+  if (feed === "dukascopy") {
+    return "Dukascopy";
+  }
+  return "Angel One SmartAPI";
 }
 
 function liveAssetClassLabel(symbol: LiveWatchlistSymbol) {
   if (symbol.feed === "binance") {
     const quoteAssets = ["USDT", "FDUSD", "USDC", "BUSD", "BTC", "ETH", "BNB", "TRY", "EUR", "BRL", "GBP"];
     return `Spot ${quoteAssets.find((quote) => symbol.symbol.endsWith(quote)) ?? ""}`.trim();
+  }
+  if (symbol.feed === "angelone") {
+    return [symbol.exchange, symbol.assetClass ? symbol.assetClass.charAt(0).toUpperCase() + symbol.assetClass.slice(1) : ""].filter(Boolean).join(" · ") || "Indian market";
   }
   return symbol.assetClass ? symbol.assetClass.charAt(0).toUpperCase() + symbol.assetClass.slice(1) : "Market";
 }
@@ -4942,11 +5429,11 @@ function liveSymbolMonogram(symbol: LiveWatchlistSymbol) {
 }
 
 function isLiveFeedProvider(value: unknown): value is LiveFeedProvider {
-  return value === "binance" || value === "dukascopy";
+  return value === "angelone" || value === "binance" || value === "dukascopy";
 }
 
 function isLiveAssetClass(value: unknown): value is LiveAssetClass {
-  return value === "commodity" || value === "crypto" || value === "equity" || value === "etf" || value === "forex" || value === "index" || value === "other";
+  return value === "commodity" || value === "crypto" || value === "derivative" || value === "equity" || value === "etf" || value === "forex" || value === "index" || value === "other";
 }
 
 function filterBinanceInstruments(instruments: BinanceInstrument[], search: string) {
@@ -5006,6 +5493,81 @@ function findDukascopyInstrument(instruments: DukascopyInstrument[], value: stri
     instrument.label.toLowerCase() === normalized ||
     `${instrument.label} · ${instrument.description}`.toLowerCase() === normalized,
   ) ?? defaultDukascopyInstruments().find((instrument) => instrument.symbol.toLowerCase() === normalized || instrument.label.toLowerCase() === normalized) ?? null;
+}
+
+function filterAngelOneInstruments(instruments: AngelOneInstrument[], search: string) {
+  const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const source = words.length > 0
+    ? instruments.filter((instrument) => {
+      const haystack = [
+        instrument.token,
+        instrument.symbol,
+        instrument.label,
+        instrument.name,
+        instrument.exchange,
+        instrument.description,
+        instrument.instrumentType,
+        instrument.assetClass,
+      ].join(" ").toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    })
+    : featuredAngelOneInstruments(instruments);
+  return source.slice(0, 24);
+}
+
+function featuredAngelOneInstruments(instruments: AngelOneInstrument[]) {
+  const byKey = new Map(instruments.map((instrument) => [`${instrument.exchangeType}:${instrument.token}`, instrument]));
+  return ANGELONE_FEATURED_TOKENS.map((key) => byKey.get(key)).filter((instrument): instrument is AngelOneInstrument => Boolean(instrument));
+}
+
+function findAngelOneInstrument(instruments: AngelOneInstrument[], value: string) {
+  const normalized = value.trim().toLowerCase();
+  const tokenValue = value.trim();
+  return instruments.find((instrument) =>
+    instrument.token === tokenValue ||
+    `${instrument.exchangeType}:${instrument.token}` === tokenValue ||
+    instrument.symbol.toLowerCase() === normalized ||
+    instrument.label.toLowerCase() === normalized ||
+    `${instrument.label} · ${instrument.exchange}`.toLowerCase() === normalized,
+  ) ?? defaultAngelOneInstruments().find((instrument) =>
+    instrument.token === tokenValue ||
+    `${instrument.exchangeType}:${instrument.token}` === tokenValue ||
+    instrument.symbol.toLowerCase() === normalized ||
+    instrument.label.toLowerCase() === normalized,
+  ) ?? null;
+}
+
+function liveSearchTextForFeed(
+  feed: LiveFeedProvider,
+  values: { angelone: string; binance: string; dukascopy: string },
+) {
+  if (feed === "binance") {
+    return values.binance;
+  }
+  if (feed === "dukascopy") {
+    return values.dukascopy;
+  }
+  return values.angelone;
+}
+
+function liveProviderSelectionError(feed: LiveFeedProvider) {
+  if (feed === "binance") {
+    return "Search and select a Binance spot pair from the catalog.";
+  }
+  if (feed === "dukascopy") {
+    return "Search and select a Dukascopy instrument from the catalog.";
+  }
+  return "Search and select an Angel One instrument from the catalog.";
+}
+
+function liveCatalogCountLabel(feed: LiveFeedProvider, catalog: LiveMarketCatalog) {
+  if (feed === "binance") {
+    return `${catalog.binance.length.toLocaleString()} spot pairs`;
+  }
+  if (feed === "dukascopy") {
+    return `${catalog.dukascopy.length.toLocaleString()} instruments`;
+  }
+  return `${catalog.angelone.length.toLocaleString()} Indian instruments`;
 }
 
 function resolveStateAction<T>(action: SetStateAction<T>, previous: T): T {
@@ -5131,6 +5693,9 @@ function loadLiveMarketCatalog() {
 
 function sanitizeLiveMarketCatalog(value: unknown): LiveMarketCatalog {
   const record = isPlainRecord(value) ? value : {};
+  const angelone = Array.isArray(record.angelone)
+    ? sanitizeAngelOneInstruments(record.angelone)
+    : defaultAngelOneInstruments();
   const binance = Array.isArray(record.binance)
     ? sanitizeBinanceInstruments(record.binance)
     : defaultBinanceInstruments();
@@ -5138,6 +5703,7 @@ function sanitizeLiveMarketCatalog(value: unknown): LiveMarketCatalog {
     ? sanitizeDukascopyInstruments(record.dukascopy)
     : defaultDukascopyInstruments();
   return {
+    angelone: angelone.length > 0 ? angelone : defaultAngelOneInstruments(),
     binance: binance.length > 0 ? binance : defaultBinanceInstruments(),
     dukascopy: dukascopy.length > 0 ? dukascopy : defaultDukascopyInstruments(),
     refreshedAt: typeof record.refreshedAt === "string" ? record.refreshedAt : null,
@@ -5212,6 +5778,120 @@ function sanitizeDukascopyInstrument(value: unknown): DukascopyInstrument | null
   };
 }
 
+function sanitizeAngelOneInstruments(value: unknown[]) {
+  const seen = new Set<string>();
+  const instruments: AngelOneInstrument[] = [];
+  for (const item of value) {
+    const instrument = sanitizeAngelOneInstrument(item);
+    const key = instrument ? `${instrument.exchangeType}:${instrument.token}` : "";
+    if (!instrument || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    instruments.push(instrument);
+  }
+  return instruments.sort(compareAngelOneInstruments);
+}
+
+function sanitizeAngelOneInstrument(value: unknown): AngelOneInstrument | null {
+  const record = isPlainRecord(value) ? value : {};
+  const token = stringRecordValue(record, "token").trim();
+  const symbol = stringRecordValue(record, "symbol").trim();
+  const exchange = stringRecordValue(record, "exchange").trim().toUpperCase();
+  const exchangeType = typeof record.exchangeType === "number"
+    ? record.exchangeType
+    : typeof record.exchange_type === "number"
+      ? record.exchange_type
+      : Number(stringRecordValue(record, "exchangeType", "exchange_type"));
+  if (!token || !symbol || !Number.isFinite(exchangeType)) {
+    return null;
+  }
+  const rawAssetClass = stringRecordValue(record, "assetClass", "asset_class");
+  const lotSize = typeof record.lotSize === "number"
+    ? record.lotSize
+    : typeof record.lot_size === "number"
+      ? record.lot_size
+      : null;
+  const tickSize = typeof record.tickSize === "number"
+    ? record.tickSize
+    : typeof record.tick_size === "number"
+      ? record.tick_size
+      : null;
+  return {
+    assetClass: isLiveAssetClass(rawAssetClass) ? rawAssetClass : "other",
+    description: stringRecordValue(record, "description").trim() || exchange || "Angel One instrument",
+    exchange,
+    exchangeType,
+    expiry: stringRecordValue(record, "expiry").trim() || null,
+    instrumentType: stringRecordValue(record, "instrumentType", "instrument_type").trim(),
+    label: stringRecordValue(record, "label").trim() || symbol,
+    lotSize,
+    name: stringRecordValue(record, "name").trim() || symbol,
+    symbol,
+    tickSize,
+    token,
+  };
+}
+
+function compareAngelOneInstruments(left: AngelOneInstrument, right: AngelOneInstrument) {
+  const exchangeRank = (exchange: string) => ({ NSE: 0, BSE: 1, NFO: 2, BFO: 3, MCX: 4, CDS: 5 })[exchange] ?? 9;
+  const assetRank = (assetClass: LiveAssetClass) => ({ index: 0, equity: 1, derivative: 2, commodity: 3, forex: 4, crypto: 5, etf: 6, other: 9 })[assetClass] ?? 9;
+  const featuredRank = (token: string) => ({ "99926000": -3, "99926009": -2, "99919000": -1 })[token] ?? 0;
+  return exchangeRank(left.exchange) - exchangeRank(right.exchange) ||
+    assetRank(left.assetClass) - assetRank(right.assetClass) ||
+    featuredRank(left.token) - featuredRank(right.token) ||
+    left.name.localeCompare(right.name) ||
+    left.symbol.localeCompare(right.symbol);
+}
+
+function defaultAngelOneCredentials(): AngelOneCredentials {
+  return {
+    apiKey: "",
+    clientCode: "",
+    feedToken: "",
+    jwtToken: "",
+  };
+}
+
+function loadAngelOneCredentials(): AngelOneCredentials {
+  if (typeof window === "undefined") {
+    return defaultAngelOneCredentials();
+  }
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ANGELONE_CREDENTIALS_STORAGE_KEY) ?? "{}") as unknown;
+    const record = isPlainRecord(parsed) ? parsed : {};
+    return {
+      apiKey: stringRecordValue(record, "apiKey").trim(),
+      clientCode: stringRecordValue(record, "clientCode").trim(),
+      feedToken: stringRecordValue(record, "feedToken").trim(),
+      jwtToken: stringRecordValue(record, "jwtToken").trim(),
+    };
+  } catch {
+    return defaultAngelOneCredentials();
+  }
+}
+
+function saveAngelOneCredentials(credentials: AngelOneCredentials) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const sanitized = {
+    apiKey: credentials.apiKey.trim(),
+    clientCode: credentials.clientCode.trim(),
+    feedToken: credentials.feedToken.trim(),
+    jwtToken: credentials.jwtToken.trim(),
+  };
+  if (!hasAngelOneCredentials(sanitized)) {
+    window.localStorage.removeItem(ANGELONE_CREDENTIALS_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(ANGELONE_CREDENTIALS_STORAGE_KEY, JSON.stringify(sanitized));
+}
+
+function hasAngelOneCredentials(credentials: AngelOneCredentials) {
+  return Boolean(credentials.apiKey.trim() && credentials.clientCode.trim() && credentials.feedToken.trim() && credentials.jwtToken.trim());
+}
+
 function stringRecordValue(record: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const value = record[key];
@@ -5254,7 +5934,7 @@ function GlobalSettingsPage({
     setCatalogStatus(null);
     try {
       const nextCatalog = await refreshCatalog();
-      setCatalogStatus(`Refreshed ${nextCatalog.binance.length.toLocaleString()} Binance pairs and ${nextCatalog.dukascopy.length.toLocaleString()} Dukascopy instruments`);
+      setCatalogStatus(`Refreshed ${nextCatalog.binance.length.toLocaleString()} Binance pairs, ${nextCatalog.dukascopy.length.toLocaleString()} Dukascopy instruments, and ${nextCatalog.angelone.length.toLocaleString()} Angel One instruments`);
     } catch (refreshError) {
       setCatalogError(importErrorMessage(refreshError));
     }
@@ -5357,7 +6037,7 @@ function GlobalSettingsPage({
             <CardLabel icon={Globe2} label="Live market catalog" />
             <h2 className="mt-3 text-xl font-semibold text-white">Available tickers and instruments</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              The Live workspace uses this cached catalog for Binance and Dukascopy search suggestions.
+              The Live workspace uses this cached catalog for Binance, Dukascopy, and Angel One search suggestions.
             </p>
           </div>
           <button
@@ -5370,9 +6050,10 @@ function GlobalSettingsPage({
             {refreshStatus === "loading" ? "Refreshing..." : "Refresh catalog"}
           </button>
         </div>
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
           <MiniMetric label="Binance spot pairs" value={catalog.binance.length.toLocaleString()} />
           <MiniMetric label="Dukascopy instruments" value={catalog.dukascopy.length.toLocaleString()} />
+          <MiniMetric label="Angel One instruments" value={catalog.angelone.length.toLocaleString()} />
           <MiniMetric label="Last refresh" value={catalog.refreshedAt ? formatDateTime(catalog.refreshedAt) : "Not refreshed"} />
         </div>
         {(catalogStatus || refreshStatus === "error") && (

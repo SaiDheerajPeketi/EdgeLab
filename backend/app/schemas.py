@@ -64,6 +64,25 @@ class DukascopyCandlesResponse(BaseModel):
     candles: list[Candle]
 
 
+class AngelOneInstrument(BaseModel):
+    token: str
+    symbol: str
+    label: str
+    description: str
+    exchange: str
+    exchange_type: int
+    asset_class: str
+    name: str
+    expiry: str | None = None
+    instrument_type: str = ""
+    lot_size: int | None = None
+    tick_size: float | None = None
+
+
+class AngelOneInstrumentsResponse(BaseModel):
+    instruments: list[AngelOneInstrument]
+
+
 class EconomicCalendarEvent(BaseModel):
     title: str
     currency: str

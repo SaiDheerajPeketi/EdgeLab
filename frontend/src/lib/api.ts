@@ -111,6 +111,25 @@ export type DukascopyCandlesResponse = {
   candles: Candle[];
 };
 
+export type AngelOneInstrument = {
+  token: string;
+  symbol: string;
+  label: string;
+  description: string;
+  exchange: string;
+  exchange_type: number;
+  asset_class: string;
+  name: string;
+  expiry: string | null;
+  instrument_type: string;
+  lot_size: number | null;
+  tick_size: number | null;
+};
+
+export type AngelOneInstrumentsResponse = {
+  instruments: AngelOneInstrument[];
+};
+
 export type EconomicCalendarEvent = {
   title: string;
   currency: string;
@@ -460,6 +479,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function getApiWebSocketUrl(path: string) {
+  const base = new URL(API_BASE_URL);
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  const prefix = base.pathname.replace(/\/$/, "");
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  base.pathname = `${prefix}${suffix}`;
+  base.search = "";
+  base.hash = "";
+  return base.toString();
+}
+
 export function getDatasets() {
   return request<DatasetCatalog>("/datasets");
 }
@@ -571,6 +601,17 @@ export function getDukascopyCandles(instrument: string, interval: string, limit 
     limit: String(limit),
   });
   return request<DukascopyCandlesResponse>(`/live/dukascopy/candles?${query.toString()}`);
+}
+
+export function getAngelOneInstruments(search = "", limit = 12000, refresh = false) {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    refresh: refresh ? "true" : "false",
+  });
+  if (search.trim()) {
+    query.set("search", search.trim());
+  }
+  return request<AngelOneInstrumentsResponse>(`/live/angelone/instruments?${query.toString()}`);
 }
 
 export function getForexFactoryCalendar(refresh = false) {
