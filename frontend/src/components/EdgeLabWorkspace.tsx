@@ -398,21 +398,26 @@ type LiveJournalData = {
 };
 
 type FinanceAccountKind = "broker" | "propFirm";
-type FinanceAccountStatus = "ACTIVE" | "PAUSED" | "PASSED" | "FAILED" | "ARCHIVED";
-type FinancePropStage = "phase1" | "phase2" | "verification" | "funded" | "live";
-type FinanceEntryType = "income" | "expense";
+type FinanceAccountStatus = "ACTIVE" | "PAUSED" | "PASSED" | "BREACHED" | "FAILED" | "ARCHIVED";
+type FinancePropStage = "phase1" | "phase2" | "verification" | "funded" | "instant" | "live";
+type FinanceEntryType = "deposit" | "income" | "expense";
 
 type FinanceTrackerAccount = {
+  breach_date: string;
+  breach_reason: string;
+  breached: boolean;
   challenge_fee: number;
   color: string;
   created_at: string;
   currency: string;
   funded_amount: number;
   id: number;
+  journal_account_id: number | null;
   kind: FinanceAccountKind;
   max_loss_limit: number;
   name: string;
   notes: string;
+  profit_split_percent: number;
   profit_target: number;
   provider: string;
   stage: FinancePropStage;
@@ -607,17 +612,20 @@ const FINANCE_PROP_STAGE_OPTIONS = [
   { label: "Challenge phase 2", value: "phase2" },
   { label: "Verification", value: "verification" },
   { label: "Funded", value: "funded" },
+  { label: "Instant funded", value: "instant" },
   { label: "Live funded", value: "live" },
 ];
 const FINANCE_STATUS_OPTIONS = [
   { label: "Active", value: "ACTIVE" },
   { label: "Paused", value: "PAUSED" },
   { label: "Passed", value: "PASSED" },
+  { label: "Breached", value: "BREACHED" },
   { label: "Failed", value: "FAILED" },
   { label: "Archived", value: "ARCHIVED" },
 ];
 const FINANCE_INCOME_CATEGORIES = ["Payout", "Profit split", "Trading profits", "Rebate", "Refund", "Other income"];
 const FINANCE_EXPENSE_CATEGORIES = ["Challenge fee", "Reset fee", "Brokerage", "Commission", "Platform", "Data feed", "Withdrawal fee", "Tax", "Other expense"];
+const FINANCE_DEPOSIT_CATEGORIES = ["Initial deposit", "Challenge fee deposit", "Top-up deposit", "Account funding", "Other deposit"];
 const TIMEZONE_IDS = [
   "UTC",
   "America/New_York",
@@ -820,7 +828,7 @@ export function EdgeLabWorkspace({
     case "economicCalendar":
       return <EconomicCalendarPage />;
     case "financeTracker":
-      return <FinanceTrackerPage />;
+      return <FinanceTrackerPage journalAccounts={liveJournal.data.accounts} />;
     case "journal":
     case "journalTrades":
       return <JournalWorkspacePage journal={liveJournal} view="journalTrades" />;
@@ -5024,7 +5032,7 @@ function GlobalSettingsPage({
   );
 }
 
-function FinanceTrackerPage() {
+function FinanceTrackerPage({ journalAccounts }: { journalAccounts: LiveJournalAccount[] }) {
   const { confirm, confirmDialog } = useThemedConfirm();
   const [data, setData] = useFinanceTrackerData();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(() => data.accounts[0]?.id ?? null);
@@ -5040,6 +5048,7 @@ function FinanceTrackerPage() {
   const [startingBalance, setStartingBalance] = useState("0");
   const [fundedAmount, setFundedAmount] = useState("100000");
   const [challengeFee, setChallengeFee] = useState("0");
+  const [profitSplitPercent, setProfitSplitPercent] = useState("80");
   const [profitTarget, setProfitTarget] = useState("0");
   const [maxLossLimit, setMaxLossLimit] = useState("0");
   const [startDate, setStartDate] = useState(() => financeToday());
@@ -5085,9 +5094,12 @@ function FinanceTrackerPage() {
   const expenseTotal = filteredEntries
     .filter((entry) => entry.type === "expense")
     .reduce((sum, entry) => sum + entry.amount, 0);
-  const netTotal = incomeTotal - expenseTotal;
+  const depositTotal = filteredEntries
+    .filter((entry) => entry.type === "deposit")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const netTotal = incomeTotal - expenseTotal - depositTotal;
   const propExpenseTotal = data.entries
-    .filter((entry) => entry.type === "expense" && financeEntryAccount(entry, accountById)?.kind === "propFirm")
+    .filter((entry) => (entry.type === "expense" || entry.type === "deposit") && financeEntryAccount(entry, accountById)?.kind === "propFirm")
     .reduce((sum, entry) => sum + entry.amount, 0);
   const propChallengeFees = data.accounts
     .filter((account) => account.kind === "propFirm")
@@ -5095,6 +5107,7 @@ function FinanceTrackerPage() {
   const activePropAccounts = data.accounts.filter(
     (account) => account.kind === "propFirm" && account.status !== "ARCHIVED",
   );
+  const breachedAccounts = data.accounts.filter((account) => account.breached || account.status === "BREACHED");
   const accountOptions = [
     { label: "General ledger", sublabel: "Income or expense not tied to an account", value: "none" },
     ...data.accounts.map((account) => ({
@@ -5107,14 +5120,23 @@ function FinanceTrackerPage() {
     const entries = data.entries.filter((entry) => entry.account_id === account.id);
     const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amount, 0);
     const expense = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.amount, 0);
+    const deposit = entries.filter((entry) => entry.type === "deposit").reduce((sum, entry) => sum + entry.amount, 0);
     return {
       account,
+      deposit,
       entries,
       expense,
       income,
-      net: income - expense,
+      net: income - expense - deposit,
     };
   });
+  const selectedLedgerNet = selectedAccountEntries.reduce((sum, entry) => sum + financeSignedEntryAmount(entry), 0);
+  const selectedAccountIncome = selectedAccountEntries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.amount, 0);
+  const selectedProfitSplit = selectedAccount?.profit_split_percent ?? 0;
+  const selectedGrossProfitEstimate = selectedAccount?.kind === "propFirm" && selectedProfitSplit > 0
+    ? selectedAccountIncome / (selectedProfitSplit / 100)
+    : selectedAccountIncome;
+  const selectedFirmShareEstimate = Math.max(0, selectedGrossProfitEstimate - selectedAccountIncome);
 
   useEffect(() => {
     if (selectedAccount || data.accounts.length === 0) {
@@ -5122,6 +5144,56 @@ function FinanceTrackerPage() {
     }
     setSelectedAccountId(data.accounts[0].id);
   }, [data.accounts, selectedAccount]);
+
+  useEffect(() => {
+    if (journalAccounts.length === 0) {
+      return;
+    }
+    setData((current) => {
+      let changed = false;
+      let nextAccounts = current.accounts;
+      let nextEntries = current.entries;
+      let nextAccountId = nextNumericId(nextAccounts);
+      let nextEntryId = nextNumericId(nextEntries);
+
+      for (const journalAccount of journalAccounts) {
+        const existingAccount = nextAccounts.find((account) => account.journal_account_id === journalAccount.id);
+        if (existingAccount) {
+          const depositEntry = financeDefaultDepositEntry(existingAccount, nextEntryId);
+          if (depositEntry && !financeAccountHasDefaultDeposit(existingAccount, nextEntries)) {
+            nextEntries = [depositEntry, ...nextEntries];
+            nextEntryId += 1;
+            changed = true;
+          }
+          continue;
+        }
+        const account = sanitizeFinanceAccount({
+          color: journalAccount.color,
+          created_at: journalAccount.created_at,
+          currency: journalAccount.currency,
+          id: nextAccountId,
+          journal_account_id: journalAccount.id,
+          kind: "broker",
+          name: journalAccount.name,
+          notes: journalAccount.notes,
+          provider: journalAccount.broker,
+          starting_balance: journalAccount.initial_balance,
+          start_date: journalAccount.created_at.slice(0, 10),
+          status: journalAccount.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE",
+        });
+        nextAccountId += 1;
+        nextAccounts = [account, ...nextAccounts];
+        const depositEntry = financeDefaultDepositEntry(account, nextEntryId);
+        if (depositEntry) {
+          nextEntries = [depositEntry, ...nextEntries];
+          nextEntryId += 1;
+        }
+        changed = true;
+      }
+
+      return changed ? { accounts: nextAccounts, entries: nextEntries } : current;
+    });
+  }, [journalAccounts, setData]);
 
   function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -5137,6 +5209,7 @@ function FinanceTrackerPage() {
       max_loss_limit: accountKind === "propFirm" ? positivePositionNumber(maxLossLimit) : 0,
       name: accountName,
       notes: accountNotes,
+      profit_split_percent: accountKind === "propFirm" ? positivePositionNumber(profitSplitPercent) : 0,
       profit_target: accountKind === "propFirm" ? positivePositionNumber(profitTarget) : 0,
       provider,
       stage: accountKind === "propFirm" ? propStage : "live",
@@ -5144,7 +5217,13 @@ function FinanceTrackerPage() {
       start_date: startDate,
       status: accountStatus,
     });
-    setData((current) => ({ ...current, accounts: [account, ...current.accounts] }));
+    setData((current) => {
+      const depositEntry = financeDefaultDepositEntry(account, nextNumericId(current.entries));
+      return {
+        accounts: [account, ...current.accounts],
+        entries: depositEntry ? [depositEntry, ...current.entries] : current.entries,
+      };
+    });
     setSelectedAccountId(id);
     setEntryAccountId(String(id));
     setEntryCurrency(account.currency);
@@ -5156,7 +5235,7 @@ function FinanceTrackerPage() {
   function handleEntryTypeChange(value: string) {
     const nextType = sanitizeFinanceEntryType(value);
     setEntryType(nextType);
-    setEntryCategory(nextType === "income" ? FINANCE_INCOME_CATEGORIES[0] : FINANCE_EXPENSE_CATEGORIES[0]);
+    setEntryCategory(financeCategoriesForType(nextType)[0]);
   }
 
   function handleEntryAccountChange(value: string) {
@@ -5202,6 +5281,22 @@ function FinanceTrackerPage() {
 
   async function deleteAccount(account: FinanceTrackerAccount) {
     const linkedEntries = data.entries.filter((entry) => entry.account_id === account.id).length;
+    if (account.journal_account_id != null) {
+      const confirmed = await confirm({
+        confirmLabel: "Archive finance profile",
+        detail: "This broker account is linked from Journal Accounts, so it will be archived in Finance instead of deleted and recreated on the next sync.",
+        message: (
+          <>
+            Archive <span className="font-semibold text-white">{account.name}</span> in the finance tracker?
+          </>
+        ),
+        title: "Archive synced account",
+      });
+      if (confirmed) {
+        updateAccount(account.id, { status: "ARCHIVED" });
+      }
+      return;
+    }
     const confirmed = await confirm({
       confirmLabel: "Delete account",
       detail: linkedEntries > 0
@@ -5232,7 +5327,7 @@ function FinanceTrackerPage() {
       message: (
         <>
           Delete <span className="font-semibold text-white">{entry.category}</span> for{" "}
-          <span className={entry.type === "income" ? "font-semibold text-emerald-200" : "font-semibold text-rose-200"}>
+          <span className={entry.type === "income" ? "font-semibold text-emerald-200" : entry.type === "deposit" ? "font-semibold text-amber-200" : "font-semibold text-rose-200"}>
             {formatMoney(entry.amount, entry.currency)}
           </span>
           ?
@@ -5251,15 +5346,15 @@ function FinanceTrackerPage() {
 
   return (
     <PageScaffold
-      eyebrow="Finance Tracker"
+      eyebrow="Journal Finance"
       title="Income & Expense Tracker"
-      description="Track payouts, operating costs, broker accounts, prop-firm challenges, funded phases, and live account cashflow in one ledger."
+      description="Track payouts, deposits, operating costs, broker accounts, prop-firm challenges, instant funded accounts, breaches, and live account cashflow in one ledger."
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <ResultMetricCard icon={BadgeDollarSign} label="Net cashflow" tone={toneForNumber(netTotal)} value={formatCompactMoney(netTotal, summaryCurrency)} />
         <ResultMetricCard icon={TrendingUp} label="Income" tone="text-emerald-300" value={formatCompactMoney(incomeTotal, summaryCurrency)} />
         <ResultMetricCard icon={TrendingDown} label="Expenses" tone="text-rose-300" value={formatCompactMoney(expenseTotal, summaryCurrency)} />
-        <ResultMetricCard icon={WalletCards} label="Prop accounts" value={`${activePropAccounts.length} active`} />
+        <ResultMetricCard icon={WalletCards} label="Deposits & breaches" value={`${formatCompactMoney(depositTotal, summaryCurrency)} · ${breachedAccounts.length}`} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.62fr)_minmax(360px,0.38fr)]">
@@ -5267,7 +5362,7 @@ function FinanceTrackerPage() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardLabel icon={WalletCards} label="Account book" />
-              <h2 className="mt-3 text-xl font-semibold text-white">Broker and prop-firm accounts</h2>
+              <h2 className="mt-3 text-xl font-semibold text-white">Journal accounts and prop-firm accounts</h2>
             </div>
             <ThemedSelect
               className="h-10 min-w-44"
@@ -5308,12 +5403,15 @@ function FinanceTrackerPage() {
                   {formatMoney(row.net, row.account.currency)}
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
+                  <MiniMetric label="Deposit" value={formatCompactMoney(row.deposit, row.account.currency)} />
                   <MiniMetric label="Income" value={formatCompactMoney(row.income, row.account.currency)} />
                   <MiniMetric label="Expense" value={formatCompactMoney(row.expense, row.account.currency)} />
-                  <MiniMetric label="Entries" value={String(row.entries.length)} />
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="status-pill h-7 px-2 text-[10px]">{financeAccountStatusLabel(row.account.status)}</span>
+                  {row.account.breached && (
+                    <span className="status-pill h-7 border-rose-300/25 bg-rose-300/10 px-2 text-[10px] text-rose-100">Breached</span>
+                  )}
                   {row.account.kind === "propFirm" && (
                     <span className="status-pill h-7 px-2 text-[10px]">{financePropStageLabel(row.account.stage)}</span>
                   )}
@@ -5400,13 +5498,22 @@ function FinanceTrackerPage() {
                       Max loss
                       <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setMaxLossLimit(event.target.value)} type="number" value={maxLossLimit} />
                     </label>
+                    <label className="form-field">
+                      Profit split %
+                      <input className="input-control h-10 normal-case tracking-normal" max="100" min="0" onChange={(event) => setProfitSplitPercent(event.target.value)} type="number" value={profitSplitPercent} />
+                    </label>
                   </div>
                 </>
               ) : (
-                <label className="form-field">
-                  Starting balance
-                  <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setStartingBalance(event.target.value)} type="number" value={startingBalance} />
-                </label>
+                <>
+                  <label className="form-field">
+                    Initial deposit
+                    <input className="input-control h-10 normal-case tracking-normal" min="0" onChange={(event) => setStartingBalance(event.target.value)} type="number" value={startingBalance} />
+                  </label>
+                  <div className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-slate-500">
+                    Existing Journal accounts are synced here automatically, with their initial balance recorded as an initial deposit.
+                  </div>
+                </>
               )}
               <label className="form-field">
                 Notes
@@ -5422,7 +5529,11 @@ function FinanceTrackerPage() {
           <FeatureCard>
             <CardLabel icon={BadgeDollarSign} label="Add ledger entry" />
             <form className="mt-4 grid gap-3" onSubmit={addEntry}>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <button className={`control-button justify-center ${entryType === "deposit" ? "border-amber-300/25 bg-amber-300/10 text-amber-100" : ""}`} onClick={() => handleEntryTypeChange("deposit")} type="button">
+                  <WalletCards size={15} />
+                  Deposit
+                </button>
                 <button className={`control-button justify-center ${entryType === "income" ? "workspace-tab-active" : ""}`} onClick={() => handleEntryTypeChange("income")} type="button">
                   <TrendingUp size={15} />
                   Income
@@ -5452,7 +5563,7 @@ function FinanceTrackerPage() {
                   <ThemedSelect
                     className="h-10"
                     onChange={setEntryCategory}
-                    options={(entryType === "income" ? FINANCE_INCOME_CATEGORIES : FINANCE_EXPENSE_CATEGORIES).map((category) => ({ label: category, value: category }))}
+                    options={financeCategoriesForType(entryType).map((category) => ({ label: category, value: category }))}
                     portal
                     value={entryCategory}
                   />
@@ -5488,6 +5599,7 @@ function FinanceTrackerPage() {
                 onChange={(value) => setEntryTypeFilter(value as "ALL" | FinanceEntryType)}
                 options={[
                   { label: "All entries", value: "ALL" },
+                  { label: "Deposits", value: "deposit" },
                   { label: "Income", value: "income" },
                   { label: "Expenses", value: "expense" },
                 ]}
@@ -5497,9 +5609,9 @@ function FinanceTrackerPage() {
           </div>
           <div className="grid gap-2 md:grid-cols-4">
             <MiniMetric label="Rows" value={filteredEntries.length.toLocaleString()} />
+            <MiniMetric label="Prop active" value={String(activePropAccounts.length)} />
             <MiniMetric label="Prop expenses" value={formatCompactMoney(propExpenseTotal, summaryCurrency)} />
-            <MiniMetric label="Prop setup fees" value={formatCompactMoney(propChallengeFees, summaryCurrency)} />
-            <MiniMetric label="Scope" value={accountFilter === "ALL" ? "All accounts" : financeAccountKindLabel(accountFilter)} />
+            <MiniMetric label="Setup fees" value={formatCompactMoney(propChallengeFees, summaryCurrency)} />
           </div>
           <div className="mt-4 overflow-auto rounded-md border border-white/10 bg-black/20">
             <table className="w-full min-w-[760px] text-left text-sm">
@@ -5521,8 +5633,8 @@ function FinanceTrackerPage() {
                     <tr className="border-b border-white/10 text-slate-300 last:border-0" key={entry.id}>
                       <td className="px-4 py-3 text-slate-500">{formatFinanceDate(entry.date)}</td>
                       <td className="px-3 py-3">
-                        <span className={`status-pill h-7 px-2 text-[10px] ${entry.type === "income" ? "text-emerald-100" : "text-rose-100"}`}>
-                          {entry.type === "income" ? "Income" : "Expense"}
+                        <span className={`status-pill h-7 px-2 text-[10px] ${financeEntryTypeToneClass(entry.type)}`}>
+                          {financeEntryTypeLabel(entry.type)}
                         </span>
                       </td>
                       <td className="px-3 py-3">
@@ -5592,10 +5704,10 @@ function FinanceTrackerPage() {
                 </button>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                <CompactMetric label="Ledger net" tone={toneForNumber(selectedAccountEntries.reduce((sum, entry) => sum + financeSignedEntryAmount(entry), 0))} value={formatMoney(selectedAccountEntries.reduce((sum, entry) => sum + financeSignedEntryAmount(entry), 0), selectedAccount.currency)} />
+                <CompactMetric label="Ledger net" tone={toneForNumber(selectedLedgerNet)} value={formatMoney(selectedLedgerNet, selectedAccount.currency)} />
                 <CompactMetric label="Entries" value={String(selectedAccountEntries.length)} />
                 <CompactMetric label={selectedAccount.kind === "propFirm" ? "Account size" : "Starting"} value={formatMoney(selectedAccount.kind === "propFirm" ? selectedAccount.funded_amount : selectedAccount.starting_balance, selectedAccount.currency)} />
-                <CompactMetric label={selectedAccount.kind === "propFirm" ? "Challenge fee" : "Status"} value={selectedAccount.kind === "propFirm" ? formatMoney(selectedAccount.challenge_fee, selectedAccount.currency) : financeAccountStatusLabel(selectedAccount.status)} />
+                <CompactMetric label={selectedAccount.kind === "propFirm" ? "Profit split" : "Status"} value={selectedAccount.kind === "propFirm" ? `${formatOptionalNumber(selectedAccount.profit_split_percent)}%` : financeAccountStatusLabel(selectedAccount.status)} />
               </div>
               <div className="grid gap-3 rounded-md border border-white/10 bg-black/20 p-3">
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -5603,7 +5715,13 @@ function FinanceTrackerPage() {
                     Status
                     <ThemedSelect
                       className="h-10"
-                      onChange={(value) => updateAccount(selectedAccount.id, { status: sanitizeFinanceAccountStatus(value) })}
+                      onChange={(value) => {
+                        const status = sanitizeFinanceAccountStatus(value);
+                        updateAccount(selectedAccount.id, {
+                          breached: status === "BREACHED" ? true : selectedAccount.breached,
+                          status,
+                        });
+                      }}
                       options={FINANCE_STATUS_OPTIONS}
                       portal
                       value={selectedAccount.status}
@@ -5628,13 +5746,47 @@ function FinanceTrackerPage() {
                   )}
                 </div>
                 {selectedAccount.kind === "propFirm" && (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <MiniMetric label="Profit target" value={formatMoney(selectedAccount.profit_target, selectedAccount.currency)} />
-                    <MiniMetric label="Max loss" value={formatMoney(selectedAccount.max_loss_limit, selectedAccount.currency)} />
-                  </div>
+                  <>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <MiniMetric label="Challenge deposit" value={formatMoney(selectedAccount.challenge_fee, selectedAccount.currency)} />
+                      <MiniMetric label="Profit target" value={formatMoney(selectedAccount.profit_target, selectedAccount.currency)} />
+                      <MiniMetric label="Max loss" value={formatMoney(selectedAccount.max_loss_limit, selectedAccount.currency)} />
+                      <MiniMetric label="Firm share est." value={formatMoney(selectedFirmShareEstimate, selectedAccount.currency)} />
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="form-field">
+                        Profit split %
+                        <input
+                          className="input-control h-10 normal-case tracking-normal"
+                          max="100"
+                          min="0"
+                          onChange={(event) => updateAccount(selectedAccount.id, { profit_split_percent: positivePositionNumber(event.target.value) })}
+                          type="number"
+                          value={String(selectedAccount.profit_split_percent)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        Breach date
+                        <ThemedDatePicker onChange={(value) => updateAccount(selectedAccount.id, { breach_date: value, breached: Boolean(value) || selectedAccount.breached })} value={selectedAccount.breach_date} />
+                      </label>
+                    </div>
+                    <label className="form-field">
+                      Breach reason
+                      <textarea
+                        className="input-control min-h-20 py-3 normal-case tracking-normal"
+                        onChange={(event) => updateAccount(selectedAccount.id, {
+                          breach_reason: event.target.value,
+                          breached: event.target.value.trim().length > 0 || selectedAccount.breached,
+                          status: event.target.value.trim().length > 0 && selectedAccount.status === "ACTIVE" ? "BREACHED" : selectedAccount.status,
+                        })}
+                        placeholder="Daily loss, max drawdown, rule violation, inactivity, news hold..."
+                        value={selectedAccount.breach_reason}
+                      />
+                    </label>
+                  </>
                 )}
                 <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-3 text-sm leading-6 text-slate-400">
-                  {selectedAccount.notes || "No account notes yet."}
+                  {selectedAccount.breached && selectedAccount.breach_reason ? selectedAccount.breach_reason : selectedAccount.notes || "No account notes yet."}
                 </div>
               </div>
             </div>
@@ -17892,23 +18044,33 @@ function sanitizeFinanceAccount(value: unknown): FinanceTrackerAccount {
   const name = typeof candidate.name === "string" && candidate.name.trim()
     ? candidate.name.trim()
     : kind === "propFirm" ? "Prop Firm Account" : "Broker Account";
+  const status = sanitizeFinanceAccountStatus(candidate.status);
+  const breached = candidate.breached === true || status === "BREACHED";
+  const rawJournalAccountId = typeof candidate.journal_account_id === "number"
+    ? candidate.journal_account_id
+    : Number(candidate.journal_account_id);
   return {
+    breach_date: typeof candidate.breach_date === "string" ? candidate.breach_date : "",
+    breach_reason: typeof candidate.breach_reason === "string" ? candidate.breach_reason : "",
+    breached,
     challenge_fee: kind === "propFirm" ? safeNonNegativeNumber(candidate.challenge_fee, 0) : 0,
     color: normalizeAccountColor(typeof candidate.color === "string" ? candidate.color : null),
     created_at: typeof candidate.created_at === "string" ? candidate.created_at : new Date().toISOString(),
     currency,
     funded_amount: kind === "propFirm" ? safeNonNegativeNumber(candidate.funded_amount, 0) : 0,
     id: safePositiveInteger(candidate.id, 1),
+    journal_account_id: Number.isInteger(rawJournalAccountId) && rawJournalAccountId > 0 ? rawJournalAccountId : null,
     kind,
     max_loss_limit: kind === "propFirm" ? safeNonNegativeNumber(candidate.max_loss_limit, 0) : 0,
     name,
     notes: typeof candidate.notes === "string" ? candidate.notes : "",
+    profit_split_percent: kind === "propFirm" ? clampFinancePercent(candidate.profit_split_percent, 80) : 0,
     profit_target: kind === "propFirm" ? safeNonNegativeNumber(candidate.profit_target, 0) : 0,
     provider: typeof candidate.provider === "string" ? candidate.provider.trim() : "",
     stage: kind === "propFirm" ? sanitizeFinancePropStage(candidate.stage) : "live",
     starting_balance: kind === "broker" ? safeNonNegativeNumber(candidate.starting_balance, 0) : 0,
     start_date: typeof candidate.start_date === "string" && candidate.start_date.trim() ? candidate.start_date : financeToday(),
-    status: sanitizeFinanceAccountStatus(candidate.status),
+    status,
   };
 }
 
@@ -17917,7 +18079,7 @@ function sanitizeFinanceEntry(value: unknown, validAccountIds: Set<number>): Fin
   const rawAccountId = typeof candidate.account_id === "number" ? candidate.account_id : Number(candidate.account_id);
   const accountId = Number.isInteger(rawAccountId) && validAccountIds.has(rawAccountId) ? rawAccountId : null;
   const type = sanitizeFinanceEntryType(candidate.type);
-  const fallbackCategory = type === "income" ? FINANCE_INCOME_CATEGORIES[0] : FINANCE_EXPENSE_CATEGORIES[0];
+  const fallbackCategory = financeCategoriesForType(type)[0];
   return {
     account_id: accountId,
     amount: safeNonNegativeNumber(candidate.amount, 0),
@@ -17936,19 +18098,59 @@ function sanitizeFinanceAccountKind(value: unknown): FinanceAccountKind {
 }
 
 function sanitizeFinanceAccountStatus(value: unknown): FinanceAccountStatus {
-  return value === "PAUSED" || value === "PASSED" || value === "FAILED" || value === "ARCHIVED"
+  return value === "PAUSED" || value === "PASSED" || value === "BREACHED" || value === "FAILED" || value === "ARCHIVED"
     ? value
     : "ACTIVE";
 }
 
 function sanitizeFinancePropStage(value: unknown): FinancePropStage {
-  return value === "phase2" || value === "verification" || value === "funded" || value === "live"
+  return value === "phase2" || value === "verification" || value === "funded" || value === "instant" || value === "live"
     ? value
     : "phase1";
 }
 
 function sanitizeFinanceEntryType(value: unknown): FinanceEntryType {
-  return value === "income" ? "income" : "expense";
+  return value === "deposit" || value === "income" ? value : "expense";
+}
+
+function financeCategoriesForType(type: FinanceEntryType) {
+  if (type === "deposit") {
+    return FINANCE_DEPOSIT_CATEGORIES;
+  }
+  return type === "income" ? FINANCE_INCOME_CATEGORIES : FINANCE_EXPENSE_CATEGORIES;
+}
+
+function financeDefaultDepositEntry(account: FinanceTrackerAccount, id: number): FinanceTrackerEntry | null {
+  const amount = account.kind === "propFirm" ? account.challenge_fee : account.starting_balance;
+  if (amount <= 0) {
+    return null;
+  }
+  return {
+    account_id: account.id,
+    amount,
+    category: account.kind === "propFirm" ? "Challenge fee deposit" : "Initial deposit",
+    created_at: new Date().toISOString(),
+    currency: account.currency,
+    date: account.start_date || financeToday(),
+    description: account.kind === "propFirm"
+      ? "Default deposit from the prop-firm challenge fee."
+      : "Default deposit from the account initial balance.",
+    id,
+    type: "deposit",
+  };
+}
+
+function financeAccountHasDefaultDeposit(account: FinanceTrackerAccount, entries: FinanceTrackerEntry[]) {
+  const defaultCategory = account.kind === "propFirm" ? "Challenge fee deposit" : "Initial deposit";
+  return entries.some((entry) =>
+    entry.account_id === account.id &&
+    entry.type === "deposit" &&
+    entry.category === defaultCategory,
+  );
+}
+
+function clampFinancePercent(value: unknown, fallback: number) {
+  return Math.min(100, Math.max(0, safeFiniteNumber(value, fallback)));
 }
 
 function safePositiveInteger(value: unknown, fallback: number) {
@@ -17970,6 +18172,7 @@ function financeAccountStatusLabel(status: FinanceAccountStatus) {
   const labels: Record<FinanceAccountStatus, string> = {
     ACTIVE: "Active",
     ARCHIVED: "Archived",
+    BREACHED: "Breached",
     FAILED: "Failed",
     PASSED: "Passed",
     PAUSED: "Paused",
@@ -17980,6 +18183,7 @@ function financeAccountStatusLabel(status: FinanceAccountStatus) {
 function financePropStageLabel(stage: FinancePropStage) {
   const labels: Record<FinancePropStage, string> = {
     funded: "Funded",
+    instant: "Instant funded",
     live: "Live funded",
     phase1: "Challenge phase 1",
     phase2: "Challenge phase 2",
@@ -17990,6 +18194,17 @@ function financePropStageLabel(stage: FinancePropStage) {
 
 function financeSignedEntryAmount(entry: FinanceTrackerEntry) {
   return entry.type === "income" ? entry.amount : -entry.amount;
+}
+
+function financeEntryTypeLabel(type: FinanceEntryType) {
+  return type === "deposit" ? "Deposit" : type === "income" ? "Income" : "Expense";
+}
+
+function financeEntryTypeToneClass(type: FinanceEntryType) {
+  if (type === "income") {
+    return "text-emerald-100";
+  }
+  return type === "deposit" ? "text-amber-100" : "text-rose-100";
 }
 
 function financeEntryAccount(

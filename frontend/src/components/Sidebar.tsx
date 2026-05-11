@@ -42,7 +42,6 @@ const sections: Array<{
     shortLabel: "APP",
     items: [
       { id: "globalSettings", label: "Global Settings", icon: Settings },
-      { id: "financeTracker", label: "Income & Expenses", icon: BadgeDollarSign },
     ],
   },
   {
@@ -97,6 +96,7 @@ const sections: Array<{
       { id: "journalStrategies", label: "Journal Strategies", icon: Target },
       { id: "journalPlaybooks", label: "Journal Playbooks", icon: BookOpen },
       { id: "journalAccounts", label: "Journal Accounts", icon: WalletCards },
+      { id: "financeTracker", label: "Income & Expenses", icon: BadgeDollarSign },
       { id: "journalSettings", label: "Journal Settings", icon: Settings },
     ],
   },
