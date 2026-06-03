@@ -9,20 +9,44 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+PYTHONPATH=. python -m uvicorn app.main:app --reload
 ```
 
 The app reads `../EURUSD_M1.csv` by default. Override it with:
 
 ```bash
-export TRADEZELLA_CSV_PATH=/absolute/path/to/EURUSD_M1.csv
+export EDGELAB_CSV_PATH=/absolute/path/to/EURUSD_M1.csv
 ```
 
 Market data is cached in memory by default for smooth replay. Disable it with:
 
 ```bash
-export TRADEZELLA_CACHE_MARKET_DATA=0
+export EDGELAB_CACHE_MARKET_DATA=0
 ```
+
+The SQLite database defaults to `backend/trade_journal_v2.db`. Override it with:
+
+```bash
+export DATABASE_URL=sqlite:////absolute/path/to/trade_journal_v2.db
+```
+
+The dataset catalog root defaults to the local workstation path configured in `backend/app/config.py`. Override it with:
+
+```bash
+export EDGELAB_DATASETS_ROOT=/absolute/path/to/datasets
+```
+
+## Docker
+
+The backend container is built by `backend/Dockerfile` and normally runs through the repository root `docker-compose.yml`.
+
+Container defaults:
+
+- `EDGELAB_CSV_PATH=/data/EURUSD_M1.csv`
+- `EDGELAB_DATASETS_ROOT=/datasets`
+- `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
+
+The Compose file mounts the CSV and datasets read-only and persists the SQLite database in the `api-data` named volume.
 
 ## Main APIs
 
