@@ -30,6 +30,12 @@ The SQLite database defaults to `backend/trade_journal_v2.db`. Override it with:
 export DATABASE_URL=sqlite:////absolute/path/to/trade_journal_v2.db
 ```
 
+Set an API bearer token for protected mutation and app-data routes with:
+
+```bash
+export EDGELAB_API_TOKEN=change-me
+```
+
 The dataset catalog root defaults to `../datasets`. Override it with:
 
 ```bash
@@ -56,6 +62,7 @@ Container defaults:
 
 - `EDGELAB_CSV_PATH=/data/EURUSD_M1.csv`
 - `EDGELAB_DATASETS_ROOT=/datasets`
+- `EDGELAB_API_TOKEN=`
 - `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`

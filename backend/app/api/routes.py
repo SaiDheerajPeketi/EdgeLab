@@ -12,6 +12,7 @@ from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.auth import api_token_is_valid, require_api_token
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models import (
@@ -568,7 +569,11 @@ def dataset_settings(db: Session = Depends(get_db)) -> DatasetSettingsRead:
         raise dataset_error_response(exc) from exc
 
 
-@router.patch("/datasets/settings", response_model=DatasetCatalogResponse)
+@router.patch(
+    "/datasets/settings",
+    response_model=DatasetCatalogResponse,
+    dependencies=[Depends(require_api_token)],
+)
 def update_dataset_settings(
     payload: DatasetSettingsUpdate,
     db: Session = Depends(get_db),
@@ -580,7 +585,11 @@ def update_dataset_settings(
         raise dataset_error_response(exc) from exc
 
 
-@router.post("/datasets/refresh", response_model=DatasetRefreshResponse)
+@router.post(
+    "/datasets/refresh",
+    response_model=DatasetRefreshResponse,
+    dependencies=[Depends(require_api_token)],
+)
 def refresh_datasets(db: Session = Depends(get_db)) -> DatasetRefreshResponse:
     try:
         return dataset_catalog.start_refresh(db)
@@ -594,7 +603,11 @@ def dataset_refresh_status() -> DatasetRefreshStatus:
     return dataset_catalog.refresh_status()
 
 
-@router.patch("/datasets/assets/{asset_id}", response_model=DatasetCatalogResponse)
+@router.patch(
+    "/datasets/assets/{asset_id}",
+    response_model=DatasetCatalogResponse,
+    dependencies=[Depends(require_api_token)],
+)
 def update_dataset_asset(
     asset_id: str,
     payload: DatasetAssetUpdate,
@@ -607,7 +620,11 @@ def update_dataset_asset(
         raise dataset_error_response(exc) from exc
 
 
-@router.get("/app-data/export", response_model=AppDataBundle)
+@router.get(
+    "/app-data/export",
+    response_model=AppDataBundle,
+    dependencies=[Depends(require_api_token)],
+)
 def export_app_data(db: Session = Depends(get_db)) -> AppDataBundle:
     row_counts = {
         table_name: db.scalar(select(func.count()).select_from(model)) or 0
@@ -629,7 +646,11 @@ def export_app_data(db: Session = Depends(get_db)) -> AppDataBundle:
     return AppDataBundle(exported_at=utcnow(), tables=tables)
 
 
-@router.post("/app-data/import", response_model=AppDataImportResult)
+@router.post(
+    "/app-data/import",
+    response_model=AppDataImportResult,
+    dependencies=[Depends(require_api_token)],
+)
 def import_app_data(
     bundle: AppDataBundle,
     db: Session = Depends(get_db),
@@ -659,7 +680,11 @@ def import_app_data(
         raise HTTPException(status_code=400, detail="Import failed") from exc
 
 
-@router.get("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
+@router.get(
+    "/app-storage/{namespace}/{key}",
+    response_model=AppStorageRead,
+    dependencies=[Depends(require_api_token)],
+)
 def get_app_storage_item(
     namespace: str,
     key: str,
@@ -681,7 +706,11 @@ def get_app_storage_item(
     )
 
 
-@router.put("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
+@router.put(
+    "/app-storage/{namespace}/{key}",
+    response_model=AppStorageRead,
+    dependencies=[Depends(require_api_token)],
+)
 def put_app_storage_item(
     namespace: str,
     key: str,
@@ -710,7 +739,11 @@ def put_app_storage_item(
     )
 
 
-@router.delete("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
+@router.delete(
+    "/app-storage/{namespace}/{key}",
+    response_model=AppStorageRead,
+    dependencies=[Depends(require_api_token)],
+)
 def delete_app_storage_item(
     namespace: str,
     key: str,
@@ -919,6 +952,11 @@ async def angelone_stream(websocket: WebSocket) -> None:
         await websocket.close()
         return
 
+    if not api_token_is_valid(clean_text(initial.get("apiToken"))):
+        await websocket.send_json({"type": "error", "message": "Valid API token required"})
+        await websocket.close()
+        return
+
     credentials = initial.get("credentials") if isinstance(initial.get("credentials"), dict) else {}
     client_code = clean_text(credentials.get("clientCode"))
     jwt_token = clean_text(credentials.get("jwtToken"))
@@ -1047,7 +1085,11 @@ def forex_factory_calendar(
         return forex_factory_calendar_response(events, fetched_at, stale=True)
 
 
-@router.post("/backtests", response_model=BacktestState)
+@router.post(
+    "/backtests",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def create_backtest(
     payload: BacktestCreate,
     db: Session = Depends(get_db),
@@ -1063,7 +1105,11 @@ def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
     ]
 
 
-@router.get("/backtests/latest", response_model=BacktestState)
+@router.get(
+    "/backtests/latest",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
     session = list_latest_session(db)
     if session is None:
@@ -1071,7 +1117,11 @@ def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
     return backtester.get_state(db, session.id)
 
 
-@router.post("/backtests/import-trades", response_model=BacktestTradeImportResult)
+@router.post(
+    "/backtests/import-trades",
+    response_model=BacktestTradeImportResult,
+    dependencies=[Depends(require_api_token)],
+)
 def import_backtest_trades(
     payload: BacktestTradeImport,
     db: Session = Depends(get_db),
@@ -1100,7 +1150,11 @@ def get_backtest(session_id: int, db: Session = Depends(get_db)) -> BacktestStat
     return backtester.get_state(db, session_id)
 
 
-@router.patch("/backtests/{session_id}", response_model=BacktestSessionRead)
+@router.patch(
+    "/backtests/{session_id}",
+    response_model=BacktestSessionRead,
+    dependencies=[Depends(require_api_token)],
+)
 def patch_backtest_session(
     session_id: int,
     payload: BacktestSessionUpdate,
@@ -1111,7 +1165,10 @@ def patch_backtest_session(
     )
 
 
-@router.delete("/backtests/{session_id}")
+@router.delete(
+    "/backtests/{session_id}",
+    dependencies=[Depends(require_api_token)],
+)
 def delete_backtest_session(
     session_id: int,
     db: Session = Depends(get_db),
@@ -1120,7 +1177,11 @@ def delete_backtest_session(
     return {"ok": True}
 
 
-@router.post("/backtests/{session_id}/advance", response_model=BacktestState)
+@router.post(
+    "/backtests/{session_id}/advance",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def advance_backtest(
     session_id: int,
     payload: BacktestAdvanceRequest,
@@ -1129,7 +1190,11 @@ def advance_backtest(
     return backtester.advance(db, session_id, payload)
 
 
-@router.post("/backtests/{session_id}/jump", response_model=BacktestState)
+@router.post(
+    "/backtests/{session_id}/jump",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def jump_backtest(
     session_id: int,
     payload: BacktestJumpRequest,
@@ -1138,7 +1203,11 @@ def jump_backtest(
     return backtester.jump(db, session_id, payload)
 
 
-@router.post("/backtests/{session_id}/orders", response_model=BacktestState)
+@router.post(
+    "/backtests/{session_id}/orders",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def create_order(
     session_id: int,
     payload: OrderCreate,
@@ -1147,7 +1216,11 @@ def create_order(
     return backtester.place_order(db, session_id, payload)
 
 
-@router.patch("/backtests/{session_id}/orders/{order_id}", response_model=BacktestState)
+@router.patch(
+    "/backtests/{session_id}/orders/{order_id}",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def amend_order(
     session_id: int,
     order_id: int,
@@ -1157,7 +1230,11 @@ def amend_order(
     return backtester.update_order(db, session_id, order_id, payload)
 
 
-@router.patch("/backtests/{session_id}/position", response_model=BacktestState)
+@router.patch(
+    "/backtests/{session_id}/position",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def amend_position(
     session_id: int,
     payload: PositionUpdate,
@@ -1166,7 +1243,11 @@ def amend_position(
     return backtester.update_position(db, session_id, payload)
 
 
-@router.delete("/backtests/{session_id}/orders/{order_id}", response_model=BacktestState)
+@router.delete(
+    "/backtests/{session_id}/orders/{order_id}",
+    response_model=BacktestState,
+    dependencies=[Depends(require_api_token)],
+)
 def cancel_order(
     session_id: int,
     order_id: int,
@@ -1180,7 +1261,11 @@ def get_playbooks(db: Session = Depends(get_db)) -> list[PlaybookRead]:
     return backtester.list_playbooks(db)
 
 
-@router.post("/playbooks", response_model=PlaybookRead)
+@router.post(
+    "/playbooks",
+    response_model=PlaybookRead,
+    dependencies=[Depends(require_api_token)],
+)
 def create_playbook(
     payload: PlaybookCreate,
     db: Session = Depends(get_db),
@@ -1188,7 +1273,11 @@ def create_playbook(
     return backtester.create_playbook(db, payload)
 
 
-@router.patch("/playbooks/{playbook_id}", response_model=PlaybookRead)
+@router.patch(
+    "/playbooks/{playbook_id}",
+    response_model=PlaybookRead,
+    dependencies=[Depends(require_api_token)],
+)
 def update_playbook(
     playbook_id: int,
     payload: PlaybookUpdate,
@@ -1197,7 +1286,10 @@ def update_playbook(
     return backtester.update_playbook(db, playbook_id, payload)
 
 
-@router.delete("/playbooks/{playbook_id}")
+@router.delete(
+    "/playbooks/{playbook_id}",
+    dependencies=[Depends(require_api_token)],
+)
 def delete_playbook(
     playbook_id: int,
     db: Session = Depends(get_db),
@@ -1214,7 +1306,11 @@ def get_trades(
     return backtester.list_trades(db, session_id)
 
 
-@router.patch("/trades/{trade_id}/journal", response_model=TradeRead)
+@router.patch(
+    "/trades/{trade_id}/journal",
+    response_model=TradeRead,
+    dependencies=[Depends(require_api_token)],
+)
 def patch_journal(
     trade_id: int,
     payload: JournalUpdate,
@@ -1223,7 +1319,11 @@ def patch_journal(
     return backtester.update_journal(db, trade_id, payload)
 
 
-@router.patch("/trades/{trade_id}/strategy", response_model=TradeRead)
+@router.patch(
+    "/trades/{trade_id}/strategy",
+    response_model=TradeRead,
+    dependencies=[Depends(require_api_token)],
+)
 def patch_trade_strategy(
     trade_id: int,
     payload: TradeStrategyUpdate,

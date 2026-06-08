@@ -461,11 +461,14 @@ export type AppDataImportResult = {
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "/api";
+const API_BEARER_TOKEN =
+  import.meta.env.VITE_API_BEARER_TOKEN ?? "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      ...(API_BEARER_TOKEN ? { Authorization: `Bearer ${API_BEARER_TOKEN}` } : {}),
       ...init?.headers,
     },
     ...init,
@@ -477,6 +480,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export function getApiBearerToken() {
+  return API_BEARER_TOKEN || null;
 }
 
 export function getApiWebSocketUrl(path: string) {

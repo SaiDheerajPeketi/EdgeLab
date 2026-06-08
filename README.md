@@ -17,6 +17,8 @@ docker compose up --build
 
 Open `http://localhost:8080` by default. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
 
+Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For the bundled frontend, set `VITE_API_BEARER_TOKEN` to the same value at build time.
+
 The Compose setup expects a replay CSV at `./EURUSD_M1.csv` unless `EDGELAB_CSV_PATH` is changed in `.env`. Optional preprocessed datasets can be mounted by setting `EDGELAB_DATASETS_ROOT`.
 
 Useful Docker commands:

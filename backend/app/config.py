@@ -31,6 +31,7 @@ class Settings:
     database_url: str = os.getenv(
         "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'trade_journal_v2.db'}"
     )
+    api_token: str = os.getenv("EDGELAB_API_TOKEN", "").strip()
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
         for origin in os.getenv(

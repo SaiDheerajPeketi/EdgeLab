@@ -78,6 +78,7 @@ import {
 import {
   exportAppDataBundle,
   getAngelOneInstruments,
+  getApiBearerToken,
   getApiWebSocketUrl,
   getBinanceInstruments,
   getDukascopyCandles,
@@ -1408,6 +1409,7 @@ function LiveMarketsPage() {
 
     socket.onopen = () => {
       socket.send(JSON.stringify({
+        apiToken: getApiBearerToken(),
         credentials: angelOneCredentials,
         symbols: streamSymbols.map((item) => ({
           exchangeType: item.exchangeType,
