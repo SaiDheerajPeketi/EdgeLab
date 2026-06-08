@@ -480,7 +480,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function getApiWebSocketUrl(path: string) {
-  const base = new URL(API_BASE_URL);
+  const origin =
+    typeof window === "undefined" ? "http://127.0.0.1" : window.location.origin;
+  const base = new URL(API_BASE_URL, origin);
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   const prefix = base.pathname.replace(/\/$/, "");
   const suffix = path.startsWith("/") ? path : `/${path}`;
