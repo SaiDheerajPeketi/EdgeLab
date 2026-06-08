@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import struct
 from datetime import datetime, timedelta, timezone
@@ -76,6 +77,7 @@ from app.services.trade_imports import import_trade_csv
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
@@ -985,9 +987,10 @@ async def angelone_stream(websocket: WebSocket) -> None:
                 task.result()
     except WebSocketDisconnect:
         return
-    except Exception as exc:
+    except Exception:
+        logger.exception("Angel One live feed failed")
         try:
-            await websocket.send_json({"type": "error", "message": f"Angel One live feed failed: {exc}"})
+            await websocket.send_json({"type": "error", "message": "Angel One live feed failed"})
         except Exception:
             return
 
