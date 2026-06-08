@@ -15,7 +15,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open `http://localhost:8080` by default. Change `FRONTEND_PORT` in `.env` when another port is required.
+Open `http://localhost:8080` by default. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`.
 
 The Compose setup expects a replay CSV at `./EURUSD_M1.csv` unless `EDGELAB_CSV_PATH` is changed in `.env`. Optional preprocessed datasets can be mounted by setting `EDGELAB_DATASETS_ROOT`.
 

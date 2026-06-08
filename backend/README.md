@@ -30,7 +30,7 @@ The SQLite database defaults to `backend/trade_journal_v2.db`. Override it with:
 export DATABASE_URL=sqlite:////absolute/path/to/trade_journal_v2.db
 ```
 
-The dataset catalog root defaults to the local workstation path configured in `backend/app/config.py`. Override it with:
+The dataset catalog root defaults to `../datasets`. Override it with:
 
 ```bash
 export EDGELAB_DATASETS_ROOT=/absolute/path/to/datasets
