@@ -34,6 +34,9 @@ from app.services.metrics import get_metrics
 OPEN_ORDER = "PENDING"
 FILLED_ORDER = "FILLED"
 CANCELLED_ORDER = "CANCELLED"
+STATE_EXECUTION_LIMIT = 1000
+STATE_ORDER_LIMIT = 500
+STATE_TRADE_LIMIT = 500
 
 
 class BacktestService:
@@ -133,6 +136,7 @@ class BacktestService:
                     select(Order)
                     .where(Order.session_id == session.id)
                     .order_by(desc(Order.created_at), desc(Order.id))
+                    .limit(STATE_ORDER_LIMIT)
                 )
             ],
             executions=[
@@ -141,6 +145,7 @@ class BacktestService:
                     select(Execution)
                     .where(Execution.session_id == session.id)
                     .order_by(desc(Execution.timestamp), desc(Execution.id))
+                    .limit(STATE_EXECUTION_LIMIT)
                 )
             ],
             trades=[
@@ -149,6 +154,7 @@ class BacktestService:
                     select(Trade)
                     .where(Trade.session_id == session.id)
                     .order_by(desc(Trade.entry_time), desc(Trade.id))
+                    .limit(STATE_TRADE_LIMIT)
                 )
             ],
             metrics=get_metrics(db, session.id),
