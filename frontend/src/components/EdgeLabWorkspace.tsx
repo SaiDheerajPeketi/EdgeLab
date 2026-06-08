@@ -1245,7 +1245,7 @@ function LiveMarketsPage() {
   const [binanceSearch, setBinanceSearch] = useState("");
   const [dukascopySearch, setDukascopySearch] = useState("");
   const [angelOneSearch, setAngelOneSearch] = useState("");
-  const [angelOneCredentials, setAngelOneCredentials] = useState<AngelOneCredentials>(() => loadAngelOneCredentials());
+  const [angelOneCredentials, setAngelOneCredentials] = useState<AngelOneCredentials>(() => defaultAngelOneCredentials());
   const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
   const [liveBars, setLiveBars] = useState<Candle[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
@@ -1267,8 +1267,8 @@ function LiveMarketsPage() {
   const angelOneReady = hasAngelOneCredentials(angelOneCredentials);
 
   useEffect(() => {
-    saveAngelOneCredentials(angelOneCredentials);
-  }, [angelOneCredentials]);
+    window.localStorage.removeItem(ANGELONE_CREDENTIALS_STORAGE_KEY);
+  }, []);
 
   useEffect(() => {
     if (!watchlists.some((watchlist) => watchlist.id === selectedWatchlistId)) {
@@ -1737,7 +1737,7 @@ function LiveMarketsPage() {
                     <div>
                       <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">SmartAPI credentials</div>
                       <p className="mt-1 text-xs leading-5 text-slate-500">
-                        Required for the live socket. Stored only in this browser.
+                        Required for the live socket. Cleared when this page reloads.
                       </p>
                     </div>
                     <button
@@ -5866,41 +5866,6 @@ function defaultAngelOneCredentials(): AngelOneCredentials {
     feedToken: "",
     jwtToken: "",
   };
-}
-
-function loadAngelOneCredentials(): AngelOneCredentials {
-  if (typeof window === "undefined") {
-    return defaultAngelOneCredentials();
-  }
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(ANGELONE_CREDENTIALS_STORAGE_KEY) ?? "{}") as unknown;
-    const record = isPlainRecord(parsed) ? parsed : {};
-    return {
-      apiKey: stringRecordValue(record, "apiKey").trim(),
-      clientCode: stringRecordValue(record, "clientCode").trim(),
-      feedToken: stringRecordValue(record, "feedToken").trim(),
-      jwtToken: stringRecordValue(record, "jwtToken").trim(),
-    };
-  } catch {
-    return defaultAngelOneCredentials();
-  }
-}
-
-function saveAngelOneCredentials(credentials: AngelOneCredentials) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const sanitized = {
-    apiKey: credentials.apiKey.trim(),
-    clientCode: credentials.clientCode.trim(),
-    feedToken: credentials.feedToken.trim(),
-    jwtToken: credentials.jwtToken.trim(),
-  };
-  if (!hasAngelOneCredentials(sanitized)) {
-    window.localStorage.removeItem(ANGELONE_CREDENTIALS_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(ANGELONE_CREDENTIALS_STORAGE_KEY, JSON.stringify(sanitized));
 }
 
 function hasAngelOneCredentials(credentials: AngelOneCredentials) {
