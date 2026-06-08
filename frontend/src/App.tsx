@@ -134,6 +134,25 @@ function BacktestLoadingPanel() {
   );
 }
 
+function NotFoundPage() {
+  return (
+    <div className="min-h-screen bg-[#05070a] p-6 text-slate-100">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-3xl flex-col justify-center">
+        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-amber-300/25 bg-amber-300/10 text-amber-100">
+          <AlertTriangle size={20} />
+        </div>
+        <h1 className="text-2xl font-bold text-white">Page not found</h1>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+          This workspace does not have a route for the requested URL.
+        </p>
+        <a className="mt-5 inline-flex h-10 w-fit items-center rounded-md bg-cyan-300 px-4 text-sm font-bold text-slate-950" href="/">
+          Open workspace
+        </a>
+      </div>
+    </div>
+  );
+}
+
 type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
 type TimeframeShortcutFeedback = {
   description: string;
@@ -180,6 +199,19 @@ const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
 const VALID_CHART_STYLES: ChartStyle[] = ["area", "candles", "heikinAshi", "line"];
 
 export default function App() {
+  const isUnknownPath =
+    typeof window !== "undefined" &&
+    !["/", "/index.html"].includes(window.location.pathname);
+
+  if (isUnknownPath) {
+    return <NotFoundPage />;
+  }
+
+  return <WorkspaceApp />;
+}
+
+function WorkspaceApp() {
+
   const {
     bars,
     datasets,
