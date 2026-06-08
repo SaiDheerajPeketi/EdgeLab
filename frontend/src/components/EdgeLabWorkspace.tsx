@@ -1101,6 +1101,11 @@ const LIVE_MAX_WATCHLIST_SYMBOLS = 40;
 const LIVE_SOURCE_TIMEFRAME: ChartTimeframe = "1m";
 const LIVE_DRAWING_UNDO_LIMIT = 50;
 const LIVE_DRAWING_UNDO_COALESCE_MS = 350;
+const LIVE_CATALOG_LIMITS = {
+  angelone: 4000,
+  binance: 3000,
+  dukascopy: 800,
+};
 const TIMEFRAME_SHORTCUT_CLEAR_MS = 1200;
 
 const LIVE_TIMEFRAMES: Array<{
@@ -4973,11 +4978,11 @@ async function fetchBinanceKlines(
 }
 
 async function fetchLiveMarketCatalog(): Promise<LiveMarketCatalog> {
-  const [binanceResponse, dukascopyResponse, angelOneResponse] = await Promise.all([
-    getBinanceInstruments("", 5000),
-    getDukascopyInstruments("", 5000),
-    getAngelOneInstruments("", 12000, true),
+  const [binanceResponse, dukascopyResponse] = await Promise.all([
+    getBinanceInstruments("", LIVE_CATALOG_LIMITS.binance),
+    getDukascopyInstruments("", LIVE_CATALOG_LIMITS.dukascopy),
   ]);
+  const angelOneResponse = await getAngelOneInstruments("", LIVE_CATALOG_LIMITS.angelone);
   return sanitizeLiveMarketCatalog({
     angelone: angelOneResponse.instruments.map(apiAngelOneInstrumentToLive),
     binance: binanceResponse.instruments.map(apiBinanceInstrumentToLive),
