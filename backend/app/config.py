@@ -15,7 +15,7 @@ class Settings:
     datasets_root: Path = Path(
         os.getenv(
             "EDGELAB_DATASETS_ROOT",
-            "/Users/speketi/Projects/Backtest/Datasets/Preprocessed",
+            PROJECT_ROOT / "datasets",
         )
     )
     database_url: str = os.getenv(
