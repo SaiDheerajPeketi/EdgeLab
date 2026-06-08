@@ -12,6 +12,12 @@ pip install -r requirements.txt
 PYTHONPATH=. python -m uvicorn app.main:app --reload
 ```
 
+Seed default playbooks from the repository root with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
+```
+
 The app reads `../EURUSD_M1.csv` by default. Override it with:
 
 ```bash

@@ -60,6 +60,12 @@ The backend reads `EURUSD_M1.csv` from the repository root by default.
 
 The upgraded backend uses `backend/trade_journal_v2.db` by default. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
 
+Seed default playbooks after installing backend dependencies with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
+```
+
 ## Deployment Files
 
 - `docker-compose.yml` defines the deployable service graph.
