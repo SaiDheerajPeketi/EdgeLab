@@ -47,6 +47,7 @@ import {
 } from "../lib/orderSettings";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
+import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
@@ -600,24 +601,34 @@ export function SessionGateway({
           )}
 
           <div className="session-form-grid">
-            <label className="form-field">
+            <div className="form-field">
               <span>Start Date</span>
-              <input
-                className="input-control h-11"
-                onChange={(event) => setStartDate(event.target.value)}
-                type="datetime-local"
+              <ReplayDateTimePicker
+                currentTimestamp={selectedTimeframe?.first_timestamp ?? null}
+                dateFormat="dd MMM yy"
+                dayOfWeekLabels
+                dialogLabel="Start Date"
+                disabled={!selectedTimeframe}
+                onChange={setStartDate}
+                placeholder="Select start date"
+                timeHoursFormat="24-hour"
                 value={startDate}
               />
-            </label>
-            <label className="form-field">
+            </div>
+            <div className="form-field">
               <span>End Date</span>
-              <input
-                className="input-control h-11"
-                onChange={(event) => setEndDate(event.target.value)}
-                type="datetime-local"
+              <ReplayDateTimePicker
+                currentTimestamp={selectedTimeframe?.last_timestamp ?? null}
+                dateFormat="dd MMM yy"
+                dayOfWeekLabels
+                dialogLabel="End Date"
+                disabled={!selectedTimeframe}
+                onChange={setEndDate}
+                placeholder="Select end date"
+                timeHoursFormat="24-hour"
                 value={endDate}
               />
-            </label>
+            </div>
             <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-400">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
                 <CalendarRange size={14} />

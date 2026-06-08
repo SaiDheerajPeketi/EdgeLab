@@ -9,6 +9,7 @@ import type {
   Playbook,
 } from "../lib/api";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
+import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
@@ -236,25 +237,35 @@ export function DatasetSessionPanel({
           />
         </label>
 
-        <label className="form-field xl:col-span-2">
+        <div className="form-field xl:col-span-2">
           <span>Start Date</span>
-          <input
-            className="input-control h-10"
-            onChange={(event) => setStartDate(event.target.value)}
-            type="datetime-local"
+          <ReplayDateTimePicker
+            currentTimestamp={selectedTimeframe?.first_timestamp ?? null}
+            dateFormat="dd MMM yy"
+            dayOfWeekLabels
+            dialogLabel="Start Date"
+            disabled={!selectedTimeframe}
+            onChange={setStartDate}
+            placeholder="Select start date"
+            timeHoursFormat="24-hour"
             value={startDate}
           />
-        </label>
+        </div>
 
-        <label className="form-field xl:col-span-2">
+        <div className="form-field xl:col-span-2">
           <span>End Date</span>
-          <input
-            className="input-control h-10"
-            onChange={(event) => setEndDate(event.target.value)}
-            type="datetime-local"
+          <ReplayDateTimePicker
+            currentTimestamp={selectedTimeframe?.last_timestamp ?? null}
+            dateFormat="dd MMM yy"
+            dayOfWeekLabels
+            dialogLabel="End Date"
+            disabled={!selectedTimeframe}
+            onChange={setEndDate}
+            placeholder="Select end date"
+            timeHoursFormat="24-hour"
             value={endDate}
           />
-        </label>
+        </div>
 
         <button
           className="control-button h-10 self-end border-cyan-300/30 bg-cyan-300/10 text-cyan-100 xl:col-span-1"

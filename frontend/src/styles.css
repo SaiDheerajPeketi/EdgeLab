@@ -567,6 +567,16 @@ button:disabled {
     @apply grid min-w-0 gap-3 xl:grid-cols-3;
   }
 
+  .dataset-session-form .replay-date-picker,
+  .session-form-grid .replay-date-picker {
+    @apply w-full shrink;
+  }
+
+  .dataset-session-form .replay-date-trigger,
+  .session-form-grid .replay-date-trigger {
+    @apply w-full;
+  }
+
   .session-instrument-grid {
     @apply grid min-w-0 gap-2 md:grid-cols-3;
   }
