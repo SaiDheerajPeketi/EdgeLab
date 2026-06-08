@@ -36,8 +36,6 @@ class BacktestSession(Base):
     default_commission_value: Mapped[float] = mapped_column(Float, default=0.0)
     default_fee_mode: Mapped[str] = mapped_column(String(16), default="NONE")
     default_fee_value: Mapped[float] = mapped_column(Float, default=0.0)
-    commission_per_unit: Mapped[float] = mapped_column(Float, default=0.0)
-    slippage_per_unit: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
