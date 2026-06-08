@@ -34,6 +34,8 @@ The optional legacy Node API can be started with:
 docker compose --profile legacy-node-api up --build
 ```
 
+The legacy API profile uses `LEGACY_CORS_ORIGINS` and `LEGACY_API_MAX_BODY_BYTES` for origin allowlisting and request-size limits.
+
 ## Run The Backend
 
 ```bash

@@ -1,5 +1,19 @@
 import http from "node:http";
 
+const DEFAULT_CORS_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+];
+
+const LEGACY_API_MAX_BODY_BYTES = positiveIntegerEnv(
+  "LEGACY_API_MAX_BODY_BYTES",
+  10 * 1024 * 1024,
+);
+
 export function createApp() {
   const router = createRouter();
 
@@ -7,29 +21,32 @@ export function createApp() {
     ...router,
     listen(port, callback) {
       const server = http.createServer(async (nodeReq, nodeRes) => {
-        const req = await createRequest(nodeReq);
         const res = createResponse(nodeRes);
+        setSecurityHeaders(res);
 
-        setCorsHeaders(res);
-        if (req.method === "OPTIONS") {
-          res.status(204).send("");
-          return;
-        }
+        try {
+          const req = await createRequest(nodeReq);
 
-        router.handle(req, res, (error) => {
-          if (error) {
-            const status = error.statusCode ?? error.status ?? 500;
-            res.status(status).json({
-              error: error.code ?? "server_error",
-              message: error.message ?? "Unexpected server error",
-            });
+          setCorsHeaders(req, res);
+          if (req.method === "OPTIONS") {
+            res.status(204).send("");
             return;
           }
-          res.status(404).json({
-            error: "not_found",
-            message: `${req.method} ${req.path} is not registered.`,
+
+          router.handle(req, res, (error) => {
+            if (error) {
+              sendError(res, error);
+              return;
+            }
+            res.status(404).json({
+              error: "not_found",
+              message: `${req.method} ${req.path} is not registered.`,
+            });
           });
-        });
+        } catch (error) {
+          setCorsHeaders({ headers: nodeReq.headers }, res);
+          sendError(res, error);
+        }
       });
       return server.listen(port, callback);
     },
@@ -91,12 +108,16 @@ export default {
 
 async function createRequest(nodeReq) {
   const url = new URL(nodeReq.url, `http://${nodeReq.headers.host ?? "127.0.0.1"}`);
-  const rawBody = await readBody(nodeReq);
+  const rawBody = await readBody(nodeReq, LEGACY_API_MAX_BODY_BYTES);
   const contentType = nodeReq.headers["content-type"] ?? "";
   let body = {};
 
   if (rawBody.length > 0 && contentType.includes("application/json")) {
-    body = JSON.parse(rawBody.toString("utf8"));
+    try {
+      body = JSON.parse(rawBody.toString("utf8"));
+    } catch {
+      throw httpError(400, "invalid_json", "Request body is not valid JSON");
+    }
   } else if (rawBody.length > 0 && contentType.includes("application/x-www-form-urlencoded")) {
     body = Object.fromEntries(new URLSearchParams(rawBody.toString("utf8")));
   }
@@ -170,12 +191,30 @@ function runHandlers(handlers, req, res, out) {
   next();
 }
 
-function readBody(req) {
+function readBody(req, maxBodyBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    let received = 0;
+    let tooLarge = false;
+    req.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > maxBodyBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      if (!tooLarge) {
+        chunks.push(chunk);
+      }
+    });
     req.on("error", reject);
-    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("end", () => {
+      if (tooLarge) {
+        reject(httpError(413, "payload_too_large", "Request body is too large"));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
   });
 }
 
@@ -208,8 +247,46 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function setCorsHeaders(res) {
-  res.set("access-control-allow-origin", "*");
+function setSecurityHeaders(res) {
+  res.set("x-content-type-options", "nosniff");
+}
+
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  const allowedOrigins = configuredCorsOrigins();
+  if (origin && allowedOrigins.has(origin)) {
+    res.set("access-control-allow-origin", origin);
+  }
+  res.set("vary", "Origin");
   res.set("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
-  res.set("access-control-allow-headers", "content-type");
+  res.set("access-control-allow-headers", "authorization,content-type");
+}
+
+function configuredCorsOrigins() {
+  return new Set(
+    (process.env.LEGACY_CORS_ORIGINS ?? DEFAULT_CORS_ORIGINS.join(","))
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  );
+}
+
+function positiveIntegerEnv(name, fallback) {
+  const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function httpError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
+
+function sendError(res, error) {
+  const status = error.statusCode ?? error.status ?? 500;
+  res.status(status).json({
+    error: error.code ?? "server_error",
+    message: error.message ?? "Unexpected server error",
+  });
 }
