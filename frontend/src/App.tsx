@@ -124,6 +124,16 @@ function WorkspaceLoadingPanel() {
   );
 }
 
+function BacktestLoadingPanel() {
+  return (
+    <div className="mb-4 grid gap-2 rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
+      <div className="h-3 w-32 animate-pulse rounded bg-cyan-100/30" />
+      <div className="h-2 w-full max-w-md animate-pulse rounded bg-cyan-100/15" />
+      <div className="h-2 w-2/3 max-w-sm animate-pulse rounded bg-cyan-100/10" />
+    </div>
+  );
+}
+
 type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
 type TimeframeShortcutFeedback = {
   description: string;
@@ -1847,11 +1857,7 @@ export default function App() {
               {error}
             </div>
           )}
-          {isLoading && (
-            <div className="mb-4 rounded-md border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-              Loading workspace
-            </div>
-          )}
+          {isLoading && <BacktestLoadingPanel />}
 
           <div className="space-y-3">
             {leftPaneOpen && (
