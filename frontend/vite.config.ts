@@ -3,6 +3,38 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, "/");
+          if (!normalizedId.includes("/node_modules/")) {
+            return undefined;
+          }
+          if (normalizedId.includes("/node_modules/lucide-react/")) {
+            return "icon-vendor";
+          }
+          if (
+            normalizedId.includes("/node_modules/react/") ||
+            normalizedId.includes("/node_modules/react-dom/") ||
+            normalizedId.includes("/node_modules/scheduler/")
+          ) {
+            return "react-vendor";
+          }
+          if (normalizedId.includes("/node_modules/lightweight-charts/")) {
+            return "chart-vendor";
+          }
+          if (
+            normalizedId.includes("/node_modules/zustand/") ||
+            normalizedId.includes("/node_modules/use-sync-external-store/")
+          ) {
+            return "state-vendor";
+          }
+          return "vendor";
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

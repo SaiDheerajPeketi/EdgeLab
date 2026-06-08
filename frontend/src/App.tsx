@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
 import {
@@ -39,7 +39,6 @@ import {
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
-import { EdgeLabWorkspace } from "./components/EdgeLabWorkspace";
 import { TradingChart } from "./components/TradingChart";
 import type { BacktestCreatePayload, BacktestSessionUpdatePayload, Trade } from "./lib/api";
 import type {
@@ -107,6 +106,24 @@ const CHART_SETTINGS_DEFAULTS_VERSION = 2;
 const TRADE_REPLAY_CONTEXT_BARS = 30;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
+const EdgeLabWorkspace = lazy(() =>
+  import("./components/EdgeLabWorkspace").then((module) => ({
+    default: module.EdgeLabWorkspace,
+  })),
+);
+
+function WorkspaceLoadingPanel() {
+  return (
+    <div className="grid gap-3">
+      <div className="h-12 animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
+      <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="h-[calc(100vh-8rem)] animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
+        <div className="h-[calc(100vh-8rem)] animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
+      </div>
+    </div>
+  );
+}
+
 type NeutralDrawingTool = Extract<DrawingTool, "cursor" | "crosshair">;
 type TimeframeShortcutFeedback = {
   description: string;
@@ -1743,61 +1760,63 @@ export default function App() {
         />
         <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
-            <EdgeLabWorkspace
-              activeSession={state?.session ?? null}
-              datasets={datasets}
-              onEditTrade={setEditingTrade}
-              onInspectTrade={setReviewTrade}
-              onOpenTradeNote={openTradeNoteFromLog}
-              onNavigateBacktest={() => {
-                setNotebookReturnTarget(null);
-                setReplayFocusTrade(null);
-                setActiveWorkspace("backtest");
-                setSessionGateOpen(false);
-              }}
-              onNavigateDayView={() => {
-                setNotebookReturnTarget(null);
-                setReplayFocusTrade(null);
-                setActiveWorkspace("dayView");
-                setSessionGateOpen(false);
-              }}
-              onNavigateSessions={() => {
-                setNotebookReturnTarget(null);
-                setReplayFocusTrade(null);
-                setActiveWorkspace("sessions");
-                setSessionGateOpen(true);
-              }}
-              onNavigateTradeView={() => {
-                setNotebookReturnTarget(null);
-                setReplayFocusTrade(null);
-                setActiveWorkspace("tradeView");
-                setSessionGateOpen(false);
-              }}
-              onReplayTrade={replayTradeFromNotes}
-              onResumeSession={resumeSessionFromGateway}
-              onCreatePlaybook={createPlaybook}
-              onUpdatePlaybook={updatePlaybook}
-              onDeletePlaybook={deletePlaybook}
-              onRefreshDatasets={refreshDatasets}
-              onGetDatasetRefreshStatus={refreshDatasetStatus}
-              onUpdateDatasetAsset={updateDatasetAsset}
-              onUpdateDatasetSettings={updateDatasetSettings}
-              playbooks={playbooks}
-              sessions={resultSessions}
-              trades={resultTrades}
-              view={activeWorkspace}
-              notebookFocusTradeId={notebookFocusTradeId}
-              notebookReturnToBacktestPanel={
-                notebookReturnTarget === "backtestReview"
-                  ? "review"
-                  : notebookReturnTarget === "backtestResults"
-                    ? "results"
-                    : null
-              }
-              notebookReturnToDayView={notebookReturnTarget === "dayView"}
-              notebookReturnToTradeView={notebookReturnTarget === "tradeView"}
-              onReturnToBacktestPanel={returnToBacktestPanel}
-            />
+            <Suspense fallback={<WorkspaceLoadingPanel />}>
+              <EdgeLabWorkspace
+                activeSession={state?.session ?? null}
+                datasets={datasets}
+                onEditTrade={setEditingTrade}
+                onInspectTrade={setReviewTrade}
+                onOpenTradeNote={openTradeNoteFromLog}
+                onNavigateBacktest={() => {
+                  setNotebookReturnTarget(null);
+                  setReplayFocusTrade(null);
+                  setActiveWorkspace("backtest");
+                  setSessionGateOpen(false);
+                }}
+                onNavigateDayView={() => {
+                  setNotebookReturnTarget(null);
+                  setReplayFocusTrade(null);
+                  setActiveWorkspace("dayView");
+                  setSessionGateOpen(false);
+                }}
+                onNavigateSessions={() => {
+                  setNotebookReturnTarget(null);
+                  setReplayFocusTrade(null);
+                  setActiveWorkspace("sessions");
+                  setSessionGateOpen(true);
+                }}
+                onNavigateTradeView={() => {
+                  setNotebookReturnTarget(null);
+                  setReplayFocusTrade(null);
+                  setActiveWorkspace("tradeView");
+                  setSessionGateOpen(false);
+                }}
+                onReplayTrade={replayTradeFromNotes}
+                onResumeSession={resumeSessionFromGateway}
+                onCreatePlaybook={createPlaybook}
+                onUpdatePlaybook={updatePlaybook}
+                onDeletePlaybook={deletePlaybook}
+                onRefreshDatasets={refreshDatasets}
+                onGetDatasetRefreshStatus={refreshDatasetStatus}
+                onUpdateDatasetAsset={updateDatasetAsset}
+                onUpdateDatasetSettings={updateDatasetSettings}
+                playbooks={playbooks}
+                sessions={resultSessions}
+                trades={resultTrades}
+                view={activeWorkspace}
+                notebookFocusTradeId={notebookFocusTradeId}
+                notebookReturnToBacktestPanel={
+                  notebookReturnTarget === "backtestReview"
+                    ? "review"
+                    : notebookReturnTarget === "backtestResults"
+                      ? "results"
+                      : null
+                }
+                notebookReturnToDayView={notebookReturnTarget === "dayView"}
+                notebookReturnToTradeView={notebookReturnTarget === "tradeView"}
+                onReturnToBacktestPanel={returnToBacktestPanel}
+              />
+            </Suspense>
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
               {error && (
