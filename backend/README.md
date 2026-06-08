@@ -36,6 +36,8 @@ The SQLite database defaults to `backend/trade_journal_v2.db`. Override it with:
 export DATABASE_URL=sqlite:////absolute/path/to/trade_journal_v2.db
 ```
 
+Startup runs versioned SQLite migrations after creating missing tables. Applied migrations are recorded in the `schema_migrations` table.
+
 Set an API bearer token for protected mutation and app-data routes with:
 
 ```bash
