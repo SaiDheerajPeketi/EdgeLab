@@ -1468,10 +1468,17 @@ function LiveMarketsPage() {
     if (selectedFeed !== "dukascopy" || !selectedLiveSymbol) {
       return undefined;
     }
-    const interval = window.setInterval(() => {
+    let isActive = true;
+    let activeController: AbortController | null = null;
+    const poll = () => {
+      activeController?.abort();
       const controller = new AbortController();
+      activeController = controller;
       void fetchDukascopyCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal, 1000)
         .then((nextBars) => {
+          if (!isActive || controller.signal.aborted) {
+            return;
+          }
           setLiveBars(nextBars);
           const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
           if (ticker) {
@@ -1479,10 +1486,18 @@ function LiveMarketsPage() {
           }
         })
         .catch(() => {
+          if (!isActive || controller.signal.aborted) {
+            return;
+          }
           setConnectionStatus("error");
         });
-    }, DUKASCOPY_POLL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    };
+    const interval = window.setInterval(poll, DUKASCOPY_POLL_INTERVAL_MS);
+    return () => {
+      isActive = false;
+      window.clearInterval(interval);
+      activeController?.abort();
+    };
   }, [selectedFeed, selectedLiveSymbol]);
 
   function persistWatchlist(nextWatchlist: LiveWatchlist) {
