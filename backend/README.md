@@ -42,6 +42,12 @@ FastAPI rejects HTTP request bodies larger than 25 MB by default. Override it wi
 export EDGELAB_MAX_REQUEST_BODY_BYTES=26214400
 ```
 
+App-data import/export is capped at 100,000 total rows by default. Override it with:
+
+```bash
+export EDGELAB_MAX_APP_DATA_ROWS=100000
+```
+
 ## Docker
 
 The backend container is built by `backend/Dockerfile` and normally runs through the repository root `docker-compose.yml`.
@@ -50,6 +56,7 @@ Container defaults:
 
 - `EDGELAB_CSV_PATH=/data/EURUSD_M1.csv`
 - `EDGELAB_DATASETS_ROOT=/datasets`
+- `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
 

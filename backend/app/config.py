@@ -44,6 +44,7 @@ class Settings:
         "EDGELAB_MAX_REQUEST_BODY_BYTES",
         25 * 1024 * 1024,
     )
+    max_app_data_rows: int = int_env("EDGELAB_MAX_APP_DATA_ROWS", 100_000)
 
 
 settings = Settings()

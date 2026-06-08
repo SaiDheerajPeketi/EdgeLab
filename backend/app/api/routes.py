@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
-from sqlalchemy import DateTime, select
+from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -132,6 +132,7 @@ APP_DATA_TABLES = [
     ("executions", Execution),
     ("trade_notes", TradeNote),
 ]
+APP_DATA_TABLE_NAMES = {table_name for table_name, _model in APP_DATA_TABLES}
 
 
 def serialize_bundle_row(row: object) -> dict[str, object]:
@@ -163,6 +164,22 @@ def bundle_row_to_model(model: type, payload: dict[str, object]) -> object:
             value = parse_bundle_datetime(value)
         values[column.name] = value
     return model(**values)
+
+
+def validate_app_data_bundle(bundle: AppDataBundle) -> None:
+    unknown_tables = sorted(set(bundle.tables) - APP_DATA_TABLE_NAMES)
+    if unknown_tables:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Import bundle contains unknown tables: {', '.join(unknown_tables)}",
+        )
+
+    total_rows = sum(len(rows) for rows in bundle.tables.values())
+    if total_rows > settings.max_app_data_rows:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Import bundle exceeds the {settings.max_app_data_rows} row limit",
+        )
 
 
 def dataset_error_response(exc: Exception) -> HTTPException:
@@ -592,13 +609,23 @@ def update_dataset_asset(
 
 @router.get("/app-data/export", response_model=AppDataBundle)
 def export_app_data(db: Session = Depends(get_db)) -> AppDataBundle:
-    tables = {
-        table_name: [
+    row_counts = {
+        table_name: db.scalar(select(func.count()).select_from(model)) or 0
+        for table_name, model in APP_DATA_TABLES
+    }
+    total_rows = sum(row_counts.values())
+    if total_rows > settings.max_app_data_rows:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Export exceeds the {settings.max_app_data_rows} row limit",
+        )
+
+    tables = {}
+    for table_name, model in APP_DATA_TABLES:
+        tables[table_name] = [
             serialize_bundle_row(row)
             for row in db.scalars(select(model)).all()
         ]
-        for table_name, model in APP_DATA_TABLES
-    }
     return AppDataBundle(exported_at=utcnow(), tables=tables)
 
 
@@ -611,6 +638,7 @@ def import_app_data(
         raise HTTPException(status_code=400, detail="Import file is not an EdgeLab data bundle")
     if bundle.version > 1:
         raise HTTPException(status_code=400, detail="Import bundle version is newer than this app supports")
+    validate_app_data_bundle(bundle)
 
     try:
         for _table_name, model in reversed(APP_DATA_TABLES):
@@ -627,7 +655,8 @@ def import_app_data(
         return AppDataImportResult(imported_at=utcnow(), summary=summary)
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
+        logger.exception("App data import failed")
+        raise HTTPException(status_code=400, detail="Import failed") from exc
 
 
 @router.get("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
