@@ -1,3 +1,5 @@
+import { CHART_COLOR } from "./colorTokens";
+
 export type ChartGridMode = "both" | "horizontal" | "none" | "vertical";
 export type ChartLineStyle = "solid" | "dashed" | "dotted";
 export type ChartScalePlacement = "auto" | "left" | "right";
@@ -55,23 +57,23 @@ export type ChartSettingsPreset = {
 };
 
 export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
-  backgroundColor: "#0D1117",
+  backgroundColor: CHART_COLOR.surface,
   barChangeValues: true,
-  bodyDownColor: "#FB7185",
-  bodyUpColor: "#22C55E",
+  bodyDownColor: CHART_COLOR.down,
+  bodyUpColor: CHART_COLOR.up,
   bodyVisible: true,
-  borderDownColor: "#FB7185",
-  borderUpColor: "#22C55E",
+  borderDownColor: CHART_COLOR.down,
+  borderUpColor: CHART_COLOR.up,
   borderVisible: true,
-  candleDownColor: "#FB7185",
-  candleUpColor: "#22C55E",
+  candleDownColor: CHART_COLOR.down,
+  candleUpColor: CHART_COLOR.up,
   chartValues: true,
   colorBarsByPreviousClose: false,
-  crosshairColor: "#94A3B8",
+  crosshairColor: CHART_COLOR.muted,
   crosshairVisible: true,
   dateFormat: "dd MMM yy",
   dayOfWeekLabels: true,
-  gridColor: "#334155",
+  gridColor: CHART_COLOR.grid,
   gridMode: "both",
   highLowLabels: "hidden",
   indicatorTitles: true,
@@ -81,12 +83,12 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   pricePrecision: 5,
   priceScaleBorderVisible: true,
   scalePlacement: "right",
-  sessionBreakColor: "#38BDF8",
+  sessionBreakColor: CHART_COLOR.sky,
   sessionBreakLineStyle: "dashed",
   sessionBreakLineWidth: 1,
   sessionBreaks: false,
   symbolLine: "valueLine",
-  textColor: "#A8B3C7",
+  textColor: CHART_COLOR.text,
   textSize: 12,
   timeScaleBorderVisible: true,
   timeHoursFormat: "24-hour",
@@ -94,8 +96,8 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   volume: true,
   watermark: "hidden",
   watermarkText: "EdgeLab",
-  wickDownColor: "#FB7185",
-  wickUpColor: "#22C55E",
+  wickDownColor: CHART_COLOR.down,
+  wickUpColor: CHART_COLOR.up,
   wickVisible: true,
 };
 
