@@ -90,3 +90,10 @@ If Docker is available, also run:
 docker compose config
 docker compose build
 ```
+
+Dependency audit checks require registry access:
+
+```bash
+pip install -r backend/requirements-dev.txt
+sh scripts/audit-dependencies.sh
+```

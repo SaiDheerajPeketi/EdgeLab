@@ -12,6 +12,12 @@ pip install -r requirements.txt
 PYTHONPATH=. python -m uvicorn app.main:app --reload
 ```
 
+Install audit tooling with:
+
+```bash
+pip install -r backend/requirements-dev.txt
+```
+
 Seed default playbooks from the repository root with:
 
 ```bash
