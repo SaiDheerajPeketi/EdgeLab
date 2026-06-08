@@ -134,6 +134,7 @@ APP_DATA_TABLES = [
     ("trade_notes", TradeNote),
 ]
 APP_DATA_TABLE_NAMES = {table_name for table_name, _model in APP_DATA_TABLES}
+APP_DATA_IMPORT_BATCH_SIZE = 1000
 
 
 def serialize_bundle_row(row: object) -> dict[str, object]:
@@ -670,8 +671,16 @@ def import_app_data(
         for table_name, model in APP_DATA_TABLES:
             rows = bundle.tables.get(table_name, [])
             summary[table_name] = len(rows)
-            for row in rows:
-                db.add(bundle_row_to_model(model, row))
+            batch = []
+            for index, row in enumerate(rows, start=1):
+                batch.append(bundle_row_to_model(model, row))
+                if index % APP_DATA_IMPORT_BATCH_SIZE == 0:
+                    db.add_all(batch)
+                    db.flush()
+                    batch = []
+            if batch:
+                db.add_all(batch)
+                db.flush()
         db.commit()
         return AppDataImportResult(imported_at=utcnow(), summary=summary)
     except Exception as exc:
