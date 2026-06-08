@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-Set a custom API base URL when needed:
+The dev server proxies `/api` to `http://127.0.0.1:8000`. Set a custom API base URL when needed:
 
 ```bash
 VITE_API_BASE_URL=http://127.0.0.1:8000/api npm run dev
