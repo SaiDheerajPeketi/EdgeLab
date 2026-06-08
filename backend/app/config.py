@@ -7,6 +7,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
+def int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     csv_path: Path = Path(
@@ -30,6 +40,10 @@ class Settings:
         if origin.strip()
     )
     cache_market_data: bool = os.getenv("EDGELAB_CACHE_MARKET_DATA", "1") != "0"
+    max_request_body_bytes: int = int_env(
+        "EDGELAB_MAX_REQUEST_BODY_BYTES",
+        25 * 1024 * 1024,
+    )
 
 
 settings = Settings()

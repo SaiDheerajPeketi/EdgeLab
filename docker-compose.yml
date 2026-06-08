@@ -9,6 +9,7 @@ services:
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_CSV_PATH: /data/EURUSD_M1.csv
       EDGELAB_DATASETS_ROOT: /datasets
+      EDGELAB_MAX_REQUEST_BODY_BYTES: ${EDGELAB_MAX_REQUEST_BODY_BYTES:-26214400}
     healthcheck:
       test:
         - CMD

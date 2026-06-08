@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/backend \
     EDGELAB_CSV_PATH=/data/EURUSD_M1.csv \
     EDGELAB_DATASETS_ROOT=/datasets \
+    EDGELAB_MAX_REQUEST_BODY_BYTES=26214400 \
     DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db
 
 WORKDIR /app
