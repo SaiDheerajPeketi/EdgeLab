@@ -1301,9 +1301,11 @@ def delete_playbook(
 @router.get("/trades", response_model=list[TradeRead])
 def get_trades(
     session_id: int | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=2000),
     db: Session = Depends(get_db),
 ) -> list[TradeRead]:
-    return backtester.list_trades(db, session_id)
+    return backtester.list_trades(db, session_id, offset=offset, limit=limit)
 
 
 @router.patch(

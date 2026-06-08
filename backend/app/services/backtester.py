@@ -351,10 +351,17 @@ class BacktestService:
         db.commit()
         return self.get_state(db, session.id)
 
-    def list_trades(self, db: Session, session_id: int | None = None) -> list[TradeRead]:
+    def list_trades(
+        self,
+        db: Session,
+        session_id: int | None = None,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> list[TradeRead]:
         query = select(Trade).order_by(desc(Trade.entry_time), desc(Trade.id))
         if session_id is not None:
             query = query.where(Trade.session_id == session_id)
+        query = query.offset(offset).limit(limit)
         return [to_trade_read(trade) for trade in db.scalars(query).all()]
 
     def update_journal(

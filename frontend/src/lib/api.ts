@@ -745,8 +745,21 @@ export function deletePlaybook(playbookId: number) {
   });
 }
 
-export function getTrades(sessionId?: number) {
-  const query = sessionId ? `?session_id=${sessionId}` : "";
+export function getTrades(
+  sessionId?: number,
+  options: { offset?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (sessionId) {
+    params.set("session_id", String(sessionId));
+  }
+  if (options.offset !== undefined) {
+    params.set("offset", String(options.offset));
+  }
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
   return request<Trade[]>(`/trades${query}`);
 }
 
