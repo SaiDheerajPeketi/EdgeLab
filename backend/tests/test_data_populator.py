@@ -6,6 +6,7 @@ import pandas as pd
 from app.services.data_populator import (
     MANIFEST_FILENAME,
     MarketCandle,
+    MarketSpec,
     ScheduledDataPopulator,
     binance_kline_to_candle,
     crypto_spec,
@@ -123,6 +124,7 @@ def test_data_populator_resumes_from_manifest(tmp_path):
         tmp_path,
         forex_symbols=(),
         crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2024-01-01",
         derived_timeframes=(),
     )
     result = populator.write_candles(
@@ -136,6 +138,7 @@ def test_data_populator_resumes_from_manifest(tmp_path):
         tmp_path,
         forex_symbols=(),
         crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2024-01-01",
         derived_timeframes=(),
     )
 
@@ -148,6 +151,66 @@ def test_data_populator_resumes_from_manifest(tmp_path):
         "markets"
     ]["BTC_USDT"]["timeframes"]["M1"]["csv_path"] == "BTC_USDT/BTCUSDT_M1.csv"
     assert result.rows == 2
+
+
+def test_data_populator_max_mode_backfills_before_first_local_timestamp(tmp_path):
+    spec = crypto_spec("BTCUSDT")
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2020-01-01",
+        derived_timeframes=(),
+    )
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+        ],
+    )
+
+    fetch_range = populator.next_fetch_range(
+        spec,
+        tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
+        datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+    )
+
+    assert fetch_range is not None
+    assert fetch_range.reason == "historical-backfill"
+    assert fetch_range.start_at == datetime(2020, 1, 1, tzinfo=timezone.utc)
+    assert fetch_range.end_at == datetime(2023, 12, 31, 23, 59, tzinfo=timezone.utc)
+
+
+def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
+    class TwoPagePopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            yield [candle("2024-01-01T00:00:00", 100.0)]
+            assert self.csv_path_for_spec(spec).is_file()
+            assert (self.root / MANIFEST_FILENAME).is_file()
+            yield [candle("2024-01-01T00:01:00", 101.0)]
+
+    populator = TwoPagePopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        backfill_mode="lookback",
+        derived_timeframes=(),
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 3, tzinfo=timezone.utc))
+    m1 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv")
+
+    assert summary.results[0].fetched == 2
+    assert m1["Timestamp"].tolist() == [
+        "2024-01-01 00:00:00",
+        "2024-01-01 00:01:00",
+    ]
 
 
 def test_data_populator_ignores_manifest_when_csv_is_missing(tmp_path):

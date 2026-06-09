@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Iterator, Literal
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -75,6 +75,13 @@ class PopulationResult:
 
 
 @dataclass(frozen=True)
+class FetchRange:
+    start_at: datetime
+    end_at: datetime
+    reason: str
+
+
+@dataclass(frozen=True)
 class PopulationSummary:
     started_at: datetime
     finished_at: datetime
@@ -102,19 +109,32 @@ class DataPopulatorManifest:
         return self._payload
 
     def last_timestamp(self, spec: MarketSpec, timeframe: str = "M1") -> datetime | None:
+        timestamp_range = self.timestamp_range(spec, timeframe)
+        return timestamp_range[1] if timestamp_range is not None else None
+
+    def timestamp_range(
+        self,
+        spec: MarketSpec,
+        timeframe: str = "M1",
+    ) -> tuple[datetime, datetime] | None:
         entry = self.timeframe_entry(spec, timeframe)
         if entry is None:
             return None
         csv_path = self.path_from_entry(entry)
         if not csv_path.is_file():
             return None
-        timestamp = entry.get("last_timestamp")
-        if not timestamp:
+        first_timestamp = entry.get("first_timestamp")
+        last_timestamp = entry.get("last_timestamp")
+        if not first_timestamp or not last_timestamp:
             return None
         try:
-            return parse_csv_timestamp(timestamp)
+            first = parse_csv_timestamp(first_timestamp)
+            last = parse_csv_timestamp(last_timestamp)
         except (TypeError, ValueError):
             return None
+        if first > last:
+            return None
+        return first, last
 
     def timeframe_entry(self, spec: MarketSpec, timeframe: str) -> dict[str, object] | None:
         markets = self.payload.get("markets")
@@ -259,16 +279,63 @@ class ScheduledDataPopulator:
         end_at = floor_minute(now or started_at) - MINUTE
         results: list[PopulationResult] = []
         self.root.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "Data population run started: root=%s instruments=%s end_at=%s",
+            self.root,
+            len(self.specs()),
+            utc_manifest_timestamp(end_at),
+        )
 
         for spec in self.specs():
             csv_path = self.csv_path_for_spec(spec)
             try:
-                start_at = self.next_fetch_start(spec, csv_path, end_at)
-                if start_at > end_at:
-                    results.append(self.write_candles(spec, [], csv_path))
+                fetch_range = self.next_fetch_range(spec, csv_path, end_at)
+                if fetch_range is None:
+                    results.append(self.result_for_existing_file(spec, csv_path, 0))
+                    logger.info(
+                        "%s is already current through %s",
+                        spec.instrument,
+                        utc_manifest_timestamp(end_at),
+                    )
                     continue
-                candles = self.fetch_candles(spec, start_at, end_at)
-                results.append(self.write_candles(spec, candles, csv_path))
+
+                logger.info(
+                    "Fetching %s %s candles from %s to %s (%s)",
+                    spec.provider,
+                    spec.instrument,
+                    utc_manifest_timestamp(fetch_range.start_at),
+                    utc_manifest_timestamp(fetch_range.end_at),
+                    fetch_range.reason,
+                )
+                fetched = 0
+                page_count = 0
+                for page_count, candles in enumerate(
+                    self.fetch_candle_pages(spec, fetch_range.start_at, fetch_range.end_at),
+                    start=1,
+                ):
+                    if not candles:
+                        continue
+                    fetched += len(candles)
+                    page_result = self.write_candles(spec, candles, csv_path)
+                    if page_count == 1 or page_count % 25 == 0:
+                        logger.info(
+                            "Wrote %s page %s: fetched=%s total_rows=%s page_range=%s..%s",
+                            spec.instrument,
+                            page_count,
+                            fetched,
+                            page_result.rows,
+                            utc_manifest_timestamp(candles[0].timestamp),
+                            utc_manifest_timestamp(candles[-1].timestamp),
+                        )
+
+                if fetched == 0:
+                    logger.info(
+                        "No %s candles returned for %s..%s",
+                        spec.instrument,
+                        utc_manifest_timestamp(fetch_range.start_at),
+                        utc_manifest_timestamp(fetch_range.end_at),
+                    )
+                results.append(self.result_for_existing_file(spec, csv_path, fetched))
             except Exception as exc:
                 logger.exception("Failed to populate %s", spec.instrument)
                 results.append(
@@ -288,17 +355,53 @@ class ScheduledDataPopulator:
             results=results,
         )
 
+    def next_fetch_range(
+        self,
+        spec: MarketSpec,
+        csv_path: Path,
+        end_at: datetime,
+    ) -> FetchRange | None:
+        local_range = self.local_data_range(spec, csv_path)
+        provider_start = self.provider_start_dates[spec.provider]
+        if local_range is None:
+            start_at = (
+                provider_start
+                if self.backfill_mode == "max"
+                else end_at - timedelta(days=self.lookback_days)
+            )
+            if start_at > end_at:
+                return None
+            return FetchRange(start_at=start_at, end_at=end_at, reason="initial-backfill")
+
+        first_timestamp, last_timestamp = local_range
+        if self.backfill_mode == "max" and first_timestamp > provider_start:
+            older_end = first_timestamp - MINUTE
+            if provider_start <= older_end:
+                return FetchRange(
+                    start_at=provider_start,
+                    end_at=older_end,
+                    reason="historical-backfill",
+                )
+        if last_timestamp < end_at:
+            return FetchRange(
+                start_at=last_timestamp + MINUTE,
+                end_at=end_at,
+                reason="append-latest",
+            )
+        return None
+
     def next_fetch_start(self, spec: MarketSpec, csv_path: Path, end_at: datetime) -> datetime:
-        manifest_timestamp_value = self.manifest.last_timestamp(spec, "M1")
-        if manifest_timestamp_value is not None:
-            return manifest_timestamp_value + MINUTE
-        last_timestamp = read_last_timestamp(csv_path)
-        if last_timestamp is not None:
+        fetch_range = self.next_fetch_range(spec, csv_path, end_at)
+        return fetch_range.start_at if fetch_range is not None else end_at + MINUTE
+
+    def local_data_range(self, spec: MarketSpec, csv_path: Path) -> tuple[datetime, datetime] | None:
+        manifest_range = self.manifest.timestamp_range(spec, "M1")
+        if manifest_range is not None:
+            return manifest_range
+        csv_range = read_timestamp_range(csv_path)
+        if csv_range is not None:
             self.update_manifest_from_existing_file(spec, "M1", csv_path)
-            return last_timestamp + MINUTE
-        if self.backfill_mode == "max":
-            return self.provider_start_dates[spec.provider]
-        return end_at - timedelta(days=self.lookback_days)
+        return csv_range
 
     def fetch_candles(
         self,
@@ -306,9 +409,21 @@ class ScheduledDataPopulator:
         start_at: datetime,
         end_at: datetime,
     ) -> list[MarketCandle]:
+        candles: list[MarketCandle] = []
+        for page in self.fetch_candle_pages(spec, start_at, end_at):
+            candles.extend(page)
+        return dedupe_candles(candles)
+
+    def fetch_candle_pages(
+        self,
+        spec: MarketSpec,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> Iterator[list[MarketCandle]]:
         if spec.provider == "binance":
-            return self.fetch_binance_candles(spec.instrument, start_at, end_at)
-        return self.fetch_dukascopy_candles(spec.instrument, start_at, end_at)
+            yield from self.fetch_binance_candle_pages(spec.instrument, start_at, end_at)
+            return
+        yield from self.fetch_dukascopy_candle_pages(spec.instrument, start_at, end_at)
 
     def fetch_binance_candles(
         self,
@@ -317,6 +432,16 @@ class ScheduledDataPopulator:
         end_at: datetime,
     ) -> list[MarketCandle]:
         candles: list[MarketCandle] = []
+        for page in self.fetch_binance_candle_pages(symbol, start_at, end_at):
+            candles.extend(page)
+        return dedupe_candles(candles)
+
+    def fetch_binance_candle_pages(
+        self,
+        symbol: str,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> Iterator[list[MarketCandle]]:
         cursor_ms = int(start_at.timestamp() * 1000)
         end_ms = int(end_at.timestamp() * 1000)
 
@@ -337,13 +462,12 @@ class ScheduledDataPopulator:
             page = [candle for candle in page if start_at <= candle.timestamp <= end_at]
             if not page:
                 break
-            candles.extend(page)
+            page = dedupe_candles(page)
+            yield page
             next_cursor = int(page[-1].timestamp.timestamp() * 1000) + 60_000
             if next_cursor <= cursor_ms:
                 break
             cursor_ms = next_cursor
-
-        return dedupe_candles(candles)
 
     def fetch_binance_json(self, path: str) -> object:
         last_error: Exception | None = None
@@ -361,6 +485,16 @@ class ScheduledDataPopulator:
         end_at: datetime,
     ) -> list[MarketCandle]:
         candles: list[MarketCandle] = []
+        for page in self.fetch_dukascopy_candle_pages(instrument, start_at, end_at):
+            candles.extend(page)
+        return dedupe_candles(candles)
+
+    def fetch_dukascopy_candle_pages(
+        self,
+        instrument: str,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> Iterator[list[MarketCandle]]:
         cursor_ms = int(end_at.timestamp() * 1000)
         start_ms = int(start_at.timestamp() * 1000)
 
@@ -389,7 +523,8 @@ class ScheduledDataPopulator:
             ]
             if not page:
                 break
-            candles.extend(page)
+            page = dedupe_candles(page)
+            yield page
             earliest = min(candle.timestamp for candle in page)
             if earliest <= start_at:
                 break
@@ -397,8 +532,6 @@ class ScheduledDataPopulator:
             if next_cursor >= cursor_ms:
                 break
             cursor_ms = next_cursor
-
-        return dedupe_candles(candles)
 
     def write_candles(
         self,
@@ -709,12 +842,20 @@ def empty_frame() -> pd.DataFrame:
 
 
 def read_last_timestamp(csv_path: Path) -> datetime | None:
+    timestamp_range = read_timestamp_range(csv_path)
+    return timestamp_range[1] if timestamp_range is not None else None
+
+
+def read_timestamp_range(csv_path: Path) -> tuple[datetime, datetime] | None:
     if not csv_path.exists():
         return None
     frame = load_csv_frame(csv_path)
     if frame.empty:
         return None
-    return parse_csv_timestamp(frame.iloc[-1]["Timestamp"])
+    return (
+        parse_csv_timestamp(frame.iloc[0]["Timestamp"]),
+        parse_csv_timestamp(frame.iloc[-1]["Timestamp"]),
+    )
 
 
 def parse_csv_timestamp(value: object) -> datetime:

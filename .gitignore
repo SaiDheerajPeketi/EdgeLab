@@ -1,7 +1,8 @@
 .DS_Store
 .pytest_cache/
 EURUSD_M1.csv
-datasets/
+datasets/*
+!datasets/.gitkeep
 node_modules/
 backend/.venv/
 backend/data/

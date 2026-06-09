@@ -25,6 +25,16 @@ def main() -> None:
         request_timeout_seconds=settings.data_populator_request_timeout_seconds,
     )
     interval = max(60, settings.data_populator_interval_seconds)
+    logger.info(
+        "Data populator starting: root=%s interval_seconds=%s backfill_mode=%s "
+        "forex_symbols=%s crypto_symbols=%s derived_timeframes=%s",
+        settings.datasets_root,
+        interval,
+        settings.data_populator_backfill_mode,
+        ",".join(settings.data_populator_forex_symbols),
+        ",".join(settings.data_populator_crypto_symbols),
+        ",".join(settings.data_populator_derived_timeframes),
+    )
 
     while True:
         summary = populator.populate_once()
@@ -37,6 +47,7 @@ def main() -> None:
         if summary.errors:
             for result in summary.errors:
                 logger.warning("%s failed: %s", result.asset_id, result.error)
+        logger.info("Data populator sleeping for %s seconds", interval)
         time.sleep(interval)
 
 

@@ -19,5 +19,6 @@ backend/**/*.pyc
 *.db-wal
 
 EURUSD_M1.csv
-datasets/
+datasets/*
+!datasets/.gitkeep
 .env
