@@ -7,11 +7,11 @@ ENV VITE_API_BEARER_TOKEN=${VITE_API_BEARER_TOKEN}
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-COPY frontend/package.json frontend/package.json
-RUN npm ci
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN npm --prefix frontend ci
 
 COPY frontend /app/frontend
+COPY scripts /app/scripts
 RUN npm --prefix frontend run build
 
 FROM nginx:1.27-alpine
