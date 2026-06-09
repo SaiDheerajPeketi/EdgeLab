@@ -223,6 +223,7 @@ function WorkspaceApp() {
     datasets,
     meta,
     state,
+    replaySeekVersion,
     playbooks,
     resultSessions,
     resultTrades,
@@ -2145,6 +2146,7 @@ function WorkspaceApp() {
                                   ? replayFocusTrade
                                   : null
                               }
+                              replaySeekVersion={replaySeekVersion}
                               selectedDrawingId={paneActive ? selectedDrawingId : null}
                               showOrderOverlays={pane.showOrderOverlays}
                               symbol={state?.session.symbol}

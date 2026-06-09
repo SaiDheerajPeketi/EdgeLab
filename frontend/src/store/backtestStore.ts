@@ -53,6 +53,7 @@ const DEFAULT_CONTEXT_BARS = 300;
 type BacktestStore = {
   bars: Candle[];
   barOffset: number;
+  replaySeekVersion: number;
   datasets: DatasetCatalog | null;
   meta: DatasetMeta | null;
   state: BacktestState | null;
@@ -99,6 +100,7 @@ type BacktestStore = {
 export const useBacktestStore = create<BacktestStore>((set, get) => ({
   bars: [],
   barOffset: 0,
+  replaySeekVersion: 0,
   datasets: null,
   meta: null,
   state: null,
@@ -203,7 +205,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             state.session.start_offset,
           )
         : { bars: [], barOffset: 0 };
-      set({
+      set((current) => ({
         datasets,
         meta,
         state,
@@ -219,7 +221,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           tradesResult,
         ]),
         isLoading: false,
-      });
+        replaySeekVersion: state ? current.replaySeekVersion + 1 : current.replaySeekVersion,
+      }));
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
     }
@@ -310,13 +313,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.id,
         state.session.start_offset,
       );
-      set({
+      set((current) => ({
         meta,
         state,
         bars: window.bars,
         barOffset: window.barOffset,
         isLoading: false,
-      });
+        replaySeekVersion: current.replaySeekVersion + 1,
+      }));
       void get().refreshResults();
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
@@ -334,13 +338,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.id,
         state.session.start_offset,
       );
-      set({
+      set((current) => ({
         meta,
         state,
         bars: window.bars,
         barOffset: window.barOffset,
         isLoading: false,
-      });
+        replaySeekVersion: current.replaySeekVersion + 1,
+      }));
       void get().refreshResults();
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
@@ -377,6 +382,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           meta: deletingActiveSession ? null : current.meta,
           bars: deletingActiveSession ? [] : current.bars,
           barOffset: deletingActiveSession ? 0 : current.barOffset,
+          replaySeekVersion: deletingActiveSession
+            ? current.replaySeekVersion + 1
+            : current.replaySeekVersion,
           isPlaying: deletingActiveSession ? false : current.isPlaying,
           error: null,
         };
@@ -453,7 +461,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.id,
         state.session.start_offset,
       );
-      set({ state, bars, barOffset, isLoading: false });
+      set((current) => ({
+        state,
+        bars,
+        barOffset,
+        isLoading: false,
+        replaySeekVersion: current.replaySeekVersion + 1,
+      }));
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
     }
@@ -472,7 +486,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.id,
         state.session.start_offset,
       );
-      set({ state, bars, barOffset, isLoading: false });
+      set((current) => ({
+        state,
+        bars,
+        barOffset,
+        isLoading: false,
+        replaySeekVersion: current.replaySeekVersion + 1,
+      }));
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
     }

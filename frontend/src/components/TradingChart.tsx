@@ -148,6 +148,7 @@ type Props = {
   position: Position | null;
   pnlMultiplier: number;
   replayFocusTrade?: Trade | null;
+  replaySeekVersion?: number;
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   symbol?: string;
@@ -321,6 +322,7 @@ export function TradingChart({
   position,
   pnlMultiplier,
   replayFocusTrade = null,
+  replaySeekVersion = 0,
   selectedDrawingId,
   showOrderOverlays,
   symbol = "EURUSD",
@@ -365,6 +367,7 @@ export function TradingChart({
   const priceScaleFingerprintRef = useRef<string | null>(null);
   const suppressNextDrawingClickRef = useRef(false);
   const previousTimeframeRef = useRef(timeframe);
+  const previousReplaySeekVersionRef = useRef(replaySeekVersion);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -892,6 +895,19 @@ export function TradingChart({
       }
     };
   }, [candleData, closeLineData, displayBars.length, timeframe, volumeData]);
+
+  useEffect(() => {
+    if (previousReplaySeekVersionRef.current === replaySeekVersion) {
+      return;
+    }
+    previousReplaySeekVersionRef.current = replaySeekVersion;
+    if (displayBars.length === 0) {
+      return;
+    }
+
+    const resetFrame = window.requestAnimationFrame(() => resetChartView());
+    return () => window.cancelAnimationFrame(resetFrame);
+  }, [displayBars.length, replaySeekVersion]);
 
   useEffect(() => {
     const canShowLine = chartStyle === "line" && lineRef.current != null;
