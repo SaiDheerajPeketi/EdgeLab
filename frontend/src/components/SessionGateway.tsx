@@ -1018,7 +1018,7 @@ function SessionEditDialog({
           <div className="grid gap-3 md:grid-cols-3">
             <ReadOnlyPill label="Market" value={`${formatMarketSymbol(session.symbol)} · ${session.timeframe ?? "M1"}`} />
             <ReadOnlyPill label="Instrument" value={session.instrument ?? "Default"} />
-            <ReadOnlyPill label="Dataset" value={session.csv_path ?? "Default CSV"} />
+            <ReadOnlyPill label="Dataset" value={session.csv_path ?? "Dataset catalog"} />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">

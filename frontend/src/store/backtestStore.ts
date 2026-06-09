@@ -186,7 +186,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
       const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
       const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
-      const initialState = await getLatestBacktest().catch(() => createBacktest({}));
+      const initialState = await getLatestBacktest().catch(() => createBacktest(initialDatasetSessionPayload(datasets)));
       const meta = await getMeta(initialState.session.id);
       const state = await ensureReplayContext(initialState, meta);
       const window = await loadWindow(
@@ -631,4 +631,24 @@ function firstRejectedMessage(results: PromiseSettledResult<unknown>[]) {
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   return rejected ? toErrorMessage(rejected.reason) : null;
+}
+
+function initialDatasetSessionPayload(datasets: DatasetCatalog | null): BacktestCreatePayload {
+  for (const instrument of datasets?.instruments ?? []) {
+    const timeframe = instrument.timeframes[0];
+    if (!timeframe) {
+      continue;
+    }
+    return {
+      name: `${instrument.symbol} ${timeframe.timeframe} Replay`,
+      symbol: instrument.symbol,
+      instrument: instrument.id,
+      timeframe: timeframe.timeframe,
+      csv_path: timeframe.csv_path,
+      currency: instrument.currency,
+      pnl_multiplier: instrument.pnl_multiplier,
+      timezone: instrument.timezone,
+    };
+  }
+  return {};
 }
