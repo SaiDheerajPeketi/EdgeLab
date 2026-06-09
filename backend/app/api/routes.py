@@ -550,6 +550,12 @@ def dukascopy_row_to_candle(row: object) -> dict[str, object] | None:
 @router.get("/health")
 def health(db: Session = Depends(get_db)) -> dict[str, str]:
     db.execute(select(1)).scalar_one()
+    return {"status": "ok", "database": "ok"}
+
+
+@router.get("/ready")
+def ready(db: Session = Depends(get_db)) -> dict[str, str]:
+    db.execute(select(1)).scalar_one()
     try:
         market_data.validate_source()
     except (FileNotFoundError, ValueError) as exc:
