@@ -227,6 +227,68 @@ def test_data_populator_records_empty_historical_ranges(tmp_path):
     assert fetch_range.start_at == datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc)
 
 
+def test_populate_once_continues_to_latest_after_empty_historical_range(tmp_path):
+    calls: list[tuple[datetime, datetime]] = []
+
+    class HistoricalGapPopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            calls.append((start_at, end_at))
+            if start_at.year == 2020:
+                return iter(())
+            return iter(
+                [
+                    [
+                        candle("2024-01-01T00:02:00", 102.0),
+                        candle("2024-01-01T00:03:00", 103.0),
+                        candle("2024-01-01T00:04:00", 104.0),
+                    ]
+                ]
+            )
+
+    spec = crypto_spec("BTCUSDT")
+    populator = HistoricalGapPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2020-01-01",
+        derived_timeframes=(),
+    )
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+        ],
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 5, tzinfo=timezone.utc))
+    m1 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv")
+
+    assert summary.results[0].fetched == 3
+    assert calls == [
+        (
+            datetime(2020, 1, 1, tzinfo=timezone.utc),
+            datetime(2023, 12, 31, 23, 59, tzinfo=timezone.utc),
+        ),
+        (
+            datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 0, 4, tzinfo=timezone.utc),
+        ),
+    ]
+    assert m1["Timestamp"].tolist() == [
+        "2024-01-01 00:00:00",
+        "2024-01-01 00:01:00",
+        "2024-01-01 00:02:00",
+        "2024-01-01 00:03:00",
+        "2024-01-01 00:04:00",
+    ]
+
+
 def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
     class TwoPagePopulator(ScheduledDataPopulator):
         def fetch_candle_pages(

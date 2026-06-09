@@ -398,61 +398,85 @@ class ScheduledDataPopulator:
         for spec in specs:
             csv_path = self.csv_path_for_spec(spec)
             try:
-                fetch_range = self.next_fetch_range(spec, csv_path, end_at)
-                if fetch_range is None:
-                    results.append(self.result_for_existing_file(spec, csv_path, 0))
-                    logger.info(
-                        "%s is already current through %s",
-                        spec.instrument,
-                        utc_manifest_timestamp(end_at),
-                    )
-                    continue
+                total_fetched = 0
+                attempted_ranges: set[tuple[str, datetime, datetime]] = set()
+                while True:
+                    fetch_range = self.next_fetch_range(spec, csv_path, end_at)
+                    if fetch_range is None:
+                        results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
+                        if total_fetched == 0:
+                            logger.info(
+                                "%s is already current through %s",
+                                spec.instrument,
+                                utc_manifest_timestamp(end_at),
+                            )
+                        break
 
-                logger.info(
-                    "Fetching %s %s candles from %s to %s (%s)",
-                    spec.provider,
-                    spec.instrument,
-                    utc_manifest_timestamp(fetch_range.start_at),
-                    utc_manifest_timestamp(fetch_range.end_at),
-                    fetch_range.reason,
-                )
-                fetched = 0
-                page_count = 0
-                for page_count, candles in enumerate(
-                    self.fetch_candle_pages(spec, fetch_range.start_at, fetch_range.end_at),
-                    start=1,
-                ):
-                    if not candles:
-                        continue
-                    fetched += len(candles)
-                    page_result = self.write_candles(spec, candles, csv_path)
-                    if page_count == 1 or page_count % 25 == 0:
-                        logger.info(
-                            "Wrote %s page %s: fetched=%s total_rows=%s page_range=%s..%s",
+                    range_key = (fetch_range.reason, fetch_range.start_at, fetch_range.end_at)
+                    if range_key in attempted_ranges:
+                        logger.warning(
+                            "Stopping repeated %s range for %s: %s..%s",
+                            fetch_range.reason,
                             spec.instrument,
-                            page_count,
-                            fetched,
-                            page_result.rows,
-                            utc_manifest_timestamp(candles[0].timestamp),
-                            utc_manifest_timestamp(candles[-1].timestamp),
+                            utc_manifest_timestamp(fetch_range.start_at),
+                            utc_manifest_timestamp(fetch_range.end_at),
                         )
+                        results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
+                        break
+                    attempted_ranges.add(range_key)
 
-                if fetched == 0:
                     logger.info(
-                        "No %s candles returned for %s..%s",
+                        "Fetching %s %s candles from %s to %s (%s)",
+                        spec.provider,
                         spec.instrument,
                         utc_manifest_timestamp(fetch_range.start_at),
                         utc_manifest_timestamp(fetch_range.end_at),
-                    )
-                    self.manifest.update_no_data_range(
-                        spec,
-                        "M1",
-                        fetch_range.start_at,
-                        fetch_range.end_at,
                         fetch_range.reason,
                     )
-                    self.manifest.save()
-                results.append(self.result_for_existing_file(spec, csv_path, fetched))
+                    fetched = 0
+                    page_count = 0
+                    for page_count, candles in enumerate(
+                        self.fetch_candle_pages(spec, fetch_range.start_at, fetch_range.end_at),
+                        start=1,
+                    ):
+                        if not candles:
+                            continue
+                        fetched += len(candles)
+                        page_result = self.write_candles(spec, candles, csv_path)
+                        if page_count == 1 or page_count % 25 == 0:
+                            logger.info(
+                                "Wrote %s page %s: fetched=%s total_rows=%s page_range=%s..%s",
+                                spec.instrument,
+                                page_count,
+                                fetched,
+                                page_result.rows,
+                                utc_manifest_timestamp(candles[0].timestamp),
+                                utc_manifest_timestamp(candles[-1].timestamp),
+                            )
+
+                    if fetched == 0:
+                        logger.info(
+                            "No %s candles returned for %s..%s",
+                            spec.instrument,
+                            utc_manifest_timestamp(fetch_range.start_at),
+                            utc_manifest_timestamp(fetch_range.end_at),
+                        )
+                        if fetch_range.reason != "append-latest":
+                            self.manifest.update_no_data_range(
+                                spec,
+                                "M1",
+                                fetch_range.start_at,
+                                fetch_range.end_at,
+                                fetch_range.reason,
+                            )
+                            self.manifest.save()
+                        if fetch_range.reason == "historical-backfill":
+                            continue
+                        results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
+                        break
+                    total_fetched += fetched
+                    results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
+                    break
             except Exception as exc:
                 logger.exception("Failed to populate %s", spec.instrument)
                 results.append(
