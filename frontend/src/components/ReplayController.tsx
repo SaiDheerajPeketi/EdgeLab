@@ -326,6 +326,7 @@ export function ReplayDateTimePicker({
   const selected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
   const [viewYear, setViewYear] = useState(() => selected?.year ?? new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => selected?.month ?? new Date().getMonth() + 1);
+  const [draftDay, setDraftDay] = useState(() => selected?.day ?? 1);
   const [draftHour, setDraftHour] = useState(() => selected?.hour ?? 0);
   const [draftMinute, setDraftMinute] = useState(() => selected?.minute ?? 0);
 
@@ -345,6 +346,7 @@ export function ReplayDateTimePicker({
     }
     setViewYear(nextSelected.year);
     setViewMonth(nextSelected.month);
+    setDraftDay(nextSelected.day);
     setDraftHour(nextSelected.hour);
     setDraftMinute(nextSelected.minute);
   }, [currentTimestamp, open, value]);
@@ -423,6 +425,7 @@ export function ReplayDateTimePicker({
     if (nextSelected) {
       setViewYear(nextSelected.year);
       setViewMonth(nextSelected.month);
+      setDraftDay(nextSelected.day);
       setDraftHour(nextSelected.hour);
       setDraftMinute(nextSelected.minute);
     }
@@ -436,13 +439,24 @@ export function ReplayDateTimePicker({
   }
 
   function selectDay(day: number) {
-    onChange(formatReplayDateTime(viewYear, viewMonth, day, draftHour, draftMinute));
+    setDraftDay(day);
   }
 
   function applyTime() {
-    const selectedDay = selected?.day ?? 1;
-    const day = Math.min(selectedDay, daysInMonth(viewYear, viewMonth));
+    const day = Math.min(draftDay, daysInMonth(viewYear, viewMonth));
     onChange(formatReplayDateTime(viewYear, viewMonth, day, draftHour, draftMinute));
+    setOpen(false);
+  }
+
+  function cancelDraft() {
+    const nextSelected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
+    if (nextSelected) {
+      setViewYear(nextSelected.year);
+      setViewMonth(nextSelected.month);
+      setDraftDay(nextSelected.day);
+      setDraftHour(nextSelected.hour);
+      setDraftMinute(nextSelected.minute);
+    }
     setOpen(false);
   }
 
@@ -472,6 +486,7 @@ export function ReplayDateTimePicker({
   const is12Hour = timeHoursFormat === "12-hour";
   const currentPeriod = hourPeriod(draftHour);
   const portalHost = currentPortalHost();
+  const activeDraftDay = Math.min(draftDay, daysInMonth(viewYear, viewMonth));
 
   return (
     <div className="replay-date-picker" ref={containerRef}>
@@ -532,9 +547,7 @@ export function ReplayDateTimePicker({
             {cells.map((cell) => {
               const isSelected =
                 cell.day != null &&
-                selected?.year === viewYear &&
-                selected.month === viewMonth &&
-                selected.day === cell.day;
+                activeDraftDay === cell.day;
               return (
                 <button
                   className={`replay-date-cell ${cell.day == null ? "replay-date-cell-empty" : ""} ${isSelected ? "replay-date-cell-active" : ""}`}
@@ -591,7 +604,7 @@ export function ReplayDateTimePicker({
           </div>
 
           <div className="replay-date-actions">
-            <button className="control-button h-9 px-3 text-xs" onClick={() => setOpen(false)} type="button">
+            <button className="control-button h-9 px-3 text-xs" onClick={cancelDraft} type="button">
               <X size={14} />
               Cancel
             </button>

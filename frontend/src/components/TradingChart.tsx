@@ -879,35 +879,26 @@ export function TradingChart({
     areaRef.current?.setData(toAscendingSeriesData(closeLineData));
     volumeRef.current?.setData(toAscendingHistogramData(volumeData));
     const timeframeChanged = previousTimeframeRef.current !== timeframe;
+    const replaySeekChanged = previousReplaySeekVersionRef.current !== replaySeekVersion;
     previousTimeframeRef.current = timeframe;
-    let resetFrame: number | null = null;
+    previousReplaySeekVersionRef.current = replaySeekVersion;
+    const resetFrames: number[] = [];
     if (displayBars.length > 0) {
-      if (timeframeChanged) {
-        resetFrame = window.requestAnimationFrame(() => resetChartView());
+      if (timeframeChanged || replaySeekChanged) {
+        const firstFrame = window.requestAnimationFrame(() => {
+          const secondFrame = window.requestAnimationFrame(() => resetChartView());
+          resetFrames.push(secondFrame);
+        });
+        resetFrames.push(firstFrame);
       } else {
         chartRef.current?.timeScale().scrollToRealTime();
       }
     }
     setPlotVersion((value) => value + 1);
     return () => {
-      if (resetFrame != null) {
-        window.cancelAnimationFrame(resetFrame);
-      }
+      resetFrames.forEach((frame) => window.cancelAnimationFrame(frame));
     };
-  }, [candleData, closeLineData, displayBars.length, timeframe, volumeData]);
-
-  useEffect(() => {
-    if (previousReplaySeekVersionRef.current === replaySeekVersion) {
-      return;
-    }
-    previousReplaySeekVersionRef.current = replaySeekVersion;
-    if (displayBars.length === 0) {
-      return;
-    }
-
-    const resetFrame = window.requestAnimationFrame(() => resetChartView());
-    return () => window.cancelAnimationFrame(resetFrame);
-  }, [displayBars.length, replaySeekVersion]);
+  }, [candleData, closeLineData, displayBars.length, replaySeekVersion, timeframe, volumeData]);
 
   useEffect(() => {
     const canShowLine = chartStyle === "line" && lineRef.current != null;
