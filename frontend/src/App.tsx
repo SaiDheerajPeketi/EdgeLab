@@ -233,6 +233,7 @@ function WorkspaceApp() {
     updateSession,
     deleteSession,
     refreshDatasets,
+    reloadDatasets,
     refreshDatasetStatus,
     updateDatasetAsset,
     updateDatasetSettings,
@@ -432,6 +433,21 @@ function WorkspaceApp() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    const pollDatasets = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      void reloadDatasets();
+    };
+    const timer = window.setInterval(pollDatasets, 15_000);
+    document.addEventListener("visibilitychange", pollDatasets);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", pollDatasets);
+    };
+  }, [reloadDatasets]);
 
   useEffect(() => {
     drawingsRef.current = drawings;

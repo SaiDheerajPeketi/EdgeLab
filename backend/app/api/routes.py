@@ -1194,7 +1194,9 @@ def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
             except (FileNotFoundError, ValueError):
                 db.rollback()
                 continue
-        return backtester.create_session(db, BacktestCreate())
+        raise HTTPException(status_code=404, detail="No replay session exists yet")
+    except HTTPException:
+        raise
     except (FileNotFoundError, ValueError) as exc:
         db.rollback()
         raise market_data_error_response(exc) from exc

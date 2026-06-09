@@ -464,6 +464,18 @@ const API_BASE_URL =
 const API_BEARER_TOKEN =
   import.meta.env.VITE_API_BEARER_TOKEN ?? "";
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, message: string, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -476,7 +488,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => null);
-    throw new Error(error?.detail ?? response.statusText);
+    const detail = error?.detail ?? response.statusText;
+    throw new ApiError(
+      response.status,
+      typeof detail === "string" ? detail : response.statusText,
+      detail,
+    );
   }
 
   return response.json() as Promise<T>;

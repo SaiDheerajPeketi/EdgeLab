@@ -18,6 +18,8 @@ VITE_API_BASE_URL=http://127.0.0.1:8000/api npm run dev
 
 When the backend is started with `EDGELAB_API_TOKEN`, build or run the frontend with a matching `VITE_API_BEARER_TOKEN`.
 
+The workspace periodically reloads `/api/datasets` while the tab is visible, so dataset ranges written by the scheduled populator update in the UI without a manual browser refresh. Initial load no longer creates a replay session automatically; users create sessions from the session gateway.
+
 ## Docker
 
 The frontend container is built by `frontend/Dockerfile`. It compiles the Vite app with:

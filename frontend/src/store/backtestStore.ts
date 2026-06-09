@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  ApiError,
   BacktestState,
   BacktestCreatePayload,
   BacktestSession,
@@ -69,6 +70,7 @@ type BacktestStore = {
   loadInitial: () => Promise<void>;
   refreshPlaybooks: () => Promise<void>;
   refreshDatasets: () => Promise<DatasetRefreshResponse>;
+  reloadDatasets: () => Promise<DatasetCatalog | null>;
   refreshDatasetStatus: () => Promise<DatasetRefreshStatus>;
   updateDatasetAsset: (
     assetId: string,
@@ -186,14 +188,21 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
       const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
       const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
-      const initialState = await getLatestBacktest().catch(() => createBacktest(initialDatasetSessionPayload(datasets)));
-      const meta = await getMeta(initialState.session.id);
-      const state = await ensureReplayContext(initialState, meta);
-      const window = await loadWindow(
-        state.session.current_offset,
-        state.session.id,
-        state.session.start_offset,
-      );
+      const latestState = await getLatestBacktest().catch((error) => {
+        if (error instanceof ApiError && error.status === 404) {
+          return null;
+        }
+        throw error;
+      });
+      const meta = latestState ? await getMeta(latestState.session.id) : null;
+      const state = latestState && meta ? await ensureReplayContext(latestState, meta) : null;
+      const window = state
+        ? await loadWindow(
+            state.session.current_offset,
+            state.session.id,
+            state.session.start_offset,
+          )
+        : { bars: [], barOffset: 0 };
       set({
         datasets,
         meta,
@@ -234,6 +243,16 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
       throw error;
+    }
+  },
+
+  reloadDatasets: async () => {
+    try {
+      const datasets = await getDatasets();
+      set({ datasets, error: null });
+      return datasets;
+    } catch (error) {
+      return null;
     }
   },
 
