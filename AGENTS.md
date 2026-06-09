@@ -39,8 +39,9 @@ When changing API prefixes or proxy behavior, update `docker/nginx.conf`, fronte
 - The frontend image is built with `VITE_API_BASE_URL=/api`.
 - Nginx proxies `/api/*` to the FastAPI service at `api:8000`.
 - FastAPI stores its SQLite database at `/var/lib/edgelab/trade_journal_v2.db` in the `api-data` named volume.
-- The primary CSV is mounted read-only at `/data/EURUSD_M1.csv`.
-- Optional preprocessed datasets are mounted read-only at `/datasets`.
+- The default Compose deployment is dataset-root driven.
+- Dataset folders are mounted read-only at `/datasets`.
+- The legacy single-file replay path is optional and should only be enabled with an explicit `EDGELAB_CSV_PATH`.
 
 ## Required Verification
 

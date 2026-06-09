@@ -4,6 +4,7 @@ import logging
 import re
 import struct
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -79,7 +80,11 @@ from app.services.trade_imports import import_trade_csv
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-market_data = MarketDataService(settings.csv_path, cache=settings.cache_market_data)
+market_data = (
+    MarketDataService(settings.csv_path, cache=settings.cache_market_data)
+    if settings.csv_path is not None
+    else None
+)
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
 
@@ -203,10 +208,22 @@ def market_data_error_response(exc: Exception) -> HTTPException:
             status_code=503,
             detail=(
                 f"Market data CSV is unavailable: {exc}. "
-                "Set EDGELAB_CSV_PATH to a readable CSV file before starting Docker Compose."
+                "Add CSV datasets under EDGELAB_DATASETS_ROOT or set EDGELAB_CSV_PATH "
+                "for the legacy single-file replay path."
             ),
         )
     return HTTPException(status_code=400, detail=str(exc))
+
+
+def default_market_data_reference(db: Session) -> tuple[Path, int]:
+    if market_data is not None:
+        return market_data.csv_path, market_data.get_metadata().rows
+    resolution = dataset_catalog.resolve_default_dataset(db)
+    metadata = backtester.market_data_for_path(
+        str(resolution.csv_path),
+        resolution.timezone or "UTC",
+    ).get_metadata()
+    return resolution.csv_path, metadata.rows
 
 
 def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
@@ -557,10 +574,17 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 def ready(db: Session = Depends(get_db)) -> dict[str, str]:
     db.execute(select(1)).scalar_one()
     try:
-        market_data.validate_source()
-    except (FileNotFoundError, ValueError) as exc:
-        raise market_data_error_response(exc) from exc
-    return {"status": "ok", "database": "ok", "market_data": "ok"}
+        catalog = dataset_catalog.list_catalog(db)
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
+    timeframes = sum(len(instrument.timeframes) for instrument in catalog.instruments)
+    return {
+        "status": "ok",
+        "database": "ok",
+        "datasets_root": catalog.root,
+        "dataset_assets": str(len(catalog.instruments)),
+        "dataset_timeframes": str(timeframes),
+    }
 
 
 @router.get("/market-data/meta", response_model=DatasetMeta)
@@ -572,6 +596,12 @@ def market_data_meta(
         if session_id is not None:
             session = backtester.get_session(db, session_id)
             return backtester.market_data_for_session(session).get_metadata()
+        if market_data is None:
+            resolution = dataset_catalog.resolve_default_dataset(db)
+            return backtester.market_data_for_path(
+                str(resolution.csv_path),
+                resolution.timezone or "UTC",
+            ).get_metadata()
         return market_data.get_metadata()
     except (FileNotFoundError, ValueError) as exc:
         raise market_data_error_response(exc) from exc
@@ -807,6 +837,12 @@ def market_data_bars(
         if session_id is not None:
             session = backtester.get_session(db, session_id)
             service = backtester.market_data_for_session(session)
+        elif service is None:
+            resolution = dataset_catalog.resolve_default_dataset(db)
+            service = backtester.market_data_for_path(
+                str(resolution.csv_path),
+                resolution.timezone or "UTC",
+            )
         return service.get_bars(offset=offset, limit=limit, warmup=warmup)
     except (FileNotFoundError, ValueError) as exc:
         raise market_data_error_response(exc) from exc
@@ -1168,13 +1204,14 @@ def import_backtest_trades(
 ) -> BacktestTradeImportResult:
     try:
         try:
-            fallback_rows = market_data.get_metadata().rows
+            fallback_csv_path, fallback_rows = default_market_data_reference(db)
         except (FileNotFoundError, ValueError):
+            fallback_csv_path = settings.datasets_root
             fallback_rows = 1
         return import_trade_csv(
             db,
             payload,
-            fallback_csv_path=market_data.csv_path,
+            fallback_csv_path=fallback_csv_path,
             fallback_rows=fallback_rows,
         )
     except HTTPException:

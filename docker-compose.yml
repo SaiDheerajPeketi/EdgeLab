@@ -8,7 +8,6 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/edgelab/trade_journal_v2.db}
       EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
-      EDGELAB_CSV_PATH: /data/EURUSD_M1.csv
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_MAX_APP_DATA_ROWS: ${EDGELAB_MAX_APP_DATA_ROWS:-100000}
       EDGELAB_MAX_REQUEST_BODY_BYTES: ${EDGELAB_MAX_REQUEST_BODY_BYTES:-26214400}
@@ -25,12 +24,6 @@ services:
     restart: unless-stopped
     volumes:
       - api-data:/var/lib/edgelab
-      - type: bind
-        source: ${EDGELAB_CSV_PATH:-./EURUSD_M1.csv}
-        target: /data/EURUSD_M1.csv
-        read_only: true
-        bind:
-          create_host_path: false
       - type: bind
         source: ${EDGELAB_DATASETS_ROOT:-./datasets}
         target: /datasets

@@ -24,10 +24,10 @@ Seed default playbooks from the repository root with:
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
 ```
 
-The app reads `../EURUSD_M1.csv` by default. Override it with:
+The app scans dataset CSV folders from `../datasets` by default. Override it with:
 
 ```bash
-export EDGELAB_CSV_PATH=/absolute/path/to/EURUSD_M1.csv
+export EDGELAB_DATASETS_ROOT=/absolute/path/to/datasets
 ```
 
 Market data is cached in memory by default for smooth replay. Disable it with:
@@ -50,10 +50,10 @@ Set an API bearer token for protected mutation and app-data routes with:
 export EDGELAB_API_TOKEN=change-me
 ```
 
-The dataset catalog root defaults to `../datasets`. Override it with:
+For the legacy single-file replay path, set an explicit CSV:
 
 ```bash
-export EDGELAB_DATASETS_ROOT=/absolute/path/to/datasets
+export EDGELAB_CSV_PATH=/absolute/path/to/EURUSD_M1.csv
 ```
 
 FastAPI rejects HTTP request bodies larger than 25 MB by default. Override it with:
@@ -75,14 +75,13 @@ It uses the `python:3.12-slim` base image so the pinned scientific dependencies 
 
 Container defaults:
 
-- `EDGELAB_CSV_PATH=/data/EURUSD_M1.csv`
 - `EDGELAB_DATASETS_ROOT=/datasets`
 - `EDGELAB_API_TOKEN=`
 - `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
 
-The Compose file mounts the CSV and datasets read-only and persists the SQLite database in the `api-data` named volume. The primary CSV bind mount must point to an existing file. `/api/health` validates the API process and SQLite connectivity; `/api/ready` also validates the CSV header.
+The Compose file mounts the dataset root read-only and persists the SQLite database in the `api-data` named volume. The dataset root bind mount must point to an existing directory. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
 
 ## Main APIs
 

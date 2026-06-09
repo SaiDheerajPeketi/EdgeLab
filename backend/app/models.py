@@ -14,8 +14,8 @@ class BacktestSession(Base):
     __tablename__ = "backtest_sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(160), default="EURUSD Replay")
-    symbol: Mapped[str] = mapped_column(String(40), default="EURUSD")
+    name: Mapped[str] = mapped_column(String(160), default="Dataset Replay")
+    symbol: Mapped[str] = mapped_column(String(40), default="DATASET")
     instrument: Mapped[str | None] = mapped_column(String(80), nullable=True)
     timeframe: Mapped[str | None] = mapped_column(String(20), nullable=True)
     csv_path: Mapped[str | None] = mapped_column(Text, nullable=True)

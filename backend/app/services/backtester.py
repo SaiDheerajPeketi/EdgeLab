@@ -42,26 +42,24 @@ STATE_TRADE_LIMIT = 500
 class BacktestService:
     def __init__(
         self,
-        market_data: MarketDataService,
+        market_data: MarketDataService | None = None,
         dataset_catalog: DatasetCatalogService | None = None,
     ):
         self.market_data = market_data
         self.dataset_catalog = dataset_catalog
-        self._market_data_cache: dict[str, MarketDataService] = {
-            str(market_data.csv_path): market_data
-        }
+        self._market_data_cache: dict[str, MarketDataService] = {}
+        if market_data is not None:
+            self._market_data_cache[str(market_data.csv_path)] = market_data
 
     def create_session(self, db: Session, payload: BacktestCreate) -> BacktestState:
-        csv_path = self.market_data.csv_path
+        csv_path = self.market_data.csv_path if self.market_data is not None else None
         instrument = payload.instrument
         timeframe = payload.timeframe
         symbol = payload.symbol
         currency = payload.currency
         timestamp_timezone = payload.timezone
         pnl_multiplier = payload.pnl_multiplier
-        if self.dataset_catalog is not None and (
-            payload.csv_path or payload.instrument or payload.timeframe
-        ):
+        if self.dataset_catalog is not None and (payload.csv_path or payload.instrument or payload.timeframe):
             resolution = self.dataset_catalog.resolve_dataset(
                 db,
                 csv_path=payload.csv_path,
@@ -71,10 +69,27 @@ class BacktestService:
             csv_path = resolution.csv_path
             instrument = resolution.instrument
             timeframe = resolution.timeframe
-            symbol = resolution.symbol
+            symbol = symbol or resolution.symbol
             currency = currency or resolution.currency
             timestamp_timezone = timestamp_timezone or resolution.timezone
             pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
+        elif csv_path is None and self.dataset_catalog is not None:
+            resolution = self.dataset_catalog.resolve_default_dataset(db)
+            csv_path = resolution.csv_path
+            instrument = resolution.instrument
+            timeframe = resolution.timeframe
+            symbol = symbol or resolution.symbol
+            currency = currency or resolution.currency
+            timestamp_timezone = timestamp_timezone or resolution.timezone
+            pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
+
+        if csv_path is None:
+            raise FileNotFoundError(
+                "No dataset CSV is configured. Add CSV files under EDGELAB_DATASETS_ROOT "
+                "or set EDGELAB_CSV_PATH for the legacy single-file replay path."
+            )
+        symbol = symbol or Path(csv_path).stem.upper()
+        name = payload.name or f"{symbol} {timeframe or 'Replay'}"
 
         market_data = self.market_data_for_path(
             str(csv_path),
@@ -95,7 +110,7 @@ class BacktestService:
             end_offset = max(start_offset, min(end_offset, max(metadata.rows - 1, 0)))
 
         session = BacktestSession(
-            name=payload.name,
+            name=name,
             symbol=symbol,
             instrument=instrument,
             timeframe=timeframe,
@@ -1194,6 +1209,10 @@ class BacktestService:
         return self._session_or_404(db, session_id)
 
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
+        if not session.csv_path and self.market_data is None:
+            raise FileNotFoundError(
+                "Backtest session has no CSV path and no legacy EDGELAB_CSV_PATH is configured."
+            )
         return self.market_data_for_path(
             session.csv_path or str(self.market_data.csv_path),
             session.timezone or "UTC",
@@ -1202,7 +1221,11 @@ class BacktestService:
     def market_data_for_path(self, csv_path: str, timestamp_timezone: str = "UTC") -> MarketDataService:
         cache_key = f"{csv_path}::{timestamp_timezone or 'UTC'}"
         if cache_key not in self._market_data_cache:
-            cache = self.market_data.cache and Path(csv_path) == self.market_data.csv_path
+            cache = (
+                self.market_data is not None
+                and self.market_data.cache
+                and Path(csv_path) == self.market_data.csv_path
+            )
             self._market_data_cache[cache_key] = MarketDataService(
                 Path(csv_path),
                 cache=cache,

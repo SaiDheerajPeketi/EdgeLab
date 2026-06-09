@@ -1,13 +1,20 @@
-from fastapi import HTTPException
+from types import SimpleNamespace
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api import routes
 
 
-class MissingMarketData:
-    def validate_source(self) -> None:
-        raise FileNotFoundError("CSV file not found: /missing/EURUSD_M1.csv")
+class FakeDatasetCatalog:
+    def list_catalog(self, db):
+        return SimpleNamespace(
+            root="/datasets",
+            instruments=[
+                SimpleNamespace(timeframes=[SimpleNamespace(timeframe="M1")]),
+                SimpleNamespace(timeframes=[SimpleNamespace(timeframe="H1")]),
+            ],
+        )
 
 
 def make_session():
@@ -16,8 +23,8 @@ def make_session():
     return session_factory()
 
 
-def test_health_does_not_require_market_data(monkeypatch):
-    monkeypatch.setattr(routes, "market_data", MissingMarketData())
+def test_health_does_not_require_dataset_catalog(monkeypatch):
+    monkeypatch.setattr(routes, "dataset_catalog", object())
     db = make_session()
     try:
         assert routes.health(db) == {"status": "ok", "database": "ok"}
@@ -25,16 +32,16 @@ def test_health_does_not_require_market_data(monkeypatch):
         db.close()
 
 
-def test_ready_reports_missing_market_data(monkeypatch):
-    monkeypatch.setattr(routes, "market_data", MissingMarketData())
+def test_ready_reports_dataset_catalog_counts(monkeypatch):
+    monkeypatch.setattr(routes, "dataset_catalog", FakeDatasetCatalog())
     db = make_session()
     try:
-        try:
-            routes.ready(db)
-        except HTTPException as exc:
-            assert exc.status_code == 503
-            assert "Market data CSV is unavailable" in str(exc.detail)
-        else:
-            raise AssertionError("ready should fail when market data is missing")
+        assert routes.ready(db) == {
+            "status": "ok",
+            "database": "ok",
+            "datasets_root": "/datasets",
+            "dataset_assets": "2",
+            "dataset_timeframes": "2",
+        }
     finally:
         db.close()

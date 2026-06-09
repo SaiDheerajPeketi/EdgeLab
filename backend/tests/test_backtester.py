@@ -15,6 +15,7 @@ from app.schemas import (
     PositionUpdate,
 )
 from app.services.backtester import BacktestService
+from app.services.datasets import DatasetCatalogService
 from app.services.market_data import MarketDataService
 
 
@@ -649,3 +650,32 @@ def test_market_data_validate_source_rejects_missing_columns(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Volume"):
         service.validate_source()
+
+
+def test_default_session_uses_first_discovered_dataset(tmp_path: Path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    catalog = DatasetCatalogService(datasets_root, session_factory)
+
+    db = session_factory()
+    service = BacktestService(dataset_catalog=catalog)
+    try:
+        state = service.create_session(db, BacktestCreate())
+    finally:
+        db.close()
+
+    assert state.session.csv_path == str(csv_path)
+    assert state.session.instrument == "GBP_USD"
+    assert state.session.timeframe == "M1"
+    assert state.session.symbol == "GBPUSD"
+    assert state.session.name == "GBPUSD M1"

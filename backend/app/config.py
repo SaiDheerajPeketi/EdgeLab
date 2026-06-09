@@ -17,11 +17,16 @@ def int_env(name: str, default: int) -> int:
         return default
 
 
+def optional_path_env(name: str) -> Path | None:
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return None
+    return Path(raw_value)
+
+
 @dataclass(frozen=True)
 class Settings:
-    csv_path: Path = Path(
-        os.getenv("EDGELAB_CSV_PATH", PROJECT_ROOT / "EURUSD_M1.csv")
-    )
+    csv_path: Path | None = optional_path_env("EDGELAB_CSV_PATH")
     datasets_root: Path = Path(
         os.getenv(
             "EDGELAB_DATASETS_ROOT",

@@ -277,6 +277,18 @@ class DatasetCatalogService:
                 )
         raise FileNotFoundError(f"No dataset found for {instrument} {timeframe}")
 
+    def resolve_default_dataset(self, db: Session) -> DatasetResolution:
+        catalog = self.list_catalog(db)
+        for instrument in catalog.instruments:
+            if not instrument.timeframes:
+                continue
+            return self.resolve_dataset(
+                db,
+                instrument=instrument.id,
+                timeframe=instrument.timeframes[0].timeframe,
+            )
+        raise FileNotFoundError(f"No datasets found under {self._root_path(db)}")
+
     def _scan_filesystem_index(
         self,
         db: Session,

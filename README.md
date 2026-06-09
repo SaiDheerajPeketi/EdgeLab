@@ -23,7 +23,7 @@ Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For t
 
 Frontend image dependency installs use `NPM_CONFIG_REGISTRY`, which defaults to `https://registry.npmjs.org/` so Docker builds do not depend on workstation-specific npm mirrors.
 
-The Compose setup expects a real replay CSV file at `./EURUSD_M1.csv` unless `EDGELAB_CSV_PATH` is changed in `.env`. Compose is configured not to auto-create this bind path. `/api/health` validates the API process and database, while `/api/ready` also validates the CSV header for deployment diagnostics. Missing or malformed market data is reported as an actionable API error instead of a generic backtest failure. Optional preprocessed datasets can be mounted by setting `EDGELAB_DATASETS_ROOT`.
+The Compose setup scans dataset CSVs from `./datasets` unless `EDGELAB_DATASETS_ROOT` is changed in `.env`. The folder is mounted read-only at `/datasets`. `/api/health` validates the API process and database, while `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts. `EDGELAB_CSV_PATH` remains available only for the legacy single-file replay path outside the default Compose deployment.
 
 Useful Docker commands:
 
@@ -60,7 +60,7 @@ npm install
 npm run dev
 ```
 
-The backend reads `EURUSD_M1.csv` from the repository root by default.
+The backend scans dataset CSV folders from `datasets` by default. Set `EDGELAB_DATASETS_ROOT` to point at a different dataset root.
 
 The upgraded backend uses `backend/trade_journal_v2.db` by default. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
 

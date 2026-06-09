@@ -217,8 +217,8 @@ class PlaybookRead(PlaybookCreate):
 
 
 class BacktestCreate(BaseModel):
-    name: str = "EURUSD Replay"
-    symbol: str = "EURUSD"
+    name: str | None = None
+    symbol: str | None = None
     instrument: str | None = None
     timeframe: str | None = None
     csv_path: str | None = None
