@@ -1184,10 +1184,13 @@ def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
 )
 def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
     try:
-        session = list_latest_session(db)
-        if session is None:
-            return backtester.create_session(db, BacktestCreate())
-        return backtester.get_state(db, session.id)
+        for session in backtester.list_sessions(db):
+            try:
+                return backtester.get_state(db, session.id)
+            except (FileNotFoundError, ValueError):
+                db.rollback()
+                continue
+        return backtester.create_session(db, BacktestCreate())
     except (FileNotFoundError, ValueError) as exc:
         db.rollback()
         raise market_data_error_response(exc) from exc
