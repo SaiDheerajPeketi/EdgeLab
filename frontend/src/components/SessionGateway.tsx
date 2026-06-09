@@ -45,6 +45,7 @@ import {
   loadOrderFeePercent,
   type OrderCommissionMode,
 } from "../lib/orderSettings";
+import { sameStrategyName, useBacktestStrategyNames } from "../lib/strategyNames";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
 import { ReplayDateTimePicker } from "./ReplayController";
@@ -118,6 +119,7 @@ export function SessionGateway({
   trades,
 }: Props) {
   const instruments = datasets?.instruments ?? [];
+  const savedStrategyNames = useBacktestStrategyNames();
   const [instrumentId, setInstrumentId] = useState("");
   const [timeframe, setTimeframe] = useState("");
   const [strategy, setStrategy] = useState(session?.strategy_name ?? "London Continuation");
@@ -167,7 +169,7 @@ export function SessionGateway({
   const selectedStrategyGroup = useMemo(
     () =>
       selectedStrategyName
-        ? strategyGroups.find((group) => group.name === selectedStrategyName) ?? null
+        ? strategyGroups.find((group) => sameStrategyName(group.name, selectedStrategyName)) ?? null
         : null,
     [selectedStrategyName, strategyGroups],
   );
@@ -177,15 +179,8 @@ export function SessionGateway({
   );
   const strategySelectValue = selectedStrategyName ?? "";
   const strategySelectOptions = useMemo(
-    () => [
-      { label: "New strategy", value: "" },
-      ...strategyGroups.map((group) => ({
-        label: group.name,
-        sublabel: `${group.sessions.length} sessions`,
-        value: group.name,
-      })),
-    ],
-    [strategyGroups],
+    () => buildExistingStrategyOptions(strategyGroups, savedStrategyNames, playbooks),
+    [playbooks, savedStrategyNames, strategyGroups],
   );
 
   useEffect(() => {
@@ -221,11 +216,11 @@ export function SessionGateway({
   useEffect(() => {
     if (
       selectedStrategyName &&
-      !strategyGroups.some((group) => group.name === selectedStrategyName)
+      !strategySelectOptions.some((option) => sameStrategyName(option.value, selectedStrategyName))
     ) {
       setSelectedStrategyName(null);
     }
-  }, [selectedStrategyName, strategyGroups]);
+  }, [selectedStrategyName, strategySelectOptions]);
 
   useEffect(() => {
     if (!sessionNameEdited) {
@@ -272,14 +267,19 @@ export function SessionGateway({
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
   }
 
-  function applyExistingStrategy(group: GatewayStrategyGroup) {
-    setSelectedStrategyName(group.name);
-    setStrategy(group.name);
-    const linkedPlaybookId = latestLinkedPlaybookId(group, playbooks);
+  function applyExistingStrategyName(strategyName: string) {
+    const group = strategyGroups.find((item) => sameStrategyName(item.name, strategyName)) ?? null;
+    setSelectedStrategyName(strategyName);
+    setStrategy(strategyName);
+    const linkedPlaybookId = linkedPlaybookIdForStrategy(strategyName, group, playbooks);
     if (linkedPlaybookId != null) {
       setPlaybookMode("existing");
       setPlaybookId(String(linkedPlaybookId));
     }
+  }
+
+  function applyExistingStrategy(group: GatewayStrategyGroup) {
+    applyExistingStrategyName(group.name);
   }
 
   function handleStrategySelect(value: string) {
@@ -287,18 +287,16 @@ export function SessionGateway({
       setSelectedStrategyName(null);
       return;
     }
-    const group = strategyGroups.find((item) => item.name === value);
-    if (group) {
-      applyExistingStrategy(group);
-    }
+    applyExistingStrategyName(value);
   }
 
   function handleStrategyNameChange(value: string) {
     setStrategy(value);
-    const matchingGroup = strategyGroups.find((group) => group.name === value);
-    setSelectedStrategyName(matchingGroup?.name ?? null);
-    if (matchingGroup) {
-      const linkedPlaybookId = latestLinkedPlaybookId(matchingGroup, playbooks);
+    const matchingOption = strategySelectOptions.find((option) => sameStrategyName(option.value, value));
+    const matchingGroup = strategyGroups.find((group) => sameStrategyName(group.name, value)) ?? null;
+    setSelectedStrategyName(matchingOption?.value ?? null);
+    if (matchingOption) {
+      const linkedPlaybookId = linkedPlaybookIdForStrategy(matchingOption.value, matchingGroup, playbooks);
       if (linkedPlaybookId != null) {
         setPlaybookMode("existing");
         setPlaybookId(String(linkedPlaybookId));
@@ -559,9 +557,10 @@ export function SessionGateway({
             <ThemedSelect
               ariaLabel="Existing strategy"
               className="h-11"
+              disabled={strategySelectOptions.length === 0}
               onChange={handleStrategySelect}
               options={strategySelectOptions}
-              placeholder="New strategy"
+              placeholder={strategySelectOptions.length === 0 ? "No saved strategies" : "Select strategy"}
               value={strategySelectValue}
             />
           </label>
@@ -575,8 +574,8 @@ export function SessionGateway({
               value={strategy}
             />
             <datalist id="gateway-strategies">
-              {strategyGroups.map((group) => (
-                <option key={group.name} value={group.name} />
+              {strategySelectOptions.map((option) => (
+                <option key={option.value} value={option.value} />
               ))}
             </datalist>
           </label>
@@ -1356,6 +1355,52 @@ function buildDefaultSessionName(
     return strategyName;
   }
   return `${strategyName} / ${instrument.symbol} ${timeframe.timeframe}`;
+}
+
+function buildExistingStrategyOptions(
+  strategyGroups: GatewayStrategyGroup[],
+  savedStrategyNames: string[],
+  playbooks: Playbook[],
+) {
+  const options: Array<{ label: string; sublabel?: string; value: string }> = [];
+
+  function push(name: string, sublabel?: string) {
+    const trimmedName = name.trim();
+    if (!trimmedName || options.some((option) => sameStrategyName(option.value, trimmedName))) {
+      return;
+    }
+    options.push({ label: trimmedName, sublabel, value: trimmedName });
+  }
+
+  for (const group of strategyGroups) {
+    const sessionLabel = `${group.sessions.length} session${group.sessions.length === 1 ? "" : "s"}`;
+    const tradeLabel = `${group.trades.length} trade${group.trades.length === 1 ? "" : "s"}`;
+    push(group.name, `${sessionLabel} / ${tradeLabel}`);
+  }
+  for (const name of savedStrategyNames) {
+    push(name, "Saved strategy");
+  }
+  for (const playbook of playbooks) {
+    push(playbook.name, "Playbook");
+  }
+
+  return options.sort((left, right) => left.value.localeCompare(right.value));
+}
+
+function linkedPlaybookIdForStrategy(
+  strategyName: string,
+  group: GatewayStrategyGroup | null,
+  playbooks: Playbook[],
+) {
+  if (group) {
+    const linkedPlaybookId = latestLinkedPlaybookId(group, playbooks);
+    if (linkedPlaybookId != null) {
+      return linkedPlaybookId;
+    }
+  }
+
+  const matchingPlaybook = playbooks.find((playbook) => sameStrategyName(playbook.name, strategyName));
+  return matchingPlaybook?.id ?? null;
 }
 
 function latestLinkedPlaybookId(group: GatewayStrategyGroup, playbooks: Playbook[]) {
