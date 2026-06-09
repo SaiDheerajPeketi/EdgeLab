@@ -22,58 +22,91 @@ def candle(timestamp: str, close: float) -> MarketCandle:
     )
 
 
-def test_data_populator_interpolates_short_minute_gaps(tmp_path):
+def test_data_populator_derives_higher_timeframes_from_m1(tmp_path):
     populator = ScheduledDataPopulator(
         tmp_path,
         forex_symbols=(),
         crypto_symbols=("BTCUSDT",),
-        max_interpolation_gap_minutes=3,
+        derived_timeframes=("M5", "H1"),
     )
     result = populator.write_candles(
         crypto_spec("BTCUSDT"),
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+            candle("2024-01-01T00:02:00", 102.0),
+            candle("2024-01-01T00:03:00", 103.0),
+            candle("2024-01-01T00:04:00", 104.0),
+            candle("2024-01-01T00:05:00", 105.0),
+            candle("2024-01-01T00:06:00", 106.0),
+            candle("2024-01-01T00:07:00", 107.0),
+            candle("2024-01-01T00:08:00", 108.0),
+            candle("2024-01-01T00:09:00", 109.0),
+        ],
+    )
+
+    m1 = pd.read_csv(result.csv_path)
+    m5 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_M5.csv")
+    h1 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_H1.csv")
+
+    assert result.rows == 10
+    assert m1["Timestamp"].tolist()[:3] == [
+        "2024-01-01 00:00:00",
+        "2024-01-01 00:01:00",
+        "2024-01-01 00:02:00",
+    ]
+    assert m5["Timestamp"].tolist() == ["2024-01-01 00:00:00", "2024-01-01 00:05:00"]
+    assert m5.loc[0, "Open"] == 100.0
+    assert m5.loc[0, "High"] == 104.0
+    assert m5.loc[0, "Low"] == 100.0
+    assert m5.loc[0, "Close"] == 104.0
+    assert m5.loc[0, "Volume"] == 50.0
+    assert h1.loc[0, "Open"] == 100.0
+    assert h1.loc[0, "Close"] == 109.0
+    assert h1.loc[0, "Volume"] == 100.0
+
+
+def test_data_populator_does_not_synthesize_missing_m1_minutes(tmp_path):
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("ETHUSDT",),
+        derived_timeframes=("M5",),
+    )
+    result = populator.write_candles(
+        crypto_spec("ETHUSDT"),
         [
             candle("2024-01-01T00:00:00", 100.0),
             candle("2024-01-01T00:02:00", 102.0),
         ],
     )
 
-    frame = pd.read_csv(result.csv_path)
-
-    assert result.rows == 3
-    assert frame["Timestamp"].tolist() == [
-        "2024-01-01 00:00:00",
-        "2024-01-01 00:01:00",
-        "2024-01-01 00:02:00",
-    ]
-    assert frame.loc[1, "Open"] == 100.0
-    assert frame.loc[1, "Close"] == 101.0
-    assert frame.loc[1, "High"] == 101.0
-    assert frame.loc[1, "Low"] == 100.0
-    assert frame.loc[1, "Volume"] == 0.0
-
-
-def test_data_populator_does_not_interpolate_large_gaps(tmp_path):
-    populator = ScheduledDataPopulator(
-        tmp_path,
-        forex_symbols=(),
-        crypto_symbols=("ETHUSDT",),
-        max_interpolation_gap_minutes=2,
-    )
-    result = populator.write_candles(
-        crypto_spec("ETHUSDT"),
-        [
-            candle("2024-01-01T00:00:00", 100.0),
-            candle("2024-01-01T00:05:00", 105.0),
-        ],
-    )
-
-    frame = pd.read_csv(result.csv_path)
+    m1 = pd.read_csv(result.csv_path)
+    m5 = pd.read_csv(tmp_path / "ETH_USDT" / "ETHUSDT_M5.csv")
 
     assert result.rows == 2
-    assert frame["Timestamp"].tolist() == [
+    assert m1["Timestamp"].tolist() == [
         "2024-01-01 00:00:00",
-        "2024-01-01 00:05:00",
+        "2024-01-01 00:02:00",
     ]
+    assert m5.loc[0, "Open"] == 100.0
+    assert m5.loc[0, "Close"] == 102.0
+    assert m5.loc[0, "Volume"] == 20.0
+
+
+def test_data_populator_uses_max_backfill_mode_by_default(tmp_path):
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=("EUR/USD",),
+        crypto_symbols=("BTCUSDT",),
+    )
+    end_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    assert populator.next_fetch_start(
+        crypto_spec("BTCUSDT"),
+        tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
+        end_at,
+    ) == datetime(2017, 8, 17, tzinfo=timezone.utc)
 
 
 def test_data_populator_parses_provider_rows():

@@ -20,8 +20,11 @@ def main() -> None:
         settings.datasets_root,
         forex_symbols=settings.data_populator_forex_symbols,
         crypto_symbols=settings.data_populator_crypto_symbols,
+        backfill_mode=settings.data_populator_backfill_mode,
         lookback_days=settings.data_populator_lookback_days,
-        max_interpolation_gap_minutes=settings.data_populator_max_interpolation_gap_minutes,
+        derived_timeframes=settings.data_populator_derived_timeframes,
+        forex_start_date=settings.data_populator_forex_start_date,
+        crypto_start_date=settings.data_populator_crypto_start_date,
         request_timeout_seconds=settings.data_populator_request_timeout_seconds,
     )
     catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)

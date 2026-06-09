@@ -58,18 +58,30 @@ class Settings:
         "EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS",
         3600,
     )
+    data_populator_backfill_mode: str = os.getenv(
+        "EDGELAB_DATA_POPULATOR_BACKFILL_MODE",
+        "max",
+    ).strip().lower()
     data_populator_lookback_days: int = int_env(
         "EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS",
         30,
     )
-    data_populator_max_interpolation_gap_minutes: int = int_env(
-        "EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES",
-        180,
+    data_populator_derived_timeframes: tuple[str, ...] = tuple_env(
+        "EDGELAB_DATA_POPULATOR_DERIVED_TIMEFRAMES",
+        "M5,M15,M30,H1,H4,Daily",
     )
     data_populator_request_timeout_seconds: int = int_env(
         "EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS",
         20,
     )
+    data_populator_forex_start_date: str = os.getenv(
+        "EDGELAB_DATA_POPULATOR_FOREX_START_DATE",
+        "2003-01-01",
+    ).strip()
+    data_populator_crypto_start_date: str = os.getenv(
+        "EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE",
+        "2017-08-17",
+    ).strip()
     data_populator_forex_symbols: tuple[str, ...] = tuple_env(
         "EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS",
         "EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,USD/CAD,NZD/USD",

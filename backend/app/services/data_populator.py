@@ -10,8 +10,20 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 DATA_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
-VALUE_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 MINUTE = timedelta(minutes=1)
+DEFAULT_DERIVED_TIMEFRAMES = ("M5", "M15", "M30", "H1", "H4", "Daily")
+MAX_BACKFILL_START_DATES = {
+    "binance": "2017-08-17",
+    "dukascopy": "2003-01-01",
+}
+RESAMPLE_RULES = {
+    "M5": "5min",
+    "M15": "15min",
+    "M30": "30min",
+    "H1": "1h",
+    "H4": "4h",
+    "Daily": "1D",
+}
 BINANCE_REST_URLS = (
     "https://data-api.binance.vision/api/v3",
     "https://api.binance.com/api/v3",
@@ -82,16 +94,24 @@ class ScheduledDataPopulator:
         *,
         forex_symbols: tuple[str, ...],
         crypto_symbols: tuple[str, ...],
+        backfill_mode: str = "max",
         lookback_days: int = 30,
-        max_interpolation_gap_minutes: int = 180,
+        derived_timeframes: tuple[str, ...] = DEFAULT_DERIVED_TIMEFRAMES,
+        forex_start_date: str = MAX_BACKFILL_START_DATES["dukascopy"],
+        crypto_start_date: str = MAX_BACKFILL_START_DATES["binance"],
         request_timeout_seconds: int = 20,
         fetch_json: FetchJson | None = None,
     ):
         self.root = root
         self.forex_symbols = forex_symbols
         self.crypto_symbols = crypto_symbols
+        self.backfill_mode = normalize_backfill_mode(backfill_mode)
         self.lookback_days = max(1, lookback_days)
-        self.max_interpolation_gap_minutes = max(0, max_interpolation_gap_minutes)
+        self.derived_timeframes = normalize_derived_timeframes(derived_timeframes)
+        self.provider_start_dates = {
+            "binance": parse_utc_date(crypto_start_date),
+            "dukascopy": parse_utc_date(forex_start_date),
+        }
         self.request_timeout_seconds = max(1, request_timeout_seconds)
         self.fetch_json = fetch_json or fetch_json_url
 
@@ -110,9 +130,9 @@ class ScheduledDataPopulator:
         for spec in self.specs():
             csv_path = self.csv_path_for_spec(spec)
             try:
-                start_at = self.next_fetch_start(csv_path, end_at)
+                start_at = self.next_fetch_start(spec, csv_path, end_at)
                 if start_at > end_at:
-                    results.append(self.result_for_existing_file(spec, csv_path, fetched=0))
+                    results.append(self.write_candles(spec, [], csv_path))
                     continue
                 candles = self.fetch_candles(spec, start_at, end_at)
                 results.append(self.write_candles(spec, candles, csv_path))
@@ -135,10 +155,12 @@ class ScheduledDataPopulator:
             results=results,
         )
 
-    def next_fetch_start(self, csv_path: Path, end_at: datetime) -> datetime:
+    def next_fetch_start(self, spec: MarketSpec, csv_path: Path, end_at: datetime) -> datetime:
         last_timestamp = read_last_timestamp(csv_path)
         if last_timestamp is not None:
             return last_timestamp + MINUTE
+        if self.backfill_mode == "max":
+            return self.provider_start_dates[spec.provider]
         return end_at - timedelta(days=self.lookback_days)
 
     def fetch_candles(
@@ -251,7 +273,6 @@ class ScheduledDataPopulator:
         frame = merge_candles(
             load_csv_frame(target_path),
             candles_to_frame(candles),
-            max_interpolation_gap_minutes=self.max_interpolation_gap_minutes,
         )
         if frame.empty:
             return PopulationResult(
@@ -266,6 +287,7 @@ class ScheduledDataPopulator:
         temp_path = target_path.with_name(f".{target_path.name}.tmp")
         frame.to_csv(temp_path, index=False)
         temp_path.replace(target_path)
+        self.write_derived_timeframes(spec, frame)
 
         return PopulationResult(
             asset_id=spec.asset_id,
@@ -294,8 +316,18 @@ class ScheduledDataPopulator:
             last_timestamp=parse_csv_timestamp(frame.iloc[-1]["Timestamp"]) if not frame.empty else None,
         )
 
-    def csv_path_for_spec(self, spec: MarketSpec) -> Path:
-        return self.root / spec.asset_id / f"{spec.filename_symbol}_M1.csv"
+    def write_derived_timeframes(self, spec: MarketSpec, m1_frame: pd.DataFrame) -> None:
+        for timeframe in self.derived_timeframes:
+            frame = derive_timeframe(m1_frame, timeframe)
+            if frame.empty:
+                continue
+            target_path = self.csv_path_for_spec(spec, timeframe)
+            temp_path = target_path.with_name(f".{target_path.name}.tmp")
+            frame.to_csv(temp_path, index=False)
+            temp_path.replace(target_path)
+
+    def csv_path_for_spec(self, spec: MarketSpec, timeframe: str = "M1") -> Path:
+        return self.root / spec.asset_id / f"{spec.filename_symbol}_{timeframe}.csv"
 
 
 def fetch_json_url(url: str, timeout: int) -> object:
@@ -419,8 +451,6 @@ def load_csv_frame(csv_path: Path) -> pd.DataFrame:
 def merge_candles(
     existing: pd.DataFrame,
     incoming: pd.DataFrame,
-    *,
-    max_interpolation_gap_minutes: int,
 ) -> pd.DataFrame:
     frames = [
         frame
@@ -433,38 +463,78 @@ def merge_candles(
 
     frame = frame.dropna(subset=["Timestamp"]).sort_values("Timestamp")
     frame = frame.drop_duplicates(subset=["Timestamp"], keep="last")
-    frame = frame.set_index("Timestamp")
-    frame["__real"] = True
-
-    full_index = pd.date_range(frame.index.min(), frame.index.max(), freq="min")
-    frame = frame.reindex(full_index)
-    real_mask = frame["__real"].eq(True)
-    fillable = interpolation_mask(real_mask, max_interpolation_gap_minutes)
-
-    close_curve = frame["Close"].astype(float).interpolate(method="time").ffill().bfill()
-    open_curve = close_curve.shift(1).fillna(close_curve)
-
-    frame.loc[fillable, "Open"] = open_curve[fillable]
-    frame.loc[fillable, "Close"] = close_curve[fillable]
-    frame.loc[fillable, "High"] = frame.loc[fillable, ["Open", "Close"]].max(axis=1)
-    frame.loc[fillable, "Low"] = frame.loc[fillable, ["Open", "Close"]].min(axis=1)
-    frame.loc[fillable, "Volume"] = 0.0
-
-    frame = frame.loc[real_mask | fillable, VALUE_COLUMNS]
-    frame = frame.reset_index(names="Timestamp")
     frame["Timestamp"] = frame["Timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
     return frame[DATA_COLUMNS]
 
 
-def interpolation_mask(real_mask: pd.Series, max_gap_minutes: int) -> pd.Series:
-    if max_gap_minutes <= 0:
-        return pd.Series(False, index=real_mask.index)
-    real_index = pd.Series(pd.NaT, index=real_mask.index, dtype="datetime64[ns]")
-    real_index.loc[real_mask] = real_mask.index[real_mask]
-    previous_real = real_index.ffill()
-    next_real = real_index.bfill()
-    gap_minutes = (next_real - previous_real) / pd.Timedelta(minutes=1)
-    return (~real_mask) & previous_real.notna() & next_real.notna() & (gap_minutes <= max_gap_minutes)
+def derive_timeframe(m1_frame: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    normalized_timeframe = normalize_timeframe(timeframe)
+    rule = RESAMPLE_RULES.get(normalized_timeframe)
+    if rule is None:
+        raise ValueError(f"Unsupported derived timeframe: {timeframe}")
+    frame = normalize_frame(m1_frame)
+    if frame.empty:
+        return empty_frame()
+    frame = frame.set_index("Timestamp").sort_index()
+    derived = frame.resample(rule, label="left", closed="left").agg(
+        {
+            "Open": "first",
+            "High": "max",
+            "Low": "min",
+            "Close": "last",
+            "Volume": "sum",
+        }
+    )
+    derived = derived.dropna(subset=["Open", "High", "Low", "Close"])
+    if derived.empty:
+        return empty_frame()
+    derived = derived.reset_index()
+    derived["Timestamp"] = derived["Timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    return derived[DATA_COLUMNS]
+
+
+def normalize_backfill_mode(value: str) -> Literal["max", "lookback"]:
+    normalized = (value or "max").strip().lower()
+    if normalized in {"max", "all", "maximum", "full"}:
+        return "max"
+    if normalized in {"lookback", "rolling", "recent"}:
+        return "lookback"
+    raise ValueError("EDGELAB_DATA_POPULATOR_BACKFILL_MODE must be max or lookback")
+
+
+def normalize_timeframe(value: str) -> str:
+    aliases = {
+        "5M": "M5",
+        "5MIN": "M5",
+        "5m": "M5",
+        "15M": "M15",
+        "15MIN": "M15",
+        "15m": "M15",
+        "30M": "M30",
+        "30MIN": "M30",
+        "30m": "M30",
+        "1H": "H1",
+        "1h": "H1",
+        "4H": "H4",
+        "4h": "H4",
+        "D": "Daily",
+        "1D": "Daily",
+        "Daily": "Daily",
+    }
+    return aliases.get(value, aliases.get(value.upper(), value))
+
+
+def normalize_derived_timeframes(values: tuple[str, ...]) -> tuple[str, ...]:
+    timeframes: list[str] = []
+    for value in values:
+        timeframe = normalize_timeframe(value.strip())
+        if timeframe == "M1":
+            continue
+        if timeframe not in RESAMPLE_RULES:
+            raise ValueError(f"Unsupported derived timeframe: {value}")
+        if timeframe not in timeframes:
+            timeframes.append(timeframe)
+    return tuple(timeframes)
 
 
 def normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -494,6 +564,11 @@ def read_last_timestamp(csv_path: Path) -> datetime | None:
 def parse_csv_timestamp(value: object) -> datetime:
     parsed = pd.to_datetime(value, errors="raise", utc=True)
     return parsed.to_pydatetime()
+
+
+def parse_utc_date(value: str) -> datetime:
+    parsed = pd.to_datetime(value, errors="raise", utc=True)
+    return parsed.to_pydatetime().replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def floor_minute(value: datetime) -> datetime:

@@ -77,10 +77,13 @@ Container defaults:
 
 - `EDGELAB_DATASETS_ROOT=/datasets`
 - `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS=3600`
+- `EDGELAB_DATA_POPULATOR_BACKFILL_MODE=max`
 - `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS=30`
-- `EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES=180`
+- `EDGELAB_DATA_POPULATOR_DERIVED_TIMEFRAMES=M5,M15,M30,H1,H4,Daily`
 - `EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS=EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,USD/CAD,NZD/USD`
+- `EDGELAB_DATA_POPULATOR_FOREX_START_DATE=2003-01-01`
 - `EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT`
+- `EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE=2017-08-17`
 - `EDGELAB_API_TOKEN=`
 - `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
@@ -94,7 +97,7 @@ Run the scheduled data populator directly from the repository root with:
 PYTHONPATH=backend backend/.venv/bin/python -m app.data_populator
 ```
 
-It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, interpolates short missing minute gaps, and refreshes the dataset catalog after each cycle.
+It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, derives configured higher-timeframe CSVs from the M1 candles, and refreshes the dataset catalog after each cycle. New dataset roots default to max backfill mode; switch `EDGELAB_DATA_POPULATOR_BACKFILL_MODE` to `lookback` when you want bounded recent history based on `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS`.
 
 ## Main APIs
 
