@@ -121,7 +121,9 @@ export function SessionGateway({
   const [instrumentId, setInstrumentId] = useState("");
   const [timeframe, setTimeframe] = useState("");
   const [strategy, setStrategy] = useState(session?.strategy_name ?? "London Continuation");
-  const [playbookMode, setPlaybookMode] = useState<PlaybookMode>(playbooks.length > 0 ? "existing" : "none");
+  const [sessionName, setSessionName] = useState("");
+  const [sessionNameEdited, setSessionNameEdited] = useState(false);
+  const [playbookMode, setPlaybookMode] = useState<PlaybookMode>("none");
   const [playbookId, setPlaybookId] = useState("");
   const [newPlaybookName, setNewPlaybookName] = useState("");
   const [entryRules, setEntryRules] = useState("");
@@ -164,10 +166,26 @@ export function SessionGateway({
   );
   const selectedStrategyGroup = useMemo(
     () =>
-      strategyGroups.find((group) => group.name === selectedStrategyName) ??
-      strategyGroups[0] ??
-      null,
+      selectedStrategyName
+        ? strategyGroups.find((group) => group.name === selectedStrategyName) ?? null
+        : null,
     [selectedStrategyName, strategyGroups],
+  );
+  const defaultSessionName = useMemo(
+    () => buildDefaultSessionName(strategy, selectedInstrument, selectedTimeframe),
+    [selectedInstrument, selectedTimeframe, strategy],
+  );
+  const strategySelectValue = selectedStrategyName ?? "";
+  const strategySelectOptions = useMemo(
+    () => [
+      { label: "New strategy", value: "" },
+      ...strategyGroups.map((group) => ({
+        label: group.name,
+        sublabel: `${group.sessions.length} sessions`,
+        value: group.name,
+      })),
+    ],
+    [strategyGroups],
   );
 
   useEffect(() => {
@@ -191,28 +209,29 @@ export function SessionGateway({
   }, [selectedTimeframe?.csv_path]);
 
   useEffect(() => {
-    if (playbooks.length > 0 && !playbookId) {
+    if (playbookMode === "existing" && playbooks.length > 0 && !playbookId) {
       setPlaybookId(String(playbooks[0].id));
-      if (playbookMode === "none") {
-        setPlaybookMode("existing");
-      }
+    }
+    if (playbookId && !playbooks.some((playbook) => String(playbook.id) === playbookId)) {
+      setPlaybookId("");
+      setPlaybookMode("none");
     }
   }, [playbookId, playbookMode, playbooks]);
 
   useEffect(() => {
-    if (!strategyGroups[0]) {
-      if (selectedStrategyName) {
-        setSelectedStrategyName(null);
-      }
-      return;
-    }
     if (
-      !selectedStrategyName ||
+      selectedStrategyName &&
       !strategyGroups.some((group) => group.name === selectedStrategyName)
     ) {
-      setSelectedStrategyName(strategyGroups[0].name);
+      setSelectedStrategyName(null);
     }
   }, [selectedStrategyName, strategyGroups]);
+
+  useEffect(() => {
+    if (!sessionNameEdited) {
+      setSessionName(defaultSessionName);
+    }
+  }, [defaultSessionName, sessionNameEdited]);
 
   useEffect(() => {
     if (editingSession && !sessions.some((item) => item.id === editingSession.id)) {
@@ -253,9 +272,45 @@ export function SessionGateway({
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
   }
 
+  function applyExistingStrategy(group: GatewayStrategyGroup) {
+    setSelectedStrategyName(group.name);
+    setStrategy(group.name);
+    const linkedPlaybookId = latestLinkedPlaybookId(group, playbooks);
+    if (linkedPlaybookId != null) {
+      setPlaybookMode("existing");
+      setPlaybookId(String(linkedPlaybookId));
+    }
+  }
+
+  function handleStrategySelect(value: string) {
+    if (!value) {
+      setSelectedStrategyName(null);
+      return;
+    }
+    const group = strategyGroups.find((item) => item.name === value);
+    if (group) {
+      applyExistingStrategy(group);
+    }
+  }
+
+  function handleStrategyNameChange(value: string) {
+    setStrategy(value);
+    const matchingGroup = strategyGroups.find((group) => group.name === value);
+    setSelectedStrategyName(matchingGroup?.name ?? null);
+    if (matchingGroup) {
+      const linkedPlaybookId = latestLinkedPlaybookId(matchingGroup, playbooks);
+      if (linkedPlaybookId != null) {
+        setPlaybookMode("existing");
+        setPlaybookId(String(linkedPlaybookId));
+      }
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!selectedInstrument || !selectedTimeframe || !strategy.trim()) {
+    const trimmedStrategy = strategy.trim();
+    const trimmedSessionName = sessionName.trim() || defaultSessionName;
+    if (!selectedInstrument || !selectedTimeframe || !trimmedStrategy || !trimmedSessionName) {
       return;
     }
 
@@ -267,14 +322,14 @@ export function SessionGateway({
       if (playbookMode === "new" && newPlaybookName.trim()) {
         const playbook = await onCreatePlaybook({
           name: newPlaybookName.trim(),
-          description: sessionNotes.trim() || `Rules for ${strategy.trim()}`,
+          description: sessionNotes.trim() || `Rules for ${trimmedStrategy}`,
           rules: buildPlaybookRules(entryRules, exitRules, riskRules),
         });
         attachedPlaybookId = playbook.id;
       }
 
       await onCreateSession({
-        name: `${strategy.trim()} / ${selectedInstrument.symbol} ${selectedTimeframe.timeframe}`,
+        name: trimmedSessionName,
         symbol: selectedInstrument.symbol,
         instrument: selectedInstrument.id,
         timeframe: selectedTimeframe.timeframe,
@@ -282,7 +337,7 @@ export function SessionGateway({
         currency: selectedInstrument.currency,
         pnl_multiplier: selectedInstrument.pnl_multiplier,
         timezone: selectedInstrument.timezone,
-        strategy_name: strategy.trim(),
+        strategy_name: trimmedStrategy,
         playbook_id: attachedPlaybookId,
         start_timestamp: startDate ? new Date(startDate).toISOString() : null,
         end_timestamp: endDate ? new Date(endDate).toISOString() : null,
@@ -387,8 +442,7 @@ export function SessionGateway({
               }`}
               key={group.name}
               onClick={() => {
-                setSelectedStrategyName(group.name);
-                setStrategy(group.name);
+                applyExistingStrategy(group);
               }}
             >
               <div className="flex min-w-0 items-start justify-between gap-3">
@@ -397,8 +451,7 @@ export function SessionGateway({
                     className="block max-w-full truncate text-left text-base font-semibold text-white transition hover:text-cyan-100"
                     onClick={(event) => {
                       event.stopPropagation();
-                      setSelectedStrategyName(group.name);
-                      setStrategy(group.name);
+                      applyExistingStrategy(group);
                     }}
                     title="View strategy metrics and use this strategy for the new session form"
                     type="button"
@@ -501,12 +554,23 @@ export function SessionGateway({
           </div>
         </div>
         <div className="session-form-grid">
+          <label className="form-field">
+            <span>Existing Strategy</span>
+            <ThemedSelect
+              ariaLabel="Existing strategy"
+              className="h-11"
+              onChange={handleStrategySelect}
+              options={strategySelectOptions}
+              placeholder="New strategy"
+              value={strategySelectValue}
+            />
+          </label>
           <label className="form-field xl:col-span-2">
             <span>Strategy Name</span>
             <input
               className="input-control h-11"
               list="gateway-strategies"
-              onChange={(event) => setStrategy(event.target.value)}
+              onChange={(event) => handleStrategyNameChange(event.target.value)}
               required
               value={strategy}
             />
@@ -515,6 +579,19 @@ export function SessionGateway({
                 <option key={group.name} value={group.name} />
               ))}
             </datalist>
+          </label>
+          <label className="form-field xl:col-span-2">
+            <span>Session Name</span>
+            <input
+              className="input-control h-11 normal-case tracking-normal"
+              onChange={(event) => {
+                setSessionName(event.target.value);
+                setSessionNameEdited(true);
+              }}
+              placeholder={defaultSessionName}
+              required
+              value={sessionName}
+            />
           </label>
           <label className="form-field">
             <span>Starting Balance</span>
@@ -1268,6 +1345,31 @@ type GatewayStrategyGroup = {
   sessions: GatewaySessionResult[];
   trades: Trade[];
 };
+
+function buildDefaultSessionName(
+  strategy: string,
+  instrument: DatasetInstrument | undefined,
+  timeframe: DatasetTimeframe | undefined,
+) {
+  const strategyName = strategy.trim() || "Strategy";
+  if (!instrument || !timeframe) {
+    return strategyName;
+  }
+  return `${strategyName} / ${instrument.symbol} ${timeframe.timeframe}`;
+}
+
+function latestLinkedPlaybookId(group: GatewayStrategyGroup, playbooks: Playbook[]) {
+  const playbookIds = new Set(playbooks.map((playbook) => playbook.id));
+  for (const row of group.sessions) {
+    if (row.session.playbook_id != null && playbookIds.has(row.session.playbook_id)) {
+      return row.session.playbook_id;
+    }
+  }
+  const matchingPlaybook = playbooks.find(
+    (playbook) => playbook.name.trim().toLowerCase() === group.name.trim().toLowerCase(),
+  );
+  return matchingPlaybook?.id ?? null;
+}
 
 function buildStrategyGroups(
   sessions: BacktestSession[],
