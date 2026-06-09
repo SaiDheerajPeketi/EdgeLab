@@ -15,9 +15,13 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Use `docker-compose` in place of `docker compose` on hosts that provide only the standalone Compose binary.
+
 Open `http://localhost:8080` by default. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
 
 Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For the bundled frontend, set `VITE_API_BEARER_TOKEN` to the same value at build time.
+
+Frontend image dependency installs use `NPM_CONFIG_REGISTRY`, which defaults to `https://registry.npmjs.org/` so Docker builds do not depend on workstation-specific npm mirrors.
 
 The Compose setup expects a replay CSV at `./EURUSD_M1.csv` unless `EDGELAB_CSV_PATH` is changed in `.env`. Optional preprocessed datasets can be mounted by setting `EDGELAB_DATASETS_ROOT`.
 
