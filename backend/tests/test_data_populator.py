@@ -1,8 +1,10 @@
+import json
 from datetime import datetime, timezone
 
 import pandas as pd
 
 from app.services.data_populator import (
+    MANIFEST_FILENAME,
     MarketCandle,
     ScheduledDataPopulator,
     binance_kline_to_candle,
@@ -64,6 +66,12 @@ def test_data_populator_derives_higher_timeframes_from_m1(tmp_path):
     assert h1.loc[0, "Open"] == 100.0
     assert h1.loc[0, "Close"] == 109.0
     assert h1.loc[0, "Volume"] == 100.0
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    timeframes = manifest["markets"]["BTC_USDT"]["timeframes"]
+    assert timeframes["M1"]["rows"] == 10
+    assert timeframes["M1"]["last_timestamp"] == "2024-01-01T00:09:00Z"
+    assert timeframes["M5"]["rows"] == 2
+    assert timeframes["M5"]["last_timestamp"] == "2024-01-01T00:05:00Z"
 
 
 def test_data_populator_does_not_synthesize_missing_m1_minutes(tmp_path):
@@ -106,6 +114,78 @@ def test_data_populator_uses_max_backfill_mode_by_default(tmp_path):
         crypto_spec("BTCUSDT"),
         tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
         end_at,
+    ) == datetime(2017, 8, 17, tzinfo=timezone.utc)
+
+
+def test_data_populator_resumes_from_manifest(tmp_path):
+    spec = crypto_spec("BTCUSDT")
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        derived_timeframes=(),
+    )
+    result = populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+        ],
+    )
+    resumed = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        derived_timeframes=(),
+    )
+
+    assert resumed.next_fetch_start(
+        spec,
+        tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
+        datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+    ) == datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc)
+    assert json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))[
+        "markets"
+    ]["BTC_USDT"]["timeframes"]["M1"]["csv_path"] == "BTC_USDT/BTCUSDT_M1.csv"
+    assert result.rows == 2
+
+
+def test_data_populator_ignores_manifest_when_csv_is_missing(tmp_path):
+    manifest_path = tmp_path / MANIFEST_FILENAME
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "markets": {
+                    "BTC_USDT": {
+                        "provider": "binance",
+                        "instrument": "BTCUSDT",
+                        "symbol": "BTCUSDT",
+                        "timeframes": {
+                            "M1": {
+                                "csv_path": "BTC_USDT/BTCUSDT_M1.csv",
+                                "rows": 1,
+                                "first_timestamp": "2024-01-01T00:00:00Z",
+                                "last_timestamp": "2024-01-01T00:00:00Z",
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        derived_timeframes=(),
+    )
+
+    assert populator.next_fetch_start(
+        crypto_spec("BTCUSDT"),
+        tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
+        datetime(2024, 1, 1, tzinfo=timezone.utc),
     ) == datetime(2017, 8, 17, tzinfo=timezone.utc)
 
 

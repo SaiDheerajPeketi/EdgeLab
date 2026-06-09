@@ -42,6 +42,7 @@ When changing API prefixes or proxy behavior, update `docker/nginx.conf`, fronte
 - The default Compose deployment is dataset-root driven.
 - Dataset folders are mounted read-only at `/datasets` for the API.
 - The scheduled `data-populator` service mounts `/datasets` read-write, runs as `${EDGELAB_DATA_POPULATOR_USER:-0:0}`, updates M1 dataset CSVs, and derives configured higher-timeframe CSVs from M1 data.
+- The data populator maintains `.edgelab-data-populator-manifest.json` under the dataset root for local resume metadata.
 - The legacy single-file replay path is optional and should only be enabled with an explicit `EDGELAB_CSV_PATH`.
 
 ## Required Verification

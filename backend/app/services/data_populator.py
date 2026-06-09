@@ -11,6 +11,8 @@ import pandas as pd
 
 DATA_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
 MINUTE = timedelta(minutes=1)
+MANIFEST_FILENAME = ".edgelab-data-populator-manifest.json"
+MANIFEST_VERSION = 1
 DEFAULT_DERIVED_TIMEFRAMES = ("M5", "M15", "M30", "H1", "H4", "Daily")
 MAX_BACKFILL_START_DATES = {
     "binance": "2017-08-17",
@@ -87,6 +89,136 @@ class PopulationSummary:
         return [item for item in self.results if item.error]
 
 
+class DataPopulatorManifest:
+    def __init__(self, root: Path):
+        self.root = root
+        self.path = root / MANIFEST_FILENAME
+        self._payload: dict[str, object] | None = None
+
+    @property
+    def payload(self) -> dict[str, object]:
+        if self._payload is None:
+            self._payload = self._load()
+        return self._payload
+
+    def last_timestamp(self, spec: MarketSpec, timeframe: str = "M1") -> datetime | None:
+        entry = self.timeframe_entry(spec, timeframe)
+        if entry is None:
+            return None
+        csv_path = self.path_from_entry(entry)
+        if not csv_path.is_file():
+            return None
+        timestamp = entry.get("last_timestamp")
+        if not timestamp:
+            return None
+        try:
+            return parse_csv_timestamp(timestamp)
+        except (TypeError, ValueError):
+            return None
+
+    def timeframe_entry(self, spec: MarketSpec, timeframe: str) -> dict[str, object] | None:
+        markets = self.payload.get("markets")
+        if not isinstance(markets, dict):
+            return None
+        market = markets.get(spec.asset_id)
+        if not isinstance(market, dict):
+            return None
+        timeframes = market.get("timeframes")
+        if not isinstance(timeframes, dict):
+            return None
+        entry = timeframes.get(timeframe)
+        return entry if isinstance(entry, dict) else None
+
+    def path_from_entry(self, entry: dict[str, object]) -> Path:
+        raw_path = str(entry.get("csv_path") or "")
+        path = Path(raw_path)
+        return path if path.is_absolute() else self.root / path
+
+    def update_timeframe(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        csv_path: Path,
+        frame: pd.DataFrame,
+    ) -> None:
+        if frame.empty:
+            return
+        payload = self.payload
+        markets = payload.setdefault("markets", {})
+        if not isinstance(markets, dict):
+            markets = {}
+            payload["markets"] = markets
+        market = markets.setdefault(
+            spec.asset_id,
+            {
+                "provider": spec.provider,
+                "instrument": spec.instrument,
+                "symbol": spec.symbol,
+                "timeframes": {},
+            },
+        )
+        if not isinstance(market, dict):
+            market = {
+                "provider": spec.provider,
+                "instrument": spec.instrument,
+                "symbol": spec.symbol,
+                "timeframes": {},
+            }
+            markets[spec.asset_id] = market
+        market["provider"] = spec.provider
+        market["instrument"] = spec.instrument
+        market["symbol"] = spec.symbol
+        timeframes = market.setdefault("timeframes", {})
+        if not isinstance(timeframes, dict):
+            timeframes = {}
+            market["timeframes"] = timeframes
+        timeframes[timeframe] = {
+            "csv_path": self.relative_path(csv_path),
+            "rows": int(len(frame)),
+            "first_timestamp": manifest_timestamp(frame.iloc[0]["Timestamp"]),
+            "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
+            "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+        }
+        payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+
+    def save(self) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        temp_path = self.path.with_name(f".{self.path.name}.tmp")
+        with temp_path.open("w", encoding="utf-8") as handle:
+            json.dump(self.payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        temp_path.replace(self.path)
+
+    def relative_path(self, csv_path: Path) -> str:
+        try:
+            return str(csv_path.relative_to(self.root))
+        except ValueError:
+            return str(csv_path)
+
+    def _load(self) -> dict[str, object]:
+        if not self.path.exists():
+            return {
+                "version": MANIFEST_VERSION,
+                "generated_by": "edgelab-data-populator",
+                "markets": {},
+            }
+        try:
+            with self.path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Ignoring unreadable data populator manifest: %s", self.path)
+            return {
+                "version": MANIFEST_VERSION,
+                "generated_by": "edgelab-data-populator",
+                "markets": {},
+            }
+        return payload if isinstance(payload, dict) else {
+            "version": MANIFEST_VERSION,
+            "generated_by": "edgelab-data-populator",
+            "markets": {},
+        }
+
+
 class ScheduledDataPopulator:
     def __init__(
         self,
@@ -114,6 +246,7 @@ class ScheduledDataPopulator:
         }
         self.request_timeout_seconds = max(1, request_timeout_seconds)
         self.fetch_json = fetch_json or fetch_json_url
+        self.manifest = DataPopulatorManifest(root)
 
     def specs(self) -> list[MarketSpec]:
         return [
@@ -156,8 +289,12 @@ class ScheduledDataPopulator:
         )
 
     def next_fetch_start(self, spec: MarketSpec, csv_path: Path, end_at: datetime) -> datetime:
+        manifest_timestamp_value = self.manifest.last_timestamp(spec, "M1")
+        if manifest_timestamp_value is not None:
+            return manifest_timestamp_value + MINUTE
         last_timestamp = read_last_timestamp(csv_path)
         if last_timestamp is not None:
+            self.update_manifest_from_existing_file(spec, "M1", csv_path)
             return last_timestamp + MINUTE
         if self.backfill_mode == "max":
             return self.provider_start_dates[spec.provider]
@@ -287,7 +424,11 @@ class ScheduledDataPopulator:
         temp_path = target_path.with_name(f".{target_path.name}.tmp")
         frame.to_csv(temp_path, index=False)
         temp_path.replace(target_path)
-        self.write_derived_timeframes(spec, frame)
+        derived_frames = self.write_derived_timeframes(spec, frame)
+        self.manifest.update_timeframe(spec, "M1", target_path, frame)
+        for timeframe, derived_path, derived_frame in derived_frames:
+            self.manifest.update_timeframe(spec, timeframe, derived_path, derived_frame)
+        self.manifest.save()
 
         return PopulationResult(
             asset_id=spec.asset_id,
@@ -316,7 +457,20 @@ class ScheduledDataPopulator:
             last_timestamp=parse_csv_timestamp(frame.iloc[-1]["Timestamp"]) if not frame.empty else None,
         )
 
-    def write_derived_timeframes(self, spec: MarketSpec, m1_frame: pd.DataFrame) -> None:
+    def update_manifest_from_existing_file(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        csv_path: Path,
+    ) -> None:
+        frame = load_csv_frame(csv_path)
+        if frame.empty:
+            return
+        self.manifest.update_timeframe(spec, timeframe, csv_path, frame)
+        self.manifest.save()
+
+    def write_derived_timeframes(self, spec: MarketSpec, m1_frame: pd.DataFrame) -> list[tuple[str, Path, pd.DataFrame]]:
+        derived_frames: list[tuple[str, Path, pd.DataFrame]] = []
         for timeframe in self.derived_timeframes:
             frame = derive_timeframe(m1_frame, timeframe)
             if frame.empty:
@@ -325,6 +479,8 @@ class ScheduledDataPopulator:
             temp_path = target_path.with_name(f".{target_path.name}.tmp")
             frame.to_csv(temp_path, index=False)
             temp_path.replace(target_path)
+            derived_frames.append((timeframe, target_path, frame))
+        return derived_frames
 
     def csv_path_for_spec(self, spec: MarketSpec, timeframe: str = "M1") -> Path:
         return self.root / spec.asset_id / f"{spec.filename_symbol}_{timeframe}.csv"
@@ -564,6 +720,16 @@ def read_last_timestamp(csv_path: Path) -> datetime | None:
 def parse_csv_timestamp(value: object) -> datetime:
     parsed = pd.to_datetime(value, errors="raise", utc=True)
     return parsed.to_pydatetime()
+
+
+def manifest_timestamp(value: object) -> str:
+    return utc_manifest_timestamp(parse_csv_timestamp(value))
+
+
+def utc_manifest_timestamp(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def parse_utc_date(value: str) -> datetime:
