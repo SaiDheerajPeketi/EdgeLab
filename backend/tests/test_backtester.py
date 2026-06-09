@@ -631,3 +631,21 @@ def test_market_data_accepts_daily_date_only_csv(tmp_path: Path):
 
     assert metadata.rows == 1
     assert metadata.first_timestamp == datetime(2024, 1, 1)
+
+
+def test_market_data_rejects_directory_csv_path(tmp_path: Path):
+    csv_path = tmp_path / "EURUSD_M1.csv"
+    csv_path.mkdir()
+    service = MarketDataService(csv_path, cache=False)
+
+    with pytest.raises(FileNotFoundError, match="CSV path is not a file"):
+        service.validate_source()
+
+
+def test_market_data_validate_source_rejects_missing_columns(tmp_path: Path):
+    csv_path = tmp_path / "bad.csv"
+    csv_path.write_text("Timestamp,Open,High,Low,Close\n2024-01-01,1,2,1,2\n", encoding="utf-8")
+    service = MarketDataService(csv_path, cache=False)
+
+    with pytest.raises(ValueError, match="Volume"):
+        service.validate_source()

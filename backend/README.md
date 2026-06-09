@@ -82,7 +82,7 @@ Container defaults:
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
 
-The Compose file mounts the CSV and datasets read-only and persists the SQLite database in the `api-data` named volume.
+The Compose file mounts the CSV and datasets read-only and persists the SQLite database in the `api-data` named volume. The primary CSV bind mount must point to an existing file, and `/api/health` validates both SQLite connectivity and the CSV header.
 
 ## Main APIs
 

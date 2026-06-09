@@ -197,6 +197,18 @@ def dataset_error_response(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="Dataset operation failed")
 
 
+def market_data_error_response(exc: Exception) -> HTTPException:
+    if isinstance(exc, FileNotFoundError):
+        return HTTPException(
+            status_code=503,
+            detail=(
+                f"Market data CSV is unavailable: {exc}. "
+                "Set EDGELAB_CSV_PATH to a readable CSV file before starting Docker Compose."
+            ),
+        )
+    return HTTPException(status_code=400, detail=str(exc))
+
+
 def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
     request = Request(url, headers=headers or {"User-Agent": "edgelab-local-datafeed"})
     try:
@@ -536,8 +548,13 @@ def dukascopy_row_to_candle(row: object) -> dict[str, object] | None:
 
 
 @router.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)) -> dict[str, str]:
+    db.execute(select(1)).scalar_one()
+    try:
+        market_data.validate_source()
+    except (FileNotFoundError, ValueError) as exc:
+        raise market_data_error_response(exc) from exc
+    return {"status": "ok", "database": "ok", "market_data": "ok"}
 
 
 @router.get("/market-data/meta", response_model=DatasetMeta)
@@ -551,7 +568,7 @@ def market_data_meta(
             return backtester.market_data_for_session(session).get_metadata()
         return market_data.get_metadata()
     except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise market_data_error_response(exc) from exc
 
 
 @router.get("/datasets", response_model=DatasetCatalogResponse)
@@ -786,7 +803,7 @@ def market_data_bars(
             service = backtester.market_data_for_session(session)
         return service.get_bars(offset=offset, limit=limit, warmup=warmup)
     except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise market_data_error_response(exc) from exc
 
 
 @router.get("/live/dukascopy/instruments", response_model=DukascopyInstrumentsResponse)
@@ -1103,7 +1120,11 @@ def create_backtest(
     payload: BacktestCreate,
     db: Session = Depends(get_db),
 ) -> BacktestState:
-    return backtester.create_session(db, payload)
+    try:
+        return backtester.create_session(db, payload)
+    except (FileNotFoundError, ValueError) as exc:
+        db.rollback()
+        raise market_data_error_response(exc) from exc
 
 
 @router.get("/backtests", response_model=list[BacktestSessionRead])
@@ -1120,10 +1141,14 @@ def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
     dependencies=[Depends(require_api_token)],
 )
 def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
-    session = list_latest_session(db)
-    if session is None:
-        return backtester.create_session(db, BacktestCreate())
-    return backtester.get_state(db, session.id)
+    try:
+        session = list_latest_session(db)
+        if session is None:
+            return backtester.create_session(db, BacktestCreate())
+        return backtester.get_state(db, session.id)
+    except (FileNotFoundError, ValueError) as exc:
+        db.rollback()
+        raise market_data_error_response(exc) from exc
 
 
 @router.post(

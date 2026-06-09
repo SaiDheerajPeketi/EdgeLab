@@ -58,6 +58,11 @@ class MarketDataService:
         )
         return self._metadata
 
+    def validate_source(self) -> None:
+        self._ensure_csv_exists()
+        sample = pd.read_csv(self.csv_path, nrows=1)
+        self._validate_columns(sample)
+
     def get_bars(
         self,
         offset: int = 0,
@@ -195,6 +200,8 @@ class MarketDataService:
     def _ensure_csv_exists(self) -> None:
         if not self.csv_path.exists():
             raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
+        if not self.csv_path.is_file():
+            raise FileNotFoundError(f"CSV path is not a file: {self.csv_path}")
 
     def _validate_columns(self, frame: pd.DataFrame) -> None:
         missing = [column for column in REQUIRED_COLUMNS if column not in frame.columns]

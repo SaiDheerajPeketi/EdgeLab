@@ -23,7 +23,7 @@ Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For t
 
 Frontend image dependency installs use `NPM_CONFIG_REGISTRY`, which defaults to `https://registry.npmjs.org/` so Docker builds do not depend on workstation-specific npm mirrors.
 
-The Compose setup expects a replay CSV at `./EURUSD_M1.csv` unless `EDGELAB_CSV_PATH` is changed in `.env`. Optional preprocessed datasets can be mounted by setting `EDGELAB_DATASETS_ROOT`.
+The Compose setup expects a real replay CSV file at `./EURUSD_M1.csv` unless `EDGELAB_CSV_PATH` is changed in `.env`. Compose is configured not to auto-create this bind path, and the API health check validates the CSV header so missing or malformed market data fails during startup instead of surfacing later as a generic backtest error. Optional preprocessed datasets can be mounted by setting `EDGELAB_DATASETS_ROOT`.
 
 Useful Docker commands:
 
