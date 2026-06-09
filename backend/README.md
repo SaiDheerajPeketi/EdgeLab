@@ -104,6 +104,7 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 
 - `POST /api/backtests` creates a replay session.
 - `GET /api/backtests/latest` returns the latest usable replay session, or 404 when no replay session exists.
+- `WS /api/datasets/stream` pushes dataset catalog changes to the frontend.
 - `POST /api/backtests/{id}/advance` steps forward.
 - `POST /api/backtests/{id}/jump` jumps by offset or timestamp.
 - `POST /api/backtests/{id}/orders` places market, limit, or stop orders.

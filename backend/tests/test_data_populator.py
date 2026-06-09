@@ -1,4 +1,5 @@
 import json
+import threading
 import warnings
 from datetime import datetime, timezone
 
@@ -255,6 +256,39 @@ def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
         "2024-01-01 00:00:00",
         "2024-01-01 00:01:00",
     ]
+
+
+def test_populate_once_runs_dukascopy_and_binance_groups_in_parallel(tmp_path):
+    started = {
+        "binance": threading.Event(),
+        "dukascopy": threading.Event(),
+    }
+
+    class ParallelProviderPopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            started[spec.provider].set()
+            other_provider = "binance" if spec.provider == "dukascopy" else "dukascopy"
+            assert started[other_provider].wait(timeout=1)
+            yield [candle("2024-01-01T00:00:00", 100.0)]
+
+    populator = ParallelProviderPopulator(
+        tmp_path,
+        forex_symbols=("EUR/USD",),
+        crypto_symbols=("BTCUSDT",),
+        backfill_mode="lookback",
+        derived_timeframes=(),
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 3, tzinfo=timezone.utc))
+
+    assert sorted(result.asset_id for result in summary.results) == ["BTC_USDT", "EUR_USD"]
+    assert (tmp_path / "EUR_USD" / "EURUSD_M1.csv").is_file()
+    assert (tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv").is_file()
 
 
 def test_normalize_frame_parses_mixed_timestamps_without_inference_warning():

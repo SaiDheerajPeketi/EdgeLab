@@ -60,6 +60,30 @@ def test_ready_reports_dataset_catalog_counts(monkeypatch):
         db.close()
 
 
+def test_dataset_catalog_stream_payload_serializes_catalog(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    catalog = DatasetCatalogService(datasets_root, session_factory)
+    monkeypatch.setattr(routes, "dataset_catalog", catalog)
+    monkeypatch.setattr(routes, "SessionLocal", session_factory)
+
+    payload = routes.dataset_catalog_stream_payload()
+
+    assert payload["type"] == "catalog"
+    assert payload["catalog"]["root"] == str(datasets_root)
+    assert payload["catalog"]["instruments"][0]["id"] == "GBP_USD"
+
+
 def test_latest_backtest_skips_stale_legacy_csv_session_without_creating_default(monkeypatch, tmp_path):
     datasets_root = tmp_path / "datasets"
     asset_dir = datasets_root / "GBP_USD"

@@ -40,7 +40,13 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { TradingChart } from "./components/TradingChart";
-import type { BacktestCreatePayload, BacktestSessionUpdatePayload, Trade } from "./lib/api";
+import {
+  getApiWebSocketUrl,
+  type BacktestCreatePayload,
+  type BacktestSessionUpdatePayload,
+  type DatasetCatalog,
+  type Trade,
+} from "./lib/api";
 import type {
   ChartDrawing,
   ChartIndicatorId,
@@ -233,7 +239,7 @@ function WorkspaceApp() {
     updateSession,
     deleteSession,
     refreshDatasets,
-    reloadDatasets,
+    applyDatasetCatalog,
     refreshDatasetStatus,
     updateDatasetAsset,
     updateDatasetSettings,
@@ -435,19 +441,47 @@ function WorkspaceApp() {
   }, [loadInitial]);
 
   useEffect(() => {
-    const pollDatasets = () => {
-      if (document.visibilityState === "hidden") {
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let stopped = false;
+
+    const connect = () => {
+      if (stopped) {
         return;
       }
-      void reloadDatasets();
+      socket = new WebSocket(getApiWebSocketUrl("/datasets/stream"));
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data as string) as {
+            catalog?: DatasetCatalog;
+            type?: string;
+          };
+          if (message.type === "catalog" && message.catalog) {
+            applyDatasetCatalog(message.catalog);
+          }
+        } catch {
+          // Ignore malformed stream messages and wait for the next catalog update.
+        }
+      };
+      socket.onerror = () => {
+        socket?.close();
+      };
+      socket.onclose = () => {
+        if (!stopped) {
+          reconnectTimer = window.setTimeout(connect, 5_000);
+        }
+      };
     };
-    const timer = window.setInterval(pollDatasets, 15_000);
-    document.addEventListener("visibilitychange", pollDatasets);
+
+    connect();
     return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", pollDatasets);
+      stopped = true;
+      if (reconnectTimer != null) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socket?.close();
     };
-  }, [reloadDatasets]);
+  }, [applyDatasetCatalog]);
 
   useEffect(() => {
     drawingsRef.current = drawings;

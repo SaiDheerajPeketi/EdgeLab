@@ -65,7 +65,7 @@ npm run dev
 ```
 
 The backend scans dataset CSV folders from `datasets` by default. Set `EDGELAB_DATASETS_ROOT` to point at a different dataset root.
-The open frontend periodically reloads the dataset catalog, so CSV range changes from the populator appear without a browser refresh. Replay sessions are created only from the session builder or `POST /api/backtests`; startup does not create a default EURUSD/M1 session.
+The open frontend subscribes to `/api/datasets/stream` over WebSocket, so CSV range changes from the populator appear without a browser refresh. Replay sessions are created only from the session builder or `POST /api/backtests`; startup does not create a default EURUSD/M1 session.
 
 The upgraded backend uses `backend/trade_journal_v2.db` by default. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
 

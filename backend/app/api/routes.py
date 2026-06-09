@@ -80,6 +80,7 @@ from app.services.trade_imports import import_trade_csv
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+DATASET_STREAM_INTERVAL_SECONDS = 3
 market_data = (
     MarketDataService(settings.csv_path, cache=settings.cache_market_data)
     if settings.csv_path is not None
@@ -656,6 +657,45 @@ def refresh_datasets(db: Session = Depends(get_db)) -> DatasetRefreshResponse:
 @router.get("/datasets/refresh/status", response_model=DatasetRefreshStatus)
 def dataset_refresh_status() -> DatasetRefreshStatus:
     return dataset_catalog.refresh_status()
+
+
+@router.websocket("/datasets/stream")
+async def dataset_stream(websocket: WebSocket) -> None:
+    await websocket.accept()
+    last_signature: str | None = None
+    try:
+        while True:
+            payload = await asyncio.to_thread(dataset_catalog_stream_payload)
+            signature = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            if signature != last_signature:
+                await websocket.send_json(payload)
+                last_signature = signature
+            try:
+                await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=DATASET_STREAM_INTERVAL_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                continue
+    except WebSocketDisconnect:
+        return
+
+
+def dataset_catalog_stream_payload() -> dict[str, object]:
+    db = SessionLocal()
+    try:
+        catalog = dataset_catalog.list_catalog(db)
+        return {
+            "type": "catalog",
+            "catalog": catalog.model_dump(mode="json"),
+        }
+    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+        return {
+            "type": "error",
+            "message": str(exc),
+        }
+    finally:
+        db.close()
 
 
 @router.patch(

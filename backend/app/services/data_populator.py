@@ -1,8 +1,10 @@
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import RLock
 from typing import Callable, Iterator, Literal
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -101,12 +103,14 @@ class DataPopulatorManifest:
         self.root = root
         self.path = root / MANIFEST_FILENAME
         self._payload: dict[str, object] | None = None
+        self._lock = RLock()
 
     @property
     def payload(self) -> dict[str, object]:
-        if self._payload is None:
-            self._payload = self._load()
-        return self._payload
+        with self._lock:
+            if self._payload is None:
+                self._payload = self._load()
+            return self._payload
 
     def last_timestamp(self, spec: MarketSpec, timeframe: str = "M1") -> datetime | None:
         timestamp_range = self.timestamp_range(spec, timeframe)
@@ -117,49 +121,52 @@ class DataPopulatorManifest:
         spec: MarketSpec,
         timeframe: str = "M1",
     ) -> tuple[datetime, datetime] | None:
-        entry = self.timeframe_entry(spec, timeframe)
-        if entry is None:
-            return None
-        csv_path = self.path_from_entry(entry)
-        if not csv_path.is_file():
-            return None
-        first_timestamp = entry.get("first_timestamp")
-        last_timestamp = entry.get("last_timestamp")
-        if not first_timestamp or not last_timestamp:
-            return None
-        try:
-            first = parse_csv_timestamp(first_timestamp)
-            last = parse_csv_timestamp(last_timestamp)
-        except (TypeError, ValueError):
-            return None
-        if first > last:
-            return None
-        return first, last
+        with self._lock:
+            entry = self.timeframe_entry(spec, timeframe)
+            if entry is None:
+                return None
+            csv_path = self.path_from_entry(entry)
+            if not csv_path.is_file():
+                return None
+            first_timestamp = entry.get("first_timestamp")
+            last_timestamp = entry.get("last_timestamp")
+            if not first_timestamp or not last_timestamp:
+                return None
+            try:
+                first = parse_csv_timestamp(first_timestamp)
+                last = parse_csv_timestamp(last_timestamp)
+            except (TypeError, ValueError):
+                return None
+            if first > last:
+                return None
+            return first, last
 
     def timeframe_entry(self, spec: MarketSpec, timeframe: str) -> dict[str, object] | None:
-        markets = self.payload.get("markets")
-        if not isinstance(markets, dict):
-            return None
-        market = markets.get(spec.asset_id)
-        if not isinstance(market, dict):
-            return None
-        timeframes = market.get("timeframes")
-        if not isinstance(timeframes, dict):
-            return None
-        entry = timeframes.get(timeframe)
-        return entry if isinstance(entry, dict) else None
+        with self._lock:
+            markets = self.payload.get("markets")
+            if not isinstance(markets, dict):
+                return None
+            market = markets.get(spec.asset_id)
+            if not isinstance(market, dict):
+                return None
+            timeframes = market.get("timeframes")
+            if not isinstance(timeframes, dict):
+                return None
+            entry = timeframes.get(timeframe)
+            return entry if isinstance(entry, dict) else None
 
     def no_data_before(self, spec: MarketSpec, timeframe: str = "M1") -> datetime | None:
-        entry = self.timeframe_entry(spec, timeframe)
-        if entry is None:
-            return None
-        timestamp = entry.get("no_data_before")
-        if not timestamp:
-            return None
-        try:
-            return parse_csv_timestamp(timestamp)
-        except (TypeError, ValueError):
-            return None
+        with self._lock:
+            entry = self.timeframe_entry(spec, timeframe)
+            if entry is None:
+                return None
+            timestamp = entry.get("no_data_before")
+            if not timestamp:
+                return None
+            try:
+                return parse_csv_timestamp(timestamp)
+            except (TypeError, ValueError):
+                return None
 
     def path_from_entry(self, entry: dict[str, object]) -> Path:
         raw_path = str(entry.get("csv_path") or "")
@@ -175,24 +182,25 @@ class DataPopulatorManifest:
     ) -> None:
         if frame.empty:
             return
-        timeframes = self.timeframes_for_spec(spec)
-        existing = timeframes.get(timeframe)
-        no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
-        first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
-        timeframes[timeframe] = {
-            "csv_path": self.relative_path(csv_path),
-            "rows": int(len(frame)),
-            "first_timestamp": utc_manifest_timestamp(first_timestamp),
-            "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
-            "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
-        }
-        if no_data_before:
-            try:
-                if first_timestamp > parse_csv_timestamp(no_data_before):
-                    timeframes[timeframe]["no_data_before"] = no_data_before
-            except (TypeError, ValueError):
-                pass
-        self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+        with self._lock:
+            timeframes = self.timeframes_for_spec(spec)
+            existing = timeframes.get(timeframe)
+            no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
+            first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
+            timeframes[timeframe] = {
+                "csv_path": self.relative_path(csv_path),
+                "rows": int(len(frame)),
+                "first_timestamp": utc_manifest_timestamp(first_timestamp),
+                "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
+                "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+            }
+            if no_data_before:
+                try:
+                    if first_timestamp > parse_csv_timestamp(no_data_before):
+                        timeframes[timeframe]["no_data_before"] = no_data_before
+                except (TypeError, ValueError):
+                    pass
+            self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
 
     def update_no_data_range(
         self,
@@ -202,66 +210,69 @@ class DataPopulatorManifest:
         end_at: datetime,
         reason: str,
     ) -> None:
-        timeframes = self.timeframes_for_spec(spec)
-        entry = timeframes.setdefault(timeframe, {})
-        if not isinstance(entry, dict):
-            entry = {}
-            timeframes[timeframe] = entry
-        existing = entry.get("no_data_before")
-        no_data_before = end_at
-        if existing:
-            try:
-                no_data_before = max(parse_csv_timestamp(existing), end_at)
-            except (TypeError, ValueError):
-                pass
-        entry["no_data_before"] = utc_manifest_timestamp(no_data_before)
-        entry["last_no_data_range"] = {
-            "start_timestamp": utc_manifest_timestamp(start_at),
-            "end_timestamp": utc_manifest_timestamp(end_at),
-            "reason": reason,
-            "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
-        }
-        self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+        with self._lock:
+            timeframes = self.timeframes_for_spec(spec)
+            entry = timeframes.setdefault(timeframe, {})
+            if not isinstance(entry, dict):
+                entry = {}
+                timeframes[timeframe] = entry
+            existing = entry.get("no_data_before")
+            no_data_before = end_at
+            if existing:
+                try:
+                    no_data_before = max(parse_csv_timestamp(existing), end_at)
+                except (TypeError, ValueError):
+                    pass
+            entry["no_data_before"] = utc_manifest_timestamp(no_data_before)
+            entry["last_no_data_range"] = {
+                "start_timestamp": utc_manifest_timestamp(start_at),
+                "end_timestamp": utc_manifest_timestamp(end_at),
+                "reason": reason,
+                "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+            }
+            self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
 
     def timeframes_for_spec(self, spec: MarketSpec) -> dict[str, object]:
-        payload = self.payload
-        markets = payload.setdefault("markets", {})
-        if not isinstance(markets, dict):
-            markets = {}
-            payload["markets"] = markets
-        market = markets.setdefault(
-            spec.asset_id,
-            {
-                "provider": spec.provider,
-                "instrument": spec.instrument,
-                "symbol": spec.symbol,
-                "timeframes": {},
-            },
-        )
-        if not isinstance(market, dict):
-            market = {
-                "provider": spec.provider,
-                "instrument": spec.instrument,
-                "symbol": spec.symbol,
-                "timeframes": {},
-            }
-            markets[spec.asset_id] = market
-        market["provider"] = spec.provider
-        market["instrument"] = spec.instrument
-        market["symbol"] = spec.symbol
-        timeframes = market.setdefault("timeframes", {})
-        if not isinstance(timeframes, dict):
-            timeframes = {}
-            market["timeframes"] = timeframes
-        return timeframes
+        with self._lock:
+            payload = self.payload
+            markets = payload.setdefault("markets", {})
+            if not isinstance(markets, dict):
+                markets = {}
+                payload["markets"] = markets
+            market = markets.setdefault(
+                spec.asset_id,
+                {
+                    "provider": spec.provider,
+                    "instrument": spec.instrument,
+                    "symbol": spec.symbol,
+                    "timeframes": {},
+                },
+            )
+            if not isinstance(market, dict):
+                market = {
+                    "provider": spec.provider,
+                    "instrument": spec.instrument,
+                    "symbol": spec.symbol,
+                    "timeframes": {},
+                }
+                markets[spec.asset_id] = market
+            market["provider"] = spec.provider
+            market["instrument"] = spec.instrument
+            market["symbol"] = spec.symbol
+            timeframes = market.setdefault("timeframes", {})
+            if not isinstance(timeframes, dict):
+                timeframes = {}
+                market["timeframes"] = timeframes
+            return timeframes
 
     def save(self) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        temp_path = self.path.with_name(f".{self.path.name}.tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            json.dump(self.payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temp_path.replace(self.path)
+        with self._lock:
+            self.root.mkdir(parents=True, exist_ok=True)
+            temp_path = self.path.with_name(f".{self.path.name}.tmp")
+            with temp_path.open("w", encoding="utf-8") as handle:
+                json.dump(self.payload, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            temp_path.replace(self.path)
 
     def relative_path(self, csv_path: Path) -> str:
         try:
@@ -331,16 +342,60 @@ class ScheduledDataPopulator:
     def populate_once(self, now: datetime | None = None) -> PopulationSummary:
         started_at = datetime.now(tz=timezone.utc)
         end_at = floor_minute(now or started_at) - MINUTE
-        results: list[PopulationResult] = []
         self.root.mkdir(parents=True, exist_ok=True)
+        specs = self.specs()
         logger.info(
             "Data population run started: root=%s instruments=%s end_at=%s",
             self.root,
-            len(self.specs()),
+            len(specs),
             utc_manifest_timestamp(end_at),
         )
 
-        for spec in self.specs():
+        groups = [
+            (provider, [spec for spec in specs if spec.provider == provider])
+            for provider in ("dukascopy", "binance")
+        ]
+        groups = [(provider, provider_specs) for provider, provider_specs in groups if provider_specs]
+        if len(groups) <= 1:
+            results = [
+                result
+                for provider, provider_specs in groups
+                for result in self.populate_provider_specs(provider, provider_specs, end_at)
+            ]
+        else:
+            logger.info(
+                "Running provider groups in parallel: %s",
+                ", ".join(f"{provider}={len(provider_specs)}" for provider, provider_specs in groups),
+            )
+            results = []
+            with ThreadPoolExecutor(max_workers=len(groups), thread_name_prefix="edgelab-populator") as executor:
+                futures = {
+                    provider: executor.submit(
+                        self.populate_provider_specs,
+                        provider,
+                        provider_specs,
+                        end_at,
+                    )
+                    for provider, provider_specs in groups
+                }
+                for provider, _provider_specs in groups:
+                    results.extend(futures[provider].result())
+
+        return PopulationSummary(
+            started_at=started_at,
+            finished_at=datetime.now(tz=timezone.utc),
+            results=results,
+        )
+
+    def populate_provider_specs(
+        self,
+        provider: Provider,
+        specs: list[MarketSpec],
+        end_at: datetime,
+    ) -> list[PopulationResult]:
+        results: list[PopulationResult] = []
+        logger.info("Provider group started: provider=%s instruments=%s", provider, len(specs))
+        for spec in specs:
             csv_path = self.csv_path_for_spec(spec)
             try:
                 fetch_range = self.next_fetch_range(spec, csv_path, end_at)
@@ -411,11 +466,8 @@ class ScheduledDataPopulator:
                     )
                 )
 
-        return PopulationSummary(
-            started_at=started_at,
-            finished_at=datetime.now(tz=timezone.utc),
-            results=results,
-        )
+        logger.info("Provider group finished: provider=%s instruments=%s", provider, len(specs))
+        return results
 
     def next_fetch_range(
         self,

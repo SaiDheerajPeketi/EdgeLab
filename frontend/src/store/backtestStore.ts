@@ -70,7 +70,7 @@ type BacktestStore = {
   loadInitial: () => Promise<void>;
   refreshPlaybooks: () => Promise<void>;
   refreshDatasets: () => Promise<DatasetRefreshResponse>;
-  reloadDatasets: () => Promise<DatasetCatalog | null>;
+  applyDatasetCatalog: (datasets: DatasetCatalog) => void;
   refreshDatasetStatus: () => Promise<DatasetRefreshStatus>;
   updateDatasetAsset: (
     assetId: string,
@@ -246,14 +246,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
   },
 
-  reloadDatasets: async () => {
-    try {
-      const datasets = await getDatasets();
-      set({ datasets, error: null });
-      return datasets;
-    } catch (error) {
-      return null;
-    }
+  applyDatasetCatalog: (datasets) => {
+    set({ datasets, error: null });
   },
 
   refreshDatasetStatus: async () => {

@@ -18,7 +18,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8000/api npm run dev
 
 When the backend is started with `EDGELAB_API_TOKEN`, build or run the frontend with a matching `VITE_API_BEARER_TOKEN`.
 
-The workspace periodically reloads `/api/datasets` while the tab is visible, so dataset ranges written by the scheduled populator update in the UI without a manual browser refresh. Initial load no longer creates a replay session automatically; users create sessions from the session gateway.
+The workspace subscribes to `/api/datasets/stream` over WebSocket while the tab is open, so dataset ranges written by the scheduled populator update in the UI without a manual browser refresh. Initial load no longer creates a replay session automatically; users create sessions from the session gateway.
 
 ## Docker
 
@@ -31,7 +31,7 @@ VITE_API_BEARER_TOKEN=
 
 The Docker build pins npm 11 before running `npm ci` from the frontend directory so `frontend/package-lock.json` resolves platform-specific Vite/Rollup optional packages for the Linux container without the npm 10 optional-dependency exit-handler bug. It defaults `NPM_CONFIG_REGISTRY` to `https://registry.npmjs.org/`; override that build arg only when the deployment host can resolve the selected registry mirror.
 
-The final image serves `frontend/dist` with Nginx. The Nginx config lives at `docker/nginx.conf`, proxies `/api` to the FastAPI service in Docker Compose, and allows the deployed app to connect to the Binance live REST/WebSocket endpoints used by the watchlist. The root Compose stack also runs the backend `data-populator` service so the session gateway can discover regularly updated M1 and derived higher-timeframe datasets.
+The final image serves `frontend/dist` with Nginx. The Nginx config lives at `docker/nginx.conf`, proxies `/api` to the FastAPI service in Docker Compose, upgrades `/api/datasets/stream` and `/api/live/angelone/stream` WebSocket connections, and allows the deployed app to connect to the Binance live REST/WebSocket endpoints used by the watchlist. The root Compose stack also runs the backend `data-populator` service so the session gateway can discover regularly updated M1 and derived higher-timeframe datasets.
 
 Use the repository root Compose file for end-to-end deployment:
 
