@@ -71,6 +71,7 @@ export EDGELAB_MAX_APP_DATA_ROWS=100000
 ## Docker
 
 The backend container is built by `backend/Dockerfile` and normally runs through the repository root `docker-compose.yml`.
+It uses the `python:3.12-slim` base image so the pinned scientific dependencies install from binary wheels during image builds.
 
 Container defaults:
 
