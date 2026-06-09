@@ -1,4 +1,5 @@
 import json
+import warnings
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -11,6 +12,7 @@ from app.services.data_populator import (
     binance_kline_to_candle,
     crypto_spec,
     dukascopy_row_to_candle,
+    normalize_frame,
 )
 
 
@@ -182,6 +184,48 @@ def test_data_populator_max_mode_backfills_before_first_local_timestamp(tmp_path
     assert fetch_range.end_at == datetime(2023, 12, 31, 23, 59, tzinfo=timezone.utc)
 
 
+def test_data_populator_records_empty_historical_ranges(tmp_path):
+    class EmptyPagePopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            return iter(())
+
+    spec = crypto_spec("BTCUSDT")
+    populator = EmptyPagePopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2020-01-01",
+        derived_timeframes=(),
+    )
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+        ],
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 1, tzinfo=timezone.utc))
+    fetch_range = populator.next_fetch_range(
+        spec,
+        tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
+        datetime(2024, 1, 1, 2, tzinfo=timezone.utc),
+    )
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    timeframe = manifest["markets"]["BTC_USDT"]["timeframes"]["M1"]
+
+    assert summary.results[0].fetched == 0
+    assert timeframe["no_data_before"] == "2023-12-31T23:59:00Z"
+    assert fetch_range is not None
+    assert fetch_range.reason == "append-latest"
+    assert fetch_range.start_at == datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc)
+
+
 def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
     class TwoPagePopulator(ScheduledDataPopulator):
         def fetch_candle_pages(
@@ -210,6 +254,41 @@ def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
     assert m1["Timestamp"].tolist() == [
         "2024-01-01 00:00:00",
         "2024-01-01 00:01:00",
+    ]
+
+
+def test_normalize_frame_parses_mixed_timestamps_without_inference_warning():
+    frame = pd.DataFrame(
+        [
+            {
+                "Timestamp": "2024-01-01 00:00:00",
+                "Open": 1,
+                "High": 1,
+                "Low": 1,
+                "Close": 1,
+                "Volume": 1,
+            },
+            {
+                "Timestamp": "2024-01-01T00:01:00Z",
+                "Open": 2,
+                "High": 2,
+                "Low": 2,
+                "Close": 2,
+                "Volume": 2,
+            },
+        ]
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        normalized = normalize_frame(frame)
+
+    assert len(normalized) == 2
+    assert not [
+        item
+        for item in caught
+        if issubclass(item.category, UserWarning)
+        and "Could not infer format" in str(item.message)
     ]
 
 

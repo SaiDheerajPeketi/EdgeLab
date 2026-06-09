@@ -98,7 +98,7 @@ Run the scheduled data populator directly from the repository root with:
 PYTHONPATH=backend backend/.venv/bin/python -m app.data_populator
 ```
 
-It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, and derives configured higher-timeframe CSVs from the M1 candles. New dataset roots default to max backfill mode; long historical backfills write each provider page immediately and log progress through the `data-populator` service logs. Switch `EDGELAB_DATA_POPULATOR_BACKFILL_MODE` to `lookback` when you want bounded recent history based on `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS`. The worker stores `.edgelab-data-populator-manifest.json` in the dataset root with per-market CSV ranges, and uses it on restart to avoid replaying the full max backfill when local data already exists.
+It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, and derives configured higher-timeframe CSVs from the M1 candles. New dataset roots default to max backfill mode; long historical backfills write each provider page immediately and log progress through the `data-populator` service logs. Switch `EDGELAB_DATA_POPULATOR_BACKFILL_MODE` to `lookback` when you want bounded recent history based on `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS`. The worker stores `.edgelab-data-populator-manifest.json` in the dataset root with per-market CSV ranges and known empty provider ranges, and uses it on restart to avoid replaying completed or known-empty max backfill windows.
 
 ## Main APIs
 

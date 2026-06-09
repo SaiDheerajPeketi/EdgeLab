@@ -149,6 +149,18 @@ class DataPopulatorManifest:
         entry = timeframes.get(timeframe)
         return entry if isinstance(entry, dict) else None
 
+    def no_data_before(self, spec: MarketSpec, timeframe: str = "M1") -> datetime | None:
+        entry = self.timeframe_entry(spec, timeframe)
+        if entry is None:
+            return None
+        timestamp = entry.get("no_data_before")
+        if not timestamp:
+            return None
+        try:
+            return parse_csv_timestamp(timestamp)
+        except (TypeError, ValueError):
+            return None
+
     def path_from_entry(self, entry: dict[str, object]) -> Path:
         raw_path = str(entry.get("csv_path") or "")
         path = Path(raw_path)
@@ -163,6 +175,55 @@ class DataPopulatorManifest:
     ) -> None:
         if frame.empty:
             return
+        timeframes = self.timeframes_for_spec(spec)
+        existing = timeframes.get(timeframe)
+        no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
+        first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
+        timeframes[timeframe] = {
+            "csv_path": self.relative_path(csv_path),
+            "rows": int(len(frame)),
+            "first_timestamp": utc_manifest_timestamp(first_timestamp),
+            "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
+            "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+        }
+        if no_data_before:
+            try:
+                if first_timestamp > parse_csv_timestamp(no_data_before):
+                    timeframes[timeframe]["no_data_before"] = no_data_before
+            except (TypeError, ValueError):
+                pass
+        self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+
+    def update_no_data_range(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        start_at: datetime,
+        end_at: datetime,
+        reason: str,
+    ) -> None:
+        timeframes = self.timeframes_for_spec(spec)
+        entry = timeframes.setdefault(timeframe, {})
+        if not isinstance(entry, dict):
+            entry = {}
+            timeframes[timeframe] = entry
+        existing = entry.get("no_data_before")
+        no_data_before = end_at
+        if existing:
+            try:
+                no_data_before = max(parse_csv_timestamp(existing), end_at)
+            except (TypeError, ValueError):
+                pass
+        entry["no_data_before"] = utc_manifest_timestamp(no_data_before)
+        entry["last_no_data_range"] = {
+            "start_timestamp": utc_manifest_timestamp(start_at),
+            "end_timestamp": utc_manifest_timestamp(end_at),
+            "reason": reason,
+            "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+        }
+        self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+
+    def timeframes_for_spec(self, spec: MarketSpec) -> dict[str, object]:
         payload = self.payload
         markets = payload.setdefault("markets", {})
         if not isinstance(markets, dict):
@@ -192,14 +253,7 @@ class DataPopulatorManifest:
         if not isinstance(timeframes, dict):
             timeframes = {}
             market["timeframes"] = timeframes
-        timeframes[timeframe] = {
-            "csv_path": self.relative_path(csv_path),
-            "rows": int(len(frame)),
-            "first_timestamp": manifest_timestamp(frame.iloc[0]["Timestamp"]),
-            "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
-            "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
-        }
-        payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+        return timeframes
 
     def save(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -335,6 +389,14 @@ class ScheduledDataPopulator:
                         utc_manifest_timestamp(fetch_range.start_at),
                         utc_manifest_timestamp(fetch_range.end_at),
                     )
+                    self.manifest.update_no_data_range(
+                        spec,
+                        "M1",
+                        fetch_range.start_at,
+                        fetch_range.end_at,
+                        fetch_range.reason,
+                    )
+                    self.manifest.save()
                 results.append(self.result_for_existing_file(spec, csv_path, fetched))
             except Exception as exc:
                 logger.exception("Failed to populate %s", spec.instrument)
@@ -363,12 +425,15 @@ class ScheduledDataPopulator:
     ) -> FetchRange | None:
         local_range = self.local_data_range(spec, csv_path)
         provider_start = self.provider_start_dates[spec.provider]
+        no_data_before = self.manifest.no_data_before(spec, "M1")
         if local_range is None:
             start_at = (
                 provider_start
                 if self.backfill_mode == "max"
                 else end_at - timedelta(days=self.lookback_days)
             )
+            if no_data_before is not None and no_data_before >= start_at:
+                start_at = no_data_before + MINUTE
             if start_at > end_at:
                 return None
             return FetchRange(start_at=start_at, end_at=end_at, reason="initial-backfill")
@@ -376,9 +441,20 @@ class ScheduledDataPopulator:
         first_timestamp, last_timestamp = local_range
         if self.backfill_mode == "max" and first_timestamp > provider_start:
             older_end = first_timestamp - MINUTE
+            historical_start = provider_start
+            if no_data_before is not None and no_data_before >= historical_start:
+                historical_start = no_data_before + MINUTE
             if provider_start <= older_end:
+                if historical_start > older_end:
+                    if last_timestamp < end_at:
+                        return FetchRange(
+                            start_at=last_timestamp + MINUTE,
+                            end_at=end_at,
+                            reason="append-latest",
+                        )
+                    return None
                 return FetchRange(
-                    start_at=provider_start,
+                    start_at=historical_start,
                     end_at=older_end,
                     reason="historical-backfill",
                 )
@@ -830,7 +906,12 @@ def normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return empty_frame()
     normalized = frame.copy()
-    normalized["Timestamp"] = pd.to_datetime(normalized["Timestamp"], errors="coerce", utc=True).dt.tz_convert(None)
+    normalized["Timestamp"] = pd.to_datetime(
+        normalized["Timestamp"],
+        errors="coerce",
+        format="mixed",
+        utc=True,
+    ).dt.tz_convert(None)
     for column in ("Open", "High", "Low", "Close", "Volume"):
         normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
     normalized = normalized.dropna(subset=DATA_COLUMNS)
