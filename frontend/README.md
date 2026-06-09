@@ -27,7 +27,7 @@ VITE_API_BASE_URL=/api
 VITE_API_BEARER_TOKEN=
 ```
 
-The Docker build installs dependencies from `frontend/package-lock.json` so platform-specific Vite/Rollup optional packages are resolved for the Linux container.
+The Docker build runs `npm ci` from the frontend directory so `frontend/package-lock.json` resolves platform-specific Vite/Rollup optional packages for the Linux container.
 
 The final image serves `frontend/dist` with Nginx. The Nginx config lives at `docker/nginx.conf` and proxies `/api` to the FastAPI service in Docker Compose.
 

@@ -5,14 +5,14 @@ ARG VITE_API_BEARER_TOKEN=
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_API_BEARER_TOKEN=${VITE_API_BEARER_TOKEN}
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/package-lock.json ./frontend/
-RUN npm --prefix frontend ci
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-COPY frontend /app/frontend
+COPY frontend ./
 COPY scripts /app/scripts
-RUN npm --prefix frontend run build
+RUN npm run build
 
 FROM nginx:1.27-alpine
 
