@@ -121,6 +121,7 @@ export function SessionGateway({
   const instruments = datasets?.instruments ?? [];
   const savedStrategyNames = useBacktestStrategyNames();
   const [instrumentId, setInstrumentId] = useState("");
+  const [instrumentSearch, setInstrumentSearch] = useState("");
   const [timeframe, setTimeframe] = useState("");
   const [strategy, setStrategy] = useState(session?.strategy_name ?? "London Continuation");
   const [sessionName, setSessionName] = useState("");
@@ -182,12 +183,19 @@ export function SessionGateway({
     () => buildExistingStrategyOptions(strategyGroups, savedStrategyNames, playbooks),
     [playbooks, savedStrategyNames, strategyGroups],
   );
+  const selectedInstrumentLabel = selectedInstrument
+    ? buildInstrumentOptionLabel(selectedInstrument)
+    : "";
 
   useEffect(() => {
-    if (selectedInstrument && !instrumentId) {
+    if (selectedInstrument && instrumentId !== selectedInstrument.id) {
       setInstrumentId(selectedInstrument.id);
     }
   }, [instrumentId, selectedInstrument]);
+
+  useEffect(() => {
+    setInstrumentSearch(selectedInstrumentLabel);
+  }, [selectedInstrumentLabel]);
 
   useEffect(() => {
     if (selectedInstrument && !selectedTimeframe && selectedInstrument.timeframes[0]) {
@@ -264,7 +272,25 @@ export function SessionGateway({
 
   function selectInstrument(instrument: DatasetInstrument) {
     setInstrumentId(instrument.id);
+    setInstrumentSearch(buildInstrumentOptionLabel(instrument));
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
+  }
+
+  function handleInstrumentSearchChange(value: string) {
+    setInstrumentSearch(value);
+    const exactMatch = findExactInstrumentMatch(instruments, value);
+    if (exactMatch) {
+      selectInstrument(exactMatch);
+    }
+  }
+
+  function commitInstrumentSearch() {
+    const match = findInstrumentSearchMatch(instruments, instrumentSearch);
+    if (match) {
+      selectInstrument(match);
+      return;
+    }
+    setInstrumentSearch(selectedInstrumentLabel);
   }
 
   function applyExistingStrategyName(strategyName: string) {
@@ -634,30 +660,55 @@ export function SessionGateway({
           </div>
         </div>
         <div className="space-y-3">
-          <div className="session-instrument-grid">
-            {instruments.map((instrument) => (
-              <button
-                className={`session-instrument-card ${selectedInstrument?.id === instrument.id ? "session-instrument-card-active" : ""}`}
-                key={instrument.id}
-                onClick={() => selectInstrument(instrument)}
-                type="button"
-              >
-                <span className="session-instrument-badge">{symbolBadge(instrument.symbol)}</span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold text-white">
-                    {formatMarketSymbol(instrument.symbol)}
-                  </span>
-                  <span className="block text-xs text-slate-500">
-                    {instrument.timeframes.length} timeframes
-                  </span>
-                </span>
-              </button>
-            ))}
-            {instruments.length === 0 && (
-              <div className="rounded-md border border-white/10 bg-white/5 px-3 py-4 text-sm text-slate-500">
-                No datasets found.
+          <div className="session-form-grid">
+            <label className="form-field xl:col-span-2">
+              <span>Instrument</span>
+              <input
+                className="input-control h-11 normal-case tracking-normal"
+                disabled={instruments.length === 0}
+                list="gateway-instruments"
+                onBlur={commitInstrumentSearch}
+                onChange={(event) => handleInstrumentSearchChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitInstrumentSearch();
+                  }
+                }}
+                placeholder={instruments.length === 0 ? "No datasets found" : "Search instrument"}
+                value={instrumentSearch}
+              />
+              <datalist id="gateway-instruments">
+                {instruments.map((instrument) => (
+                  <option
+                    key={instrument.id}
+                    label={`${instrument.timeframes.length} timeframes`}
+                    value={buildInstrumentOptionLabel(instrument)}
+                  />
+                ))}
+              </datalist>
+            </label>
+            <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-400">
+              <div className="flex items-center gap-3">
+                {selectedInstrument ? (
+                  <>
+                    <span className="session-instrument-badge">
+                      {symbolBadge(selectedInstrument.symbol)}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-white">
+                        {formatMarketSymbol(selectedInstrument.symbol)}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {selectedInstrument.timeframes.length} timeframes
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <span>No datasets found.</span>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {selectedInstrument && (
@@ -1355,6 +1406,66 @@ function buildDefaultSessionName(
     return strategyName;
   }
   return `${strategyName} / ${instrument.symbol} ${timeframe.timeframe}`;
+}
+
+function buildInstrumentOptionLabel(instrument: DatasetInstrument) {
+  const symbol = formatMarketSymbol(instrument.symbol);
+  const name = instrument.name.trim();
+  if (!name || sameInstrumentSearchText(name, symbol) || sameInstrumentSearchText(name, instrument.symbol)) {
+    return symbol;
+  }
+  return `${symbol} - ${name}`;
+}
+
+function findExactInstrumentMatch(instruments: DatasetInstrument[], value: string) {
+  const search = normalizeInstrumentSearch(value);
+  if (!search) {
+    return null;
+  }
+  return (
+    instruments.find((instrument) =>
+      instrumentSearchAliases(instrument).some(
+        (alias) => normalizeInstrumentSearch(alias) === search,
+      ),
+    ) ?? null
+  );
+}
+
+function findInstrumentSearchMatch(instruments: DatasetInstrument[], value: string) {
+  const exactMatch = findExactInstrumentMatch(instruments, value);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const search = normalizeInstrumentSearch(value);
+  if (!search) {
+    return null;
+  }
+  return (
+    instruments.find((instrument) =>
+      instrumentSearchAliases(instrument).some((alias) =>
+        normalizeInstrumentSearch(alias).includes(search),
+      ),
+    ) ?? null
+  );
+}
+
+function instrumentSearchAliases(instrument: DatasetInstrument) {
+  return [
+    instrument.id,
+    instrument.name,
+    instrument.symbol,
+    formatMarketSymbol(instrument.symbol),
+    buildInstrumentOptionLabel(instrument),
+  ];
+}
+
+function sameInstrumentSearchText(left: string, right: string) {
+  return normalizeInstrumentSearch(left) === normalizeInstrumentSearch(right);
+}
+
+function normalizeInstrumentSearch(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function buildExistingStrategyOptions(
