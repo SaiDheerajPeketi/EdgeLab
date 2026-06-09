@@ -76,6 +76,7 @@ It uses the `python:3.12-slim` base image so the pinned scientific dependencies 
 Container defaults:
 
 - `EDGELAB_DATASETS_ROOT=/datasets`
+- `EDGELAB_DATA_POPULATOR_USER=0:0`
 - `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS=3600`
 - `EDGELAB_DATA_POPULATOR_BACKFILL_MODE=max`
 - `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS=30`
@@ -89,7 +90,7 @@ Container defaults:
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
 
-The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists the SQLite database in the `api-data` named volume. The dataset root bind mount must point to an existing directory. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists the SQLite database in the `api-data` named volume. The populator does not mount or write the SQLite volume; the API discovers generated CSV files when serving dataset catalog requests. The dataset root bind mount must point to an existing directory. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
 
 Run the scheduled data populator directly from the repository root with:
 
@@ -97,7 +98,7 @@ Run the scheduled data populator directly from the repository root with:
 PYTHONPATH=backend backend/.venv/bin/python -m app.data_populator
 ```
 
-It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, derives configured higher-timeframe CSVs from the M1 candles, and refreshes the dataset catalog after each cycle. New dataset roots default to max backfill mode; switch `EDGELAB_DATA_POPULATOR_BACKFILL_MODE` to `lookback` when you want bounded recent history based on `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS`.
+It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, and derives configured higher-timeframe CSVs from the M1 candles. New dataset roots default to max backfill mode; switch `EDGELAB_DATA_POPULATOR_BACKFILL_MODE` to `lookback` when you want bounded recent history based on `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS`.
 
 ## Main APIs
 
