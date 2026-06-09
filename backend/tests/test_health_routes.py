@@ -90,3 +90,49 @@ def test_latest_backtest_skips_stale_legacy_csv_session(monkeypatch, tmp_path):
 
     assert state.session.csv_path == str(csv_path)
     assert state.session.symbol == "GBPUSD"
+
+
+def test_list_backtests_hides_stale_replay_sessions(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    db = make_model_session()
+    stale_session = BacktestSession(
+        name="Stale legacy session",
+        symbol="EURUSD",
+        csv_path="/data/EURUSD_M1.csv",
+        current_offset=0,
+    )
+    valid_session = BacktestSession(
+        name="Valid dataset session",
+        symbol="GBPUSD",
+        csv_path=str(csv_path),
+        current_offset=0,
+    )
+    db.add_all([stale_session, valid_session])
+    db.flush()
+    db.add_all([Position(session_id=stale_session.id), Position(session_id=valid_session.id)])
+    db.commit()
+    monkeypatch.setattr(routes, "backtester", BacktestService())
+
+    try:
+        sessions = routes.list_backtests(db)
+    finally:
+        db.close()
+
+    assert [session.csv_path for session in sessions] == [str(csv_path)]
+
+
+def test_market_data_error_response_does_not_expose_legacy_csv_path():
+    response = routes.market_data_error_response(
+        FileNotFoundError("CSV file not found: /data/EURUSD_M1.csv"),
+    )
+
+    assert response.status_code == 503
+    assert "/data/EURUSD_M1.csv" not in response.detail

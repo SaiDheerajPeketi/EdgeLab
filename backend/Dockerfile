@@ -4,7 +4,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend \
     EDGELAB_API_TOKEN= \
-    EDGELAB_CSV_PATH=/data/EURUSD_M1.csv \
     EDGELAB_DATASETS_ROOT=/datasets \
     EDGELAB_MAX_APP_DATA_ROWS=100000 \
     EDGELAB_MAX_REQUEST_BODY_BYTES=26214400 \
@@ -14,7 +13,7 @@ WORKDIR /app
 
 RUN addgroup --system edgelab \
     && adduser --system --ingroup edgelab edgelab \
-    && mkdir -p /data /datasets /var/lib/edgelab \
+    && mkdir -p /datasets /var/lib/edgelab \
     && chown -R edgelab:edgelab /var/lib/edgelab
 
 COPY backend/requirements.txt /app/backend/requirements.txt

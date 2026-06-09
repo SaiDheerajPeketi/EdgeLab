@@ -204,10 +204,11 @@ def dataset_error_response(exc: Exception) -> HTTPException:
 
 def market_data_error_response(exc: Exception) -> HTTPException:
     if isinstance(exc, FileNotFoundError):
+        logger.warning("Market data CSV is unavailable: %s", exc)
         return HTTPException(
             status_code=503,
             detail=(
-                f"Market data CSV is unavailable: {exc}. "
+                "Market data CSV is unavailable. "
                 "Add CSV datasets under EDGELAB_DATASETS_ROOT or set EDGELAB_CSV_PATH "
                 "for the legacy single-file replay path."
             ),
@@ -1174,6 +1175,7 @@ def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
     return [
         BacktestSessionRead.model_validate(session)
         for session in backtester.list_sessions(db)
+        if backtester.session_is_listable(session)
     ]
 
 
@@ -1185,6 +1187,8 @@ def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
 def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
     try:
         for session in backtester.list_sessions(db):
+            if not backtester.session_has_replay_data(session):
+                continue
             try:
                 return backtester.get_state(db, session.id)
             except (FileNotFoundError, ValueError):
@@ -1227,7 +1231,10 @@ def import_backtest_trades(
 
 @router.get("/backtests/{session_id}", response_model=BacktestState)
 def get_backtest(session_id: int, db: Session = Depends(get_db)) -> BacktestState:
-    return backtester.get_state(db, session_id)
+    try:
+        return backtester.get_state(db, session_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise market_data_error_response(exc) from exc
 
 
 @router.patch(

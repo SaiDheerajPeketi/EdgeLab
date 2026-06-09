@@ -1208,6 +1208,15 @@ class BacktestService:
     def get_session(self, db: Session, session_id: int) -> BacktestSession:
         return self._session_or_404(db, session_id)
 
+    def session_has_replay_data(self, session: BacktestSession) -> bool:
+        csv_path = session.csv_path
+        if not csv_path and self.market_data is not None:
+            csv_path = str(self.market_data.csv_path)
+        return bool(csv_path and Path(csv_path).is_file())
+
+    def session_is_listable(self, session: BacktestSession) -> bool:
+        return session.timeframe == "Imported" or self.session_has_replay_data(session)
+
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
         if not session.csv_path and self.market_data is None:
             raise FileNotFoundError(
