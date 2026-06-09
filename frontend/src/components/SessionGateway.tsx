@@ -5,6 +5,7 @@ import {
   BookOpenCheck,
   CalendarRange,
   CheckCircle2,
+  ChevronDown,
   Database,
   FileText,
   Pencil,
@@ -12,11 +13,12 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Search,
   Target,
   Trash2,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   BacktestCreatePayload,
   BacktestSession,
@@ -122,6 +124,7 @@ export function SessionGateway({
   const savedStrategyNames = useBacktestStrategyNames();
   const [instrumentId, setInstrumentId] = useState("");
   const [instrumentSearch, setInstrumentSearch] = useState("");
+  const [instrumentMenuOpen, setInstrumentMenuOpen] = useState(false);
   const [timeframe, setTimeframe] = useState("");
   const [strategy, setStrategy] = useState(session?.strategy_name ?? "London Continuation");
   const [sessionName, setSessionName] = useState("");
@@ -148,6 +151,7 @@ export function SessionGateway({
   const [selectedStrategyName, setSelectedStrategyName] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<BacktestSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<BacktestSession | null>(null);
+  const instrumentPickerRef = useRef<HTMLDivElement | null>(null);
 
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
@@ -186,6 +190,10 @@ export function SessionGateway({
   const selectedInstrumentLabel = selectedInstrument
     ? buildInstrumentOptionLabel(selectedInstrument)
     : "";
+  const visibleInstrumentOptions = useMemo(
+    () => filterInstrumentOptions(instruments, instrumentSearch, selectedInstrumentLabel),
+    [instrumentSearch, instruments, selectedInstrumentLabel],
+  );
 
   useEffect(() => {
     if (selectedInstrument && instrumentId !== selectedInstrument.id) {
@@ -270,14 +278,38 @@ export function SessionGateway({
     };
   }, []);
 
+  useEffect(() => {
+    if (!instrumentMenuOpen) {
+      return;
+    }
+
+    function closeOnOutside(event: PointerEvent) {
+      const target = event.target as Node;
+      if (instrumentPickerRef.current?.contains(target)) {
+        return;
+      }
+      setInstrumentMenuOpen(false);
+      commitInstrumentSearch();
+    }
+
+    document.addEventListener("pointerdown", closeOnOutside);
+    return () => document.removeEventListener("pointerdown", closeOnOutside);
+  }, [instrumentMenuOpen, instrumentSearch, instruments, selectedInstrumentLabel]);
+
   function selectInstrument(instrument: DatasetInstrument) {
     setInstrumentId(instrument.id);
     setInstrumentSearch(buildInstrumentOptionLabel(instrument));
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
   }
 
+  function chooseInstrument(instrument: DatasetInstrument) {
+    selectInstrument(instrument);
+    setInstrumentMenuOpen(false);
+  }
+
   function handleInstrumentSearchChange(value: string) {
     setInstrumentSearch(value);
+    setInstrumentMenuOpen(instruments.length > 0);
     const exactMatch = findExactInstrumentMatch(instruments, value);
     if (exactMatch) {
       selectInstrument(exactMatch);
@@ -288,9 +320,10 @@ export function SessionGateway({
     const match = findInstrumentSearchMatch(instruments, instrumentSearch);
     if (match) {
       selectInstrument(match);
-      return;
+    } else {
+      setInstrumentSearch(selectedInstrumentLabel);
     }
-    setInstrumentSearch(selectedInstrumentLabel);
+    setInstrumentMenuOpen(false);
   }
 
   function applyExistingStrategyName(strategyName: string) {
@@ -661,33 +694,90 @@ export function SessionGateway({
         </div>
         <div className="space-y-3">
           <div className="session-form-grid">
-            <label className="form-field xl:col-span-2">
+            <div className="form-field xl:col-span-2">
               <span>Instrument</span>
-              <input
-                className="input-control h-11 normal-case tracking-normal"
-                disabled={instruments.length === 0}
-                list="gateway-instruments"
-                onBlur={commitInstrumentSearch}
-                onChange={(event) => handleInstrumentSearchChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commitInstrumentSearch();
-                  }
-                }}
-                placeholder={instruments.length === 0 ? "No datasets found" : "Search instrument"}
-                value={instrumentSearch}
-              />
-              <datalist id="gateway-instruments">
-                {instruments.map((instrument) => (
-                  <option
-                    key={instrument.id}
-                    label={`${instrument.timeframes.length} timeframes`}
-                    value={buildInstrumentOptionLabel(instrument)}
+              <div className="themed-select" ref={instrumentPickerRef}>
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-500"
+                  size={16}
+                />
+                <input
+                  aria-expanded={instrumentMenuOpen}
+                  aria-label="Instrument"
+                  className={`input-control h-11 pl-9 pr-10 normal-case tracking-normal ${
+                    instrumentMenuOpen ? "border-cyan-300/50 ring-2 ring-cyan-300/15" : ""
+                  }`}
+                  disabled={instruments.length === 0}
+                  onChange={(event) => handleInstrumentSearchChange(event.target.value)}
+                  onFocus={() => setInstrumentMenuOpen(instruments.length > 0)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitInstrumentSearch();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setInstrumentMenuOpen(false);
+                      setInstrumentSearch(selectedInstrumentLabel);
+                    }
+                  }}
+                  placeholder={instruments.length === 0 ? "No datasets found" : "Search instrument"}
+                  role="combobox"
+                  value={instrumentSearch}
+                />
+                <button
+                  aria-label="Open instruments"
+                  className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded text-slate-500 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={instruments.length === 0}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setInstrumentMenuOpen((open) => !open)}
+                  type="button"
+                >
+                  <ChevronDown
+                    className={`transition ${instrumentMenuOpen ? "rotate-180 text-cyan-100" : ""}`}
+                    size={16}
                   />
-                ))}
-              </datalist>
-            </label>
+                </button>
+                {instrumentMenuOpen && (
+                  <div className="themed-select-menu w-full" role="listbox">
+                    {visibleInstrumentOptions.length > 0 ? (
+                      visibleInstrumentOptions.map((instrument) => {
+                        const active = selectedInstrument?.id === instrument.id;
+                        return (
+                          <button
+                            className={`themed-select-option ${active ? "themed-select-option-active" : ""}`}
+                            key={instrument.id}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => chooseInstrument(instrument)}
+                            role="option"
+                            type="button"
+                          >
+                            <span className="session-instrument-badge">
+                              {symbolBadge(instrument.symbol)}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold">
+                                {formatMarketSymbol(instrument.symbol)}
+                              </span>
+                              <span className="block truncate text-xs text-slate-500">
+                                {instrument.name || `${instrument.timeframes.length} timeframes`}
+                              </span>
+                            </span>
+                            <span className="ml-auto shrink-0 text-xs text-slate-500">
+                              {instrument.timeframes.length}
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="px-3 py-4 text-sm font-semibold normal-case tracking-normal text-slate-500">
+                        No matching instruments
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-400">
               <div className="flex items-center gap-3">
                 {selectedInstrument ? (
@@ -1448,6 +1538,31 @@ function findInstrumentSearchMatch(instruments: DatasetInstrument[], value: stri
       ),
     ) ?? null
   );
+}
+
+function filterInstrumentOptions(
+  instruments: DatasetInstrument[],
+  value: string,
+  selectedLabel: string,
+) {
+  const search = normalizeInstrumentSearch(value);
+  if (!search || search === normalizeInstrumentSearch(selectedLabel)) {
+    return instruments;
+  }
+
+  const startsWithMatches: DatasetInstrument[] = [];
+  const containsMatches: DatasetInstrument[] = [];
+  for (const instrument of instruments) {
+    const aliases = instrumentSearchAliases(instrument).map(normalizeInstrumentSearch);
+    if (aliases.some((alias) => alias.startsWith(search))) {
+      startsWithMatches.push(instrument);
+      continue;
+    }
+    if (aliases.some((alias) => alias.includes(search))) {
+      containsMatches.push(instrument);
+    }
+  }
+  return [...startsWithMatches, ...containsMatches];
 }
 
 function instrumentSearchAliases(instrument: DatasetInstrument) {
