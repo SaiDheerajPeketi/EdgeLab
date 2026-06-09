@@ -7,6 +7,8 @@ ENV VITE_API_BEARER_TOKEN=${VITE_API_BEARER_TOKEN}
 
 WORKDIR /app/frontend
 
+RUN npm install -g npm@11.16.0
+
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
