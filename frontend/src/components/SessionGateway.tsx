@@ -10,6 +10,7 @@ import {
   FileText,
   Pencil,
   PlayCircle,
+  Plus,
   RefreshCw,
   RotateCcw,
   Save,
@@ -349,6 +350,13 @@ export function SessionGateway({
     applyExistingStrategyName(value);
   }
 
+  function startNewStrategy() {
+    setSelectedStrategyName(null);
+    setStrategy("");
+    setPlaybookMode("none");
+    setPlaybookId("");
+  }
+
   function handleStrategyNameChange(value: string) {
     setStrategy(value);
     const matchingOption = strategySelectOptions.find((option) => sameStrategyName(option.value, value));
@@ -611,32 +619,37 @@ export function SessionGateway({
           </div>
         </div>
         <div className="session-form-grid">
-          <label className="form-field">
+          <div className="form-field">
             <span>Existing Strategy</span>
-            <ThemedSelect
-              ariaLabel="Existing strategy"
-              className="h-11"
-              disabled={strategySelectOptions.length === 0}
-              onChange={handleStrategySelect}
-              options={strategySelectOptions}
-              placeholder={strategySelectOptions.length === 0 ? "No saved strategies" : "Select strategy"}
-              value={strategySelectValue}
-            />
-          </label>
+            <div className="flex min-w-0 gap-2">
+              <ThemedSelect
+                ariaLabel="Existing strategy"
+                className="h-11 min-w-0 flex-1"
+                disabled={strategySelectOptions.length === 0}
+                onChange={handleStrategySelect}
+                options={strategySelectOptions}
+                placeholder={strategySelectOptions.length === 0 ? "No saved strategies" : "Select strategy"}
+                value={strategySelectValue}
+              />
+              <button
+                className="control-button h-11 shrink-0 px-3"
+                onClick={startNewStrategy}
+                type="button"
+              >
+                <Plus size={16} />
+                New
+              </button>
+            </div>
+          </div>
           <label className="form-field xl:col-span-2">
             <span>Strategy Name</span>
             <input
               className="input-control h-11"
-              list="gateway-strategies"
               onChange={(event) => handleStrategyNameChange(event.target.value)}
+              placeholder="Type strategy name"
               required
               value={strategy}
             />
-            <datalist id="gateway-strategies">
-              {strategySelectOptions.map((option) => (
-                <option key={option.value} value={option.value} />
-              ))}
-            </datalist>
           </label>
           <label className="form-field xl:col-span-2">
             <span>Session Name</span>
