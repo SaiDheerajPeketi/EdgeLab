@@ -168,6 +168,31 @@ class DataPopulatorManifest:
             except (TypeError, ValueError):
                 return None
 
+    def empty_ranges(self, spec: MarketSpec, timeframe: str = "M1") -> list[tuple[datetime, datetime]]:
+        with self._lock:
+            entry = self.timeframe_entry(spec, timeframe)
+            if entry is None:
+                return []
+            raw_ranges = entry.get("empty_ranges")
+            if not isinstance(raw_ranges, list):
+                return []
+            ranges: list[tuple[datetime, datetime]] = []
+            for raw_range in raw_ranges:
+                if not isinstance(raw_range, dict):
+                    continue
+                start_timestamp = raw_range.get("start_timestamp")
+                end_timestamp = raw_range.get("end_timestamp")
+                if not start_timestamp or not end_timestamp:
+                    continue
+                try:
+                    start_at = parse_csv_timestamp(start_timestamp)
+                    end_at = parse_csv_timestamp(end_timestamp)
+                except (TypeError, ValueError):
+                    continue
+                if start_at <= end_at:
+                    ranges.append((start_at, end_at))
+            return sorted(ranges)
+
     def path_from_entry(self, entry: dict[str, object]) -> Path:
         raw_path = str(entry.get("csv_path") or "")
         path = Path(raw_path)
@@ -186,6 +211,7 @@ class DataPopulatorManifest:
             timeframes = self.timeframes_for_spec(spec)
             existing = timeframes.get(timeframe)
             no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
+            empty_ranges = existing.get("empty_ranges") if isinstance(existing, dict) else None
             first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
             timeframes[timeframe] = {
                 "csv_path": self.relative_path(csv_path),
@@ -200,6 +226,8 @@ class DataPopulatorManifest:
                         timeframes[timeframe]["no_data_before"] = no_data_before
                 except (TypeError, ValueError):
                     pass
+            if isinstance(empty_ranges, list) and empty_ranges:
+                timeframes[timeframe]["empty_ranges"] = empty_ranges
             self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
 
     def update_no_data_range(
@@ -231,6 +259,76 @@ class DataPopulatorManifest:
                 "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
             }
             self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+
+    def update_empty_range(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        start_at: datetime,
+        end_at: datetime,
+        reason: str,
+    ) -> None:
+        with self._lock:
+            timeframes = self.timeframes_for_spec(spec)
+            entry = timeframes.setdefault(timeframe, {})
+            if not isinstance(entry, dict):
+                entry = {}
+                timeframes[timeframe] = entry
+            raw_ranges = entry.setdefault("empty_ranges", [])
+            if not isinstance(raw_ranges, list):
+                raw_ranges = []
+                entry["empty_ranges"] = raw_ranges
+
+            ranges: list[tuple[datetime, datetime, str]] = []
+            for raw_range in raw_ranges:
+                if not isinstance(raw_range, dict):
+                    continue
+                raw_start = raw_range.get("start_timestamp")
+                raw_end = raw_range.get("end_timestamp")
+                if not raw_start or not raw_end:
+                    continue
+                try:
+                    existing_start = parse_csv_timestamp(raw_start)
+                    existing_end = parse_csv_timestamp(raw_end)
+                except (TypeError, ValueError):
+                    continue
+                if existing_start <= existing_end:
+                    ranges.append((existing_start, existing_end, str(raw_range.get("reason") or reason)))
+            ranges.append((start_at, end_at, reason))
+            ranges.sort(key=lambda item: item[0])
+
+            merged: list[tuple[datetime, datetime, str]] = []
+            for range_start, range_end, range_reason in ranges:
+                if not merged:
+                    merged.append((range_start, range_end, range_reason))
+                    continue
+                previous_start, previous_end, previous_reason = merged[-1]
+                if range_start <= previous_end + MINUTE:
+                    merged[-1] = (
+                        previous_start,
+                        max(previous_end, range_end),
+                        previous_reason if previous_reason == range_reason else "provider-no-data",
+                    )
+                    continue
+                merged.append((range_start, range_end, range_reason))
+
+            updated_at = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+            entry["empty_ranges"] = [
+                {
+                    "start_timestamp": utc_manifest_timestamp(range_start),
+                    "end_timestamp": utc_manifest_timestamp(range_end),
+                    "reason": range_reason,
+                    "updated_at": updated_at,
+                }
+                for range_start, range_end, range_reason in merged
+            ]
+            entry["last_empty_range"] = {
+                "start_timestamp": utc_manifest_timestamp(start_at),
+                "end_timestamp": utc_manifest_timestamp(end_at),
+                "reason": reason,
+                "updated_at": updated_at,
+            }
+            self.payload["updated_at"] = updated_at
 
     def timeframes_for_spec(self, spec: MarketSpec) -> dict[str, object]:
         with self._lock:
@@ -462,19 +560,29 @@ class ScheduledDataPopulator:
                             utc_manifest_timestamp(fetch_range.end_at),
                         )
                         if fetch_range.reason != "append-latest":
-                            self.manifest.update_no_data_range(
+                            self.manifest.update_empty_range(
                                 spec,
                                 "M1",
                                 fetch_range.start_at,
                                 fetch_range.end_at,
                                 fetch_range.reason,
                             )
+                            if fetch_range.reason in {"historical-backfill", "initial-backfill"}:
+                                self.manifest.update_no_data_range(
+                                    spec,
+                                    "M1",
+                                    fetch_range.start_at,
+                                    fetch_range.end_at,
+                                    fetch_range.reason,
+                                )
                             self.manifest.save()
-                        if fetch_range.reason == "historical-backfill":
+                        if fetch_range.reason in {"historical-backfill", "internal-gap"}:
                             continue
                         results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
                         break
                     total_fetched += fetched
+                    if fetch_range.reason in {"historical-backfill", "internal-gap"}:
+                        continue
                     results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
                     break
             except Exception as exc:
@@ -534,6 +642,10 @@ class ScheduledDataPopulator:
                     end_at=older_end,
                     reason="historical-backfill",
                 )
+        if self.backfill_mode == "max":
+            internal_gap = self.next_internal_gap_range(spec, csv_path)
+            if internal_gap is not None:
+                return internal_gap
         if last_timestamp < end_at:
             return FetchRange(
                 start_at=last_timestamp + MINUTE,
@@ -554,6 +666,17 @@ class ScheduledDataPopulator:
         if csv_range is not None:
             self.update_manifest_from_existing_file(spec, "M1", csv_path)
         return csv_range
+
+    def next_internal_gap_range(self, spec: MarketSpec, csv_path: Path) -> FetchRange | None:
+        gap = first_internal_m1_gap(
+            spec,
+            csv_path,
+            self.manifest.empty_ranges(spec, "M1"),
+        )
+        if gap is None:
+            return None
+        start_at, end_at = gap
+        return FetchRange(start_at=start_at, end_at=end_at, reason="internal-gap")
 
     def fetch_candles(
         self,
@@ -1013,6 +1136,95 @@ def read_timestamp_range(csv_path: Path) -> tuple[datetime, datetime] | None:
         parse_csv_timestamp(frame.iloc[0]["Timestamp"]),
         parse_csv_timestamp(frame.iloc[-1]["Timestamp"]),
     )
+
+
+def first_internal_m1_gap(
+    spec: MarketSpec,
+    csv_path: Path,
+    empty_ranges: list[tuple[datetime, datetime]],
+) -> tuple[datetime, datetime] | None:
+    timestamps = load_timestamp_series(csv_path)
+    if len(timestamps) < 2:
+        return None
+    deltas = timestamps.diff()
+    gap_positions = [int(position) for position in timestamps.index[deltas > MINUTE]]
+    for position in gap_positions:
+        previous_timestamp = parse_csv_timestamp(timestamps.iloc[position - 1])
+        next_timestamp = parse_csv_timestamp(timestamps.iloc[position])
+        missing_start = previous_timestamp + MINUTE
+        missing_end = next_timestamp - MINUTE
+        for segment_start, segment_end in subtract_ranges(missing_start, missing_end, empty_ranges):
+            if spec.provider == "dukascopy" and not forex_gap_has_active_minutes(segment_start, segment_end):
+                continue
+            return segment_start, segment_end
+    return None
+
+
+def load_timestamp_series(csv_path: Path) -> pd.Series:
+    if not csv_path.exists():
+        return pd.Series(dtype="datetime64[ns]")
+    try:
+        frame = pd.read_csv(csv_path, usecols=["Timestamp"])
+    except ValueError as exc:
+        raise ValueError("CSV is missing required columns: Timestamp") from exc
+    timestamps = pd.to_datetime(
+        frame["Timestamp"],
+        errors="coerce",
+        format="mixed",
+        utc=True,
+    ).dt.tz_convert(None)
+    return timestamps.dropna().drop_duplicates().sort_values().reset_index(drop=True)
+
+
+def subtract_ranges(
+    start_at: datetime,
+    end_at: datetime,
+    ranges: list[tuple[datetime, datetime]],
+) -> list[tuple[datetime, datetime]]:
+    segments = [(start_at, end_at)]
+    for range_start, range_end in ranges:
+        next_segments: list[tuple[datetime, datetime]] = []
+        for segment_start, segment_end in segments:
+            if range_end < segment_start or range_start > segment_end:
+                next_segments.append((segment_start, segment_end))
+                continue
+            if range_start > segment_start:
+                next_segments.append((segment_start, range_start - MINUTE))
+            if range_end < segment_end:
+                next_segments.append((range_end + MINUTE, segment_end))
+        segments = [
+            (segment_start, segment_end)
+            for segment_start, segment_end in next_segments
+            if segment_start <= segment_end
+        ]
+        if not segments:
+            break
+    return segments
+
+
+def forex_gap_has_active_minutes(start_at: datetime, end_at: datetime) -> bool:
+    cursor = start_at.astimezone(timezone.utc).date()
+    end_date = end_at.astimezone(timezone.utc).date()
+    while cursor <= end_date:
+        day_start = datetime(cursor.year, cursor.month, cursor.day, tzinfo=timezone.utc)
+        weekday = day_start.weekday()
+        active_start: datetime | None = None
+        active_end: datetime | None = None
+        if weekday <= 3:
+            active_start = day_start
+            active_end = day_start + timedelta(days=1) - MINUTE
+        elif weekday == 4:
+            active_start = day_start
+            active_end = day_start + timedelta(hours=22) - MINUTE
+        elif weekday == 6:
+            active_start = day_start + timedelta(hours=22)
+            active_end = day_start + timedelta(days=1) - MINUTE
+
+        if active_start is not None and active_end is not None:
+            if max(start_at, active_start) <= min(end_at, active_end):
+                return True
+        cursor += timedelta(days=1)
+    return False
 
 
 def parse_csv_timestamp(value: object) -> datetime:

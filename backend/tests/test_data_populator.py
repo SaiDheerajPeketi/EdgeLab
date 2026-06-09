@@ -13,6 +13,7 @@ from app.services.data_populator import (
     binance_kline_to_candle,
     crypto_spec,
     dukascopy_row_to_candle,
+    forex_spec,
     normalize_frame,
 )
 
@@ -287,6 +288,133 @@ def test_populate_once_continues_to_latest_after_empty_historical_range(tmp_path
         "2024-01-01 00:03:00",
         "2024-01-01 00:04:00",
     ]
+
+
+def test_populate_once_backfills_internal_crypto_gap(tmp_path):
+    calls: list[tuple[datetime, datetime]] = []
+
+    class InternalGapPopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            calls.append((start_at, end_at))
+            yield [
+                candle("2024-01-01T00:02:00", 102.0),
+                candle("2024-01-01T00:03:00", 103.0),
+                candle("2024-01-01T00:04:00", 104.0),
+            ]
+
+    spec = crypto_spec("BTCUSDT")
+    populator = InternalGapPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2024-01-01",
+        derived_timeframes=(),
+    )
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+            candle("2024-01-01T00:05:00", 105.0),
+            candle("2024-01-01T00:06:00", 106.0),
+        ],
+    )
+
+    fetch_range = populator.next_fetch_range(
+        spec,
+        tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv",
+        datetime(2024, 1, 1, 0, 6, tzinfo=timezone.utc),
+    )
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 7, tzinfo=timezone.utc))
+    m1 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv")
+
+    assert fetch_range is not None
+    assert fetch_range.reason == "internal-gap"
+    assert fetch_range.start_at == datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc)
+    assert fetch_range.end_at == datetime(2024, 1, 1, 0, 4, tzinfo=timezone.utc)
+    assert calls == [
+        (
+            datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 0, 4, tzinfo=timezone.utc),
+        )
+    ]
+    assert summary.results[0].fetched == 3
+    assert m1["Timestamp"].tolist() == [
+        "2024-01-01 00:00:00",
+        "2024-01-01 00:01:00",
+        "2024-01-01 00:02:00",
+        "2024-01-01 00:03:00",
+        "2024-01-01 00:04:00",
+        "2024-01-01 00:05:00",
+        "2024-01-01 00:06:00",
+    ]
+
+
+def test_data_populator_ignores_forex_weekend_internal_gap(tmp_path):
+    spec = forex_spec("EUR/USD")
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=("EUR/USD",),
+        crypto_symbols=(),
+        forex_start_date="2024-01-05",
+        derived_timeframes=(),
+    )
+    csv_path = tmp_path / "EUR_USD" / "EURUSD_M1.csv"
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-05T21:59:00", 1.1),
+            candle("2024-01-07T22:00:00", 1.2),
+        ],
+    )
+
+    fetch_range = populator.next_internal_gap_range(spec, csv_path)
+
+    assert fetch_range is None
+
+
+def test_data_populator_records_empty_internal_gap_ranges(tmp_path):
+    class EmptyInternalGapPopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            return iter(())
+
+    spec = crypto_spec("BTCUSDT")
+    populator = EmptyInternalGapPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        crypto_start_date="2024-01-01",
+        derived_timeframes=(),
+    )
+    csv_path = tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv"
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:03:00", 103.0),
+        ],
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 4, tzinfo=timezone.utc))
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    timeframe = manifest["markets"]["BTC_USDT"]["timeframes"]["M1"]
+
+    assert summary.results[0].fetched == 0
+    assert timeframe["empty_ranges"][0]["start_timestamp"] == "2024-01-01T00:01:00Z"
+    assert timeframe["empty_ranges"][0]["end_timestamp"] == "2024-01-01T00:02:00Z"
+    assert timeframe["empty_ranges"][0]["reason"] == "internal-gap"
+    assert "no_data_before" not in timeframe
+    assert populator.next_internal_gap_range(spec, csv_path) is None
 
 
 def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
