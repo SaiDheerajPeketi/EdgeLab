@@ -8,7 +8,7 @@ The current pass focuses on manual bar replay: long/short orders, market/limit/s
 
 ## Run With Docker Compose
 
-Docker Compose is the fastest end-to-end deployment path. It builds the FastAPI backend, builds the React app, serves the static frontend through Nginx, proxies `/api` to FastAPI, and persists the backend SQLite database in a named Docker volume.
+Docker Compose is the fastest end-to-end deployment path. It builds the FastAPI backend, builds the React app, runs the scheduled data populator, serves the static frontend through Nginx, proxies `/api` to FastAPI, and persists the backend SQLite database in a named Docker volume.
 
 ```bash
 cp .env.example .env
@@ -23,13 +23,16 @@ Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For t
 
 Frontend image dependency installs use `NPM_CONFIG_REGISTRY`, which defaults to `https://registry.npmjs.org/` so Docker builds do not depend on workstation-specific npm mirrors.
 
-The Compose setup scans dataset CSVs from `./datasets` unless `EDGELAB_DATASETS_ROOT` is changed in `.env`. The folder is mounted read-only at `/datasets`. `/api/health` validates the API process and database, while `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts. `EDGELAB_CSV_PATH` remains available only for the legacy single-file replay path outside the default Compose deployment.
+The Compose setup stores dataset CSVs in `./datasets` unless `EDGELAB_DATASETS_ROOT` is changed in `.env`. The API mounts the folder read-only at `/datasets`; the `data-populator` service mounts the same folder read-write and updates M1 CSVs for configured forex and crypto majors. `/api/health` validates the API process and database, while `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts. `EDGELAB_CSV_PATH` remains available only for the legacy single-file replay path outside the default Compose deployment.
+
+The scheduled populator defaults to every hour (`EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS=3600`), seeds the last 30 days on a new dataset root, and fills short missing minute gaps up to `EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES=180`. Configure symbols with `EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS` and `EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS`.
 
 Useful Docker commands:
 
 ```bash
 docker compose ps
 docker compose logs -f api
+docker compose logs -f data-populator
 docker compose down
 docker compose down --volumes
 ```
@@ -74,6 +77,7 @@ PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
 
 - `docker-compose.yml` defines the deployable service graph.
 - `backend/Dockerfile` builds the primary FastAPI API image.
+- `backend/app/data_populator.py` runs the scheduled dataset writer used by the Compose `data-populator` service.
 - `frontend/Dockerfile` builds the Vite app and serves it with Nginx.
 - `docker/nginx.conf` proxies `/api` to FastAPI and serves the SPA fallback.
 - `backend/Dockerfile.node` supports the optional legacy Node API profile.

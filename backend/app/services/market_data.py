@@ -21,6 +21,7 @@ class MarketDataService:
         self.timestamp_timezone = timestamp_timezone or "UTC"
         self._frame: pd.DataFrame | None = None
         self._metadata: DatasetMeta | None = None
+        self._source_signature: tuple[int, int] | None = None
         self._lock = Lock()
 
     def get_metadata(self) -> DatasetMeta:
@@ -56,6 +57,7 @@ class MarketDataService:
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,
         )
+        self._source_signature = self._source_signature_for_path()
         return self._metadata
 
     def validate_source(self) -> None:
@@ -155,7 +157,13 @@ class MarketDataService:
                 )
                 self._validate_columns(frame)
                 self._frame = self._with_indicators(frame)
+                self._source_signature = self._source_signature_for_path()
         return self._frame
+
+    def source_has_changed(self) -> bool:
+        if self._frame is None and self._metadata is None:
+            return False
+        return self._source_signature != self._source_signature_for_path()
 
     def _with_indicators(self, frame: pd.DataFrame) -> pd.DataFrame:
         close = frame["Close"].astype(float)
@@ -202,6 +210,13 @@ class MarketDataService:
             raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
         if not self.csv_path.is_file():
             raise FileNotFoundError(f"CSV path is not a file: {self.csv_path}")
+
+    def _source_signature_for_path(self) -> tuple[int, int] | None:
+        try:
+            stat = self.csv_path.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_size, stat.st_mtime_ns
 
     def _validate_columns(self, frame: pd.DataFrame) -> None:
         missing = [column for column in REQUIRED_COLUMNS if column not in frame.columns]

@@ -76,12 +76,25 @@ It uses the `python:3.12-slim` base image so the pinned scientific dependencies 
 Container defaults:
 
 - `EDGELAB_DATASETS_ROOT=/datasets`
+- `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS=3600`
+- `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS=30`
+- `EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES=180`
+- `EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS=EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,USD/CAD,NZD/USD`
+- `EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT`
 - `EDGELAB_API_TOKEN=`
 - `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
 
-The Compose file mounts the dataset root read-only and persists the SQLite database in the `api-data` named volume. The dataset root bind mount must point to an existing directory. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists the SQLite database in the `api-data` named volume. The dataset root bind mount must point to an existing directory. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+
+Run the scheduled data populator directly from the repository root with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.data_populator
+```
+
+It pulls one-minute candles for the configured forex majors through Dukascopy and crypto majors through Binance, writes `*_M1.csv` files under `EDGELAB_DATASETS_ROOT`, interpolates short missing minute gaps, and refreshes the dataset catalog after each cycle.
 
 ## Main APIs
 

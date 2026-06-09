@@ -40,7 +40,8 @@ When changing API prefixes or proxy behavior, update `docker/nginx.conf`, fronte
 - Nginx proxies `/api/*` to the FastAPI service at `api:8000`.
 - FastAPI stores its SQLite database at `/var/lib/edgelab/trade_journal_v2.db` in the `api-data` named volume.
 - The default Compose deployment is dataset-root driven.
-- Dataset folders are mounted read-only at `/datasets`.
+- Dataset folders are mounted read-only at `/datasets` for the API.
+- The scheduled `data-populator` service mounts `/datasets` read-write and updates M1 dataset CSVs.
 - The legacy single-file replay path is optional and should only be enabled with an explicit `EDGELAB_CSV_PATH`.
 
 ## Required Verification

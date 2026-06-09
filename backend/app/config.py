@@ -17,6 +17,14 @@ def int_env(name: str, default: int) -> int:
         return default
 
 
+def tuple_env(name: str, default: str) -> tuple[str, ...]:
+    return tuple(
+        item.strip()
+        for item in os.getenv(name, default).split(",")
+        if item.strip()
+    )
+
+
 def optional_path_env(name: str) -> Path | None:
     raw_value = os.getenv(name, "").strip()
     if not raw_value:
@@ -46,6 +54,30 @@ class Settings:
         if origin.strip()
     )
     cache_market_data: bool = os.getenv("EDGELAB_CACHE_MARKET_DATA", "1") != "0"
+    data_populator_interval_seconds: int = int_env(
+        "EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS",
+        3600,
+    )
+    data_populator_lookback_days: int = int_env(
+        "EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS",
+        30,
+    )
+    data_populator_max_interpolation_gap_minutes: int = int_env(
+        "EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES",
+        180,
+    )
+    data_populator_request_timeout_seconds: int = int_env(
+        "EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS",
+        20,
+    )
+    data_populator_forex_symbols: tuple[str, ...] = tuple_env(
+        "EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS",
+        "EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,USD/CAD,NZD/USD",
+    )
+    data_populator_crypto_symbols: tuple[str, ...] = tuple_env(
+        "EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS",
+        "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT",
+    )
     max_request_body_bytes: int = int_env(
         "EDGELAB_MAX_REQUEST_BODY_BYTES",
         25 * 1024 * 1024,

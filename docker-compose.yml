@@ -29,6 +29,30 @@ services:
         target: /datasets
         read_only: true
 
+  data-populator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.data_populator"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/edgelab/trade_journal_v2.db}
+      EDGELAB_DATASETS_ROOT: /datasets
+      EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS: ${EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT}
+      EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS: ${EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS:-EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,USD/CAD,NZD/USD}
+      EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS: ${EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS:-3600}
+      EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS: ${EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS:-30}
+      EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES: ${EDGELAB_DATA_POPULATOR_MAX_INTERPOLATION_GAP_MINUTES:-180}
+      EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS: ${EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS:-20}
+    restart: unless-stopped
+    volumes:
+      - api-data:/var/lib/edgelab
+      - type: bind
+        source: ${EDGELAB_DATASETS_ROOT:-./datasets}
+        target: /datasets
+
   frontend:
     build:
       context: .

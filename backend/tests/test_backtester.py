@@ -679,3 +679,24 @@ def test_default_session_uses_first_discovered_dataset(tmp_path: Path):
     assert state.session.timeframe == "M1"
     assert state.session.symbol == "GBPUSD"
     assert state.session.name == "GBPUSD M1"
+
+
+def test_market_data_cache_refreshes_when_csv_changes(tmp_path: Path):
+    csv_path = tmp_path / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    service = BacktestService()
+
+    assert service.market_data_for_path(str(csv_path)).get_metadata().rows == 1
+
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n"
+        "2024-01-01 09:31:00,1.25,1.35,1.2,1.3,150\n",
+        encoding="utf-8",
+    )
+
+    assert service.market_data_for_path(str(csv_path)).get_metadata().rows == 2
