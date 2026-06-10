@@ -167,6 +167,7 @@ export function DatasetSessionPanel({
       </div>
 
       <form
+        autoComplete="off"
         className={`dataset-session-form ${setupOpen ? "grid" : "hidden"} gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]`}
         onSubmit={handleSubmit}
       >
@@ -203,6 +204,7 @@ export function DatasetSessionPanel({
         <label className="form-field">
           <span>Strategy</span>
           <input
+            autoComplete="off"
             className="input-control h-10"
             onChange={(event) => setStrategy(event.target.value)}
             value={strategy}

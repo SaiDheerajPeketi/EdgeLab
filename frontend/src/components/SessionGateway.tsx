@@ -608,7 +608,11 @@ export function SessionGateway({
         )}
       </section>
 
-      <form className="session-builder" onSubmit={(event) => void handleSubmit(event)}>
+      <form
+        autoComplete="off"
+        className="session-builder"
+        onSubmit={(event) => void handleSubmit(event)}
+      >
         <div className="session-step">
           <div className="session-step-number">1</div>
           <div>
@@ -644,6 +648,7 @@ export function SessionGateway({
           <label className="form-field xl:col-span-2">
             <span>Strategy Name</span>
             <input
+              autoComplete="off"
               className="input-control h-11"
               onChange={(event) => handleStrategyNameChange(event.target.value)}
               placeholder="Type strategy name"
@@ -1226,6 +1231,7 @@ function SessionEditDialog({
       role="presentation"
     >
       <form
+        autoComplete="off"
         className="grid w-[min(760px,100%)] max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 bg-[#071018] shadow-panel"
         onPointerDown={(event) => event.stopPropagation()}
         onSubmit={(event) => void handleSubmit(event)}
@@ -1264,6 +1270,7 @@ function SessionEditDialog({
             <label className="form-field">
               <span>Strategy Name</span>
               <input
+                autoComplete="off"
                 className="input-control h-10 normal-case tracking-normal"
                 onChange={(event) => setStrategyName(event.target.value)}
                 placeholder="No strategy"
