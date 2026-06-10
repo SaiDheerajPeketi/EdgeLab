@@ -90,7 +90,6 @@ export async function saveAppStorageItem<T>(
       writeQueues.delete(combinedKey);
     }
   });
-  await nextWrite;
   return value;
 }
 

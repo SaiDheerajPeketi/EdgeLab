@@ -180,22 +180,23 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadInitial: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
+      const [datasetsResult, playbooksResult, sessionsResult, tradesResult, latestResult] = await Promise.allSettled([
         getDatasets(),
         getPlaybooks(),
         getBacktests(),
         getTrades(),
+        getLatestBacktest().catch((error) => {
+          if (error instanceof ApiError && error.status === 404) {
+            return null;
+          }
+          throw error;
+        }),
       ]);
       const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
       const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
       const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
       const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
-      const latestState = await getLatestBacktest().catch((error) => {
-        if (error instanceof ApiError && error.status === 404) {
-          return null;
-        }
-        throw error;
-      });
+      const latestState = latestResult.status === "fulfilled" ? latestResult.value : null;
       const meta = latestState ? await getMeta(latestState.session.id) : null;
       const state = latestState && meta ? await ensureReplayContext(latestState, meta) : null;
       const window = state
@@ -219,6 +220,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           playbooksResult,
           sessionsResult,
           tradesResult,
+          latestResult,
         ]),
         isLoading: false,
         replaySeekVersion: state ? current.replaySeekVersion + 1 : current.replaySeekVersion,

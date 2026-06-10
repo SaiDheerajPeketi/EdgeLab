@@ -5600,12 +5600,19 @@ function useFinanceTrackerData(): [FinanceTrackerData, Dispatch<SetStateAction<F
   const [data, setDataState] = useState<FinanceTrackerData>(() =>
     sanitizeFinanceTrackerData(getCachedAppStorageItem<unknown>(FINANCE_TRACKER_STORAGE_KEY, defaultFinanceTrackerData())),
   );
+  const dataRef = useRef(data);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     let active = true;
     void loadAppStorageItem<unknown>(FINANCE_TRACKER_STORAGE_KEY, defaultFinanceTrackerData()).then((value) => {
       if (active) {
-        setDataState(sanitizeFinanceTrackerData(value));
+        const next = sanitizeFinanceTrackerData(value);
+        dataRef.current = next;
+        setDataState(next);
       }
     });
     return () => {
@@ -5616,7 +5623,14 @@ function useFinanceTrackerData(): [FinanceTrackerData, Dispatch<SetStateAction<F
   useEffect(() => {
     const unsubscribe = subscribeAppStorageItem<unknown>(
       FINANCE_TRACKER_STORAGE_KEY,
-      (value) => setDataState(sanitizeFinanceTrackerData(value)),
+      (value) => {
+        if (value === dataRef.current) {
+          return;
+        }
+        const next = sanitizeFinanceTrackerData(value);
+        dataRef.current = next;
+        setDataState(next);
+      },
     );
     return unsubscribe;
   }, []);
@@ -5624,7 +5638,8 @@ function useFinanceTrackerData(): [FinanceTrackerData, Dispatch<SetStateAction<F
   const setData: Dispatch<SetStateAction<FinanceTrackerData>> = useCallback((action) => {
     setDataState((current) => {
       const next = sanitizeFinanceTrackerData(resolveStateAction(action, current));
-      void saveAppStorageItem(FINANCE_TRACKER_STORAGE_KEY, next);
+      dataRef.current = next;
+      void saveAppStorageItem(FINANCE_TRACKER_STORAGE_KEY, next).catch(() => undefined);
       return next;
     });
   }, []);
@@ -5636,12 +5651,19 @@ function useLiveWatchlists(): [LiveWatchlist[], Dispatch<SetStateAction<LiveWatc
   const [watchlists, setWatchlistsState] = useState<LiveWatchlist[]>(() =>
     sanitizeLiveWatchlists(getCachedAppStorageItem<unknown>(LIVE_WATCHLIST_STORAGE_KEY, DEFAULT_LIVE_WATCHLISTS)),
   );
+  const watchlistsRef = useRef(watchlists);
+
+  useEffect(() => {
+    watchlistsRef.current = watchlists;
+  }, [watchlists]);
 
   useEffect(() => {
     let active = true;
     void loadAppStorageItem<unknown>(LIVE_WATCHLIST_STORAGE_KEY, DEFAULT_LIVE_WATCHLISTS).then((value) => {
       if (active) {
-        setWatchlistsState(sanitizeLiveWatchlists(value));
+        const next = sanitizeLiveWatchlists(value);
+        watchlistsRef.current = next;
+        setWatchlistsState(next);
       }
     });
     return () => {
@@ -5652,7 +5674,14 @@ function useLiveWatchlists(): [LiveWatchlist[], Dispatch<SetStateAction<LiveWatc
   useEffect(() => {
     const unsubscribe = subscribeAppStorageItem<unknown>(
       LIVE_WATCHLIST_STORAGE_KEY,
-      (value) => setWatchlistsState(sanitizeLiveWatchlists(value)),
+      (value) => {
+        if (value === watchlistsRef.current) {
+          return;
+        }
+        const next = sanitizeLiveWatchlists(value);
+        watchlistsRef.current = next;
+        setWatchlistsState(next);
+      },
     );
     return unsubscribe;
   }, []);
@@ -5660,7 +5689,8 @@ function useLiveWatchlists(): [LiveWatchlist[], Dispatch<SetStateAction<LiveWatc
   const setWatchlists: Dispatch<SetStateAction<LiveWatchlist[]>> = useCallback((action) => {
     setWatchlistsState((current) => {
       const next = sanitizeLiveWatchlists(resolveStateAction(action, current));
-      void saveAppStorageItem(LIVE_WATCHLIST_STORAGE_KEY, next);
+      watchlistsRef.current = next;
+      void saveAppStorageItem(LIVE_WATCHLIST_STORAGE_KEY, next).catch(() => undefined);
       return next;
     });
   }, []);
@@ -12463,9 +12493,9 @@ function LiveTradeForm({
   const [strategy, setStrategy] = useState(normalizeLiveJournalStrategyName(defaultSession?.strategy_name));
   const [entryTime, setEntryTime] = useState(defaultDateTimeLocal(-60));
   const [exitTime, setExitTime] = useState(defaultDateTimeLocal(0));
-  const [entryPrice, setEntryPrice] = useState("1.00000");
-  const [exitPrice, setExitPrice] = useState("1.00100");
-  const [quantity, setQuantity] = useState("10000");
+  const [entryPrice, setEntryPrice] = useState("");
+  const [exitPrice, setExitPrice] = useState("");
+  const [quantity, setQuantity] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
   const [emotion, setEmotion] = useState<string>("Calm");
@@ -12977,15 +13007,15 @@ function LiveTradeForm({
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 <label className="form-field">
                   {entryType === "MISSED" ? "Planned entry" : "Entry"}
-                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} value={entryPrice} />
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setEntryPrice(event.target.value)} placeholder="1.00000" value={entryPrice} />
                 </label>
                 <label className="form-field">
                   {entryType === "MISSED" ? "Planned exit" : "Exit"}
-                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} value={exitPrice} />
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setExitPrice(event.target.value)} placeholder="1.00100" value={exitPrice} />
                 </label>
                 <label className="form-field">
                   Size
-                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} value={quantity} />
+                  <input className="input-control h-10 normal-case tracking-normal" onChange={(event) => setQuantity(event.target.value)} placeholder="10000" value={quantity} />
                 </label>
                 <label className="form-field">
                   SL
@@ -19428,8 +19458,13 @@ function openScreenshotFullSize(url: string) {
 
 function useLiveJournalData(): LiveJournalController {
   const [data, setData] = useState<LiveJournalData>(() => loadLiveJournalData());
+  const dataRef = useRef(data);
   const hydratedRef = useRef(false);
-  const lastSyncedJsonRef = useRef("");
+  const skipNextPersistRef = useRef(false);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     let active = true;
@@ -19437,15 +19472,20 @@ function useLiveJournalData(): LiveJournalController {
       if (!active) {
         return;
       }
-      lastSyncedJsonRef.current = JSON.stringify(nextData);
+      dataRef.current = nextData;
+      skipNextPersistRef.current = true;
       setData(nextData);
       hydratedRef.current = true;
     });
     const unsubscribe = subscribeAppStorageItem<unknown>(
       LIVE_JOURNAL_STORAGE_KEY,
       (value) => {
+        if (value === dataRef.current) {
+          return;
+        }
         const nextData = sanitizeLiveJournalData(value);
-        lastSyncedJsonRef.current = JSON.stringify(nextData);
+        dataRef.current = nextData;
+        skipNextPersistRef.current = true;
         setData(nextData);
         hydratedRef.current = true;
       },
@@ -19460,13 +19500,12 @@ function useLiveJournalData(): LiveJournalController {
     if (!hydratedRef.current) {
       return;
     }
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
     try {
-      const nextJson = JSON.stringify(data);
-      if (nextJson === lastSyncedJsonRef.current) {
-        return;
-      }
-      lastSyncedJsonRef.current = nextJson;
-      void saveAppStorageItem(LIVE_JOURNAL_STORAGE_KEY, data);
+      void saveAppStorageItem(LIVE_JOURNAL_STORAGE_KEY, data).catch(() => undefined);
     } catch {
       // Large uploaded screenshots can exceed browser storage. Keep the UI running.
     }

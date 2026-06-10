@@ -20,8 +20,6 @@ import {
   ScrollText,
   WalletCards,
 } from "lucide-react";
-import { ChartObjectsPanel } from "./components/ChartObjectsPanel";
-import { ChartToolbar } from "./components/ChartToolbar";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { FilteredTradeReview } from "./components/FilteredTradeReview";
 import { JournalEntryModal } from "./components/JournalEntryModal";
@@ -30,16 +28,14 @@ import { PendingOrders } from "./components/PendingOrders";
 import { PlaybookBoard } from "./components/PlaybookBoard";
 import { PositionPanel } from "./components/PositionPanel";
 import { ReplayController } from "./components/ReplayController";
-import {
-  ResultsPanel,
-  type ResultsPanelView,
-  type ResultsTradeOutcomeFilter,
-  type ResultsTradeScroll,
+import type {
+  ResultsPanelView,
+  ResultsTradeOutcomeFilter,
+  ResultsTradeScroll,
 } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
-import { TradingChart } from "./components/TradingChart";
 import {
   getApiWebSocketUrl,
   type BacktestCreatePayload,
@@ -117,6 +113,26 @@ const EdgeLabWorkspace = lazy(() =>
     default: module.EdgeLabWorkspace,
   })),
 );
+const ChartObjectsPanel = lazy(() =>
+  import("./components/ChartObjectsPanel").then((module) => ({
+    default: module.ChartObjectsPanel,
+  })),
+);
+const ChartToolbar = lazy(() =>
+  import("./components/ChartToolbar").then((module) => ({
+    default: module.ChartToolbar,
+  })),
+);
+const ResultsPanel = lazy(() =>
+  import("./components/ResultsPanel").then((module) => ({
+    default: module.ResultsPanel,
+  })),
+);
+const TradingChart = lazy(() =>
+  import("./components/TradingChart").then((module) => ({
+    default: module.TradingChart,
+  })),
+);
 
 function WorkspaceLoadingPanel() {
   return (
@@ -136,6 +152,23 @@ function BacktestLoadingPanel() {
       <div className="h-3 w-32 animate-pulse rounded bg-cyan-100/30" />
       <div className="h-2 w-full max-w-md animate-pulse rounded bg-cyan-100/15" />
       <div className="h-2 w-2/3 max-w-sm animate-pulse rounded bg-cyan-100/10" />
+    </div>
+  );
+}
+
+function LazyPanelFallback({ className = "" }: { className?: string }) {
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-3 ${className}`}>
+      <div className="h-3 w-32 animate-pulse rounded bg-white/15" />
+      <div className="mt-3 h-2 w-full max-w-md animate-pulse rounded bg-white/10" />
+    </div>
+  );
+}
+
+function ChartChunkFallback() {
+  return (
+    <div className="chart-studio-layout chart-studio-layout-focus">
+      <div className="min-h-[520px] rounded-md border border-white/10 bg-white/[0.03]" />
     </div>
   );
 }
@@ -2010,55 +2043,58 @@ function WorkspaceApp() {
                   timeHoursFormat={chartSettings.timeHoursFormat}
                 />
                 {(chartToolsOpen || chartSettingsPanelOpen) && (
-                  <ChartToolbar
-                    key={chartToolsOpen ? "chart-tools" : "chart-settings"}
-                    activePaneLabel={activeChartPaneLabel}
-                    chartSettings={chartSettings}
-                    chartStyle={chartStyle}
-                    clearableDrawingsCount={unlockedDrawingsCount}
-                    drawingTool={drawingTool}
-                    drawingsCount={drawings.length}
-                    indicatorInstances={indicatorInstances}
-                    onAddIndicator={addIndicator}
-                    onChartSettingsChange={(settings) =>
-                      applyChartSettingsToCurrentScope(settings)
-                    }
-                    onChartSettingsReset={() =>
-                      applyChartSettingsToCurrentScope(DEFAULT_CHART_VISUAL_SETTINGS)
-                    }
-                    onChartStyleChange={setChartStyle}
-                    onClearDrawings={clearDrawings}
-                    layoutName={layoutName}
-                    layoutNames={availableLayouts}
-                    onDrawingToolChange={changeDrawingTool}
-                    onDeleteLayout={deleteNamedChartLayout}
-                    onLayoutNameChange={setLayoutName}
-                    onLoadLayout={loadNamedChartLayout}
-                    magnetMode={magnetMode}
-                    multiChart={isMultiChartLayout}
-                    onMagnetModeChange={setMagnetMode}
-                    onPaneLayoutChange={changeChartPaneLayout}
-                    onReplayTimeframeChange={changeReplayTimeframe}
-                    onSaveLayout={saveChartLayout}
-                    onTimeframeChange={changeTimeframe}
-                    onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
-                    onRemoveIndicator={removeIndicator}
-                    onUpdateIndicatorSettings={updateIndicatorSettings}
-                    onSettingsClose={handleChartSettingsClose}
-                    onSmoothCandlesChange={setSmoothCandles}
-                    orderOverlaysVisible={showOrderOverlays}
-                    paneLayout={chartPaneLayout}
-                    replayTimeframe={normalizedReplayTimeframe}
-                    replayTimeframeOptions={replayTimeframeOptions}
-                    savedLabel={savedLayoutLabel}
-                    settingsOpenSignal={chartSettingsOpenSignal}
-                    smoothCandles={smoothCandles}
-                    sourceTimeframe={sourceTimeframe}
-                    timeframe={effectiveTimeframe}
-                    toolsOpen={chartToolsOpen}
-                  />
+                  <Suspense fallback={<LazyPanelFallback />}>
+                    <ChartToolbar
+                      key={chartToolsOpen ? "chart-tools" : "chart-settings"}
+                      activePaneLabel={activeChartPaneLabel}
+                      chartSettings={chartSettings}
+                      chartStyle={chartStyle}
+                      clearableDrawingsCount={unlockedDrawingsCount}
+                      drawingTool={drawingTool}
+                      drawingsCount={drawings.length}
+                      indicatorInstances={indicatorInstances}
+                      onAddIndicator={addIndicator}
+                      onChartSettingsChange={(settings) =>
+                        applyChartSettingsToCurrentScope(settings)
+                      }
+                      onChartSettingsReset={() =>
+                        applyChartSettingsToCurrentScope(DEFAULT_CHART_VISUAL_SETTINGS)
+                      }
+                      onChartStyleChange={setChartStyle}
+                      onClearDrawings={clearDrawings}
+                      layoutName={layoutName}
+                      layoutNames={availableLayouts}
+                      onDrawingToolChange={changeDrawingTool}
+                      onDeleteLayout={deleteNamedChartLayout}
+                      onLayoutNameChange={setLayoutName}
+                      onLoadLayout={loadNamedChartLayout}
+                      magnetMode={magnetMode}
+                      multiChart={isMultiChartLayout}
+                      onMagnetModeChange={setMagnetMode}
+                      onPaneLayoutChange={changeChartPaneLayout}
+                      onReplayTimeframeChange={changeReplayTimeframe}
+                      onSaveLayout={saveChartLayout}
+                      onTimeframeChange={changeTimeframe}
+                      onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
+                      onRemoveIndicator={removeIndicator}
+                      onUpdateIndicatorSettings={updateIndicatorSettings}
+                      onSettingsClose={handleChartSettingsClose}
+                      onSmoothCandlesChange={setSmoothCandles}
+                      orderOverlaysVisible={showOrderOverlays}
+                      paneLayout={chartPaneLayout}
+                      replayTimeframe={normalizedReplayTimeframe}
+                      replayTimeframeOptions={replayTimeframeOptions}
+                      savedLabel={savedLayoutLabel}
+                      settingsOpenSignal={chartSettingsOpenSignal}
+                      smoothCandles={smoothCandles}
+                      sourceTimeframe={sourceTimeframe}
+                      timeframe={effectiveTimeframe}
+                      toolsOpen={chartToolsOpen}
+                    />
+                  </Suspense>
                 )}
-                <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
+                <Suspense fallback={<ChartChunkFallback />}>
+                  <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
                   <div className="min-w-0 space-y-3">
                     <div
                       className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}
@@ -2179,7 +2215,8 @@ function WorkspaceApp() {
                       smoothCandles={smoothCandles}
                     />
                   ) : null}
-                </div>
+                  </div>
+                </Suspense>
                 {isChartFullscreen && fullscreenOrderPanelOpen && (
                   <div className="chart-fullscreen-dock">
                     <div className="chart-fullscreen-dock-header">
@@ -2234,26 +2271,28 @@ function WorkspaceApp() {
 
             {workspacePanel === "results" && (
               <section className="min-w-0">
-                <ResultsPanel
-                  activeSessionId={state?.session.id ?? null}
-                  currency={sessionCurrency}
-                  filter={resultsPanelFilter}
-                  onFilterChange={setResultsPanelFilter}
-                  onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
-                  onSearchChange={setResultsPanelSearch}
-                  onTradeScrollChange={(scroll) => {
-                    resultsPanelTradeScrollRef.current = scroll;
-                  }}
-                  onTradeScrollRestored={() => {
-                    pendingResultsPanelTradeScrollRestoreRef.current = null;
-                  }}
-                  onViewChange={setResultsPanelView}
-                  restoreTradeScroll={pendingResultsPanelTradeScrollRestoreRef.current}
-                  search={resultsPanelSearch}
-                  sessions={state?.session ? [state.session] : []}
-                  trades={currentSessionTrades}
-                  view={resultsPanelView}
-                />
+                <Suspense fallback={<LazyPanelFallback className="min-h-40" />}>
+                  <ResultsPanel
+                    activeSessionId={state?.session.id ?? null}
+                    currency={sessionCurrency}
+                    filter={resultsPanelFilter}
+                    onFilterChange={setResultsPanelFilter}
+                    onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
+                    onSearchChange={setResultsPanelSearch}
+                    onTradeScrollChange={(scroll) => {
+                      resultsPanelTradeScrollRef.current = scroll;
+                    }}
+                    onTradeScrollRestored={() => {
+                      pendingResultsPanelTradeScrollRestoreRef.current = null;
+                    }}
+                    onViewChange={setResultsPanelView}
+                    restoreTradeScroll={pendingResultsPanelTradeScrollRestoreRef.current}
+                    search={resultsPanelSearch}
+                    sessions={state?.session ? [state.session] : []}
+                    trades={currentSessionTrades}
+                    view={resultsPanelView}
+                  />
+                </Suspense>
               </section>
             )}
           </div>
