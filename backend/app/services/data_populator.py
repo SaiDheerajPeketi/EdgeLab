@@ -81,6 +81,7 @@ class FetchRange:
     start_at: datetime
     end_at: datetime
     reason: str
+    retry: bool = False
 
 
 @dataclass(frozen=True)
@@ -193,6 +194,31 @@ class DataPopulatorManifest:
                     ranges.append((start_at, end_at))
             return sorted(ranges)
 
+    def retry_ranges(self, spec: MarketSpec, timeframe: str = "M1") -> list[tuple[datetime, datetime, str]]:
+        with self._lock:
+            entry = self.timeframe_entry(spec, timeframe)
+            if entry is None:
+                return []
+            raw_ranges = entry.get("retry_ranges")
+            if not isinstance(raw_ranges, list):
+                return []
+            ranges: list[tuple[datetime, datetime, str]] = []
+            for raw_range in raw_ranges:
+                if not isinstance(raw_range, dict):
+                    continue
+                start_timestamp = raw_range.get("start_timestamp")
+                end_timestamp = raw_range.get("end_timestamp")
+                if not start_timestamp or not end_timestamp:
+                    continue
+                try:
+                    start_at = parse_csv_timestamp(start_timestamp)
+                    end_at = parse_csv_timestamp(end_timestamp)
+                except (TypeError, ValueError):
+                    continue
+                if start_at <= end_at:
+                    ranges.append((start_at, end_at, str(raw_range.get("reason") or "retry")))
+            return sorted(ranges, key=lambda item: item[0])
+
     def path_from_entry(self, entry: dict[str, object]) -> Path:
         raw_path = str(entry.get("csv_path") or "")
         path = Path(raw_path)
@@ -212,6 +238,7 @@ class DataPopulatorManifest:
             existing = timeframes.get(timeframe)
             no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
             empty_ranges = existing.get("empty_ranges") if isinstance(existing, dict) else None
+            retry_ranges = existing.get("retry_ranges") if isinstance(existing, dict) else None
             first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
             timeframes[timeframe] = {
                 "csv_path": self.relative_path(csv_path),
@@ -228,6 +255,8 @@ class DataPopulatorManifest:
                     pass
             if isinstance(empty_ranges, list) and empty_ranges:
                 timeframes[timeframe]["empty_ranges"] = empty_ranges
+            if isinstance(retry_ranges, list) and retry_ranges:
+                timeframes[timeframe]["retry_ranges"] = retry_ranges
             self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
 
     def update_no_data_range(
@@ -329,6 +358,139 @@ class DataPopulatorManifest:
                 "updated_at": updated_at,
             }
             self.payload["updated_at"] = updated_at
+
+    def update_retry_range(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        start_at: datetime,
+        end_at: datetime,
+        reason: str,
+        error: str,
+    ) -> None:
+        if start_at > end_at:
+            return
+        with self._lock:
+            timeframes = self.timeframes_for_spec(spec)
+            entry = timeframes.setdefault(timeframe, {})
+            if not isinstance(entry, dict):
+                entry = {}
+                timeframes[timeframe] = entry
+            raw_ranges = entry.setdefault("retry_ranges", [])
+            if not isinstance(raw_ranges, list):
+                raw_ranges = []
+                entry["retry_ranges"] = raw_ranges
+
+            ranges: list[tuple[datetime, datetime, str]] = []
+            for raw_range in raw_ranges:
+                if not isinstance(raw_range, dict):
+                    continue
+                raw_start = raw_range.get("start_timestamp")
+                raw_end = raw_range.get("end_timestamp")
+                if not raw_start or not raw_end:
+                    continue
+                try:
+                    existing_start = parse_csv_timestamp(raw_start)
+                    existing_end = parse_csv_timestamp(raw_end)
+                except (TypeError, ValueError):
+                    continue
+                if existing_start <= existing_end:
+                    ranges.append((existing_start, existing_end, str(raw_range.get("reason") or reason)))
+            ranges.append((start_at, end_at, reason))
+            ranges.sort(key=lambda item: item[0])
+
+            merged: list[tuple[datetime, datetime, str]] = []
+            for range_start, range_end, range_reason in ranges:
+                if not merged:
+                    merged.append((range_start, range_end, range_reason))
+                    continue
+                previous_start, previous_end, previous_reason = merged[-1]
+                if range_start <= previous_end + MINUTE:
+                    merged[-1] = (
+                        previous_start,
+                        max(previous_end, range_end),
+                        previous_reason if previous_reason == range_reason else "retry",
+                    )
+                    continue
+                merged.append((range_start, range_end, range_reason))
+
+            updated_at = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+            entry["retry_ranges"] = [
+                {
+                    "start_timestamp": utc_manifest_timestamp(range_start),
+                    "end_timestamp": utc_manifest_timestamp(range_end),
+                    "reason": range_reason,
+                    "updated_at": updated_at,
+                }
+                for range_start, range_end, range_reason in merged
+            ]
+            entry["last_retry_range"] = {
+                "start_timestamp": utc_manifest_timestamp(start_at),
+                "end_timestamp": utc_manifest_timestamp(end_at),
+                "reason": reason,
+                "error": error,
+                "updated_at": updated_at,
+            }
+            self.payload["updated_at"] = updated_at
+
+    def clear_retry_range(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> None:
+        with self._lock:
+            entry = self.timeframe_entry(spec, timeframe)
+            if entry is None:
+                return
+            raw_ranges = entry.get("retry_ranges")
+            if not isinstance(raw_ranges, list):
+                return
+
+            remaining: list[dict[str, object]] = []
+            for raw_range in raw_ranges:
+                if not isinstance(raw_range, dict):
+                    continue
+                raw_start = raw_range.get("start_timestamp")
+                raw_end = raw_range.get("end_timestamp")
+                if not raw_start or not raw_end:
+                    continue
+                try:
+                    range_start = parse_csv_timestamp(raw_start)
+                    range_end = parse_csv_timestamp(raw_end)
+                except (TypeError, ValueError):
+                    continue
+                reason = str(raw_range.get("reason") or "retry")
+                if range_end < start_at or range_start > end_at:
+                    remaining.append(raw_range)
+                    continue
+                if range_start < start_at:
+                    remaining.append(
+                        {
+                            "start_timestamp": utc_manifest_timestamp(range_start),
+                            "end_timestamp": utc_manifest_timestamp(start_at - MINUTE),
+                            "reason": reason,
+                            "updated_at": raw_range.get("updated_at")
+                            or utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+                        }
+                    )
+                if range_end > end_at:
+                    remaining.append(
+                        {
+                            "start_timestamp": utc_manifest_timestamp(end_at + MINUTE),
+                            "end_timestamp": utc_manifest_timestamp(range_end),
+                            "reason": reason,
+                            "updated_at": raw_range.get("updated_at")
+                            or utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+                        }
+                    )
+
+            if remaining:
+                entry["retry_ranges"] = remaining
+            else:
+                entry.pop("retry_ranges", None)
+            self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
 
     def timeframes_for_spec(self, spec: MarketSpec) -> dict[str, object]:
         with self._lock:
@@ -497,7 +659,8 @@ class ScheduledDataPopulator:
             csv_path = self.csv_path_for_spec(spec)
             try:
                 total_fetched = 0
-                attempted_ranges: set[tuple[str, datetime, datetime]] = set()
+                current_range_fetched = 0
+                attempted_ranges: set[tuple[str, datetime, datetime, bool]] = set()
                 while True:
                     fetch_range = self.next_fetch_range(spec, csv_path, end_at)
                     if fetch_range is None:
@@ -510,7 +673,12 @@ class ScheduledDataPopulator:
                             )
                         break
 
-                    range_key = (fetch_range.reason, fetch_range.start_at, fetch_range.end_at)
+                    range_key = (
+                        fetch_range.reason,
+                        fetch_range.start_at,
+                        fetch_range.end_at,
+                        fetch_range.retry,
+                    )
                     if range_key in attempted_ranges:
                         logger.warning(
                             "Stopping repeated %s range for %s: %s..%s",
@@ -533,24 +701,51 @@ class ScheduledDataPopulator:
                     )
                     fetched = 0
                     page_count = 0
-                    for page_count, candles in enumerate(
-                        self.fetch_candle_pages(spec, fetch_range.start_at, fetch_range.end_at),
-                        start=1,
-                    ):
-                        if not candles:
-                            continue
-                        fetched += len(candles)
-                        page_result = self.write_candles(spec, candles, csv_path)
-                        if page_count == 1 or page_count % 25 == 0:
-                            logger.info(
-                                "Wrote %s page %s: fetched=%s total_rows=%s page_range=%s..%s",
-                                spec.instrument,
-                                page_count,
-                                fetched,
-                                page_result.rows,
-                                utc_manifest_timestamp(candles[0].timestamp),
-                                utc_manifest_timestamp(candles[-1].timestamp),
+                    last_page: list[MarketCandle] | None = None
+                    current_range_fetched = 0
+                    try:
+                        for page_count, candles in enumerate(
+                            self.fetch_candle_pages(spec, fetch_range.start_at, fetch_range.end_at),
+                            start=1,
+                        ):
+                            if not candles:
+                                continue
+                            page_result = self.write_candles(spec, candles, csv_path)
+                            fetched += len(candles)
+                            current_range_fetched = fetched
+                            last_page = candles
+                            if page_count == 1 or page_count % 25 == 0:
+                                logger.info(
+                                    "Wrote %s page %s: fetched=%s total_rows=%s page_range=%s..%s",
+                                    spec.instrument,
+                                    page_count,
+                                    fetched,
+                                    page_result.rows,
+                                    utc_manifest_timestamp(candles[0].timestamp),
+                                    utc_manifest_timestamp(candles[-1].timestamp),
+                                )
+                    except Exception as exc:
+                        total_fetched += current_range_fetched
+                        retry_range = self.unresolved_fetch_range(spec, fetch_range, last_page)
+                        if retry_range is not None:
+                            retry_start, retry_end = retry_range
+                            self.manifest.update_retry_range(
+                                spec,
+                                "M1",
+                                retry_start,
+                                retry_end,
+                                fetch_range.reason,
+                                f"{type(exc).__name__}: {exc}",
                             )
+                            self.manifest.save()
+                            logger.warning(
+                                "Recorded retry range for %s after %s: %s..%s",
+                                spec.instrument,
+                                type(exc).__name__,
+                                utc_manifest_timestamp(retry_start),
+                                utc_manifest_timestamp(retry_end),
+                            )
+                        raise
 
                     if fetched == 0:
                         logger.info(
@@ -575,28 +770,42 @@ class ScheduledDataPopulator:
                                     fetch_range.end_at,
                                     fetch_range.reason,
                                 )
+                            if fetch_range.retry:
+                                self.manifest.clear_retry_range(
+                                    spec,
+                                    "M1",
+                                    fetch_range.start_at,
+                                    fetch_range.end_at,
+                                )
+                            self.manifest.save()
+                        elif fetch_range.retry:
+                            self.manifest.clear_retry_range(
+                                spec,
+                                "M1",
+                                fetch_range.start_at,
+                                fetch_range.end_at,
+                            )
                             self.manifest.save()
                         if fetch_range.reason in {"historical-backfill", "internal-gap"}:
                             continue
                         results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
                         break
                     total_fetched += fetched
+                    if fetch_range.retry:
+                        self.manifest.clear_retry_range(
+                            spec,
+                            "M1",
+                            fetch_range.start_at,
+                            fetch_range.end_at,
+                        )
+                        self.manifest.save()
                     if fetch_range.reason in {"historical-backfill", "internal-gap"}:
                         continue
                     results.append(self.result_for_existing_file(spec, csv_path, total_fetched))
                     break
             except Exception as exc:
                 logger.exception("Failed to populate %s", spec.instrument)
-                results.append(
-                    PopulationResult(
-                        asset_id=spec.asset_id,
-                        symbol=spec.symbol,
-                        csv_path=str(csv_path),
-                        fetched=0,
-                        rows=0,
-                        error=str(exc),
-                    )
-                )
+                results.append(self.result_for_error(spec, csv_path, total_fetched, exc))
 
         logger.info("Provider group finished: provider=%s instruments=%s", provider, len(specs))
         return results
@@ -607,6 +816,10 @@ class ScheduledDataPopulator:
         csv_path: Path,
         end_at: datetime,
     ) -> FetchRange | None:
+        retry_range = self.next_retry_range(spec, end_at)
+        if retry_range is not None:
+            return retry_range
+
         local_range = self.local_data_range(spec, csv_path)
         provider_start = self.provider_start_dates[spec.provider]
         no_data_before = self.manifest.no_data_before(spec, "M1")
@@ -652,6 +865,15 @@ class ScheduledDataPopulator:
                 end_at=end_at,
                 reason="append-latest",
             )
+        return None
+
+    def next_retry_range(self, spec: MarketSpec, end_at: datetime) -> FetchRange | None:
+        provider_start = self.provider_start_dates[spec.provider]
+        for start_at, retry_end, reason in self.manifest.retry_ranges(spec, "M1"):
+            start_at = max(start_at, provider_start)
+            retry_end = min(retry_end, end_at)
+            if start_at <= retry_end:
+                return FetchRange(start_at=start_at, end_at=retry_end, reason=reason, retry=True)
         return None
 
     def next_fetch_start(self, spec: MarketSpec, csv_path: Path, end_at: datetime) -> datetime:
@@ -864,6 +1086,57 @@ class ScheduledDataPopulator:
             first_timestamp=parse_csv_timestamp(frame.iloc[0]["Timestamp"]) if not frame.empty else None,
             last_timestamp=parse_csv_timestamp(frame.iloc[-1]["Timestamp"]) if not frame.empty else None,
         )
+
+    def result_for_error(
+        self,
+        spec: MarketSpec,
+        csv_path: Path,
+        fetched: int,
+        error: Exception,
+    ) -> PopulationResult:
+        try:
+            existing = self.result_for_existing_file(spec, csv_path, fetched)
+        except Exception:
+            return PopulationResult(
+                asset_id=spec.asset_id,
+                symbol=spec.symbol,
+                csv_path=str(csv_path),
+                fetched=fetched,
+                rows=0,
+                error=str(error),
+            )
+        return PopulationResult(
+            asset_id=existing.asset_id,
+            symbol=existing.symbol,
+            csv_path=existing.csv_path,
+            fetched=existing.fetched,
+            rows=existing.rows,
+            first_timestamp=existing.first_timestamp,
+            last_timestamp=existing.last_timestamp,
+            error=str(error),
+        )
+
+    def unresolved_fetch_range(
+        self,
+        spec: MarketSpec,
+        fetch_range: FetchRange,
+        last_page: list[MarketCandle] | None,
+    ) -> tuple[datetime, datetime] | None:
+        if not last_page:
+            return fetch_range.start_at, fetch_range.end_at
+
+        if spec.provider == "dukascopy":
+            earliest = min(candle.timestamp for candle in last_page)
+            retry_end = min(fetch_range.end_at, earliest - MINUTE)
+            if fetch_range.start_at <= retry_end:
+                return fetch_range.start_at, retry_end
+            return None
+
+        latest = max(candle.timestamp for candle in last_page)
+        retry_start = max(fetch_range.start_at, latest + MINUTE)
+        if retry_start <= fetch_range.end_at:
+            return retry_start, fetch_range.end_at
+        return None
 
     def update_manifest_from_existing_file(
         self,

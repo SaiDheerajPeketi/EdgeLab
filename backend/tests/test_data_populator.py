@@ -448,6 +448,127 @@ def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
     ]
 
 
+def test_populate_once_records_unfinished_retry_range_after_timeout(tmp_path):
+    class TimeoutAfterPagePopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            yield [
+                candle("2024-01-01T00:04:00", 104.0),
+                candle("2024-01-01T00:05:00", 105.0),
+            ]
+            raise TimeoutError("The read operation timed out")
+
+    spec = forex_spec("USD/JPY")
+    populator = TimeoutAfterPagePopulator(
+        tmp_path,
+        forex_symbols=("USD/JPY",),
+        crypto_symbols=(),
+        forex_start_date="2024-01-01",
+        derived_timeframes=(),
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 6, tzinfo=timezone.utc))
+    retry_range = populator.next_fetch_range(
+        spec,
+        tmp_path / "USD_JPY" / "USDJPY_M1.csv",
+        datetime(2024, 1, 1, 0, 5, tzinfo=timezone.utc),
+    )
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    timeframe = manifest["markets"]["USD_JPY"]["timeframes"]["M1"]
+
+    assert summary.results[0].fetched == 2
+    assert summary.results[0].rows == 2
+    assert "timed out" in (summary.results[0].error or "")
+    assert timeframe["retry_ranges"][0]["start_timestamp"] == "2024-01-01T00:00:00Z"
+    assert timeframe["retry_ranges"][0]["end_timestamp"] == "2024-01-01T00:03:00Z"
+    assert timeframe["retry_ranges"][0]["reason"] == "initial-backfill"
+    assert retry_range is not None
+    assert retry_range.retry is True
+    assert retry_range.reason == "initial-backfill"
+    assert retry_range.start_at == datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+    assert retry_range.end_at == datetime(2024, 1, 1, 0, 3, tzinfo=timezone.utc)
+
+
+def test_populate_once_prioritizes_and_clears_timeout_retry_ranges(tmp_path):
+    class TimeoutAfterPagePopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            yield [
+                candle("2024-01-01T00:04:00", 104.0),
+                candle("2024-01-01T00:05:00", 105.0),
+            ]
+            raise TimeoutError("The read operation timed out")
+
+    calls: list[tuple[datetime, datetime]] = []
+
+    class RetryFillPopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            calls.append((start_at, end_at))
+            yield [
+                candle("2024-01-01T00:00:00", 100.0),
+                candle("2024-01-01T00:01:00", 101.0),
+                candle("2024-01-01T00:02:00", 102.0),
+                candle("2024-01-01T00:03:00", 103.0),
+            ]
+
+    spec = forex_spec("USD/JPY")
+    failing = TimeoutAfterPagePopulator(
+        tmp_path,
+        forex_symbols=("USD/JPY",),
+        crypto_symbols=(),
+        forex_start_date="2024-01-01",
+        derived_timeframes=(),
+    )
+    failing.populate_once(now=datetime(2024, 1, 1, 0, 6, tzinfo=timezone.utc))
+
+    retrying = RetryFillPopulator(
+        tmp_path,
+        forex_symbols=("USD/JPY",),
+        crypto_symbols=(),
+        forex_start_date="2024-01-01",
+        derived_timeframes=(),
+    )
+    summary = retrying.populate_once(now=datetime(2024, 1, 1, 0, 6, tzinfo=timezone.utc))
+    m1 = pd.read_csv(tmp_path / "USD_JPY" / "USDJPY_M1.csv")
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    timeframe = manifest["markets"]["USD_JPY"]["timeframes"]["M1"]
+
+    assert calls == [
+        (
+            datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 0, 3, tzinfo=timezone.utc),
+        )
+    ]
+    assert summary.results[0].fetched == 4
+    assert "retry_ranges" not in timeframe
+    assert retrying.next_fetch_range(
+        spec,
+        tmp_path / "USD_JPY" / "USDJPY_M1.csv",
+        datetime(2024, 1, 1, 0, 5, tzinfo=timezone.utc),
+    ) is None
+    assert m1["Timestamp"].tolist() == [
+        "2024-01-01 00:00:00",
+        "2024-01-01 00:01:00",
+        "2024-01-01 00:02:00",
+        "2024-01-01 00:03:00",
+        "2024-01-01 00:04:00",
+        "2024-01-01 00:05:00",
+    ]
+
+
 def test_populate_once_runs_dukascopy_and_binance_groups_in_parallel(tmp_path):
     started = {
         "binance": threading.Event(),
