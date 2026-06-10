@@ -49,7 +49,11 @@ export function normalizeBacktestStrategyNames(value: unknown) {
   const names: string[] = [];
   for (const item of value) {
     const name = normalizeBacktestStrategyName(String(item ?? ""));
-    if (!name || names.some((current) => sameStrategyName(current, name))) {
+    if (
+      !name ||
+      sameStrategyName(name, "Unassigned") ||
+      names.some((current) => sameStrategyName(current, name))
+    ) {
       continue;
     }
     names.push(name);

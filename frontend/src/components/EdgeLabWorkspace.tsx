@@ -8896,7 +8896,7 @@ function JournalSessionsPage({
   );
   const [name, setName] = useState("Live Trading Session");
   const [strategy, setStrategy] = useState("Unassigned");
-  const [instrument, setInstrument] = useState("OANDA:EURUSD");
+  const [instrument, setInstrument] = useState("EUR/USD");
   const [currency, setCurrency] = useState(settings.default_currency);
   const [createCommissionMode, setCreateCommissionMode] = useState<OrderCommissionMode>(settings.default_commission_mode);
   const [createCommissionFixed, setCreateCommissionFixed] = useState(costFixedValueForMode(settings.default_commission_mode, settings.default_commission_value));
@@ -15351,15 +15351,20 @@ function StrategiesPage({
     setMutationError(null);
     try {
       await persistBacktestStrategyNames(removeSavedStrategyName(savedStrategyNames, strategy.name));
-      await applyStrategyNameChange(strategy.name, "Unassigned");
-      setSelectedName("Unassigned");
+      await applyStrategyNameChange(strategy.name, null);
+      const nextSelected = strategyRows.find(
+        (row) =>
+          !sameStrategyName(row.name, strategy.name) &&
+          !sameStrategyName(row.name, "Unassigned"),
+      );
+      setSelectedName(nextSelected?.name ?? null);
       setDeleteTarget(null);
     } finally {
       setMutatingName(null);
     }
   }
 
-  async function applyStrategyNameChange(currentName: string, nextName: string) {
+  async function applyStrategyNameChange(currentName: string, nextName: string | null) {
     const matchingSessions = sessions.filter((session) => sameStrategyName(sessionStrategyName(session), currentName));
     const matchingTrades = trades.filter((trade) =>
       sameStrategyName(tradeStrategyName(trade, sessionById.get(trade.session_id)), currentName),
@@ -15568,7 +15573,7 @@ function StrategiesPage({
         <ModalFrame title="Delete strategy" onClose={() => setDeleteTarget(null)}>
           <div className="grid gap-4 text-sm text-slate-300">
             <p>
-              Delete <span className="font-semibold text-white">{deleteTarget.name}</span>? Linked sessions and trades will stay intact and move to Unassigned.
+              Delete <span className="font-semibold text-white">{deleteTarget.name}</span>? Linked sessions and trades will stay intact with their strategy assignment cleared.
             </p>
             <div className="grid grid-cols-2 gap-2">
               <CompactMetric label="Sessions" value={String(deleteTarget.sessions.length)} />
@@ -18427,7 +18432,11 @@ function normalizeBacktestStrategyNames(value: unknown) {
   const names: string[] = [];
   for (const item of value) {
     const name = normalizeBacktestStrategyName(String(item ?? ""));
-    if (!name || names.some((current) => sameStrategyName(current, name))) {
+    if (
+      !name ||
+      sameStrategyName(name, "Unassigned") ||
+      names.some((current) => sameStrategyName(current, name))
+    ) {
       continue;
     }
     names.push(name);

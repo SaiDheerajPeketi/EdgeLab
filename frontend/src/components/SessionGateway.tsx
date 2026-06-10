@@ -127,7 +127,7 @@ export function SessionGateway({
   const [instrumentSearch, setInstrumentSearch] = useState("");
   const [instrumentMenuOpen, setInstrumentMenuOpen] = useState(false);
   const [timeframe, setTimeframe] = useState("");
-  const [strategy, setStrategy] = useState(session?.strategy_name ?? "London Continuation");
+  const [strategy, setStrategy] = useState("");
   const [sessionName, setSessionName] = useState("");
   const [sessionNameEdited, setSessionNameEdited] = useState(false);
   const [playbookMode, setPlaybookMode] = useState<PlaybookMode>("none");
@@ -1612,7 +1612,11 @@ function buildExistingStrategyOptions(
 
   function push(name: string, sublabel?: string) {
     const trimmedName = name.trim();
-    if (!trimmedName || options.some((option) => sameStrategyName(option.value, trimmedName))) {
+    if (
+      !trimmedName ||
+      sameStrategyName(trimmedName, "Unassigned") ||
+      options.some((option) => sameStrategyName(option.value, trimmedName))
+    ) {
       return;
     }
     options.push({ label: trimmedName, sublabel, value: trimmedName });

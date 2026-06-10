@@ -30,7 +30,7 @@ export function DatasetSessionPanel({
   const instruments = datasets?.instruments ?? [];
   const [instrumentId, setInstrumentId] = useState("");
   const [timeframe, setTimeframe] = useState("");
-  const [strategy, setStrategy] = useState(session?.strategy_name ?? "London Continuation");
+  const [strategy, setStrategy] = useState("");
   const [playbookId, setPlaybookId] = useState("");
   const [startingBalance, setStartingBalance] = useState("100000");
   const [startDate, setStartDate] = useState("");

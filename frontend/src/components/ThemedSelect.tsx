@@ -223,6 +223,7 @@ export function ThemedSelect({
             disabled={option.disabled}
             key={option.value}
             onClick={(event) => handleOptionClick(event, option.value)}
+            onMouseDown={(event) => event.preventDefault()}
             role="option"
             type="button"
           >
