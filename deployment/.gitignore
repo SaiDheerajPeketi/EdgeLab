@@ -1,0 +1,3 @@
+instance-snapshots/
+__pycache__/
+*.tar.gz
