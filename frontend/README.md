@@ -31,7 +31,7 @@ VITE_API_BEARER_TOKEN=
 
 The Docker build pins npm 11 before running `npm ci` from the frontend directory so `frontend/package-lock.json` resolves platform-specific Vite/Rollup optional packages for the Linux container without the npm 10 optional-dependency exit-handler bug. It defaults `NPM_CONFIG_REGISTRY` to `https://registry.npmjs.org/`; override that build arg only when the deployment host can resolve the selected registry mirror.
 
-The final image serves `frontend/dist` with Nginx. The Nginx config lives at `docker/nginx.conf`, proxies `/api` to the FastAPI service in Docker Compose, upgrades `/api/datasets/stream` and `/api/live/angelone/stream` WebSocket connections, and allows the deployed app to connect to the Binance live REST/WebSocket endpoints used by the watchlist. The root Compose stack also runs the backend `data-populator` service so the session gateway can discover regularly updated M1 and derived higher-timeframe datasets.
+The final image serves `frontend/dist` with Nginx. The Nginx config lives at `docker/nginx.conf`, proxies `/api` to the FastAPI service in Docker Compose, upgrades `/api/datasets/stream` and `/api/live/angelone/stream` WebSocket connections, gzip-compresses text responses, caches hashed `/assets/*` files for one year, keeps the SPA document revalidated, and returns 404 for missing chunk assets. It also allows the deployed app to connect to the Binance live REST/WebSocket endpoints used by the watchlist. The root Compose stack runs the backend `data-populator` service so the session gateway can discover regularly updated M1 and derived higher-timeframe datasets.
 
 Use the repository root Compose file for end-to-end deployment:
 

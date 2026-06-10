@@ -136,6 +136,76 @@ def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
         assert resolution.stored is False
 
 
+def test_list_catalog_throttles_auto_discovery_within_ttl(tmp_path, monkeypatch):
+    root = tmp_path / "datasets"
+    asset_dir = root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "GBPUSD_M5.csv").write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, catalog_discovery_ttl_seconds=60)
+    original_scan = service._scan_filesystem_index
+    scan_count = 0
+
+    def counted_scan(db, *, strict, prune_missing):
+        nonlocal scan_count
+        scan_count += 1
+        return original_scan(db, strict=strict, prune_missing=prune_missing)
+
+    monkeypatch.setattr(service, "_scan_filesystem_index", counted_scan)
+
+    with session_factory() as db:
+        first = service.list_catalog(db)
+        second = service.list_catalog(db)
+
+        assert first.instruments[0].id == "GBP_USD"
+        assert second.instruments[0].id == "GBP_USD"
+        assert scan_count == 1
+
+
+def test_refresh_catalog_forces_scan_during_auto_discovery_ttl(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "GBPUSD_M5.csv").write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, catalog_discovery_ttl_seconds=3600)
+
+    with session_factory() as db:
+        first = service.list_catalog(db)
+
+        second_asset_dir = root / "EUR_USD"
+        second_asset_dir.mkdir()
+        (second_asset_dir / "EURUSD_M1.csv").write_text(
+            "Timestamp,Open,High,Low,Close,Volume\n"
+            "2024-01-01 09:30:00,1.1,1.2,1.0,1.15,100\n",
+            encoding="utf-8",
+        )
+
+        throttled = service.list_catalog(db)
+        refreshed = service.refresh_catalog(db)
+
+        assert [instrument.id for instrument in first.instruments] == ["GBP_USD"]
+        assert [instrument.id for instrument in throttled.instruments] == ["GBP_USD"]
+        assert [instrument.id for instrument in refreshed.catalog.instruments] == [
+            "EUR_USD",
+            "GBP_USD",
+        ]
+
+
 def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch):
     root = tmp_path / "datasets"
     asset_dir = root / "XAU_USD"

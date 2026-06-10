@@ -17,7 +17,7 @@ docker compose up --build
 
 Use `docker-compose` in place of `docker compose` on hosts that provide only the standalone Compose binary.
 
-Open `http://localhost:8080` by default. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
+Open `http://localhost:8080` by default. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`. Nginx gzip-compresses text responses, gives Vite hashed assets a one-year browser cache, keeps `index.html` revalidated for deploy freshness, and returns 404 for missing `/assets/*` chunks instead of serving the SPA fallback. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
 
 Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For the bundled frontend, set `VITE_API_BEARER_TOKEN` to the same value at build time.
 
@@ -64,7 +64,7 @@ npm install
 npm run dev
 ```
 
-The backend scans dataset CSV folders from `datasets` by default. Set `EDGELAB_DATASETS_ROOT` to point at a different dataset root.
+The backend scans dataset CSV folders from `datasets` by default. Normal catalog reads auto-discover filesystem changes at most every 30 seconds; explicit dataset refreshes and dataset root changes still force an immediate scan. Set `EDGELAB_DATASETS_ROOT` to point at a different dataset root.
 The open frontend subscribes to `/api/datasets/stream` over WebSocket, so CSV range changes from the populator appear without a browser refresh. Replay sessions are created only from the session builder or `POST /api/backtests`; startup does not create a default EURUSD/M1 session.
 
 The upgraded backend uses `backend/trade_journal_v2.db` by default. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.

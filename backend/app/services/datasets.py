@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
@@ -35,6 +36,7 @@ TIMEFRAME_ORDER = {
 
 REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
 CATALOG_ROW_COUNT_MAX_BYTES = 25_000_000
+CATALOG_AUTO_DISCOVERY_TTL_SECONDS = 30.0
 SOURCE_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -76,12 +78,20 @@ class DatasetRefreshInProgress(RuntimeError):
 
 
 class DatasetCatalogService:
-    def __init__(self, root: Path, session_factory: sessionmaker):
+    def __init__(
+        self,
+        root: Path,
+        session_factory: sessionmaker,
+        catalog_discovery_ttl_seconds: float = CATALOG_AUTO_DISCOVERY_TTL_SECONDS,
+    ):
         self.default_root = root
         self.session_factory = session_factory
+        self.catalog_discovery_ttl_seconds = catalog_discovery_ttl_seconds
         self._lock = Lock()
         self._status_lock = Lock()
         self._refresh_state = DatasetRefreshState()
+        self._last_discovery_root: str | None = None
+        self._last_discovery_at: float | None = None
 
     def list_catalog(self, db: Session) -> DatasetCatalogResponse:
         self.discover_catalog(db)
@@ -90,11 +100,25 @@ class DatasetCatalogService:
     def get_settings(self, db: Session) -> DatasetSettingsRead:
         return DatasetSettingsRead(root_path=str(self._root_path(db)))
 
-    def discover_catalog(self, db: Session) -> None:
-        if self._lock.locked():
+    def discover_catalog(self, db: Session, *, force: bool = False) -> None:
+        root = str(self._root_path(db))
+        now = monotonic()
+        if (
+            not force
+            and self._last_discovery_root == root
+            and self._last_discovery_at is not None
+            and now - self._last_discovery_at < self.catalog_discovery_ttl_seconds
+        ):
             return
-        self._scan_filesystem_index(db, strict=False, prune_missing=False)
-        db.commit()
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
+            self._scan_filesystem_index(db, strict=False, prune_missing=False)
+            db.commit()
+            self._last_discovery_root = root
+            self._last_discovery_at = monotonic()
+        finally:
+            self._lock.release()
 
     def update_settings(
         self,
@@ -110,7 +134,7 @@ class DatasetCatalogService:
         settings.root_path = str(root_path)
         settings.updated_at = utcnow()
         db.commit()
-        self.discover_catalog(db)
+        self.discover_catalog(db, force=True)
         return self._catalog_from_store(db)
 
     def refresh_catalog(self, db: Session) -> DatasetRefreshResponse:
@@ -119,6 +143,8 @@ class DatasetCatalogService:
         try:
             summary = self._scan_filesystem_index(db, strict=True, prune_missing=True)
             db.commit()
+            self._last_discovery_root = str(self._root_path(db))
+            self._last_discovery_at = monotonic()
             return DatasetRefreshResponse(
                 catalog=self._catalog_from_store(db),
                 summary=summary,
@@ -145,6 +171,8 @@ class DatasetCatalogService:
             )
             summary = self._scan_filesystem_index(db, strict=True, prune_missing=True)
             db.commit()
+            self._last_discovery_root = str(self._root_path(db))
+            self._last_discovery_at = monotonic()
             self._set_refresh_state(
                 running=False,
                 current=None,
@@ -356,10 +384,14 @@ class DatasetCatalogService:
             db.add(asset)
             db.flush()
         else:
-            asset.name = directory.name.replace("_", "/")
-            asset.symbol = self._symbol_from_asset_id(asset_id)
-            asset.folder_path = str(directory)
-            asset.updated_at = utcnow()
+            name = directory.name.replace("_", "/")
+            symbol = self._symbol_from_asset_id(asset_id)
+            folder_path = str(directory)
+            if asset.name != name or asset.symbol != symbol or asset.folder_path != folder_path:
+                asset.name = name
+                asset.symbol = symbol
+                asset.folder_path = folder_path
+                asset.updated_at = utcnow()
         return asset
 
     def _index_timeframe_file(
@@ -383,8 +415,9 @@ class DatasetCatalogService:
             and existing.file_mtime_ns == stat.st_mtime_ns
         )
         if unchanged:
-            existing.imported = False
-            existing.updated_at = utcnow()
+            if existing.imported:
+                existing.imported = False
+                existing.updated_at = utcnow()
             return existing
 
         metadata = self._read_csv_metadata(csv_path)
