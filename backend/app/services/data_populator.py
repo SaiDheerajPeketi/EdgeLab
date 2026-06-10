@@ -1,11 +1,16 @@
+import csv
+import io
 import json
 import logging
+import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Callable, Iterator, Literal
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -32,14 +37,19 @@ BINANCE_REST_URLS = (
     "https://data-api.binance.vision/api/v3",
     "https://api.binance.com/api/v3",
 )
+BINANCE_ARCHIVE_BASE_URL = "https://data.binance.vision/data/spot"
 DUKASCOPY_URL = "https://freeserv.dukascopy.com/2.0/index.php"
 DUKASCOPY_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1; +https://github.com/SaiDheerajPeketi/EdgeLab)",
     "Referer": "https://freeserv.dukascopy.com/2.0/?path=chart/index&instrument=EUR/USD",
 }
+NETWORK_RETRY_COUNT = 5
+NETWORK_RETRY_BASE_SECONDS = 0.75
+WRITE_BATCH_CANDLES = 25_000
 
 FetchJson = Callable[[str, int], object]
+FetchBytes = Callable[[str, int], bytes]
 Provider = Literal["binance", "dukascopy"]
 
 logger = logging.getLogger(__name__)
@@ -577,7 +587,9 @@ class ScheduledDataPopulator:
         forex_start_date: str = MAX_BACKFILL_START_DATES["dukascopy"],
         crypto_start_date: str = MAX_BACKFILL_START_DATES["binance"],
         request_timeout_seconds: int = 20,
+        write_batch_candles: int = WRITE_BATCH_CANDLES,
         fetch_json: FetchJson | None = None,
+        fetch_bytes: FetchBytes | None = None,
     ):
         self.root = root
         self.forex_symbols = forex_symbols
@@ -590,7 +602,9 @@ class ScheduledDataPopulator:
             "dukascopy": parse_utc_date(forex_start_date),
         }
         self.request_timeout_seconds = max(1, request_timeout_seconds)
+        self.write_batch_candles = max(1_000, write_batch_candles)
         self.fetch_json = fetch_json or fetch_json_url
+        self.fetch_bytes = fetch_bytes or fetch_bytes_url
         self.manifest = DataPopulatorManifest(root)
 
     def specs(self) -> list[MarketSpec]:
@@ -702,6 +716,7 @@ class ScheduledDataPopulator:
                     fetched = 0
                     page_count = 0
                     last_page: list[MarketCandle] | None = None
+                    pending_candles: list[MarketCandle] = []
                     current_range_fetched = 0
                     try:
                         for page_count, candles in enumerate(
@@ -710,11 +725,15 @@ class ScheduledDataPopulator:
                         ):
                             if not candles:
                                 continue
-                            page_result = self.write_candles(spec, candles, csv_path)
                             fetched += len(candles)
                             current_range_fetched = fetched
                             last_page = candles
-                            if page_count == 1 or page_count % 25 == 0:
+                            pending_candles.extend(candles)
+                            page_result: PopulationResult | None = None
+                            if page_count == 1 or len(pending_candles) >= self.write_batch_candles:
+                                page_result = self.write_candles(spec, pending_candles, csv_path)
+                                pending_candles = []
+                            if page_result is not None:
                                 logger.info(
                                     "Wrote %s page %s: fetched=%s total_rows=%s page_range=%s..%s",
                                     spec.instrument,
@@ -724,7 +743,29 @@ class ScheduledDataPopulator:
                                     utc_manifest_timestamp(candles[0].timestamp),
                                     utc_manifest_timestamp(candles[-1].timestamp),
                                 )
+                            elif page_count % 25 == 0:
+                                logger.info(
+                                    "Fetched %s page %s: fetched=%s pending=%s persisted_rows=%s page_range=%s..%s",
+                                    spec.instrument,
+                                    page_count,
+                                    fetched,
+                                    len(pending_candles),
+                                    read_csv_row_count(csv_path),
+                                    utc_manifest_timestamp(candles[0].timestamp),
+                                    utc_manifest_timestamp(candles[-1].timestamp),
+                                )
+                        if pending_candles:
+                            page_result = self.write_candles(spec, pending_candles, csv_path)
+                            logger.info(
+                                "Wrote %s final batch: pages=%s fetched=%s total_rows=%s",
+                                spec.instrument,
+                                page_count,
+                                fetched,
+                                page_result.rows,
+                            )
                     except Exception as exc:
+                        if pending_candles:
+                            self.write_candles(spec, pending_candles, csv_path)
                         total_fetched += current_range_fetched
                         retry_range = self.unresolved_fetch_range(spec, fetch_range, last_page)
                         if retry_range is not None:
@@ -939,16 +980,108 @@ class ScheduledDataPopulator:
         start_at: datetime,
         end_at: datetime,
     ) -> Iterator[list[MarketCandle]]:
+        exclusive_end = end_at + MINUTE
+        last_emitted: datetime | None = None
+        archive_gap_start: datetime | None = None
+        saw_monthly_archive = False
+        monthly_end = start_of_utc_month(exclusive_end)
+
+        month = start_of_utc_month(start_at)
+        while month < monthly_end:
+            archive = self.fetch_binance_archive_candles(
+                binance_monthly_archive_url(symbol, month),
+                start_at,
+                end_at,
+            )
+            if archive is None:
+                if saw_monthly_archive:
+                    archive_gap_start = month
+                    logger.info(
+                        "Binance monthly archive missing for %s %s; falling back to REST",
+                        symbol,
+                        format_month(month),
+                    )
+                    break
+                month = add_months(month, 1)
+                continue
+            saw_monthly_archive = True
+            if archive:
+                last_emitted = archive[-1].timestamp
+                yield archive
+            month = add_months(month, 1)
+
+        if archive_gap_start is None:
+            day = start_of_utc_day(max_datetime(start_at, monthly_end))
+            daily_end = start_of_utc_day(exclusive_end)
+            while day < daily_end:
+                archive = self.fetch_binance_archive_candles(
+                    binance_daily_archive_url(symbol, day),
+                    start_at,
+                    end_at,
+                )
+                if archive is None:
+                    archive_gap_start = day
+                    logger.info(
+                        "Binance daily archive missing for %s %s; falling back to REST",
+                        symbol,
+                        format_day(day),
+                    )
+                    break
+                if archive:
+                    last_emitted = archive[-1].timestamp
+                    yield archive
+                day = add_days(day, 1)
+
+        rest_start = start_at
+        if last_emitted is not None:
+            rest_start = last_emitted + MINUTE
+        if archive_gap_start is not None:
+            rest_start = min_datetime(rest_start, archive_gap_start)
+        if rest_start <= end_at:
+            yield from self.fetch_binance_rest_candle_pages(symbol, rest_start, end_at)
+
+    def fetch_binance_archive_candles(
+        self,
+        url: str,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[MarketCandle] | None:
+        try:
+            payload = self.fetch_bytes(url, self.request_timeout_seconds)
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            csv_names = [name for name in archive.namelist() if not name.endswith("/")]
+            if not csv_names:
+                return []
+            with archive.open(csv_names[0]) as handle:
+                rows = csv.reader(io.TextIOWrapper(handle, encoding="utf-8"))
+                candles = [
+                    candle
+                    for candle in (binance_archive_row_to_candle(row) for row in rows)
+                    if candle is not None and start_at <= candle.timestamp <= end_at
+                ]
+        return dedupe_candles(candles)
+
+    def fetch_binance_rest_candle_pages(
+        self,
+        symbol: str,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> Iterator[list[MarketCandle]]:
         cursor_ms = int(start_at.timestamp() * 1000)
         end_ms = int(end_at.timestamp() * 1000)
 
         while cursor_ms <= end_ms:
+            request_end_ms = min(end_ms, cursor_ms + 1_000 * 60_000 - 1)
             query = urlencode(
                 {
                     "symbol": symbol,
                     "interval": "1m",
                     "startTime": str(cursor_ms),
-                    "endTime": str(end_ms),
+                    "endTime": str(request_end_ms),
                     "limit": "1000",
                 }
             )
@@ -992,22 +1125,23 @@ class ScheduledDataPopulator:
         start_at: datetime,
         end_at: datetime,
     ) -> Iterator[list[MarketCandle]]:
-        cursor_ms = int(end_at.timestamp() * 1000)
+        cursor_ms = int((end_at + MINUTE).timestamp() * 1000)
         start_ms = int(start_at.timestamp() * 1000)
 
-        while cursor_ms >= start_ms:
+        while cursor_ms > start_ms:
+            callback = f"_callbacks____{int(time.time() * 1000)}"
             query = urlencode(
                 {
                     "path": "chart/json3",
-                    "jsonp": "_edgelab",
                     "splits": "true",
                     "stocks": "true",
-                    "time_direction": "P",
-                    "last_update": str(cursor_ms),
+                    "init": "true",
+                    "time_direction": "N",
+                    "timestamp": str(cursor_ms),
                     "offer_side": "B",
                     "instrument": instrument,
                     "interval": "1MIN",
-                    "limit": "1000",
+                    "jsonp": callback,
                 }
             )
             data = self.fetch_json(f"{DUKASCOPY_URL}?{query}", self.request_timeout_seconds)
@@ -1016,16 +1150,24 @@ class ScheduledDataPopulator:
             page = [
                 candle
                 for candle in (dukascopy_row_to_candle(row) for row in data)
-                if candle is not None and start_at <= candle.timestamp <= end_at
+                if candle is not None and candle.volume != 0 and start_at <= candle.timestamp <= end_at
             ]
-            if not page:
+            oldest_timestamp = min(
+                (
+                    candle.timestamp
+                    for candle in (dukascopy_row_to_candle(row) for row in data)
+                    if candle is not None
+                ),
+                default=None,
+            )
+            if not page and oldest_timestamp is None:
                 break
-            page = dedupe_candles(page)
-            yield page
-            earliest = min(candle.timestamp for candle in page)
-            if earliest <= start_at:
+            if page:
+                page = dedupe_candles(page)
+                yield page
+            if oldest_timestamp is None or oldest_timestamp <= start_at:
                 break
-            next_cursor = int((earliest - MINUTE).timestamp() * 1000)
+            next_cursor = int(oldest_timestamp.timestamp() * 1000)
             if next_cursor >= cursor_ms:
                 break
             cursor_ms = next_cursor
@@ -1168,11 +1310,43 @@ class ScheduledDataPopulator:
 
 
 def fetch_json_url(url: str, timeout: int) -> object:
-    request = Request(url, headers=DUKASCOPY_HEADERS)
-    with urlopen(request, timeout=timeout) as response:
-        body = response.read().decode("utf-8")
+    body = fetch_text_url(url, timeout)
     payload = strip_jsonp(body)
     return json.loads(payload)
+
+
+def fetch_text_url(url: str, timeout: int) -> str:
+    return fetch_bytes_url(url, timeout).decode("utf-8")
+
+
+def fetch_bytes_url(url: str, timeout: int) -> bytes:
+    request = Request(url, headers=headers_for_url(url))
+    last_error: Exception | None = None
+    for attempt in range(1, NETWORK_RETRY_COUNT + 1):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except HTTPError as exc:
+            last_error = exc
+            permanent_client_error = 400 <= exc.code < 500 and exc.code != 429
+            if permanent_client_error or attempt == NETWORK_RETRY_COUNT:
+                raise
+            time.sleep(NETWORK_RETRY_BASE_SECONDS * attempt)
+        except Exception as exc:
+            last_error = exc
+            if attempt == NETWORK_RETRY_COUNT:
+                raise
+            time.sleep(NETWORK_RETRY_BASE_SECONDS * attempt)
+    raise RuntimeError("Request failed") from last_error
+
+
+def headers_for_url(url: str) -> dict[str, str]:
+    if "dukascopy.com" in url:
+        return DUKASCOPY_HEADERS
+    return {
+        "Accept": "application/zip,application/json,text/csv,*/*",
+        "User-Agent": DUKASCOPY_HEADERS["User-Agent"],
+    }
 
 
 def strip_jsonp(value: str) -> str:
@@ -1220,13 +1394,36 @@ def binance_kline_to_candle(row: object) -> MarketCandle:
     if not isinstance(row, list) or len(row) < 6:
         raise ValueError("Invalid Binance kline row")
     return MarketCandle(
-        timestamp=datetime.fromtimestamp(int(row[0]) / 1000, tz=timezone.utc),
+        timestamp=datetime.fromtimestamp(normalize_binance_timestamp(row[0]) / 1000, tz=timezone.utc),
         open=float(row[1]),
         high=float(row[2]),
         low=float(row[3]),
         close=float(row[4]),
         volume=float(row[5]),
     )
+
+
+def binance_archive_row_to_candle(row: list[str]) -> MarketCandle | None:
+    if len(row) < 6:
+        return None
+    try:
+        return MarketCandle(
+            timestamp=datetime.fromtimestamp(normalize_binance_timestamp(row[0]) / 1000, tz=timezone.utc),
+            open=float(row[1]),
+            high=float(row[2]),
+            low=float(row[3]),
+            close=float(row[4]),
+            volume=float(row[5]),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_binance_timestamp(value: object) -> int:
+    timestamp = int(value)
+    if timestamp > 100_000_000_000_000:
+        return timestamp // 1000
+    return timestamp
 
 
 def dukascopy_row_to_candle(row: object) -> MarketCandle | None:
@@ -1411,6 +1608,13 @@ def read_timestamp_range(csv_path: Path) -> tuple[datetime, datetime] | None:
     )
 
 
+def read_csv_row_count(csv_path: Path) -> int:
+    if not csv_path.exists():
+        return 0
+    with csv_path.open("rb") as handle:
+        return max(sum(1 for _line in handle) - 1, 0)
+
+
 def first_internal_m1_gap(
     spec: MarketSpec,
     csv_path: Path,
@@ -1518,6 +1722,57 @@ def utc_manifest_timestamp(value: datetime) -> str:
 def parse_utc_date(value: str) -> datetime:
     parsed = pd.to_datetime(value, errors="raise", utc=True)
     return parsed.to_pydatetime().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def start_of_utc_day(value: datetime) -> datetime:
+    value = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+
+
+def start_of_utc_month(value: datetime) -> datetime:
+    value = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return datetime(value.year, value.month, 1, tzinfo=timezone.utc)
+
+
+def add_days(value: datetime, days: int) -> datetime:
+    return value + timedelta(days=days)
+
+
+def add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    return datetime(year, month, 1, tzinfo=timezone.utc)
+
+
+def format_month(value: datetime) -> str:
+    value = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return f"{value.year:04d}-{value.month:02d}"
+
+
+def format_day(value: datetime) -> str:
+    value = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return f"{value.year:04d}-{value.month:02d}-{value.day:02d}"
+
+
+def binance_monthly_archive_url(symbol: str, month: datetime) -> str:
+    label = format_month(month)
+    filename = f"{symbol}-1m-{label}.zip"
+    return f"{BINANCE_ARCHIVE_BASE_URL}/monthly/klines/{symbol}/1m/{filename}"
+
+
+def binance_daily_archive_url(symbol: str, day: datetime) -> str:
+    label = format_day(day)
+    filename = f"{symbol}-1m-{label}.zip"
+    return f"{BINANCE_ARCHIVE_BASE_URL}/daily/klines/{symbol}/1m/{filename}"
+
+
+def max_datetime(left: datetime, right: datetime) -> datetime:
+    return left if left >= right else right
+
+
+def min_datetime(left: datetime, right: datetime) -> datetime:
+    return left if left <= right else right
 
 
 def floor_minute(value: datetime) -> datetime:

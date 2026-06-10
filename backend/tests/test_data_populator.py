@@ -1,7 +1,10 @@
+import io
 import json
 import threading
 import warnings
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlparse
+from zipfile import ZipFile
 
 import pandas as pd
 
@@ -16,6 +19,13 @@ from app.services.data_populator import (
     forex_spec,
     normalize_frame,
 )
+
+
+def binance_zip(*rows: str) -> bytes:
+    payload = io.BytesIO()
+    with ZipFile(payload, "w") as archive:
+        archive.writestr("BTCUSDT-1m-2024-01.csv", "\n".join(rows) + "\n")
+    return payload.getvalue()
 
 
 def candle(timestamp: str, close: float) -> MarketCandle:
@@ -448,6 +458,49 @@ def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
     ]
 
 
+def test_populate_once_batches_after_first_provider_page(tmp_path):
+    write_calls: list[list[datetime]] = []
+
+    class ThreePagePopulator(ScheduledDataPopulator):
+        def fetch_candle_pages(
+            self,
+            spec: MarketSpec,
+            start_at: datetime,
+            end_at: datetime,
+        ):
+            yield [candle("2024-01-01T00:00:00", 100.0)]
+            yield [candle("2024-01-01T00:01:00", 101.0)]
+            yield [candle("2024-01-01T00:02:00", 102.0)]
+
+        def write_candles(
+            self,
+            spec: MarketSpec,
+            candles: list[MarketCandle],
+            csv_path=None,
+        ):
+            write_calls.append([item.timestamp for item in candles])
+            return super().write_candles(spec, candles, csv_path)
+
+    populator = ThreePagePopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        backfill_mode="lookback",
+        derived_timeframes=(),
+    )
+
+    summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 4, tzinfo=timezone.utc))
+
+    assert summary.results[0].fetched == 3
+    assert write_calls == [
+        [datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)],
+        [
+            datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc),
+        ],
+    ]
+
+
 def test_populate_once_records_unfinished_retry_range_after_timeout(tmp_path):
     class TimeoutAfterPagePopulator(ScheduledDataPopulator):
         def fetch_candle_pages(
@@ -685,3 +738,79 @@ def test_data_populator_parses_provider_rows():
     assert dukascopy is not None
     assert dukascopy.timestamp == datetime(2024, 1, 1, tzinfo=timezone.utc)
     assert dukascopy.close == 1.5
+
+
+def test_binance_fetch_prefers_monthly_archives_for_bulk_history(tmp_path):
+    requested_urls: list[str] = []
+
+    def fetch_bytes(url: str, timeout: int) -> bytes:
+        requested_urls.append(url)
+        return binance_zip(
+            "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore",
+            "1704067200000000,1,2,0.5,1.5,99,1704067259999,0,0,0,0,0",
+            "1706745540000000,2,3,1.5,2.5,88,1706745599999,0,0,0,0,0",
+        )
+
+    def fetch_json(url: str, timeout: int) -> object:
+        raise AssertionError("REST should not be used when the complete monthly archive is available")
+
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        fetch_bytes=fetch_bytes,
+        fetch_json=fetch_json,
+    )
+
+    pages = list(
+        populator.fetch_binance_candle_pages(
+            "BTCUSDT",
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 31, 23, 59, tzinfo=timezone.utc),
+        )
+    )
+
+    assert requested_urls == [
+        "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2024-01.zip"
+    ]
+    assert len(pages) == 1
+    assert [item.timestamp for item in pages[0]] == [
+        datetime(2024, 1, 1, tzinfo=timezone.utc),
+        datetime(2024, 1, 31, 23, 59, tzinfo=timezone.utc),
+    ]
+
+
+def test_dukascopy_fetch_uses_timestamp_jsonp_chart_query(tmp_path):
+    requested_urls: list[str] = []
+
+    def fetch_json(url: str, timeout: int) -> object:
+        requested_urls.append(url)
+        return [
+            [1704067200000, 1, 2, 0.5, 1.5, 99],
+            [1704067260000, 1.5, 2.5, 1, 2, 100],
+        ]
+
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=("EUR/USD",),
+        crypto_symbols=(),
+        fetch_json=fetch_json,
+    )
+
+    pages = list(
+        populator.fetch_dukascopy_candle_pages(
+            "EUR/USD",
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
+        )
+    )
+
+    query = parse_qs(urlparse(requested_urls[0]).query)
+    assert query["path"] == ["chart/json3"]
+    assert query["init"] == ["true"]
+    assert query["time_direction"] == ["N"]
+    assert query["instrument"] == ["EUR/USD"]
+    assert "timestamp" in query
+    assert "last_update" not in query
+    assert len(pages) == 1
+    assert pages[0][-1].close == 2.0
