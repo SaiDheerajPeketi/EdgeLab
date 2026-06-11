@@ -8,6 +8,7 @@ from zipfile import ZipFile
 
 import pandas as pd
 
+from app.services import data_populator as data_populator_module
 from app.services.data_populator import (
     MANIFEST_FILENAME,
     MarketCandle,
@@ -16,6 +17,7 @@ from app.services.data_populator import (
     binance_kline_to_candle,
     crypto_spec,
     dukascopy_row_to_candle,
+    fetch_json_url,
     forex_spec,
     normalize_frame,
 )
@@ -427,7 +429,7 @@ def test_data_populator_records_empty_internal_gap_ranges(tmp_path):
     assert populator.next_internal_gap_range(spec, csv_path) is None
 
 
-def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
+def test_populate_once_buffers_provider_pages_until_batch_or_end(tmp_path):
     class TwoPagePopulator(ScheduledDataPopulator):
         def fetch_candle_pages(
             self,
@@ -436,8 +438,8 @@ def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
             end_at: datetime,
         ):
             yield [candle("2024-01-01T00:00:00", 100.0)]
-            assert self.csv_path_for_spec(spec).is_file()
-            assert (self.root / MANIFEST_FILENAME).is_file()
+            assert not self.csv_path_for_spec(spec).exists()
+            assert not (self.root / MANIFEST_FILENAME).exists()
             yield [candle("2024-01-01T00:01:00", 101.0)]
 
     populator = TwoPagePopulator(
@@ -458,7 +460,7 @@ def test_populate_once_writes_each_provider_page_incrementally(tmp_path):
     ]
 
 
-def test_populate_once_batches_after_first_provider_page(tmp_path):
+def test_populate_once_batches_provider_pages_by_threshold(tmp_path):
     write_calls: list[list[datetime]] = []
 
     class ThreePagePopulator(ScheduledDataPopulator):
@@ -477,9 +479,11 @@ def test_populate_once_batches_after_first_provider_page(tmp_path):
             spec: MarketSpec,
             candles: list[MarketCandle],
             csv_path=None,
+            *,
+            write_derived=True,
         ):
             write_calls.append([item.timestamp for item in candles])
-            return super().write_candles(spec, candles, csv_path)
+            return super().write_candles(spec, candles, csv_path, write_derived=write_derived)
 
     populator = ThreePagePopulator(
         tmp_path,
@@ -487,17 +491,18 @@ def test_populate_once_batches_after_first_provider_page(tmp_path):
         crypto_symbols=("BTCUSDT",),
         backfill_mode="lookback",
         derived_timeframes=(),
+        write_batch_candles=2,
     )
 
     summary = populator.populate_once(now=datetime(2024, 1, 1, 0, 4, tzinfo=timezone.utc))
 
     assert summary.results[0].fetched == 3
     assert write_calls == [
-        [datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)],
         [
+            datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc),
             datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc),
-            datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc),
         ],
+        [datetime(2024, 1, 1, 0, 2, tzinfo=timezone.utc)],
     ]
 
 
@@ -780,6 +785,83 @@ def test_binance_fetch_prefers_monthly_archives_for_bulk_history(tmp_path):
     ]
 
 
+def test_binance_fetch_downloads_monthly_archives_in_parallel(tmp_path):
+    requested_urls: list[str] = []
+    started_lock = threading.Lock()
+    both_started = threading.Event()
+
+    def fetch_bytes(url: str, timeout: int) -> bytes:
+        with started_lock:
+            requested_urls.append(url)
+            if len(requested_urls) == 2:
+                both_started.set()
+        assert both_started.wait(timeout=1)
+        if "2024-01" in url:
+            return binance_zip(
+                "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore",
+                "1704067200000000,1,2,0.5,1.5,99,1704067259999,0,0,0,0,0",
+            )
+        return binance_zip(
+            "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore",
+            "1706745600000000,2,3,1.5,2.5,88,1706745659999,0,0,0,0,0",
+            "1709251140000000,3,4,2.5,3.5,77,1709251199999,0,0,0,0,0",
+        )
+
+    def fetch_json(url: str, timeout: int) -> object:
+        raise AssertionError("REST should not be used when monthly archives are available")
+
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        fetch_bytes=fetch_bytes,
+        fetch_json=fetch_json,
+    )
+
+    pages = list(
+        populator.fetch_binance_candle_pages(
+            "BTCUSDT",
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 2, 29, 23, 59, tzinfo=timezone.utc),
+        )
+    )
+
+    assert len(requested_urls) == 2
+    assert len(pages) == 2
+    assert [page[0].timestamp for page in pages] == [
+        datetime(2024, 1, 1, tzinfo=timezone.utc),
+        datetime(2024, 2, 1, tzinfo=timezone.utc),
+    ]
+
+
+def test_fetch_json_url_retries_invalid_json_response(monkeypatch):
+    responses = [b"<html>rate limited</html>", b'{"ok": true}']
+    sleep_calls: list[float] = []
+
+    class FakeResponse:
+        def __init__(self, body: bytes):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def read(self) -> bytes:
+            return self.body
+
+    def fake_urlopen(request, timeout):
+        return FakeResponse(responses.pop(0))
+
+    monkeypatch.setattr(data_populator_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(data_populator_module.time, "sleep", sleep_calls.append)
+
+    assert fetch_json_url("https://example.test/data", 1) == {"ok": True}
+    assert sleep_calls == [0.75]
+    assert responses == []
+
+
 def test_dukascopy_fetch_uses_timestamp_jsonp_chart_query(tmp_path):
     requested_urls: list[str] = []
 
@@ -814,3 +896,41 @@ def test_dukascopy_fetch_uses_timestamp_jsonp_chart_query(tmp_path):
     assert "last_update" not in query
     assert len(pages) == 1
     assert pages[0][-1].close == 2.0
+
+
+def test_dukascopy_fetch_throttles_between_paged_requests(tmp_path, monkeypatch):
+    requested_urls: list[str] = []
+    sleep_calls: list[float] = []
+
+    def fetch_json(url: str, timeout: int) -> object:
+        requested_urls.append(url)
+        if len(requested_urls) == 1:
+            return [
+                [1704067320000, 1, 2, 0.5, 1.5, 99],
+                [1704067380000, 1.5, 2.5, 1, 2, 100],
+            ]
+        return [
+            [1704067200000, 0.8, 1.8, 0.3, 1.1, 90],
+            [1704067260000, 0.9, 1.9, 0.4, 1.2, 91],
+        ]
+
+    monkeypatch.setattr(data_populator_module.time, "sleep", sleep_calls.append)
+
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=("EUR/USD",),
+        crypto_symbols=(),
+        fetch_json=fetch_json,
+    )
+
+    pages = list(
+        populator.fetch_dukascopy_candle_pages(
+            "EUR/USD",
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 0, 3, tzinfo=timezone.utc),
+        )
+    )
+
+    assert len(requested_urls) == 2
+    assert len(pages) == 2
+    assert sleep_calls == [0.05]

@@ -47,6 +47,9 @@ DUKASCOPY_HEADERS = {
 NETWORK_RETRY_COUNT = 5
 NETWORK_RETRY_BASE_SECONDS = 0.75
 WRITE_BATCH_CANDLES = 25_000
+BACKFILL_WRITE_BATCH_CANDLES = 10_000_000
+BINANCE_ARCHIVE_WORKERS = 8
+DUKASCOPY_REQUEST_DELAY_SECONDS = 0.05
 
 FetchJson = Callable[[str, int], object]
 FetchBytes = Callable[[str, int], bytes]
@@ -64,7 +67,7 @@ class MarketSpec:
     filename_symbol: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MarketCandle:
     timestamp: datetime
     open: float
@@ -588,6 +591,9 @@ class ScheduledDataPopulator:
         crypto_start_date: str = MAX_BACKFILL_START_DATES["binance"],
         request_timeout_seconds: int = 20,
         write_batch_candles: int = WRITE_BATCH_CANDLES,
+        backfill_write_batch_candles: int = BACKFILL_WRITE_BATCH_CANDLES,
+        binance_archive_workers: int = BINANCE_ARCHIVE_WORKERS,
+        dukascopy_request_delay_seconds: float = DUKASCOPY_REQUEST_DELAY_SECONDS,
         fetch_json: FetchJson | None = None,
         fetch_bytes: FetchBytes | None = None,
     ):
@@ -602,7 +608,10 @@ class ScheduledDataPopulator:
             "dukascopy": parse_utc_date(forex_start_date),
         }
         self.request_timeout_seconds = max(1, request_timeout_seconds)
-        self.write_batch_candles = max(1_000, write_batch_candles)
+        self.write_batch_candles = max(1, write_batch_candles)
+        self.backfill_write_batch_candles = max(1, backfill_write_batch_candles)
+        self.binance_archive_workers = max(1, binance_archive_workers)
+        self.dukascopy_request_delay_seconds = max(0.0, dukascopy_request_delay_seconds)
         self.fetch_json = fetch_json or fetch_json_url
         self.fetch_bytes = fetch_bytes or fetch_bytes_url
         self.manifest = DataPopulatorManifest(root)
@@ -718,6 +727,8 @@ class ScheduledDataPopulator:
                     last_page: list[MarketCandle] | None = None
                     pending_candles: list[MarketCandle] = []
                     current_range_fetched = 0
+                    write_batch_limit = self.write_batch_limit_for_range(fetch_range)
+                    defer_derived_timeframes = self.should_defer_derived_timeframes(fetch_range)
                     try:
                         for page_count, candles in enumerate(
                             self.fetch_candle_pages(spec, fetch_range.start_at, fetch_range.end_at),
@@ -730,8 +741,13 @@ class ScheduledDataPopulator:
                             last_page = candles
                             pending_candles.extend(candles)
                             page_result: PopulationResult | None = None
-                            if page_count == 1 or len(pending_candles) >= self.write_batch_candles:
-                                page_result = self.write_candles(spec, pending_candles, csv_path)
+                            if len(pending_candles) >= write_batch_limit:
+                                page_result = self.write_candles(
+                                    spec,
+                                    pending_candles,
+                                    csv_path,
+                                    write_derived=not defer_derived_timeframes,
+                                )
                                 pending_candles = []
                             if page_result is not None:
                                 logger.info(
@@ -763,9 +779,20 @@ class ScheduledDataPopulator:
                                 fetched,
                                 page_result.rows,
                             )
+                        elif fetched and defer_derived_timeframes:
+                            page_result = self.write_candles(spec, [], csv_path)
+                            logger.info(
+                                "Refreshed %s derived timeframes after backfill batch: pages=%s fetched=%s total_rows=%s",
+                                spec.instrument,
+                                page_count,
+                                fetched,
+                                page_result.rows,
+                            )
                     except Exception as exc:
                         if pending_candles:
                             self.write_candles(spec, pending_candles, csv_path)
+                        elif current_range_fetched and defer_derived_timeframes:
+                            self.write_candles(spec, [], csv_path)
                         total_fetched += current_range_fetched
                         retry_range = self.unresolved_fetch_range(spec, fetch_range, last_page)
                         if retry_range is not None:
@@ -850,6 +877,22 @@ class ScheduledDataPopulator:
 
         logger.info("Provider group finished: provider=%s instruments=%s", provider, len(specs))
         return results
+
+    def write_batch_limit_for_range(self, fetch_range: FetchRange) -> int:
+        if self.backfill_mode == "max" and fetch_range.reason in {
+            "initial-backfill",
+            "historical-backfill",
+            "internal-gap",
+        }:
+            return self.backfill_write_batch_candles
+        return self.write_batch_candles
+
+    def should_defer_derived_timeframes(self, fetch_range: FetchRange) -> bool:
+        return (
+            bool(self.derived_timeframes)
+            and self.backfill_mode == "max"
+            and fetch_range.reason in {"initial-backfill", "historical-backfill", "internal-gap"}
+        )
 
     def next_fetch_range(
         self,
@@ -986,13 +1029,13 @@ class ScheduledDataPopulator:
         saw_monthly_archive = False
         monthly_end = start_of_utc_month(exclusive_end)
 
+        monthly_requests: list[tuple[datetime, str]] = []
         month = start_of_utc_month(start_at)
         while month < monthly_end:
-            archive = self.fetch_binance_archive_candles(
-                binance_monthly_archive_url(symbol, month),
-                start_at,
-                end_at,
-            )
+            monthly_requests.append((month, binance_monthly_archive_url(symbol, month)))
+            month = add_months(month, 1)
+
+        for month, archive in self.fetch_binance_archive_pages(monthly_requests, start_at, end_at):
             if archive is None:
                 if saw_monthly_archive:
                     archive_gap_start = month
@@ -1002,13 +1045,11 @@ class ScheduledDataPopulator:
                         format_month(month),
                     )
                     break
-                month = add_months(month, 1)
                 continue
             saw_monthly_archive = True
             if archive:
                 last_emitted = archive[-1].timestamp
                 yield archive
-            month = add_months(month, 1)
 
         if archive_gap_start is None:
             day = start_of_utc_day(max_datetime(start_at, monthly_end))
@@ -1039,6 +1080,46 @@ class ScheduledDataPopulator:
             rest_start = min_datetime(rest_start, archive_gap_start)
         if rest_start <= end_at:
             yield from self.fetch_binance_rest_candle_pages(symbol, rest_start, end_at)
+
+    def fetch_binance_archive_pages(
+        self,
+        requests: list[tuple[datetime, str]],
+        start_at: datetime,
+        end_at: datetime,
+    ) -> Iterator[tuple[datetime, list[MarketCandle] | None]]:
+        if not requests:
+            return
+        worker_count = min(self.binance_archive_workers, len(requests))
+        if worker_count == 1:
+            for period, url in requests:
+                yield period, self.fetch_binance_archive_candles(url, start_at, end_at)
+            return
+
+        request_iter = iter(requests)
+        in_flight = []
+
+        def submit_next(executor: ThreadPoolExecutor) -> None:
+            try:
+                period, url = next(request_iter)
+            except StopIteration:
+                return
+            in_flight.append(
+                (
+                    period,
+                    executor.submit(self.fetch_binance_archive_candles, url, start_at, end_at),
+                )
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="edgelab-binance-archive",
+        ) as executor:
+            for _ in range(worker_count):
+                submit_next(executor)
+            while in_flight:
+                period, future = in_flight.pop(0)
+                yield period, future.result()
+                submit_next(executor)
 
     def fetch_binance_archive_candles(
         self,
@@ -1127,8 +1208,11 @@ class ScheduledDataPopulator:
     ) -> Iterator[list[MarketCandle]]:
         cursor_ms = int((end_at + MINUTE).timestamp() * 1000)
         start_ms = int(start_at.timestamp() * 1000)
+        request_count = 0
 
         while cursor_ms > start_ms:
+            if request_count and self.dukascopy_request_delay_seconds:
+                time.sleep(self.dukascopy_request_delay_seconds)
             callback = f"_callbacks____{int(time.time() * 1000)}"
             query = urlencode(
                 {
@@ -1145,6 +1229,7 @@ class ScheduledDataPopulator:
                 }
             )
             data = self.fetch_json(f"{DUKASCOPY_URL}?{query}", self.request_timeout_seconds)
+            request_count += 1
             if not isinstance(data, list) or not data:
                 break
             page = [
@@ -1177,6 +1262,8 @@ class ScheduledDataPopulator:
         spec: MarketSpec,
         candles: list[MarketCandle],
         csv_path: Path | None = None,
+        *,
+        write_derived: bool = True,
     ) -> PopulationResult:
         target_path = csv_path or self.csv_path_for_spec(spec)
         frame = merge_candles(
@@ -1196,7 +1283,7 @@ class ScheduledDataPopulator:
         temp_path = target_path.with_name(f".{target_path.name}.tmp")
         frame.to_csv(temp_path, index=False)
         temp_path.replace(target_path)
-        derived_frames = self.write_derived_timeframes(spec, frame)
+        derived_frames = self.write_derived_timeframes(spec, frame) if write_derived else []
         self.manifest.update_timeframe(spec, "M1", target_path, frame)
         for timeframe, derived_path, derived_frame in derived_frames:
             self.manifest.update_timeframe(spec, timeframe, derived_path, derived_frame)
@@ -1310,9 +1397,19 @@ class ScheduledDataPopulator:
 
 
 def fetch_json_url(url: str, timeout: int) -> object:
-    body = fetch_text_url(url, timeout)
-    payload = strip_jsonp(body)
-    return json.loads(payload)
+    last_error: Exception | None = None
+    for attempt in range(1, NETWORK_RETRY_COUNT + 1):
+        try:
+            body = fetch_text_url(url, timeout)
+            payload = strip_jsonp(body)
+            return json.loads(payload)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if attempt == NETWORK_RETRY_COUNT:
+                raise
+            logger.warning("Invalid JSON response from %s; retrying attempt %s", url, attempt + 1)
+            time.sleep(NETWORK_RETRY_BASE_SECONDS * attempt)
+    raise RuntimeError("JSON request failed") from last_error
 
 
 def fetch_text_url(url: str, timeout: int) -> str:
@@ -1458,17 +1555,14 @@ def candles_to_frame(candles: list[MarketCandle]) -> pd.DataFrame:
     if not candles:
         return empty_frame()
     return pd.DataFrame(
-        [
-            {
-                "Timestamp": to_utc_naive(candle.timestamp),
-                "Open": candle.open,
-                "High": candle.high,
-                "Low": candle.low,
-                "Close": candle.close,
-                "Volume": candle.volume,
-            }
-            for candle in candles
-        ]
+        {
+            "Timestamp": [to_utc_naive(candle.timestamp) for candle in candles],
+            "Open": [candle.open for candle in candles],
+            "High": [candle.high for candle in candles],
+            "Low": [candle.low for candle in candles],
+            "Close": [candle.close for candle in candles],
+            "Volume": [candle.volume for candle in candles],
+        }
     )
 
 
