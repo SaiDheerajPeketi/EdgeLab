@@ -11,6 +11,7 @@ import {
   DatasetRefreshResponse,
   DatasetRefreshStatus,
   JournalPayload,
+  Metrics,
   OrderPayload,
   OrderUpdatePayload,
   PositionUpdatePayload,
@@ -30,6 +31,7 @@ import {
   getDatasetRefreshStatus,
   getDatasets,
   getLatestBacktest,
+  getMetrics,
   getMeta,
   getPlaybooks,
   getTrades,
@@ -294,10 +296,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 
   refreshResults: async () => {
     try {
-      const [resultSessions, resultTrades] = await Promise.all([
-        getBacktests(),
-        getTrades(),
-      ]);
+      const { resultSessions, resultTrades } = await loadResultsData();
       set({ resultSessions, resultTrades, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
@@ -561,37 +560,47 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   updateJournal: async (tradeId, payload) => {
-    const trade = await patchJournal(tradeId, payload);
-    const activeSessionId = get().state?.session.id;
-    if (activeSessionId) {
-      const state = await getBacktest(activeSessionId);
-      set({ state });
-    } else {
+    try {
+      const trade = await patchJournal(tradeId, payload);
+      const activeSessionId = get().state?.session.id;
+      const shouldRefreshActiveMetrics = activeSessionId === trade.session_id;
+      const [results, metrics] = await Promise.all([
+        loadResultsData(),
+        shouldRefreshActiveMetrics ? getMetrics(trade.session_id) : Promise.resolve(null),
+      ]);
       set((current) => ({
-        resultTrades: current.resultTrades.map((item) =>
-          item.id === trade.id ? trade : item,
-        ),
+        resultSessions: results.resultSessions,
+        resultTrades: results.resultTrades,
+        state: mergeActiveTradeState(current.state, trade, metrics),
+        error: null,
       }));
+      return trade;
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+      throw error;
     }
-    await get().refreshResults();
-    return trade;
   },
 
   updateTradeStrategy: async (tradeId, payload) => {
-    const trade = await patchTradeStrategy(tradeId, payload);
-    const activeSessionId = get().state?.session.id;
-    if (activeSessionId) {
-      const state = await getBacktest(activeSessionId);
-      set({ state });
-    } else {
+    try {
+      const trade = await patchTradeStrategy(tradeId, payload);
+      const activeSessionId = get().state?.session.id;
+      const shouldRefreshActiveMetrics = activeSessionId === trade.session_id;
+      const [results, metrics] = await Promise.all([
+        loadResultsData(),
+        shouldRefreshActiveMetrics ? getMetrics(trade.session_id) : Promise.resolve(null),
+      ]);
       set((current) => ({
-        resultTrades: current.resultTrades.map((item) =>
-          item.id === trade.id ? trade : item,
-        ),
+        resultSessions: results.resultSessions,
+        resultTrades: results.resultTrades,
+        state: mergeActiveTradeState(current.state, trade, metrics),
+        error: null,
       }));
+      return trade;
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+      throw error;
     }
-    await get().refreshResults();
-    return trade;
   },
 }));
 
@@ -600,6 +609,30 @@ function upsertSession(sessions: BacktestSession[], session: BacktestSession) {
     return sessions.map((item) => (item.id === session.id ? session : item));
   }
   return [session, ...sessions];
+}
+
+async function loadResultsData() {
+  const [resultSessions, resultTrades] = await Promise.all([
+    getBacktests(),
+    getTrades(),
+  ]);
+  return { resultSessions, resultTrades };
+}
+
+function mergeActiveTradeState(
+  state: BacktestState | null,
+  trade: Trade,
+  metrics: Metrics | null,
+) {
+  if (!state || state.session.id !== trade.session_id) {
+    return state;
+  }
+
+  return {
+    ...state,
+    trades: state.trades.map((item) => (item.id === trade.id ? trade : item)),
+    metrics: metrics ?? state.metrics,
+  };
 }
 
 async function loadWindow(currentOffset: number, sessionId?: number, startOffset = 0) {

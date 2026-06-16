@@ -1,9 +1,5 @@
 import math
-import os
 from collections import defaultdict
-from pathlib import Path
-
-import pandas as pd
 from sqlalchemy import asc, select
 from sqlalchemy.orm import Session
 
@@ -146,39 +142,24 @@ def _calendar(trades: list[Trade]) -> list[CalendarPoint]:
 
 def _sharpe_ratio(trades: list[Trade]) -> float | None:
     returns = []
-    timestamps = []
     for trade in trades:
         notional = trade.entry_price * trade.quantity
         if notional <= 0 or trade.exit_time is None:
             continue
-        returns.append(trade.realized_pnl / notional)
-        timestamps.append(trade.exit_time)
+        trade_return = trade.realized_pnl / notional
+        if math.isfinite(trade_return):
+            returns.append(trade_return)
 
     if len(returns) < 2:
         return None
 
-    series = pd.Series(returns, index=pd.to_datetime(timestamps)).dropna()
-    series = series[series.map(math.isfinite)]
-    if len(series) < 2:
+    average_return = sum(returns) / len(returns)
+    variance = sum((value - average_return) ** 2 for value in returns) / (len(returns) - 1)
+    if variance <= 0:
         return None
 
-    try:
-        _prepare_quantstats_cache()
-        import quantstats as qs
+    standard_deviation = math.sqrt(variance)
+    if standard_deviation == 0:
+        return None
 
-        value = qs.stats.sharpe(series, periods=252)
-        return float(value) if pd.notna(value) else None
-    except Exception:
-        std = float(series.std())
-        if std == 0:
-            return None
-        return float(series.mean() / std * math.sqrt(252))
-
-
-def _prepare_quantstats_cache() -> None:
-    cache_root = Path("/private/tmp/edgelab-cache")
-    mpl_root = cache_root / "matplotlib"
-    cache_root.mkdir(parents=True, exist_ok=True)
-    mpl_root.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("XDG_CACHE_HOME", str(cache_root))
-    os.environ.setdefault("MPLCONFIGDIR", str(mpl_root))
+    return float(average_return / standard_deviation * math.sqrt(252))

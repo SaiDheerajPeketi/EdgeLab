@@ -117,6 +117,47 @@ def test_percent_commission_is_deducted_from_closed_trade(tmp_path: Path):
     assert state.metrics.net_pnl == pytest.approx(37.96)
 
 
+def test_sharpe_ratio_is_computed_without_optional_analytics_stack(tmp_path: Path):
+    service, db = make_service(
+        tmp_path,
+        [
+            ("2024-01-01 00:00:00", 100, 100, 100, 100, 1),
+            ("2024-01-01 00:01:00", 100, 103, 101, 102, 1),
+            ("2024-01-01 00:02:00", 102, 106, 101, 105, 1),
+            ("2024-01-01 00:03:00", 105, 106, 94, 95, 1),
+        ],
+    )
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="BUY",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=98,
+            take_profit=104,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=2))
+    state = service.place_order(
+        db,
+        state.session.id,
+        OrderCreate(
+            side="SELL",
+            order_type="MARKET",
+            quantity=10,
+            stop_loss=107,
+            take_profit=96,
+        ),
+    )
+    state = service.advance(db, state.session.id, BacktestAdvanceRequest(steps=1))
+
+    assert state.metrics.total_trades == 2
+    assert state.metrics.sharpe_ratio is not None
+    assert state.metrics.sharpe_ratio > 0
+
+
 def test_commission_and_fee_are_deducted_separately(tmp_path: Path):
     service, db = make_service(tmp_path, DEFAULT_ROWS)
     state = service.create_session(db, BacktestCreate(initial_offset=0))

@@ -97,6 +97,7 @@ import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import type { WorkspaceView } from "./lib/workspace";
 import { useBacktestStore } from "./store/backtestStore";
+import { shallow } from "zustand/shallow";
 
 const CHART_LAYOUT_STORAGE_KEY = "chart-layout.v1";
 const CHART_LAYOUTS_STORAGE_KEY = "chart-layouts.v1";
@@ -250,7 +251,6 @@ export default function App() {
 }
 
 function WorkspaceApp() {
-
   const {
     bars,
     datasets,
@@ -283,7 +283,42 @@ function WorkspaceApp() {
     setPlaying,
     stepForward,
     updatePosition,
-  } = useBacktestStore();
+  } = useBacktestStore(
+    (store) => ({
+      bars: store.bars,
+      datasets: store.datasets,
+      meta: store.meta,
+      state: store.state,
+      replaySeekVersion: store.replaySeekVersion,
+      playbooks: store.playbooks,
+      resultSessions: store.resultSessions,
+      resultTrades: store.resultTrades,
+      error: store.error,
+      isLoading: store.isLoading,
+      isPlaying: store.isPlaying,
+      speedMs: store.speedMs,
+      createPlaybook: store.createPlaybook,
+      updatePlaybook: store.updatePlaybook,
+      deletePlaybook: store.deletePlaybook,
+      loadSession: store.loadSession,
+      loadInitial: store.loadInitial,
+      newSession: store.newSession,
+      updateSession: store.updateSession,
+      deleteSession: store.deleteSession,
+      refreshDatasets: store.refreshDatasets,
+      applyDatasetCatalog: store.applyDatasetCatalog,
+      refreshDatasetStatus: store.refreshDatasetStatus,
+      updateDatasetAsset: store.updateDatasetAsset,
+      updateDatasetSettings: store.updateDatasetSettings,
+      jumpToOffset: store.jumpToOffset,
+      amendOrder: store.amendOrder,
+      placeOrder: store.placeOrder,
+      setPlaying: store.setPlaying,
+      stepForward: store.stepForward,
+      updatePosition: store.updatePosition,
+    }),
+    shallow,
+  );
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [reviewTrade, setReviewTrade] = useState<Trade | null>(null);
   const [notebookFocusTradeId, setNotebookFocusTradeId] = useState<number | null>(null);

@@ -780,6 +780,11 @@ export function getTrades(
   return request<Trade[]>(`/trades${query}`);
 }
 
+export function getMetrics(sessionId?: number) {
+  const query = sessionId ? `?session_id=${sessionId}` : "";
+  return request<Metrics>(`/metrics${query}`);
+}
+
 export function patchJournal(tradeId: number, payload: JournalPayload) {
   return request<Trade>(`/trades/${tradeId}/journal`, {
     method: "PATCH",

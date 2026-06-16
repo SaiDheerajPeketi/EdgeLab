@@ -15399,11 +15399,16 @@ function StrategiesPage({
     const matchingTrades = trades.filter((trade) =>
       sameStrategyName(tradeStrategyName(trade, sessionById.get(trade.session_id)), currentName),
     );
-    for (const session of matchingSessions) {
-      await updateSession(session.id, { strategy_name: nextName });
-    }
-    for (const trade of matchingTrades) {
-      await updateTradeStrategy(trade.id, { strategy_name: nextName });
+    const updates = [
+      ...matchingSessions.map((session) =>
+        updateSession(session.id, { strategy_name: nextName }),
+      ),
+      ...matchingTrades.map((trade) =>
+        updateTradeStrategy(trade.id, { strategy_name: nextName }),
+      ),
+    ];
+    if (updates.length > 0) {
+      await Promise.all(updates);
     }
   }
 
