@@ -1,10 +1,4 @@
-import {
-  ArrowRight,
-  BookOpenText,
-  LockKeyhole,
-  ShieldCheck,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
@@ -134,19 +128,9 @@ export function LandingPage() {
                 </a>
               </div>
 
-              <div className="mt-8 flex flex-wrap gap-3 text-sm text-slate-400">
-                {[
-                  "Live replay with journal context",
-                  "Google OAuth beta entry",
-                  "Beta data may be pruned after program ends",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2"
-                  >
-                    {item}
-                  </div>
-                ))}
+              <div className="mt-8 text-sm leading-7 text-slate-400">
+                Private beta seats and waitlist update live. Export anything critical before beta
+                closes.
               </div>
             </div>
 
@@ -221,41 +205,9 @@ export function LandingPage() {
                 Simple entry. Honest expectations.
               </h2>
               <p className="mt-4 max-w-3xl text-base leading-8 text-slate-400">
-                Beta access stays clean through Google OAuth. Beta data is temporary and may be
-                pruned once the test track closes.
+                Beta entry stays limited and temporary. Export anything critical before the test
+                track closes.
               </p>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                {[
-                  {
-                    icon: LockKeyhole,
-                    title: "OAuth only",
-                    body: "Single sign-in path for approved beta users and waitlist intake.",
-                  },
-                  {
-                    icon: Sparkles,
-                    title: "Feedback first",
-                    body: "Current phase optimizes workflow fit, not feature sprawl.",
-                  },
-                  {
-                    icon: BookOpenText,
-                    title: "Export critical data",
-                    body: "Treat beta workspace as temporary while the product hardens.",
-                  },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <div
-                      key={item.title}
-                      className="rounded-[22px] border border-white/10 bg-black/20 p-5"
-                    >
-                      <Icon className="text-cyan-100" size={18} />
-                      <div className="mt-4 text-lg font-semibold text-white">{item.title}</div>
-                      <p className="mt-2 text-sm leading-7 text-slate-400">{item.body}</p>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
 
             <div className="grid gap-3">

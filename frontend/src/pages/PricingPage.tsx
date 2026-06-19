@@ -12,28 +12,42 @@ export function PricingPage() {
   const [frequency, setFrequency] = useState<PricingFrequency>("monthly");
 
   return (
-    <MarketingShell
-      navItems={buildMarketingNavItems("inner")}
-      pageTitle="pricing"
-    >
-      <section className="px-4 pb-16 pt-14 sm:px-6 lg:px-8 lg:pb-24 lg:pt-20">
+    <MarketingShell navItems={buildMarketingNavItems("inner")} pageTitle="pricing">
+      <section className="px-4 pb-14 pt-14 sm:px-6 lg:px-8 lg:pb-20 lg:pt-20">
         <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/65">
-              Pricing
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+            <div className="max-w-4xl">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
+                Pricing
+              </div>
+              <h1 className="mt-4 text-[clamp(3rem,6vw,5rem)] font-semibold leading-[0.9] tracking-[-0.07em] text-white">
+                {isBetaMode(deploymentMode)
+                  ? "Private beta access, live seat pressure."
+                  : "Clear plans for replay, review, and growth."}
+              </h1>
+              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+                {isBetaMode(deploymentMode)
+                  ? "Current phase stays simple: free beta access, controlled seats, waitlist at capacity."
+                  : "Choose cadence, compare plans, and see what scales from solo validation to desk-grade review."}
+              </p>
             </div>
-            <h1 className="text-display mt-4 text-5xl text-white sm:text-6xl">
-              {isBetaMode(deploymentMode)
-                ? "Beta cohort first. Billing gate staged next."
-                : "Plans that scale from solo validation to desk-grade review."}
-            </h1>
-            <p className="mt-6 text-lg leading-8 text-slate-300">
-              Beta page tracks seats, waitlist pressure, and temporary-data policy.
-              Production flips into Starter, Pro, and Trader+ with annual savings later.
-            </p>
+
+            <div className="rounded-[28px] border border-white/10 bg-[#061018] p-5 shadow-panel">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Current mode
+              </div>
+              <div className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-white">
+                {isBetaMode(deploymentMode) ? "Private beta" : "Production pricing"}
+              </div>
+              <p className="mt-3 text-sm leading-7 text-slate-400">
+                {isBetaMode(deploymentMode)
+                  ? "Billing stays off while workflow, auth, and deployment polish continue."
+                  : "Annual billing discounts and full plan gating are ready here."}
+              </p>
+            </div>
           </div>
 
-          <div className="mt-12">
+          <div className="mt-10">
             <PricingSection
               frequency={frequency}
               mode={deploymentMode}
@@ -47,11 +61,15 @@ export function PricingPage() {
       <section id="proof" className="px-4 pb-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/65">Proof</div>
-            <h2 className="text-display mt-4 text-4xl text-white">Pricing does not hide product proof.</h2>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
+              Included now
+            </div>
+            <h2 className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.2rem]">
+              Product first. Pricing second.
+            </h2>
             <p className="mt-4 text-base leading-8 text-slate-400">
-              Replay, journaling, analytics, and strategy review are already in product. Pricing page
-              should show what beta users are evaluating, not interrupt it.
+              EdgeLab already ships replay, journal review, analytics, and strategy memory inside
+              same workspace.
             </p>
           </div>
 
@@ -59,22 +77,24 @@ export function PricingPage() {
             {[
               {
                 title: "Replay stack",
-                body: "Candle-by-candle execution, order management, pending orders, and review flow already run inside protected workspace.",
+                body: "Candle replay, order flow, and chart context stay in same surface.",
               },
               {
-                title: "Research memory",
-                body: "Trade notes, playbooks, mistake tags, and filtered review convert sessions into repeatable evidence.",
+                title: "Journal memory",
+                body: "Notes, mistake tags, and playbooks stay attached to session truth.",
               },
               {
-                title: "Runtime persistence",
-                body: "Beta user and workspace records persist through Docker-backed API storage instead of disappearing on routine rebuilds.",
+                title: "Persistent beta",
+                body: "Docker-backed storage keeps beta users and workspace records across rebuilds.",
               },
             ].map((item) => (
               <div
                 key={item.title}
-                className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6 shadow-card"
+                className="rounded-[26px] border border-white/10 bg-[#071018] p-6 shadow-panel"
               >
-                <div className="text-2xl font-semibold text-white">{item.title}</div>
+                <div className="text-[1.45rem] font-semibold tracking-[-0.04em] text-white">
+                  {item.title}
+                </div>
                 <p className="mt-4 text-sm leading-7 text-slate-400">{item.body}</p>
               </div>
             ))}
@@ -83,13 +103,16 @@ export function PricingPage() {
       </section>
 
       <section className="px-4 pb-24 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/65">FAQ</div>
-            <h2 className="text-display mt-4 text-4xl text-white">Still not sure?</h2>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
+              FAQ
+            </div>
+            <h2 className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.2rem]">
+              What beta users should expect.
+            </h2>
             <p className="mt-4 text-base leading-8 text-slate-400">
-              EdgeLab still moving from beta entry to full auth and billing. These answers
-              explain current rollout posture and what beta testers should expect.
+              Short answers on beta access, imports, billing timing, and data lifecycle.
             </p>
           </div>
           <FaqAccordion items={pricingFaqItems} />

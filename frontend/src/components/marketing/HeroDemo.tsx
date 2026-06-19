@@ -1,4 +1,4 @@
-import { CandlestickChart, ShieldCheck, Sparkles } from "lucide-react";
+import { CandlestickChart, ShieldCheck } from "lucide-react";
 import {
   ColorType,
   CrosshairMode,
@@ -10,10 +10,9 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExecutionTape } from "../ExecutionTape";
 import { MetricsBar } from "../MetricsBar";
 import { PlaybookBoard } from "../PlaybookBoard";
-import type { Execution, Metrics, Playbook, Trade } from "../../lib/api";
+import type { Metrics, Playbook, Trade } from "../../lib/api";
 
 type DemoBar = {
   close: number;
@@ -24,12 +23,20 @@ type DemoBar = {
   volume: number;
 };
 
+type DemoMarker = {
+  color: string;
+  position: "aboveBar" | "belowBar";
+  shape: "arrowDown" | "arrowUp" | "circle";
+  text: string;
+  time: UTCTimestamp;
+};
+
 type DemoScenario = {
   bars: DemoBar[];
-  executions: Execution[];
-  focusPoints: string[];
   id: string;
   label: string;
+  markerNote: string;
+  markers: DemoMarker[];
   metrics: Metrics;
   note: string;
   playbooks: Playbook[];
@@ -128,31 +135,6 @@ function buildMetrics(netPnl: number, winRate: number, totalTrades: number, equi
   };
 }
 
-function createExecution(
-  id: number,
-  sessionId: number,
-  side: "BUY" | "SELL",
-  price: number,
-  quantity: number,
-  realizedPnl: number,
-  timestamp: string,
-): Execution {
-  return {
-    id,
-    session_id: sessionId,
-    order_id: id + 100,
-    side,
-    timestamp,
-    offset: id,
-    price,
-    quantity,
-    realized_pnl: realizedPnl,
-    position_side_after: realizedPnl === 0 ? (side === "BUY" ? "LONG" : "SHORT") : "FLAT",
-    position_quantity_after: realizedPnl === 0 ? quantity : 0,
-    created_at: timestamp,
-  };
-}
-
 function createTrade({
   emotionalState = "steady",
   entryPrice,
@@ -214,6 +196,29 @@ function createTrade({
   };
 }
 
+function interpolateCloses(points: number[], stepsPerSegment: number) {
+  if (points.length <= 1) {
+    return points;
+  }
+
+  const closes: number[] = [];
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+
+    for (let step = 0; step < stepsPerSegment; step += 1) {
+      const progress = step / stepsPerSegment;
+      const delta = end - start;
+      const curve = Math.sin(progress * Math.PI) * delta * 0.08;
+      closes.push(start + delta * progress + curve);
+    }
+  }
+
+  closes.push(points[points.length - 1]);
+  return closes;
+}
+
 function createBars({
   baseVolume,
   closes,
@@ -228,10 +233,10 @@ function createBars({
   const startTime = Date.UTC(2026, 5, day, 9, 30) / 1000;
 
   return closes.map((close, index) => {
-    const previousClose = index === 0 ? close * 0.9986 : closes[index - 1];
-    const baseRange = Math.max(Math.abs(close - previousClose), Math.abs(close) * 0.00045);
-    const high = Math.max(previousClose, close) + baseRange * (0.72 + (index % 3) * 0.12);
-    const low = Math.min(previousClose, close) - baseRange * (0.78 + ((index + 1) % 3) * 0.1);
+    const previousClose = index === 0 ? close * 0.999 : closes[index - 1];
+    const baseRange = Math.max(Math.abs(close - previousClose), Math.abs(close) * 0.00055);
+    const high = Math.max(previousClose, close) + baseRange * (0.64 + (index % 4) * 0.11);
+    const low = Math.min(previousClose, close) - baseRange * (0.62 + ((index + 2) % 4) * 0.09);
 
     return {
       time: (startTime + index * stepMinutes * 60) as UTCTimestamp,
@@ -239,9 +244,35 @@ function createBars({
       high,
       low,
       close,
-      volume: baseVolume + index * 1800 + (index % 4) * 2400,
+      volume: baseVolume + index * 1400 + (index % 5) * 2200,
     };
   });
+}
+
+function buildMarkers(
+  bars: DemoBar[],
+  markers: Array<{
+    color: string;
+    index: number;
+    position: "aboveBar" | "belowBar";
+    shape: "arrowDown" | "arrowUp" | "circle";
+    text: string;
+  }>,
+): DemoMarker[] {
+  return markers
+    .map((marker) => {
+      const bar = bars[Math.max(0, Math.min(bars.length - 1, marker.index))];
+      return bar
+        ? {
+            color: marker.color,
+            position: marker.position,
+            shape: marker.shape,
+            text: marker.text,
+            time: bar.time,
+          }
+        : null;
+    })
+    .filter((value): value is DemoMarker => value != null);
 }
 
 function usePrefersReducedMotion() {
@@ -306,29 +337,56 @@ function formatPercent(value: number) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+function formatBarTime(value: UTCTimestamp) {
+  return new Date(Number(value) * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const replayBars = createBars({
+  day: 12,
+  baseVolume: 182000,
+  closes: interpolateCloses(
+    [4278.8, 4276.9, 4277.4, 4279.6, 4282.4, 4285.2, 4283.4, 4286.9, 4290.8, 4294.1, 4291.7, 4297.6, 4301.3],
+    5,
+  ),
+});
+
+const reviewBars = createBars({
+  day: 14,
+  baseVolume: 124000,
+  stepMinutes: 15,
+  closes: interpolateCloses(
+    [192.1, 191.8, 191.4, 190.8, 190.2, 189.7, 189.9, 189.5, 189.1, 188.7, 188.9, 188.4, 188.1],
+    4,
+  ),
+});
+
+const resultsBars = createBars({
+  day: 16,
+  baseVolume: 212000,
+  closes: interpolateCloses(
+    [1.0838, 1.0843, 1.0847, 1.0852, 1.0858, 1.0864, 1.0861, 1.0867, 1.0873, 1.0879, 1.0876, 1.0881, 1.0887],
+    5,
+  ),
+});
+
 const SCENARIOS: DemoScenario[] = [
   {
     id: "replay",
     label: "Replay",
-    note: "Walk live candles, take the trade, keep fills and context in same frame.",
+    note: "Follow live candles and session tempo before review starts.",
+    markerNote: "Entry and exit markers stay on chart while replay unfolds.",
     symbol: "NQ 100",
     timeframe: "5m replay",
-    bars: createBars({
-      day: 12,
-      baseVolume: 182000,
-      closes: [4280.4, 4278.6, 4279.8, 4282.2, 4284.1, 4287.4, 4290.5, 4288.9, 4292.1, 4294.8, 4293.7, 4296.4],
-    }),
-    focusPoints: [
-      "Opening range break stays visible beside fills.",
-      "Metrics update from same session, not exported screenshots.",
-      "Review starts from what price actually did.",
-    ],
+    bars: replayBars,
+    markers: buildMarkers(replayBars, [
+      { index: 14, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Entry" },
+      { index: 37, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Partial" },
+      { index: 52, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Review" },
+    ]),
     metrics: buildMetrics(1426, 0.581, 31, [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426]),
-    executions: [
-      createExecution(11, 7, "BUY", 4284.1, 2, 0, "2026-06-12T09:42:00Z"),
-      createExecution(12, 7, "SELL", 4290.5, 1, 174, "2026-06-12T09:58:00Z"),
-      createExecution(13, 7, "SELL", 4296.4, 1, 286, "2026-06-12T10:06:00Z"),
-    ],
     trades: [
       createTrade({
         id: 101,
@@ -371,26 +429,17 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "review",
     label: "Review",
-    note: "Switch from replay to journal review without losing execution truth.",
+    note: "Move from replay into journal pass without losing price context.",
+    markerNote: "Review markers flag hesitation and clean follow-through.",
     symbol: "AAPL",
     timeframe: "15m review",
-    bars: createBars({
-      day: 14,
-      baseVolume: 124000,
-      stepMinutes: 15,
-      closes: [191.8, 191.6, 191.2, 190.9, 190.5, 190.1, 189.8, 190.2, 189.9, 189.5, 189.1, 188.8],
-    }),
-    focusPoints: [
-      "Mistake tags stay attached to exact session outcome.",
-      "Journal pass highlights forced entries and clean exits.",
-      "Nothing jumps to separate tools during review.",
-    ],
+    bars: reviewBars,
+    markers: buildMarkers(reviewBars, [
+      { index: 11, position: "aboveBar", shape: "arrowDown", color: "#fb7185", text: "Short" },
+      { index: 22, position: "belowBar", shape: "circle", color: "#f59e0b", text: "Tag" },
+      { index: 40, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Re-entry" },
+    ]),
     metrics: buildMetrics(986, 0.544, 24, [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986]),
-    executions: [
-      createExecution(21, 8, "SELL", 190.9, 300, 0, "2026-06-14T13:02:00Z"),
-      createExecution(22, 8, "BUY", 189.8, 300, 330, "2026-06-14T13:18:00Z"),
-      createExecution(23, 8, "BUY", 190.2, 200, -94, "2026-06-14T14:10:00Z"),
-    ],
     trades: [
       createTrade({
         id: 201,
@@ -433,25 +482,17 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "results",
     label: "Results",
-    note: "Outcome stays believable only when candles, fills, and review agree.",
+    note: "Results stay believable only when chart action and review agree.",
+    markerNote: "Winning sequences remain tied to exact swing structure.",
     symbol: "EURUSD",
     timeframe: "5m results",
-    bars: createBars({
-      day: 16,
-      baseVolume: 212000,
-      closes: [1.0842, 1.0838, 1.0846, 1.0851, 1.0856, 1.0862, 1.0868, 1.0863, 1.0871, 1.0878, 1.0874, 1.0882],
-    }),
-    focusPoints: [
-      "Metrics prove process after chart context already exists.",
-      "Playbooks show which behavior still compounds.",
-      "Results feel earned instead of decorative marketing.",
-    ],
+    bars: resultsBars,
+    markers: buildMarkers(resultsBars, [
+      { index: 9, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Start" },
+      { index: 29, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Scale" },
+      { index: 53, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Close" },
+    ]),
     metrics: buildMetrics(1874, 0.603, 37, [0, 164, 298, 552, 488, 736, 924, 1160, 1318, 1514, 1688, 1874]),
-    executions: [
-      createExecution(31, 9, "BUY", 1.0846, 120000, 0, "2026-06-16T08:48:00Z"),
-      createExecution(32, 9, "SELL", 1.0868, 120000, 228, "2026-06-16T09:06:00Z"),
-      createExecution(33, 9, "SELL", 1.0878, 100000, 142, "2026-06-16T11:11:00Z"),
-    ],
     trades: [
       createTrade({
         id: 301,
@@ -491,43 +532,89 @@ const SCENARIOS: DemoScenario[] = [
   },
 ];
 
-function SurfaceNotes({ scenario }: { scenario: DemoScenario }) {
+function ReplayPulseCard({
+  currentBar,
+  progressPercent,
+  scenario,
+  visibleBarCount,
+}: {
+  currentBar: DemoBar | null;
+  progressPercent: number;
+  scenario: DemoScenario;
+  visibleBarCount: number;
+}) {
   return (
-    <section className="rounded-[24px] border border-white/10 bg-[#081018] p-4 shadow-panel">
+    <section className="rounded-[24px] border border-white/10 bg-[#081018] p-5 shadow-panel">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
-            Why this view
+            Replay pulse
           </div>
-          <h3 className="mt-2 text-lg font-semibold tracking-[-0.03em] text-white">
-            Same surface, different proof
+          <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">
+            {scenario.label} active
           </h3>
         </div>
-        <Sparkles className="text-cyan-100" size={18} />
+        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+          <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)] motion-safe:animate-pulse" />
+          Live
+        </div>
       </div>
 
-      <div className="mt-4 grid gap-2.5">
-        {scenario.focusPoints.map((point) => (
-          <div
-            key={point}
-            className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-sm leading-7 text-slate-300"
-          >
-            {point}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Playback</div>
+          <div className="mt-2 text-lg font-semibold text-white">
+            {visibleBarCount}/{scenario.bars.length} candles
           </div>
-        ))}
+        </div>
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Current time</div>
+          <div className="mt-2 text-lg font-semibold text-white">
+            {currentBar ? formatBarTime(currentBar.time) : "—"}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-emerald-300 transition-[width] duration-300 ease-out motion-reduce:transition-none"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-slate-300">
+          {scenario.markerNote}
+        </div>
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Current price</div>
+          <div className="mt-2 text-xl font-semibold text-white">
+            {currentBar ? formatPrice(currentBar.close) : "—"}
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
-function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
+function MarketingCandleSurface({
+  scenario,
+  visibleBarCount,
+}: {
+  scenario: DemoScenario;
+  visibleBarCount: number;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
 
-  const lastBar = scenario.bars[scenario.bars.length - 1] ?? scenario.bars[0];
-  const firstBar = scenario.bars[0];
+  const visibleBars = useMemo(
+    () => scenario.bars.slice(0, Math.max(1, visibleBarCount)),
+    [scenario.bars, visibleBarCount],
+  );
+  const lastBar = visibleBars[visibleBars.length - 1] ?? null;
+  const firstBar = visibleBars[0] ?? null;
   const changePercent =
     firstBar != null && lastBar != null
       ? ((lastBar.close - firstBar.open) / Math.max(Math.abs(firstBar.open), Number.EPSILON)) * 100
@@ -538,7 +625,7 @@ function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
       return;
     }
 
-    const precision = pricePrecision(lastBar?.close ?? 1);
+    const precision = pricePrecision(lastBar?.close ?? scenario.bars[0]?.close ?? 1);
     const chart = createChart(containerRef.current, {
       autoSize: true,
       layout: {
@@ -592,7 +679,7 @@ function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
 
     volumeSeries.priceScale().applyOptions({
       scaleMargins: {
-        top: 0.8,
+        top: 0.82,
         bottom: 0,
       },
     });
@@ -607,14 +694,14 @@ function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
     };
-  }, [lastBar?.close]);
+  }, [lastBar?.close, scenario.bars]);
 
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || !chartRef.current) {
       return;
     }
 
-    const candleData: CandlestickData<UTCTimestamp>[] = scenario.bars.map((bar) => ({
+    const candleData: CandlestickData<UTCTimestamp>[] = visibleBars.map((bar) => ({
       time: bar.time,
       open: bar.open,
       high: bar.high,
@@ -622,16 +709,21 @@ function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
       close: bar.close,
     }));
 
-    const volumeData: HistogramData<UTCTimestamp>[] = scenario.bars.map((bar) => ({
+    const volumeData: HistogramData<UTCTimestamp>[] = visibleBars.map((bar) => ({
       time: bar.time,
       value: bar.volume,
       color: bar.close >= bar.open ? "rgba(38, 166, 154, 0.34)" : "rgba(239, 83, 80, 0.34)",
     }));
 
     candleSeriesRef.current.setData(candleData);
+    candleSeriesRef.current.setMarkers(
+      scenario.markers.filter((marker) =>
+        visibleBars.some((bar) => bar.time === marker.time),
+      ),
+    );
     volumeSeriesRef.current.setData(volumeData);
     chartRef.current.timeScale().fitContent();
-  }, [scenario]);
+  }, [scenario, visibleBars]);
 
   return (
     <section className="rounded-[26px] border border-white/10 bg-[#060c12] p-4 shadow-panel">
@@ -646,7 +738,7 @@ function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
           <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
         </div>
         <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300">
-          Candles + live widgets
+          Hover candles for OHLC
         </div>
       </div>
 
@@ -678,22 +770,7 @@ function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/10 bg-[#0b1017]">
-        <div ref={containerRef} className="h-[360px] w-full" />
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Frame</div>
-          <div className="mt-2 text-sm font-semibold text-white">Replay stays candle-first</div>
-        </div>
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Proof</div>
-          <div className="mt-2 text-sm font-semibold text-white">Metrics stay tied to session</div>
-        </div>
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Review</div>
-          <div className="mt-2 text-sm font-semibold text-white">Playbooks expose what repeats</div>
-        </div>
+        <div ref={containerRef} className="h-[392px] w-full" />
       </div>
     </section>
   );
@@ -703,6 +780,9 @@ export function HeroDemo() {
   const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [showing, setShowing] = useState(true);
+  const [visibleBarCount, setVisibleBarCount] = useState(
+    Math.min(24, SCENARIOS[0]?.bars.length ?? 24),
+  );
   const prefersReducedMotion = usePrefersReducedMotion();
   const hideTimerRef = useRef<number | null>(null);
   const showTimerRef = useRef<number | null>(null);
@@ -722,6 +802,33 @@ export function HeroDemo() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!scenario) {
+      return;
+    }
+
+    const initialCount = Math.min(24, scenario.bars.length);
+
+    if (prefersReducedMotion) {
+      setVisibleBarCount(scenario.bars.length);
+      return;
+    }
+
+    setVisibleBarCount(initialCount);
+
+    const timer = window.setInterval(() => {
+      setVisibleBarCount((current) => {
+        if (current >= scenario.bars.length) {
+          window.clearInterval(timer);
+          return current;
+        }
+        return current + 1;
+      });
+    }, 120);
+
+    return () => window.clearInterval(timer);
+  }, [prefersReducedMotion, scenario]);
 
   const selectScenario = (nextScenarioId: string) => {
     if (nextScenarioId === visibleScenarioId) {
@@ -753,6 +860,9 @@ export function HeroDemo() {
     }, 120);
   };
 
+  const currentBar = scenario.bars[Math.max(0, Math.min(visibleBarCount - 1, scenario.bars.length - 1))] ?? null;
+  const progressPercent = Math.max(12, (visibleBarCount / Math.max(scenario.bars.length, 1)) * 100);
+
   return (
     <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]">
       <div className="border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
@@ -766,7 +876,7 @@ export function HeroDemo() {
               Actual EdgeLab surfaces
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
-              Preview stays calm, candle-first, and grounded in product chrome instead of fake marketing art.
+              More candles, live playback, real chart markers, same product chrome.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-medium text-cyan-50">
@@ -800,12 +910,14 @@ export function HeroDemo() {
       >
         <MetricsBar metrics={scenario.metrics} />
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.14fr)_minmax(320px,0.86fr)]">
-          <MarketingCandleSurface scenario={scenario} />
-          <div className="grid gap-4">
-            <ExecutionTape executions={scenario.executions} />
-            <SurfaceNotes scenario={scenario} />
-          </div>
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(300px,0.78fr)]">
+          <MarketingCandleSurface scenario={scenario} visibleBarCount={visibleBarCount} />
+          <ReplayPulseCard
+            currentBar={currentBar}
+            progressPercent={progressPercent}
+            scenario={scenario}
+            visibleBarCount={visibleBarCount}
+          />
         </div>
 
         <div className="mt-4">

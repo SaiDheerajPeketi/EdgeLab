@@ -117,13 +117,13 @@ function WorkspaceBetaNotice() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
-      <div className="pointer-events-auto rounded-full border border-cyan-300/15 bg-[#08111af2] px-5 py-3 text-sm leading-6 text-cyan-50 shadow-card backdrop-blur-xl transition duration-500">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/70">
-          Beta Workspace
-        </div>
-        <div className="text-slate-200">
-          Export anything critical before beta closes.
-        </div>
+      <div className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-full border border-amber-300/15 bg-[#091019f2] px-4 py-2.5 text-sm text-slate-200 shadow-[0_18px_46px_rgba(0,0,0,0.34)] backdrop-blur-xl transition duration-500">
+        <span className="h-2.5 w-2.5 rounded-full bg-amber-300 shadow-[0_0_18px_rgba(252,211,77,0.45)] motion-safe:animate-pulse" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-100/75">
+          Beta workspace
+        </span>
+        <span className="hidden text-slate-600 sm:inline">•</span>
+        <span>Export critical data before beta closes.</span>
       </div>
     </div>
   );

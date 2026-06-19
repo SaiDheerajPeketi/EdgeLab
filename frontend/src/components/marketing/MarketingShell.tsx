@@ -103,7 +103,7 @@ function BetaBanner() {
       <span className="font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
         Private beta
       </span>{" "}
-      live. {seatSummary}. Beta data may be pruned after program ends.
+      {seatSummary}. Export critical data before beta closes.
     </div>
   );
 }
@@ -214,32 +214,60 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
         <main>{children}</main>
 
-        <footer className="border-t border-white/10 bg-black/20 px-4 py-10 sm:px-6 lg:px-8">
-          <div className="mx-auto flex max-w-7xl flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-xl">
-              <EdgeLabWordmark />
-              <p className="mt-4 text-sm leading-7 text-slate-400">
-                Replay, journal, and review from one focused trading surface.
-              </p>
+        <footer className="px-4 pb-10 pt-6 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl rounded-[30px] border border-white/10 bg-[#060c12]/92 p-6 shadow-card backdrop-blur-xl sm:p-8">
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-2xl">
+                <EdgeLabWordmark />
+                <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400">
+                  Replay, journal, and review from one focused trading surface.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3 text-sm text-slate-400">
+                <a
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
+                  href="/#product"
+                >
+                  Overview
+                </a>
+                <a
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
+                  href="/#how-it-works"
+                >
+                  Workflow
+                </a>
+                <Link
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
+                  to="/pricing"
+                >
+                  Pricing
+                </Link>
+                <Link
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
+                  to="/privacy"
+                >
+                  Privacy
+                </Link>
+                <Link
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
+                  to="/terms"
+                >
+                  Terms
+                </Link>
+              </div>
             </div>
-            <div className="grid gap-3 text-sm text-slate-400">
-              <a className="transition hover:text-cyan-100" href="/#product">
-                Overview
-              </a>
-              <a className="transition hover:text-cyan-100" href="/#how-it-works">
-                Workflow
-              </a>
-              <Link className="transition hover:text-cyan-100" to="/pricing">
-                Pricing
-              </Link>
-              <Link className="transition hover:text-cyan-100" to={primaryCtaHref}>
+
+            <div className="mt-6 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-400">
+                Private beta. Seats and waitlist update live.
+              </div>
+              <Link
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
+                to={primaryCtaHref}
+              >
                 {primaryCtaLabel}
-              </Link>
-              <Link className="transition hover:text-cyan-100" to="/privacy">
-                Privacy
-              </Link>
-              <Link className="transition hover:text-cyan-100" to="/terms">
-                Terms
+                <span aria-hidden="true">→</span>
               </Link>
             </div>
           </div>
