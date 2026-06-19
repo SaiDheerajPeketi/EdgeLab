@@ -89,7 +89,7 @@ export function AuthSignInPage() {
         <div className="edgelab-grid absolute inset-0 opacity-35" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-8 sm:px-6 lg:px-8">
+      <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-10 pt-7 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between gap-4">
           <EdgeLabWordmark showTagline={false} />
           <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
@@ -97,24 +97,24 @@ export function AuthSignInPage() {
           </div>
         </div>
 
-        <div className="flex flex-1 items-center justify-center py-10">
-          <div className="w-full max-w-4xl rounded-[38px] border border-white/10 bg-[#061018]/94 p-8 shadow-card backdrop-blur-xl sm:p-12">
+        <div className="flex flex-1 items-center justify-center py-8 sm:py-10">
+          <div className="w-full max-w-3xl rounded-[38px] border border-white/10 bg-[#061018]/94 p-8 shadow-card backdrop-blur-xl sm:p-10">
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
               <ShieldCheck size={14} />
               Secure beta access
             </div>
 
-            <div className="mt-8 max-w-3xl">
-              <h1 className="text-[clamp(3.3rem,7vw,6.1rem)] font-semibold leading-[0.9] tracking-[-0.08em] text-white">
+            <div className="mt-7 max-w-2xl">
+              <h1 className="text-[clamp(2.3rem,7vw,4.25rem)] font-semibold leading-[0.98] tracking-[-0.06em] text-white">
                 {waitlistMode ? "Join EdgeLab waitlist." : "Enter EdgeLab through Google."}
               </h1>
-              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+              <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
                 One Google sign-in. Approved beta users open workspace. Full seats move straight
                 into queue.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            <div className="mt-7 grid gap-3 sm:grid-cols-3">
               <div className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                   Access
@@ -139,7 +139,7 @@ export function AuthSignInPage() {
               </div>
             </div>
 
-            <div className="mt-8 max-w-xl">
+            <div className="mt-7 max-w-xl">
               <button
                 className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-cyan-300 px-5 py-3.5 text-sm font-semibold text-slate-950 transition duration-200 ease-out hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-60 motion-reduce:transition-none sm:w-auto sm:min-w-[18rem]"
                 disabled={isSubmitting || authConfigLoading || !googleReady}

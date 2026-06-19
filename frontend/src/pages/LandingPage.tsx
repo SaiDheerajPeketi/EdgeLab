@@ -238,9 +238,9 @@ export function LandingPage() {
 
   return (
     <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
-      <section className="px-3 pb-20 pt-7 sm:px-6 lg:px-8 lg:pb-24 lg:pt-10">
+      <section className="px-3 pb-18 pt-6 sm:px-6 sm:pb-20 sm:pt-7 lg:px-8 lg:pb-24 lg:pt-9">
         <div className="mx-auto max-w-7xl min-w-0">
-          <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+          <div className="grid min-w-0 gap-7 lg:gap-8 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
             <div className="max-w-4xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
                 <ShieldCheck size={14} />
@@ -251,17 +251,17 @@ export function LandingPage() {
                 Your Edge <AnimatedTypeWord />
               </h1>
 
-              <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
                 Replay price action, capture decisions, and review outcomes from one trading
                 surface built to tighten process instead of adding more tabs.
               </p>
 
-              <div className="mt-8 text-sm leading-7 text-slate-400">
+              <div className="mt-6 text-sm leading-7 text-slate-400">
                 Seat count updates live. Beta workspaces stay temporary during the test track.
               </div>
             </div>
 
-            <div className="grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
               <StatusCard
                 hint="Current private beta access"
                 label="Access"
@@ -280,11 +280,11 @@ export function LandingPage() {
             </div>
           </div>
 
-          <div className="mt-8">
+          <div className="mt-6 sm:mt-7">
             <MarketTape />
           </div>
 
-          <div id="product" className="mt-10 lg:mt-12">
+          <div id="product" className="mt-8 lg:mt-10">
             <HeroDemo />
           </div>
         </div>
