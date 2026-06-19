@@ -1,11 +1,10 @@
-import { lazy, Suspense, useEffect, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import type { ComponentType } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { deleteAuthSession, getAuthSession } from "../lib/api";
+import { getAuthSession } from "../lib/api";
 import {
   clearStoredAuthSession,
   getStoredAuthSession,
-  initialsForName,
   setStoredAuthSession,
   subscribeAuthSession,
   toStoredAuthSession,
@@ -85,56 +84,45 @@ function SessionRehydrator() {
   return null;
 }
 
-function WorkspaceSessionChip() {
-  const session = useAuthSession();
-
-  if (!session) {
-    return null;
-  }
-
-  return (
-    <div className="pointer-events-none fixed right-4 top-4 z-[120] flex items-center gap-3">
-      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-cyan-300/15 bg-[#071019e8] px-3 py-2 text-slate-100 shadow-card backdrop-blur-xl">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950 shadow-glow">
-          {initialsForName(session.user.name)}
-        </div>
-        <div className="hidden sm:block">
-          <div className="text-sm font-semibold">{session.user.name}</div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
-            Find your edge
-          </div>
-        </div>
-        <button
-          className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
-          onClick={() => {
-            const token = session.token;
-            clearStoredAuthSession();
-            void deleteAuthSession(token).catch(() => undefined);
-          }}
-          type="button"
-        >
-          Sign out
-        </button>
-      </div>
-    </div>
-  );
-}
+const WORKSPACE_BETA_NOTICE_KEY = "edgelab.workspace.beta-notice.dismissed.v1";
 
 function WorkspaceBetaNotice() {
   const session = useAuthSession();
+  const [visible, setVisible] = useState(false);
 
-  if (!session?.user.isBetaUser) {
+  useEffect(() => {
+    if (!session?.user.isBetaUser || typeof window === "undefined") {
+      setVisible(false);
+      return;
+    }
+
+    if (window.sessionStorage.getItem(WORKSPACE_BETA_NOTICE_KEY) === "1") {
+      setVisible(false);
+      return;
+    }
+
+    setVisible(true);
+
+    const timer = window.setTimeout(() => {
+      window.sessionStorage.setItem(WORKSPACE_BETA_NOTICE_KEY, "1");
+      setVisible(false);
+    }, 4200);
+
+    return () => window.clearTimeout(timer);
+  }, [session?.user.isBetaUser]);
+
+  if (!session?.user.isBetaUser || !visible) {
     return null;
   }
 
   return (
-    <div className="pointer-events-none fixed left-4 top-4 z-[120] max-w-sm">
-      <div className="pointer-events-auto rounded-[24px] border border-cyan-300/15 bg-[#08111af2] px-4 py-3 text-sm leading-6 text-cyan-50 shadow-card backdrop-blur-xl">
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
+      <div className="pointer-events-auto rounded-full border border-cyan-300/15 bg-[#08111af2] px-5 py-3 text-sm leading-6 text-cyan-50 shadow-card backdrop-blur-xl transition duration-500">
         <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/70">
           Beta Workspace
         </div>
-        <div className="mt-2 text-slate-200">
-          Workflows here are for active beta feedback. Export anything critical before beta closes.
+        <div className="text-slate-200">
+          Export anything critical before beta closes.
         </div>
       </div>
     </div>
@@ -164,7 +152,6 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   return (
     <>
       <WorkspaceBetaNotice />
-      <WorkspaceSessionChip />
       <WorkspaceApp />
     </>
   );

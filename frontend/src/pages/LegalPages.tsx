@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { MarketingShell } from "../components/marketing/MarketingShell";
+import { buildMarketingNavItems, MarketingShell } from "../components/marketing/MarketingShell";
 
 function LegalSection({
   title,
@@ -29,12 +29,7 @@ function LegalPageFrame({
 }) {
   return (
     <MarketingShell
-      navItems={[
-        { href: "/#proof", label: "Proof" },
-        { href: "/pricing", label: "Pricing" },
-        { href: "/privacy", label: "Privacy" },
-        { href: "/terms", label: "Terms" },
-      ]}
+      navItems={buildMarketingNavItems("inner")}
       pageTitle={title.toLowerCase()}
     >
       <section className="px-4 pb-24 pt-14 sm:px-6 lg:px-8 lg:pt-20">

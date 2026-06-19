@@ -7,11 +7,19 @@ import {
   Calculator,
   Network,
   PlaySquare,
+  LogOut,
   Settings,
   Target,
   WalletCards,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { deleteAuthSession } from "../lib/api";
+import {
+  clearStoredAuthSession,
+  getStoredAuthSession,
+  initialsForName,
+  subscribeAuthSession,
+} from "../lib/authSession";
 import type { WorkspaceView } from "../lib/workspace";
 
 type SidebarItem = {
@@ -122,12 +130,17 @@ type Props = {
   onNavigate: (view: WorkspaceView) => void;
 };
 
+function useAuthSession() {
+  return useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, getStoredAuthSession);
+}
+
 export function Sidebar({
   activeView,
   collapsed,
   onNavigate,
 }: Props) {
   const [hoverExpanded, setHoverExpanded] = useState(false);
+  const session = useAuthSession();
   const compact = collapsed && !hoverExpanded;
 
   return (
@@ -155,7 +168,9 @@ export function Sidebar({
         {!compact && (
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-black text-white">EdgeLab</div>
-            <div className="truncate text-xs text-slate-500">Find your edge</div>
+            <div className="max-w-[10rem] text-[10px] uppercase leading-[1.45] tracking-[0.18em] text-cyan-100/55">
+              Find, Engineer and Redefine your edge
+            </div>
           </div>
         )}
       </div>
@@ -255,6 +270,61 @@ export function Sidebar({
           </div>
         ))}
       </nav>
+
+      {session ? (
+        <div className="mt-auto w-full pt-4">
+          <div
+            className={`rounded-[24px] border border-cyan-300/15 bg-[#08111a] shadow-card ${
+              compact ? "px-2 py-3" : "px-4 py-4"
+            }`}
+          >
+            <div className={`flex items-center gap-3 ${compact ? "justify-center" : ""}`}>
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950 shadow-glow">
+                {initialsForName(session.user.name)}
+              </div>
+              {!compact ? (
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold text-white">{session.user.name}</div>
+                  <div className="truncate text-xs text-slate-400">{session.user.email}</div>
+                </div>
+              ) : null}
+            </div>
+
+            {!compact ? (
+              <>
+                <div className="mt-4 rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-3 text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">
+                  Beta user
+                </div>
+                <button
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
+                  onClick={() => {
+                    const token = session.token;
+                    clearStoredAuthSession();
+                    void deleteAuthSession(token).catch(() => undefined);
+                  }}
+                  type="button"
+                >
+                  <LogOut size={14} />
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button
+                aria-label="Sign out"
+                className="mt-3 flex w-full items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
+                onClick={() => {
+                  const token = session.token;
+                  clearStoredAuthSession();
+                  void deleteAuthSession(token).catch(() => undefined);
+                }}
+                type="button"
+              >
+                <LogOut size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

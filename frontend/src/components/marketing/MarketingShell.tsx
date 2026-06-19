@@ -15,6 +15,16 @@ type MarketingShellProps = {
   pageTitle: string;
 };
 
+export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem[] {
+  const prefix = mode === "home" ? "" : "/";
+
+  return [
+    { href: `${prefix}#product`, label: "Product" },
+    { href: `${prefix}#how-it-works`, label: "How It Works" },
+    { href: "/pricing", label: "Pricing" },
+  ];
+}
+
 function NavAnchor({ className, href, label }: NavItem & { className?: string }) {
   if (href.startsWith("#")) {
     return (
@@ -69,8 +79,8 @@ export function EdgeLabWordmark() {
       </div>
       <div>
         <div className="text-display text-xl tracking-[-0.04em]">EdgeLab</div>
-        <div className="text-[10px] uppercase tracking-[0.32em] text-slate-500">
-          Find your edge
+        <div className="max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.22em] text-cyan-100/55">
+          Find, Engineer and Redefine your edge
         </div>
       </div>
     </div>
@@ -98,6 +108,14 @@ function BetaBanner() {
 export function MarketingShell({ children, navItems, pageTitle }: MarketingShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { loading, program } = useBetaProgramStatus();
+  const seatsRemaining = program.seats_remaining;
+  const primaryCtaLabel =
+    !loading && seatsRemaining != null && seatsRemaining <= 0 ? "Join Waitlist" : "Join Beta";
+  const primaryCtaHref =
+    !loading && seatsRemaining != null && seatsRemaining <= 0
+      ? "/auth/signin?waitlist=1"
+      : "/auth/signin";
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 12);
@@ -150,16 +168,10 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
             <div className="hidden items-center gap-3 md:flex">
               <Link
-                className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/30 hover:text-cyan-100"
-                to="/auth/signin"
-              >
-                Sign in
-              </Link>
-              <Link
                 className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
-                to="/auth/signin"
+                to={primaryCtaHref}
               >
-                Enter EdgeLab
+                {primaryCtaLabel}
                 <span aria-hidden="true">→</span>
               </Link>
             </div>
@@ -187,16 +199,10 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                   />
                 ))}
                 <Link
-                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm text-slate-200"
-                  to="/auth/signin"
-                >
-                  Sign in
-                </Link>
-                <Link
                   className="rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950"
-                  to="/auth/signin"
+                  to={primaryCtaHref}
                 >
-                  Enter EdgeLab →
+                  {primaryCtaLabel} →
                 </Link>
               </div>
             </div>
@@ -214,14 +220,17 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               </p>
             </div>
             <div className="grid gap-3 text-sm text-slate-400">
-              <a className="transition hover:text-cyan-100" href="/#proof">
-                Proof
+              <a className="transition hover:text-cyan-100" href="/#product">
+                Product
+              </a>
+              <a className="transition hover:text-cyan-100" href="/#how-it-works">
+                How It Works
               </a>
               <Link className="transition hover:text-cyan-100" to="/pricing">
                 Pricing
               </Link>
-              <Link className="transition hover:text-cyan-100" to="/auth/signin">
-                Sign in
+              <Link className="transition hover:text-cyan-100" to={primaryCtaHref}>
+                {primaryCtaLabel}
               </Link>
               <Link className="transition hover:text-cyan-100" to="/privacy">
                 Privacy
@@ -229,9 +238,6 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               <Link className="transition hover:text-cyan-100" to="/terms">
                 Terms
               </Link>
-              <a className="transition hover:text-cyan-100" href="/#surface">
-                Surface
-              </a>
             </div>
           </div>
         </footer>

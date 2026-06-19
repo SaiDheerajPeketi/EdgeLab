@@ -5,7 +5,7 @@ import {
   pricingFaqItems,
   type PricingFrequency,
 } from "../components/marketing/PricingSection";
-import { MarketingShell } from "../components/marketing/MarketingShell";
+import { buildMarketingNavItems, MarketingShell } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
 
 export function PricingPage() {
@@ -13,14 +13,7 @@ export function PricingPage() {
 
   return (
     <MarketingShell
-      navItems={[
-        { href: "/#proof", label: "Proof" },
-        { href: "/#surface", label: "Surface" },
-        { href: "/pricing", label: "Pricing" },
-        { href: "/privacy", label: "Privacy" },
-        { href: "/terms", label: "Terms" },
-        { href: "/#beta", label: "Beta" },
-      ]}
+      navItems={buildMarketingNavItems("inner")}
       pageTitle="pricing"
     >
       <section className="px-4 pb-16 pt-14 sm:px-6 lg:px-8 lg:pb-24 lg:pt-20">

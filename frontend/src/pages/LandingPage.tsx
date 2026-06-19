@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
-import { MarketingShell } from "../components/marketing/MarketingShell";
+import { buildMarketingNavItems, MarketingShell } from "../components/marketing/MarketingShell";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type Feature = {
@@ -26,19 +26,19 @@ type FlowStep = {
 
 const FEATURES: Feature[] = [
   {
-    body: "Replay, execution context, journal notes, and analytics live in one lane instead of five disconnected tools.",
+    body: "Replay, execution context, journal notes, and analytics stay together instead of getting scattered across tabs.",
     icon: CandlestickChart,
     title: "One focused desk",
   },
   {
-    body: "Actual app widgets on this page mirror how EdgeLab tracks curve, tape, and playbooks inside workspace.",
+    body: "Live preview uses real EdgeLab surfaces so landing page feels like product, not polished fiction.",
     icon: BarChart3,
-    title: "Real product surface",
+    title: "Real product feel",
   },
   {
-    body: "Google sign-in keeps beta identity clean while feedback stays direct and fast.",
+    body: "Single Google path keeps beta entry simple while open seats and waitlist stay clear.",
     icon: LockKeyhole,
-    title: "Clean beta access",
+    title: "Simple beta entry",
   },
 ];
 
@@ -72,7 +72,9 @@ function SectionHeading({
   return (
     <div className="max-w-3xl">
       <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/65">{eyebrow}</div>
-      <h2 className="text-display mt-4 text-3xl text-white sm:text-[3.25rem]">{title}</h2>
+      <h2 className="text-display mt-4 text-4xl leading-[0.96] tracking-[-0.05em] text-white sm:text-[4rem]">
+        {title}
+      </h2>
       <p className="mt-4 text-base leading-8 text-slate-400">{description}</p>
     </div>
   );
@@ -102,21 +104,14 @@ export function LandingPage() {
   const waitlistCount = program.waitlist_count;
   const accessLabel =
     seatsRemaining == null
-      ? "Syncing access"
+      ? "Checking seats"
       : seatsRemaining > 0
         ? `${seatsRemaining} seats open`
-        : "Beta full, waitlist open";
+        : "Waitlist open";
 
   return (
     <MarketingShell
-      navItems={[
-        { href: "#surface", label: "Surface" },
-        { href: "#flow", label: "Flow" },
-        { href: "#access", label: "Access" },
-        { href: "/pricing", label: "Pricing" },
-        { href: "/privacy", label: "Privacy" },
-        { href: "/terms", label: "Terms" },
-      ]}
+      navItems={buildMarketingNavItems("home")}
       pageTitle="landing"
     >
       <section className="relative overflow-hidden px-4 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
@@ -125,16 +120,25 @@ export function LandingPage() {
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs uppercase tracking-[0.24em] text-cyan-100">
                 <ShieldCheck size={14} />
-                Find your edge
+                EdgeLab beta
               </div>
 
-              <h1 className="text-display mt-6 max-w-4xl text-5xl text-white sm:text-6xl lg:text-[5.2rem]">
-                One trading surface for replay, review, and proof.
+              <h1 className="text-display mt-6 max-w-5xl text-5xl leading-[0.92] tracking-[-0.06em] text-white sm:text-6xl lg:text-[5.45rem]">
+                Replay, journal, and refine on one focused surface.
               </h1>
+
+              <div className="mt-6 max-w-3xl rounded-[30px] border border-cyan-300/15 bg-[linear-gradient(135deg,rgba(50,211,238,0.14),rgba(255,255,255,0.035))] p-6 shadow-card">
+                <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/70">
+                  Tagline
+                </div>
+                <div className="text-display mt-3 text-2xl leading-tight text-cyan-50 sm:text-[2.3rem]">
+                  Find, Engineer and <span className="text-cyan-300">Redefine your edge.</span>
+                </div>
+              </div>
 
               <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">
                 EdgeLab keeps execution context, journal memory, and analytics truth together.
-                Fewer tabs. Less drift. Better feedback on what actually sharpens your process.
+                Less drift. Better review. Cleaner feedback on what sharpens your process.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -142,21 +146,21 @@ export function LandingPage() {
                   className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
                   to="/auth/signin"
                 >
-                  {seatsRemaining == null || seatsRemaining > 0 ? "Enter EdgeLab" : "Join waitlist"}
+                  {seatsRemaining == null || seatsRemaining > 0 ? "Join beta" : "Join waitlist"}
                   <ArrowRight size={16} />
                 </Link>
                 <a
                   className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/30 hover:text-cyan-100"
-                  href="#surface"
+                  href="#product"
                 >
-                  See live surface
+                  Explore product
                 </a>
               </div>
 
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
                 <StatPill
                   hint="Current beta availability"
-                  label="Access"
+                  label="Beta Spots"
                   value={loading ? "..." : accessLabel}
                 />
                 <StatPill
@@ -166,7 +170,7 @@ export function LandingPage() {
                 />
                 <StatPill
                   hint="Export what matters"
-                  label="Data"
+                  label="Data Policy"
                   value="Temporary"
                 />
               </div>
@@ -201,12 +205,12 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="surface" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="product" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
-            description="This preview uses actual EdgeLab workspace widgets. Metrics, curve, execution tape, and playbook board stay connected because product should feel coherent before marketing ever talks."
-            eyebrow="Surface"
-            title="Live preview built from real app components."
+            description="This preview uses actual EdgeLab workspace surfaces. Candles, metrics, execution tape, and playbook context stay connected because product should feel coherent before marketing speaks."
+            eyebrow="Product"
+            title="Real app surfaces. Not static mockups."
           />
 
           <div className="mt-10">
@@ -215,11 +219,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="flow" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="how-it-works" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <SectionHeading
-            description="EdgeLab should reduce distance between trade action and trade truth. These are the only steps that matter."
-            eyebrow="Flow"
+            description="EdgeLab should reduce distance between trade action and trade truth. This is whole loop."
+            eyebrow="How It Works"
             title="Replay. Review. Refine."
           />
 
@@ -248,15 +252,15 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="access" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="join-beta" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl overflow-hidden rounded-[38px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(50,211,238,0.16),rgba(255,255,255,0.04)_45%,rgba(245,158,11,0.10))] p-8 shadow-glow">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
             <div>
               <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/75">
-                Access
+                Join Beta
               </div>
               <div className="text-display mt-4 max-w-4xl text-4xl text-white sm:text-5xl">
-                Google sign-in for beta. Waitlist when seats close.
+                Join beta while seats stay open. Join waitlist when they do not.
               </div>
               <p className="mt-4 max-w-3xl text-base leading-8 text-slate-100/88">
                 Keep beta entry simple, keep identity consistent, and keep expectations honest.
@@ -313,7 +317,7 @@ export function LandingPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
                 to="/auth/signin"
               >
-                {seatsRemaining == null || seatsRemaining > 0 ? "Enter EdgeLab" : "Join waitlist"}
+                {seatsRemaining == null || seatsRemaining > 0 ? "Join beta" : "Join waitlist"}
                 <ArrowRight size={16} />
               </Link>
               <Link

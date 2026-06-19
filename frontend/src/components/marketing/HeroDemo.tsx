@@ -1,4 +1,5 @@
-import { startTransition, useEffect, useState } from "react";
+import { ArrowRightLeft, CandlestickChart, Play, Sparkles } from "lucide-react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { EquityCurve } from "../EquityCurve";
 import { ExecutionTape } from "../ExecutionTape";
 import { MetricsBar } from "../MetricsBar";
@@ -6,85 +7,38 @@ import { PlaybookBoard } from "../PlaybookBoard";
 import type { Execution, Metrics, Playbook, Trade } from "../../lib/api";
 
 type DemoScenario = {
+  closes: number[];
+  direction: "BUY" | "SELL";
+  entryIndex: number;
+  executions: Execution[];
+  exitIndex: number;
   id: string;
   label: string;
   metrics: Metrics;
   note: string;
   playbooks: Playbook[];
   trades: Trade[];
-  executions: Execution[];
 };
 
-function buildMetrics(netPnl: number, winRate: number, totalTrades: number, values: number[]): Metrics {
-  return {
-    net_pnl: netPnl,
-    win_rate: winRate,
-    total_trades: totalTrades,
-    profit_factor: 1.84,
-    max_drawdown: -412,
-    sharpe_ratio: 1.42,
-    average_r: 0.68,
-    best_trade: 532,
-    worst_trade: -184,
-    longest_win_streak: 4,
-    longest_loss_streak: 2,
-    equity_curve: values.map((equity, index) => ({
-      timestamp: `2026-06-${String(index + 2).padStart(2, "0")}T09:30:00Z`,
-      equity,
-    })),
-    strategy_performance: [
-      {
-        strategy_name: "London Break",
-        trades: Math.max(6, Math.round(totalTrades * 0.46)),
-        net_pnl: netPnl * 0.58,
-        win_rate: Math.min(0.78, winRate + 0.04),
-        average_r: 0.74,
-      },
-      {
-        strategy_name: "NY Reversal",
-        trades: Math.max(4, Math.round(totalTrades * 0.32)),
-        net_pnl: netPnl * 0.29,
-        win_rate: Math.max(0.36, winRate - 0.05),
-        average_r: 0.49,
-      },
-    ],
-    side_breakdown: [
-      {
-        side: "LONG",
-        trades: Math.max(1, Math.round(totalTrades * 0.57)),
-        net_pnl: netPnl * 0.64,
-        win_rate: Math.min(0.82, winRate + 0.03),
-      },
-      {
-        side: "SHORT",
-        trades: Math.max(1, totalTrades - Math.round(totalTrades * 0.57)),
-        net_pnl: netPnl * 0.36,
-        win_rate: Math.max(0.3, winRate - 0.02),
-      },
-    ],
-    calendar: values.slice(-6).map((equity, index, collection) => {
-      const previous = index === 0 ? values[Math.max(0, values.length - 7)] ?? equity : collection[index - 1];
-      return {
-        date: `2026-06-${String(index + 10).padStart(2, "0")}`,
-        pnl: equity - previous,
-        trades: Math.max(1, Math.round(totalTrades / 6)),
-      };
-    }),
-  };
-}
+type DemoCandle = {
+  close: number;
+  high: number;
+  low: number;
+  open: number;
+};
 
 const PLAYBOOKS: Playbook[] = [
   {
     id: 1,
     name: "London Break",
-    description: "Hold until structure fails or take-profit prints.",
+    description: "Momentum break with structure follow-through.",
     rules: null,
     created_at: "2026-06-01T00:00:00Z",
   },
   {
     id: 2,
     name: "NY Reversal",
-    description: "Fade extension only after sweep and reclaim.",
+    description: "Fade reclaim after extension and sweep.",
     rules: null,
     created_at: "2026-06-01T00:00:00Z",
   },
@@ -97,442 +51,466 @@ const PLAYBOOKS: Playbook[] = [
   },
 ];
 
+function buildMetrics(netPnl: number, winRate: number, totalTrades: number, equity: number[]): Metrics {
+  return {
+    net_pnl: netPnl,
+    win_rate: winRate,
+    total_trades: totalTrades,
+    profit_factor: 1.84,
+    max_drawdown: -412,
+    sharpe_ratio: 1.42,
+    average_r: 0.68,
+    best_trade: 532,
+    worst_trade: -184,
+    longest_win_streak: 4,
+    longest_loss_streak: 2,
+    equity_curve: equity.map((value, index) => ({
+      timestamp: `2026-06-${String(index + 2).padStart(2, "0")}T09:30:00Z`,
+      equity: value,
+    })),
+    strategy_performance: [
+      {
+        strategy_name: "London Break",
+        trades: Math.max(6, Math.round(totalTrades * 0.45)),
+        net_pnl: netPnl * 0.56,
+        win_rate: Math.min(0.8, winRate + 0.03),
+        average_r: 0.72,
+      },
+      {
+        strategy_name: "NY Reversal",
+        trades: Math.max(4, Math.round(totalTrades * 0.32)),
+        net_pnl: netPnl * 0.28,
+        win_rate: Math.max(0.33, winRate - 0.04),
+        average_r: 0.48,
+      },
+      {
+        strategy_name: "Trend Continuation",
+        trades: Math.max(4, totalTrades - Math.max(10, Math.round(totalTrades * 0.77))),
+        net_pnl: netPnl * 0.16,
+        win_rate: Math.max(0.31, winRate - 0.08),
+        average_r: 0.39,
+      },
+    ],
+    side_breakdown: [
+      {
+        side: "LONG",
+        trades: Math.max(1, Math.round(totalTrades * 0.57)),
+        net_pnl: netPnl * 0.62,
+        win_rate: Math.min(0.82, winRate + 0.02),
+      },
+      {
+        side: "SHORT",
+        trades: Math.max(1, totalTrades - Math.round(totalTrades * 0.57)),
+        net_pnl: netPnl * 0.38,
+        win_rate: Math.max(0.3, winRate - 0.02),
+      },
+    ],
+    calendar: equity.slice(-6).map((value, index, collection) => {
+      const previous =
+        index === 0 ? equity[Math.max(0, equity.length - 7)] ?? value : collection[index - 1];
+      return {
+        date: `2026-06-${String(index + 10).padStart(2, "0")}`,
+        pnl: value - previous,
+        trades: Math.max(1, Math.round(totalTrades / 6)),
+      };
+    }),
+  };
+}
+
+function createExecution(
+  id: number,
+  sessionId: number,
+  side: "BUY" | "SELL",
+  price: number,
+  quantity: number,
+  realizedPnl: number,
+  timestamp: string,
+): Execution {
+  return {
+    id,
+    session_id: sessionId,
+    order_id: id + 100,
+    side,
+    timestamp,
+    offset: id,
+    price,
+    quantity,
+    realized_pnl: realizedPnl,
+    position_side_after: realizedPnl === 0 ? (side === "BUY" ? "LONG" : "SHORT") : "FLAT",
+    position_quantity_after: realizedPnl === 0 ? quantity : 0,
+    created_at: timestamp,
+  };
+}
+
+function createTrade({
+  id,
+  sessionId,
+  side,
+  entryPrice,
+  exitPrice,
+  realizedPnl,
+  playbookId,
+  strategyName,
+  notes,
+  mistakeTags = [],
+  emotionalState = "steady",
+}: {
+  emotionalState?: string;
+  entryPrice: number;
+  exitPrice: number;
+  id: number;
+  mistakeTags?: string[];
+  notes?: string | null;
+  playbookId: number;
+  realizedPnl: number;
+  sessionId: number;
+  side: "LONG" | "SHORT";
+  strategyName: string;
+}) : Trade {
+  const entryTime = `2026-06-${String((id % 20) + 1).padStart(2, "0")}T09:30:00Z`;
+  const exitTime = `2026-06-${String((id % 20) + 1).padStart(2, "0")}T09:54:00Z`;
+
+  return {
+    id,
+    session_id: sessionId,
+    status: "CLOSED",
+    side,
+    entry_time: entryTime,
+    entry_offset: id,
+    entry_price: entryPrice,
+    quantity: 1,
+    remaining_quantity: 0,
+    stop_loss: side === "LONG" ? entryPrice - Math.abs(entryPrice * 0.002) : entryPrice + Math.abs(entryPrice * 0.002),
+    take_profit: exitPrice,
+    exit_time: exitTime,
+    exit_offset: id + 16,
+    exit_price: exitPrice,
+    gross_pnl: realizedPnl,
+    realized_pnl: realizedPnl,
+    r_multiple: Number((realizedPnl / Math.max(Math.abs(realizedPnl), 80)).toFixed(1)),
+    commission_mode: "NONE",
+    commission_value: 0,
+    commission_amount: 0,
+    fee_mode: "NONE",
+    fee_value: 0,
+    fee_amount: 0,
+    strategy_name: strategyName,
+    playbook_id: playbookId,
+    notes: notes ?? null,
+    mistake_tags: mistakeTags,
+    emotional_state: emotionalState,
+    screenshot_url: null,
+  };
+}
+
+function buildCandles(closes: number[]): DemoCandle[] {
+  return closes.map((close, index) => {
+    const previousClose = index === 0 ? close - close * 0.0012 : closes[index - 1];
+    const wiggle = Math.max(Math.abs(close) * 0.0006, 0.12);
+    return {
+      close,
+      high: Math.max(previousClose, close) + wiggle + (index % 3) * wiggle * 0.2,
+      low: Math.min(previousClose, close) - wiggle - ((index + 1) % 3) * wiggle * 0.18,
+      open: previousClose,
+    };
+  });
+}
+
+function formatPrice(value: number) {
+  if (Math.abs(value) >= 1000) {
+    return value.toFixed(2);
+  }
+  if (Math.abs(value) >= 10) {
+    return value.toFixed(2);
+  }
+  return value.toFixed(4);
+}
+
+function CandlePreview({ scenario }: { scenario: DemoScenario }) {
+  const candles = buildCandles(scenario.closes);
+  const width = 520;
+  const height = 248;
+  const stepX = width / Math.max(candles.length, 1);
+  const high = Math.max(...candles.map((candle) => candle.high));
+  const low = Math.min(...candles.map((candle) => candle.low));
+  const range = Math.max(high - low, 1);
+  const priceY = (value: number) => 12 + ((high - value) / range) * (height - 24);
+  const entryCandle = candles[scenario.entryIndex] ?? candles[0];
+  const exitCandle = candles[scenario.exitIndex] ?? candles[candles.length - 1];
+
+  return (
+    <section className="min-w-0 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.01))] p-4 shadow-card">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/70">
+            Replay Candles
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-white">{scenario.label}</div>
+          <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
+        </div>
+        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-slate-300">
+          Japanese candlestick preview
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-[24px] border border-white/10 bg-[#060b10] p-3">
+        <svg
+          aria-hidden="true"
+          className="h-[260px] w-full"
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${width} ${height}`}
+        >
+          {[0.2, 0.4, 0.6, 0.8].map((fraction) => (
+            <line
+              key={fraction}
+              x1="0"
+              x2={width}
+              y1={(height * fraction).toFixed(2)}
+              y2={(height * fraction).toFixed(2)}
+              stroke="rgba(148,163,184,0.1)"
+              strokeDasharray="5 7"
+            />
+          ))}
+
+          {candles.map((candle, index) => {
+            const x = stepX * index + stepX * 0.5;
+            const openY = priceY(candle.open);
+            const closeY = priceY(candle.close);
+            const highY = priceY(candle.high);
+            const lowY = priceY(candle.low);
+            const bullish = candle.close >= candle.open;
+            const bodyWidth = Math.max(10, stepX * 0.48);
+
+            return (
+              <g key={`${scenario.id}-${index}`}>
+                <line
+                  x1={x}
+                  x2={x}
+                  y1={highY}
+                  y2={lowY}
+                  stroke={bullish ? "#77f2ff" : "#ff9caf"}
+                  strokeWidth="2"
+                />
+                <rect
+                  x={x - bodyWidth / 2}
+                  y={Math.min(openY, closeY)}
+                  width={bodyWidth}
+                  height={Math.max(8, Math.abs(closeY - openY))}
+                  rx="3"
+                  fill={bullish ? "rgba(50,211,238,0.82)" : "rgba(251,113,133,0.82)"}
+                />
+              </g>
+            );
+          })}
+
+          <line
+            x1="0"
+            x2={width}
+            y1={priceY(entryCandle.close)}
+            y2={priceY(entryCandle.close)}
+            stroke={scenario.direction === "BUY" ? "rgba(50,211,238,0.95)" : "rgba(251,113,133,0.95)"}
+            strokeDasharray="7 7"
+          />
+          <circle
+            cx={stepX * scenario.entryIndex + stepX * 0.5}
+            cy={priceY(entryCandle.close)}
+            fill="#8bf5ff"
+            r="5"
+          />
+          <circle
+            cx={stepX * scenario.exitIndex + stepX * 0.5}
+            cy={priceY(exitCandle.close)}
+            fill="#f6c26b"
+            r="5"
+          />
+          <text
+            fill="#8bf5ff"
+            fontFamily="JetBrains Mono"
+            fontSize="10"
+            x="10"
+            y={Math.max(18, priceY(entryCandle.close) - 8)}
+          >
+            {scenario.direction} {formatPrice(entryCandle.close)}
+          </text>
+        </svg>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Entry</div>
+          <div className="mt-2 font-data text-lg text-white">{formatPrice(entryCandle.close)}</div>
+        </div>
+        <div className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Exit</div>
+          <div className="mt-2 font-data text-lg text-white">{formatPrice(exitCandle.close)}</div>
+        </div>
+        <div className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Direction</div>
+          <div className="mt-2 flex items-center gap-2 text-lg font-semibold text-white">
+            <ArrowRightLeft size={16} className="text-cyan-100" />
+            {scenario.direction}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 const SCENARIOS: DemoScenario[] = [
   {
     id: "replay",
     label: "Replay session",
-    note: "Actual EdgeLab metrics, curve, tape, and playbook widgets.",
+    note: "Candles, metrics, execution tape, and playbook context stay on same surface.",
+    closes: [4280.4, 4278.6, 4279.8, 4282.2, 4284.1, 4287.4, 4290.5, 4288.9, 4292.1, 4294.8, 4293.7, 4296.4],
+    direction: "BUY",
+    entryIndex: 4,
+    exitIndex: 11,
     metrics: buildMetrics(1426, 0.581, 31, [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426]),
     executions: [
-      {
-        id: 11,
-        session_id: 7,
-        order_id: 201,
-        side: "BUY",
-        timestamp: "2026-06-12T09:42:00Z",
-        offset: 42,
-        price: 4281.25,
-        quantity: 2,
-        realized_pnl: 0,
-        position_side_after: "LONG",
-        position_quantity_after: 2,
-        created_at: "2026-06-12T09:42:00Z",
-      },
-      {
-        id: 12,
-        session_id: 7,
-        order_id: 202,
-        side: "SELL",
-        timestamp: "2026-06-12T09:58:00Z",
-        offset: 58,
-        price: 4289.75,
-        quantity: 1,
-        realized_pnl: 174,
-        position_side_after: "LONG",
-        position_quantity_after: 1,
-        created_at: "2026-06-12T09:58:00Z",
-      },
-      {
-        id: 13,
-        session_id: 7,
-        order_id: 203,
-        side: "SELL",
-        timestamp: "2026-06-12T10:06:00Z",
-        offset: 66,
-        price: 4295.5,
-        quantity: 1,
-        realized_pnl: 286,
-        position_side_after: "FLAT",
-        position_quantity_after: 0,
-        created_at: "2026-06-12T10:06:00Z",
-      },
+      createExecution(11, 7, "BUY", 4284.1, 2, 0, "2026-06-12T09:42:00Z"),
+      createExecution(12, 7, "SELL", 4290.5, 1, 174, "2026-06-12T09:58:00Z"),
+      createExecution(13, 7, "SELL", 4296.4, 1, 286, "2026-06-12T10:06:00Z"),
     ],
     trades: [
-      {
+      createTrade({
         id: 101,
-        session_id: 7,
-        status: "CLOSED",
+        sessionId: 7,
         side: "LONG",
-        entry_time: "2026-06-12T09:42:00Z",
-        entry_offset: 42,
-        entry_price: 4281.25,
-        quantity: 2,
-        remaining_quantity: 0,
-        stop_loss: 4276.5,
-        take_profit: 4296,
-        exit_time: "2026-06-12T10:06:00Z",
-        exit_offset: 66,
-        exit_price: 4295.5,
-        gross_pnl: 460,
-        realized_pnl: 460,
-        r_multiple: 2.2,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "London Break",
-        playbook_id: 1,
+        entryPrice: 4284.1,
+        exitPrice: 4296.4,
+        realizedPnl: 460,
+        playbookId: 1,
+        strategyName: "London Break",
         notes: "Held structure clean. Exit followed plan.",
-        mistake_tags: [],
-        emotional_state: "calm",
-        screenshot_url: null,
-      },
-      {
+      }),
+      createTrade({
         id: 102,
-        session_id: 7,
-        status: "CLOSED",
+        sessionId: 7,
         side: "SHORT",
-        entry_time: "2026-06-12T11:18:00Z",
-        entry_offset: 118,
-        entry_price: 4302.1,
-        quantity: 1,
-        remaining_quantity: 0,
-        stop_loss: 4308.4,
-        take_profit: 4290.2,
-        exit_time: "2026-06-12T11:36:00Z",
-        exit_offset: 136,
-        exit_price: 4293.6,
-        gross_pnl: 168,
-        realized_pnl: 168,
-        r_multiple: 1.4,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "NY Reversal",
-        playbook_id: 2,
-        notes: null,
-        mistake_tags: ["late partial"],
-        emotional_state: "focused",
-        screenshot_url: null,
-      },
-      {
+        entryPrice: 4302.1,
+        exitPrice: 4293.6,
+        realizedPnl: 168,
+        playbookId: 2,
+        strategyName: "NY Reversal",
+        mistakeTags: ["late partial"],
+      }),
+      createTrade({
         id: 103,
-        session_id: 7,
-        status: "CLOSED",
+        sessionId: 7,
         side: "LONG",
-        entry_time: "2026-06-13T09:51:00Z",
-        entry_offset: 51,
-        entry_price: 4275.4,
-        quantity: 1,
-        remaining_quantity: 0,
-        stop_loss: 4270.9,
-        take_profit: 4284.9,
-        exit_time: "2026-06-13T10:05:00Z",
-        exit_offset: 65,
-        exit_price: 4272.8,
-        gross_pnl: -52,
-        realized_pnl: -52,
-        r_multiple: -0.6,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "Trend Continuation",
-        playbook_id: 3,
+        entryPrice: 4275.4,
+        exitPrice: 4272.8,
+        realizedPnl: -52,
+        playbookId: 3,
+        strategyName: "Trend Continuation",
         notes: "Chased too close to highs.",
-        mistake_tags: ["late entry"],
-        emotional_state: "impatient",
-        screenshot_url: null,
-      },
+        mistakeTags: ["late entry"],
+        emotionalState: "impatient",
+      }),
     ],
     playbooks: PLAYBOOKS,
   },
   {
     id: "journal",
     label: "Journal review",
-    note: "Review queue, tags, and closed-trade context stay on same desk.",
+    note: "Trade replay rolls straight into tagged review instead of separate tooling.",
+    closes: [191.8, 191.6, 191.2, 190.9, 190.5, 190.1, 189.8, 190.2, 189.9, 189.5, 189.1, 188.8],
+    direction: "SELL",
+    entryIndex: 3,
+    exitIndex: 10,
     metrics: buildMetrics(986, 0.544, 24, [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986]),
     executions: [
-      {
-        id: 21,
-        session_id: 8,
-        order_id: 301,
-        side: "SELL",
-        timestamp: "2026-06-14T13:02:00Z",
-        offset: 32,
-        price: 191.4,
-        quantity: 300,
-        realized_pnl: 0,
-        position_side_after: "SHORT",
-        position_quantity_after: 300,
-        created_at: "2026-06-14T13:02:00Z",
-      },
-      {
-        id: 22,
-        session_id: 8,
-        order_id: 302,
-        side: "BUY",
-        timestamp: "2026-06-14T13:18:00Z",
-        offset: 48,
-        price: 190.3,
-        quantity: 300,
-        realized_pnl: 330,
-        position_side_after: "FLAT",
-        position_quantity_after: 0,
-        created_at: "2026-06-14T13:18:00Z",
-      },
-      {
-        id: 23,
-        session_id: 8,
-        order_id: 303,
-        side: "BUY",
-        timestamp: "2026-06-14T14:10:00Z",
-        offset: 100,
-        price: 190.85,
-        quantity: 200,
-        realized_pnl: -94,
-        position_side_after: "FLAT",
-        position_quantity_after: 0,
-        created_at: "2026-06-14T14:10:00Z",
-      },
+      createExecution(21, 8, "SELL", 190.9, 300, 0, "2026-06-14T13:02:00Z"),
+      createExecution(22, 8, "BUY", 189.8, 300, 330, "2026-06-14T13:18:00Z"),
+      createExecution(23, 8, "BUY", 190.2, 200, -94, "2026-06-14T14:10:00Z"),
     ],
     trades: [
-      {
+      createTrade({
         id: 201,
-        session_id: 8,
-        status: "CLOSED",
+        sessionId: 8,
         side: "SHORT",
-        entry_time: "2026-06-14T13:02:00Z",
-        entry_offset: 32,
-        entry_price: 191.4,
-        quantity: 300,
-        remaining_quantity: 0,
-        stop_loss: 192.05,
-        take_profit: 190.1,
-        exit_time: "2026-06-14T13:18:00Z",
-        exit_offset: 48,
-        exit_price: 190.3,
-        gross_pnl: 330,
-        realized_pnl: 330,
-        r_multiple: 1.8,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "NY Reversal",
-        playbook_id: 2,
-        notes: null,
-        mistake_tags: ["slow partial"],
-        emotional_state: "steady",
-        screenshot_url: null,
-      },
-      {
+        entryPrice: 190.9,
+        exitPrice: 189.8,
+        realizedPnl: 330,
+        playbookId: 2,
+        strategyName: "NY Reversal",
+        mistakeTags: ["slow partial"],
+      }),
+      createTrade({
         id: 202,
-        session_id: 8,
-        status: "CLOSED",
+        sessionId: 8,
         side: "LONG",
-        entry_time: "2026-06-14T14:03:00Z",
-        entry_offset: 93,
-        entry_price: 190.52,
-        quantity: 200,
-        remaining_quantity: 0,
-        stop_loss: 190.1,
-        take_profit: 191.45,
-        exit_time: "2026-06-14T14:10:00Z",
-        exit_offset: 100,
-        exit_price: 190.05,
-        gross_pnl: -94,
-        realized_pnl: -94,
-        r_multiple: -1.1,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "Trend Continuation",
-        playbook_id: 3,
+        entryPrice: 190.5,
+        exitPrice: 190.1,
+        realizedPnl: -94,
+        playbookId: 3,
+        strategyName: "Trend Continuation",
         notes: "Forced long against flow.",
-        mistake_tags: ["countertrend"],
-        emotional_state: "frustrated",
-        screenshot_url: null,
-      },
-      {
+        mistakeTags: ["countertrend"],
+        emotionalState: "frustrated",
+      }),
+      createTrade({
         id: 203,
-        session_id: 8,
-        status: "CLOSED",
+        sessionId: 8,
         side: "SHORT",
-        entry_time: "2026-06-15T10:10:00Z",
-        entry_offset: 28,
-        entry_price: 192.2,
-        quantity: 150,
-        remaining_quantity: 0,
-        stop_loss: 192.85,
-        take_profit: 191.4,
-        exit_time: "2026-06-15T10:24:00Z",
-        exit_offset: 42,
-        exit_price: 191.55,
-        gross_pnl: 98,
-        realized_pnl: 98,
-        r_multiple: 1.1,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "NY Reversal",
-        playbook_id: 2,
+        entryPrice: 190.2,
+        exitPrice: 189.5,
+        realizedPnl: 98,
+        playbookId: 2,
+        strategyName: "NY Reversal",
         notes: "Better patience this pass.",
-        mistake_tags: [],
-        emotional_state: "focused",
-        screenshot_url: null,
-      },
+      }),
     ],
     playbooks: PLAYBOOKS,
   },
   {
     id: "analytics",
     label: "Analytics pass",
-    note: "Metrics stay tied to executions and playbook context, not separate dashboards.",
+    note: "Edge survives only when candles, execution, and results all agree with each other.",
+    closes: [1.0842, 1.0838, 1.0846, 1.0851, 1.0856, 1.0862, 1.0868, 1.0863, 1.0871, 1.0878, 1.0874, 1.0882],
+    direction: "BUY",
+    entryIndex: 2,
+    exitIndex: 9,
     metrics: buildMetrics(1874, 0.603, 37, [0, 164, 298, 552, 488, 736, 924, 1160, 1318, 1514, 1688, 1874]),
     executions: [
-      {
-        id: 31,
-        session_id: 9,
-        order_id: 401,
-        side: "BUY",
-        timestamp: "2026-06-16T08:48:00Z",
-        offset: 18,
-        price: 1.0842,
-        quantity: 120000,
-        realized_pnl: 0,
-        position_side_after: "LONG",
-        position_quantity_after: 120000,
-        created_at: "2026-06-16T08:48:00Z",
-      },
-      {
-        id: 32,
-        session_id: 9,
-        order_id: 402,
-        side: "SELL",
-        timestamp: "2026-06-16T09:06:00Z",
-        offset: 36,
-        price: 1.0861,
-        quantity: 120000,
-        realized_pnl: 228,
-        position_side_after: "FLAT",
-        position_quantity_after: 0,
-        created_at: "2026-06-16T09:06:00Z",
-      },
-      {
-        id: 33,
-        session_id: 9,
-        order_id: 403,
-        side: "SELL",
-        timestamp: "2026-06-16T11:11:00Z",
-        offset: 101,
-        price: 1.0878,
-        quantity: 100000,
-        realized_pnl: 142,
-        position_side_after: "FLAT",
-        position_quantity_after: 0,
-        created_at: "2026-06-16T11:11:00Z",
-      },
+      createExecution(31, 9, "BUY", 1.0846, 120000, 0, "2026-06-16T08:48:00Z"),
+      createExecution(32, 9, "SELL", 1.0868, 120000, 228, "2026-06-16T09:06:00Z"),
+      createExecution(33, 9, "SELL", 1.0878, 100000, 142, "2026-06-16T11:11:00Z"),
     ],
     trades: [
-      {
+      createTrade({
         id: 301,
-        session_id: 9,
-        status: "CLOSED",
+        sessionId: 9,
         side: "LONG",
-        entry_time: "2026-06-16T08:48:00Z",
-        entry_offset: 18,
-        entry_price: 1.0842,
-        quantity: 120000,
-        remaining_quantity: 0,
-        stop_loss: 1.0828,
-        take_profit: 1.0864,
-        exit_time: "2026-06-16T09:06:00Z",
-        exit_offset: 36,
-        exit_price: 1.0861,
-        gross_pnl: 228,
-        realized_pnl: 228,
-        r_multiple: 1.5,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "London Break",
-        playbook_id: 1,
+        entryPrice: 1.0846,
+        exitPrice: 1.0868,
+        realizedPnl: 228,
+        playbookId: 1,
+        strategyName: "London Break",
         notes: "Stayed with opening range expansion.",
-        mistake_tags: [],
-        emotional_state: "clear",
-        screenshot_url: null,
-      },
-      {
+      }),
+      createTrade({
         id: 302,
-        session_id: 9,
-        status: "CLOSED",
+        sessionId: 9,
         side: "SHORT",
-        entry_time: "2026-06-16T10:43:00Z",
-        entry_offset: 83,
-        entry_price: 1.0886,
-        quantity: 100000,
-        remaining_quantity: 0,
-        stop_loss: 1.0894,
-        take_profit: 1.0871,
-        exit_time: "2026-06-16T11:11:00Z",
-        exit_offset: 101,
-        exit_price: 1.0878,
-        gross_pnl: 80,
-        realized_pnl: 80,
-        r_multiple: 0.8,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "NY Reversal",
-        playbook_id: 2,
-        notes: null,
-        mistake_tags: ["early cover"],
-        emotional_state: "calm",
-        screenshot_url: null,
-      },
-      {
+        entryPrice: 1.0886,
+        exitPrice: 1.0878,
+        realizedPnl: 80,
+        playbookId: 2,
+        strategyName: "NY Reversal",
+        mistakeTags: ["early cover"],
+      }),
+      createTrade({
         id: 303,
-        session_id: 9,
-        status: "CLOSED",
+        sessionId: 9,
         side: "LONG",
-        entry_time: "2026-06-17T09:12:00Z",
-        entry_offset: 22,
-        entry_price: 1.0834,
-        quantity: 100000,
-        remaining_quantity: 0,
-        stop_loss: 1.0826,
-        take_profit: 1.0858,
-        exit_time: "2026-06-17T09:38:00Z",
-        exit_offset: 48,
-        exit_price: 1.0859,
-        gross_pnl: 250,
-        realized_pnl: 250,
-        r_multiple: 2.1,
-        commission_mode: "NONE",
-        commission_value: 0,
-        commission_amount: 0,
-        fee_mode: "NONE",
-        fee_value: 0,
-        fee_amount: 0,
-        strategy_name: "Trend Continuation",
-        playbook_id: 3,
+        entryPrice: 1.0834,
+        exitPrice: 1.0859,
+        realizedPnl: 250,
+        playbookId: 3,
+        strategyName: "Trend Continuation",
         notes: "Clean pullback continuation.",
-        mistake_tags: [],
-        emotional_state: "steady",
-        screenshot_url: null,
-      },
+      }),
     ],
     playbooks: PLAYBOOKS,
   },
@@ -540,16 +518,53 @@ const SCENARIOS: DemoScenario[] = [
 
 export function HeroDemo() {
   const [scenarioIndex, setScenarioIndex] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const hideTimerRef = useRef<number | null>(null);
+  const showTimerRef = useRef<number | null>(null);
   const scenario = SCENARIOS[scenarioIndex] ?? SCENARIOS[0];
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      startTransition(() => {
-        setScenarioIndex((current) => (current + 1) % SCENARIOS.length);
-      });
-    }, 4600);
+  const runScenarioTransition = (nextIndex: number) => {
+    if (nextIndex === scenarioIndex) {
+      return;
+    }
 
-    return () => window.clearInterval(timer);
+    if (hideTimerRef.current) {
+      window.clearTimeout(hideTimerRef.current);
+    }
+    if (showTimerRef.current) {
+      window.clearTimeout(showTimerRef.current);
+    }
+
+    setIsTransitioning(true);
+
+    hideTimerRef.current = window.setTimeout(() => {
+      startTransition(() => {
+        setScenarioIndex(nextIndex);
+      });
+
+      showTimerRef.current = window.setTimeout(() => {
+        setIsTransitioning(false);
+      }, 60);
+    }, 180);
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      runScenarioTransition((scenarioIndex + 1) % SCENARIOS.length);
+    }, 5200);
+
+    return () => window.clearTimeout(timer);
+  }, [scenarioIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) {
+        window.clearTimeout(hideTimerRef.current);
+      }
+      if (showTimerRef.current) {
+        window.clearTimeout(showTimerRef.current);
+      }
+    };
   }, []);
 
   return (
@@ -566,7 +581,7 @@ export function HeroDemo() {
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">{scenario.note}</p>
           </div>
           <div className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs uppercase tracking-[0.18em] text-cyan-50">
-            Real EdgeLab widgets
+            Candles + real app widgets
           </div>
         </div>
 
@@ -579,11 +594,7 @@ export function HeroDemo() {
                   ? "border-cyan-300/25 bg-cyan-300/12 text-cyan-50"
                   : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-cyan-300/20 hover:text-cyan-50"
               }`}
-              onClick={() => {
-                startTransition(() => {
-                  setScenarioIndex(index);
-                });
-              }}
+              onClick={() => runScenarioTransition(index)}
               type="button"
             >
               {item.label}
@@ -592,17 +603,61 @@ export function HeroDemo() {
         </div>
       </div>
 
-      <div className="mt-4">
-        <MetricsBar metrics={scenario.metrics} />
-      </div>
+      <div
+        className={`transition-all duration-500 ${
+          isTransitioning
+            ? "translate-y-3 scale-[0.985] opacity-0"
+            : "translate-y-0 scale-100 opacity-100"
+        }`}
+      >
+        <div className="mt-4">
+          <MetricsBar metrics={scenario.metrics} />
+        </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.06fr)_minmax(280px,0.94fr)]">
-        <EquityCurve metrics={scenario.metrics} />
-        <ExecutionTape executions={scenario.executions} />
-      </div>
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(280px,0.88fr)]">
+          <CandlePreview scenario={scenario} />
+          <div className="grid gap-4">
+            <ExecutionTape executions={scenario.executions} />
+            <EquityCurve metrics={scenario.metrics} />
+          </div>
+        </div>
 
-      <div className="mt-4">
-        <PlaybookBoard playbooks={scenario.playbooks} trades={scenario.trades} />
+        <div className="mt-4">
+          <PlaybookBoard playbooks={scenario.playbooks} trades={scenario.trades} />
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {[
+            {
+              icon: Play,
+              title: "Replay first",
+              body: "Start from candles and timing, not isolated stats.",
+            },
+            {
+              icon: CandlestickChart,
+              title: "Proof stays visual",
+              body: "Price action remains in frame while review sharpens.",
+            },
+            {
+              icon: Sparkles,
+              title: "Transitions feel alive",
+              body: "Surface rotates through replay, journal, and analytics with motion.",
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <div
+                key={item.title}
+                className="rounded-[22px] border border-white/10 bg-black/20 p-4"
+              >
+                <Icon className="text-cyan-100" size={18} />
+                <div className="mt-3 text-lg font-semibold text-white">{item.title}</div>
+                <p className="mt-2 text-sm leading-7 text-slate-400">{item.body}</p>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

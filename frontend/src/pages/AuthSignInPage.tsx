@@ -1,7 +1,11 @@
 import { ArrowRight, Chrome, DatabaseZap, LockKeyhole, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { EdgeLabWordmark, MarketingShell } from "../components/marketing/MarketingShell";
+import {
+  buildMarketingNavItems,
+  EdgeLabWordmark,
+  MarketingShell,
+} from "../components/marketing/MarketingShell";
 import { isBetaMode, deploymentMode } from "../lib/deploymentMode";
 import { buildGoogleAuthorizeUrl, isGoogleAuthConfigured } from "../lib/googleAuth";
 import { useBetaAuthConfig } from "../lib/useBetaAuthConfig";
@@ -55,13 +59,7 @@ export function AuthSignInPage() {
 
   return (
     <MarketingShell
-      navItems={[
-        { href: "/#proof", label: "Proof" },
-        { href: "/#surface", label: "Surface" },
-        { href: "/pricing", label: "Pricing" },
-        { href: "/privacy", label: "Privacy" },
-        { href: "/terms", label: "Terms" },
-      ]}
+      navItems={buildMarketingNavItems("inner")}
       pageTitle="auth"
     >
       <section className="px-4 pb-24 pt-14 sm:px-6 lg:px-8 lg:pt-20">
