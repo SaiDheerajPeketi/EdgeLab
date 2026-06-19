@@ -1,6 +1,6 @@
 # Frontend
 
-Vite React dashboard using Tailwind, Zustand, Lucide icons, and Lightweight Charts. The marketing landing page and pricing page are React Router routes (`/`, `/pricing`); the trading workspace lives under `/app`.
+Vite React dashboard using Tailwind, Zustand, Lucide icons, and Lightweight Charts. The marketing landing page and pricing page are React Router routes (`/`, `/pricing`), staged auth lives at `/auth/signin` and `/auth/callback/google`, and the trading workspace lives behind protected routing under `/app`.
 
 ## Design System
 
@@ -23,6 +23,8 @@ npm run dev
 ### Deployment mode
 
 `VITE_DEPLOYMENT_MODE` (`beta` | `production`) drives the landing + pricing UI. `beta` (default) renders a single free Beta card with a seat counter (`VITE_BETA_SEATS_TOTAL`, `VITE_BETA_SEATS_TAKEN`); `production` renders the Starter / Pro / Trader+ tiers. See `.env.example`.
+
+Current auth pass is beta-backed: `/auth/signin` calls FastAPI beta auth APIs for email waitlist access, while `/auth/callback/google` exchanges a real Google OAuth code with the backend when `VITE_GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` are configured. Both flows receive backend session tokens and route overflow users into waitlist mode before `/app`. The landing, pricing, and auth surfaces fetch live beta seat + waitlist counts from `/api/auth/beta/status`; `VITE_BETA_*` values remain fallback display defaults for builds where the API is unavailable.
 
 The dev server proxies `/api` to `http://127.0.0.1:8000`. Set a custom API base URL when needed:
 

@@ -86,6 +86,98 @@
   font-variant-numeric: tabular-nums;
 }
 
+@keyframes edgelab-mesh-shift {
+  0% {
+    transform: translate3d(-3%, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(3%, 4%, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(-3%, 0, 0) scale(1);
+  }
+}
+
+@keyframes edgelab-word-rise {
+  from {
+    opacity: 0;
+    transform: translateY(26px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes edgelab-stage-enter {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes edgelab-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes edgelab-float-metric {
+  0%,
+  100% {
+    opacity: 0.16;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translateY(-14px);
+  }
+}
+
+.edgelab-mesh {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(50, 211, 238, 0.22), transparent 28%),
+    radial-gradient(circle at 70% 10%, rgba(26, 101, 152, 0.24), transparent 24%),
+    radial-gradient(circle at 60% 65%, rgba(245, 158, 11, 0.12), transparent 24%),
+    radial-gradient(circle at 15% 75%, rgba(50, 211, 238, 0.14), transparent 20%);
+  filter: blur(22px);
+  animation: edgelab-mesh-shift 18s ease-in-out infinite;
+}
+
+.edgelab-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-position: center;
+  background-size: 72px 72px;
+  mask-image: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.8) 25%, rgba(0, 0, 0, 0.9));
+}
+
+.edgelab-word-reveal {
+  opacity: 0;
+  animation: edgelab-word-rise 720ms var(--ease-spring) forwards;
+}
+
+.edgelab-stage-enter {
+  animation: edgelab-stage-enter 900ms var(--ease-out) 90ms both;
+}
+
+.edgelab-marquee {
+  animation: edgelab-marquee 26s linear infinite;
+}
+
+.edgelab-float-metric {
+  animation: edgelab-float-metric 7s ease-in-out infinite;
+  animation-delay: var(--metric-delay, 0s);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -94,6 +186,16 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .edgelab-marquee,
+  .edgelab-float-metric,
+  .edgelab-mesh,
+  .edgelab-stage-enter,
+  .edgelab-word-reveal {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 

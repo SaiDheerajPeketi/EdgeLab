@@ -1,0 +1,58 @@
+const GOOGLE_AUTH_STATE_KEY = "edgelab.google-auth.state.v1";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || "";
+
+type StoredGoogleAuthState = {
+  fromPath: string;
+  redirectUri: string;
+  state: string;
+};
+
+function randomState() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `oauth-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function isGoogleAuthConfigured() {
+  return GOOGLE_CLIENT_ID.length > 0;
+}
+
+export function buildGoogleAuthorizeUrl(fromPath: string) {
+  const redirectUri = `${window.location.origin}/auth/callback/google`;
+  const state = randomState();
+  const payload: StoredGoogleAuthState = {
+    fromPath,
+    redirectUri,
+    state,
+  };
+  window.sessionStorage.setItem(GOOGLE_AUTH_STATE_KEY, JSON.stringify(payload));
+
+  const query = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid email profile",
+    state,
+  });
+
+  return `https://accounts.google.com/o/oauth2/v2/auth?${query.toString()}`;
+}
+
+export function consumeGoogleAuthState(receivedState: string | null) {
+  const rawValue = window.sessionStorage.getItem(GOOGLE_AUTH_STATE_KEY);
+  window.sessionStorage.removeItem(GOOGLE_AUTH_STATE_KEY);
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as StoredGoogleAuthState;
+    if (!receivedState || parsed.state !== receivedState) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}

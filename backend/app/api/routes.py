@@ -1,24 +1,28 @@
 import asyncio
+import hashlib
 import json
 import logging
 import re
+from secrets import token_urlsafe
 import struct
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.auth import api_token_is_valid, require_api_token
+from app.auth import api_token_is_valid, bearer_token, require_api_token
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models import (
     AppStorageItem,
     BacktestSession,
+    BetaSession,
+    BetaUser,
     DatasetAsset,
     DatasetSettings,
     DatasetTimeframe,
@@ -37,6 +41,11 @@ from app.schemas import (
     AppStorageRead,
     AngelOneInstrument,
     AngelOneInstrumentsResponse,
+    BetaAccessRequest,
+    BetaAccessResponse,
+    BetaAuthSessionRead,
+    BetaAuthUser,
+    BetaProgramStatus,
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
@@ -60,6 +69,7 @@ from app.schemas import (
     DukascopyInstrumentsResponse,
     EconomicCalendarEvent,
     EconomicCalendarResponse,
+    GoogleAuthExchangeRequest,
     JournalUpdate,
     MetricsResponse,
     OrderCreate,
@@ -141,6 +151,7 @@ APP_DATA_TABLES = [
 ]
 APP_DATA_TABLE_NAMES = {table_name for table_name, _model in APP_DATA_TABLES}
 APP_DATA_IMPORT_BATCH_SIZE = 1000
+BETA_SESSION_TTL = timedelta(days=7)
 
 
 def serialize_bundle_row(row: object) -> dict[str, object]:
@@ -203,6 +214,154 @@ def dataset_error_response(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="Dataset operation failed")
 
 
+def normalize_beta_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+        raise HTTPException(status_code=400, detail="Valid email required")
+    return normalized
+
+
+def beta_session_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def normalize_db_datetime(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def purge_expired_beta_sessions(db: Session) -> None:
+    current_time = utcnow()
+    expired_sessions = db.scalars(select(BetaSession)).all()
+    for session in expired_sessions:
+        if normalize_db_datetime(session.expires_at) <= current_time:
+            db.delete(session)
+
+
+def sync_beta_program(db: Session) -> BetaProgramStatus:
+    purge_expired_beta_sessions(db)
+    approved_users = db.scalars(
+        select(BetaUser)
+        .where(BetaUser.status == "APPROVED")
+        .order_by(BetaUser.beta_position.asc(), BetaUser.created_at.asc(), BetaUser.id.asc())
+    ).all()
+    approved_count = len(approved_users)
+
+    for index, user in enumerate(approved_users, start=1):
+        if user.beta_position != index:
+            user.beta_position = index
+
+    available_slots = max(settings.beta_seats_total - approved_count, 0)
+    if available_slots > 0:
+        waitlisted_to_promote = db.scalars(
+            select(BetaUser)
+            .where(BetaUser.status == "WAITLISTED")
+            .order_by(BetaUser.created_at.asc(), BetaUser.id.asc())
+            .limit(available_slots)
+        ).all()
+        next_position = approved_count + 1
+        for user in waitlisted_to_promote:
+            user.status = "APPROVED"
+            user.beta_position = next_position
+            next_position += 1
+        approved_count += len(waitlisted_to_promote)
+
+    waitlisted_users = db.scalars(
+        select(BetaUser)
+        .where(BetaUser.status == "WAITLISTED")
+        .order_by(BetaUser.created_at.asc(), BetaUser.id.asc())
+    ).all()
+    for index, user in enumerate(waitlisted_users, start=1):
+        if user.beta_position != index:
+            user.beta_position = index
+
+    db.flush()
+    waitlist_count = len(waitlisted_users)
+    seats_taken = min(approved_count, settings.beta_seats_total)
+    return BetaProgramStatus(
+        seats_total=settings.beta_seats_total,
+        seats_taken=seats_taken,
+        seats_remaining=max(settings.beta_seats_total - seats_taken, 0),
+        waitlist_count=waitlist_count,
+    )
+
+
+def serialize_beta_user(user: BetaUser) -> BetaAuthUser:
+    return BetaAuthUser(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        provider="google" if user.provider == "google" else "email",
+        approved=user.status == "APPROVED",
+        beta_position=user.beta_position,
+    )
+
+
+def issue_beta_session(db: Session, user: BetaUser) -> BetaAuthSessionRead:
+    token = token_urlsafe(32)
+    session = BetaSession(
+        id=token_urlsafe(24),
+        user_id=user.id,
+        token_hash=beta_session_hash(token),
+        expires_at=utcnow() + BETA_SESSION_TTL,
+    )
+    db.add(session)
+    db.flush()
+    return BetaAuthSessionRead(
+        token=token,
+        created_at=session.created_at,
+        expires_at=session.expires_at,
+        user=serialize_beta_user(user),
+    )
+
+
+def grant_beta_access_response(
+    db: Session,
+    *,
+    email: str,
+    name: str,
+    provider: str,
+) -> BetaAccessResponse:
+    user = db.scalar(select(BetaUser).where(BetaUser.email == email))
+    if user is None:
+        user = BetaUser(
+            email=email,
+            name=name,
+            provider=provider,
+            status="WAITLISTED",
+        )
+        db.add(user)
+        db.flush()
+    else:
+        user.name = name or user.name
+        user.provider = provider
+
+    program = sync_beta_program(db)
+    user.last_login_at = utcnow()
+    session = issue_beta_session(db, user)
+    return BetaAccessResponse(session=session, program=program)
+
+
+def resolve_beta_session(db: Session, authorization: str | None) -> tuple[BetaSession, BetaUser, str]:
+    token = normalize_beta_email_token(authorization)
+    session = db.scalar(select(BetaSession).where(BetaSession.token_hash == beta_session_hash(token)))
+    if session is None or normalize_db_datetime(session.expires_at) <= utcnow():
+        if session is not None:
+            db.delete(session)
+            db.commit()
+        raise HTTPException(status_code=401, detail="Valid beta session required")
+    user = db.get(BetaUser, session.user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Valid beta session required")
+    return session, user, token
+
+
+def normalize_beta_email_token(authorization: str | None) -> str:
+    token = bearer_token(authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="Valid beta session required")
+    return token
+
+
 def market_data_error_response(exc: Exception) -> HTTPException:
     if isinstance(exc, FileNotFoundError):
         logger.warning("Market data CSV is unavailable: %s", exc)
@@ -237,6 +396,61 @@ def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
         raise HTTPException(status_code=502, detail="Market catalog returned invalid data") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Market catalog request failed") from exc
+
+
+def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object]:
+    if not settings.google_client_id or not settings.google_client_secret:
+        raise HTTPException(status_code=503, detail="Google OAuth not configured")
+
+    payload = urlencode(
+        {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://oauth2.googleapis.com/token",
+        data=payload,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "EdgeLab/0.1",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Google token exchange failed") from exc
+
+    if not isinstance(result, dict) or not clean_text(result.get("access_token")):
+        raise HTTPException(status_code=502, detail="Google token exchange returned invalid data")
+    return result
+
+
+def fetch_google_userinfo(access_token: str) -> dict[str, object]:
+    request = Request(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+            "User-Agent": "EdgeLab/0.1",
+        },
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Google userinfo request failed") from exc
+
+    email = clean_text(result.get("email")) if isinstance(result, dict) else ""
+    if not email:
+        raise HTTPException(status_code=502, detail="Google userinfo missing email")
+    return result
 
 
 def fetch_binance_exchange_info() -> object:
@@ -587,6 +801,97 @@ def ready(db: Session = Depends(get_db)) -> dict[str, str]:
         "dataset_assets": str(len(catalog.instruments)),
         "dataset_timeframes": str(timeframes),
     }
+
+
+@router.get("/auth/beta/status", response_model=BetaProgramStatus)
+def beta_program_status(db: Session = Depends(get_db)) -> BetaProgramStatus:
+    try:
+        status = sync_beta_program(db)
+        db.commit()
+        return status
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Beta access status unavailable") from exc
+
+
+@router.post("/auth/beta/access", response_model=BetaAccessResponse)
+def beta_access(
+    payload: BetaAccessRequest,
+    db: Session = Depends(get_db),
+) -> BetaAccessResponse:
+    email = normalize_beta_email(payload.email)
+    name = clean_text(payload.name) or "Beta Trader"
+
+    try:
+        response = grant_beta_access_response(
+            db,
+            email=email,
+            name=name,
+            provider=payload.provider,
+        )
+        db.commit()
+        return response
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Beta access request failed") from exc
+
+
+@router.post("/auth/google/exchange", response_model=BetaAccessResponse)
+def exchange_google_auth_code(
+    payload: GoogleAuthExchangeRequest,
+    db: Session = Depends(get_db),
+) -> BetaAccessResponse:
+    try:
+        token_payload = fetch_google_token_payload(payload.code, payload.redirect_uri)
+        userinfo = fetch_google_userinfo(clean_text(token_payload.get("access_token")))
+        email = normalize_beta_email(clean_text(userinfo.get("email")))
+        name = clean_text(userinfo.get("name")) or email.split("@", 1)[0]
+        response = grant_beta_access_response(
+            db,
+            email=email,
+            name=name,
+            provider="google",
+        )
+        db.commit()
+        return response
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Google sign-in failed") from exc
+
+
+@router.get("/auth/session", response_model=BetaAuthSessionRead)
+def read_beta_session(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> BetaAuthSessionRead:
+    try:
+        session, user, token = resolve_beta_session(db, authorization)
+        sync_beta_program(db)
+        db.commit()
+        return BetaAuthSessionRead(
+            token=token,
+            created_at=session.created_at,
+            expires_at=session.expires_at,
+            user=serialize_beta_user(user),
+        )
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Beta session unavailable") from exc
+
+
+@router.delete("/auth/session", response_model=dict[str, bool])
+def delete_beta_session(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    try:
+        session, _user, _token = resolve_beta_session(db, authorization)
+        db.delete(session)
+        db.commit()
+        return {"ok": True}
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to clear beta session") from exc
 
 
 @router.get("/market-data/meta", response_model=DatasetMeta)

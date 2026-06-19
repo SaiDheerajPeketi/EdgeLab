@@ -45,6 +45,8 @@ class Settings:
         "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'trade_journal_v2.db'}"
     )
     api_token: str = os.getenv("EDGELAB_API_TOKEN", "").strip()
+    google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
         for origin in os.getenv(
@@ -95,6 +97,7 @@ class Settings:
         25 * 1024 * 1024,
     )
     max_app_data_rows: int = int_env("EDGELAB_MAX_APP_DATA_ROWS", 100_000)
+    beta_seats_total: int = int_env("EDGELAB_BETA_SEATS_TOTAL", 500)
 
 
 settings = Settings()
