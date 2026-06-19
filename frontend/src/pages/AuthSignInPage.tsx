@@ -23,9 +23,11 @@ export function AuthSignInPage() {
   const [name, setName] = useState("Beta Trader");
   const [errorMessage, setErrorMessage] = useState<string | null>(searchParams.get("error"));
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { program } = useBetaProgramStatus();
+  const { loading, program } = useBetaProgramStatus();
   const waitlistMode = searchParams.get("waitlist") === "1";
   const googleReady = isGoogleAuthConfigured();
+  const seatsRemaining = program.seats_remaining;
+  const waitlistCount = program.waitlist_count;
 
   const handleDemoSignIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -59,9 +61,11 @@ export function AuthSignInPage() {
   return (
     <MarketingShell
       navItems={[
+        { href: "/#proof", label: "Proof" },
         { href: "/#features", label: "Features" },
         { href: "/pricing", label: "Pricing" },
-        { href: "/#faq", label: "Docs" },
+        { href: "/privacy", label: "Privacy" },
+        { href: "/terms", label: "Terms" },
       ]}
       pageTitle="auth"
     >
@@ -84,7 +88,11 @@ export function AuthSignInPage() {
 
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
               {[
-                { icon: Sparkles, label: "Beta seats", value: `${program.seats_remaining} left` },
+                {
+                  icon: Sparkles,
+                  label: "Beta seats",
+                  value: loading || seatsRemaining == null ? "syncing" : `${seatsRemaining} left`,
+                },
                 { icon: LockKeyhole, label: "Protected route", value: "/app" },
                 { icon: DatabaseZap, label: "Data retention", value: "Pruned after beta" },
               ].map((item) => {
@@ -105,10 +113,10 @@ export function AuthSignInPage() {
 
             {isBetaMode(deploymentMode) ? (
               <div className="mt-8 rounded-[26px] border border-amber-300/20 bg-amber-300/10 p-5 text-sm leading-7 text-amber-100">
-                Beta gate live. {program.seats_taken}/{program.seats_total} seats claimed.
-                {program.seats_remaining > 0
+                Beta gate live. {program.seats_taken == null ? "Live cohort syncing." : `${program.seats_taken}/${program.seats_total} seats claimed.`}
+                {seatsRemaining == null || seatsRemaining > 0
                   ? " Seats open now."
-                  : ` Seats full. Waitlist collecting ${program.waitlist_count} traders.`}
+                  : ` Seats full. Waitlist collecting ${waitlistCount ?? 0} traders.`}
               </div>
             ) : null}
           </div>
@@ -166,7 +174,7 @@ export function AuthSignInPage() {
               >
                 {isSubmitting
                   ? "Requesting access..."
-                  : program.seats_remaining > 0
+                  : seatsRemaining == null || seatsRemaining > 0
                     ? "Enter beta workspace"
                     : "Join beta waitlist"}
               </button>
@@ -195,7 +203,7 @@ export function AuthSignInPage() {
 
             {waitlistMode ? (
               <div className="mt-5 rounded-[22px] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm leading-7 text-amber-100">
-                Beta seats full. Join waitlist now. Current queue: {program.waitlist_count} traders.
+                Beta seats full. Join waitlist now. Current queue: {waitlistCount == null ? "syncing" : waitlistCount} traders.
               </div>
             ) : null}
 
@@ -211,7 +219,7 @@ export function AuthSignInPage() {
 
             <p className="mt-6 text-sm leading-7 text-slate-400">
               Don&apos;t have account yet?{" "}
-              {program.seats_remaining > 0 ? "Use beta entry now," : "Join waitlist now,"}{" "}
+              {seatsRemaining == null || seatsRemaining > 0 ? "Use beta entry now," : "Join waitlist now,"}{" "}
               or jump back to{" "}
               <Link className="ml-1 text-cyan-100" to="/">
                 landing page

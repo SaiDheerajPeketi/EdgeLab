@@ -140,10 +140,13 @@ export function PricingSection({
   onFrequencyChange,
   showComparison = true,
 }: PricingSectionProps) {
-  const { program } = useBetaProgramStatus();
+  const { loading, program } = useBetaProgramStatus();
 
   if (isBetaMode(mode)) {
-    const fillRatio = Math.min(1, program.seats_taken / Math.max(program.seats_total, 1));
+    const seatsTaken = program.seats_taken ?? 0;
+    const seatsRemaining = program.seats_remaining;
+    const waitlistCount = program.waitlist_count;
+    const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
 
     return (
       <div className="grid gap-6">
@@ -180,7 +183,9 @@ export function PricingSection({
 
             <div className="rounded-[24px] border border-white/10 bg-black/25 p-5">
               <div className="text-sm text-slate-400">Seats remaining</div>
-              <div className="mt-2 text-display text-5xl text-cyan-100">{program.seats_remaining}</div>
+              <div className="mt-2 text-display text-5xl text-cyan-100">
+                {loading || seatsRemaining == null ? "..." : seatsRemaining}
+              </div>
               <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-teal-200"
@@ -188,10 +193,12 @@ export function PricingSection({
                 />
               </div>
               <div className="mt-3 text-sm text-slate-300">
-                {program.seats_taken}/{program.seats_total} seats claimed
+                {loading || program.seats_taken == null
+                  ? "Pulling live cohort count"
+                  : `${program.seats_taken}/${program.seats_total} seats claimed`}
               </div>
               <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-                Waitlist auto-opens at capacity. Beta data will be pruned after beta ends. Current waitlist: {program.waitlist_count}.
+                Waitlist auto-opens at capacity. Beta data will be pruned after beta ends. Current waitlist: {waitlistCount == null ? "syncing" : waitlistCount}.
               </div>
             </div>
           </div>

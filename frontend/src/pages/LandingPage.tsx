@@ -184,17 +184,21 @@ function SectionHeading({
 }
 
 export function LandingPage() {
-  const { program } = useBetaProgramStatus();
-  const betaFillRatio = Math.min(1, program.seats_taken / Math.max(program.seats_total, 1));
+  const { loading, program } = useBetaProgramStatus();
+  const seatsTaken = program.seats_taken ?? 0;
+  const seatsRemaining = program.seats_remaining;
+  const waitlistCount = program.waitlist_count;
+  const betaFillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
 
   return (
     <MarketingShell
       navItems={[
         { href: "#track", label: "Beta Track" },
         { href: "#features", label: "Product" },
-        { href: "#workflow", label: "Workflow" },
+        { href: "#proof", label: "Proof" },
         { href: "/pricing", label: "Pricing" },
-        { href: "#faq", label: "FAQ" },
+        { href: "/privacy", label: "Privacy" },
+        { href: "/terms", label: "Terms" },
       ]}
       pageTitle="landing"
     >
@@ -220,7 +224,7 @@ export function LandingPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
                 to="/auth/signin"
               >
-                {program.seats_remaining > 0 ? "Enter beta track" : "Join beta waitlist"}
+                {seatsRemaining == null || seatsRemaining > 0 ? "Enter beta track" : "Join beta waitlist"}
                 <ArrowRight size={16} />
               </Link>
               <a
@@ -233,11 +237,15 @@ export function LandingPage() {
 
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card">
-                <div className="font-data text-xl text-white">{program.seats_remaining}</div>
+                <div className="font-data text-xl text-white">
+                  {loading || seatsRemaining == null ? "..." : seatsRemaining}
+                </div>
                 <div className="mt-1 text-sm text-slate-400">Seats open right now</div>
               </div>
               <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card">
-                <div className="font-data text-xl text-white">{program.waitlist_count}</div>
+                <div className="font-data text-xl text-white">
+                  {waitlistCount == null ? "..." : waitlistCount}
+                </div>
                 <div className="mt-1 text-sm text-slate-400">Waitlist traders queued</div>
               </div>
               <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card">
@@ -273,7 +281,9 @@ export function LandingPage() {
                   <div className="flex items-center justify-between gap-3 text-sm text-slate-400">
                     <span>Seat pressure</span>
                     <span>
-                      {program.seats_taken}/{program.seats_total} claimed
+                      {loading || program.seats_taken == null
+                        ? "pulling live count"
+                        : `${program.seats_taken}/${program.seats_total} claimed`}
                     </span>
                   </div>
                   <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
@@ -441,11 +451,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="workflow" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="proof" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
             description="Short path. No mode theater. No spreadsheet detour. No fake testimonial wall."
-            eyebrow="Workflow"
+            eyebrow="Proof"
             title="Load evidence, trade it, interrogate yourself."
           />
 
@@ -464,8 +474,8 @@ export function LandingPage() {
 
           <div className="mt-14 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Beta seats" suffix="" target={program.seats_total} />
-            <StatCard label="Seats already claimed" suffix="" target={program.seats_taken} />
-            <StatCard label="Waitlist traders" suffix="" target={program.waitlist_count} />
+            <StatCard label="Seats already claimed" suffix="" target={program.seats_taken ?? 0} />
+            <StatCard label="Waitlist traders" suffix="" target={program.waitlist_count ?? 0} />
             <StatCard label="Core beta tracks" suffix="" target={BETA_TRACKS.length} />
           </div>
         </div>
@@ -515,7 +525,7 @@ export function LandingPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
                 to="/auth/signin"
               >
-                {program.seats_remaining > 0 ? "Enter beta" : "Join waitlist"}
+                {seatsRemaining == null || seatsRemaining > 0 ? "Enter beta" : "Join waitlist"}
                 <ArrowRight size={16} />
               </Link>
               <Link

@@ -82,11 +82,15 @@ function BetaBanner() {
     return null;
   }
 
-  const { program } = useBetaProgramStatus();
+  const { loading, program } = useBetaProgramStatus();
+  const seatSummary =
+    loading || program.seats_remaining == null
+      ? "seat sync in progress"
+      : `${program.seats_remaining} seats open`;
 
   return (
     <div className="border-b border-cyan-300/10 bg-cyan-300/10 px-4 py-2 text-center text-xs text-cyan-50">
-      EdgeLab beta live. {program.seats_remaining} seats open, waitlist auto-enables after fill, beta data will be pruned when beta closes.
+      EdgeLab beta live. {seatSummary}, waitlist auto-enables after fill, beta data will be pruned when beta closes.
     </div>
   );
 }
@@ -211,11 +215,20 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               </p>
             </div>
             <div className="grid gap-3 text-sm text-slate-400">
+              <a className="transition hover:text-cyan-100" href="/#proof">
+                Proof
+              </a>
               <Link className="transition hover:text-cyan-100" to="/pricing">
                 Pricing
               </Link>
               <Link className="transition hover:text-cyan-100" to="/auth/signin">
                 Beta access
+              </Link>
+              <Link className="transition hover:text-cyan-100" to="/privacy">
+                Privacy
+              </Link>
+              <Link className="transition hover:text-cyan-100" to="/terms">
+                Terms
               </Link>
               <a className="transition hover:text-cyan-100" href="/#features">
                 Features

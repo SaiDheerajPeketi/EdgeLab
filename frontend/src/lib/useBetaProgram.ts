@@ -3,20 +3,39 @@ import type { BetaProgramStatus } from "./api";
 import { ApiError, getBetaProgramStatus } from "./api";
 import { getBetaSeatState } from "./deploymentMode";
 
-function fallbackProgramStatus(): BetaProgramStatus {
+export type BetaProgramView = {
+  mode: "beta";
+  seats_total: number;
+  seats_taken: number | null;
+  seats_remaining: number | null;
+  waitlist_count: number | null;
+};
+
+function fallbackProgramStatus(): BetaProgramView {
   const fallback = getBetaSeatState();
   return {
     mode: "beta",
     seats_total: fallback.total,
-    seats_taken: fallback.taken,
-    seats_remaining: fallback.remaining,
-    waitlist_count: 0,
+    seats_taken: null,
+    seats_remaining: null,
+    waitlist_count: null,
+  };
+}
+
+function liveProgramStatus(program: BetaProgramStatus): BetaProgramView {
+  return {
+    mode: program.mode,
+    seats_total: program.seats_total,
+    seats_taken: program.seats_taken,
+    seats_remaining: program.seats_remaining,
+    waitlist_count: program.waitlist_count,
   };
 }
 
 export function useBetaProgramStatus() {
-  const [program, setProgram] = useState<BetaProgramStatus>(fallbackProgramStatus);
+  const [program, setProgram] = useState<BetaProgramView>(fallbackProgramStatus);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -26,8 +45,9 @@ export function useBetaProgramStatus() {
         if (!active) {
           return;
         }
-        setProgram(response);
+        setProgram(liveProgramStatus(response));
         setError(null);
+        setLoading(false);
       })
       .catch((responseError: unknown) => {
         if (!active) {
@@ -35,6 +55,7 @@ export function useBetaProgramStatus() {
         }
         setError(responseError instanceof ApiError ? responseError.message : "Beta program unavailable");
         setProgram(fallbackProgramStatus());
+        setLoading(false);
       });
 
     return () => {
@@ -44,6 +65,7 @@ export function useBetaProgramStatus() {
 
   return {
     error,
+    loading,
     program,
   };
 }

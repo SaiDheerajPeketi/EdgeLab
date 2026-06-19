@@ -17,6 +17,12 @@ const LandingPage = lazy(() =>
 const PricingPage = lazy(() =>
   import("../pages/PricingPage").then((module) => ({ default: module.PricingPage })),
 );
+const PrivacyPage = lazy(() =>
+  import("../pages/LegalPages").then((module) => ({ default: module.PrivacyPage })),
+);
+const TermsPage = lazy(() =>
+  import("../pages/LegalPages").then((module) => ({ default: module.TermsPage })),
+);
 const AuthSignInPage = lazy(() =>
   import("../pages/AuthSignInPage").then((module) => ({ default: module.AuthSignInPage })),
 );
@@ -171,6 +177,8 @@ export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
           <Route element={<LandingPage />} path="/" />
           <Route element={<Navigate replace to="/" />} path="/index.html" />
           <Route element={<PricingPage />} path="/pricing" />
+          <Route element={<PrivacyPage />} path="/privacy" />
+          <Route element={<TermsPage />} path="/terms" />
           <Route element={<AuthSignInPage />} path="/auth/signin" />
           <Route element={<AuthCallbackPage />} path="/auth/callback/google" />
           <Route element={<ProtectedWorkspace WorkspaceApp={WorkspaceApp} />} path="/app" />
