@@ -38,11 +38,11 @@ type AppRoutesProps = {
 function AppRouteFallback() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-edgelab-base px-4 text-edgelab-text-primary">
-      <div className="w-full max-w-md rounded-[30px] border border-white/10 bg-white/[0.04] p-8 text-center shadow-card">
+      <div className="w-full max-w-md rounded-[30px] border border-cyan-300/15 bg-white/[0.04] p-8 text-center shadow-card backdrop-blur-xl">
         <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-cyan-300/20 border-t-cyan-300" />
-        <div className="mt-6 text-display text-3xl text-white">Loading route</div>
+        <div className="mt-6 text-display text-3xl text-white">Opening EdgeLab</div>
         <p className="mt-3 text-sm leading-7 text-slate-400">
-          Pulling next EdgeLab surface into view.
+          Pulling next trading surface into view.
         </p>
       </div>
     </div>
@@ -94,18 +94,18 @@ function WorkspaceSessionChip() {
 
   return (
     <div className="pointer-events-none fixed right-4 top-4 z-[120] flex items-center gap-3">
-      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-[#05070de6] px-3 py-2 text-slate-100 shadow-card backdrop-blur-xl">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950">
+      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-cyan-300/15 bg-[#071019e8] px-3 py-2 text-slate-100 shadow-card backdrop-blur-xl">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950 shadow-glow">
           {initialsForName(session.user.name)}
         </div>
         <div className="hidden sm:block">
           <div className="text-sm font-semibold">{session.user.name}</div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
-            {session.user.plan}
+            Find your edge
           </div>
         </div>
         <button
-          className="rounded-full border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:border-cyan-300/30 hover:text-cyan-100"
+          className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
           onClick={() => {
             const token = session.token;
             clearStoredAuthSession();
@@ -129,12 +129,12 @@ function WorkspaceBetaNotice() {
 
   return (
     <div className="pointer-events-none fixed left-4 top-4 z-[120] max-w-sm">
-      <div className="pointer-events-auto rounded-[24px] border border-amber-300/20 bg-[#1a1410f2] px-4 py-3 text-sm leading-6 text-amber-100 shadow-card backdrop-blur-xl">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-amber-200/75">
-          Beta Track
+      <div className="pointer-events-auto rounded-[24px] border border-cyan-300/15 bg-[#08111af2] px-4 py-3 text-sm leading-6 text-cyan-50 shadow-card backdrop-blur-xl">
+        <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/70">
+          Beta Workspace
         </div>
-        <div className="mt-2 text-slate-50">
-          Stress-test replay, journaling, analytics. Beta data will be pruned after beta ends.
+        <div className="mt-2 text-slate-200">
+          Workflows here are for active beta feedback. Export anything critical before beta closes.
         </div>
       </div>
     </div>
@@ -147,14 +147,16 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
 
   if (!session) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
-    return <Navigate replace to={`/auth/signin?from=${encodeURIComponent(fromPath)}`} />;
+    return <Navigate replace state={{ fromPath }} to="/auth/signin" />;
   }
 
   if (!session.user.approved) {
+    const fromPath = `${location.pathname}${location.search}${location.hash}`;
     return (
       <Navigate
         replace
-        to={`/auth/signin?from=${encodeURIComponent(location.pathname)}&waitlist=1`}
+        state={{ fromPath }}
+        to="/auth/signin?waitlist=1"
       />
     );
   }

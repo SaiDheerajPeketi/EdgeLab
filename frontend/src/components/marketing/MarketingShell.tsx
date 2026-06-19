@@ -70,7 +70,7 @@ export function EdgeLabWordmark() {
       <div>
         <div className="text-display text-xl tracking-[-0.04em]">EdgeLab</div>
         <div className="text-[10px] uppercase tracking-[0.32em] text-slate-500">
-          Trade Research
+          Find your edge
         </div>
       </div>
     </div>
@@ -90,7 +90,7 @@ function BetaBanner() {
 
   return (
     <div className="border-b border-cyan-300/10 bg-cyan-300/10 px-4 py-2 text-center text-xs text-cyan-50">
-      EdgeLab beta live. {seatSummary}, waitlist auto-enables after fill, beta data will be pruned when beta closes.
+      EdgeLab beta live. {seatSummary}. Beta data may be pruned after program ends.
     </div>
   );
 }
@@ -153,13 +153,13 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                 className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/30 hover:text-cyan-100"
                 to="/auth/signin"
               >
-                Beta access
+                Sign in
               </Link>
               <Link
                 className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
                 to="/auth/signin"
               >
-                Enter Beta
+                Enter EdgeLab
                 <span aria-hidden="true">→</span>
               </Link>
             </div>
@@ -190,13 +190,13 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                   className="rounded-2xl border border-white/10 px-4 py-3 text-sm text-slate-200"
                   to="/auth/signin"
                 >
-                  Beta access
+                  Sign in
                 </Link>
                 <Link
                   className="rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950"
                   to="/auth/signin"
                 >
-                  Enter Beta →
+                  Enter EdgeLab →
                 </Link>
               </div>
             </div>
@@ -210,8 +210,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
             <div className="max-w-xl">
               <EdgeLabWordmark />
               <p className="mt-4 text-sm leading-7 text-slate-400">
-                Backtest. Journal. Prove strategy works. Built for traders who want
-                hard evidence, not vibes.
+                Replay, journal, and review from one focused trading surface.
               </p>
             </div>
             <div className="grid gap-3 text-sm text-slate-400">
@@ -222,7 +221,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                 Pricing
               </Link>
               <Link className="transition hover:text-cyan-100" to="/auth/signin">
-                Beta access
+                Sign in
               </Link>
               <Link className="transition hover:text-cyan-100" to="/privacy">
                 Privacy
