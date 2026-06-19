@@ -19,8 +19,8 @@ export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem
   const prefix = mode === "home" ? "" : "/";
 
   return [
-    { href: `${prefix}#product`, label: "Product" },
-    { href: `${prefix}#how-it-works`, label: "How It Works" },
+    { href: `${prefix}#product`, label: "Overview" },
+    { href: `${prefix}#how-it-works`, label: "Workflow" },
     { href: "/pricing", label: "Pricing" },
   ];
 }
@@ -52,7 +52,7 @@ function NavAnchor({ className, href, label }: NavItem & { className?: string })
 export function EdgeLabWordmark() {
   return (
     <div className="flex items-center gap-3 text-slate-50">
-      <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/20 bg-white/[0.03] shadow-glow">
+      <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)]">
         <svg aria-hidden="true" className="h-6 w-6" viewBox="0 0 64 64">
           <defs>
             <linearGradient id="edgelab-logo-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
@@ -78,9 +78,9 @@ export function EdgeLabWordmark() {
         </svg>
       </div>
       <div>
-        <div className="text-display text-xl tracking-[-0.04em]">EdgeLab</div>
-        <div className="max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.22em] text-cyan-100/55">
-          Find, Engineer and Redefine your edge
+        <div className="text-lg font-semibold tracking-[-0.05em] text-white">EdgeLab</div>
+        <div className="max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.28em] text-cyan-100/55">
+          Your Edge Engineered
         </div>
       </div>
     </div>
@@ -99,8 +99,11 @@ function BetaBanner() {
       : `${program.seats_remaining} seats open`;
 
   return (
-    <div className="border-b border-cyan-300/10 bg-cyan-300/10 px-4 py-2 text-center text-xs text-cyan-50">
-      EdgeLab beta live. {seatSummary}. Beta data may be pruned after program ends.
+    <div className="border-b border-white/10 bg-[#061018] px-4 py-2 text-center text-xs text-slate-300">
+      <span className="font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+        Private beta
+      </span>{" "}
+      live. {seatSummary}. Beta data may be pruned after program ends.
     </div>
   );
 }
@@ -142,9 +145,9 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
   return (
     <div className="relative min-h-screen overflow-hidden bg-edgelab-base text-edgelab-text-primary">
       <div className="pointer-events-none absolute inset-0">
-        <div className="edgelab-mesh absolute inset-x-[-10%] top-[-22rem] h-[44rem] opacity-80" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(50,211,238,0.12),transparent_35%),linear-gradient(180deg,#07090d_0%,#090b0f_42%,#05070a_100%)]" />
-        <div className="edgelab-grid absolute inset-0 opacity-40" />
+        <div className="edgelab-mesh absolute inset-x-[-10%] top-[-22rem] h-[44rem] opacity-50" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(50,211,238,0.10),transparent_32%),radial-gradient(circle_at_82%_18%,rgba(245,158,11,0.06),transparent_20%),linear-gradient(180deg,#07090d_0%,#090b0f_42%,#05070a_100%)]" />
+        <div className="edgelab-grid absolute inset-0 opacity-25" />
       </div>
 
       <div className="relative z-10">
@@ -168,7 +171,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
             <div className="hidden items-center gap-3 md:flex">
               <Link
-                className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
+                className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
                 to={primaryCtaHref}
               >
                 {primaryCtaLabel}
@@ -221,10 +224,10 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
             </div>
             <div className="grid gap-3 text-sm text-slate-400">
               <a className="transition hover:text-cyan-100" href="/#product">
-                Product
+                Overview
               </a>
               <a className="transition hover:text-cyan-100" href="/#how-it-works">
-                How It Works
+                Workflow
               </a>
               <Link className="transition hover:text-cyan-100" to="/pricing">
                 Pricing

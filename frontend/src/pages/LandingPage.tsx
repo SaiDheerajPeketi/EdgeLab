@@ -1,66 +1,43 @@
 import {
   ArrowRight,
-  BarChart3,
   BookOpenText,
-  CandlestickChart,
   LockKeyhole,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
-import { buildMarketingNavItems, MarketingShell } from "../components/marketing/MarketingShell";
+import {
+  buildMarketingNavItems,
+  MarketingShell,
+} from "../components/marketing/MarketingShell";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
-type Feature = {
-  body: string;
-  icon: typeof CandlestickChart;
-  title: string;
-};
-
-type FlowStep = {
+type WorkflowStep = {
   body: string;
   step: string;
   title: string;
 };
 
-const FEATURES: Feature[] = [
-  {
-    body: "Replay, execution context, journal notes, and analytics stay together instead of getting scattered across tabs.",
-    icon: CandlestickChart,
-    title: "One focused desk",
-  },
-  {
-    body: "Live preview uses real EdgeLab surfaces so landing page feels like product, not polished fiction.",
-    icon: BarChart3,
-    title: "Real product feel",
-  },
-  {
-    body: "Single Google path keeps beta entry simple while open seats and waitlist stay clear.",
-    icon: LockKeyhole,
-    title: "Simple beta entry",
-  },
-];
-
-const FLOW_STEPS: FlowStep[] = [
+const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     step: "01",
-    title: "Replay with intent",
-    body: "Walk candle by candle, place trades, and keep timing decisions in full context.",
+    title: "Replay with context",
+    body: "Walk price action first. Entries, exits, and tempo stay visible while the session unfolds.",
   },
   {
     step: "02",
-    title: "Review without drift",
-    body: "Tag mistakes, capture notes, and keep every lesson tied to actual executions.",
+    title: "Review in place",
+    body: "Journal notes, mistake tags, and session outcomes stay attached to exact market behavior.",
   },
   {
     step: "03",
-    title: "Refine with proof",
-    body: "Let metrics, curve, and playbook outcomes pressure-test your edge before confidence grows.",
+    title: "Refine from proof",
+    body: "Metrics and playbooks pressure-test process only after replay and review already agree.",
   },
 ];
 
-function SectionHeading({
+function SectionIntro({
   description,
   eyebrow,
   title,
@@ -71,8 +48,10 @@ function SectionHeading({
 }) {
   return (
     <div className="max-w-3xl">
-      <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/65">{eyebrow}</div>
-      <h2 className="text-display mt-4 text-4xl leading-[0.96] tracking-[-0.05em] text-white sm:text-[4rem]">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">
+        {eyebrow}
+      </div>
+      <h2 className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.6rem]">
         {title}
       </h2>
       <p className="mt-4 text-base leading-8 text-slate-400">{description}</p>
@@ -80,7 +59,7 @@ function SectionHeading({
   );
 }
 
-function StatPill({
+function StatusCard({
   hint,
   label,
   value,
@@ -90,10 +69,14 @@ function StatPill({
   value: string;
 }) {
   return (
-    <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-5 py-5 shadow-card">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-3 font-data text-3xl text-white">{value}</div>
-      <div className="mt-2 text-sm text-slate-400">{hint}</div>
+    <div className="rounded-[24px] border border-white/10 bg-[#071018] px-5 py-5 shadow-panel">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+        {label}
+      </div>
+      <div className="mt-3 text-[1.65rem] font-semibold tracking-[-0.04em] text-white">
+        {value}
+      </div>
+      <div className="mt-2 text-sm leading-7 text-slate-400">{hint}</div>
     </div>
   );
 }
@@ -102,6 +85,12 @@ export function LandingPage() {
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
+  const primaryLabel =
+    !loading && seatsRemaining != null && seatsRemaining <= 0 ? "Join Waitlist" : "Join Beta";
+  const primaryHref =
+    !loading && seatsRemaining != null && seatsRemaining <= 0
+      ? "/auth/signin?waitlist=1"
+      : "/auth/signin";
   const accessLabel =
     seatsRemaining == null
       ? "Checking seats"
@@ -110,140 +99,109 @@ export function LandingPage() {
         : "Waitlist open";
 
   return (
-    <MarketingShell
-      navItems={buildMarketingNavItems("home")}
-      pageTitle="landing"
-    >
-      <section className="relative overflow-hidden px-4 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
+    <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
+      <section className="px-4 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
         <div className="mx-auto max-w-7xl">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs uppercase tracking-[0.24em] text-cyan-100">
+          <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-end">
+            <div className="max-w-4xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
                 <ShieldCheck size={14} />
                 EdgeLab beta
               </div>
 
-              <h1 className="text-display mt-6 max-w-5xl text-5xl leading-[0.92] tracking-[-0.06em] text-white sm:text-6xl lg:text-[5.45rem]">
-                Replay, journal, and refine on one focused surface.
+              <h1 className="mt-6 max-w-4xl text-[clamp(3.35rem,7vw,6.3rem)] font-semibold leading-[0.88] tracking-[-0.08em] text-white">
+                Your Edge <span className="text-cyan-300">Engineered.</span>
               </h1>
 
-              <div className="mt-6 max-w-3xl rounded-[30px] border border-cyan-300/15 bg-[linear-gradient(135deg,rgba(50,211,238,0.14),rgba(255,255,255,0.035))] p-6 shadow-card">
-                <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/70">
-                  Tagline
-                </div>
-                <div className="text-display mt-3 text-2xl leading-tight text-cyan-50 sm:text-[2.3rem]">
-                  Find, Engineer and <span className="text-cyan-300">Redefine your edge.</span>
-                </div>
-              </div>
-
-              <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">
-                EdgeLab keeps execution context, journal memory, and analytics truth together.
-                Less drift. Better review. Cleaner feedback on what sharpens your process.
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+                Replay price action, capture decisions, and review outcomes from one trading
+                surface built to tighten process instead of adding more tabs.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
-                  to="/auth/signin"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
+                  to={primaryHref}
                 >
-                  {seatsRemaining == null || seatsRemaining > 0 ? "Join beta" : "Join waitlist"}
+                  {primaryLabel}
                   <ArrowRight size={16} />
                 </Link>
                 <a
-                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/30 hover:text-cyan-100"
-                  href="#product"
+                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-100 transition duration-200 ease-out hover:border-cyan-300/25 hover:text-cyan-100 motion-reduce:transition-none"
+                  href="#how-it-works"
                 >
-                  Explore product
+                  See workflow
                 </a>
               </div>
 
-              <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                <StatPill
-                  hint="Current beta availability"
-                  label="Beta Spots"
-                  value={loading ? "..." : accessLabel}
-                />
-                <StatPill
-                  hint="Auto-opens when beta fills"
-                  label="Waitlist"
-                  value={waitlistCount == null ? "..." : String(waitlistCount)}
-                />
-                <StatPill
-                  hint="Export what matters"
-                  label="Data Policy"
-                  value="Temporary"
-                />
+              <div className="mt-8 flex flex-wrap gap-3 text-sm text-slate-400">
+                {[
+                  "Live replay with journal context",
+                  "Google OAuth beta entry",
+                  "Beta data may be pruned after program ends",
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2"
+                  >
+                    {item}
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="grid gap-4">
-              {FEATURES.map((feature, index) => {
-                const Icon = feature.icon;
-                return (
-                  <div
-                    key={feature.title}
-                    className={`rounded-[30px] border p-6 shadow-card ${
-                      index === 0
-                        ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.16),rgba(255,255,255,0.035))]"
-                        : "border-white/10 bg-white/[0.03]"
-                    }`}
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
-                        <Icon size={22} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-2xl font-semibold text-white">{feature.title}</div>
-                        <p className="mt-3 text-sm leading-7 text-slate-300">{feature.body}</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="grid gap-3">
+              <StatusCard
+                hint="Current private beta access"
+                label="Access"
+                value={loading ? "..." : accessLabel}
+              />
+              <StatusCard
+                hint="Queue opens automatically once seats fill"
+                label="Waitlist"
+                value={waitlistCount == null ? "..." : String(waitlistCount)}
+              />
+              <StatusCard
+                hint="Export anything critical before beta closes"
+                label="Data lifecycle"
+                value="Temporary"
+              />
             </div>
           </div>
-        </div>
-      </section>
 
-      <section id="product" className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            description="This preview uses actual EdgeLab workspace surfaces. Candles, metrics, execution tape, and playbook context stay connected because product should feel coherent before marketing speaks."
-            eyebrow="Product"
-            title="Real app surfaces. Not static mockups."
-          />
-
-          <div className="mt-10">
+          <div id="product" className="mt-10 lg:mt-12">
             <HeroDemo />
           </div>
         </div>
       </section>
 
       <section id="how-it-works" className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <SectionHeading
-            description="EdgeLab should reduce distance between trade action and trade truth. This is whole loop."
-            eyebrow="How It Works"
-            title="Replay. Review. Refine."
+        <div className="mx-auto max-w-7xl">
+          <SectionIntro
+            description="EdgeLab is meant to shorten distance between what price did, what you did, and what that means for next session."
+            eyebrow="Workflow"
+            title="One loop. No drift."
           />
 
-          <div className="grid gap-4">
-            {FLOW_STEPS.map((step, index) => (
+          <div className="mt-10 grid gap-4 lg:grid-cols-3">
+            {WORKFLOW_STEPS.map((step, index) => (
               <div
                 key={step.step}
-                className={`rounded-[30px] border p-6 shadow-card ${
+                className={`rounded-[28px] border px-6 py-6 shadow-panel ${
                   index === 1
-                    ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.14),rgba(255,255,255,0.035))]"
-                    : "border-white/10 bg-white/[0.03]"
+                    ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.12),rgba(255,255,255,0.03))]"
+                    : "border-white/10 bg-[#071018]"
                 }`}
               >
-                <div className="flex items-start gap-5">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 font-data text-lg text-cyan-100">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 font-mono text-sm text-cyan-100">
                     {step.step}
                   </div>
                   <div>
-                    <div className="text-2xl font-semibold text-white">{step.title}</div>
-                    <p className="mt-3 text-sm leading-7 text-slate-300">{step.body}</p>
+                    <div className="text-[1.45rem] font-semibold tracking-[-0.04em] text-white">
+                      {step.title}
+                    </div>
+                    <p className="mt-3 text-sm leading-7 text-slate-400">{step.body}</p>
                   </div>
                 </div>
               </div>
@@ -252,19 +210,19 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="join-beta" className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl overflow-hidden rounded-[38px] border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(50,211,238,0.16),rgba(255,255,255,0.04)_45%,rgba(245,158,11,0.10))] p-8 shadow-glow">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+      <section id="join-beta" className="px-4 pb-24 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl rounded-[34px] border border-white/10 bg-[#060c12] p-8 shadow-card">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div>
-              <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/75">
-                Join Beta
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">
+                Beta track
               </div>
-              <div className="text-display mt-4 max-w-4xl text-4xl text-white sm:text-5xl">
-                Join beta while seats stay open. Join waitlist when they do not.
-              </div>
-              <p className="mt-4 max-w-3xl text-base leading-8 text-slate-100/88">
-                Keep beta entry simple, keep identity consistent, and keep expectations honest.
-                Beta data is temporary and may be pruned after program ends.
+              <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.2rem]">
+                Simple entry. Honest expectations.
+              </h2>
+              <p className="mt-4 max-w-3xl text-base leading-8 text-slate-400">
+                Beta access stays clean through Google OAuth. Beta data is temporary and may be
+                pruned once the test track closes.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -272,28 +230,28 @@ export function LandingPage() {
                   {
                     icon: LockKeyhole,
                     title: "OAuth only",
-                    body: "One sign-in path for approved users and waitlist.",
+                    body: "Single sign-in path for approved beta users and waitlist intake.",
                   },
                   {
                     icon: Sparkles,
-                    title: "Direct feedback",
-                    body: "Beta stays focused while workflow edges get cleaned up.",
+                    title: "Feedback first",
+                    body: "Current phase optimizes workflow fit, not feature sprawl.",
                   },
                   {
                     icon: BookOpenText,
                     title: "Export critical data",
-                    body: "Treat beta workspace as temporary, not long-term storage.",
+                    body: "Treat beta workspace as temporary while the product hardens.",
                   },
                 ].map((item) => {
                   const Icon = item.icon;
                   return (
                     <div
                       key={item.title}
-                      className="rounded-[24px] border border-white/10 bg-black/20 p-5"
+                      className="rounded-[22px] border border-white/10 bg-black/20 p-5"
                     >
                       <Icon className="text-cyan-100" size={18} />
                       <div className="mt-4 text-lg font-semibold text-white">{item.title}</div>
-                      <p className="mt-2 text-sm leading-7 text-slate-200/85">{item.body}</p>
+                      <p className="mt-2 text-sm leading-7 text-slate-400">{item.body}</p>
                     </div>
                   );
                 })}
@@ -301,27 +259,25 @@ export function LandingPage() {
             </div>
 
             <div className="grid gap-3">
-              <div className="rounded-[28px] border border-white/10 bg-black/24 p-5 shadow-card">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/70">
-                  Right now
-                </div>
-                <div className="mt-3 text-3xl font-semibold text-white">{accessLabel}</div>
-                <div className="mt-3 text-sm leading-7 text-slate-300">
-                  {waitlistCount == null
+              <StatusCard
+                hint={
+                  waitlistCount == null
                     ? "Waitlist count syncing."
-                    : `${waitlistCount} traders already queued if capacity closes.`}
-                </div>
-              </div>
+                    : `${waitlistCount} traders queued if seats close.`
+                }
+                label="Right now"
+                value={accessLabel}
+              />
 
               <Link
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
-                to="/auth/signin"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
+                to={primaryHref}
               >
-                {seatsRemaining == null || seatsRemaining > 0 ? "Join beta" : "Join waitlist"}
+                {primaryLabel}
                 <ArrowRight size={16} />
               </Link>
               <Link
-                className="inline-flex items-center justify-center rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-slate-100"
+                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-100 transition duration-200 ease-out hover:border-cyan-300/25 hover:text-cyan-100 motion-reduce:transition-none"
                 to="/pricing"
               >
                 Review pricing

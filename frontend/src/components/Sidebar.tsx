@@ -169,7 +169,7 @@ export function Sidebar({
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-black text-white">EdgeLab</div>
             <div className="max-w-[10rem] text-[10px] uppercase leading-[1.45] tracking-[0.18em] text-cyan-100/55">
-              Find, Engineer and Redefine your edge
+              Your Edge Engineered
             </div>
           </div>
         )}

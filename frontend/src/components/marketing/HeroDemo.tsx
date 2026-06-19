@@ -1,30 +1,41 @@
-import { ArrowRightLeft, CandlestickChart, Play, Sparkles } from "lucide-react";
-import { startTransition, useEffect, useRef, useState } from "react";
-import { EquityCurve } from "../EquityCurve";
+import { CandlestickChart, ShieldCheck, Sparkles } from "lucide-react";
+import {
+  ColorType,
+  CrosshairMode,
+  createChart,
+  type CandlestickData,
+  type HistogramData,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from "lightweight-charts";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ExecutionTape } from "../ExecutionTape";
 import { MetricsBar } from "../MetricsBar";
 import { PlaybookBoard } from "../PlaybookBoard";
 import type { Execution, Metrics, Playbook, Trade } from "../../lib/api";
 
+type DemoBar = {
+  close: number;
+  high: number;
+  low: number;
+  open: number;
+  time: UTCTimestamp;
+  volume: number;
+};
+
 type DemoScenario = {
-  closes: number[];
-  direction: "BUY" | "SELL";
-  entryIndex: number;
+  bars: DemoBar[];
   executions: Execution[];
-  exitIndex: number;
+  focusPoints: string[];
   id: string;
   label: string;
   metrics: Metrics;
   note: string;
   playbooks: Playbook[];
+  symbol: string;
+  timeframe: string;
   trades: Trade[];
-};
-
-type DemoCandle = {
-  close: number;
-  high: number;
-  low: number;
-  open: number;
 };
 
 const PLAYBOOKS: Playbook[] = [
@@ -143,17 +154,17 @@ function createExecution(
 }
 
 function createTrade({
-  id,
-  sessionId,
-  side,
+  emotionalState = "steady",
   entryPrice,
   exitPrice,
-  realizedPnl,
-  playbookId,
-  strategyName,
-  notes,
+  id,
   mistakeTags = [],
-  emotionalState = "steady",
+  notes,
+  playbookId,
+  realizedPnl,
+  sessionId,
+  side,
+  strategyName,
 }: {
   emotionalState?: string;
   entryPrice: number;
@@ -166,7 +177,7 @@ function createTrade({
   sessionId: number;
   side: "LONG" | "SHORT";
   strategyName: string;
-}) : Trade {
+}): Trade {
   const entryTime = `2026-06-${String((id % 20) + 1).padStart(2, "0")}T09:30:00Z`;
   const exitTime = `2026-06-${String((id % 20) + 1).padStart(2, "0")}T09:54:00Z`;
 
@@ -203,17 +214,54 @@ function createTrade({
   };
 }
 
-function buildCandles(closes: number[]): DemoCandle[] {
+function createBars({
+  baseVolume,
+  closes,
+  day,
+  stepMinutes = 5,
+}: {
+  baseVolume: number;
+  closes: number[];
+  day: number;
+  stepMinutes?: number;
+}): DemoBar[] {
+  const startTime = Date.UTC(2026, 5, day, 9, 30) / 1000;
+
   return closes.map((close, index) => {
-    const previousClose = index === 0 ? close - close * 0.0012 : closes[index - 1];
-    const wiggle = Math.max(Math.abs(close) * 0.0006, 0.12);
+    const previousClose = index === 0 ? close * 0.9986 : closes[index - 1];
+    const baseRange = Math.max(Math.abs(close - previousClose), Math.abs(close) * 0.00045);
+    const high = Math.max(previousClose, close) + baseRange * (0.72 + (index % 3) * 0.12);
+    const low = Math.min(previousClose, close) - baseRange * (0.78 + ((index + 1) % 3) * 0.1);
+
     return {
-      close,
-      high: Math.max(previousClose, close) + wiggle + (index % 3) * wiggle * 0.2,
-      low: Math.min(previousClose, close) - wiggle - ((index + 1) % 3) * wiggle * 0.18,
+      time: (startTime + index * stepMinutes * 60) as UTCTimestamp,
       open: previousClose,
+      high,
+      low,
+      close,
+      volume: baseVolume + index * 1800 + (index % 4) * 2400,
     };
   });
+}
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) {
+      return;
+    }
+
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setPrefersReducedMotion(query.matches);
+
+    update();
+    query.addEventListener("change", update);
+
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return prefersReducedMotion;
 }
 
 function formatPrice(value: number) {
@@ -226,145 +274,55 @@ function formatPrice(value: number) {
   return value.toFixed(4);
 }
 
-function CandlePreview({ scenario }: { scenario: DemoScenario }) {
-  const candles = buildCandles(scenario.closes);
-  const width = 520;
-  const height = 248;
-  const stepX = width / Math.max(candles.length, 1);
-  const high = Math.max(...candles.map((candle) => candle.high));
-  const low = Math.min(...candles.map((candle) => candle.low));
-  const range = Math.max(high - low, 1);
-  const priceY = (value: number) => 12 + ((high - value) / range) * (height - 24);
-  const entryCandle = candles[scenario.entryIndex] ?? candles[0];
-  const exitCandle = candles[scenario.exitIndex] ?? candles[candles.length - 1];
+function pricePrecision(value: number) {
+  if (Math.abs(value) >= 1000) {
+    return 2;
+  }
+  if (Math.abs(value) >= 10) {
+    return 2;
+  }
+  return 4;
+}
 
-  return (
-    <section className="min-w-0 rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.01))] p-4 shadow-card">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/70">
-            Replay Candles
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-white">{scenario.label}</div>
-          <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
-        </div>
-        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-slate-300">
-          Japanese candlestick preview
-        </div>
-      </div>
+function minMoveForPrecision(precision: number) {
+  if (precision <= 0) {
+    return 1;
+  }
+  return Number(`0.${"0".repeat(Math.max(0, precision - 1))}1`);
+}
 
-      <div className="mt-4 rounded-[24px] border border-white/10 bg-[#060b10] p-3">
-        <svg
-          aria-hidden="true"
-          className="h-[260px] w-full"
-          preserveAspectRatio="none"
-          viewBox={`0 0 ${width} ${height}`}
-        >
-          {[0.2, 0.4, 0.6, 0.8].map((fraction) => (
-            <line
-              key={fraction}
-              x1="0"
-              x2={width}
-              y1={(height * fraction).toFixed(2)}
-              y2={(height * fraction).toFixed(2)}
-              stroke="rgba(148,163,184,0.1)"
-              strokeDasharray="5 7"
-            />
-          ))}
+function formatCompactVolume(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return String(value);
+}
 
-          {candles.map((candle, index) => {
-            const x = stepX * index + stepX * 0.5;
-            const openY = priceY(candle.open);
-            const closeY = priceY(candle.close);
-            const highY = priceY(candle.high);
-            const lowY = priceY(candle.low);
-            const bullish = candle.close >= candle.open;
-            const bodyWidth = Math.max(10, stepX * 0.48);
-
-            return (
-              <g key={`${scenario.id}-${index}`}>
-                <line
-                  x1={x}
-                  x2={x}
-                  y1={highY}
-                  y2={lowY}
-                  stroke={bullish ? "#77f2ff" : "#ff9caf"}
-                  strokeWidth="2"
-                />
-                <rect
-                  x={x - bodyWidth / 2}
-                  y={Math.min(openY, closeY)}
-                  width={bodyWidth}
-                  height={Math.max(8, Math.abs(closeY - openY))}
-                  rx="3"
-                  fill={bullish ? "rgba(50,211,238,0.82)" : "rgba(251,113,133,0.82)"}
-                />
-              </g>
-            );
-          })}
-
-          <line
-            x1="0"
-            x2={width}
-            y1={priceY(entryCandle.close)}
-            y2={priceY(entryCandle.close)}
-            stroke={scenario.direction === "BUY" ? "rgba(50,211,238,0.95)" : "rgba(251,113,133,0.95)"}
-            strokeDasharray="7 7"
-          />
-          <circle
-            cx={stepX * scenario.entryIndex + stepX * 0.5}
-            cy={priceY(entryCandle.close)}
-            fill="#8bf5ff"
-            r="5"
-          />
-          <circle
-            cx={stepX * scenario.exitIndex + stepX * 0.5}
-            cy={priceY(exitCandle.close)}
-            fill="#f6c26b"
-            r="5"
-          />
-          <text
-            fill="#8bf5ff"
-            fontFamily="JetBrains Mono"
-            fontSize="10"
-            x="10"
-            y={Math.max(18, priceY(entryCandle.close) - 8)}
-          >
-            {scenario.direction} {formatPrice(entryCandle.close)}
-          </text>
-        </svg>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Entry</div>
-          <div className="mt-2 font-data text-lg text-white">{formatPrice(entryCandle.close)}</div>
-        </div>
-        <div className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Exit</div>
-          <div className="mt-2 font-data text-lg text-white">{formatPrice(exitCandle.close)}</div>
-        </div>
-        <div className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Direction</div>
-          <div className="mt-2 flex items-center gap-2 text-lg font-semibold text-white">
-            <ArrowRightLeft size={16} className="text-cyan-100" />
-            {scenario.direction}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+function formatPercent(value: number) {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
 }
 
 const SCENARIOS: DemoScenario[] = [
   {
     id: "replay",
-    label: "Replay session",
-    note: "Candles, metrics, execution tape, and playbook context stay on same surface.",
-    closes: [4280.4, 4278.6, 4279.8, 4282.2, 4284.1, 4287.4, 4290.5, 4288.9, 4292.1, 4294.8, 4293.7, 4296.4],
-    direction: "BUY",
-    entryIndex: 4,
-    exitIndex: 11,
+    label: "Replay",
+    note: "Walk live candles, take the trade, keep fills and context in same frame.",
+    symbol: "NQ 100",
+    timeframe: "5m replay",
+    bars: createBars({
+      day: 12,
+      baseVolume: 182000,
+      closes: [4280.4, 4278.6, 4279.8, 4282.2, 4284.1, 4287.4, 4290.5, 4288.9, 4292.1, 4294.8, 4293.7, 4296.4],
+    }),
+    focusPoints: [
+      "Opening range break stays visible beside fills.",
+      "Metrics update from same session, not exported screenshots.",
+      "Review starts from what price actually did.",
+    ],
     metrics: buildMetrics(1426, 0.581, 31, [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426]),
     executions: [
       createExecution(11, 7, "BUY", 4284.1, 2, 0, "2026-06-12T09:42:00Z"),
@@ -411,13 +369,22 @@ const SCENARIOS: DemoScenario[] = [
     playbooks: PLAYBOOKS,
   },
   {
-    id: "journal",
-    label: "Journal review",
-    note: "Trade replay rolls straight into tagged review instead of separate tooling.",
-    closes: [191.8, 191.6, 191.2, 190.9, 190.5, 190.1, 189.8, 190.2, 189.9, 189.5, 189.1, 188.8],
-    direction: "SELL",
-    entryIndex: 3,
-    exitIndex: 10,
+    id: "review",
+    label: "Review",
+    note: "Switch from replay to journal review without losing execution truth.",
+    symbol: "AAPL",
+    timeframe: "15m review",
+    bars: createBars({
+      day: 14,
+      baseVolume: 124000,
+      stepMinutes: 15,
+      closes: [191.8, 191.6, 191.2, 190.9, 190.5, 190.1, 189.8, 190.2, 189.9, 189.5, 189.1, 188.8],
+    }),
+    focusPoints: [
+      "Mistake tags stay attached to exact session outcome.",
+      "Journal pass highlights forced entries and clean exits.",
+      "Nothing jumps to separate tools during review.",
+    ],
     metrics: buildMetrics(986, 0.544, 24, [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986]),
     executions: [
       createExecution(21, 8, "SELL", 190.9, 300, 0, "2026-06-14T13:02:00Z"),
@@ -464,13 +431,21 @@ const SCENARIOS: DemoScenario[] = [
     playbooks: PLAYBOOKS,
   },
   {
-    id: "analytics",
-    label: "Analytics pass",
-    note: "Edge survives only when candles, execution, and results all agree with each other.",
-    closes: [1.0842, 1.0838, 1.0846, 1.0851, 1.0856, 1.0862, 1.0868, 1.0863, 1.0871, 1.0878, 1.0874, 1.0882],
-    direction: "BUY",
-    entryIndex: 2,
-    exitIndex: 9,
+    id: "results",
+    label: "Results",
+    note: "Outcome stays believable only when candles, fills, and review agree.",
+    symbol: "EURUSD",
+    timeframe: "5m results",
+    bars: createBars({
+      day: 16,
+      baseVolume: 212000,
+      closes: [1.0842, 1.0838, 1.0846, 1.0851, 1.0856, 1.0862, 1.0868, 1.0863, 1.0871, 1.0878, 1.0874, 1.0882],
+    }),
+    focusPoints: [
+      "Metrics prove process after chart context already exists.",
+      "Playbooks show which behavior still compounds.",
+      "Results feel earned instead of decorative marketing.",
+    ],
     metrics: buildMetrics(1874, 0.603, 37, [0, 164, 298, 552, 488, 736, 924, 1160, 1318, 1514, 1688, 1874]),
     executions: [
       createExecution(31, 9, "BUY", 1.0846, 120000, 0, "2026-06-16T08:48:00Z"),
@@ -516,45 +491,226 @@ const SCENARIOS: DemoScenario[] = [
   },
 ];
 
-export function HeroDemo() {
-  const [scenarioIndex, setScenarioIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const hideTimerRef = useRef<number | null>(null);
-  const showTimerRef = useRef<number | null>(null);
-  const scenario = SCENARIOS[scenarioIndex] ?? SCENARIOS[0];
+function SurfaceNotes({ scenario }: { scenario: DemoScenario }) {
+  return (
+    <section className="rounded-[24px] border border-white/10 bg-[#081018] p-4 shadow-panel">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
+            Why this view
+          </div>
+          <h3 className="mt-2 text-lg font-semibold tracking-[-0.03em] text-white">
+            Same surface, different proof
+          </h3>
+        </div>
+        <Sparkles className="text-cyan-100" size={18} />
+      </div>
 
-  const runScenarioTransition = (nextIndex: number) => {
-    if (nextIndex === scenarioIndex) {
+      <div className="mt-4 grid gap-2.5">
+        {scenario.focusPoints.map((point) => (
+          <div
+            key={point}
+            className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-sm leading-7 text-slate-300"
+          >
+            {point}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MarketingCandleSurface({ scenario }: { scenario: DemoScenario }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+
+  const lastBar = scenario.bars[scenario.bars.length - 1] ?? scenario.bars[0];
+  const firstBar = scenario.bars[0];
+  const changePercent =
+    firstBar != null && lastBar != null
+      ? ((lastBar.close - firstBar.open) / Math.max(Math.abs(firstBar.open), Number.EPSILON)) * 100
+      : 0;
+
+  useEffect(() => {
+    if (!containerRef.current) {
       return;
     }
 
-    if (hideTimerRef.current) {
-      window.clearTimeout(hideTimerRef.current);
-    }
-    if (showTimerRef.current) {
-      window.clearTimeout(showTimerRef.current);
-    }
+    const precision = pricePrecision(lastBar?.close ?? 1);
+    const chart = createChart(containerRef.current, {
+      autoSize: true,
+      layout: {
+        background: { color: "#0b1017", type: ColorType.Solid },
+        fontFamily:
+          "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+        textColor: "#94a3b8",
+      },
+      grid: {
+        vertLines: { color: "rgba(148, 163, 184, 0.06)" },
+        horzLines: { color: "rgba(148, 163, 184, 0.06)" },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: "rgba(148, 163, 184, 0.16)",
+      },
+      timeScale: {
+        borderColor: "rgba(148, 163, 184, 0.16)",
+        secondsVisible: false,
+        timeVisible: true,
+      },
+      localization: {
+        priceFormatter: (value: number) => formatPrice(value),
+      },
+    });
 
-    setIsTransitioning(true);
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: "#26A69A",
+      downColor: "#EF5350",
+      borderVisible: false,
+      wickUpColor: "#26A69A",
+      wickDownColor: "#EF5350",
+      priceFormat: {
+        type: "price",
+        precision,
+        minMove: minMoveForPrecision(precision),
+      },
+    });
 
-    hideTimerRef.current = window.setTimeout(() => {
-      startTransition(() => {
-        setScenarioIndex(nextIndex);
-      });
+    const volumeSeries = chart.addHistogramSeries({
+      color: "rgba(148, 163, 184, 0.24)",
+      lastValueVisible: false,
+      priceLineVisible: false,
+      priceScaleId: "",
+      priceFormat: {
+        type: "volume",
+      },
+    });
 
-      showTimerRef.current = window.setTimeout(() => {
-        setIsTransitioning(false);
-      }, 60);
-    }, 180);
-  };
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.8,
+        bottom: 0,
+      },
+    });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    volumeSeriesRef.current = volumeSeries;
+
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+    };
+  }, [lastBar?.close]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      runScenarioTransition((scenarioIndex + 1) % SCENARIOS.length);
-    }, 5200);
+    if (!candleSeriesRef.current || !volumeSeriesRef.current || !chartRef.current) {
+      return;
+    }
 
-    return () => window.clearTimeout(timer);
-  }, [scenarioIndex]);
+    const candleData: CandlestickData<UTCTimestamp>[] = scenario.bars.map((bar) => ({
+      time: bar.time,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+    }));
+
+    const volumeData: HistogramData<UTCTimestamp>[] = scenario.bars.map((bar) => ({
+      time: bar.time,
+      value: bar.volume,
+      color: bar.close >= bar.open ? "rgba(38, 166, 154, 0.34)" : "rgba(239, 83, 80, 0.34)",
+    }));
+
+    candleSeriesRef.current.setData(candleData);
+    volumeSeriesRef.current.setData(volumeData);
+    chartRef.current.timeScale().fitContent();
+  }, [scenario]);
+
+  return (
+    <section className="rounded-[26px] border border-white/10 bg-[#060c12] p-4 shadow-panel">
+      <div className="flex flex-col gap-3 border-b border-white/10 pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
+            {scenario.symbol}
+          </div>
+          <h3 className="mt-2 text-[1.7rem] font-semibold tracking-[-0.04em] text-white">
+            {scenario.timeframe}
+          </h3>
+          <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
+        </div>
+        <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300">
+          Candles + live widgets
+        </div>
+      </div>
+
+      <div className="chart-ohlcv-row mt-4">
+        <span className="chart-ohlcv-time">Latest</span>
+        <span className="chart-ohlcv-item">
+          <span>O</span>
+          <strong>{formatPrice(lastBar?.open ?? 0)}</strong>
+        </span>
+        <span className="chart-ohlcv-item">
+          <span>H</span>
+          <strong>{formatPrice(lastBar?.high ?? 0)}</strong>
+        </span>
+        <span className="chart-ohlcv-item">
+          <span>L</span>
+          <strong>{formatPrice(lastBar?.low ?? 0)}</strong>
+        </span>
+        <span className="chart-ohlcv-item">
+          <span>C</span>
+          <strong>{formatPrice(lastBar?.close ?? 0)}</strong>
+        </span>
+        <span className="chart-ohlcv-item">
+          <span>Vol</span>
+          <strong>{formatCompactVolume(lastBar?.volume ?? 0)}</strong>
+        </span>
+        <span className={`chart-ohlcv-change ${changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+          {formatPercent(changePercent)}
+        </span>
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-[22px] border border-white/10 bg-[#0b1017]">
+        <div ref={containerRef} className="h-[360px] w-full" />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Frame</div>
+          <div className="mt-2 text-sm font-semibold text-white">Replay stays candle-first</div>
+        </div>
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Proof</div>
+          <div className="mt-2 text-sm font-semibold text-white">Metrics stay tied to session</div>
+        </div>
+        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Review</div>
+          <div className="mt-2 text-sm font-semibold text-white">Playbooks expose what repeats</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function HeroDemo() {
+  const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
+  const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
+  const [showing, setShowing] = useState(true);
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const hideTimerRef = useRef<number | null>(null);
+  const showTimerRef = useRef<number | null>(null);
+
+  const scenario = useMemo(
+    () => SCENARIOS.find((item) => item.id === visibleScenarioId) ?? SCENARIOS[0],
+    [visibleScenarioId],
+  );
 
   useEffect(() => {
     return () => {
@@ -567,34 +723,68 @@ export function HeroDemo() {
     };
   }, []);
 
-  return (
-    <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-[#081019]/92 p-4 shadow-[0_36px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/50 to-transparent" />
+  const selectScenario = (nextScenarioId: string) => {
+    if (nextScenarioId === visibleScenarioId) {
+      return;
+    }
 
-      <div className="rounded-[24px] border border-white/10 bg-black/25 px-4 py-4">
+    setSelectedScenarioId(nextScenarioId);
+
+    if (prefersReducedMotion) {
+      setVisibleScenarioId(nextScenarioId);
+      setShowing(true);
+      return;
+    }
+
+    if (hideTimerRef.current) {
+      window.clearTimeout(hideTimerRef.current);
+    }
+    if (showTimerRef.current) {
+      window.clearTimeout(showTimerRef.current);
+    }
+
+    setShowing(false);
+
+    hideTimerRef.current = window.setTimeout(() => {
+      setVisibleScenarioId(nextScenarioId);
+      showTimerRef.current = window.setTimeout(() => {
+        setShowing(true);
+      }, 24);
+    }, 120);
+  };
+
+  return (
+    <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]">
+      <div className="border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/70">
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/65">
               Live surface preview
             </div>
-            <div className="mt-2 text-2xl font-semibold text-white">{scenario.label}</div>
-            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">{scenario.note}</p>
+            <div className="mt-2 flex items-center gap-2 text-[1.9rem] font-semibold tracking-[-0.04em] text-white">
+              <CandlestickChart className="text-cyan-100" size={22} />
+              Actual EdgeLab surfaces
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
+              Preview stays calm, candle-first, and grounded in product chrome instead of fake marketing art.
+            </p>
           </div>
-          <div className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs uppercase tracking-[0.18em] text-cyan-50">
-            Candles + real app widgets
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-medium text-cyan-50">
+            <ShieldCheck size={14} />
+            Private beta track
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {SCENARIOS.map((item, index) => (
+          {SCENARIOS.map((item) => (
             <button
               key={item.id}
-              className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
-                index === scenarioIndex
-                  ? "border-cyan-300/25 bg-cyan-300/12 text-cyan-50"
+              className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition duration-200 ease-out motion-reduce:transition-none ${
+                item.id === selectedScenarioId
+                  ? "border-cyan-300/30 bg-cyan-300/12 text-cyan-50"
                   : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-cyan-300/20 hover:text-cyan-50"
               }`}
-              onClick={() => runScenarioTransition(index)}
+              onClick={() => selectScenario(item.id)}
               type="button"
             >
               {item.label}
@@ -604,59 +794,22 @@ export function HeroDemo() {
       </div>
 
       <div
-        className={`transition-all duration-500 ${
-          isTransitioning
-            ? "translate-y-3 scale-[0.985] opacity-0"
-            : "translate-y-0 scale-100 opacity-100"
+        className={`p-4 transition duration-200 ease-out motion-reduce:transition-none sm:p-5 ${
+          showing ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
         }`}
       >
-        <div className="mt-4">
-          <MetricsBar metrics={scenario.metrics} />
-        </div>
+        <MetricsBar metrics={scenario.metrics} />
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(280px,0.88fr)]">
-          <CandlePreview scenario={scenario} />
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.14fr)_minmax(320px,0.86fr)]">
+          <MarketingCandleSurface scenario={scenario} />
           <div className="grid gap-4">
             <ExecutionTape executions={scenario.executions} />
-            <EquityCurve metrics={scenario.metrics} />
+            <SurfaceNotes scenario={scenario} />
           </div>
         </div>
 
         <div className="mt-4">
           <PlaybookBoard playbooks={scenario.playbooks} trades={scenario.trades} />
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          {[
-            {
-              icon: Play,
-              title: "Replay first",
-              body: "Start from candles and timing, not isolated stats.",
-            },
-            {
-              icon: CandlestickChart,
-              title: "Proof stays visual",
-              body: "Price action remains in frame while review sharpens.",
-            },
-            {
-              icon: Sparkles,
-              title: "Transitions feel alive",
-              body: "Surface rotates through replay, journal, and analytics with motion.",
-            },
-          ].map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <div
-                key={item.title}
-                className="rounded-[22px] border border-white/10 bg-black/20 p-4"
-              >
-                <Icon className="text-cyan-100" size={18} />
-                <div className="mt-3 text-lg font-semibold text-white">{item.title}</div>
-                <p className="mt-2 text-sm leading-7 text-slate-400">{item.body}</p>
-              </div>
-            );
-          })}
         </div>
       </div>
     </div>
