@@ -105,7 +105,7 @@ export function AuthSignInPage() {
             </div>
 
             <div className="mt-8 max-w-3xl">
-              <h1 className="text-display text-[clamp(3.5rem,8vw,6.7rem)] leading-[0.88] text-white">
+              <h1 className="text-[clamp(3.3rem,7vw,6.1rem)] font-semibold leading-[0.9] tracking-[-0.08em] text-white">
                 {waitlistMode ? "Join EdgeLab waitlist." : "Enter EdgeLab through Google."}
               </h1>
               <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">

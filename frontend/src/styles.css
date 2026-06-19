@@ -122,15 +122,25 @@
 
 @keyframes edgelab-typeword {
   0%,
-  8% {
+  10% {
     max-width: 0;
+    opacity: 0.18;
   }
-  38%,
-  82% {
+  14% {
+    opacity: 1;
+  }
+  46%,
+  68% {
     max-width: 11.2ch;
+    opacity: 1;
+  }
+  92% {
+    max-width: 0;
+    opacity: 0.72;
   }
   100% {
-    max-width: 11.2ch;
+    max-width: 0;
+    opacity: 0.18;
   }
 }
 
@@ -194,6 +204,7 @@
   display: inline-flex;
   min-width: 11.2ch;
   align-items: flex-end;
+  padding-bottom: 0.1em;
   vertical-align: bottom;
   white-space: nowrap;
 }
@@ -205,6 +216,7 @@
   overflow: hidden;
   padding-right: 0.18em;
   border-right: 1px solid currentColor;
+  line-height: 0.94;
   white-space: nowrap;
   animation:
     edgelab-typeword 6.4s steps(11, end) infinite,

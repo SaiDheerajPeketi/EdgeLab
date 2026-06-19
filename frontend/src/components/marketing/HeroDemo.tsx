@@ -601,6 +601,7 @@ function MarketingCandleSurface({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const [hoveredBar, setHoveredBar] = useState<DemoBar | null>(null);
   const visibleWindow = 72;
   const clampedIndex = Math.max(0, Math.min(currentBarIndex, scenario.bars.length - 1));
 
@@ -611,11 +612,16 @@ function MarketingCandleSurface({
     },
     [clampedIndex, scenario.bars],
   );
+  const visibleBarsByTime = useMemo(
+    () => new Map(visibleBars.map((bar) => [bar.time, bar])),
+    [visibleBars],
+  );
   const lastBar = scenario.bars[clampedIndex] ?? visibleBars[visibleBars.length - 1] ?? null;
+  const displayBar = hoveredBar ?? lastBar;
   const firstBar = visibleBars[0] ?? null;
   const changePercent =
-    firstBar != null && lastBar != null
-      ? ((lastBar.close - firstBar.open) / Math.max(Math.abs(firstBar.open), Number.EPSILON)) * 100
+    firstBar != null && displayBar != null
+      ? ((displayBar.close - firstBar.open) / Math.max(Math.abs(firstBar.open), Number.EPSILON)) * 100
       : 0;
   const replayProgress = Math.max(
     12,
@@ -699,6 +705,32 @@ function MarketingCandleSurface({
   }, [lastBar?.close, scenario.bars]);
 
   useEffect(() => {
+    if (!chartRef.current) {
+      return;
+    }
+
+    const chart = chartRef.current;
+    const handleCrosshairMove = (param: { point?: { x: number; y: number }; time?: unknown }) => {
+      if (!param.point || param.time == null || typeof param.time !== "number") {
+        setHoveredBar(null);
+        return;
+      }
+
+      setHoveredBar(visibleBarsByTime.get(param.time as UTCTimestamp) ?? null);
+    };
+
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
+    return () => {
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
+    };
+  }, [visibleBarsByTime]);
+
+  useEffect(() => {
+    setHoveredBar(null);
+  }, [scenario.id, clampedIndex]);
+
+  useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || !chartRef.current) {
       return;
     }
@@ -741,7 +773,7 @@ function MarketingCandleSurface({
         </div>
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-100">
           <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)] motion-safe:animate-pulse" />
-          {formatBarTime(lastBar?.time ?? scenario.bars[0]?.time ?? 0)}
+          {formatBarTime(displayBar?.time ?? scenario.bars[0]?.time ?? 0)}
         </div>
       </div>
 
@@ -749,23 +781,23 @@ function MarketingCandleSurface({
         <span className="chart-ohlcv-time">OHLCV</span>
         <span className="chart-ohlcv-item">
           <span>O</span>
-          <strong>{formatPrice(lastBar?.open ?? 0)}</strong>
+          <strong>{formatPrice(displayBar?.open ?? 0)}</strong>
         </span>
         <span className="chart-ohlcv-item">
           <span>H</span>
-          <strong>{formatPrice(lastBar?.high ?? 0)}</strong>
+          <strong>{formatPrice(displayBar?.high ?? 0)}</strong>
         </span>
         <span className="chart-ohlcv-item">
           <span>L</span>
-          <strong>{formatPrice(lastBar?.low ?? 0)}</strong>
+          <strong>{formatPrice(displayBar?.low ?? 0)}</strong>
         </span>
         <span className="chart-ohlcv-item">
           <span>C</span>
-          <strong>{formatPrice(lastBar?.close ?? 0)}</strong>
+          <strong>{formatPrice(displayBar?.close ?? 0)}</strong>
         </span>
         <span className="chart-ohlcv-item">
           <span>Vol</span>
-          <strong>{formatCompactVolume(lastBar?.volume ?? 0)}</strong>
+          <strong>{formatCompactVolume(displayBar?.volume ?? 0)}</strong>
         </span>
         <span className={`chart-ohlcv-change ${changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
           {formatPercent(changePercent)}
