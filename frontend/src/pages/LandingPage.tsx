@@ -5,11 +5,9 @@ import {
   CandlestickChart,
   ChevronDown,
   FileSpreadsheet,
-  FlaskConical,
-  Layers3,
   ShieldCheck,
 } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
@@ -21,123 +19,84 @@ import { MarketingShell } from "../components/marketing/MarketingShell";
 import { deploymentMode } from "../lib/deploymentMode";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
-type FeatureCard = {
-  description: string;
-  icon: typeof CandlestickChart;
-  label: string;
-  stats: string;
-};
-
-type DeepFeature = {
-  accent: string;
+type LabPillar = {
   body: string;
-  bullets: string[];
+  icon: typeof CandlestickChart;
+  points: string[];
+  proof: string;
   title: string;
 };
 
-const FEATURE_CARDS: FeatureCard[] = [
+type BetaTrack = {
+  focus: string;
+  label: string;
+  proof: string;
+};
+
+const LAB_PILLARS: LabPillar[] = [
   {
-    description: "Replay any market second by second with deterministic execution.",
+    body: "Run full-session replays without leaving the research surface. Order entry, pending orders, execution tape, chart tools, and replay controls stay in one loop.",
     icon: CandlestickChart,
-    label: "Replay Engine",
-    stats: "50 candle live demo",
+    points: ["Deterministic replay", "Bracket orders", "Multi-pane chart review"],
+    proof: "Replay stack already live",
+    title: "Replay Engine",
   },
   {
-    description: "Auto-log entries, exits, R-multiple, notes, mistakes, emotion.",
+    body: "Close trade, capture notes, tag mistakes, attach strategy context, and turn a session into something you can audit next week without lying to yourself.",
     icon: BookOpenText,
-    label: "Trade Journal",
-    stats: "Journal every close",
+    points: ["Trade journal", "Mistake tags", "Playbook-linked review"],
+    proof: "Journal on every close",
+    title: "Trade Memory",
   },
   {
-    description: "Equity curve, day/time reports, distribution views, strategy splits.",
+    body: "Session curves, filtered review, result panels, and playbook splits show whether edge is real or only feels real after a lucky week.",
     icon: BarChart3,
-    label: "Analytics",
-    stats: "50+ metrics tracked",
+    points: ["Equity movement", "Outcome filters", "Strategy grouping"],
+    proof: "Evidence-first analytics",
+    title: "Analytics Truth",
   },
   {
-    description: "Package repeatable setups, tag sessions, validate edge before risk.",
-    icon: FlaskConical,
-    label: "Strategy Validation",
-    stats: "Playbook ready",
-  },
-  {
-    description: "Dataset-root imports, multi-timeframe catalog, live dataset refresh.",
+    body: "Dataset-root imports let testers bring their own market structure into lab, then validate setups against actual historical behavior instead of screenshots and hindsight.",
     icon: FileSpreadsheet,
-    label: "CSV Intake",
-    stats: "Any OHLCV source",
-  },
-  {
-    description: "Workspace tuned for focused review, not noisy dashboard theater.",
-    icon: Layers3,
-    label: "Trader Workflow",
-    stats: "Research-first UI",
+    points: ["CSV intake", "Instrument metadata", "Multi-timeframe catalog"],
+    proof: "Any OHLCV source",
+    title: "Data Intake",
   },
 ];
 
-const DEEP_FEATURES: DeepFeature[] = [
+const BETA_TRACKS: BetaTrack[] = [
   {
-    accent: "Replay any market like it is happening now.",
-    body:
-      "Step candle by candle, speed up, pause, bracket orders, move breakeven, inspect exact trade context. Same workspace, no mode switch.",
-    bullets: ["Session builder with dataset/timeframe control", "Order ticket, pending orders, execution tape", "Chart tools, indicators, multi-pane layouts"],
-    title: "Chart Replay Engine",
+    focus: "Hammer session creation, replay controls, order flow, and trade inspection until friction becomes obvious.",
+    label: "Track 01 · Replay fidelity",
+    proof: "Goal: zero confusion between idea and execution",
   },
   {
-    accent: "Every closed trade becomes research fuel.",
-    body:
-      "EdgeLab stores notes, mistake tags, emotional state, strategy tag, and P&L context so review turns into pattern discovery.",
-    bullets: ["Journal modal on close", "Trade detail drawer for replay review", "Playbook-aware trade tagging"],
-    title: "Auto-Journal",
+    focus: "Push journal, notebook, and playbook flows hard enough that weak review habits surface fast.",
+    label: "Track 02 · Journal honesty",
+    proof: "Goal: no hidden process debt",
   },
   {
-    accent: "Analytics that tell you what is working and what is killing edge.",
-    body:
-      "Day breakdowns, session curves, outcome filters, strategy grouping, equity movement, and replay-linked trade drilldown already sit inside workspace.",
-    bullets: ["Equity curve + session metrics", "Filtered trade review", "Reports panel and results panel"],
-    title: "Analytics That Matter",
-  },
-  {
-    accent: "Stop guessing if strategy works.",
-    body:
-      "Build repeatable setups, run against real historical data, track which playbook survives drawdown, then refine rules with evidence.",
-    bullets: ["Playbook board and saved strategies", "Dataset-root catalog for many instruments", "Backtest state preserved across sessions"],
-    title: "Strategy Validation",
+    focus: "Cross-check metrics, filtered review, and reports against your own expectations and exported data.",
+    label: "Track 03 · Analytics truth",
+    proof: "Goal: believable conclusions, not pretty charts",
   },
 ];
 
-const HOW_IT_WORKS = [
+const WORKFLOW_STEPS = [
   {
+    body: "Bring market data in, map symbol metadata, set replay window, and choose exact timeframe you want to interrogate.",
     step: "01",
-    title: "Upload your CSV",
-    body: "Import any OHLCV data, map instrument metadata, choose timeframe, lock replay window.",
+    title: "Load market evidence",
   },
   {
+    body: "Trade candle by candle, pause, speed up, move stops, capture context, and keep execution decisions tied to the same screen.",
     step: "02",
-    title: "Replay & trade",
-    body: "Place simulated trades candle by candle with bracket control, sizing, and order amendments.",
+    title: "Stress-test decision quality",
   },
   {
+    body: "Review session outcomes, journal each close, group by strategy, then iterate until process survives scrutiny.",
     step: "03",
-    title: "Analyse & improve",
-    body: "Review P&L, R-multiple, calendar, notes, and strategy outcomes until pattern is obvious.",
-  },
-];
-
-const TESTIMONIALS = [
-  {
-    quote:
-      "EdgeLab showed best trades hit Tuesdays between 9 and 11. That pattern paid for weeks of random screen time.",
-    role: "Forex beta trader",
-  },
-  {
-    quote:
-      "Replay engine feels like decision practice, not spreadsheet theater. Mistakes become visible fast.",
-    role: "Futures replay user",
-  },
-  {
-    quote:
-      "Strategy tags plus trade notes made review honest. Hard to hide bad process when data lined up this clean.",
-    role: "Crypto systematic trader",
+    title: "Tighten edge with proof",
   },
 ];
 
@@ -173,7 +132,7 @@ function useCountUp(target: number) {
         animationFrame = window.requestAnimationFrame(animate);
         observer.disconnect();
       },
-      { threshold: 0.4 },
+      { threshold: 0.35 },
     );
 
     observer.observe(node);
@@ -193,7 +152,10 @@ function StatCard({ label, suffix, target }: { label: string; suffix: string; ta
   const { ref, value } = useCountUp(target);
 
   return (
-    <div ref={ref} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-5 shadow-card">
+    <div
+      ref={ref}
+      className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 shadow-card"
+    >
       <div className="text-display text-4xl text-cyan-100">
         {value}
         {suffix}
@@ -221,87 +183,36 @@ function SectionHeading({
   );
 }
 
-function FloatingMetric({
-  delay,
-  text,
-  top,
-  left,
-}: {
-  delay: string;
-  left: string;
-  text: string;
-  top: string;
-}) {
-  return (
-    <div
-      className="edgelab-float-metric pointer-events-none absolute rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-slate-300"
-      style={
-        {
-          "--metric-delay": delay,
-          left,
-          top,
-        } as CSSProperties
-      }
-    >
-      {text}
-    </div>
-  );
-}
-
 export function LandingPage() {
   const { program } = useBetaProgramStatus();
-  const tickerItems = useMemo(
-    () => [
-      "Forex",
-      "Futures",
-      "Crypto",
-      "Stocks",
-      "Prop Firms",
-      "91 trades backtested",
-      "$2,313 simulated gains",
-      "50% win rate tracked",
-    ],
-    [],
-  );
+  const betaFillRatio = Math.min(1, program.seats_taken / Math.max(program.seats_total, 1));
 
   return (
     <MarketingShell
       navItems={[
-        { href: "#features", label: "Features" },
-        { href: "#proof", label: "Proof" },
+        { href: "#track", label: "Beta Track" },
+        { href: "#features", label: "Product" },
+        { href: "#workflow", label: "Workflow" },
         { href: "/pricing", label: "Pricing" },
-        { href: "#faq", label: "Docs" },
-        { href: "#beta", label: "Beta" },
+        { href: "#faq", label: "FAQ" },
       ]}
       pageTitle="landing"
     >
       <section className="relative overflow-hidden px-4 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-28 lg:pt-16">
-        <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(420px,0.88fr)]">
           <div className="relative">
-            <FloatingMetric delay="0s" left="2%" text="+$284" top="8%" />
-            <FloatingMetric delay="1.8s" left="52%" text="R: 2.3" top="14%" />
-            <FloatingMetric delay="3.2s" left="18%" text="- $47" top="60%" />
-
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs uppercase tracking-[0.22em] text-cyan-100">
               <ShieldCheck size={14} />
-              Now in beta · Limited seats
+              Beta live now · waitlist on overflow
             </div>
 
             <h1 className="text-display mt-6 max-w-4xl text-5xl text-white sm:text-6xl lg:text-7xl">
-              {["Your edge,", "engineered."].map((word, index) => (
-                <span
-                  key={word}
-                  className="edgelab-word-reveal mr-4 inline-block"
-                  style={{ animationDelay: `${index * 140}ms` }}
-                >
-                  {word}
-                </span>
-              ))}
+              Replay market decisions until your process stops lying to you.
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              Backtest. Journal. Prove strategy works. EdgeLab turns replay, review,
-              and analytics into one precision workflow for traders who want evidence.
+              EdgeLab puts replay, journal, strategy review, and analytics in one research surface.
+              Beta right now is for traders willing to pressure-test workflow, not browse another shiny landing page.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -309,69 +220,172 @@ export function LandingPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
                 to="/auth/signin"
               >
-                {program.seats_remaining > 0 ? "Get Early Access — Free Beta" : "Join Beta Waitlist"}
+                {program.seats_remaining > 0 ? "Enter beta track" : "Join beta waitlist"}
                 <ArrowRight size={16} />
               </Link>
               <a
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/30 hover:text-cyan-100"
-                href="#demo"
+                href="#track"
               >
-                Watch Demo
+                See test focus
               </a>
             </div>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
-              {[
-                { label: "Avg replay session", value: "91 trades" },
-                { label: "Strategy review", value: "50+ metrics" },
-                {
-                  label: deploymentMode === "beta" ? "Beta seats" : "Mode",
-                  value:
-                    deploymentMode === "beta"
-                      ? `${program.seats_remaining} left / ${program.waitlist_count} waitlist`
-                      : "Production ready",
-                },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card"
-                >
-                  <div className="font-data text-xl text-white">{item.value}</div>
-                  <div className="mt-1 text-sm text-slate-400">{item.label}</div>
-                </div>
-              ))}
+              <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card">
+                <div className="font-data text-xl text-white">{program.seats_remaining}</div>
+                <div className="mt-1 text-sm text-slate-400">Seats open right now</div>
+              </div>
+              <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card">
+                <div className="font-data text-xl text-white">{program.waitlist_count}</div>
+                <div className="mt-1 text-sm text-slate-400">Waitlist traders queued</div>
+              </div>
+              <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-card">
+                <div className="font-data text-xl text-white">Pruned</div>
+                <div className="mt-1 text-sm text-slate-400">Beta data after close</div>
+              </div>
+            </div>
+
+            <div className="mt-8 rounded-[28px] border border-amber-300/20 bg-amber-300/10 px-5 py-5 text-sm leading-7 text-amber-100">
+              Beta rules: email access path is primary, Google auth comes later, and workspace data
+              can be pruned once beta ends. If you need a durable record, export it.
             </div>
           </div>
 
-          <div id="demo" className="edgelab-stage-enter">
-            <HeroDemo />
+          <div className="grid gap-4">
+            <div className="rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-5 shadow-card">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/70">
+                    Beta mission board
+                  </div>
+                  <div className="mt-2 text-3xl font-semibold text-white">
+                    Current cohort: replay, journal, analytics.
+                  </div>
+                </div>
+                <div className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300">
+                  Cohort active
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
+                  <div className="flex items-center justify-between gap-3 text-sm text-slate-400">
+                    <span>Seat pressure</span>
+                    <span>
+                      {program.seats_taken}/{program.seats_total} claimed
+                    </span>
+                  </div>
+                  <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-sky-200 to-emerald-200"
+                      style={{ width: `${Math.max(betaFillRatio * 100, 10)}%` }}
+                    />
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {[
+                      "Stress replay flow",
+                      "Capture honest notes",
+                      "Verify metrics against exports",
+                    ].map((item) => (
+                      <div
+                        key={item}
+                        className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-slate-200"
+                      >
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-cyan-300/20 bg-cyan-300/10 p-4">
+                  <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/75">
+                    Before you enter
+                  </div>
+                  <div className="mt-4 grid gap-3 text-sm leading-7 text-slate-100">
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                      Waitlist auto-enables when seats fill.
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                      Google auth is staged, not mainline.
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                      Beta data is temporary by policy.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="demo" className="edgelab-stage-enter">
+              <HeroDemo />
+            </div>
           </div>
         </div>
 
         <div className="mt-12 flex justify-center">
           <a
-            aria-label="Scroll to features"
+            aria-label="Scroll to beta track"
             className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-300 transition hover:border-cyan-300/30 hover:text-cyan-100"
-            href="#features"
+            href="#track"
           >
             <ChevronDown className="animate-bounce" size={18} />
           </a>
         </div>
       </section>
 
-      <section className="border-y border-white/10 bg-black/20 py-5">
-        <div className="mx-auto flex max-w-7xl items-center gap-4 overflow-hidden px-4 sm:px-6 lg:px-8">
-          <div className="shrink-0 text-sm text-slate-400">Trusted across</div>
-          <div className="relative w-full overflow-hidden">
-            <div className="edgelab-marquee flex min-w-max items-center gap-3">
-              {[...tickerItems, ...tickerItems].map((item, index) => (
-                <div
-                  key={`${item}:${index}`}
-                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-200"
-                >
-                  {item}
+      <section id="track" className="px-4 py-20 sm:px-6 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+          <SectionHeading
+            description="This beta is not generic early access. It is a guided test track for traders who will deliberately break workflow and tell us where confidence leaks."
+            eyebrow="Beta Track"
+            title="What testers should pressure-test first."
+          />
+
+          <div className="grid gap-4">
+            {BETA_TRACKS.map((track, index) => (
+              <div
+                key={track.label}
+                className={`rounded-[28px] border p-6 shadow-card ${
+                  index === 0
+                    ? "border-cyan-300/20 bg-[linear-gradient(135deg,rgba(50,211,238,0.16),rgba(255,255,255,0.035))]"
+                    : "border-white/10 bg-white/[0.03]"
+                }`}
+              >
+                <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/70">
+                  {track.label}
                 </div>
-              ))}
+                <div className="mt-3 text-2xl font-semibold text-white">{track.proof}</div>
+                <p className="mt-4 text-sm leading-7 text-slate-300">{track.focus}</p>
+              </div>
+            ))}
+
+            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-[28px] border border-amber-300/20 bg-amber-300/10 p-6 shadow-card">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-amber-100/80">
+                  Data policy
+                </div>
+                <div className="mt-3 text-2xl font-semibold text-white">
+                  Beta data will be pruned after beta ends.
+                </div>
+                <p className="mt-4 text-sm leading-7 text-amber-100">
+                  Treat beta workspace history as disposable test material. If you need to keep
+                  anything important, export it before beta closes.
+                </p>
+              </div>
+
+              <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6 shadow-card">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+                  Access path
+                </div>
+                <div className="mt-3 text-2xl font-semibold text-white">
+                  Email first. Waitlist second. OAuth later.
+                </div>
+                <p className="mt-4 text-sm leading-7 text-slate-300">
+                  Current path is intentionally simple so cohort feedback lands on core workflow
+                  instead of auth edge cases.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -380,135 +394,79 @@ export function LandingPage() {
       <section id="features" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
-            description="Landing page mirrors actual product posture: dark, sharp, data-first. Cards stay live-looking, not brochure-flat."
-            eyebrow="Feature Grid"
-            title="Research workflow built for traders who audit themselves."
+            description="EdgeLab is already opinionated about how traders should test ideas: same screen, same context, same evidence loop."
+            eyebrow="Inside Product"
+            title="Four surfaces that matter during beta."
           />
 
-          <div className="mt-12 grid gap-4 lg:grid-cols-3">
-            {FEATURE_CARDS.map((feature, index) => {
-              const Icon = feature.icon;
-              const isWide = index % 3 === 0;
+          <div className="mt-12 grid gap-4 lg:grid-cols-2">
+            {LAB_PILLARS.map((pillar, index) => {
+              const Icon = pillar.icon;
 
               return (
-                <a
-                  key={feature.label}
-                  className={`group rounded-[30px] border border-white/10 bg-white/[0.03] p-5 shadow-card transition duration-300 hover:-translate-y-1 hover:border-cyan-300/30 hover:shadow-glow ${
-                    isWide ? "lg:col-span-2" : ""
+                <div
+                  key={pillar.title}
+                  className={`rounded-[32px] border p-6 shadow-card ${
+                    index === 0
+                      ? "border-cyan-300/20 bg-[linear-gradient(135deg,rgba(50,211,238,0.16),rgba(255,255,255,0.035))]"
+                      : "border-white/10 bg-white/[0.03]"
                   }`}
-                  href={`#${feature.label.toLowerCase().replace(/\s+/g, "-")}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-100">
                       <Icon size={22} />
                     </div>
                     <div className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
-                      {feature.stats}
+                      {pillar.proof}
                     </div>
                   </div>
-                  <div className="mt-8">
-                    <div className="text-2xl font-semibold text-white">{feature.label}</div>
-                    <p className="mt-3 max-w-xl text-sm leading-7 text-slate-400">
-                      {feature.description}
-                    </p>
+
+                  <div className="mt-8 text-3xl font-semibold text-white">{pillar.title}</div>
+                  <p className="mt-4 text-sm leading-7 text-slate-300">{pillar.body}</p>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                    {pillar.points.map((point) => (
+                      <div
+                        key={point}
+                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200"
+                      >
+                        {point}
+                      </div>
+                    ))}
                   </div>
-                  <div className="mt-8 flex items-center gap-2 text-sm text-cyan-100">
-                    Learn more <ArrowRight size={14} className="transition group-hover:translate-x-1" />
-                  </div>
-                </a>
+                </div>
               );
             })}
           </div>
         </div>
       </section>
 
-      <section className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8">
-          {DEEP_FEATURES.map((feature, index) => (
-            <div
-              key={feature.title}
-              id={feature.title.toLowerCase().replace(/\s+/g, "-")}
-              className={`grid gap-6 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-card lg:grid-cols-2 lg:items-center ${
-                index % 2 === 1 ? "lg:[&>*:first-child]:order-2" : ""
-              }`}
-            >
-              <div className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(50,211,238,0.14),rgba(255,255,255,0.03))] p-5">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {feature.bullets.map((bullet, bulletIndex) => (
-                    <div
-                      key={bullet}
-                      className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4 text-sm text-slate-200"
-                    >
-                      <div className="font-data text-cyan-100">0{bulletIndex + 1}</div>
-                      <div className="mt-2 leading-7">{bullet}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.26em] text-cyan-100/65">
-                  {feature.title}
-                </div>
-                <h3 className="text-display mt-4 text-4xl text-white">{feature.accent}</h3>
-                <p className="mt-4 text-base leading-8 text-slate-400">{feature.body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="proof" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="workflow" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
-            description="Short path from raw data to hard feedback loop."
-            eyebrow="How It Works"
-            title="Upload. Replay. Improve."
+            description="Short path. No mode theater. No spreadsheet detour. No fake testimonial wall."
+            eyebrow="Workflow"
+            title="Load evidence, trade it, interrogate yourself."
           />
 
           <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {HOW_IT_WORKS.map((step) => (
+            {WORKFLOW_STEPS.map((step) => (
               <div
                 key={step.step}
                 className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6 shadow-card"
               >
                 <div className="font-data text-sm text-cyan-100">{step.step}</div>
                 <div className="mt-3 text-2xl font-semibold text-white">{step.title}</div>
-                <p className="mt-3 text-sm leading-7 text-slate-400">{step.body}</p>
+                <p className="mt-4 text-sm leading-7 text-slate-400">{step.body}</p>
               </div>
             ))}
           </div>
 
-          <div className="mt-16 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Beta testers" suffix="+" target={500} />
-            <StatCard label="Trades per session" suffix="" target={91} />
-            <StatCard label="Avg R-multiple tracked" suffix="x" target={2} />
-            <StatCard label="Indicators supported" suffix="+" target={50} />
-          </div>
-        </div>
-      </section>
-
-      <section className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            description="Placeholder quotes for beta-launch layout. Replace with real voices once cohort lands."
-            eyebrow="Testimonials"
-            title="Feedback from traders who want evidence, not stories."
-          />
-
-          <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {TESTIMONIALS.map((item) => (
-              <div
-                key={item.quote}
-                className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6 shadow-card"
-              >
-                <p className="text-base leading-8 text-slate-200">
-                  {/* TODO: replace with real beta tester quotes */}
-                  “{item.quote}”
-                </p>
-                <div className="mt-6 text-sm text-cyan-100">{item.role}</div>
-              </div>
-            ))}
+          <div className="mt-14 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Beta seats" suffix="" target={program.seats_total} />
+            <StatCard label="Seats already claimed" suffix="" target={program.seats_taken} />
+            <StatCard label="Waitlist traders" suffix="" target={program.waitlist_count} />
+            <StatCard label="Core beta tracks" suffix="" target={BETA_TRACKS.length} />
           </div>
         </div>
       </section>
@@ -516,13 +474,9 @@ export function LandingPage() {
       <section id="beta" className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionHeading
-            description="Single beta card now. Production pricing gate already staged behind deployment mode switch."
-            eyebrow="Pricing Gate"
-            title={
-              deploymentMode === "beta"
-                ? "Beta access stays wide open until seats run out."
-                : "Pricing scales from first edge to full desk workflow."
-            }
+            description="Single beta plan now. Production pricing comes later after this cohort finishes beating on workflow."
+            eyebrow="Access"
+            title="Join beta now or roll into waitlist when seats close."
           />
           <div className="mt-10">
             <PricingSection mode={deploymentMode} showComparison={false} />
@@ -531,11 +485,11 @@ export function LandingPage() {
       </section>
 
       <section id="faq" className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)]">
           <SectionHeading
-            description="Landing answers current product position, beta mode, data flow, and rollout intent."
+            description="Questions here align with current beta reality, not future marketing promises."
             eyebrow="FAQ"
-            title="Questions traders ask before trusting research stack."
+            title="What traders need to know before joining."
           />
           <FaqAccordion items={pricingFaqItems} />
         </div>
@@ -546,14 +500,14 @@ export function LandingPage() {
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
             <div>
               <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/70">
-                Final CTA
+                Final call
               </div>
               <div className="text-display mt-4 text-4xl text-white sm:text-5xl">
-                Your edge deserves proof, not hope.
+                Bring discipline. Break workflow. Help harden product.
               </div>
               <p className="mt-4 max-w-2xl text-base leading-8 text-slate-200">
-                Start in beta, run replay sessions, journal trades, audit strategy, and
-                ship fewer delusions into live market hours.
+                Enter beta if you want one surface for replay, journaling, and evidence review.
+                Join waitlist if seats are gone. Export anything critical because beta data is not forever.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
@@ -561,13 +515,14 @@ export function LandingPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
                 to="/auth/signin"
               >
-                Get Early Access <ArrowRight size={16} />
+                {program.seats_remaining > 0 ? "Enter beta" : "Join waitlist"}
+                <ArrowRight size={16} />
               </Link>
               <Link
                 className="inline-flex items-center justify-center rounded-full border border-white/10 px-6 py-3 text-sm font-semibold text-slate-100"
                 to="/pricing"
               >
-                View Pricing
+                Review access
               </Link>
             </div>
           </div>

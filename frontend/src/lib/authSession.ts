@@ -18,6 +18,8 @@ export type AuthSession = {
 
 const AUTH_STORAGE_KEY = "edgelab.auth.session.v1";
 const listeners = new Set<() => void>();
+let cachedRawSession: string | null = null;
+let cachedSession: AuthSession | null = null;
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -46,15 +48,38 @@ function safeParse(rawValue: string | null): AuthSession | null {
   }
 }
 
+function resetCachedSession() {
+  cachedRawSession = null;
+  cachedSession = null;
+}
+
+function setCachedSession(rawValue: string | null, session: AuthSession | null) {
+  cachedRawSession = rawValue;
+  cachedSession = session;
+}
+
 export function getStoredAuthSession(): AuthSession | null {
   if (!isBrowser()) {
     return null;
   }
 
-  const session = safeParse(window.localStorage.getItem(AUTH_STORAGE_KEY));
-  if (!session && window.localStorage.getItem(AUTH_STORAGE_KEY)) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY);
+  if (rawValue === cachedRawSession) {
+    if (cachedSession && new Date(cachedSession.expiresAt).getTime() <= Date.now()) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      resetCachedSession();
+      return null;
+    }
+    return cachedSession;
   }
+
+  const session = safeParse(rawValue);
+  if (!session && rawValue) {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    resetCachedSession();
+    return null;
+  }
+  setCachedSession(rawValue, session);
   return session;
 }
 
@@ -65,8 +90,11 @@ export function setStoredAuthSession(session: AuthSession | null) {
 
   if (!session) {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    resetCachedSession();
   } else {
-    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    const rawValue = JSON.stringify(session);
+    window.localStorage.setItem(AUTH_STORAGE_KEY, rawValue);
+    setCachedSession(rawValue, session);
   }
   notifyListeners();
 }

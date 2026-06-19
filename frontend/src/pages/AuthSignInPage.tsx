@@ -1,4 +1,4 @@
-import { Chrome, LockKeyhole, Sparkles } from "lucide-react";
+import { ArrowRight, Chrome, DatabaseZap, LockKeyhole, Sparkles } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { EdgeLabWordmark, MarketingShell } from "../components/marketing/MarketingShell";
@@ -71,14 +71,14 @@ export function AuthSignInPage() {
             <EdgeLabWordmark />
             <div className="mt-10 max-w-2xl">
               <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/65">
-                Sign In
+                Beta Access
               </div>
               <h1 className="text-display mt-4 text-5xl text-white">
-                Welcome back. Step into replay lab.
+                Enter beta. Pressure-test your process.
               </h1>
               <p className="mt-5 text-lg leading-8 text-slate-200">
-                Beta gate now issues backend session tokens, enforces seat cap, and
-                pushes overflow sign-ins into waitlist flow before `/app`.
+                Email path is live now. Waitlist kicks in automatically when seats fill.
+                Google auth comes later. Beta data is temporary and will be pruned after beta closes.
               </p>
             </div>
 
@@ -86,7 +86,7 @@ export function AuthSignInPage() {
               {[
                 { icon: Sparkles, label: "Beta seats", value: `${program.seats_remaining} left` },
                 { icon: LockKeyhole, label: "Protected route", value: "/app" },
-                { icon: Chrome, label: "OAuth path", value: "/auth/callback/google" },
+                { icon: DatabaseZap, label: "Data retention", value: "Pruned after beta" },
               ].map((item) => {
                 const Icon = item.icon;
 
@@ -114,24 +114,9 @@ export function AuthSignInPage() {
           </div>
 
           <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-8 shadow-card backdrop-blur-xl">
-            <div className="text-sm text-slate-400">Access EdgeLab account</div>
+            <div className="text-sm text-slate-400">Access EdgeLab beta</div>
             <div className="mt-2 text-3xl font-semibold text-white">
               {waitlistMode ? "Beta full. Join waitlist." : "Sign in to continue"}
-            </div>
-
-            <button
-              className="mt-8 inline-flex w-full items-center justify-center gap-3 rounded-full border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/30 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={handleGoogleSignIn}
-              type="button"
-            >
-              <Chrome size={16} />
-              {googleReady ? "Continue with Google" : "Google OAuth setup required"}
-            </button>
-
-            <div className="my-6 flex items-center gap-4 text-xs uppercase tracking-[0.24em] text-slate-500">
-              <span className="h-px flex-1 bg-white/10" />
-              or
-              <span className="h-px flex-1 bg-white/10" />
             </div>
 
             <form className="grid gap-4" onSubmit={handleDemoSignIn}>
@@ -161,6 +146,7 @@ export function AuthSignInPage() {
                 Password
                 <input
                   className="input-control h-12 rounded-2xl border-white/10 bg-black/25"
+                  disabled
                   placeholder="Reserved for later auth pass"
                   type="password"
                 />
@@ -186,11 +172,36 @@ export function AuthSignInPage() {
               </button>
             </form>
 
+            <div className="mt-5 rounded-[22px] border border-white/10 bg-black/25 px-4 py-4 text-sm leading-7 text-slate-300">
+              <div className="flex items-center gap-2 text-slate-100">
+                <Chrome size={15} />
+                Google auth later
+              </div>
+              <div className="mt-2">
+                Public OAuth path stays parked for now. Beta flow uses email seat issuance so replay,
+                journal, and analytics feedback can ship first.
+              </div>
+              {googleReady ? (
+                <button
+                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/30 hover:text-cyan-100"
+                  onClick={handleGoogleSignIn}
+                  type="button"
+                >
+                  Try staged Google flow
+                  <ArrowRight size={14} />
+                </button>
+              ) : null}
+            </div>
+
             {waitlistMode ? (
               <div className="mt-5 rounded-[22px] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm leading-7 text-amber-100">
                 Beta seats full. Join waitlist now. Current queue: {program.waitlist_count} traders.
               </div>
             ) : null}
+
+            <div className="mt-5 rounded-[22px] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm leading-7 text-amber-100">
+              Beta rule: export anything critical. Workspace data can be pruned once beta closes.
+            </div>
 
             {errorMessage ? (
               <div className="mt-5 rounded-[22px] border border-rose-300/20 bg-rose-300/10 px-4 py-4 text-sm leading-7 text-rose-100">
@@ -199,7 +210,9 @@ export function AuthSignInPage() {
             ) : null}
 
             <p className="mt-6 text-sm leading-7 text-slate-400">
-              Don&apos;t have account yet? {program.seats_remaining > 0 ? "Use beta entry now," : "Join waitlist now,"} or jump back to
+              Don&apos;t have account yet?{" "}
+              {program.seats_remaining > 0 ? "Use beta entry now," : "Join waitlist now,"}{" "}
+              or jump back to{" "}
               <Link className="ml-1 text-cyan-100" to="/">
                 landing page
               </Link>

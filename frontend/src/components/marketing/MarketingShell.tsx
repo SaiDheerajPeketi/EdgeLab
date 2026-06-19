@@ -86,7 +86,7 @@ function BetaBanner() {
 
   return (
     <div className="border-b border-cyan-300/10 bg-cyan-300/10 px-4 py-2 text-center text-xs text-cyan-50">
-      You&apos;re on EdgeLab Beta. Free access live now. {program.seats_taken}/{program.seats_total} seats claimed, {program.seats_remaining} left, {program.waitlist_count} on waitlist.
+      EdgeLab beta live. {program.seats_remaining} seats open, waitlist auto-enables after fill, beta data will be pruned when beta closes.
     </div>
   );
 }
@@ -149,13 +149,13 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                 className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:border-cyan-300/30 hover:text-cyan-100"
                 to="/auth/signin"
               >
-                Sign In
+                Beta access
               </Link>
               <Link
                 className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow transition hover:-translate-y-0.5"
                 to="/auth/signin"
               >
-                Get Early Access
+                Enter Beta
                 <span aria-hidden="true">→</span>
               </Link>
             </div>
@@ -186,13 +186,13 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                   className="rounded-2xl border border-white/10 px-4 py-3 text-sm text-slate-200"
                   to="/auth/signin"
                 >
-                  Sign In
+                  Beta access
                 </Link>
                 <Link
                   className="rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950"
                   to="/auth/signin"
                 >
-                  Get Early Access →
+                  Enter Beta →
                 </Link>
               </div>
             </div>
@@ -215,7 +215,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                 Pricing
               </Link>
               <Link className="transition hover:text-cyan-100" to="/auth/signin">
-                Sign In
+                Beta access
               </Link>
               <a className="transition hover:text-cyan-100" href="/#features">
                 Features

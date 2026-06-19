@@ -114,6 +114,27 @@ function WorkspaceSessionChip() {
   );
 }
 
+function WorkspaceBetaNotice() {
+  const session = useAuthSession();
+
+  if (!session?.user.isBetaUser) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed left-4 top-4 z-[120] max-w-sm">
+      <div className="pointer-events-auto rounded-[24px] border border-amber-300/20 bg-[#1a1410f2] px-4 py-3 text-sm leading-6 text-amber-100 shadow-card backdrop-blur-xl">
+        <div className="text-[11px] uppercase tracking-[0.22em] text-amber-200/75">
+          Beta Track
+        </div>
+        <div className="mt-2 text-slate-50">
+          Stress-test replay, journaling, analytics. Beta data will be pruned after beta ends.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   const session = useAuthSession();
   const location = useLocation();
@@ -134,6 +155,7 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
 
   return (
     <>
+      <WorkspaceBetaNotice />
       <WorkspaceSessionChip />
       <WorkspaceApp />
     </>

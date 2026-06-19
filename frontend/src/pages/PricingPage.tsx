@@ -33,8 +33,8 @@ export function PricingPage() {
                 : "Plans that scale from solo validation to desk-grade review."}
             </h1>
             <p className="mt-6 text-lg leading-8 text-slate-300">
-              Deployment mode controls pricing output. Beta shows free access and seat
-              pressure. Production flips into Starter, Pro, and Trader+ with annual savings.
+              Beta page tracks seats, waitlist pressure, and temporary-data policy.
+              Production flips into Starter, Pro, and Trader+ with annual savings later.
             </p>
           </div>
 
@@ -55,8 +55,8 @@ export function PricingPage() {
             <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/65">FAQ</div>
             <h2 className="text-display mt-4 text-4xl text-white">Still not sure?</h2>
             <p className="mt-4 text-base leading-8 text-slate-400">
-              EdgeLab still moving from staged beta entry to full auth and billing. These answers
-              explain current rollout posture.
+              EdgeLab still moving from beta entry to full auth and billing. These answers
+              explain current rollout posture and what beta testers should expect.
             </p>
           </div>
           <FaqAccordion items={pricingFaqItems} />

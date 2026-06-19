@@ -63,7 +63,7 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "What happens during beta?",
     answer:
-      "Beta users get full product access while EdgeLab hardens auth, billing, and reporting edges. Feedback loop stays direct.",
+      "Beta users get full product access while EdgeLab hardens replay, journaling, analytics, auth, and billing edges. Feedback loop stays direct and fast.",
   },
   {
     question: "Can I bring my own CSV data?",
@@ -78,7 +78,7 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "Will beta accounts keep history after launch?",
     answer:
-      "Planned path upgrades beta accounts into paid plans with a grace window, so early research stays intact.",
+      "No guarantee. Beta data is temporary test data and will be pruned after beta ends, so keep anything important in your own export too.",
   },
 ];
 
@@ -156,8 +156,8 @@ export function PricingSection({
               <div className="mt-2 text-display text-4xl text-white">Free during beta</div>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
                 Full backtesting engine, unlimited sessions, strategy management,
-                analytics, reports, journal, CSV import. Limited-seat cohort while auth
-                and billing move from staged flow to production flow.
+                analytics, reports, journal, CSV import. Limited-seat cohort while
+                replay polish, auth, and billing move from beta track to production.
               </p>
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 {[
@@ -191,7 +191,7 @@ export function PricingSection({
                 {program.seats_taken}/{program.seats_total} seats claimed
               </div>
               <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-                Beta banner stays across landing, pricing, auth, and workspace entry. Waitlist size: {program.waitlist_count}.
+                Waitlist auto-opens at capacity. Beta data will be pruned after beta ends. Current waitlist: {program.waitlist_count}.
               </div>
             </div>
           </div>
