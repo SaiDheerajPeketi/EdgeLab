@@ -196,17 +196,38 @@ function createTrade({
   };
 }
 
-function interpolateCloses(points: number[], stepsPerSegment: number) {
-  if (points.length <= 1) {
-    return points;
+function createSeededRandom(seed: number) {
+  let value = seed | 0;
+
+  return () => {
+    value = (value + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(value ^ (value >>> 15), 1 | value);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildClosePath({
+  anchors,
+  noiseRatio,
+  seed,
+  stepsPerSegment,
+}: {
+  anchors: number[];
+  noiseRatio: number;
+  seed: number;
+  stepsPerSegment: number;
+}) {
+  if (anchors.length <= 1) {
+    return anchors;
   }
 
-  const wobblePattern = [0.36, -0.18, 0.22, -0.12, 0.16, -0.08, 0.12, -0.06];
-  const closes: number[] = [points[0]];
+  const random = createSeededRandom(seed);
+  const closes: number[] = [anchors[0]];
 
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const start = points[index];
-    const end = points[index + 1];
+  for (let index = 0; index < anchors.length - 1; index += 1) {
+    const start = anchors[index];
+    const end = anchors[index + 1];
 
     for (let step = 1; step <= stepsPerSegment; step += 1) {
       const progress = step / stepsPerSegment;
@@ -217,11 +238,12 @@ function interpolateCloses(points: number[], stepsPerSegment: number) {
         continue;
       }
 
-      const wobbleBase = Math.max(Math.abs(delta), Math.abs(start) * 0.0012);
-      const wobble = wobblePattern[(index * stepsPerSegment + step) % wobblePattern.length];
-      const curve = Math.sin(progress * Math.PI * 2) * delta * 0.06;
+      const base = start + delta * progress;
+      const localRange = Math.max(Math.abs(delta), Math.abs(start) * noiseRatio);
+      const wave = Math.sin(progress * Math.PI * 2 + index * 0.63) * localRange * 0.24;
+      const noise = (random() - 0.5) * localRange * 0.94;
 
-      closes.push(Number((start + delta * progress + wobbleBase * wobble + curve).toFixed(4)));
+      closes.push(Number((base + wave + noise).toFixed(4)));
     }
   }
 
@@ -232,26 +254,28 @@ function createBars({
   baseVolume,
   closes,
   day,
+  seed,
   stepMinutes = 5,
 }: {
   baseVolume: number;
   closes: number[];
   day: number;
+  seed: number;
   stepMinutes?: number;
 }): DemoBar[] {
   const startTime = Date.UTC(2026, 5, day, 9, 30) / 1000;
+  const random = createSeededRandom(seed);
 
   return closes.map((close, index) => {
     const previousClose = index === 0 ? close * 0.999 : closes[index - 1];
-    const gap = (((index * 3) % 7) - 3) * Math.abs(close) * 0.00006;
+    const gap = (random() - 0.5) * Math.abs(close) * 0.00038;
     const open = previousClose + gap;
-    const baseRange = Math.max(Math.abs(close - open), Math.abs(close) * 0.00045);
-    const high =
-      Math.max(open, close) +
-      baseRange * (0.72 + Math.abs(Math.sin(index * 0.71)) * 0.92);
-    const low =
-      Math.min(open, close) -
-      baseRange * (0.68 + Math.abs(Math.cos(index * 0.57)) * 0.84);
+    const body = Math.abs(close - open);
+    const rangeBase = Math.max(body, Math.abs(close) * (0.00028 + random() * 0.00052));
+    const high = Math.max(open, close) + rangeBase * (0.35 + random() * 1.7);
+    const low = Math.min(open, close) - rangeBase * (0.35 + random() * 1.55);
+    const volumePulse = 0.62 + random() * 0.86;
+    const bodyLift = body * (Math.abs(close) >= 100 ? 2200 : 1_500_000);
 
     return {
       time: (startTime + index * stepMinutes * 60) as UTCTimestamp,
@@ -259,7 +283,7 @@ function createBars({
       high,
       low,
       close,
-      volume: baseVolume + index * 1100 + (index % 6) * 2400 + Math.round(baseRange * 8500),
+      volume: Math.round(baseVolume * volumePulse + index * 980 + bodyLift),
     };
   });
 }
@@ -362,39 +386,48 @@ function formatBarTime(value: UTCTimestamp) {
 const replayBars = createBars({
   day: 12,
   baseVolume: 182000,
-  closes: interpolateCloses(
-    [
-      4278.8, 4277.1, 4278.3, 4276.8, 4279.2, 4281.1, 4279.4, 4282.6, 4285.1,
-      4283.8, 4286.4, 4288.7, 4287.5, 4291.8, 4294.6, 4292.7, 4297.4, 4301.3,
+  seed: 7,
+  closes: buildClosePath({
+    anchors: [
+      4278.8, 4276.2, 4279.6, 4275.9, 4281.4, 4278.7, 4284.6, 4281.2, 4288.9,
+      4284.1, 4292.7, 4289.8, 4298.4, 4293.7, 4302.2, 4298.8, 4305.6,
     ],
-    4,
-  ),
+    noiseRatio: 0.0016,
+    seed: 17,
+    stepsPerSegment: 8,
+  }),
 });
 
 const reviewBars = createBars({
   day: 14,
   baseVolume: 124000,
+  seed: 11,
   stepMinutes: 15,
-  closes: interpolateCloses(
-    [
-      192.1, 191.9, 191.6, 191.1, 190.8, 190.4, 190.7, 190.1, 189.8,
-      189.5, 189.7, 189.2, 188.8, 189.0, 188.5, 188.3, 188.6, 188.1,
+  closes: buildClosePath({
+    anchors: [
+      192.1, 191.7, 191.3, 190.5, 190.9, 189.8, 190.1, 189.2, 189.5,
+      188.9, 189.1, 188.4, 188.8, 188.2, 188.5, 188.1,
     ],
-    4,
-  ),
+    noiseRatio: 0.0022,
+    seed: 29,
+    stepsPerSegment: 7,
+  }),
 });
 
 const resultsBars = createBars({
   day: 16,
   baseVolume: 212000,
-  closes: interpolateCloses(
-    [
-      1.0838, 1.0840, 1.0843, 1.0841, 1.0845, 1.0849, 1.0847, 1.0852, 1.0856,
-      1.0853, 1.0859, 1.0863, 1.0860, 1.0866, 1.0870, 1.0868, 1.0874, 1.0880,
-      1.0877, 1.0887,
+  seed: 19,
+  closes: buildClosePath({
+    anchors: [
+      1.0838, 1.0842, 1.0840, 1.0847, 1.0845, 1.0851, 1.0848, 1.0856,
+      1.0852, 1.0860, 1.0858, 1.0865, 1.0862, 1.0869, 1.0867, 1.0874,
+      1.0870, 1.0879, 1.0876, 1.0887,
     ],
-    4,
-  ),
+    noiseRatio: 0.0015,
+    seed: 43,
+    stepsPerSegment: 8,
+  }),
 });
 
 const SCENARIOS: DemoScenario[] = [
@@ -407,9 +440,9 @@ const SCENARIOS: DemoScenario[] = [
     timeframe: "5m replay",
     bars: replayBars,
     markers: buildMarkers(replayBars, [
-      { index: 14, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Entry" },
-      { index: 37, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Partial" },
-      { index: 52, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Review" },
+      { index: 24, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Entry" },
+      { index: 63, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Partial" },
+      { index: 104, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Review" },
     ]),
     metrics: buildMetrics(1426, 0.581, 31, [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426]),
     trades: [
@@ -460,9 +493,9 @@ const SCENARIOS: DemoScenario[] = [
     timeframe: "15m review",
     bars: reviewBars,
     markers: buildMarkers(reviewBars, [
-      { index: 11, position: "aboveBar", shape: "arrowDown", color: "#fb7185", text: "Short" },
-      { index: 22, position: "belowBar", shape: "circle", color: "#f59e0b", text: "Tag" },
-      { index: 40, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Re-entry" },
+      { index: 18, position: "aboveBar", shape: "arrowDown", color: "#fb7185", text: "Short" },
+      { index: 46, position: "belowBar", shape: "circle", color: "#f59e0b", text: "Tag" },
+      { index: 89, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Re-entry" },
     ]),
     metrics: buildMetrics(986, 0.544, 24, [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986]),
     trades: [
@@ -513,9 +546,9 @@ const SCENARIOS: DemoScenario[] = [
     timeframe: "5m results",
     bars: resultsBars,
     markers: buildMarkers(resultsBars, [
-      { index: 9, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Start" },
-      { index: 29, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Scale" },
-      { index: 53, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Close" },
+      { index: 22, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Start" },
+      { index: 71, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Scale" },
+      { index: 118, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Close" },
     ]),
     metrics: buildMetrics(1874, 0.603, 37, [0, 164, 298, 552, 488, 736, 924, 1160, 1318, 1514, 1688, 1874]),
     trades: [
@@ -558,27 +591,36 @@ const SCENARIOS: DemoScenario[] = [
 ];
 
 function MarketingCandleSurface({
+  currentBarIndex,
   scenario,
-  visibleBarCount,
 }: {
+  currentBarIndex: number;
   scenario: DemoScenario;
-  visibleBarCount: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const visibleWindow = 72;
+  const clampedIndex = Math.max(0, Math.min(currentBarIndex, scenario.bars.length - 1));
 
   const visibleBars = useMemo(
-    () => scenario.bars.slice(0, Math.max(1, visibleBarCount)),
-    [scenario.bars, visibleBarCount],
+    () => {
+      const windowStart = Math.max(0, clampedIndex - visibleWindow + 1);
+      return scenario.bars.slice(windowStart, clampedIndex + 1);
+    },
+    [clampedIndex, scenario.bars],
   );
-  const lastBar = visibleBars[visibleBars.length - 1] ?? null;
+  const lastBar = scenario.bars[clampedIndex] ?? visibleBars[visibleBars.length - 1] ?? null;
   const firstBar = visibleBars[0] ?? null;
   const changePercent =
     firstBar != null && lastBar != null
       ? ((lastBar.close - firstBar.open) / Math.max(Math.abs(firstBar.open), Number.EPSILON)) * 100
       : 0;
+  const replayProgress = Math.max(
+    12,
+    ((clampedIndex + 1) / Math.max(scenario.bars.length, 1)) * 100,
+  );
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -697,8 +739,9 @@ function MarketingCandleSurface({
           </h3>
           <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
         </div>
-        <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300">
-          OHLCV
+        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-100">
+          <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)] motion-safe:animate-pulse" />
+          {formatBarTime(lastBar?.time ?? scenario.bars[0]?.time ?? 0)}
         </div>
       </div>
 
@@ -729,6 +772,13 @@ function MarketingCandleSurface({
         </span>
       </div>
 
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-emerald-300 transition-[width] duration-200 ease-out motion-reduce:transition-none"
+          style={{ width: `${replayProgress}%` }}
+        />
+      </div>
+
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/10 bg-[#0b1017]">
         <div ref={containerRef} className="h-[392px] w-full" />
       </div>
@@ -740,9 +790,8 @@ export function HeroDemo() {
   const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [showing, setShowing] = useState(true);
-  const [visibleBarCount, setVisibleBarCount] = useState(
-    Math.min(32, SCENARIOS[0]?.bars.length ?? 32),
-  );
+  const initialCursor = Math.max(0, Math.min(78, (SCENARIOS[0]?.bars.length ?? 1) - 1));
+  const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
   const prefersReducedMotion = usePrefersReducedMotion();
   const hideTimerRef = useRef<number | null>(null);
   const showTimerRef = useRef<number | null>(null);
@@ -768,24 +817,23 @@ export function HeroDemo() {
       return;
     }
 
-    const initialCount = Math.min(32, scenario.bars.length);
+    const nextInitialCursor = Math.max(0, Math.min(78, scenario.bars.length - 1));
 
     if (prefersReducedMotion) {
-      setVisibleBarCount(scenario.bars.length);
+      setCurrentBarIndex(scenario.bars.length - 1);
       return;
     }
 
-    setVisibleBarCount(initialCount);
+    setCurrentBarIndex(nextInitialCursor);
 
     const timer = window.setInterval(() => {
-      setVisibleBarCount((current) => {
-        if (current >= scenario.bars.length) {
-          window.clearInterval(timer);
-          return current;
+      setCurrentBarIndex((current) => {
+        if (current >= scenario.bars.length - 1) {
+          return nextInitialCursor;
         }
         return current + 1;
       });
-    }, 92);
+    }, 118);
 
     return () => window.clearInterval(timer);
   }, [prefersReducedMotion, scenario]);
@@ -868,7 +916,7 @@ export function HeroDemo() {
         <MetricsBar metrics={scenario.metrics} />
 
         <div className="mt-4">
-          <MarketingCandleSurface scenario={scenario} visibleBarCount={visibleBarCount} />
+          <MarketingCandleSurface currentBarIndex={currentBarIndex} scenario={scenario} />
         </div>
 
         <div className="mt-4">

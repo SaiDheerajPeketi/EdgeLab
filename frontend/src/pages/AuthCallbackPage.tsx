@@ -66,7 +66,7 @@ export function AuthCallbackPage() {
         <div className="edgelab-grid absolute inset-0 opacity-35" />
       </div>
       <div className="relative w-full max-w-xl rounded-[34px] border border-white/10 bg-[#061018]/94 p-8 shadow-card backdrop-blur-xl sm:p-10">
-        <EdgeLabWordmark />
+        <EdgeLabWordmark showTagline={false} />
 
         <div className="mt-10 text-center">
           <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-cyan-300/20 border-t-cyan-300" />

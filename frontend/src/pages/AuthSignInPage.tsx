@@ -2,8 +2,7 @@ import { ArrowRight, Chrome, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
-  buildMarketingNavItems,
-  MarketingShell,
+  EdgeLabWordmark,
 } from "../components/marketing/MarketingShell";
 import { isBetaMode, deploymentMode } from "../lib/deploymentMode";
 import { buildGoogleAuthorizeUrl, isGoogleAuthConfigured } from "../lib/googleAuth";
@@ -83,72 +82,37 @@ export function AuthSignInPage() {
   };
 
   return (
-    <MarketingShell
-      navItems={buildMarketingNavItems("inner")}
-      pageTitle="auth"
-    >
-      <section className="px-4 pb-24 pt-14 sm:px-6 lg:px-8 lg:pt-20">
-        <div className="mx-auto max-w-4xl">
-          <div className="rounded-[36px] border border-white/10 bg-[#061018]/94 p-8 shadow-card backdrop-blur-xl sm:p-10">
+    <div className="relative min-h-screen overflow-hidden bg-edgelab-base text-edgelab-text-primary">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="edgelab-mesh absolute inset-x-[-10%] top-[-18rem] h-[40rem] opacity-70" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(50,211,238,0.14),transparent_34%),linear-gradient(180deg,#07090d_0%,#090b0f_42%,#05070a_100%)]" />
+        <div className="edgelab-grid absolute inset-0 opacity-35" />
+      </div>
+
+      <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-8 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between gap-4">
+          <EdgeLabWordmark showTagline={false} />
+          <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
+            {betaStatusLabel}
+          </div>
+        </div>
+
+        <div className="flex flex-1 items-center justify-center py-10">
+          <div className="w-full max-w-4xl rounded-[38px] border border-white/10 bg-[#061018]/94 p-8 shadow-card backdrop-blur-xl sm:p-12">
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
               <ShieldCheck size={14} />
               Secure beta access
             </div>
 
             <div className="mt-8 max-w-3xl">
-              <h1 className="text-display text-[clamp(2.9rem,6vw,5rem)] leading-[0.9] text-white">
-                {waitlistMode ? "Join the EdgeLab waitlist." : "Enter EdgeLab through Google."}
+              <h1 className="text-display text-[clamp(3.5rem,8vw,6.7rem)] leading-[0.88] text-white">
+                {waitlistMode ? "Join EdgeLab waitlist." : "Enter EdgeLab through Google."}
               </h1>
-              <p className="mt-5 text-lg leading-8 text-slate-300">
-                One sign-in path. Approved beta users open the workspace. If seats are full, the
-                same flow drops into waitlist.
+              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+                One Google sign-in. Approved beta users open workspace. Full seats move straight
+                into queue.
               </p>
             </div>
-
-            <div className="mt-7 flex flex-wrap gap-3">
-              {[
-                betaStatusLabel,
-                "Google sign-in",
-                "Temporary beta workspace",
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-300"
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-8 max-w-xl">
-              <button
-                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-cyan-300 px-5 py-3.5 text-sm font-semibold text-slate-950 transition duration-200 ease-out hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-60 motion-reduce:transition-none sm:w-auto sm:min-w-[18rem]"
-                disabled={isSubmitting || authConfigLoading || !googleReady}
-                onClick={handleGoogleSignIn}
-                type="button"
-              >
-                <Chrome size={16} />
-                {isSubmitting
-                  ? "Redirecting to Google..."
-                  : waitlistMode
-                    ? "Join waitlist with Google"
-                    : "Continue with Google"}
-                <ArrowRight size={14} />
-              </button>
-            </div>
-
-            {waitlistMode ? (
-              <div className="mt-5 rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-slate-300">
-                Beta seats are full right now. Google still reserves your place in queue. Current
-                queue: {waitlistCount == null ? "syncing" : waitlistCount}.
-              </div>
-            ) : null}
-
-            {errorMessage ? (
-              <div className="mt-5 rounded-[22px] border border-rose-300/20 bg-rose-300/10 px-4 py-4 text-sm leading-7 text-rose-100">
-                {errorMessage}
-              </div>
-            ) : null}
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <div className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
@@ -174,9 +138,39 @@ export function AuthSignInPage() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-8 max-w-xl">
+              <button
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-cyan-300 px-5 py-3.5 text-sm font-semibold text-slate-950 transition duration-200 ease-out hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-60 motion-reduce:transition-none sm:w-auto sm:min-w-[18rem]"
+                disabled={isSubmitting || authConfigLoading || !googleReady}
+                onClick={handleGoogleSignIn}
+                type="button"
+              >
+                <Chrome size={16} />
+                {isSubmitting
+                  ? "Redirecting to Google..."
+                  : waitlistMode
+                    ? "Join waitlist with Google"
+                    : "Continue with Google"}
+                <ArrowRight size={14} />
+              </button>
+            </div>
+
+            {waitlistMode ? (
+              <div className="mt-5 rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-slate-300">
+                Beta seats full now. Google still reserves queue position. Current queue:{" "}
+                {waitlistCount == null ? "syncing" : waitlistCount}.
+              </div>
+            ) : null}
+
+            {errorMessage ? (
+              <div className="mt-5 rounded-[22px] border border-rose-300/20 bg-rose-300/10 px-4 py-4 text-sm leading-7 text-rose-100">
+                {errorMessage}
+              </div>
+            ) : null}
           </div>
         </div>
-      </section>
-    </MarketingShell>
+      </div>
+    </div>
   );
 }

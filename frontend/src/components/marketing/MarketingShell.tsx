@@ -49,7 +49,7 @@ function NavAnchor({ className, href, label }: NavItem & { className?: string })
   );
 }
 
-export function EdgeLabWordmark() {
+export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean }) {
   return (
     <div className="flex items-center gap-3 text-slate-50">
       <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)]">
@@ -79,9 +79,11 @@ export function EdgeLabWordmark() {
       </div>
       <div>
         <div className="text-lg font-semibold tracking-[-0.05em] text-white">EdgeLab</div>
-        <div className="max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.28em] text-cyan-100/55">
-          Your Edge Engineered
-        </div>
+        {showTagline ? (
+          <div className="max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.28em] text-cyan-100/55">
+            Your Edge Engineered
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -223,25 +225,10 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
         <footer className="px-4 pb-10 pt-6 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-7xl rounded-[30px] border border-white/10 bg-[#060c12]/92 p-6 shadow-card backdrop-blur-xl sm:p-8">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-2xl">
-                <EdgeLabWordmark />
-                <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400">
-                  Replay. Review. Refine.
-                </p>
-              </div>
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+              <EdgeLabWordmark showTagline={false} />
 
-              <Link
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
-                to={primaryCtaHref}
-              >
-                {primaryCtaLabel}
-                <span aria-hidden="true">→</span>
-              </Link>
-            </div>
-
-            <div className="mt-6 flex justify-end border-t border-white/10 pt-6 text-sm text-slate-400">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 text-sm text-slate-400">
                 <Link className="transition hover:text-cyan-100" to="/privacy">
                   Privacy
                 </Link>
