@@ -214,7 +214,7 @@ function AnimatedTypeWord() {
     <span
       aria-label={HERO_TYPEWORD}
       className={`edgelab-typeword mt-1 block min-w-0 sm:mt-0 sm:inline-flex sm:min-w-[11.2ch] ${
-        isWordComplete ? "text-white" : "text-cyan-300"
+        isWordComplete ? "text-cyan-300" : "text-cyan-300/55"
       }`}
     >
       <span aria-hidden="true" className="edgelab-typeword-inner">
@@ -238,16 +238,16 @@ export function LandingPage() {
 
   return (
     <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
-      <section className="px-3 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
+      <section className="px-3 pb-20 pt-7 sm:px-6 lg:px-8 lg:pb-24 lg:pt-10">
         <div className="mx-auto max-w-7xl min-w-0">
-          <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-end">
+          <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
             <div className="max-w-4xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
                 <ShieldCheck size={14} />
                 EdgeLab beta
               </div>
 
-              <h1 className="mt-6 max-w-4xl text-[clamp(2.15rem,12.2vw,4.4rem)] font-semibold leading-[0.94] tracking-[-0.08em] text-white sm:text-[clamp(2.75rem,8vw,6.3rem)] sm:leading-[0.88]">
+              <h1 className="mt-4 max-w-4xl text-[clamp(2.15rem,12.2vw,4.4rem)] font-semibold leading-[0.94] tracking-[-0.08em] text-white sm:mt-5 sm:text-[clamp(2.75rem,8vw,6.3rem)] sm:leading-[0.88]">
                 Your Edge <AnimatedTypeWord />
               </h1>
 
