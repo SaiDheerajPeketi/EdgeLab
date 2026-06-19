@@ -1,5 +1,6 @@
+import type { BetaAuthConfig } from "./api";
+
 const GOOGLE_AUTH_STATE_KEY = "edgelab.google-auth.state.v1";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || "";
 
 type StoredGoogleAuthState = {
   fromPath: string;
@@ -14,11 +15,11 @@ function randomState() {
   return `oauth-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function isGoogleAuthConfigured() {
-  return GOOGLE_CLIENT_ID.length > 0;
+export function isGoogleAuthConfigured(config: BetaAuthConfig | null | undefined) {
+  return Boolean(config?.google_enabled && config.google_client_id?.trim());
 }
 
-export function buildGoogleAuthorizeUrl(fromPath: string) {
+export function buildGoogleAuthorizeUrl(fromPath: string, clientId: string) {
   const redirectUri = `${window.location.origin}/auth/callback/google`;
   const state = randomState();
   const payload: StoredGoogleAuthState = {
@@ -29,7 +30,7 @@ export function buildGoogleAuthorizeUrl(fromPath: string) {
   window.sessionStorage.setItem(GOOGLE_AUTH_STATE_KEY, JSON.stringify(payload));
 
   const query = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
+    client_id: clientId.trim(),
     redirect_uri: redirectUri,
     response_type: "code",
     scope: "openid email profile",

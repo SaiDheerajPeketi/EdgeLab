@@ -205,6 +205,12 @@ class BetaProgramStatus(BaseModel):
     waitlist_count: int = Field(ge=0)
 
 
+class BetaAuthConfig(BaseModel):
+    google_enabled: bool = False
+    google_client_id: str | None = None
+    manual_access_enabled: bool = False
+
+
 class BetaAccessRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     name: str | None = Field(default=None, max_length=160)

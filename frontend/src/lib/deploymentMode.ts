@@ -21,7 +21,7 @@ export function isBetaMode(mode: DeploymentMode = deploymentMode) {
 
 export function getBetaSeatState() {
   const total = Math.max(1, parseNumber(import.meta.env.VITE_BETA_SEATS_TOTAL, 500));
-  const taken = Math.max(0, parseNumber(import.meta.env.VITE_BETA_SEATS_TAKEN, 127));
+  const taken = Math.max(0, parseNumber(import.meta.env.VITE_BETA_SEATS_TAKEN, 0));
   const remaining = Math.max(0, total - taken);
   const fillRatio = Math.min(1, taken / total);
 

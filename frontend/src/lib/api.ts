@@ -467,6 +467,12 @@ export type BetaProgramStatus = {
   waitlist_count: number;
 };
 
+export type BetaAuthConfig = {
+  google_enabled: boolean;
+  google_client_id: string | null;
+  manual_access_enabled: boolean;
+};
+
 export type BetaAccessPayload = {
   email: string;
   name?: string | null;
@@ -578,6 +584,10 @@ export function getDatasets() {
 
 export function getBetaProgramStatus() {
   return request<BetaProgramStatus>("/auth/beta/status");
+}
+
+export function getBetaAuthConfig() {
+  return request<BetaAuthConfig>("/auth/config");
 }
 
 export function requestBetaAccess(payload: BetaAccessPayload) {

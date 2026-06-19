@@ -20,3 +20,5 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 .env
+deployment/client_secret_*.json
+deployment/google-oauth-client.json

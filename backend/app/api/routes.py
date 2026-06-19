@@ -43,6 +43,7 @@ from app.schemas import (
     AngelOneInstrumentsResponse,
     BetaAccessRequest,
     BetaAccessResponse,
+    BetaAuthConfig,
     BetaAuthSessionRead,
     BetaAuthUser,
     BetaProgramStatus,
@@ -398,8 +399,16 @@ def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
         raise HTTPException(status_code=502, detail="Market catalog request failed") from exc
 
 
+def google_oauth_enabled() -> bool:
+    return bool(settings.google_client_id and settings.google_client_secret)
+
+
+def beta_manual_access_enabled() -> bool:
+    return bool(getattr(settings, "beta_manual_access_enabled", False))
+
+
 def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object]:
-    if not settings.google_client_id or not settings.google_client_secret:
+    if not google_oauth_enabled():
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
 
     payload = urlencode(
@@ -814,11 +823,23 @@ def beta_program_status(db: Session = Depends(get_db)) -> BetaProgramStatus:
         raise HTTPException(status_code=500, detail="Beta access status unavailable") from exc
 
 
+@router.get("/auth/config", response_model=BetaAuthConfig)
+def beta_auth_config() -> BetaAuthConfig:
+    return BetaAuthConfig(
+        google_enabled=google_oauth_enabled(),
+        google_client_id=settings.google_client_id or None,
+        manual_access_enabled=beta_manual_access_enabled(),
+    )
+
+
 @router.post("/auth/beta/access", response_model=BetaAccessResponse)
 def beta_access(
     payload: BetaAccessRequest,
     db: Session = Depends(get_db),
 ) -> BetaAccessResponse:
+    if not beta_manual_access_enabled():
+        raise HTTPException(status_code=403, detail="Manual beta access disabled. Use Google sign-in.")
+
     email = normalize_beta_email(payload.email)
     name = clean_text(payload.name) or "Beta Trader"
 

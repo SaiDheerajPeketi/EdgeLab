@@ -18,7 +18,11 @@ def make_model_session():
 
 
 def test_beta_access_waitlists_after_seats_fill(monkeypatch):
-    monkeypatch.setattr(routes, "settings", SimpleNamespace(beta_seats_total=1))
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(beta_seats_total=1, beta_manual_access_enabled=True),
+    )
     db = make_model_session()
 
     try:
@@ -45,7 +49,11 @@ def test_beta_access_waitlists_after_seats_fill(monkeypatch):
 
 
 def test_beta_session_can_be_read_and_deleted(monkeypatch):
-    monkeypatch.setattr(routes, "settings", SimpleNamespace(beta_seats_total=2))
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(beta_seats_total=2, beta_manual_access_enabled=True),
+    )
     db = make_model_session()
 
     try:
@@ -67,3 +75,24 @@ def test_beta_session_can_be_read_and_deleted(monkeypatch):
     assert hydrated.user.approved is True
     assert cleared == {"ok": True}
     assert exc_info.value.status_code == 401
+
+
+def test_beta_access_requires_google_auth_by_default(monkeypatch):
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(beta_seats_total=2, beta_manual_access_enabled=False),
+    )
+    db = make_model_session()
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routes.beta_access(
+                BetaAccessRequest(email="delta@desk.com", name="Delta Trader", provider="email"),
+                db,
+            )
+    finally:
+        db.close()
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Manual beta access disabled. Use Google sign-in."

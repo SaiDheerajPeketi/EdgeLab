@@ -255,8 +255,8 @@ export function LandingPage() {
             </div>
 
             <div className="mt-8 rounded-[28px] border border-amber-300/20 bg-amber-300/10 px-5 py-5 text-sm leading-7 text-amber-100">
-              Beta rules: email access path is primary, Google auth comes later, and workspace data
-              can be pruned once beta ends. If you need a durable record, export it.
+              Beta rules: Google OAuth gates every seat, waitlist auto-attaches after capacity, and
+              workspace data can be pruned once beta ends. If you need durable record, export it.
             </div>
           </div>
 
@@ -317,7 +317,7 @@ export function LandingPage() {
                       Waitlist auto-enables when seats fill.
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                      Google auth is staged, not mainline.
+                      Google OAuth gates every beta session.
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
                       Beta data is temporary by policy.
@@ -389,11 +389,11 @@ export function LandingPage() {
                   Access path
                 </div>
                 <div className="mt-3 text-2xl font-semibold text-white">
-                  Email first. Waitlist second. OAuth later.
+                  Google OAuth first. Waitlist second.
                 </div>
                 <p className="mt-4 text-sm leading-7 text-slate-300">
-                  Current path is intentionally simple so cohort feedback lands on core workflow
-                  instead of auth edge cases.
+                  Same Google identity carries approved users into workspace and overflow users into
+                  waitlist without split auth flows.
                 </p>
               </div>
             </div>

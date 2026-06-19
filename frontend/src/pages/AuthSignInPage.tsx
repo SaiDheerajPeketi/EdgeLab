@@ -1,11 +1,10 @@
 import { ArrowRight, Chrome, DatabaseZap, LockKeyhole, Sparkles } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark, MarketingShell } from "../components/marketing/MarketingShell";
-import { ApiError, requestBetaAccess } from "../lib/api";
-import { setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import { isBetaMode, deploymentMode } from "../lib/deploymentMode";
 import { buildGoogleAuthorizeUrl, isGoogleAuthConfigured } from "../lib/googleAuth";
+import { useBetaAuthConfig } from "../lib/useBetaAuthConfig";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 function useFromPath() {
@@ -17,45 +16,24 @@ function useFromPath() {
 export function AuthSignInPage() {
   const location = useLocation();
   const fromPath = useFromPath();
-  const navigate = useNavigate();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
-  const [email, setEmail] = useState("beta@edgelab.app");
-  const [name, setName] = useState("Beta Trader");
   const [errorMessage, setErrorMessage] = useState<string | null>(searchParams.get("error"));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { loading, program } = useBetaProgramStatus();
+  const { config, error: authConfigError, loading: authConfigLoading } = useBetaAuthConfig();
   const waitlistMode = searchParams.get("waitlist") === "1";
-  const googleReady = isGoogleAuthConfigured();
+  const googleReady = isGoogleAuthConfigured(config);
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
 
-  const handleDemoSignIn = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await requestBetaAccess({
-        email,
-        name,
-        provider: "email",
-      });
-      const session = toStoredAuthSession(response.session);
-      setStoredAuthSession(session);
-      navigate(session.user.approved ? fromPath : "/auth/signin?waitlist=1", { replace: true });
-    } catch (error) {
-      setErrorMessage(error instanceof ApiError ? error.message : "Beta access failed");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleGoogleSignIn = () => {
-    if (!googleReady) {
-      setErrorMessage("Set VITE_GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable Google OAuth");
+    if (!googleReady || !config.google_client_id) {
+      setErrorMessage(authConfigError || "Google OAuth unavailable. Add GOOGLE_CLIENT_SECRETS_FILE on backend.");
       return;
     }
-    window.location.href = buildGoogleAuthorizeUrl(fromPath);
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    window.location.href = buildGoogleAuthorizeUrl(fromPath, config.google_client_id);
   };
 
   return (
@@ -78,11 +56,11 @@ export function AuthSignInPage() {
                 Beta Access
               </div>
               <h1 className="text-display mt-4 text-5xl text-white">
-                Enter beta. Pressure-test your process.
+                Enter beta through Google. Waitlist follows same gate.
               </h1>
               <p className="mt-5 text-lg leading-8 text-slate-200">
-                Email path is live now. Waitlist kicks in automatically when seats fill.
-                Google auth comes later. Beta data is temporary and will be pruned after beta closes.
+                Beta access is OAuth-only now. If seats are full, same Google sign-in drops you into
+                waitlist. Beta data stays temporary and can be pruned when beta closes.
               </p>
             </div>
 
@@ -93,7 +71,7 @@ export function AuthSignInPage() {
                   label: "Beta seats",
                   value: loading || seatsRemaining == null ? "syncing" : `${seatsRemaining} left`,
                 },
-                { icon: LockKeyhole, label: "Protected route", value: "/app" },
+                { icon: LockKeyhole, label: "Auth gate", value: "Google OAuth" },
                 { icon: DatabaseZap, label: "Data retention", value: "Pruned after beta" },
               ].map((item) => {
                 const Icon = item.icon;
@@ -116,7 +94,7 @@ export function AuthSignInPage() {
                 Beta gate live. {program.seats_taken == null ? "Live cohort syncing." : `${program.seats_taken}/${program.seats_total} seats claimed.`}
                 {seatsRemaining == null || seatsRemaining > 0
                   ? " Seats open now."
-                  : ` Seats full. Waitlist collecting ${waitlistCount ?? 0} traders.`}
+                  : ` Seats full. Waitlist collecting ${waitlistCount ?? 0} traders.`} Google sign-in handles both.
               </div>
             ) : null}
           </div>
@@ -124,86 +102,57 @@ export function AuthSignInPage() {
           <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-8 shadow-card backdrop-blur-xl">
             <div className="text-sm text-slate-400">Access EdgeLab beta</div>
             <div className="mt-2 text-3xl font-semibold text-white">
-              {waitlistMode ? "Beta full. Join waitlist." : "Sign in to continue"}
+              {waitlistMode ? "Beta full. Join waitlist with Google." : "Continue with Google"}
             </div>
 
-            <form className="grid gap-4" onSubmit={handleDemoSignIn}>
-              <label className="grid gap-2 text-sm text-slate-400">
-                Name
-                <input
-                  className="input-control h-12 rounded-2xl border-white/10 bg-black/25"
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Trader name"
-                  type="text"
-                  value={name}
-                />
-              </label>
+            <div className="mt-6 grid gap-4">
+              <div className="rounded-[24px] border border-white/10 bg-black/25 p-5 text-sm leading-7 text-slate-300">
+                <div className="flex items-center gap-2 text-slate-100">
+                  <Chrome size={15} />
+                  OAuth-only beta gate
+                </div>
+                <div className="mt-2">
+                  Every beta seat and waitlist signup now runs through Google. Manual email access is
+                  closed so cohort identity stays consistent between builds.
+                </div>
+              </div>
 
-              <label className="grid gap-2 text-sm text-slate-400">
-                Email
-                <input
-                  className="input-control h-12 rounded-2xl border-white/10 bg-black/25"
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@desk.com"
-                  type="email"
-                  value={email}
-                />
-              </label>
-
-              <label className="grid gap-2 text-sm text-slate-400">
-                Password
-                <input
-                  className="input-control h-12 rounded-2xl border-white/10 bg-black/25"
-                  disabled
-                  placeholder="Reserved for later auth pass"
-                  type="password"
-                />
-              </label>
-
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Workspace redirect: {fromPath}</span>
-                <button className="text-cyan-100" type="button">
-                  Forgot password
-                </button>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[20px] border border-white/10 bg-black/25 px-4 py-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Redirect</div>
+                  <div className="mt-2 font-data text-sm text-white">{fromPath}</div>
+                </div>
+                <div className="rounded-[20px] border border-white/10 bg-black/25 px-4 py-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Scope</div>
+                  <div className="mt-2 font-data text-sm text-white">openid email profile</div>
+                </div>
+                <div className="rounded-[20px] border border-white/10 bg-black/25 px-4 py-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Fallback</div>
+                  <div className="mt-2 font-data text-sm text-white">
+                    {config.manual_access_enabled ? "Manual open" : "Manual closed"}
+                  </div>
+                </div>
               </div>
 
               <button
-                className="mt-2 inline-flex items-center justify-center rounded-full bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-60"
-                disabled={isSubmitting}
-                type="submit"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-60"
+                disabled={isSubmitting || authConfigLoading || !googleReady}
+                onClick={handleGoogleSignIn}
+                type="button"
               >
+                <Chrome size={16} />
                 {isSubmitting
-                  ? "Requesting access..."
-                  : seatsRemaining == null || seatsRemaining > 0
-                    ? "Enter beta workspace"
-                    : "Join beta waitlist"}
+                  ? "Redirecting to Google..."
+                  : waitlistMode
+                    ? "Continue to Google waitlist"
+                    : "Continue with Google"}
+                <ArrowRight size={14} />
               </button>
-            </form>
-
-            <div className="mt-5 rounded-[22px] border border-white/10 bg-black/25 px-4 py-4 text-sm leading-7 text-slate-300">
-              <div className="flex items-center gap-2 text-slate-100">
-                <Chrome size={15} />
-                Google auth later
-              </div>
-              <div className="mt-2">
-                Public OAuth path stays parked for now. Beta flow uses email seat issuance so replay,
-                journal, and analytics feedback can ship first.
-              </div>
-              {googleReady ? (
-                <button
-                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/30 hover:text-cyan-100"
-                  onClick={handleGoogleSignIn}
-                  type="button"
-                >
-                  Try staged Google flow
-                  <ArrowRight size={14} />
-                </button>
-              ) : null}
             </div>
 
             {waitlistMode ? (
               <div className="mt-5 rounded-[22px] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm leading-7 text-amber-100">
-                Beta seats full. Join waitlist now. Current queue: {waitlistCount == null ? "syncing" : waitlistCount} traders.
+                Beta seats full. Google sign-in still works. Current queue: {waitlistCount == null ? "syncing" : waitlistCount} traders.
               </div>
             ) : null}
 
@@ -218,8 +167,8 @@ export function AuthSignInPage() {
             ) : null}
 
             <p className="mt-6 text-sm leading-7 text-slate-400">
-              Don&apos;t have account yet?{" "}
-              {seatsRemaining == null || seatsRemaining > 0 ? "Use beta entry now," : "Join waitlist now,"}{" "}
+              Need access?{" "}
+              {seatsRemaining == null || seatsRemaining > 0 ? "Use Google entry now," : "Use Google waitlist now,"}{" "}
               or jump back to{" "}
               <Link className="ml-1 text-cyan-100" to="/">
                 landing page

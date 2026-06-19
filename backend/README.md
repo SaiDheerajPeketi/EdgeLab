@@ -50,11 +50,17 @@ Set an API bearer token for protected mutation and app-data routes with:
 export EDGELAB_API_TOKEN=change-me
 ```
 
-Enable real Google OAuth exchange with:
+Enable real Google OAuth exchange with direct env vars:
 
 ```bash
 export GOOGLE_CLIENT_ID=your-google-client-id
 export GOOGLE_CLIENT_SECRET=your-google-client-secret
+```
+
+For Docker/Jenkins, prefer mounting the Google client JSON and pointing the backend at it:
+
+```bash
+export GOOGLE_CLIENT_SECRETS_FILE=/opt/edgelab/deployment/google-oauth-client.json
 ```
 
 For the legacy single-file replay path, set an explicit CSV:
@@ -81,6 +87,12 @@ Beta seat access and waitlist are capped server-side. Override seat count with:
 export EDGELAB_BETA_SEATS_TOTAL=500
 ```
 
+Manual beta enrollment is disabled by default so all cohort users enter through Google OAuth. Re-enable only for local debugging:
+
+```bash
+export EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1
+```
+
 ## Docker
 
 The backend container is built by `backend/Dockerfile` and normally runs through the repository root `docker-compose.yml`.
@@ -103,7 +115,7 @@ Container defaults:
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
 
-The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists the SQLite database in the `api-data` named volume. The populator does not mount or write the SQLite volume; the API discovers generated CSV files when serving dataset catalog requests. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists the SQLite database in the `api-data` named volume. The populator does not mount or write the SQLite volume; the API discovers generated CSV files when serving dataset catalog requests. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
 
 Run the scheduled data populator directly from the repository root with:
 
@@ -125,6 +137,8 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 - `DELETE /api/backtests/{id}/orders/{order_id}` cancels pending orders.
 - `GET /api/metrics?session_id=...` returns session analytics.
 - `GET /api/auth/beta/status` returns live beta seat and waitlist counts.
-- `POST /api/auth/beta/access` issues beta access or waitlist sessions.
+- `GET /api/auth/config` returns runtime auth config for the frontend.
+- `POST /api/auth/beta/access` issues beta access or waitlist sessions only when `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1`.
+- `POST /api/auth/google/exchange` exchanges Google OAuth codes for beta sessions.
 - `GET /api/auth/session` rehydrates stored beta sessions.
 - `DELETE /api/auth/session` signs out beta sessions.

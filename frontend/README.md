@@ -24,7 +24,7 @@ npm run dev
 
 `VITE_DEPLOYMENT_MODE` (`beta` | `production`) drives the landing + pricing UI. `beta` (default) renders a single free Beta card with a seat counter (`VITE_BETA_SEATS_TOTAL`, `VITE_BETA_SEATS_TAKEN`); `production` renders the Starter / Pro / Trader+ tiers. See `.env.example`.
 
-Current auth pass is beta-backed: `/auth/signin` calls FastAPI beta auth APIs for email waitlist access, while `/auth/callback/google` exchanges a real Google OAuth code with the backend when `VITE_GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` are configured. Both flows receive backend session tokens and route overflow users into waitlist mode before `/app`. The landing, pricing, and auth surfaces fetch live beta seat + waitlist counts from `/api/auth/beta/status`; `VITE_BETA_*` values remain fallback display defaults for builds where the API is unavailable.
+Current auth pass is beta-backed and Google-only: `/auth/signin` fetches runtime config from `/api/auth/config`, builds the Google authorize URL in-browser, and `/auth/callback/google` exchanges the OAuth code with the backend. Manual email beta access is disabled by default and can be reopened only with `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1`. The landing, pricing, and auth surfaces fetch live beta seat + waitlist counts from `/api/auth/beta/status`; `VITE_BETA_*` values remain fallback display defaults for builds where the API is unavailable.
 
 The dev server proxies `/api` to `http://127.0.0.1:8000`. Set a custom API base URL when needed:
 
@@ -44,6 +44,8 @@ The frontend container is built by `frontend/Dockerfile`. It compiles the Vite a
 VITE_API_BASE_URL=/api
 VITE_API_BEARER_TOKEN=
 ```
+
+Google OAuth no longer needs a build-time frontend env var. The backend exposes the public client ID through `/api/auth/config`, which is sourced from `GOOGLE_CLIENT_SECRETS_FILE` or the backend `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` env vars at runtime.
 
 The Docker build pins npm 11 before running `npm ci` from the frontend directory so `frontend/package-lock.json` resolves platform-specific Vite/Rollup optional packages for the Linux container without the npm 10 optional-dependency exit-handler bug. It defaults `NPM_CONFIG_REGISTRY` to `https://registry.npmjs.org/`; override that build arg only when the deployment host can resolve the selected registry mirror.
 

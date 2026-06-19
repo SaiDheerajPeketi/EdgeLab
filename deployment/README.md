@@ -30,6 +30,30 @@ deployment/install-from-instance.sh
 
 The generated script installs discovered packages and includes guarded restore steps for fetched configuration files. Review the generated script before running it on a fresh host, especially if the original instance relied on secrets or provider-specific metadata that should not be committed.
 
+## Sync Google OAuth Secret To Jenkins Host
+
+To copy a local Google OAuth client JSON onto the Docker/Jenkins host and wire the runtime env file:
+
+```bash
+bash deployment/push-google-oauth-secret.sh
+```
+
+Defaults:
+
+- SSH key: `~/.ssh/mykey`
+- SSH target: `ubuntu@150.136.235.179`
+- Deploy dir: `/home/peketi_20214004/EdgeLab`
+- Remote secret path: `/home/peketi_20214004/EdgeLab/deployment/google-oauth-client.json`
+
+The script uploads the first `deployment/client_secret_*.json` file it finds, rewrites `${DEPLOY_DIR}/.env` with:
+
+```text
+GOOGLE_CLIENT_SECRETS_FILE=/opt/edgelab/deployment/google-oauth-client.json
+EDGELAB_BETA_MANUAL_ACCESS_ENABLED=0
+```
+
+Jenkins can then rebuild normally; Docker Compose mounts `./deployment` into the API container at `/opt/edgelab/deployment`.
+
 ## Repair a Live Instance Port Conflict
 
 If Jenkins is already bound to `8080`, `docker compose up -d` cannot start the EdgeLab frontend because the frontend publishes `${FRONTEND_PORT:-8080}`. Run:

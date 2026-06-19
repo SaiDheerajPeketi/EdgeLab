@@ -22,3 +22,5 @@ EURUSD_M1.csv
 datasets/*
 !datasets/.gitkeep
 .env
+deployment/client_secret_*.json
+deployment/google-oauth-client.json

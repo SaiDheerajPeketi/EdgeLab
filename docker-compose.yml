@@ -7,11 +7,13 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/edgelab/trade_journal_v2.db}
       EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
+      EDGELAB_BETA_MANUAL_ACCESS_ENABLED: ${EDGELAB_BETA_MANUAL_ACCESS_ENABLED:-0}
       EDGELAB_BETA_SEATS_TOTAL: ${EDGELAB_BETA_SEATS_TOTAL:-500}
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_MAX_APP_DATA_ROWS: ${EDGELAB_MAX_APP_DATA_ROWS:-100000}
       EDGELAB_MAX_REQUEST_BODY_BYTES: ${EDGELAB_MAX_REQUEST_BODY_BYTES:-26214400}
+      GOOGLE_CLIENT_SECRETS_FILE: ${GOOGLE_CLIENT_SECRETS_FILE:-/opt/edgelab/deployment/google-oauth-client.json}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     healthcheck:
@@ -30,6 +32,10 @@ services:
       - type: bind
         source: ${EDGELAB_DATASETS_ROOT:-./datasets}
         target: /datasets
+        read_only: true
+      - type: bind
+        source: ./deployment
+        target: /opt/edgelab/deployment
         read_only: true
 
   data-populator:
@@ -64,8 +70,7 @@ services:
         VITE_API_BEARER_TOKEN: ${VITE_API_BEARER_TOKEN:-}
         VITE_DEPLOYMENT_MODE: ${VITE_DEPLOYMENT_MODE:-beta}
         VITE_BETA_SEATS_TOTAL: ${VITE_BETA_SEATS_TOTAL:-500}
-        VITE_BETA_SEATS_TAKEN: ${VITE_BETA_SEATS_TAKEN:-127}
-        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+        VITE_BETA_SEATS_TAKEN: ${VITE_BETA_SEATS_TAKEN:-0}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
     depends_on:
       api:
