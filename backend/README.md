@@ -50,6 +50,13 @@ Set an API bearer token for protected mutation and app-data routes with:
 export EDGELAB_API_TOKEN=change-me
 ```
 
+Enable real Google OAuth exchange with:
+
+```bash
+export GOOGLE_CLIENT_ID=your-google-client-id
+export GOOGLE_CLIENT_SECRET=your-google-client-secret
+```
+
 For the legacy single-file replay path, set an explicit CSV:
 
 ```bash
@@ -66,6 +73,12 @@ App-data import/export is capped at 100,000 total rows by default. Override it w
 
 ```bash
 export EDGELAB_MAX_APP_DATA_ROWS=100000
+```
+
+Beta seat access and waitlist are capped server-side. Override seat count with:
+
+```bash
+export EDGELAB_BETA_SEATS_TOTAL=500
 ```
 
 ## Docker
@@ -111,3 +124,7 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 - `PATCH /api/backtests/{id}/orders/{order_id}` amends pending orders.
 - `DELETE /api/backtests/{id}/orders/{order_id}` cancels pending orders.
 - `GET /api/metrics?session_id=...` returns session analytics.
+- `GET /api/auth/beta/status` returns live beta seat and waitlist counts.
+- `POST /api/auth/beta/access` issues beta access or waitlist sessions.
+- `GET /api/auth/session` rehydrates stored beta sessions.
+- `DELETE /api/auth/session` signs out beta sessions.

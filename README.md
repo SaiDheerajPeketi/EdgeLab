@@ -17,9 +17,11 @@ docker compose up --build
 
 Use `docker-compose` in place of `docker compose` on hosts that provide only the standalone Compose binary.
 
-Open `http://localhost:8080` by default. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`. Nginx gzip-compresses text responses, gives Vite hashed assets a one-year browser cache, keeps `index.html` revalidated for deploy freshness, and returns 404 for missing `/assets/*` chunks instead of serving the SPA fallback. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
+Open `http://localhost:8080` by default. The root route now serves the EdgeLab marketing landing page, `/pricing` serves the pricing surface, `/auth/signin` handles beta sign-in and waitlist entry, `/auth/callback/google` resolves the staged Google beta flow, and the research workspace lives behind protected routing at `/app`. Change `FRONTEND_PORT` and `CORS_ORIGINS` in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI database defaults to the `api-data` volume through `DATABASE_URL`. Nginx gzip-compresses text responses, gives Vite hashed assets a one-year browser cache, keeps `index.html` revalidated for deploy freshness, and returns 404 for missing `/assets/*` chunks instead of serving the SPA fallback. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
 
 Set `EDGELAB_API_TOKEN` to require a bearer token on protected API routes. For the bundled frontend, set `VITE_API_BEARER_TOKEN` to the same value at build time.
+
+Beta auth and waitlist use `EDGELAB_BETA_SEATS_TOTAL` on the backend to decide who gets immediate access and who is queued. Real Google sign-in uses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and frontend authorize var `VITE_GOOGLE_CLIENT_ID`. Keep frontend fallback display vars `VITE_DEPLOYMENT_MODE`, `VITE_BETA_SEATS_TOTAL`, and `VITE_BETA_SEATS_TAKEN` aligned for Docker builds; live seat and waitlist counts are fetched from the FastAPI beta auth APIs at runtime.
 
 Frontend image dependency installs use `NPM_CONFIG_REGISTRY`, which defaults to `https://registry.npmjs.org/` so Docker builds do not depend on workstation-specific npm mirrors.
 

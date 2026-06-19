@@ -96,6 +96,7 @@ import {
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import type { WorkspaceView } from "./lib/workspace";
+import { AppRoutes } from "./routes/AppRoutes";
 import { useBacktestStore } from "./store/backtestStore";
 import { shallow } from "zustand/shallow";
 
@@ -174,7 +175,7 @@ function ChartChunkFallback() {
   );
 }
 
-function NotFoundPage() {
+export function NotFoundPage() {
   return (
     <div className="min-h-screen bg-[#05070a] p-6 text-slate-100">
       <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-3xl flex-col justify-center">
@@ -239,18 +240,10 @@ const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
 const VALID_CHART_STYLES: ChartStyle[] = ["area", "candles", "heikinAshi", "line"];
 
 export default function App() {
-  const isUnknownPath =
-    typeof window !== "undefined" &&
-    !["/", "/index.html"].includes(window.location.pathname);
-
-  if (isUnknownPath) {
-    return <NotFoundPage />;
-  }
-
-  return <WorkspaceApp />;
+  return <AppRoutes NotFoundPage={NotFoundPage} WorkspaceApp={WorkspaceApp} />;
 }
 
-function WorkspaceApp() {
+export function WorkspaceApp() {
   const {
     bars,
     datasets,

@@ -197,6 +197,48 @@ class AppDataImportResult(BaseModel):
     summary: dict[str, int] = Field(default_factory=dict)
 
 
+class BetaProgramStatus(BaseModel):
+    mode: Literal["beta"] = "beta"
+    seats_total: int = Field(ge=1)
+    seats_taken: int = Field(ge=0)
+    seats_remaining: int = Field(ge=0)
+    waitlist_count: int = Field(ge=0)
+
+
+class BetaAccessRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    name: str | None = Field(default=None, max_length=160)
+    provider: Literal["email", "google"] = "email"
+
+
+class BetaAuthUser(BaseModel):
+    id: int
+    email: str
+    name: str
+    provider: Literal["email", "google"]
+    approved: bool
+    beta_position: int | None = None
+    is_beta_user: Literal[True] = True
+    plan: Literal["beta"] = "beta"
+
+
+class BetaAuthSessionRead(BaseModel):
+    token: str
+    created_at: datetime
+    expires_at: datetime
+    user: BetaAuthUser
+
+
+class BetaAccessResponse(BaseModel):
+    session: BetaAuthSessionRead
+    program: BetaProgramStatus
+
+
+class GoogleAuthExchangeRequest(BaseModel):
+    code: str = Field(min_length=1)
+    redirect_uri: str = Field(min_length=1, max_length=1024)
+
+
 class PlaybookCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None

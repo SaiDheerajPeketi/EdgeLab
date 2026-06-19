@@ -115,6 +115,36 @@ class AppStorageItem(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class BetaUser(Base):
+    __tablename__ = "beta_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), default="Beta Trader")
+    provider: Mapped[str] = mapped_column(String(16), default="email", index=True)
+    status: Mapped[str] = mapped_column(String(16), default="WAITLISTED", index=True)
+    beta_position: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    sessions: Mapped[list["BetaSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class BetaSession(Base):
+    __tablename__ = "beta_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("beta_users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    user: Mapped[BetaUser] = relationship(back_populates="sessions")
+
+
 class Playbook(Base):
     __tablename__ = "playbooks"
 

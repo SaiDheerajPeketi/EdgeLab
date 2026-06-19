@@ -21,8 +21,8 @@ const pythonApi = await checkHttpService("http://127.0.0.1:8000", [
 if (pythonApi === "down") {
   processes.push({
     name: "python-api",
-    command: "backend/.venv/bin/uvicorn",
-    args: ["app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+    command: "backend/.venv/bin/python",
+    args: ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
     env: { ...process.env, PYTHONPATH: "backend" },
   });
 } else if (pythonApi === "stale") {

@@ -459,6 +459,48 @@ export type AppDataImportResult = {
   summary: Record<string, number>;
 };
 
+export type BetaProgramStatus = {
+  mode: "beta";
+  seats_total: number;
+  seats_taken: number;
+  seats_remaining: number;
+  waitlist_count: number;
+};
+
+export type BetaAccessPayload = {
+  email: string;
+  name?: string | null;
+  provider?: "email" | "google";
+};
+
+export type BetaAuthUser = {
+  id: number;
+  email: string;
+  name: string;
+  provider: "email" | "google";
+  approved: boolean;
+  beta_position: number | null;
+  is_beta_user: true;
+  plan: "beta";
+};
+
+export type BetaAuthSession = {
+  token: string;
+  created_at: string;
+  expires_at: string;
+  user: BetaAuthUser;
+};
+
+export type BetaAccessResponse = {
+  session: BetaAuthSession;
+  program: BetaProgramStatus;
+};
+
+export type GoogleAuthExchangePayload = {
+  code: string;
+  redirect_uri: string;
+};
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "/api";
 const API_BEARER_TOKEN =
@@ -499,6 +541,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestWithAuthorization<T>(
+  path: string,
+  token: string,
+  init?: RequestInit,
+): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...init?.headers,
+    },
+  });
+}
+
 export function getApiBearerToken() {
   return API_BEARER_TOKEN || null;
 }
@@ -518,6 +574,34 @@ export function getApiWebSocketUrl(path: string) {
 
 export function getDatasets() {
   return request<DatasetCatalog>("/datasets");
+}
+
+export function getBetaProgramStatus() {
+  return request<BetaProgramStatus>("/auth/beta/status");
+}
+
+export function requestBetaAccess(payload: BetaAccessPayload) {
+  return request<BetaAccessResponse>("/auth/beta/access", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function exchangeGoogleAuthCode(payload: GoogleAuthExchangePayload) {
+  return request<BetaAccessResponse>("/auth/google/exchange", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getAuthSession(token: string) {
+  return requestWithAuthorization<BetaAuthSession>("/auth/session", token);
+}
+
+export function deleteAuthSession(token: string) {
+  return requestWithAuthorization<{ ok: boolean }>("/auth/session", token, {
+    method: "DELETE",
+  });
 }
 
 export function refreshDatasets() {

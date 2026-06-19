@@ -30,3 +30,18 @@ deployment/install-from-instance.sh
 
 The generated script installs discovered packages and includes guarded restore steps for fetched configuration files. Review the generated script before running it on a fresh host, especially if the original instance relied on secrets or provider-specific metadata that should not be committed.
 
+## Repair a Live Instance Port Conflict
+
+If Jenkins is already bound to `8080`, `docker compose up -d` cannot start the EdgeLab frontend because the frontend publishes `${FRONTEND_PORT:-8080}`. Run:
+
+```bash
+sudo bash deployment/repair-live-deployment.sh
+```
+
+The repair script moves Jenkins to `127.0.0.1:9090`, keeps EdgeLab on `127.0.0.1:8080`, writes Nginx reverse proxy sites for `edgelab.publicvm.com` and `jenkins.edgelab.publicvm.com`, opens HTTP/HTTPS firewall rules, and recreates the EdgeLab Compose services.
+
+To issue certificates after DNS points at the instance:
+
+```bash
+sudo ISSUE_CERTS=1 bash deployment/repair-live-deployment.sh
+```
