@@ -106,7 +106,7 @@ function WorkspaceBetaNotice() {
     const timer = window.setTimeout(() => {
       window.sessionStorage.setItem(WORKSPACE_BETA_NOTICE_KEY, "1");
       setVisible(false);
-    }, 4200);
+    }, 3400);
 
     return () => window.clearTimeout(timer);
   }, [session?.user.isBetaUser]);
@@ -123,7 +123,7 @@ function WorkspaceBetaNotice() {
           Beta workspace
         </span>
         <span className="hidden text-slate-600 sm:inline">•</span>
-        <span>Export critical data before beta closes.</span>
+        <span>Temporary beta data</span>
       </div>
     </div>
   );

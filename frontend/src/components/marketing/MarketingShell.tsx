@@ -19,8 +19,8 @@ export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem
   const prefix = mode === "home" ? "" : "/";
 
   return [
-    { href: `${prefix}#product`, label: "Overview" },
-    { href: `${prefix}#how-it-works`, label: "Workflow" },
+    { href: `${prefix}#product`, label: "Product" },
+    { href: `${prefix}#how-it-works`, label: "How it works" },
     { href: "/pricing", label: "Pricing" },
   ];
 }
@@ -95,15 +95,22 @@ function BetaBanner() {
   const { loading, program } = useBetaProgramStatus();
   const seatSummary =
     loading || program.seats_remaining == null
-      ? "seat sync in progress"
-      : `${program.seats_remaining} seats open`;
+      ? "seat sync live"
+      : program.seats_remaining > 0
+        ? `${program.seats_remaining} open now`
+        : "waitlist live";
 
   return (
-    <div className="border-b border-white/10 bg-[#061018] px-4 py-2 text-center text-xs text-slate-300">
-      <span className="font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-        Private beta
-      </span>{" "}
-      {seatSummary}. Export critical data before beta closes.
+    <div className="border-b border-white/10 bg-[#061018] px-4 py-2">
+      <div className="mx-auto flex max-w-7xl justify-center">
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
+          <span className="font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+            Beta access
+          </span>
+          <span className="text-slate-600">•</span>
+          <span>{seatSummary}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -220,48 +227,10 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               <div className="max-w-2xl">
                 <EdgeLabWordmark />
                 <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400">
-                  Replay, journal, and review from one focused trading surface.
+                  Replay. Review. Refine.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3 text-sm text-slate-400">
-                <a
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
-                  href="/#product"
-                >
-                  Overview
-                </a>
-                <a
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
-                  href="/#how-it-works"
-                >
-                  Workflow
-                </a>
-                <Link
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
-                  to="/pricing"
-                >
-                  Pricing
-                </Link>
-                <Link
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
-                  to="/privacy"
-                >
-                  Privacy
-                </Link>
-                <Link
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-cyan-300/20 hover:text-cyan-100"
-                  to="/terms"
-                >
-                  Terms
-                </Link>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm text-slate-400">
-                Private beta. Seats and waitlist update live.
-              </div>
               <Link
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
                 to={primaryCtaHref}
@@ -269,6 +238,17 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                 {primaryCtaLabel}
                 <span aria-hidden="true">→</span>
               </Link>
+            </div>
+
+            <div className="mt-6 flex justify-end border-t border-white/10 pt-6 text-sm text-slate-400">
+              <div className="flex items-center gap-4">
+                <Link className="transition hover:text-cyan-100" to="/privacy">
+                  Privacy
+                </Link>
+                <Link className="transition hover:text-cyan-100" to="/terms">
+                  Terms
+                </Link>
+              </div>
             </div>
           </div>
         </footer>

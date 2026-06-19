@@ -201,21 +201,30 @@ function interpolateCloses(points: number[], stepsPerSegment: number) {
     return points;
   }
 
-  const closes: number[] = [];
+  const wobblePattern = [0.36, -0.18, 0.22, -0.12, 0.16, -0.08, 0.12, -0.06];
+  const closes: number[] = [points[0]];
 
   for (let index = 0; index < points.length - 1; index += 1) {
     const start = points[index];
     const end = points[index + 1];
 
-    for (let step = 0; step < stepsPerSegment; step += 1) {
+    for (let step = 1; step <= stepsPerSegment; step += 1) {
       const progress = step / stepsPerSegment;
       const delta = end - start;
-      const curve = Math.sin(progress * Math.PI) * delta * 0.08;
-      closes.push(start + delta * progress + curve);
+
+      if (step === stepsPerSegment) {
+        closes.push(end);
+        continue;
+      }
+
+      const wobbleBase = Math.max(Math.abs(delta), Math.abs(start) * 0.0012);
+      const wobble = wobblePattern[(index * stepsPerSegment + step) % wobblePattern.length];
+      const curve = Math.sin(progress * Math.PI * 2) * delta * 0.06;
+
+      closes.push(Number((start + delta * progress + wobbleBase * wobble + curve).toFixed(4)));
     }
   }
 
-  closes.push(points[points.length - 1]);
   return closes;
 }
 
@@ -234,17 +243,23 @@ function createBars({
 
   return closes.map((close, index) => {
     const previousClose = index === 0 ? close * 0.999 : closes[index - 1];
-    const baseRange = Math.max(Math.abs(close - previousClose), Math.abs(close) * 0.00055);
-    const high = Math.max(previousClose, close) + baseRange * (0.64 + (index % 4) * 0.11);
-    const low = Math.min(previousClose, close) - baseRange * (0.62 + ((index + 2) % 4) * 0.09);
+    const gap = (((index * 3) % 7) - 3) * Math.abs(close) * 0.00006;
+    const open = previousClose + gap;
+    const baseRange = Math.max(Math.abs(close - open), Math.abs(close) * 0.00045);
+    const high =
+      Math.max(open, close) +
+      baseRange * (0.72 + Math.abs(Math.sin(index * 0.71)) * 0.92);
+    const low =
+      Math.min(open, close) -
+      baseRange * (0.68 + Math.abs(Math.cos(index * 0.57)) * 0.84);
 
     return {
       time: (startTime + index * stepMinutes * 60) as UTCTimestamp,
-      open: previousClose,
+      open,
       high,
       low,
       close,
-      volume: baseVolume + index * 1400 + (index % 5) * 2200,
+      volume: baseVolume + index * 1100 + (index % 6) * 2400 + Math.round(baseRange * 8500),
     };
   });
 }
@@ -348,8 +363,11 @@ const replayBars = createBars({
   day: 12,
   baseVolume: 182000,
   closes: interpolateCloses(
-    [4278.8, 4276.9, 4277.4, 4279.6, 4282.4, 4285.2, 4283.4, 4286.9, 4290.8, 4294.1, 4291.7, 4297.6, 4301.3],
-    5,
+    [
+      4278.8, 4277.1, 4278.3, 4276.8, 4279.2, 4281.1, 4279.4, 4282.6, 4285.1,
+      4283.8, 4286.4, 4288.7, 4287.5, 4291.8, 4294.6, 4292.7, 4297.4, 4301.3,
+    ],
+    4,
   ),
 });
 
@@ -358,7 +376,10 @@ const reviewBars = createBars({
   baseVolume: 124000,
   stepMinutes: 15,
   closes: interpolateCloses(
-    [192.1, 191.8, 191.4, 190.8, 190.2, 189.7, 189.9, 189.5, 189.1, 188.7, 188.9, 188.4, 188.1],
+    [
+      192.1, 191.9, 191.6, 191.1, 190.8, 190.4, 190.7, 190.1, 189.8,
+      189.5, 189.7, 189.2, 188.8, 189.0, 188.5, 188.3, 188.6, 188.1,
+    ],
     4,
   ),
 });
@@ -367,8 +388,12 @@ const resultsBars = createBars({
   day: 16,
   baseVolume: 212000,
   closes: interpolateCloses(
-    [1.0838, 1.0843, 1.0847, 1.0852, 1.0858, 1.0864, 1.0861, 1.0867, 1.0873, 1.0879, 1.0876, 1.0881, 1.0887],
-    5,
+    [
+      1.0838, 1.0840, 1.0843, 1.0841, 1.0845, 1.0849, 1.0847, 1.0852, 1.0856,
+      1.0853, 1.0859, 1.0863, 1.0860, 1.0866, 1.0870, 1.0868, 1.0874, 1.0880,
+      1.0877, 1.0887,
+    ],
+    4,
   ),
 });
 
@@ -376,7 +401,7 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "replay",
     label: "Replay",
-    note: "Follow live candles and session tempo before review starts.",
+    note: "Follow the live candle path first, then move into review without losing context.",
     markerNote: "Entry and exit markers stay on chart while replay unfolds.",
     symbol: "NQ 100",
     timeframe: "5m replay",
@@ -429,7 +454,7 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "review",
     label: "Review",
-    note: "Move from replay into journal pass without losing price context.",
+    note: "Journal pass stays anchored to the exact pullbacks and re-entries that mattered.",
     markerNote: "Review markers flag hesitation and clean follow-through.",
     symbol: "AAPL",
     timeframe: "15m review",
@@ -482,7 +507,7 @@ const SCENARIOS: DemoScenario[] = [
   {
     id: "results",
     label: "Results",
-    note: "Results stay believable only when chart action and review agree.",
+    note: "Metrics make more sense when the candle path still feels live and believable.",
     markerNote: "Winning sequences remain tied to exact swing structure.",
     symbol: "EURUSD",
     timeframe: "5m results",
@@ -531,71 +556,6 @@ const SCENARIOS: DemoScenario[] = [
     playbooks: PLAYBOOKS,
   },
 ];
-
-function ReplayPulseCard({
-  currentBar,
-  progressPercent,
-  scenario,
-  visibleBarCount,
-}: {
-  currentBar: DemoBar | null;
-  progressPercent: number;
-  scenario: DemoScenario;
-  visibleBarCount: number;
-}) {
-  return (
-    <section className="rounded-[24px] border border-white/10 bg-[#081018] p-5 shadow-panel">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
-            Replay pulse
-          </div>
-          <h3 className="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">
-            {scenario.label} active
-          </h3>
-        </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
-          <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)] motion-safe:animate-pulse" />
-          Live
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Playback</div>
-          <div className="mt-2 text-lg font-semibold text-white">
-            {visibleBarCount}/{scenario.bars.length} candles
-          </div>
-        </div>
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Current time</div>
-          <div className="mt-2 text-lg font-semibold text-white">
-            {currentBar ? formatBarTime(currentBar.time) : "—"}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-emerald-300 transition-[width] duration-300 ease-out motion-reduce:transition-none"
-          style={{ width: `${progressPercent}%` }}
-        />
-      </div>
-
-      <div className="mt-4 grid gap-3">
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-slate-300">
-          {scenario.markerNote}
-        </div>
-        <div className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Current price</div>
-          <div className="mt-2 text-xl font-semibold text-white">
-            {currentBar ? formatPrice(currentBar.close) : "—"}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 function MarketingCandleSurface({
   scenario,
@@ -738,12 +698,12 @@ function MarketingCandleSurface({
           <p className="mt-2 max-w-xl text-sm leading-7 text-slate-400">{scenario.note}</p>
         </div>
         <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300">
-          Hover candles for OHLC
+          OHLCV
         </div>
       </div>
 
       <div className="chart-ohlcv-row mt-4">
-        <span className="chart-ohlcv-time">Latest</span>
+        <span className="chart-ohlcv-time">OHLCV</span>
         <span className="chart-ohlcv-item">
           <span>O</span>
           <strong>{formatPrice(lastBar?.open ?? 0)}</strong>
@@ -781,7 +741,7 @@ export function HeroDemo() {
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [showing, setShowing] = useState(true);
   const [visibleBarCount, setVisibleBarCount] = useState(
-    Math.min(24, SCENARIOS[0]?.bars.length ?? 24),
+    Math.min(32, SCENARIOS[0]?.bars.length ?? 32),
   );
   const prefersReducedMotion = usePrefersReducedMotion();
   const hideTimerRef = useRef<number | null>(null);
@@ -808,7 +768,7 @@ export function HeroDemo() {
       return;
     }
 
-    const initialCount = Math.min(24, scenario.bars.length);
+    const initialCount = Math.min(32, scenario.bars.length);
 
     if (prefersReducedMotion) {
       setVisibleBarCount(scenario.bars.length);
@@ -825,7 +785,7 @@ export function HeroDemo() {
         }
         return current + 1;
       });
-    }, 120);
+    }, 92);
 
     return () => window.clearInterval(timer);
   }, [prefersReducedMotion, scenario]);
@@ -856,12 +816,9 @@ export function HeroDemo() {
       setVisibleScenarioId(nextScenarioId);
       showTimerRef.current = window.setTimeout(() => {
         setShowing(true);
-      }, 24);
-    }, 120);
+      }, 44);
+    }, 160);
   };
-
-  const currentBar = scenario.bars[Math.max(0, Math.min(visibleBarCount - 1, scenario.bars.length - 1))] ?? null;
-  const progressPercent = Math.max(12, (visibleBarCount / Math.max(scenario.bars.length, 1)) * 100);
 
   return (
     <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]">
@@ -876,7 +833,7 @@ export function HeroDemo() {
               Actual EdgeLab surfaces
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
-              More candles, live playback, real chart markers, same product chrome.
+              More candles, live playback, real chart markers, same workspace feel.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-medium text-cyan-50">
@@ -904,20 +861,14 @@ export function HeroDemo() {
       </div>
 
       <div
-        className={`p-4 transition duration-200 ease-out motion-reduce:transition-none sm:p-5 ${
-          showing ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+        className={`p-4 transition duration-300 ease-out motion-reduce:transition-none sm:p-5 ${
+          showing ? "translate-y-0 scale-100 opacity-100 blur-0" : "translate-y-2 scale-[0.985] opacity-0 blur-[2px]"
         }`}
       >
         <MetricsBar metrics={scenario.metrics} />
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(300px,0.78fr)]">
+        <div className="mt-4">
           <MarketingCandleSurface scenario={scenario} visibleBarCount={visibleBarCount} />
-          <ReplayPulseCard
-            currentBar={currentBar}
-            progressPercent={progressPercent}
-            scenario={scenario}
-            visibleBarCount={visibleBarCount}
-          />
         </div>
 
         <div className="mt-4">

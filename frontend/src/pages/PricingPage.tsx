@@ -22,12 +22,12 @@ export function PricingPage() {
               </div>
               <h1 className="mt-4 text-[clamp(3rem,6vw,5rem)] font-semibold leading-[0.9] tracking-[-0.07em] text-white">
                 {isBetaMode(deploymentMode)
-                  ? "Private beta access, live seat pressure."
+                  ? "Private beta access, limited seats."
                   : "Clear plans for replay, review, and growth."}
               </h1>
               <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
                 {isBetaMode(deploymentMode)
-                  ? "Current phase stays simple: free beta access, controlled seats, waitlist at capacity."
+                  ? "Current phase stays simple: free access for approved beta users, waitlist once seats fill."
                   : "Choose cadence, compare plans, and see what scales from solo validation to desk-grade review."}
               </p>
             </div>
@@ -41,7 +41,7 @@ export function PricingPage() {
               </div>
               <p className="mt-3 text-sm leading-7 text-slate-400">
                 {isBetaMode(deploymentMode)
-                  ? "Billing stays off while workflow, auth, and deployment polish continue."
+                  ? "Billing stays off during the private beta track."
                   : "Annual billing discounts and full plan gating are ready here."}
               </p>
             </div>

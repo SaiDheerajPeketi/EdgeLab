@@ -1,4 +1,5 @@
 import { ArrowRight, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
@@ -12,6 +13,8 @@ type WorkflowStep = {
   step: string;
   title: string;
 };
+
+const ENGINEERED_WORD = "Engineered.";
 
 const WORKFLOW_STEPS: WorkflowStep[] = [
   {
@@ -77,6 +80,17 @@ function StatusCard({
 
 export function LandingPage() {
   const { loading, program } = useBetaProgramStatus();
+  const [typedWord, setTypedWord] = useState(() => {
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return ENGINEERED_WORD;
+    }
+
+    return "E";
+  });
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
   const primaryLabel =
@@ -92,6 +106,30 @@ export function LandingPage() {
         ? `${seatsRemaining} seats open`
         : "Waitlist open";
 
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setTypedWord(ENGINEERED_WORD);
+      return;
+    }
+
+    setTypedWord("E");
+    let index = 1;
+
+    const timer = window.setInterval(() => {
+      index += 1;
+      setTypedWord(ENGINEERED_WORD.slice(0, index));
+      if (index >= ENGINEERED_WORD.length) {
+        window.clearInterval(timer);
+      }
+    }, 90);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
       <section className="px-4 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
@@ -104,7 +142,14 @@ export function LandingPage() {
               </div>
 
               <h1 className="mt-6 max-w-4xl text-[clamp(3.35rem,7vw,6.3rem)] font-semibold leading-[0.88] tracking-[-0.08em] text-white">
-                Your Edge <span className="text-cyan-300">Engineered.</span>
+                Your Edge{" "}
+                <span
+                  aria-label="Engineered."
+                  className="edgelab-typeword text-cyan-300"
+                  data-complete="Engineered."
+                >
+                  {typedWord}
+                </span>
               </h1>
 
               <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
@@ -129,8 +174,7 @@ export function LandingPage() {
               </div>
 
               <div className="mt-8 text-sm leading-7 text-slate-400">
-                Private beta seats and waitlist update live. Export anything critical before beta
-                closes.
+                Seat count updates live. Beta workspaces stay temporary during the test track.
               </div>
             </div>
 
@@ -146,9 +190,9 @@ export function LandingPage() {
                 value={waitlistCount == null ? "..." : String(waitlistCount)}
               />
               <StatusCard
-                hint="Export anything critical before beta closes"
-                label="Data lifecycle"
-                value="Temporary"
+                hint="Approved users enter workspace. Full seats roll into queue."
+                label="Entry"
+                value="Google"
               />
             </div>
           </div>
@@ -205,8 +249,8 @@ export function LandingPage() {
                 Simple entry. Honest expectations.
               </h2>
               <p className="mt-4 max-w-3xl text-base leading-8 text-slate-400">
-                Beta entry stays limited and temporary. Export anything critical before the test
-                track closes.
+                One Google sign-in handles approved beta access or waitlist placement. Workspace
+                data stays temporary during the test track.
               </p>
             </div>
 

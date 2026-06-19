@@ -63,7 +63,7 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "What happens during beta?",
     answer:
-      "Beta users get full product access while EdgeLab hardens replay, journaling, analytics, auth, and billing edges. Feedback loop stays direct and fast.",
+      "Beta users get full product access while EdgeLab collects feedback on replay, journaling, analytics, and review flow.",
   },
   {
     question: "Can I bring my own CSV data?",
@@ -161,11 +161,10 @@ export function PricingSection({
                 Private beta
               </div>
               <div className="mt-3 text-[2.6rem] font-semibold tracking-[-0.06em] text-white">
-                Free while workflow hardens.
+                Free during private beta.
               </div>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-                Replay, journal review, analytics, and strategy memory stay open during beta while
-                billing remains off.
+                Replay, journal review, analytics, and strategy memory stay open while beta runs.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -216,8 +215,13 @@ export function PricingSection({
                     {waitlistCount == null ? "Syncing" : `${waitlistCount} queued`}
                   </div>
                 </div>
-                <div className="rounded-[18px] border border-amber-300/15 bg-amber-300/10 px-4 py-3 text-sm leading-7 text-amber-100">
-                  Beta data is temporary. Export anything critical before beta closes.
+                <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    Data
+                  </div>
+                  <div className="mt-2 text-lg font-semibold text-white">
+                    Temporary beta workspace
+                  </div>
                 </div>
               </div>
             </div>

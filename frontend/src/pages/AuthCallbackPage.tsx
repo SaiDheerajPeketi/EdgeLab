@@ -65,27 +65,20 @@ export function AuthCallbackPage() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(50,211,238,0.12),transparent_35%),linear-gradient(180deg,#07090d_0%,#090b0f_42%,#05070a_100%)]" />
         <div className="edgelab-grid absolute inset-0 opacity-35" />
       </div>
-      <div className="relative grid w-full max-w-4xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(50,211,238,0.14),rgba(255,255,255,0.03))] p-8 shadow-glow">
-          <EdgeLabWordmark />
-          <div className="mt-10 max-w-xl">
-            <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-100/70">
-              Secure callback
-            </div>
-            <div className="text-display mt-4 text-5xl text-white">Signing you in</div>
-            <p className="mt-5 text-lg leading-8 text-slate-300">
-              Verifying Google access, restoring session, and preparing workspace.
-            </p>
-          </div>
-        </div>
-        <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-8 text-center shadow-card backdrop-blur-xl">
+      <div className="relative w-full max-w-xl rounded-[34px] border border-white/10 bg-[#061018]/94 p-8 shadow-card backdrop-blur-xl sm:p-10">
+        <EdgeLabWordmark />
+
+        <div className="mt-10 text-center">
           <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-cyan-300/20 border-t-cyan-300" />
-          <div className="mt-6 text-display text-3xl text-white">Almost there</div>
-          <p className="mt-3 text-sm leading-7 text-slate-400">
-            Approved accounts open app. Waitlist accounts return here with next step.
+          <div className="mt-6 inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100/70">
+            Secure callback
+          </div>
+          <div className="text-display mt-5 text-4xl text-white sm:text-5xl">Signing you in</div>
+          <p className="mt-4 text-base leading-8 text-slate-300">
+            Checking Google access, restoring your session, and opening the workspace.
           </p>
-          <div className="mt-8 rounded-[22px] border border-white/10 bg-black/25 px-4 py-4 text-left text-sm leading-7 text-slate-300">
-            One identity. One workspace. One clean handoff.
+          <div className="mt-8 rounded-[22px] border border-white/10 bg-black/20 px-4 py-4 text-sm leading-7 text-slate-300">
+            Approved beta users enter EdgeLab next. Waitlist accounts come back here with the next step.
           </div>
         </div>
       </div>
