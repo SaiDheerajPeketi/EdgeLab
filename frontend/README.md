@@ -24,7 +24,7 @@ npm run dev
 
 `VITE_DEPLOYMENT_MODE` (`beta` | `production`) drives the landing + pricing UI. `beta` (default) renders a single free Beta card with a seat counter (`VITE_BETA_SEATS_TOTAL`, `VITE_BETA_SEATS_TAKEN`); `production` renders the Starter / Pro / Trader+ tiers. See `.env.example`.
 
-Current auth pass is beta-backed and Google-only: `/auth/signin` fetches runtime config from `/api/auth/config`, builds the Google authorize URL in-browser, and `/auth/callback/google` exchanges the OAuth code with the backend. Manual email beta access is disabled by default and can be reopened only with `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1`. The landing, pricing, and auth surfaces fetch live beta seat + waitlist counts from `/api/auth/beta/status`; `VITE_BETA_*` values remain fallback display defaults for builds where the API is unavailable.
+Current auth pass is beta-backed and Google-only: `/auth/signin` fetches runtime config from `/api/auth/config`, including Google client ID and callback URI, builds authorize URL in-browser, and `/auth/callback/google` exchanges OAuth code with backend. Manual email beta access is disabled by default and can be reopened only with `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1`. If Google shows `redirect_uri_mismatch`, backend `GOOGLE_REDIRECT_URI` must exactly match one Google Console authorized redirect URI. Landing, pricing, and auth surfaces fetch live beta seat + waitlist counts from `/api/auth/beta/status`; `VITE_BETA_*` values remain fallback display defaults for builds where API is unavailable.
 
 The dev server proxies `/api` to `http://127.0.0.1:8000`. Set a custom API base URL when needed:
 

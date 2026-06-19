@@ -5,6 +5,7 @@ import { ApiError, getBetaAuthConfig } from "./api";
 const FALLBACK_AUTH_CONFIG: BetaAuthConfig = {
   google_enabled: false,
   google_client_id: null,
+  google_redirect_uri: null,
   manual_access_enabled: false,
 };
 

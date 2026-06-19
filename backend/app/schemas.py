@@ -208,6 +208,7 @@ class BetaProgramStatus(BaseModel):
 class BetaAuthConfig(BaseModel):
     google_enabled: bool = False
     google_client_id: str | None = None
+    google_redirect_uri: str | None = None
     manual_access_enabled: bool = False
 
 

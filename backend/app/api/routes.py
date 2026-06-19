@@ -828,6 +828,7 @@ def beta_auth_config() -> BetaAuthConfig:
     return BetaAuthConfig(
         google_enabled=google_oauth_enabled(),
         google_client_id=settings.google_client_id or None,
+        google_redirect_uri=settings.google_redirect_uri or None,
         manual_access_enabled=beta_manual_access_enabled(),
     )
 

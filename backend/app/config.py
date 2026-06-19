@@ -105,6 +105,8 @@ class Settings:
     google_client_id: str = GOOGLE_OAUTH_CREDENTIALS.client_id
     google_client_secret: str = GOOGLE_OAUTH_CREDENTIALS.client_secret
     google_client_secrets_file: Path | None = GOOGLE_OAUTH_CREDENTIALS.source_file
+    public_origin: str = os.getenv("EDGELAB_PUBLIC_ORIGIN", "").strip().rstrip("/")
+    google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
         for origin in os.getenv(
@@ -163,3 +165,31 @@ class Settings:
 
 
 settings = Settings()
+
+if not settings.google_redirect_uri and settings.public_origin:
+    settings = Settings(
+        csv_path=settings.csv_path,
+        datasets_root=settings.datasets_root,
+        database_url=settings.database_url,
+        api_token=settings.api_token,
+        google_client_id=settings.google_client_id,
+        google_client_secret=settings.google_client_secret,
+        google_client_secrets_file=settings.google_client_secrets_file,
+        public_origin=settings.public_origin,
+        google_redirect_uri=f"{settings.public_origin}/auth/callback/google",
+        cors_origins=settings.cors_origins,
+        cache_market_data=settings.cache_market_data,
+        data_populator_interval_seconds=settings.data_populator_interval_seconds,
+        data_populator_backfill_mode=settings.data_populator_backfill_mode,
+        data_populator_lookback_days=settings.data_populator_lookback_days,
+        data_populator_derived_timeframes=settings.data_populator_derived_timeframes,
+        data_populator_request_timeout_seconds=settings.data_populator_request_timeout_seconds,
+        data_populator_forex_start_date=settings.data_populator_forex_start_date,
+        data_populator_crypto_start_date=settings.data_populator_crypto_start_date,
+        data_populator_forex_symbols=settings.data_populator_forex_symbols,
+        data_populator_crypto_symbols=settings.data_populator_crypto_symbols,
+        max_request_body_bytes=settings.max_request_body_bytes,
+        max_app_data_rows=settings.max_app_data_rows,
+        beta_seats_total=settings.beta_seats_total,
+        beta_manual_access_enabled=settings.beta_manual_access_enabled,
+    )

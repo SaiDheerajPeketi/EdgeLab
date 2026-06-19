@@ -19,8 +19,13 @@ export function isGoogleAuthConfigured(config: BetaAuthConfig | null | undefined
   return Boolean(config?.google_enabled && config.google_client_id?.trim());
 }
 
-export function buildGoogleAuthorizeUrl(fromPath: string, clientId: string) {
-  const redirectUri = `${window.location.origin}/auth/callback/google`;
+export function buildGoogleAuthorizeUrl(
+  fromPath: string,
+  clientId: string,
+  configuredRedirectUri?: string | null,
+) {
+  const redirectUri =
+    configuredRedirectUri?.trim() || `${window.location.origin}/auth/callback/google`;
   const state = randomState();
   const payload: StoredGoogleAuthState = {
     fromPath,

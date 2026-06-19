@@ -470,6 +470,7 @@ export type BetaProgramStatus = {
 export type BetaAuthConfig = {
   google_enabled: boolean;
   google_client_id: string | null;
+  google_redirect_uri: string | null;
   manual_access_enabled: boolean;
 };
 

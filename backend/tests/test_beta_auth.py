@@ -96,3 +96,23 @@ def test_beta_access_requires_google_auth_by_default(monkeypatch):
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Manual beta access disabled. Use Google sign-in."
+
+
+def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(
+            beta_manual_access_enabled=False,
+            google_client_id="client-id",
+            google_client_secret="client-secret",
+            google_redirect_uri="https://edgelab.publicvm.com/auth/callback/google",
+        ),
+    )
+
+    response = routes.beta_auth_config()
+
+    assert response.google_enabled is True
+    assert response.google_client_id == "client-id"
+    assert response.google_redirect_uri == "https://edgelab.publicvm.com/auth/callback/google"
+    assert response.manual_access_enabled is False

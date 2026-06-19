@@ -25,6 +25,7 @@ export function AuthSignInPage() {
   const googleReady = isGoogleAuthConfigured(config);
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
+  const callbackUri = config.google_redirect_uri || `${window.location.origin}/auth/callback/google`;
 
   const handleGoogleSignIn = () => {
     if (!googleReady || !config.google_client_id) {
@@ -33,7 +34,11 @@ export function AuthSignInPage() {
     }
     setIsSubmitting(true);
     setErrorMessage(null);
-    window.location.href = buildGoogleAuthorizeUrl(fromPath, config.google_client_id);
+    window.location.href = buildGoogleAuthorizeUrl(
+      fromPath,
+      config.google_client_id,
+      config.google_redirect_uri,
+    );
   };
 
   return (
@@ -119,17 +124,17 @@ export function AuthSignInPage() {
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-[20px] border border-white/10 bg-black/25 px-4 py-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Redirect</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Workspace</div>
                   <div className="mt-2 font-data text-sm text-white">{fromPath}</div>
                 </div>
                 <div className="rounded-[20px] border border-white/10 bg-black/25 px-4 py-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Scope</div>
-                  <div className="mt-2 font-data text-sm text-white">openid email profile</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Callback</div>
+                  <div className="mt-2 font-data text-sm text-white break-all">{callbackUri}</div>
                 </div>
                 <div className="rounded-[20px] border border-white/10 bg-black/25 px-4 py-4">
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Fallback</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Scope</div>
                   <div className="mt-2 font-data text-sm text-white">
-                    {config.manual_access_enabled ? "Manual open" : "Manual closed"}
+                    openid email profile
                   </div>
                 </div>
               </div>

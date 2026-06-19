@@ -63,6 +63,18 @@ For Docker/Jenkins, prefer mounting the Google client JSON and pointing the back
 export GOOGLE_CLIENT_SECRETS_FILE=/opt/edgelab/deployment/google-oauth-client.json
 ```
 
+Pin callback URI when Google OAuth must match deployed domain exactly:
+
+```bash
+export GOOGLE_REDIRECT_URI=https://edgelab.publicvm.com/auth/callback/google
+```
+
+Or set public origin and let backend derive callback URI:
+
+```bash
+export EDGELAB_PUBLIC_ORIGIN=https://edgelab.publicvm.com
+```
+
 For the legacy single-file replay path, set an explicit CSV:
 
 ```bash
@@ -137,7 +149,7 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 - `DELETE /api/backtests/{id}/orders/{order_id}` cancels pending orders.
 - `GET /api/metrics?session_id=...` returns session analytics.
 - `GET /api/auth/beta/status` returns live beta seat and waitlist counts.
-- `GET /api/auth/config` returns runtime auth config for the frontend.
+- `GET /api/auth/config` returns runtime auth config for frontend, including public Google callback URI.
 - `POST /api/auth/beta/access` issues beta access or waitlist sessions only when `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1`.
 - `POST /api/auth/google/exchange` exchanges Google OAuth codes for beta sessions.
 - `GET /api/auth/session` rehydrates stored beta sessions.
