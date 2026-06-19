@@ -1,4 +1,5 @@
 import { ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
   buildMarketingNavItems,
@@ -18,6 +19,8 @@ type MarketPulse = {
   tone: "down" | "up";
   value: string;
 };
+
+const HERO_TYPEWORD = "Engineered.";
 
 const WORKFLOW_STEPS: WorkflowStep[] = [
   {
@@ -113,6 +116,64 @@ function MarketTape() {
   );
 }
 
+function AnimatedTypeWord() {
+  const [visibleLength, setVisibleLength] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let timeoutId: number | null = null;
+    let nextLength = 0;
+    let deleting = false;
+
+    const run = () => {
+      if (!active) {
+        return;
+      }
+
+      setVisibleLength(nextLength);
+
+      if (!deleting && nextLength < HERO_TYPEWORD.length) {
+        nextLength += 1;
+        timeoutId = window.setTimeout(run, 92);
+        return;
+      }
+
+      if (!deleting) {
+        deleting = true;
+        timeoutId = window.setTimeout(run, 1350);
+        return;
+      }
+
+      if (nextLength > 0) {
+        nextLength -= 1;
+        timeoutId = window.setTimeout(run, 54);
+        return;
+      }
+
+      deleting = false;
+      timeoutId = window.setTimeout(run, 420);
+    };
+
+    timeoutId = window.setTimeout(run, 220);
+
+    return () => {
+      active = false;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
+  return (
+    <span aria-label={HERO_TYPEWORD} className="edgelab-typeword text-cyan-300">
+      <span aria-hidden="true" className="edgelab-typeword-inner">
+        {HERO_TYPEWORD.slice(0, visibleLength) || "\u00a0"}
+      </span>
+      <span aria-hidden="true" className="edgelab-typeword-caret" />
+    </span>
+  );
+}
+
 export function LandingPage() {
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
@@ -136,10 +197,7 @@ export function LandingPage() {
               </div>
 
               <h1 className="mt-6 max-w-4xl text-[clamp(3.35rem,7vw,6.3rem)] font-semibold leading-[0.88] tracking-[-0.08em] text-white">
-                Your Edge{" "}
-                <span aria-label="Engineered." className="edgelab-typeword text-cyan-300">
-                  <span className="edgelab-typeword-inner">Engineered.</span>
-                </span>
+                Your Edge <AnimatedTypeWord />
               </h1>
 
               <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">

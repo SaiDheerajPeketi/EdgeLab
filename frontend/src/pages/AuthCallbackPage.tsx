@@ -5,6 +5,39 @@ import { ApiError, exchangeGoogleAuthCode } from "../lib/api";
 import { setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import { consumeGoogleAuthState } from "../lib/googleAuth";
 
+function CallbackSpinner() {
+  return (
+    <div className="relative mx-auto flex h-28 w-28 items-center justify-center">
+      <div className="absolute inset-0 rounded-full border border-cyan-300/15 bg-cyan-300/[0.04]" />
+      <div className="absolute inset-[8px] rounded-full border border-cyan-300/15 border-t-cyan-300 animate-spin" />
+      <div className="absolute inset-[20px] rounded-full border border-white/10 bg-[#07141c] shadow-[0_22px_44px_rgba(0,0,0,0.34)]" />
+      <svg aria-hidden="true" className="relative h-9 w-9" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="edgelab-callback-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="#8bf5ff" />
+            <stop offset="100%" stopColor="#32d3ee" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M18 49h28l-6-13 9-16h-9l-6 11-5-11h-9l9 18-11 11h0Z"
+          fill="none"
+          stroke="url(#edgelab-callback-gradient)"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="4"
+        />
+        <path
+          d="M29 17h7l3 6"
+          fill="none"
+          stroke="#f6c26b"
+          strokeLinecap="round"
+          strokeWidth="3.4"
+        />
+      </svg>
+    </div>
+  );
+}
+
 export function AuthCallbackPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -69,16 +102,29 @@ export function AuthCallbackPage() {
         <EdgeLabWordmark showTagline={false} />
 
         <div className="mt-10 text-center">
-          <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-cyan-300/20 border-t-cyan-300" />
-          <div className="mt-6 inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100/70">
-            Secure callback
+          <CallbackSpinner />
+          <div className="mt-6 inline-flex items-center rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100/75">
+            Google callback live
           </div>
-          <div className="text-display mt-5 text-4xl text-white sm:text-5xl">Signing you in</div>
+          <div className="mt-5 text-[clamp(2.9rem,7vw,4.8rem)] font-semibold leading-[0.9] tracking-[-0.08em] text-white">
+            Opening EdgeLab.
+          </div>
           <p className="mt-4 text-base leading-8 text-slate-300">
-            Checking Google access, restoring your session, and opening the workspace.
+            Validating access, restoring session, and routing you into workspace.
           </p>
-          <div className="mt-8 rounded-[22px] border border-white/10 bg-black/20 px-4 py-4 text-sm leading-7 text-slate-300">
-            Approved beta users enter EdgeLab next. Waitlist accounts come back here with the next step.
+          <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4 text-left">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Step</div>
+              <div className="mt-3 text-lg font-semibold text-white">Exchange</div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4 text-left">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">State</div>
+              <div className="mt-3 text-lg font-semibold text-white">Secure</div>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4 text-left">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Route</div>
+              <div className="mt-3 text-lg font-semibold text-white">Workspace</div>
+            </div>
           </div>
         </div>
       </div>
