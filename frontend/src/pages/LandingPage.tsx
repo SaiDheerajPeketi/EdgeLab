@@ -49,6 +49,25 @@ const MARKET_PULSE: MarketPulse[] = [
   { symbol: "BTC", value: "104,221", change: "+1.18%", tone: "up" },
 ];
 
+function parseMarketValue(value: string) {
+  return Number(value.replace(/,/g, ""));
+}
+
+function formatMarketValue(symbol: string, value: number) {
+  if (symbol === "BTC") {
+    return Math.round(value).toLocaleString("en-US");
+  }
+  if (symbol === "EURUSD") {
+    return value.toFixed(4);
+  }
+  return value.toFixed(2);
+}
+
+function formatMarketChange(value: number) {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
 function SectionIntro({
   description,
   eyebrow,
@@ -94,15 +113,40 @@ function StatusCard({
 }
 
 function MarketTape() {
-  const items = [...MARKET_PULSE, ...MARKET_PULSE];
+  const [items, setItems] = useState(MARKET_PULSE);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setItems((current) =>
+        current.map((item, index) => {
+          const baseValue = parseMarketValue(MARKET_PULSE[index]?.value ?? item.value);
+          const nextValue = baseValue * (1 + (Math.sin(Date.now() / 1400 + index * 1.7) * 0.0009));
+          const baseChange = Number((MARKET_PULSE[index]?.change ?? item.change).replace("%", ""));
+          const drift = Math.sin(Date.now() / 1900 + index * 1.3) * 0.18;
+          const nextChange = baseChange + drift;
+
+          return {
+            ...item,
+            value: formatMarketValue(item.symbol, nextValue),
+            change: formatMarketChange(nextChange),
+            tone: nextChange >= 0 ? "up" : "down",
+          };
+        }),
+      );
+    }, 1600);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const loopItems = [...items, ...items];
 
   return (
-    <div className="overflow-hidden rounded-full border border-white/10 bg-[#071018] shadow-panel">
-      <div className="edgelab-marquee flex w-max items-center gap-3 px-4 py-3">
-        {items.map((item, index) => (
+    <div className="relative h-[64px] w-full max-w-full overflow-hidden rounded-full border border-white/10 bg-[#071018] shadow-panel">
+      <div className="edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4">
+        {loopItems.map((item, index) => (
           <div
             key={`${item.symbol}-${index}`}
-            className="inline-flex items-center gap-3 rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm"
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-2 text-sm sm:gap-3 sm:px-4"
           >
             <span className="font-data text-slate-100">{item.symbol}</span>
             <span className="font-data text-white">{item.value}</span>
@@ -118,6 +162,7 @@ function MarketTape() {
 
 function AnimatedTypeWord() {
   const [visibleLength, setVisibleLength] = useState(0);
+  const [isWordComplete, setIsWordComplete] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -131,6 +176,7 @@ function AnimatedTypeWord() {
       }
 
       setVisibleLength(nextLength);
+      setIsWordComplete(!deleting && nextLength === HERO_TYPEWORD.length);
 
       if (!deleting && nextLength < HERO_TYPEWORD.length) {
         nextLength += 1;
@@ -165,7 +211,12 @@ function AnimatedTypeWord() {
   }, []);
 
   return (
-    <span aria-label={HERO_TYPEWORD} className="edgelab-typeword text-cyan-300">
+    <span
+      aria-label={HERO_TYPEWORD}
+      className={`edgelab-typeword mt-1 block min-w-0 sm:mt-0 sm:inline-flex sm:min-w-[11.2ch] ${
+        isWordComplete ? "text-white" : "text-cyan-300"
+      }`}
+    >
       <span aria-hidden="true" className="edgelab-typeword-inner">
         {HERO_TYPEWORD.slice(0, visibleLength) || "\u00a0"}
       </span>
@@ -187,16 +238,16 @@ export function LandingPage() {
 
   return (
     <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
-      <section className="px-4 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-end">
+      <section className="px-3 pb-20 pt-12 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
+        <div className="mx-auto max-w-7xl min-w-0">
+          <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-end">
             <div className="max-w-4xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
                 <ShieldCheck size={14} />
                 EdgeLab beta
               </div>
 
-              <h1 className="mt-6 max-w-4xl text-[clamp(3.35rem,7vw,6.3rem)] font-semibold leading-[0.88] tracking-[-0.08em] text-white">
+              <h1 className="mt-6 max-w-4xl text-[clamp(2.15rem,12.2vw,4.4rem)] font-semibold leading-[0.94] tracking-[-0.08em] text-white sm:text-[clamp(2.75rem,8vw,6.3rem)] sm:leading-[0.88]">
                 Your Edge <AnimatedTypeWord />
               </h1>
 
@@ -239,7 +290,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="how-it-works" className="px-4 py-20 sm:px-6 lg:px-8">
+      <section id="how-it-works" className="px-3 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionIntro
             description="EdgeLab is meant to shorten distance between what price did, what you did, and what that means for next session."

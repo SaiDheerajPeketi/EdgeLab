@@ -47,7 +47,7 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
   ];
 
   return (
-    <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+    <section className="grid w-full max-w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
       {stats.map((stat) => {
         const Icon = stat.icon;
         return (

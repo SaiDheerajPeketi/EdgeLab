@@ -16,7 +16,7 @@ export function PlaybookBoard({ playbooks, trades }: Props) {
   );
 
   return (
-    <section className="terminal-panel p-4">
+    <section className="terminal-panel w-full max-w-full min-w-0 overflow-hidden p-4">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-white">Playbook Control</h2>

@@ -314,26 +314,6 @@ function buildMarkers(
     .filter((value): value is DemoMarker => value != null);
 }
 
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) {
-      return;
-    }
-
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setPrefersReducedMotion(query.matches);
-
-    update();
-    query.addEventListener("change", update);
-
-    return () => query.removeEventListener("change", update);
-  }, []);
-
-  return prefersReducedMotion;
-}
-
 function formatPrice(value: number) {
   if (Math.abs(value) >= 1000) {
     return value.toFixed(2);
@@ -633,7 +613,7 @@ function MarketingCandleSurface({
       return;
     }
 
-    const precision = pricePrecision(lastBar?.close ?? scenario.bars[0]?.close ?? 1);
+    const precision = pricePrecision(scenario.bars[0]?.close ?? 1);
     const chart = createChart(containerRef.current, {
       autoSize: true,
       layout: {
@@ -654,6 +634,8 @@ function MarketingCandleSurface({
       },
       timeScale: {
         borderColor: "rgba(148, 163, 184, 0.16)",
+        barSpacing: 10,
+        rightOffset: 4,
         secondsVisible: false,
         timeVisible: true,
       },
@@ -702,7 +684,7 @@ function MarketingCandleSurface({
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
     };
-  }, [lastBar?.close, scenario.bars]);
+  }, [scenario.id, scenario.bars]);
 
   useEffect(() => {
     if (!chartRef.current) {
@@ -760,7 +742,7 @@ function MarketingCandleSurface({
   }, [scenario, visibleBars]);
 
   return (
-    <section className="rounded-[26px] border border-white/10 bg-[#060c12] p-4 shadow-panel">
+    <section className="w-full max-w-full min-w-0 rounded-[26px] border border-white/10 bg-[#060c12] p-4 shadow-panel">
       <div className="flex flex-col gap-3 border-b border-white/10 pb-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
@@ -812,7 +794,7 @@ function MarketingCandleSurface({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/10 bg-[#0b1017]">
-        <div ref={containerRef} className="h-[392px] w-full" />
+        <div ref={containerRef} className="h-[280px] w-full sm:h-[336px] lg:h-[392px]" />
       </div>
     </section>
   );
@@ -824,7 +806,6 @@ export function HeroDemo() {
   const [showing, setShowing] = useState(true);
   const initialCursor = Math.max(0, Math.min(78, (SCENARIOS[0]?.bars.length ?? 1) - 1));
   const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
-  const prefersReducedMotion = usePrefersReducedMotion();
   const hideTimerRef = useRef<number | null>(null);
   const showTimerRef = useRef<number | null>(null);
 
@@ -851,11 +832,6 @@ export function HeroDemo() {
 
     const nextInitialCursor = Math.max(0, Math.min(78, scenario.bars.length - 1));
 
-    if (prefersReducedMotion) {
-      setCurrentBarIndex(scenario.bars.length - 1);
-      return;
-    }
-
     setCurrentBarIndex(nextInitialCursor);
 
     const timer = window.setInterval(() => {
@@ -865,10 +841,10 @@ export function HeroDemo() {
         }
         return current + 1;
       });
-    }, 118);
+    }, 220);
 
     return () => window.clearInterval(timer);
-  }, [prefersReducedMotion, scenario]);
+  }, [scenario]);
 
   const selectScenario = (nextScenarioId: string) => {
     if (nextScenarioId === visibleScenarioId) {
@@ -876,12 +852,6 @@ export function HeroDemo() {
     }
 
     setSelectedScenarioId(nextScenarioId);
-
-    if (prefersReducedMotion) {
-      setVisibleScenarioId(nextScenarioId);
-      setShowing(true);
-      return;
-    }
 
     if (hideTimerRef.current) {
       window.clearTimeout(hideTimerRef.current);
@@ -901,16 +871,16 @@ export function HeroDemo() {
   };
 
   return (
-    <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]">
+    <div className="w-full max-w-full min-w-0 overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]">
       <div className="border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/65">
               Live surface preview
             </div>
-            <div className="mt-2 flex items-center gap-2 text-[1.9rem] font-semibold tracking-[-0.04em] text-white">
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[clamp(1.35rem,5.8vw,1.9rem)] font-semibold leading-tight tracking-[-0.04em] text-white">
               <CandlestickChart className="text-cyan-100" size={22} />
-              Actual EdgeLab surfaces
+              <span className="min-w-0 break-words">Actual EdgeLab surfaces</span>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
               More candles, live playback, real chart markers, same workspace feel.

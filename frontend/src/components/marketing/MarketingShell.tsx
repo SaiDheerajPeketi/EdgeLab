@@ -51,8 +51,8 @@ function NavAnchor({ className, href, label }: NavItem & { className?: string })
 
 export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean }) {
   return (
-    <div className="flex items-center gap-3 text-slate-50">
-      <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)]">
+    <div className="flex items-center gap-2 text-slate-50 sm:gap-3">
+      <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)] sm:h-11 sm:w-11">
         <svg aria-hidden="true" className="h-6 w-6" viewBox="0 0 64 64">
           <defs>
             <linearGradient id="edgelab-logo-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
@@ -78,9 +78,9 @@ export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean 
         </svg>
       </div>
       <div>
-        <div className="text-lg font-semibold tracking-[-0.05em] text-white">EdgeLab</div>
+        <div className="text-base font-semibold tracking-[-0.05em] text-white sm:text-lg">EdgeLab</div>
         {showTagline ? (
-          <div className="max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.28em] text-cyan-100/55">
+          <div className="hidden max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.28em] text-cyan-100/55 sm:block">
             Your Edge Engineered
           </div>
         ) : null}
@@ -152,17 +152,17 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
   );
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-edgelab-base text-edgelab-text-primary">
+    <div className="relative min-h-screen max-w-[100vw] overflow-x-clip bg-edgelab-base text-edgelab-text-primary">
       <div className="pointer-events-none absolute inset-0">
         <div className="edgelab-mesh absolute inset-x-[-10%] top-[-22rem] h-[44rem] opacity-50" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(50,211,238,0.10),transparent_32%),radial-gradient(circle_at_82%_18%,rgba(245,158,11,0.06),transparent_20%),linear-gradient(180deg,#07090d_0%,#090b0f_42%,#05070a_100%)]" />
         <div className="edgelab-grid absolute inset-0 opacity-25" />
       </div>
 
-      <div className="relative z-10">
+      <div className="relative z-10 max-w-[100vw] overflow-x-clip">
         <BetaBanner />
         <header className={headerClassName}>
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-3 py-4 sm:px-6 lg:px-8">
             <Link aria-label="EdgeLab home" to="/">
               <EdgeLabWordmark />
             </Link>
@@ -200,7 +200,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
           </div>
 
           {menuOpen ? (
-            <div className="border-t border-white/10 bg-[#05070af2] px-4 py-4 backdrop-blur-xl md:hidden">
+            <div className="border-t border-white/10 bg-[#05070af2] px-3 py-4 backdrop-blur-xl md:hidden">
               <div className="grid gap-3">
                 {navItems.map((item) => (
                   <NavAnchor
@@ -223,7 +223,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
         <main>{children}</main>
 
-        <footer className="px-4 pb-10 pt-6 sm:px-6 lg:px-8">
+        <footer className="px-3 pb-10 pt-6 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-7xl rounded-[30px] border border-white/10 bg-[#060c12]/92 p-6 shadow-card backdrop-blur-xl sm:p-8">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
               <EdgeLabWordmark showTagline={false} />
