@@ -230,8 +230,8 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               <Link className="transition hover:text-cyan-100" to="/terms">
                 Terms
               </Link>
-              <a className="transition hover:text-cyan-100" href="/#features">
-                Features
+              <a className="transition hover:text-cyan-100" href="/#surface">
+                Surface
               </a>
             </div>
           </div>

@@ -167,14 +167,16 @@ export function HeroDemo() {
         <div className="hidden sm:block">Live replay demo</div>
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.01))] p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/70">
                 Replay Engine
               </div>
-              <div className="mt-1 text-lg font-semibold text-white">{scenario.label}</div>
+              <div className="mt-1 text-[1.45rem] font-semibold leading-tight text-white">
+                {scenario.label}
+              </div>
             </div>
             <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] text-slate-300">
               {visibleCount}/{candles.length} candles
@@ -313,14 +315,14 @@ export function HeroDemo() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex items-center justify-between text-sm text-slate-400">
                   <span>Live P&amp;L</span>
                   {pnlPositive ? <TrendingUp size={16} className="text-emerald-300" /> : <TrendingDown size={16} className="text-rose-300" />}
                 </div>
                 <div
-                  className={`mt-2 text-display text-3xl ${
+                  className={`mt-2 text-display text-[2rem] ${
                     pnlPositive ? "text-emerald-200" : "text-rose-200"
                   }`}
                 >
@@ -332,7 +334,7 @@ export function HeroDemo() {
               <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-3">
                 <div className="text-sm text-slate-400">Target state</div>
                 <div className="mt-2 flex items-end justify-between gap-3">
-                  <div className="text-display text-3xl text-cyan-100">{scenario.rMultiple}R</div>
+                  <div className="text-display text-[2rem] text-cyan-100">{scenario.rMultiple}R</div>
                   <div className="text-sm text-slate-400">
                     {statusReachedTarget ? "TP filled" : "Tracking"}
                   </div>

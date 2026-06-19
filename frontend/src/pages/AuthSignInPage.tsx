@@ -40,7 +40,7 @@ export function AuthSignInPage() {
     <MarketingShell
       navItems={[
         { href: "/#proof", label: "Proof" },
-        { href: "/#features", label: "Features" },
+        { href: "/#surface", label: "Surface" },
         { href: "/pricing", label: "Pricing" },
         { href: "/privacy", label: "Privacy" },
         { href: "/terms", label: "Terms" },
