@@ -51,7 +51,7 @@ class BacktestService:
         if market_data is not None:
             self._market_data_cache[str(market_data.csv_path)] = market_data
 
-    def create_session(self, db: Session, payload: BacktestCreate) -> BacktestState:
+    def create_session(self, db: Session, user_id: int, payload: BacktestCreate) -> BacktestState:
         csv_path = self.market_data.csv_path if self.market_data is not None else None
         instrument = payload.instrument
         timeframe = payload.timeframe
@@ -62,6 +62,7 @@ class BacktestService:
         if self.dataset_catalog is not None and (payload.csv_path or payload.instrument or payload.timeframe):
             resolution = self.dataset_catalog.resolve_dataset(
                 db,
+                user_id,
                 csv_path=payload.csv_path,
                 instrument=payload.instrument,
                 timeframe=payload.timeframe,
@@ -74,7 +75,7 @@ class BacktestService:
             timestamp_timezone = timestamp_timezone or resolution.timezone
             pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
         elif csv_path is None and self.dataset_catalog is not None:
-            resolution = self.dataset_catalog.resolve_default_dataset(db)
+            resolution = self.dataset_catalog.resolve_default_dataset(db, user_id)
             csv_path = resolution.csv_path
             instrument = resolution.instrument
             timeframe = resolution.timeframe
@@ -109,7 +110,11 @@ class BacktestService:
         if end_offset is not None:
             end_offset = max(start_offset, min(end_offset, max(metadata.rows - 1, 0)))
 
+        if payload.playbook_id is not None:
+            self._playbook_or_404(db, user_id, payload.playbook_id)
+
         session = BacktestSession(
+            user_id=user_id,
             name=name,
             symbol=symbol,
             instrument=instrument,
@@ -133,23 +138,26 @@ class BacktestService:
         )
         db.add(session)
         db.flush()
-        db.add(Position(session_id=session.id))
+        db.add(Position(user_id=user_id, session_id=session.id))
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
-    def get_state(self, db: Session, session_id: int) -> BacktestState:
-        session = self._session_or_404(db, session_id)
-        self._repair_negative_open_position(db, session)
+    def get_state(self, db: Session, user_id: int, session_id: int) -> BacktestState:
+        session = self._session_or_404(db, user_id, session_id)
+        self._repair_negative_open_position(db, user_id, session)
         current_candle = self.market_data_for_session(session).get_candle(session.current_offset)
         return BacktestState(
             session=session,
             current_candle=current_candle,
-            position=self._position_read(db, session, current_candle),
+            position=self._position_read(db, user_id, session, current_candle),
             orders=[
                 to_order_read(order)
                 for order in db.scalars(
                     select(Order)
-                    .where(Order.session_id == session.id)
+                    .where(
+                        Order.user_id == user_id,
+                        Order.session_id == session.id,
+                    )
                     .order_by(desc(Order.created_at), desc(Order.id))
                     .limit(STATE_ORDER_LIMIT)
                 )
@@ -158,7 +166,10 @@ class BacktestService:
                 to_execution_read(execution)
                 for execution in db.scalars(
                     select(Execution)
-                    .where(Execution.session_id == session.id)
+                    .where(
+                        Execution.user_id == user_id,
+                        Execution.session_id == session.id,
+                    )
                     .order_by(desc(Execution.timestamp), desc(Execution.id))
                     .limit(STATE_EXECUTION_LIMIT)
                 )
@@ -167,22 +178,28 @@ class BacktestService:
                 to_trade_read(trade)
                 for trade in db.scalars(
                     select(Trade)
-                    .where(Trade.session_id == session.id)
+                    .where(
+                        Trade.user_id == user_id,
+                        Trade.session_id == session.id,
+                    )
                     .order_by(desc(Trade.entry_time), desc(Trade.id))
                     .limit(STATE_TRADE_LIMIT)
                 )
             ],
-            metrics=get_metrics(db, session.id),
+            metrics=get_metrics(db, user_id, session.id),
         )
 
     def place_order(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         payload: OrderCreate,
     ) -> BacktestState:
-        session = self._session_or_404(db, session_id)
+        session = self._session_or_404(db, user_id, session_id)
         current_candle = self._current_candle_or_404(session)
+        if payload.playbook_id is not None:
+            self._playbook_or_404(db, user_id, payload.playbook_id)
         quantity = self._resolve_quantity(db, session, payload, current_candle.close)
         commission_mode, commission_value = _payload_cost_config(
             payload,
@@ -199,6 +216,7 @@ class BacktestService:
             session.default_fee_value,
         )
         order = Order(
+            user_id=user_id,
             session_id=session.id,
             playbook_id=payload.playbook_id,
             status=OPEN_ORDER,
@@ -225,21 +243,25 @@ class BacktestService:
         db.flush()
 
         if order.order_type == "MARKET":
-            self._fill_order(db, session, order, current_candle, current_candle.close)
+            self._fill_order(db, user_id, session, order, current_candle, current_candle.close)
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
     def update_order(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         order_id: int,
         payload: OrderUpdate,
     ) -> BacktestState:
-        session = self._session_or_404(db, session_id)
-        order = self._order_or_404(db, session.id, order_id)
+        session = self._session_or_404(db, user_id, session_id)
+        order = self._order_or_404(db, user_id, session.id, order_id)
         if order.status != OPEN_ORDER:
             raise HTTPException(status_code=409, detail="Only pending orders can be amended")
+
+        if payload.playbook_id is not None:
+            self._playbook_or_404(db, user_id, payload.playbook_id)
 
         for field in (
             "quantity",
@@ -272,16 +294,22 @@ class BacktestService:
         if payload.mistake_tags is not None:
             order.mistake_tags = json.dumps(payload.mistake_tags)
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
     def update_position(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         payload: PositionUpdate,
     ) -> BacktestState:
-        session = self._session_or_404(db, session_id)
-        position = db.scalar(select(Position).where(Position.session_id == session.id))
+        session = self._session_or_404(db, user_id, session_id)
+        position = db.scalar(
+            select(Position).where(
+                Position.user_id == user_id,
+                Position.session_id == session.id,
+            )
+        )
         if position is None or position.quantity <= 0 or position.side == "FLAT":
             raise HTTPException(status_code=409, detail="Only active positions can be amended")
 
@@ -291,7 +319,7 @@ class BacktestService:
         if "take_profit" in updates:
             position.take_profit = updates["take_profit"]
 
-        trade = self._open_trade_for_position(db, session.id, position.side)
+        trade = self._open_trade_for_position(db, user_id, session.id, position.side)
         if trade is not None:
             if "stop_loss" in updates:
                 trade.stop_loss = updates["stop_loss"]
@@ -299,24 +327,25 @@ class BacktestService:
                 trade.take_profit = updates["take_profit"]
 
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
-    def cancel_order(self, db: Session, session_id: int, order_id: int) -> BacktestState:
-        session = self._session_or_404(db, session_id)
-        order = self._order_or_404(db, session.id, order_id)
+    def cancel_order(self, db: Session, user_id: int, session_id: int, order_id: int) -> BacktestState:
+        session = self._session_or_404(db, user_id, session_id)
+        order = self._order_or_404(db, user_id, session.id, order_id)
         if order.status != OPEN_ORDER:
             raise HTTPException(status_code=409, detail="Only pending orders can be cancelled")
         order.status = CANCELLED_ORDER
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
     def advance(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         payload: BacktestAdvanceRequest,
     ) -> BacktestState:
-        session = self._session_or_404(db, session_id)
+        session = self._session_or_404(db, user_id, session_id)
         market_data = self.market_data_for_session(session)
         for _ in range(payload.steps):
             next_offset = session.current_offset + 1
@@ -328,17 +357,18 @@ class BacktestService:
                 session.status = "COMPLETE"
                 break
             session.current_offset = next_offset
-            self._process_candle(db, session, candle)
+            self._process_candle(db, user_id, session, candle)
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
     def jump(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         payload: BacktestJumpRequest,
     ) -> BacktestState:
-        session = self._session_or_404(db, session_id)
+        session = self._session_or_404(db, user_id, session_id)
         market_data = self.market_data_for_session(session)
         target_offset = payload.offset
         if payload.timestamp is not None:
@@ -350,8 +380,8 @@ class BacktestService:
         if session.end_offset is not None and target_offset > session.end_offset:
             target_offset = session.end_offset
 
-        position = self._position(db, session)
-        pending = self._pending_orders(db, session.id)
+        position = self._position(db, user_id, session)
+        pending = self._pending_orders(db, user_id, session.id)
         if target_offset > session.current_offset and (
             (position and position.quantity > 0) or pending
         ):
@@ -366,20 +396,25 @@ class BacktestService:
                 if candle is None:
                     break
                 session.current_offset += 1
-                self._process_candle(db, session, candle)
+                self._process_candle(db, user_id, session, candle)
         else:
             session.current_offset = target_offset
         db.commit()
-        return self.get_state(db, session.id)
+        return self.get_state(db, user_id, session.id)
 
     def list_trades(
         self,
         db: Session,
+        user_id: int,
         session_id: int | None = None,
         offset: int = 0,
         limit: int = 500,
     ) -> list[TradeRead]:
-        query = select(Trade).order_by(desc(Trade.entry_time), desc(Trade.id))
+        query = (
+            select(Trade)
+            .where(Trade.user_id == user_id)
+            .order_by(desc(Trade.entry_time), desc(Trade.id))
+        )
         if session_id is not None:
             query = query.where(Trade.session_id == session_id)
         query = query.offset(offset).limit(limit)
@@ -388,10 +423,16 @@ class BacktestService:
     def update_journal(
         self,
         db: Session,
+        user_id: int,
         trade_id: int,
         payload: JournalUpdate,
     ) -> TradeRead:
-        trade = db.scalar(select(Trade).where(Trade.id == trade_id))
+        trade = db.scalar(
+            select(Trade).where(
+                Trade.user_id == user_id,
+                Trade.id == trade_id,
+            )
+        )
         if trade is None:
             raise HTTPException(status_code=404, detail="Trade not found")
         trade.notes = payload.notes
@@ -416,7 +457,7 @@ class BacktestService:
         if payload.fee_value is not None:
             trade.fee_value = _commission_value(trade.fee_mode, payload.fee_value)
         if fee_changed:
-            session = self._session_or_404(db, trade.session_id)
+            session = self._session_or_404(db, user_id, trade.session_id)
             previous_net_pnl = trade.realized_pnl or 0.0
             gross_pnl = self._trade_gross_pnl(trade)
             trade.gross_pnl = gross_pnl
@@ -440,6 +481,7 @@ class BacktestService:
                 trade.r_multiple = self._trade_r_multiple(session, trade)
         db.add(
             TradeNote(
+                user_id=user_id,
                 trade_id=trade.id,
                 notes=payload.notes,
                 mistake_tags=json.dumps(payload.mistake_tags),
@@ -454,10 +496,16 @@ class BacktestService:
     def update_trade_strategy(
         self,
         db: Session,
+        user_id: int,
         trade_id: int,
         payload: TradeStrategyUpdate,
     ) -> TradeRead:
-        trade = db.scalar(select(Trade).where(Trade.id == trade_id))
+        trade = db.scalar(
+            select(Trade).where(
+                Trade.user_id == user_id,
+                Trade.id == trade_id,
+            )
+        )
         if trade is None:
             raise HTTPException(status_code=404, detail="Trade not found")
         strategy_name = payload.strategy_name.strip() if isinstance(payload.strategy_name, str) else None
@@ -466,18 +514,28 @@ class BacktestService:
         db.refresh(trade)
         return to_trade_read(trade)
 
-    def list_playbooks(self, db: Session) -> list[PlaybookRead]:
-        playbooks = db.scalars(select(Playbook).order_by(asc(Playbook.name))).all()
+    def list_playbooks(self, db: Session, user_id: int) -> list[PlaybookRead]:
+        playbooks = db.scalars(
+            select(Playbook)
+            .where(Playbook.user_id == user_id)
+            .order_by(asc(Playbook.name))
+        ).all()
         return [PlaybookRead.model_validate(playbook) for playbook in playbooks]
 
-    def create_playbook(self, db: Session, payload: PlaybookCreate) -> PlaybookRead:
+    def create_playbook(self, db: Session, user_id: int, payload: PlaybookCreate) -> PlaybookRead:
         name = payload.name.strip()
         if not name:
             raise HTTPException(status_code=422, detail="Playbook name is required")
-        existing = db.scalar(select(Playbook).where(Playbook.name == name))
+        existing = db.scalar(
+            select(Playbook).where(
+                Playbook.user_id == user_id,
+                Playbook.name == name,
+            )
+        )
         if existing is not None:
             return PlaybookRead.model_validate(existing)
         playbook = Playbook(
+            user_id=user_id,
             name=name,
             description=payload.description,
             rules=payload.rules,
@@ -487,8 +545,14 @@ class BacktestService:
         db.refresh(playbook)
         return PlaybookRead.model_validate(playbook)
 
-    def update_playbook(self, db: Session, playbook_id: int, payload: PlaybookUpdate) -> PlaybookRead:
-        playbook = db.get(Playbook, playbook_id)
+    def update_playbook(
+        self,
+        db: Session,
+        user_id: int,
+        playbook_id: int,
+        payload: PlaybookUpdate,
+    ) -> PlaybookRead:
+        playbook = self._playbook_or_404(db, user_id, playbook_id)
         if playbook is None:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -497,7 +561,11 @@ class BacktestService:
             if not name:
                 raise HTTPException(status_code=422, detail="Playbook name is required")
             existing = db.scalar(
-                select(Playbook).where(Playbook.name == name, Playbook.id != playbook_id)
+                select(Playbook).where(
+                    Playbook.user_id == user_id,
+                    Playbook.name == name,
+                    Playbook.id != playbook_id,
+                )
             )
             if existing is not None:
                 raise HTTPException(status_code=409, detail="Playbook name already exists")
@@ -511,33 +579,39 @@ class BacktestService:
         db.refresh(playbook)
         return PlaybookRead.model_validate(playbook)
 
-    def delete_playbook(self, db: Session, playbook_id: int) -> None:
-        playbook = db.get(Playbook, playbook_id)
+    def delete_playbook(self, db: Session, user_id: int, playbook_id: int) -> None:
+        playbook = self._playbook_or_404(db, user_id, playbook_id)
         if playbook is None:
             raise HTTPException(status_code=404, detail="Playbook not found")
 
         for model in (BacktestSession, Position, Order, Trade):
-            db.query(model).filter(model.playbook_id == playbook_id).update(
+            db.query(model).filter(
+                model.user_id == user_id,
+                model.playbook_id == playbook_id,
+            ).update(
                 {model.playbook_id: None},
                 synchronize_session=False,
             )
         db.delete(playbook)
         db.commit()
 
-    def list_sessions(self, db: Session) -> list[BacktestSession]:
+    def list_sessions(self, db: Session, user_id: int) -> list[BacktestSession]:
         return list(
             db.scalars(
-                select(BacktestSession).order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
+                select(BacktestSession)
+                .where(BacktestSession.user_id == user_id)
+                .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
             ).all()
         )
 
     def update_session(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         payload: BacktestSessionUpdate,
     ) -> BacktestSession:
-        session = self._session_or_404(db, session_id)
+        session = self._session_or_404(db, user_id, session_id)
         values = payload.model_dump(exclude_unset=True)
         if not values:
             return session
@@ -576,9 +650,7 @@ class BacktestService:
 
         playbook_id = values.get("playbook_id")
         if playbook_id is not None:
-            playbook = db.get(Playbook, playbook_id)
-            if playbook is None:
-                raise HTTPException(status_code=404, detail="Playbook not found")
+            self._playbook_or_404(db, user_id, playbook_id)
 
         for field, value in values.items():
             setattr(session, field, value)
@@ -587,26 +659,27 @@ class BacktestService:
         db.refresh(session)
         return session
 
-    def delete_session(self, db: Session, session_id: int) -> None:
-        session = self._session_or_404(db, session_id)
+    def delete_session(self, db: Session, user_id: int, session_id: int) -> None:
+        session = self._session_or_404(db, user_id, session_id)
         db.delete(session)
         db.commit()
 
-    def _process_candle(self, db: Session, session: BacktestSession, candle: Candle) -> None:
-        self._process_position_brackets(db, session, candle)
-        for order in self._pending_orders(db, session.id):
+    def _process_candle(self, db: Session, user_id: int, session: BacktestSession, candle: Candle) -> None:
+        self._process_position_brackets(db, user_id, session, candle)
+        for order in self._pending_orders(db, user_id, session.id):
             trigger_price = self._trigger_price(order, candle)
             if trigger_price is not None:
-                self._fill_order(db, session, order, candle, trigger_price)
-                self._process_position_brackets(db, session, candle)
+                self._fill_order(db, user_id, session, order, candle, trigger_price)
+                self._process_position_brackets(db, user_id, session, candle)
 
     def _process_position_brackets(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         candle: Candle,
     ) -> None:
-        position = self._position(db, session)
+        position = self._position(db, user_id, session)
         if position is None or position.quantity <= 0 or position.side == "FLAT":
             return
 
@@ -615,6 +688,7 @@ class BacktestService:
         if stop_hit:
             self._execute_reduce_only(
                 db=db,
+                user_id=user_id,
                 session=session,
                 side="SELL" if position.side == "LONG" else "BUY",
                 quantity=position.quantity,
@@ -628,6 +702,7 @@ class BacktestService:
         if self._stop_hit(position, candle):
             self._execute_reduce_only(
                 db=db,
+                user_id=user_id,
                 session=session,
                 side="SELL" if position.side == "LONG" else "BUY",
                 quantity=position.quantity,
@@ -640,6 +715,7 @@ class BacktestService:
         if target_hit:
             self._execute_reduce_only(
                 db=db,
+                user_id=user_id,
                 session=session,
                 side="SELL" if position.side == "LONG" else "BUY",
                 quantity=position.quantity,
@@ -651,6 +727,7 @@ class BacktestService:
     def _fill_order(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         order: Order,
         candle: Candle,
@@ -663,9 +740,9 @@ class BacktestService:
         if quantity <= 0:
             raise HTTPException(status_code=400, detail="quantity must be greater than zero")
         if order.reduce_only:
-            self._execute_reduce_only(db, session, order.side, quantity, price, candle, order)
+            self._execute_reduce_only(db, user_id, session, order.side, quantity, price, candle, order)
         else:
-            self._execute_position_change(db, session, order, candle, price, quantity)
+            self._execute_position_change(db, user_id, session, order, candle, price, quantity)
         order.status = FILLED_ORDER
         order.filled_offset = candle.time_offset if hasattr(candle, "time_offset") else session.current_offset
         order.filled_price = price
@@ -674,6 +751,7 @@ class BacktestService:
     def _execute_reduce_only(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         side: str,
         quantity: float,
@@ -683,7 +761,7 @@ class BacktestService:
     ) -> None:
         if price is None:
             return
-        position = self._position(db, session)
+        position = self._position(db, user_id, session)
         if position is None or position.quantity <= 0:
             return
         if position.side == "LONG" and side != "SELL":
@@ -691,6 +769,7 @@ class BacktestService:
         if position.side == "SHORT" and side != "BUY":
             return
         temp_order = order or Order(
+            user_id=user_id,
             session_id=session.id,
             side=side,
             order_type="MARKET",
@@ -700,6 +779,7 @@ class BacktestService:
         )
         self._execute_position_change(
             db,
+            user_id,
             session,
             temp_order,
             candle,
@@ -710,15 +790,16 @@ class BacktestService:
     def _execute_position_change(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         order: Order,
         candle: Candle,
         price: float,
         quantity: float,
     ) -> None:
-        position = self._position(db, session)
+        position = self._position(db, user_id, session)
         if position is None:
-            position = Position(session_id=session.id)
+            position = Position(user_id=user_id, session_id=session.id)
             db.add(position)
             db.flush()
 
@@ -726,13 +807,14 @@ class BacktestService:
         realized = 0.0
 
         if position.quantity <= 0 or position.side == "FLAT":
-            self._open_position(db, session, position, order, candle, price, quantity)
+            self._open_position(db, user_id, session, position, order, candle, price, quantity)
         elif position.side == incoming_side:
-            self._scale_position(db, session, position, order, price, quantity)
+            self._scale_position(db, user_id, session, position, order, price, quantity)
         else:
             exit_quantity = min(quantity, position.quantity)
             realized = self._close_quantity(
                 db,
+                user_id,
                 session,
                 position,
                 order,
@@ -742,10 +824,11 @@ class BacktestService:
             )
             remainder = quantity - exit_quantity
             if remainder > 0 and not order.reduce_only:
-                self._open_position(db, session, position, order, candle, price, remainder)
+                self._open_position(db, user_id, session, position, order, candle, price, remainder)
 
         session.realized_pnl += realized
         execution = Execution(
+            user_id=user_id,
             session_id=session.id,
             order_id=order.id,
             side=order.side,
@@ -762,6 +845,7 @@ class BacktestService:
     def _open_position(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         position: Position,
         order: Order,
@@ -781,6 +865,7 @@ class BacktestService:
 
         db.add(
             Trade(
+                user_id=user_id,
                 session_id=session.id,
                 playbook_id=order.playbook_id,
                 status="OPEN",
@@ -805,6 +890,7 @@ class BacktestService:
     def _scale_position(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         position: Position,
         order: Order,
@@ -824,7 +910,7 @@ class BacktestService:
         position.strategy_name = order.strategy_name or position.strategy_name
         position.playbook_id = order.playbook_id or position.playbook_id
 
-        trade = self._open_trade_for_position(db, session.id, position.side)
+        trade = self._open_trade_for_position(db, user_id, session.id, position.side)
         if trade:
             trade.entry_price = position.avg_price
             trade.quantity += quantity
@@ -843,6 +929,7 @@ class BacktestService:
     def _close_quantity(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         position: Position,
         order: Order,
@@ -852,7 +939,7 @@ class BacktestService:
     ) -> float:
         gross_realized = self._price_pnl(session, position.avg_price, price, quantity, position.side)
         realized = gross_realized
-        trade = self._open_trade_for_position(db, session.id, position.side)
+        trade = self._open_trade_for_position(db, user_id, session.id, position.side)
         if trade:
             commission_amount = self._commission_for_close(session, trade, price, quantity)
             fee_amount = self._fee_for_close(session, trade, price, quantity)
@@ -1107,30 +1194,44 @@ class BacktestService:
             return equity
         return session.initial_balance
 
-    def _repair_negative_open_position(self, db: Session, session: BacktestSession) -> None:
-        position = self._position(db, session)
+    def _repair_negative_open_position(self, db: Session, user_id: int, session: BacktestSession) -> None:
+        position = self._position(db, user_id, session)
         if position is None or position.side == "FLAT" or position.quantity >= 0:
             return
 
         original_offset = session.current_offset
         position.quantity = abs(position.quantity)
-        for order in db.scalars(select(Order).where(Order.session_id == session.id)):
+        for order in db.scalars(
+            select(Order).where(
+                Order.user_id == user_id,
+                Order.session_id == session.id,
+            )
+        ):
             if order.quantity is not None and order.quantity < 0:
                 order.quantity = abs(order.quantity)
-        for execution in db.scalars(select(Execution).where(Execution.session_id == session.id)):
+        for execution in db.scalars(
+            select(Execution).where(
+                Execution.user_id == user_id,
+                Execution.session_id == session.id,
+            )
+        ):
             if execution.quantity < 0:
                 execution.quantity = abs(execution.quantity)
             if execution.position_quantity_after < 0:
                 execution.position_quantity_after = abs(execution.position_quantity_after)
         for trade in db.scalars(
-            select(Trade).where(Trade.session_id == session.id, Trade.status == "OPEN")
+            select(Trade).where(
+                Trade.user_id == user_id,
+                Trade.session_id == session.id,
+                Trade.status == "OPEN",
+            )
         ):
             if trade.quantity < 0:
                 trade.quantity = abs(trade.quantity)
             if trade.remaining_quantity < 0:
                 trade.remaining_quantity = abs(trade.remaining_quantity)
 
-        open_trade = self._open_trade_for_position(db, session.id, position.side)
+        open_trade = self._open_trade_for_position(db, user_id, session.id, position.side)
         if open_trade is None:
             db.commit()
             return
@@ -1142,7 +1243,7 @@ class BacktestService:
             if candle is None:
                 break
             session.current_offset = offset
-            self._process_position_brackets(db, session, candle)
+            self._process_position_brackets(db, user_id, session, candle)
             if position.side == "FLAT" or position.quantity <= 0:
                 break
         session.current_offset = original_offset
@@ -1169,10 +1270,11 @@ class BacktestService:
     def _position_read(
         self,
         db: Session,
+        user_id: int,
         session: BacktestSession,
         candle: Candle | None,
     ) -> PositionRead | None:
-        position = self._position(db, session)
+        position = self._position(db, user_id, session)
         if position is None:
             return None
         unrealized = 0.0
@@ -1199,14 +1301,19 @@ class BacktestService:
             unrealized_pnl=unrealized,
         )
 
-    def _session_or_404(self, db: Session, session_id: int) -> BacktestSession:
-        session = db.scalar(select(BacktestSession).where(BacktestSession.id == session_id))
+    def _session_or_404(self, db: Session, user_id: int, session_id: int) -> BacktestSession:
+        session = db.scalar(
+            select(BacktestSession).where(
+                BacktestSession.user_id == user_id,
+                BacktestSession.id == session_id,
+            )
+        )
         if session is None:
             raise HTTPException(status_code=404, detail="Backtest session not found")
         return session
 
-    def get_session(self, db: Session, session_id: int) -> BacktestSession:
-        return self._session_or_404(db, session_id)
+    def get_session(self, db: Session, user_id: int, session_id: int) -> BacktestSession:
+        return self._session_or_404(db, user_id, session_id)
 
     def session_has_replay_data(self, session: BacktestSession) -> bool:
         csv_path = session.csv_path
@@ -1243,9 +1350,13 @@ class BacktestService:
             )
         return self._market_data_cache[cache_key]
 
-    def _order_or_404(self, db: Session, session_id: int, order_id: int) -> Order:
+    def _order_or_404(self, db: Session, user_id: int, session_id: int, order_id: int) -> Order:
         order = db.scalar(
-            select(Order).where(Order.session_id == session_id, Order.id == order_id)
+            select(Order).where(
+                Order.user_id == user_id,
+                Order.session_id == session_id,
+                Order.id == order_id,
+            )
         )
         if order is None:
             raise HTTPException(status_code=404, detail="Order not found")
@@ -1257,19 +1368,28 @@ class BacktestService:
             raise HTTPException(status_code=404, detail="Current replay candle not found")
         return candle
 
-    def _position(self, db: Session, session: BacktestSession) -> Position | None:
-        position = db.scalar(select(Position).where(Position.session_id == session.id))
+    def _position(self, db: Session, user_id: int, session: BacktestSession) -> Position | None:
+        position = db.scalar(
+            select(Position).where(
+                Position.user_id == user_id,
+                Position.session_id == session.id,
+            )
+        )
         if position is None:
-            position = Position(session_id=session.id)
+            position = Position(user_id=user_id, session_id=session.id)
             db.add(position)
             db.flush()
         return position
 
-    def _pending_orders(self, db: Session, session_id: int) -> list[Order]:
+    def _pending_orders(self, db: Session, user_id: int, session_id: int) -> list[Order]:
         return list(
             db.scalars(
                 select(Order)
-                .where(Order.session_id == session_id, Order.status == OPEN_ORDER)
+                .where(
+                    Order.user_id == user_id,
+                    Order.session_id == session_id,
+                    Order.status == OPEN_ORDER,
+                )
                 .order_by(asc(Order.created_at), asc(Order.id))
             ).all()
         )
@@ -1277,12 +1397,14 @@ class BacktestService:
     def _open_trade_for_position(
         self,
         db: Session,
+        user_id: int,
         session_id: int,
         side: str,
     ) -> Trade | None:
         return db.scalar(
             select(Trade)
             .where(
+                Trade.user_id == user_id,
                 Trade.session_id == session_id,
                 Trade.status == "OPEN",
                 Trade.side == side,
@@ -1291,9 +1413,25 @@ class BacktestService:
             .limit(1)
         )
 
+    def _playbook_or_404(self, db: Session, user_id: int, playbook_id: int) -> Playbook:
+        playbook = db.scalar(
+            select(Playbook).where(
+                Playbook.user_id == user_id,
+                Playbook.id == playbook_id,
+            )
+        )
+        if playbook is None:
+            raise HTTPException(status_code=404, detail="Playbook not found")
+        return playbook
 
-def list_latest_session(db: Session) -> BacktestSession | None:
-    return db.scalar(select(BacktestSession).order_by(desc(BacktestSession.id)).limit(1))
+
+def list_latest_session(db: Session, user_id: int) -> BacktestSession | None:
+    return db.scalar(
+        select(BacktestSession)
+        .where(BacktestSession.user_id == user_id)
+        .order_by(desc(BacktestSession.id))
+        .limit(1)
+    )
 
 
 def to_order_read(order: Order) -> OrderRead:

@@ -32,7 +32,7 @@ The dev server proxies `/api` to `http://127.0.0.1:8000`. Set a custom API base 
 VITE_API_BASE_URL=http://127.0.0.1:8000/api npm run dev
 ```
 
-When the backend is started with `EDGELAB_API_TOKEN`, build or run the frontend with a matching `VITE_API_BEARER_TOKEN`.
+When the backend is started with `EDGELAB_API_TOKEN`, build or run the frontend with a matching `VITE_API_BEARER_TOKEN` for non-user routes. Authenticated workspace routes prefer the stored beta session JWT and send it automatically after sign-in.
 
 The workspace subscribes to `/api/datasets/stream` over WebSocket while the tab is open, so dataset ranges written by the scheduled populator update in the UI without a manual browser refresh. Initial load no longer creates a replay session automatically; users create sessions from the session gateway.
 

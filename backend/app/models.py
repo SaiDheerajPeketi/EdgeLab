@@ -10,20 +10,31 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class BacktestSession(Base):
+class UserOwnedMixin:
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("beta_users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+
+class BacktestSession(UserOwnedMixin, Base):
     __tablename__ = "backtest_sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(160), default="Dataset Replay")
     symbol: Mapped[str] = mapped_column(String(40), default="DATASET")
-    instrument: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    instrument: Mapped[str | None] = mapped_column(String(120), nullable=True)
     timeframe: Mapped[str | None] = mapped_column(String(20), nullable=True)
     csv_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(12), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(80), nullable=True)
     pnl_multiplier: Mapped[float] = mapped_column(Float, default=1.0)
     strategy_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    playbook_id: Mapped[int | None] = mapped_column(ForeignKey("playbooks.id"), nullable=True)
+    playbook_id: Mapped[int | None] = mapped_column(
+        ForeignKey("playbooks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     start_offset: Mapped[int] = mapped_column(Integer, default=0)
@@ -40,23 +51,32 @@ class BacktestSession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     orders: Mapped[list["Order"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan"
+        back_populates="session",
+        cascade="all, delete-orphan",
     )
     executions: Mapped[list["Execution"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan"
+        back_populates="session",
+        cascade="all, delete-orphan",
     )
     trades: Mapped[list["Trade"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan"
+        back_populates="session",
+        cascade="all, delete-orphan",
     )
     position: Mapped["Position | None"] = relationship(
-        back_populates="session", cascade="all, delete-orphan", uselist=False
+        back_populates="session",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
-class DatasetAsset(Base):
+class DatasetAsset(UserOwnedMixin, Base):
     __tablename__ = "dataset_assets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "asset_key", name="uq_dataset_assets_user_asset_key"),
+    )
 
-    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     symbol: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     folder_path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -67,18 +87,27 @@ class DatasetAsset(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     timeframes: Mapped[list["DatasetTimeframe"]] = relationship(
-        back_populates="asset", cascade="all, delete-orphan"
+        back_populates="asset",
+        cascade="all, delete-orphan",
     )
 
 
-class DatasetTimeframe(Base):
+class DatasetTimeframe(UserOwnedMixin, Base):
     __tablename__ = "dataset_timeframes"
     __table_args__ = (
-        UniqueConstraint("asset_id", "timeframe", name="uq_dataset_timeframes_asset_timeframe"),
+        UniqueConstraint(
+            "user_id",
+            "asset_id",
+            "timeframe",
+            name="uq_dataset_timeframes_user_asset_timeframe",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    asset_id: Mapped[str] = mapped_column(ForeignKey("dataset_assets.id"), index=True)
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="CASCADE"),
+        index=True,
+    )
     timeframe: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     csv_path: Mapped[str] = mapped_column(Text, nullable=False)
     rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -93,18 +122,21 @@ class DatasetTimeframe(Base):
     asset: Mapped[DatasetAsset] = relationship(back_populates="timeframes")
 
 
-class DatasetSettings(Base):
+class DatasetSettings(UserOwnedMixin, Base):
     __tablename__ = "dataset_settings"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_dataset_settings_user"),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     root_path: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
-class AppStorageItem(Base):
+class AppStorageItem(UserOwnedMixin, Base):
     __tablename__ = "app_storage"
     __table_args__ = (
-        UniqueConstraint("namespace", "key", name="uq_app_storage_namespace_key"),
+        UniqueConstraint("user_id", "namespace", "key", name="uq_app_storage_user_namespace_key"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -129,7 +161,8 @@ class BetaUser(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     sessions: Mapped[list["BetaSession"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
 
@@ -137,19 +170,24 @@ class BetaSession(Base):
     __tablename__ = "beta_sessions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("beta_users.id", ondelete="CASCADE"), index=True)
-    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("beta_users.id", ondelete="CASCADE"),
+        index=True,
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     user: Mapped[BetaUser] = relationship(back_populates="sessions")
 
 
-class Playbook(Base):
+class Playbook(UserOwnedMixin, Base):
     __tablename__ = "playbooks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_playbooks_user_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     rules: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -158,11 +196,14 @@ class Playbook(Base):
     orders: Mapped[list["Order"]] = relationship(back_populates="playbook")
 
 
-class Position(Base):
+class Position(UserOwnedMixin, Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("backtest_sessions.id"), unique=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("backtest_sessions.id", ondelete="CASCADE"),
+        unique=True,
+    )
     side: Mapped[str] = mapped_column(String(12), default="FLAT")
     quantity: Mapped[float] = mapped_column(Float, default=0.0)
     avg_price: Mapped[float] = mapped_column(Float, default=0.0)
@@ -171,18 +212,27 @@ class Position(Base):
     breakeven_trigger_r: Mapped[float | None] = mapped_column(Float, nullable=True)
     breakeven_moved: Mapped[bool] = mapped_column(Boolean, default=False)
     strategy_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    playbook_id: Mapped[int | None] = mapped_column(ForeignKey("playbooks.id"), nullable=True)
+    playbook_id: Mapped[int | None] = mapped_column(
+        ForeignKey("playbooks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     session: Mapped[BacktestSession] = relationship(back_populates="position")
 
 
-class Order(Base):
+class Order(UserOwnedMixin, Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("backtest_sessions.id"), index=True)
-    playbook_id: Mapped[int | None] = mapped_column(ForeignKey("playbooks.id"), nullable=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("backtest_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    playbook_id: Mapped[int | None] = mapped_column(
+        ForeignKey("playbooks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(16), default="PENDING", index=True)
     side: Mapped[str] = mapped_column(String(8), index=True)
     order_type: Mapped[str] = mapped_column(String(12), default="MARKET")
@@ -211,16 +261,23 @@ class Order(Base):
     session: Mapped[BacktestSession] = relationship(back_populates="orders")
     playbook: Mapped[Playbook | None] = relationship(back_populates="orders")
     executions: Mapped[list["Execution"]] = relationship(
-        back_populates="order", cascade="all, delete-orphan"
+        back_populates="order",
+        cascade="all, delete-orphan",
     )
 
 
-class Execution(Base):
+class Execution(UserOwnedMixin, Base):
     __tablename__ = "executions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("backtest_sessions.id"), index=True)
-    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("backtest_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     side: Mapped[str] = mapped_column(String(8), index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
     offset: Mapped[int] = mapped_column(Integer, index=True)
@@ -235,15 +292,20 @@ class Execution(Base):
     order: Mapped[Order | None] = relationship(back_populates="executions")
 
 
-class Trade(Base):
+class Trade(UserOwnedMixin, Base):
     __tablename__ = "trades"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("backtest_sessions.id"), index=True)
-    playbook_id: Mapped[int | None] = mapped_column(ForeignKey("playbooks.id"), nullable=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("backtest_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    playbook_id: Mapped[int | None] = mapped_column(
+        ForeignKey("playbooks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(12), default="OPEN", index=True)
     side: Mapped[str] = mapped_column(String(12), index=True)
-
     entry_time: Mapped[datetime] = mapped_column(DateTime, index=True)
     entry_offset: Mapped[int] = mapped_column(Integer, default=0)
     entry_price: Mapped[float] = mapped_column(Float)
@@ -251,7 +313,6 @@ class Trade(Base):
     remaining_quantity: Mapped[float] = mapped_column(Float)
     stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     take_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
-
     exit_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     exit_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -264,7 +325,6 @@ class Trade(Base):
     fee_mode: Mapped[str] = mapped_column(String(16), default="NONE")
     fee_value: Mapped[float] = mapped_column(Float, default=0.0)
     fee_amount: Mapped[float] = mapped_column(Float, default=0.0)
-
     strategy_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     mistake_tags: Mapped[str] = mapped_column(Text, default="[]")
@@ -276,15 +336,19 @@ class Trade(Base):
     session: Mapped[BacktestSession] = relationship(back_populates="trades")
     playbook: Mapped[Playbook | None] = relationship(back_populates="trades")
     notes_list: Mapped[list["TradeNote"]] = relationship(
-        back_populates="trade", cascade="all, delete-orphan"
+        back_populates="trade",
+        cascade="all, delete-orphan",
     )
 
 
-class TradeNote(Base):
+class TradeNote(UserOwnedMixin, Base):
     __tablename__ = "trade_notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.id"), index=True)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("trades.id", ondelete="CASCADE"),
+        index=True,
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     mistake_tags: Mapped[str] = mapped_column(Text, default="[]")
     emotional_state: Mapped[str | None] = mapped_column(String(80), nullable=True)

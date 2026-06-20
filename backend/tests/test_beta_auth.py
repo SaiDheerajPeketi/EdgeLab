@@ -6,7 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api import routes
+from app import auth
 from app.db import Base
+from app.models import Playbook
 from app.schemas import BetaAccessRequest
 
 
@@ -18,11 +20,13 @@ def make_model_session():
 
 
 def test_beta_access_waitlists_after_seats_fill(monkeypatch):
-    monkeypatch.setattr(
-        routes,
-        "settings",
-        SimpleNamespace(beta_seats_total=1, beta_manual_access_enabled=True),
+    settings = SimpleNamespace(
+        beta_seats_total=1,
+        beta_manual_access_enabled=True,
+        jwt_secret="test-jwt-secret",
     )
+    monkeypatch.setattr(routes, "settings", settings)
+    monkeypatch.setattr(auth, "settings", settings)
     db = make_model_session()
 
     try:
@@ -34,6 +38,8 @@ def test_beta_access_waitlists_after_seats_fill(monkeypatch):
           BetaAccessRequest(email="beta@desk.com", name="Beta Trader", provider="google"),
           db,
       )
+      first_playbooks = db.query(Playbook).filter(Playbook.user_id == first.session.user.id).count()
+      second_playbooks = db.query(Playbook).filter(Playbook.user_id == second.session.user.id).count()
     finally:
       db.close()
 
@@ -46,14 +52,18 @@ def test_beta_access_waitlists_after_seats_fill(monkeypatch):
     assert second.session.user.beta_position == 1
     assert second.program.seats_taken == 1
     assert second.program.waitlist_count == 1
+    assert first_playbooks == 3
+    assert second_playbooks == 3
 
 
 def test_beta_session_can_be_read_and_deleted(monkeypatch):
-    monkeypatch.setattr(
-        routes,
-        "settings",
-        SimpleNamespace(beta_seats_total=2, beta_manual_access_enabled=True),
+    settings = SimpleNamespace(
+        beta_seats_total=2,
+        beta_manual_access_enabled=True,
+        jwt_secret="test-jwt-secret",
     )
+    monkeypatch.setattr(routes, "settings", settings)
+    monkeypatch.setattr(auth, "settings", settings)
     db = make_model_session()
 
     try:
@@ -63,11 +73,12 @@ def test_beta_session_can_be_read_and_deleted(monkeypatch):
       )
       authorization = f"Bearer {access.session.token}"
 
-      hydrated = routes.read_beta_session(authorization=authorization, db=db)
-      cleared = routes.delete_beta_session(authorization=authorization, db=db)
+      current_user = auth.require_auth(authorization=authorization, db=db)
+      hydrated = routes.read_beta_session(db=db, current_user=current_user)
+      cleared = routes.delete_beta_session(db=db, current_user=current_user)
 
       with pytest.raises(HTTPException) as exc_info:
-          routes.read_beta_session(authorization=authorization, db=db)
+          auth.require_auth(authorization=authorization, db=db)
     finally:
       db.close()
 
@@ -78,11 +89,13 @@ def test_beta_session_can_be_read_and_deleted(monkeypatch):
 
 
 def test_beta_access_requires_google_auth_by_default(monkeypatch):
-    monkeypatch.setattr(
-        routes,
-        "settings",
-        SimpleNamespace(beta_seats_total=2, beta_manual_access_enabled=False),
+    settings = SimpleNamespace(
+        beta_seats_total=2,
+        beta_manual_access_enabled=False,
+        jwt_secret="test-jwt-secret",
     )
+    monkeypatch.setattr(routes, "settings", settings)
+    monkeypatch.setattr(auth, "settings", settings)
     db = make_model_session()
 
     try:

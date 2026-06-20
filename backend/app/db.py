@@ -1,10 +1,12 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
-from app.migrations import run_migrations
+
+
+SCHEMA_VERSION = 2
 
 
 connect_args = (
@@ -39,8 +41,25 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def _sqlite_schema_version() -> int:
+    with engine.connect() as connection:
+        return int(connection.execute(text("PRAGMA user_version")).scalar_one())
+
+
+def _set_sqlite_schema_version(version: int) -> None:
+    with engine.begin() as connection:
+        connection.execute(text(f"PRAGMA user_version = {int(version)}"))
+
+
 def init_db() -> None:
     from app import models  # noqa: F401
 
+    if settings.database_url.startswith("sqlite"):
+        current_version = _sqlite_schema_version()
+        if current_version != SCHEMA_VERSION:
+            Base.metadata.drop_all(bind=engine)
+            Base.metadata.create_all(bind=engine)
+            _set_sqlite_schema_version(SCHEMA_VERSION)
+            return
+
     Base.metadata.create_all(bind=engine)
-    run_migrations(engine, settings.database_url)

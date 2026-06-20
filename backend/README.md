@@ -18,7 +18,7 @@ Install audit tooling with:
 pip install -r backend/requirements-dev.txt
 ```
 
-Seed default playbooks from the repository root with:
+Backfill default playbooks for already-created beta users from the repository root with:
 
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
@@ -42,12 +42,18 @@ The SQLite database defaults to `backend/trade_journal_v2.db`. Override it with:
 export DATABASE_URL=sqlite:////absolute/path/to/trade_journal_v2.db
 ```
 
-Startup runs versioned SQLite migrations after creating missing tables. Applied migrations are recorded in the `schema_migrations` table.
+Startup recreates the SQLite schema when the internal schema version changes. This intentionally drops incompatible local data instead of running migrations.
 
 Set an API bearer token for protected mutation and app-data routes with:
 
 ```bash
 export EDGELAB_API_TOKEN=change-me
+```
+
+Set the JWT signing secret required for beta sessions and authenticated workspace routes with:
+
+```bash
+export EDGELAB_JWT_SECRET=change-me
 ```
 
 Enable real Google OAuth exchange with direct env vars:
@@ -123,6 +129,7 @@ Container defaults:
 - `EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT`
 - `EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE=2017-08-17`
 - `EDGELAB_API_TOKEN=`
+- `EDGELAB_JWT_SECRET=`
 - `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
@@ -154,3 +161,9 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 - `POST /api/auth/google/exchange` exchanges Google OAuth codes for beta sessions.
 - `GET /api/auth/session` rehydrates stored beta sessions.
 - `DELETE /api/auth/session` signs out beta sessions.
+
+## Multi-User Isolation
+
+- Tenant-scoped tables use `user_id` foreign keys and the API resolves ownership only from the authenticated beta session.
+- Protected routes require the beta session JWT, which is signed with `EDGELAB_JWT_SECRET`.
+- Default playbooks are provisioned per user on first sign-in; the seed script only backfills users that already exist.

@@ -6,8 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api import routes
+from app.auth import AuthenticatedUser
 from app.db import Base
-from app.models import BacktestSession, Position
+from app.models import BacktestSession, BetaUser, Position
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
 
@@ -36,6 +37,32 @@ def make_model_session():
     return session_factory()
 
 
+def seed_user(db):
+    user = BetaUser(
+        email="health@edgelab.local",
+        name="Health Tester",
+        provider="google",
+        status="APPROVED",
+    )
+    db.add(user)
+    db.commit()
+    return user.id
+
+
+def current_user(user_id: int) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        id=user_id,
+        email="health@edgelab.local",
+        name="Health Tester",
+        provider="google",
+        approved=True,
+        beta_position=1,
+        session_id="test-session",
+        session_created_at=None,
+        session_expires_at=None,
+    )
+
+
 def test_health_does_not_require_dataset_catalog(monkeypatch):
     monkeypatch.setattr(routes, "dataset_catalog", object())
     db = make_session()
@@ -45,14 +72,19 @@ def test_health_does_not_require_dataset_catalog(monkeypatch):
         db.close()
 
 
-def test_ready_reports_dataset_catalog_counts(monkeypatch):
-    monkeypatch.setattr(routes, "dataset_catalog", FakeDatasetCatalog())
+def test_ready_reports_dataset_catalog_counts(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    (datasets_root / "EUR_USD").mkdir(parents=True)
+    (datasets_root / "EUR_USD" / "EUR_USD_M1.csv").write_text("Timestamp,Open,High,Low,Close,Volume\n", encoding="utf-8")
+    (datasets_root / "GBP_USD").mkdir(parents=True)
+    (datasets_root / "GBP_USD" / "GBP_USD_H1.csv").write_text("Timestamp,Open,High,Low,Close,Volume\n", encoding="utf-8")
+    monkeypatch.setattr(routes, "settings", SimpleNamespace(datasets_root=datasets_root))
     db = make_session()
     try:
         assert routes.ready(db) == {
             "status": "ok",
             "database": "ok",
-            "datasets_root": "/datasets",
+            "datasets_root": str(datasets_root),
             "dataset_assets": "2",
             "dataset_timeframes": "2",
         }
@@ -77,7 +109,9 @@ def test_dataset_catalog_stream_payload_serializes_catalog(monkeypatch, tmp_path
     monkeypatch.setattr(routes, "dataset_catalog", catalog)
     monkeypatch.setattr(routes, "SessionLocal", session_factory)
 
-    payload = routes.dataset_catalog_stream_payload()
+    with session_factory() as db:
+        user_id = seed_user(db)
+    payload = routes.dataset_catalog_stream_payload(user_id)
 
     assert payload["type"] == "catalog"
     assert payload["catalog"]["root"] == str(datasets_root)
@@ -95,7 +129,9 @@ def test_latest_backtest_skips_stale_legacy_csv_session_without_creating_default
         encoding="utf-8",
     )
     db = make_model_session()
+    user_id = seed_user(db)
     stale_session = BacktestSession(
+        user_id=user_id,
         name="Stale legacy session",
         symbol="EURUSD",
         csv_path="/data/EURUSD_M1.csv",
@@ -103,7 +139,7 @@ def test_latest_backtest_skips_stale_legacy_csv_session_without_creating_default
     )
     db.add(stale_session)
     db.flush()
-    db.add(Position(session_id=stale_session.id))
+    db.add(Position(user_id=user_id, session_id=stale_session.id))
     db.commit()
     catalog = DatasetCatalogService(datasets_root, sessionmaker(bind=db.get_bind()))
     monkeypatch.setattr(routes, "dataset_catalog", catalog)
@@ -111,7 +147,7 @@ def test_latest_backtest_skips_stale_legacy_csv_session_without_creating_default
 
     try:
         with pytest.raises(HTTPException) as exc_info:
-            routes.latest_backtest(db)
+            routes.latest_backtest(db, current_user(user_id))
         session_count = len(db.query(BacktestSession).all())
     finally:
         db.close()
@@ -131,7 +167,9 @@ def test_latest_backtest_returns_existing_valid_dataset_session(monkeypatch, tmp
         encoding="utf-8",
     )
     db = make_model_session()
+    user_id = seed_user(db)
     valid_session = BacktestSession(
+        user_id=user_id,
         name="Valid dataset session",
         symbol="GBPUSD",
         csv_path=str(csv_path),
@@ -139,14 +177,14 @@ def test_latest_backtest_returns_existing_valid_dataset_session(monkeypatch, tmp
     )
     db.add(valid_session)
     db.flush()
-    db.add(Position(session_id=valid_session.id))
+    db.add(Position(user_id=user_id, session_id=valid_session.id))
     db.commit()
     catalog = DatasetCatalogService(datasets_root, sessionmaker(bind=db.get_bind()))
     monkeypatch.setattr(routes, "dataset_catalog", catalog)
     monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
 
     try:
-        state = routes.latest_backtest(db)
+        state = routes.latest_backtest(db, current_user(user_id))
     finally:
         db.close()
 
@@ -165,13 +203,16 @@ def test_list_backtests_hides_stale_replay_sessions(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     db = make_model_session()
+    user_id = seed_user(db)
     stale_session = BacktestSession(
+        user_id=user_id,
         name="Stale legacy session",
         symbol="EURUSD",
         csv_path="/data/EURUSD_M1.csv",
         current_offset=0,
     )
     valid_session = BacktestSession(
+        user_id=user_id,
         name="Valid dataset session",
         symbol="GBPUSD",
         csv_path=str(csv_path),
@@ -179,12 +220,17 @@ def test_list_backtests_hides_stale_replay_sessions(monkeypatch, tmp_path):
     )
     db.add_all([stale_session, valid_session])
     db.flush()
-    db.add_all([Position(session_id=stale_session.id), Position(session_id=valid_session.id)])
+    db.add_all(
+        [
+            Position(user_id=user_id, session_id=stale_session.id),
+            Position(user_id=user_id, session_id=valid_session.id),
+        ]
+    )
     db.commit()
     monkeypatch.setattr(routes, "backtester", BacktestService())
 
     try:
-        sessions = routes.list_backtests(db)
+        sessions = routes.list_backtests(db, current_user(user_id))
     finally:
         db.close()
 

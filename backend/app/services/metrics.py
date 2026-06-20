@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+
 from sqlalchemy import asc, select
 from sqlalchemy.orm import Session
 
@@ -13,8 +14,15 @@ from app.schemas import (
 )
 
 
-def get_metrics(db: Session, session_id: int | None = None) -> MetricsResponse:
-    query = select(Trade).where(Trade.status == "CLOSED").order_by(asc(Trade.exit_time))
+def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> MetricsResponse:
+    query = (
+        select(Trade)
+        .where(
+            Trade.user_id == user_id,
+            Trade.status == "CLOSED",
+        )
+        .order_by(asc(Trade.exit_time))
+    )
     if session_id is not None:
         query = query.where(Trade.session_id == session_id)
     closed_trades = list(db.scalars(query).all())

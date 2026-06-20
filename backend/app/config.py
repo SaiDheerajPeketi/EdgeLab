@@ -102,6 +102,7 @@ class Settings:
         "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'trade_journal_v2.db'}"
     )
     api_token: str = os.getenv("EDGELAB_API_TOKEN", "").strip()
+    jwt_secret: str = os.getenv("EDGELAB_JWT_SECRET", "").strip()
     google_client_id: str = GOOGLE_OAUTH_CREDENTIALS.client_id
     google_client_secret: str = GOOGLE_OAUTH_CREDENTIALS.client_secret
     google_client_secrets_file: Path | None = GOOGLE_OAUTH_CREDENTIALS.source_file
@@ -172,6 +173,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         datasets_root=settings.datasets_root,
         database_url=settings.database_url,
         api_token=settings.api_token,
+        jwt_secret=settings.jwt_secret,
         google_client_id=settings.google_client_id,
         google_client_secret=settings.google_client_secret,
         google_client_secrets_file=settings.google_client_secrets_file,

@@ -118,6 +118,7 @@ DATE_FORMATS = (
 
 def import_trade_csv(
     db: Session,
+    user_id: int,
     payload: BacktestTradeImport,
     fallback_csv_path: Path,
     fallback_rows: int,
@@ -171,6 +172,7 @@ def import_trade_csv(
     current_offset = max(0, min(len(parsed_rows) - 1, max(fallback_rows - 1, 0)))
 
     session = BacktestSession(
+        user_id=user_id,
         name=session_name,
         symbol=symbol,
         instrument=instrument,
@@ -198,11 +200,12 @@ def import_trade_csv(
     )
     db.add(session)
     db.flush()
-    db.add(Position(session_id=session.id))
+    db.add(Position(user_id=user_id, session_id=session.id))
 
     trades: list[Trade] = []
     for offset, row in enumerate(parsed_rows):
         trade = Trade(
+            user_id=user_id,
             session_id=session.id,
             status="CLOSED",
             side=row["side"],

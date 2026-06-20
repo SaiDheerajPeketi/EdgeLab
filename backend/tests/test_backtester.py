@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import BacktestSession, Execution, Order, Position, Trade
+from app.models import BacktestSession, BetaUser, Execution, Order, Position, Trade
 from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
@@ -17,6 +17,45 @@ from app.schemas import (
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
 from app.services.market_data import MarketDataService
+
+
+USER_SCOPED_METHODS = {
+    "advance",
+    "cancel_order",
+    "create_playbook",
+    "create_session",
+    "delete_playbook",
+    "delete_session",
+    "get_session",
+    "get_state",
+    "jump",
+    "list_playbooks",
+    "list_sessions",
+    "list_trades",
+    "place_order",
+    "update_journal",
+    "update_order",
+    "update_playbook",
+    "update_position",
+    "update_session",
+    "update_trade_strategy",
+}
+
+
+class UserScopedBacktestService:
+    def __init__(self, service: BacktestService, user_id: int):
+        self._service = service
+        self.user_id = user_id
+
+    def __getattr__(self, name: str):
+        attr = getattr(self._service, name)
+        if not callable(attr) or name not in USER_SCOPED_METHODS:
+            return attr
+
+        def call_with_user(db, *args, **kwargs):
+            return attr(db, self.user_id, *args, **kwargs)
+
+        return call_with_user
 
 
 def make_service(tmp_path: Path, rows: list[tuple[str, float, float, float, float, int]]):
@@ -33,7 +72,16 @@ def make_service(tmp_path: Path, rows: list[tuple[str, float, float, float, floa
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
-    return BacktestService(MarketDataService(csv_path, cache=True)), session_factory()
+    db = session_factory()
+    user = BetaUser(
+        email="tester@edgelab.local",
+        name="Test Trader",
+        provider="google",
+        status="APPROVED",
+    )
+    db.add(user)
+    db.commit()
+    return UserScopedBacktestService(BacktestService(MarketDataService(csv_path, cache=True)), user.id), db
 
 
 DEFAULT_ROWS = [
@@ -709,7 +757,15 @@ def test_default_session_uses_first_discovered_dataset(tmp_path: Path):
     catalog = DatasetCatalogService(datasets_root, session_factory)
 
     db = session_factory()
-    service = BacktestService(dataset_catalog=catalog)
+    user = BetaUser(
+        email="default-session@edgelab.local",
+        name="Default Session Tester",
+        provider="google",
+        status="APPROVED",
+    )
+    db.add(user)
+    db.commit()
+    service = UserScopedBacktestService(BacktestService(dataset_catalog=catalog), user.id)
     try:
         state = service.create_session(db, BacktestCreate())
     finally:

@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import json
 import logging
 import re
@@ -10,12 +9,18 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.auth import api_token_is_valid, bearer_token, require_api_token
+from app.auth import (
+    AuthenticatedUser,
+    api_token_is_valid,
+    authenticate_websocket,
+    create_session_token,
+    require_auth,
+)
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models import (
@@ -84,6 +89,7 @@ from app.schemas import (
 )
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
+from app.services.default_playbooks import ensure_default_playbooks
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 from app.services.trade_imports import import_trade_csv
@@ -222,10 +228,6 @@ def normalize_beta_email(email: str) -> str:
     return normalized
 
 
-def beta_session_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 def normalize_db_datetime(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
@@ -298,15 +300,14 @@ def serialize_beta_user(user: BetaUser) -> BetaAuthUser:
 
 
 def issue_beta_session(db: Session, user: BetaUser) -> BetaAuthSessionRead:
-    token = token_urlsafe(32)
     session = BetaSession(
         id=token_urlsafe(24),
         user_id=user.id,
-        token_hash=beta_session_hash(token),
         expires_at=utcnow() + BETA_SESSION_TTL,
     )
     db.add(session)
     db.flush()
+    token = create_session_token(user.id, session.id, session.expires_at)
     return BetaAuthSessionRead(
         token=token,
         created_at=session.created_at,
@@ -337,30 +338,10 @@ def grant_beta_access_response(
         user.provider = provider
 
     program = sync_beta_program(db)
+    ensure_default_playbooks(db, user.id)
     user.last_login_at = utcnow()
     session = issue_beta_session(db, user)
     return BetaAccessResponse(session=session, program=program)
-
-
-def resolve_beta_session(db: Session, authorization: str | None) -> tuple[BetaSession, BetaUser, str]:
-    token = normalize_beta_email_token(authorization)
-    session = db.scalar(select(BetaSession).where(BetaSession.token_hash == beta_session_hash(token)))
-    if session is None or normalize_db_datetime(session.expires_at) <= utcnow():
-        if session is not None:
-            db.delete(session)
-            db.commit()
-        raise HTTPException(status_code=401, detail="Valid beta session required")
-    user = db.get(BetaUser, session.user_id)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Valid beta session required")
-    return session, user, token
-
-
-def normalize_beta_email_token(authorization: str | None) -> str:
-    token = bearer_token(authorization)
-    if not token:
-        raise HTTPException(status_code=401, detail="Valid beta session required")
-    return token
 
 
 def market_data_error_response(exc: Exception) -> HTTPException:
@@ -377,10 +358,10 @@ def market_data_error_response(exc: Exception) -> HTTPException:
     return HTTPException(status_code=400, detail=str(exc))
 
 
-def default_market_data_reference(db: Session) -> tuple[Path, int]:
+def default_market_data_reference(db: Session, user_id: int) -> tuple[Path, int]:
     if market_data is not None:
         return market_data.csv_path, market_data.get_metadata().rows
-    resolution = dataset_catalog.resolve_default_dataset(db)
+    resolution = dataset_catalog.resolve_default_dataset(db, user_id)
     metadata = backtester.market_data_for_path(
         str(resolution.csv_path),
         resolution.timezone or "UTC",
@@ -798,16 +779,14 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 @router.get("/ready")
 def ready(db: Session = Depends(get_db)) -> dict[str, str]:
     db.execute(select(1)).scalar_one()
-    try:
-        catalog = dataset_catalog.list_catalog(db)
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
-        raise dataset_error_response(exc) from exc
-    timeframes = sum(len(instrument.timeframes) for instrument in catalog.instruments)
+    datasets_root = settings.datasets_root
+    asset_dirs = [item for item in datasets_root.iterdir() if item.is_dir()] if datasets_root.exists() else []
+    timeframes = sum(len(list(directory.glob("*.csv"))) for directory in asset_dirs)
     return {
         "status": "ok",
         "database": "ok",
-        "datasets_root": catalog.root,
-        "dataset_assets": str(len(catalog.instruments)),
+        "datasets_root": str(datasets_root),
+        "dataset_assets": str(len(asset_dirs)),
         "dataset_timeframes": str(timeframes),
     }
 
@@ -883,18 +862,28 @@ def exchange_google_auth_code(
 
 @router.get("/auth/session", response_model=BetaAuthSessionRead)
 def read_beta_session(
-    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BetaAuthSessionRead:
     try:
-        session, user, token = resolve_beta_session(db, authorization)
         sync_beta_program(db)
         db.commit()
         return BetaAuthSessionRead(
-            token=token,
-            created_at=session.created_at,
-            expires_at=session.expires_at,
-            user=serialize_beta_user(user),
+            token=create_session_token(
+                current_user.id,
+                current_user.session_id,
+                current_user.session_expires_at,
+            ),
+            created_at=current_user.session_created_at,
+            expires_at=current_user.session_expires_at,
+            user=BetaAuthUser(
+                id=current_user.id,
+                email=current_user.email,
+                name=current_user.name,
+                provider="google" if current_user.provider == "google" else "email",
+                approved=current_user.approved,
+                beta_position=current_user.beta_position,
+            ),
         )
     except OperationalError as exc:
         db.rollback()
@@ -903,13 +892,17 @@ def read_beta_session(
 
 @router.delete("/auth/session", response_model=dict[str, bool])
 def delete_beta_session(
-    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> dict[str, bool]:
     try:
-        session, _user, _token = resolve_beta_session(db, authorization)
-        db.delete(session)
+        deleted = db.query(BetaSession).filter(
+            BetaSession.id == current_user.session_id,
+            BetaSession.user_id == current_user.id,
+        ).delete(synchronize_session=False)
         db.commit()
+        if deleted == 0:
+            raise HTTPException(status_code=401, detail="Valid beta session required")
         return {"ok": True}
     except OperationalError as exc:
         db.rollback()
@@ -920,13 +913,14 @@ def delete_beta_session(
 def market_data_meta(
     session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetMeta:
     try:
         if session_id is not None:
-            session = backtester.get_session(db, session_id)
+            session = backtester.get_session(db, current_user.id, session_id)
             return backtester.market_data_for_session(session).get_metadata()
         if market_data is None:
-            resolution = dataset_catalog.resolve_default_dataset(db)
+            resolution = dataset_catalog.resolve_default_dataset(db, current_user.id)
             return backtester.market_data_for_path(
                 str(resolution.csv_path),
                 resolution.timezone or "UTC",
@@ -937,62 +931,74 @@ def market_data_meta(
 
 
 @router.get("/datasets", response_model=DatasetCatalogResponse)
-def datasets(db: Session = Depends(get_db)) -> DatasetCatalogResponse:
+def datasets(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.list_catalog(db)
+        return dataset_catalog.list_catalog(db, current_user.id)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         raise dataset_error_response(exc) from exc
 
 
 @router.get("/datasets/settings", response_model=DatasetSettingsRead)
-def dataset_settings(db: Session = Depends(get_db)) -> DatasetSettingsRead:
+def dataset_settings(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> DatasetSettingsRead:
     try:
-        return dataset_catalog.get_settings(db)
+        return dataset_catalog.get_settings(db, current_user.id)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         raise dataset_error_response(exc) from exc
 
 
-@router.patch(
-    "/datasets/settings",
-    response_model=DatasetCatalogResponse,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/datasets/settings", response_model=DatasetCatalogResponse)
 def update_dataset_settings(
     payload: DatasetSettingsUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.update_settings(db, payload)
+        return dataset_catalog.update_settings(db, current_user.id, payload)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
 
 
-@router.post(
-    "/datasets/refresh",
-    response_model=DatasetRefreshResponse,
-    dependencies=[Depends(require_api_token)],
-)
-def refresh_datasets(db: Session = Depends(get_db)) -> DatasetRefreshResponse:
+@router.post("/datasets/refresh", response_model=DatasetRefreshResponse)
+def refresh_datasets(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> DatasetRefreshResponse:
     try:
-        return dataset_catalog.start_refresh(db)
+        return dataset_catalog.start_refresh(db, current_user.id)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
 
 
 @router.get("/datasets/refresh/status", response_model=DatasetRefreshStatus)
-def dataset_refresh_status() -> DatasetRefreshStatus:
-    return dataset_catalog.refresh_status()
+def dataset_refresh_status(
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> DatasetRefreshStatus:
+    return dataset_catalog.refresh_status(current_user.id)
 
 
 @router.websocket("/datasets/stream")
 async def dataset_stream(websocket: WebSocket) -> None:
+    db = SessionLocal()
+    try:
+        current_user = authenticate_websocket(websocket, db)
+    except HTTPException:
+        db.close()
+        await websocket.close(code=4401)
+        return
+
     await websocket.accept()
     last_signature: str | None = None
     try:
         while True:
-            payload = await asyncio.to_thread(dataset_catalog_stream_payload)
+            payload = await asyncio.to_thread(dataset_catalog_stream_payload, current_user.id)
             signature = json.dumps(payload, sort_keys=True, separators=(",", ":"))
             if signature != last_signature:
                 await websocket.send_json(payload)
@@ -1006,12 +1012,14 @@ async def dataset_stream(websocket: WebSocket) -> None:
                 continue
     except WebSocketDisconnect:
         return
+    finally:
+        db.close()
 
 
-def dataset_catalog_stream_payload() -> dict[str, object]:
+def dataset_catalog_stream_payload(user_id: int) -> dict[str, object]:
     db = SessionLocal()
     try:
-        catalog = dataset_catalog.list_catalog(db)
+        catalog = dataset_catalog.list_catalog(db, user_id)
         return {
             "type": "catalog",
             "catalog": catalog.model_dump(mode="json"),
@@ -1025,31 +1033,30 @@ def dataset_catalog_stream_payload() -> dict[str, object]:
         db.close()
 
 
-@router.patch(
-    "/datasets/assets/{asset_id}",
-    response_model=DatasetCatalogResponse,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/datasets/assets/{asset_id}", response_model=DatasetCatalogResponse)
 def update_dataset_asset(
     asset_id: str,
     payload: DatasetAssetUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.update_asset(db, asset_id, payload)
+        return dataset_catalog.update_asset(db, current_user.id, asset_id, payload)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
 
 
-@router.get(
-    "/app-data/export",
-    response_model=AppDataBundle,
-    dependencies=[Depends(require_api_token)],
-)
-def export_app_data(db: Session = Depends(get_db)) -> AppDataBundle:
+@router.get("/app-data/export", response_model=AppDataBundle)
+def export_app_data(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AppDataBundle:
     row_counts = {
-        table_name: db.scalar(select(func.count()).select_from(model)) or 0
+        table_name: db.scalar(
+            select(func.count()).select_from(model).where(model.user_id == current_user.id)
+        )
+        or 0
         for table_name, model in APP_DATA_TABLES
     }
     total_rows = sum(row_counts.values())
@@ -1063,19 +1070,18 @@ def export_app_data(db: Session = Depends(get_db)) -> AppDataBundle:
     for table_name, model in APP_DATA_TABLES:
         tables[table_name] = [
             serialize_bundle_row(row)
-            for row in db.scalars(select(model)).all()
+            for row in db.scalars(
+                select(model).where(model.user_id == current_user.id)
+            ).all()
         ]
     return AppDataBundle(exported_at=utcnow(), tables=tables)
 
 
-@router.post(
-    "/app-data/import",
-    response_model=AppDataImportResult,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/app-data/import", response_model=AppDataImportResult)
 def import_app_data(
     bundle: AppDataBundle,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppDataImportResult:
     if bundle.app != "edgelab":
         raise HTTPException(status_code=400, detail="Import file is not an EdgeLab data bundle")
@@ -1085,7 +1091,7 @@ def import_app_data(
 
     try:
         for _table_name, model in reversed(APP_DATA_TABLES):
-            db.query(model).delete(synchronize_session=False)
+            db.query(model).filter(model.user_id == current_user.id).delete(synchronize_session=False)
         db.flush()
 
         summary: dict[str, int] = {}
@@ -1094,7 +1100,10 @@ def import_app_data(
             summary[table_name] = len(rows)
             batch = []
             for index, row in enumerate(rows, start=1):
-                batch.append(bundle_row_to_model(model, row))
+                model_row = bundle_row_to_model(model, row)
+                if hasattr(model_row, "user_id"):
+                    model_row.user_id = current_user.id
+                batch.append(model_row)
                 if index % APP_DATA_IMPORT_BATCH_SIZE == 0:
                     db.add_all(batch)
                     db.flush()
@@ -1110,18 +1119,16 @@ def import_app_data(
         raise HTTPException(status_code=400, detail="Import failed") from exc
 
 
-@router.get(
-    "/app-storage/{namespace}/{key}",
-    response_model=AppStorageRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.get("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
 def get_app_storage_item(
     namespace: str,
     key: str,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppStorageRead:
     item = db.scalar(
         select(AppStorageItem).where(
+            AppStorageItem.user_id == current_user.id,
             AppStorageItem.namespace == namespace,
             AppStorageItem.key == key,
         )
@@ -1136,25 +1143,28 @@ def get_app_storage_item(
     )
 
 
-@router.put(
-    "/app-storage/{namespace}/{key}",
-    response_model=AppStorageRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.put("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
 def put_app_storage_item(
     namespace: str,
     key: str,
     payload: AppStoragePayload,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppStorageRead:
     item = db.scalar(
         select(AppStorageItem).where(
+            AppStorageItem.user_id == current_user.id,
             AppStorageItem.namespace == namespace,
             AppStorageItem.key == key,
         )
     )
     if item is None:
-        item = AppStorageItem(namespace=namespace, key=key, value=payload.value)
+        item = AppStorageItem(
+            user_id=current_user.id,
+            namespace=namespace,
+            key=key,
+            value=payload.value,
+        )
         db.add(item)
     else:
         item.value = payload.value
@@ -1169,18 +1179,16 @@ def put_app_storage_item(
     )
 
 
-@router.delete(
-    "/app-storage/{namespace}/{key}",
-    response_model=AppStorageRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.delete("/app-storage/{namespace}/{key}", response_model=AppStorageRead)
 def delete_app_storage_item(
     namespace: str,
     key: str,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppStorageRead:
     item = db.scalar(
         select(AppStorageItem).where(
+            AppStorageItem.user_id == current_user.id,
             AppStorageItem.namespace == namespace,
             AppStorageItem.key == key,
         )
@@ -1199,14 +1207,15 @@ def market_data_bars(
     warmup: int = Query(default=120, ge=0, le=1000),
     session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BarsResponse:
     try:
         service = market_data
         if session_id is not None:
-            session = backtester.get_session(db, session_id)
+            session = backtester.get_session(db, current_user.id, session_id)
             service = backtester.market_data_for_session(session)
         elif service is None:
-            resolution = dataset_catalog.resolve_default_dataset(db)
+            resolution = dataset_catalog.resolve_default_dataset(db, current_user.id)
             service = backtester.market_data_for_path(
                 str(resolution.csv_path),
                 resolution.timezone or "UTC",
@@ -1521,43 +1530,42 @@ def forex_factory_calendar(
         return forex_factory_calendar_response(events, fetched_at, stale=True)
 
 
-@router.post(
-    "/backtests",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/backtests", response_model=BacktestState)
 def create_backtest(
     payload: BacktestCreate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
     try:
-        return backtester.create_session(db, payload)
+        return backtester.create_session(db, current_user.id, payload)
     except (FileNotFoundError, ValueError) as exc:
         db.rollback()
         raise market_data_error_response(exc) from exc
 
 
 @router.get("/backtests", response_model=list[BacktestSessionRead])
-def list_backtests(db: Session = Depends(get_db)) -> list[BacktestSessionRead]:
+def list_backtests(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BacktestSessionRead]:
     return [
         BacktestSessionRead.model_validate(session)
-        for session in backtester.list_sessions(db)
+        for session in backtester.list_sessions(db, current_user.id)
         if backtester.session_is_listable(session)
     ]
 
 
-@router.get(
-    "/backtests/latest",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
-def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
+@router.get("/backtests/latest", response_model=BacktestState)
+def latest_backtest(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BacktestState:
     try:
-        for session in backtester.list_sessions(db):
+        for session in backtester.list_sessions(db, current_user.id):
             if not backtester.session_has_replay_data(session):
                 continue
             try:
-                return backtester.get_state(db, session.id)
+                return backtester.get_state(db, current_user.id, session.id)
             except (FileNotFoundError, ValueError):
                 db.rollback()
                 continue
@@ -1569,23 +1577,21 @@ def latest_backtest(db: Session = Depends(get_db)) -> BacktestState:
         raise market_data_error_response(exc) from exc
 
 
-@router.post(
-    "/backtests/import-trades",
-    response_model=BacktestTradeImportResult,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/backtests/import-trades", response_model=BacktestTradeImportResult)
 def import_backtest_trades(
     payload: BacktestTradeImport,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestTradeImportResult:
     try:
         try:
-            fallback_csv_path, fallback_rows = default_market_data_reference(db)
+            fallback_csv_path, fallback_rows = default_market_data_reference(db, current_user.id)
         except (FileNotFoundError, ValueError):
             fallback_csv_path = settings.datasets_root
             fallback_rows = 1
         return import_trade_csv(
             db,
+            current_user.id,
             payload,
             fallback_csv_path=fallback_csv_path,
             fallback_rows=fallback_rows,
@@ -1599,158 +1605,134 @@ def import_backtest_trades(
 
 
 @router.get("/backtests/{session_id}", response_model=BacktestState)
-def get_backtest(session_id: int, db: Session = Depends(get_db)) -> BacktestState:
+def get_backtest(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BacktestState:
     try:
-        return backtester.get_state(db, session_id)
+        return backtester.get_state(db, current_user.id, session_id)
     except (FileNotFoundError, ValueError) as exc:
         raise market_data_error_response(exc) from exc
 
 
-@router.patch(
-    "/backtests/{session_id}",
-    response_model=BacktestSessionRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/backtests/{session_id}", response_model=BacktestSessionRead)
 def patch_backtest_session(
     session_id: int,
     payload: BacktestSessionUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestSessionRead:
     return BacktestSessionRead.model_validate(
-        backtester.update_session(db, session_id, payload),
+        backtester.update_session(db, current_user.id, session_id, payload),
     )
 
 
-@router.delete(
-    "/backtests/{session_id}",
-    dependencies=[Depends(require_api_token)],
-)
+@router.delete("/backtests/{session_id}")
 def delete_backtest_session(
     session_id: int,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> dict[str, bool]:
-    backtester.delete_session(db, session_id)
+    backtester.delete_session(db, current_user.id, session_id)
     return {"ok": True}
 
 
-@router.post(
-    "/backtests/{session_id}/advance",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/backtests/{session_id}/advance", response_model=BacktestState)
 def advance_backtest(
     session_id: int,
     payload: BacktestAdvanceRequest,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
-    return backtester.advance(db, session_id, payload)
+    return backtester.advance(db, current_user.id, session_id, payload)
 
 
-@router.post(
-    "/backtests/{session_id}/jump",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/backtests/{session_id}/jump", response_model=BacktestState)
 def jump_backtest(
     session_id: int,
     payload: BacktestJumpRequest,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
-    return backtester.jump(db, session_id, payload)
+    return backtester.jump(db, current_user.id, session_id, payload)
 
 
-@router.post(
-    "/backtests/{session_id}/orders",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/backtests/{session_id}/orders", response_model=BacktestState)
 def create_order(
     session_id: int,
     payload: OrderCreate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
-    return backtester.place_order(db, session_id, payload)
+    return backtester.place_order(db, current_user.id, session_id, payload)
 
 
-@router.patch(
-    "/backtests/{session_id}/orders/{order_id}",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/backtests/{session_id}/orders/{order_id}", response_model=BacktestState)
 def amend_order(
     session_id: int,
     order_id: int,
     payload: OrderUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
-    return backtester.update_order(db, session_id, order_id, payload)
+    return backtester.update_order(db, current_user.id, session_id, order_id, payload)
 
 
-@router.patch(
-    "/backtests/{session_id}/position",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/backtests/{session_id}/position", response_model=BacktestState)
 def amend_position(
     session_id: int,
     payload: PositionUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
-    return backtester.update_position(db, session_id, payload)
+    return backtester.update_position(db, current_user.id, session_id, payload)
 
 
-@router.delete(
-    "/backtests/{session_id}/orders/{order_id}",
-    response_model=BacktestState,
-    dependencies=[Depends(require_api_token)],
-)
+@router.delete("/backtests/{session_id}/orders/{order_id}", response_model=BacktestState)
 def cancel_order(
     session_id: int,
     order_id: int,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
-    return backtester.cancel_order(db, session_id, order_id)
+    return backtester.cancel_order(db, current_user.id, session_id, order_id)
 
 
 @router.get("/playbooks", response_model=list[PlaybookRead])
-def get_playbooks(db: Session = Depends(get_db)) -> list[PlaybookRead]:
-    return backtester.list_playbooks(db)
+def get_playbooks(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[PlaybookRead]:
+    return backtester.list_playbooks(db, current_user.id)
 
 
-@router.post(
-    "/playbooks",
-    response_model=PlaybookRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.post("/playbooks", response_model=PlaybookRead)
 def create_playbook(
     payload: PlaybookCreate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> PlaybookRead:
-    return backtester.create_playbook(db, payload)
+    return backtester.create_playbook(db, current_user.id, payload)
 
 
-@router.patch(
-    "/playbooks/{playbook_id}",
-    response_model=PlaybookRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/playbooks/{playbook_id}", response_model=PlaybookRead)
 def update_playbook(
     playbook_id: int,
     payload: PlaybookUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> PlaybookRead:
-    return backtester.update_playbook(db, playbook_id, payload)
+    return backtester.update_playbook(db, current_user.id, playbook_id, payload)
 
 
-@router.delete(
-    "/playbooks/{playbook_id}",
-    dependencies=[Depends(require_api_token)],
-)
+@router.delete("/playbooks/{playbook_id}")
 def delete_playbook(
     playbook_id: int,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> dict[str, bool]:
-    backtester.delete_playbook(db, playbook_id)
+    backtester.delete_playbook(db, current_user.id, playbook_id)
     return {"ok": True}
 
 
@@ -1760,42 +1742,44 @@ def get_trades(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=2000),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> list[TradeRead]:
-    return backtester.list_trades(db, session_id, offset=offset, limit=limit)
+    return backtester.list_trades(
+        db,
+        current_user.id,
+        session_id,
+        offset=offset,
+        limit=limit,
+    )
 
 
-@router.patch(
-    "/trades/{trade_id}/journal",
-    response_model=TradeRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/trades/{trade_id}/journal", response_model=TradeRead)
 def patch_journal(
     trade_id: int,
     payload: JournalUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> TradeRead:
-    return backtester.update_journal(db, trade_id, payload)
+    return backtester.update_journal(db, current_user.id, trade_id, payload)
 
 
-@router.patch(
-    "/trades/{trade_id}/strategy",
-    response_model=TradeRead,
-    dependencies=[Depends(require_api_token)],
-)
+@router.patch("/trades/{trade_id}/strategy", response_model=TradeRead)
 def patch_trade_strategy(
     trade_id: int,
     payload: TradeStrategyUpdate,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> TradeRead:
-    return backtester.update_trade_strategy(db, trade_id, payload)
+    return backtester.update_trade_strategy(db, current_user.id, trade_id, payload)
 
 
 @router.get("/metrics", response_model=MetricsResponse)
 def metrics(
     session_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> MetricsResponse:
     if session_id is None:
-        session = list_latest_session(db)
+        session = list_latest_session(db, current_user.id)
         session_id = session.id if session else None
-    return get_metrics(db, session_id)
+    return get_metrics(db, current_user.id, session_id)

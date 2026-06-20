@@ -512,6 +512,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "/api";
 const API_BEARER_TOKEN =
   import.meta.env.VITE_API_BEARER_TOKEN ?? "";
+const AUTH_STORAGE_KEY = "edgelab.auth.session.v1";
 
 export class ApiError extends Error {
   status: number;
@@ -526,10 +527,15 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const authToken = readStoredAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(API_BEARER_TOKEN ? { Authorization: `Bearer ${API_BEARER_TOKEN}` } : {}),
+      ...(authToken
+        ? { Authorization: `Bearer ${authToken}` }
+        : API_BEARER_TOKEN
+          ? { Authorization: `Bearer ${API_BEARER_TOKEN}` }
+          : {}),
       ...init?.headers,
     },
     ...init,
@@ -563,7 +569,7 @@ async function requestWithAuthorization<T>(
 }
 
 export function getApiBearerToken() {
-  return API_BEARER_TOKEN || null;
+  return readStoredAuthToken() || API_BEARER_TOKEN || null;
 }
 
 export function getApiWebSocketUrl(path: string) {
@@ -574,9 +580,28 @@ export function getApiWebSocketUrl(path: string) {
   const prefix = base.pathname.replace(/\/$/, "");
   const suffix = path.startsWith("/") ? path : `/${path}`;
   base.pathname = `${prefix}${suffix}`;
-  base.search = "";
+  const authToken = readStoredAuthToken();
+  base.search = authToken ? `authToken=${encodeURIComponent(authToken)}` : "";
   base.hash = "";
   return base.toString();
+}
+
+function readStoredAuthToken() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as { token?: unknown };
+    return typeof parsed.token === "string" && parsed.token.trim() ? parsed.token.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 export function getDatasets() {

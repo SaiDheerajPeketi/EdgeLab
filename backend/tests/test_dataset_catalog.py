@@ -1,11 +1,24 @@
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import DatasetAsset, DatasetTimeframe
+from app.models import BetaUser, DatasetAsset, DatasetTimeframe
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
+
+
+def seed_user(db) -> int:
+    user = BetaUser(
+        email="catalog@edgelab.local",
+        name="Catalog Tester",
+        provider="google",
+        status="APPROVED",
+    )
+    db.add(user)
+    db.commit()
+    return user.id
 
 
 def test_refresh_indexes_asset_timeframe_and_allows_metadata_updates(tmp_path):
@@ -25,7 +38,8 @@ def test_refresh_indexes_asset_timeframe_and_allows_metadata_updates(tmp_path):
     service = DatasetCatalogService(root, session_factory)
 
     with session_factory() as db:
-        response = service.refresh_catalog(db)
+        user_id = seed_user(db)
+        response = service.refresh_catalog(db, user_id)
 
         assert response.summary.assets == 1
         assert response.summary.timeframes == 1
@@ -42,6 +56,7 @@ def test_refresh_indexes_asset_timeframe_and_allows_metadata_updates(tmp_path):
 
         updated = service.update_asset(
             db,
+            user_id,
             "EUR_USD",
             DatasetAssetUpdate(currency="eur", timezone="Europe/London", pnl_multiplier=100),
         )
@@ -67,8 +82,9 @@ def test_refresh_skips_unchanged_files_after_initial_index(tmp_path):
     service = DatasetCatalogService(root, session_factory)
 
     with session_factory() as db:
-        first = service.refresh_catalog(db)
-        second = service.refresh_catalog(db)
+        user_id = seed_user(db)
+        first = service.refresh_catalog(db, user_id)
+        second = service.refresh_catalog(db, user_id)
 
         assert first.summary.candles == 0
         assert second.summary.candles == 0
@@ -92,16 +108,18 @@ def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):
     service = DatasetCatalogService(first_root, session_factory)
 
     with session_factory() as db:
-        assert service.get_settings(db).root_path == str(first_root)
+        user_id = seed_user(db)
+        assert service.get_settings(db, user_id).root_path == str(first_root)
 
         catalog = service.update_settings(
             db,
+            user_id,
             DatasetSettingsUpdate(root_path=str(second_root)),
         )
         assert catalog.root == str(second_root)
-        assert service.get_settings(db).root_path == str(second_root)
+        assert service.get_settings(db, user_id).root_path == str(second_root)
 
-        refreshed = service.refresh_catalog(db)
+        refreshed = service.refresh_catalog(db, user_id)
         assert refreshed.summary.assets == 1
         assert refreshed.catalog.root == str(second_root)
         assert refreshed.catalog.instruments[0].id == "ES"
@@ -125,15 +143,16 @@ def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
     service = DatasetCatalogService(root, session_factory)
 
     with session_factory() as db:
-        catalog = service.list_catalog(db)
+        user_id = seed_user(db)
+        catalog = service.list_catalog(db, user_id)
         timeframe = catalog.instruments[0].timeframes[0]
-        resolution = service.resolve_dataset(db, instrument="GBP_USD", timeframe="M5")
+        resolution = service.resolve_dataset(db, user_id, instrument="GBP_USD", timeframe="M5")
 
         assert catalog.instruments[0].id == "GBP_USD"
         assert timeframe.csv_path == str(csv_path)
         assert timeframe.rows == 2
         assert timeframe.imported is False
-        assert resolution.stored is False
+        assert resolution.stored is True
 
 
 def test_list_catalog_throttles_auto_discovery_within_ttl(tmp_path, monkeypatch):
@@ -153,16 +172,17 @@ def test_list_catalog_throttles_auto_discovery_within_ttl(tmp_path, monkeypatch)
     original_scan = service._scan_filesystem_index
     scan_count = 0
 
-    def counted_scan(db, *, strict, prune_missing):
+    def counted_scan(db, user_id, *, strict, prune_missing):
         nonlocal scan_count
         scan_count += 1
-        return original_scan(db, strict=strict, prune_missing=prune_missing)
+        return original_scan(db, user_id, strict=strict, prune_missing=prune_missing)
 
     monkeypatch.setattr(service, "_scan_filesystem_index", counted_scan)
 
     with session_factory() as db:
-        first = service.list_catalog(db)
-        second = service.list_catalog(db)
+        user_id = seed_user(db)
+        first = service.list_catalog(db, user_id)
+        second = service.list_catalog(db, user_id)
 
         assert first.instruments[0].id == "GBP_USD"
         assert second.instruments[0].id == "GBP_USD"
@@ -185,7 +205,8 @@ def test_refresh_catalog_forces_scan_during_auto_discovery_ttl(tmp_path):
     service = DatasetCatalogService(root, session_factory, catalog_discovery_ttl_seconds=3600)
 
     with session_factory() as db:
-        first = service.list_catalog(db)
+        user_id = seed_user(db)
+        first = service.list_catalog(db, user_id)
 
         second_asset_dir = root / "EUR_USD"
         second_asset_dir.mkdir()
@@ -195,8 +216,8 @@ def test_refresh_catalog_forces_scan_during_auto_discovery_ttl(tmp_path):
             encoding="utf-8",
         )
 
-        throttled = service.list_catalog(db)
-        refreshed = service.refresh_catalog(db)
+        throttled = service.list_catalog(db, user_id)
+        refreshed = service.refresh_catalog(db, user_id)
 
         assert [instrument.id for instrument in first.instruments] == ["GBP_USD"]
         assert [instrument.id for instrument in throttled.instruments] == ["GBP_USD"]
@@ -227,7 +248,8 @@ def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch)
     service = DatasetCatalogService(root, session_factory)
 
     with session_factory() as db:
-        catalog = service.list_catalog(db)
+        user_id = seed_user(db)
+        catalog = service.list_catalog(db, user_id)
         timeframe = catalog.instruments[0].timeframes[0]
 
         assert timeframe.rows == 0
@@ -243,13 +265,35 @@ def test_dataset_refresh_rejects_concurrent_runs(tmp_path):
     service = DatasetCatalogService(tmp_path, session_factory)
 
     with session_factory() as db:
-        service._lock.acquire()
+        user_id = seed_user(db)
+        service._lock_for_user(user_id).acquire()
         try:
             try:
-                service.refresh_catalog(db)
+                service.refresh_catalog(db, user_id)
             except DatasetRefreshInProgress as exc:
                 assert "already running" in str(exc)
             else:
                 raise AssertionError("Expected DatasetRefreshInProgress")
         finally:
-            service._lock.release()
+            service._lock_for_user(user_id).release()
+
+
+def test_resolve_dataset_rejects_csv_path_outside_catalog(tmp_path):
+    root = tmp_path / "datasets"
+    root.mkdir()
+    rogue_csv = tmp_path / "rogue.csv"
+    rogue_csv.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,100,101,99,100.5,10\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        with pytest.raises(FileNotFoundError, match="catalog"):
+            service.resolve_dataset(db, user_id, csv_path=str(rogue_csv))
