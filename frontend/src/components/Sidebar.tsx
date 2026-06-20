@@ -13,6 +13,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
+import { useNavigate } from "react-router-dom";
 import { deleteAuthSession } from "../lib/api";
 import {
   clearStoredAuthSession,
@@ -141,6 +142,7 @@ export function Sidebar({
 }: Props) {
   const [hoverExpanded, setHoverExpanded] = useState(false);
   const session = useAuthSession();
+  const navigate = useNavigate();
   const compact = collapsed && !hoverExpanded;
 
   return (
@@ -301,6 +303,7 @@ export function Sidebar({
                     const token = session.token;
                     clearStoredAuthSession();
                     void deleteAuthSession(token).catch(() => undefined);
+                    navigate("/", { replace: true });
                   }}
                   type="button"
                 >
@@ -316,6 +319,7 @@ export function Sidebar({
                   const token = session.token;
                   clearStoredAuthSession();
                   void deleteAuthSession(token).catch(() => undefined);
+                  navigate("/", { replace: true });
                 }}
                 type="button"
               >
