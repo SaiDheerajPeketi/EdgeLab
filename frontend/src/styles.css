@@ -36,6 +36,35 @@
   --text-muted: #4a5360;
   --text-accent: var(--accent-primary);
 
+  /* Backlit chart theme mapped onto EdgeLab palette. */
+  --chart-1: var(--accent-primary);
+  --chart-2: #60a5fa;
+  --chart-3: var(--profit);
+  --chart-4: var(--warning);
+  --chart-5: #f97316;
+  --chart-background: rgba(7, 11, 16, 0.96);
+  --chart-foreground: var(--text-primary);
+  --chart-foreground-muted: var(--text-secondary);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: rgba(50, 211, 238, 0.72);
+  --chart-grid: rgba(139, 149, 165, 0.16);
+  --chart-brush-border: rgba(50, 211, 238, 0.3);
+  --chart-marker-background: rgba(7, 11, 16, 0.96);
+  --chart-marker-border: rgba(139, 149, 165, 0.34);
+  --chart-marker-foreground: var(--text-primary);
+  --chart-marker-badge-background: rgba(50, 211, 238, 0.15);
+  --chart-marker-badge-foreground: #cffafe;
+  --chart-segment-background: rgba(50, 211, 238, 0.08);
+  --chart-segment-line: rgba(50, 211, 238, 0.5);
+  --chart-ring-background: rgba(50, 211, 238, 0.18);
+  --chart-label: #748094;
+  --chart-tooltip-background: rgba(7, 11, 16, 0.95);
+  --chart-tooltip-foreground: var(--text-primary);
+  --chart-tooltip-muted: var(--text-secondary);
+  --chart-indicator-color: var(--chart-1);
+  --chart-indicator-secondary-color: var(--chart-2);
+
   --font-display: "Syne Variable", Syne, ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;

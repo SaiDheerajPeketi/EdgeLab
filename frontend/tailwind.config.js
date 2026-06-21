@@ -35,6 +35,14 @@ export default {
           "text-muted": "var(--text-muted)",
           "text-accent": "var(--text-accent)",
         },
+        chart: {
+          label: "var(--chart-label)",
+          tooltip: {
+            background: "var(--chart-tooltip-background)",
+            foreground: "var(--chart-tooltip-foreground)",
+            muted: "var(--chart-tooltip-muted)",
+          },
+        },
       },
       fontFamily: {
         display: ['Syne Variable', "Syne", "ui-sans-serif", "system-ui", "sans-serif"],

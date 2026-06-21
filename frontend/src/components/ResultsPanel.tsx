@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { curveLinear } from "@visx/curve";
 import {
   Activity,
   BarChart3,
@@ -17,6 +18,14 @@ import {
   WalletCards,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Grid as BacklitGrid } from "@/components/charts/grid";
+import { Line as BacklitLine, LineChart as BacklitLineChart } from "@/components/charts/line-chart";
+import { ChartTooltip as BacklitChartTooltip } from "@/components/charts/tooltip";
+import {
+  ProfitLossLine,
+  profitLossColor,
+} from "@/components/charts/profit-loss-line";
+import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
 import type { BacktestSession, Trade } from "../lib/api";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { formatMarketSymbol } from "../lib/symbols";
@@ -696,137 +705,75 @@ function SidePill({ currency, label, value }: { currency: string; label: string;
 
 function EquitySparkline({ currency, trades }: { currency: string; trades: Trade[] }) {
   const orderedTrades = useMemo(() => trades.slice().sort(compareTradesAscending), [trades]);
-  const values = useMemo(() => cumulativePnl(orderedTrades), [orderedTrades]);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const height = 170;
-  const width = 640;
-  const domain = sparklineDomain(values);
-  const points = sparklinePoints(values, width, height, domain);
-  const path = toSvgPath(points);
-  const zeroY = sparklineY(0, height, domain);
-  const areaPath = path ? `${path} L ${width} ${height} L 0 ${height} Z` : "";
-  const activePoint = activeIndex == null ? null : points[activeIndex] ?? null;
-  const activeValue = activeIndex == null ? null : values[activeIndex] ?? null;
-  const activeTrade = activeIndex != null && activeIndex > 0 ? orderedTrades[activeIndex - 1] ?? null : null;
-
-  function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const rawIndex = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * (values.length - 1);
-    setActiveIndex(Math.max(0, Math.min(values.length - 1, Math.round(rawIndex))));
-  }
-
-  function moveActiveIndex(delta: number) {
-    setActiveIndex((current) => {
-      const nextIndex = (current ?? values.length - 1) + delta;
-      return Math.max(0, Math.min(values.length - 1, nextIndex));
-    });
-  }
+  const data = useMemo(() => {
+    if (orderedTrades.length === 0) {
+      return [];
+    }
+    const firstTimestamp = new Date(orderedTrades[0].exit_time ?? orderedTrades[0].entry_time).getTime();
+    let cumulative = 0;
+    return [
+      {
+        date: new Date(firstTimestamp - 60_000),
+        tradePnl: null,
+        value: 0,
+        when: "Start",
+      },
+      ...orderedTrades.map((trade) => {
+        cumulative += trade.realized_pnl ?? 0;
+        const timestamp = trade.exit_time ?? trade.entry_time;
+        return {
+          date: new Date(timestamp),
+          tradePnl: trade.realized_pnl ?? 0,
+          value: cumulative,
+          when: formatDateTime(timestamp),
+        };
+      }),
+    ];
+  }, [orderedTrades]);
 
   return (
-    <div
-      aria-label="Interactive session equity curve"
-      className="relative h-[170px] overflow-hidden rounded-md border border-white/10 bg-[#070b10] outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/40"
-      onBlur={() => setActiveIndex(null)}
-      onFocus={() => setActiveIndex((current) => current ?? values.length - 1)}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          moveActiveIndex(-1);
-        }
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          moveActiveIndex(1);
-        }
-        if (event.key === "Home") {
-          event.preventDefault();
-          setActiveIndex(0);
-        }
-        if (event.key === "End") {
-          event.preventDefault();
-          setActiveIndex(values.length - 1);
-        }
-      }}
-      role="img"
-      tabIndex={values.length > 1 ? 0 : -1}
-    >
-      {values.length > 1 ? (
-        <>
-        <svg
-          className="h-full w-full cursor-crosshair"
-          onPointerLeave={() => setActiveIndex(null)}
-          onPointerMove={handlePointerMove}
-          preserveAspectRatio="none"
-          viewBox={`0 0 ${width} ${height}`}
+    <div className="overflow-hidden rounded-md border border-white/10 bg-[#070b10] p-2" style={{ height: 170 }}>
+      {data.length > 1 ? (
+        <BacklitLineChart
+          aspectRatio={undefined}
+          className="h-full w-full"
+          data={data}
+          style={{ height: "100%" }}
         >
-          <defs>
-            <linearGradient id="session-equity-fill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="rgba(103, 232, 249, 0.22)" />
-              <stop offset="100%" stopColor="rgba(103, 232, 249, 0.02)" />
-            </linearGradient>
-          </defs>
-          <path
-            d={`M 0 ${zeroY.toFixed(2)} L ${width} ${zeroY.toFixed(2)}`}
-            fill="none"
-            stroke="rgba(148, 163, 184, 0.18)"
-            strokeWidth="1"
+          <BacklitGrid highlightRowValues={[0]} horizontal />
+          <BacklitYAxis formatValue={(value) => formatCompactNumber(value)} numTicks={4} />
+          <BacklitLine
+            curve={curveLinear}
+            dataKey="value"
+            fadeEdges={false}
+            showHighlight={false}
+            stroke="transparent"
+            strokeWidth={0}
           />
-          <path d={areaPath} fill="url(#session-equity-fill)" />
-          <path
-            d={path}
-            fill="none"
-            stroke="#67e8f9"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2.25"
-            vectorEffect="non-scaling-stroke"
-          />
-          {activePoint && (
-            <g>
-              <line
-                stroke="rgba(226, 232, 240, 0.28)"
-                strokeDasharray="4 6"
-                strokeWidth="1"
-                x1={activePoint.x}
-                x2={activePoint.x}
-                y1="0"
-                y2={height}
-              />
-              <line
-                stroke="rgba(226, 232, 240, 0.16)"
-                strokeDasharray="4 6"
-                strokeWidth="1"
-                x1="0"
-                x2={width}
-                y1={activePoint.y}
-                y2={activePoint.y}
-              />
-              <circle cx={activePoint.x} cy={activePoint.y} fill="#67e8f9" r="5" stroke="#020617" strokeWidth="2.5" />
-            </g>
-          )}
-        </svg>
-        {activePoint && activeValue != null && (
-          <div
-            className="pointer-events-none absolute z-10 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30 backdrop-blur"
-            style={{
-              left: `${clampPercent((activePoint.x / width) * 100, 12, 88)}%`,
-              top: `${clampPercent((activePoint.y / height) * 100, 16, 84)}%`,
-              transform: activePoint.y < height * 0.36 ? "translate(-50%, 14px)" : "translate(-50%, calc(-100% - 12px))",
+          <ProfitLossLine curve={curveLinear} dataKey="value" fadeEdges={false} />
+          <BacklitChartTooltip
+            content={({ point }) => {
+              const value = Number(point.value ?? 0);
+              const tradePnl = typeof point.tradePnl === "number" ? point.tradePnl : null;
+              return (
+                <div className="min-w-[160px] px-3 py-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    {String(point.when ?? "Point")}
+                  </div>
+                  <div className={`mt-1 text-sm font-semibold tabular-nums ${toneForNumber(value)}`}>
+                    {formatMoney(value, currency)}
+                  </div>
+                  <div className={`mt-1 text-xs tabular-nums ${tradePnl == null ? "text-slate-500" : toneForNumber(tradePnl)}`}>
+                    {tradePnl == null ? "Session start" : `Trade ${formatMoney(tradePnl, currency)}`}
+                  </div>
+                </div>
+              );
             }}
-          >
-            <div className="font-semibold text-white">
-              {activeTrade ? formatDateTime(activeTrade.exit_time ?? activeTrade.entry_time) : "Start"}
-            </div>
-            <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeValue)}`}>
-              {formatMoney(activeValue, currency)}
-            </div>
-            {activeTrade && (
-              <div className={`mt-1 tabular-nums ${toneForNumber(activeTrade.realized_pnl)}`}>
-                Trade {formatMoney(activeTrade.realized_pnl, currency)}
-              </div>
-            )}
-          </div>
-        )}
-        </>
+            indicatorColor={(point) => profitLossColor(Number(point.value ?? 0))}
+            showDatePill={false}
+            showDots={false}
+          />
+        </BacklitLineChart>
       ) : (
         <div className="grid h-full place-items-center text-sm text-slate-500">
           No closed trades yet

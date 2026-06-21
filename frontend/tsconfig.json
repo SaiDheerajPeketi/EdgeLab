@@ -11,11 +11,19 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Node",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx"
   },
   "include": ["src"],
+  "exclude": [
+    "src/components/charts/legend/**/*",
+    "src/components/charts/profit-loss-legend.tsx"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

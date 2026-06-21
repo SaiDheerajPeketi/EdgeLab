@@ -14,5 +14,13 @@
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
     "test": "node --test \"backend/tests/*.test.js\""
+  },
+  "overrides": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1"
   }
 }

@@ -12,6 +12,7 @@ import type {
   CSSProperties,
   SetStateAction,
 } from "react";
+import { curveLinear } from "@visx/curve";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -75,6 +76,26 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import { Bar as BacklitBar } from "@/components/charts/bar";
+import { BarChart as BacklitBarChart } from "@/components/charts/bar-chart";
+import { BarXAxis as BacklitBarXAxis } from "@/components/charts/bar-x-axis";
+import { Grid as BacklitGrid } from "@/components/charts/grid";
+import {
+  HeatmapCells as BacklitHeatmapCells,
+  HeatmapChart as BacklitHeatmapChart,
+  type HeatmapColumn,
+  HeatmapTooltip as BacklitHeatmapTooltip,
+  HeatmapXAxis as BacklitHeatmapXAxis,
+  HeatmapYAxis as BacklitHeatmapYAxis,
+} from "@/components/charts/heatmap";
+import { Line as BacklitLine, LineChart as BacklitLineChart } from "@/components/charts/line-chart";
+import {
+  ProfitLossLine,
+  profitLossColor,
+  resolveProfitLossTooltipLabel,
+} from "@/components/charts/profit-loss-line";
+import { ChartTooltip as BacklitChartTooltip } from "@/components/charts/tooltip";
+import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
 import {
   exportAppDataBundle,
   getAngelOneInstruments,
@@ -3220,68 +3241,42 @@ function economicEventGraphPoints(event: EconomicCalendarEvent): EconomicEventCh
 }
 
 function EconomicEventValueChart({ points }: { points: EconomicEventChartPoint[] }) {
-  const width = 760;
-  const height = 280;
-  const padding = { bottom: 42, left: 52, right: 24, top: 26 };
-  const values = points.map((point) => point.value);
-  const minValue = Math.min(0, ...values);
-  const maxValue = Math.max(0, ...values);
-  const range = maxValue - minValue || 1;
-  const innerWidth = width - padding.left - padding.right;
-  const innerHeight = height - padding.top - padding.bottom;
-  const yForValue = (value: number) => padding.top + ((maxValue - value) / range) * innerHeight;
-  const xForIndex = (index: number) => {
-    if (points.length === 1) {
-      return padding.left + innerWidth / 2;
-    }
-    return padding.left + (index / (points.length - 1)) * innerWidth;
-  };
-  const zeroY = yForValue(0);
-  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${xForIndex(index)} ${yForValue(point.value)}`).join(" ");
-  const gridValues = [maxValue, (maxValue + minValue) / 2, minValue];
+  const data = points.map((point) => ({
+    label: point.label,
+    negative: point.value < 0 ? point.value : 0,
+    positive: point.value > 0 ? point.value : 0,
+    raw: point.raw,
+    value: point.value,
+  }));
 
   return (
-    <div className="rounded-md border border-white/10 bg-black/25 p-4">
-      <div className="overflow-hidden rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.12),transparent_36%),rgba(2,6,23,0.72)]">
-        <svg aria-label="Economic event values" className="h-auto w-full" role="img" viewBox={`0 0 ${width} ${height}`}>
-          <defs>
-            <linearGradient id="economicValueBar" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="rgba(103,232,249,0.72)" />
-              <stop offset="100%" stopColor="rgba(59,130,246,0.18)" />
-            </linearGradient>
-          </defs>
-          {gridValues.map((value, index) => {
-            const y = yForValue(value);
-            return (
-              <g key={`${value}-${index}`}>
-                <line stroke="rgba(148,163,184,0.12)" strokeDasharray="4 8" x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
-                <text fill="rgba(148,163,184,0.62)" fontSize="11" textAnchor="end" x={padding.left - 10} y={y + 4}>
-                  {formatCompactCalendarNumber(value)}
-                </text>
-              </g>
-            );
-          })}
-          <line stroke="rgba(226,232,240,0.24)" x1={padding.left} x2={width - padding.right} y1={zeroY} y2={zeroY} />
-          {points.map((point, index) => {
-            const x = xForIndex(index);
-            const y = yForValue(point.value);
-            const barTop = Math.min(y, zeroY);
-            const barHeight = Math.max(4, Math.abs(zeroY - y));
-            return (
-              <g key={point.label}>
-                <rect fill="url(#economicValueBar)" height={barHeight} rx="7" width="46" x={x - 23} y={barTop} />
-                <circle cx={x} cy={y} fill="#020617" r="7" stroke="rgba(103,232,249,0.95)" strokeWidth="3" />
-                <text fill="rgba(226,232,240,0.92)" fontSize="12" fontWeight="700" textAnchor="middle" x={x} y={height - 22}>
-                  {point.label}
-                </text>
-                <text fill="rgba(148,163,184,0.82)" fontSize="11" textAnchor="middle" x={x} y={height - 8}>
-                  {point.raw}
-                </text>
-              </g>
-            );
-          })}
-          <path d={path} fill="none" stroke="rgba(34,211,238,0.9)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
-        </svg>
+    <div className="rounded-md border border-white/10 bg-[#060b10]/85 p-3">
+      <div className="overflow-hidden rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(50,211,238,0.12),transparent_36%),rgba(2,6,23,0.82)] p-2">
+        <BacklitBarChart aspectRatio="2.6 / 1" data={data} xDataKey="label">
+          <BacklitGrid horizontal />
+          <BacklitBar dataKey="positive" fill="var(--profit)" lineCap="round" />
+          <BacklitBar dataKey="negative" fill="var(--loss)" lineCap="round" />
+          <BacklitYAxis formatValue={formatCompactCalendarNumber} numTicks={4} />
+          <BacklitBarXAxis showAllLabels />
+          <BacklitChartTooltip
+            content={({ point }) => {
+              const value = Number(point.value ?? 0);
+              return (
+                <div className="min-w-[148px] px-3 py-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    {String(point.label ?? "Value")}
+                  </div>
+                  <div className={`mt-1 text-sm font-semibold tabular-nums ${toneForNumber(value)}`}>
+                    {formatCompactCalendarNumber(value)}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">{String(point.raw ?? "")}</div>
+                </div>
+              );
+            }}
+            showDatePill={false}
+            showDots={false}
+          />
+        </BacklitBarChart>
       </div>
     </div>
   );
@@ -17941,14 +17936,101 @@ function CalendarHeatmap({
   selectedRange?: { start: string; end: string } | null;
 }) {
   const [internalMonth, setInternalMonth] = useState(() => monthCursorFromDateKey(days[0]?.date));
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   const activeMonth = month ?? internalMonth;
-  const cells = buildMonthCells(days, activeMonth);
+  const cells = useMemo(() => buildMonthCells(days, activeMonth), [days, activeMonth]);
+  const heatmapMargin = compact
+    ? { top: 10, right: 10, bottom: 0, left: 24 }
+    : { top: 10, right: 10, bottom: 0, left: 34 };
+  const heatmapGap = compact ? 2 : 3;
 
   useEffect(() => {
     if (month == null) {
       setInternalMonth(monthCursorFromDateKey(days[0]?.date));
     }
   }, [days, month]);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+    const updateWidth = () => {
+      setContainerWidth(node.clientWidth);
+    };
+    updateWidth();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const { cellByDate, columns, overlayCells } = useMemo(() => {
+    const activeMonthDate = dateFromKey(activeMonth);
+    const firstOfMonth = new Date(activeMonthDate.getFullYear(), activeMonthDate.getMonth(), 1);
+    const monthOffset = (firstOfMonth.getDay() + 6) % 7;
+    const firstVisibleDate = new Date(firstOfMonth);
+    firstVisibleDate.setDate(firstVisibleDate.getDate() - monthOffset);
+    const heatmapColumns: HeatmapColumn[] = [];
+    const nextOverlayCells: Array<{
+      column: number;
+      dateKey: string;
+      day: number | null;
+      isCurrentMonth: boolean;
+      key: string;
+      pnl: number;
+      row: number;
+      trades: number;
+    }> = [];
+
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+      const row = cellIndex % 7;
+      const column = Math.floor(cellIndex / 7);
+      const date = new Date(firstVisibleDate);
+      date.setDate(firstVisibleDate.getDate() + cellIndex);
+      const dateKey = dateKeyFromDate(date);
+      const cell = cells[cellIndex];
+
+      if (!heatmapColumns[column]) {
+        heatmapColumns[column] = { bin: column, bins: [] };
+      }
+
+      heatmapColumns[column]?.bins.push({
+        bin: row,
+        count: cell?.trades ?? 0,
+        date,
+      });
+      nextOverlayCells.push({
+        column,
+        dateKey,
+        day: cell?.day ?? null,
+        isCurrentMonth:
+          date.getFullYear() === activeMonthDate.getFullYear() &&
+          date.getMonth() === activeMonthDate.getMonth(),
+        key: cell?.key ?? dateKey,
+        pnl: cell?.pnl ?? 0,
+        row,
+        trades: cell?.trades ?? 0,
+      });
+    }
+
+    return {
+      cellByDate: new Map(nextOverlayCells.map((cell) => [cell.dateKey, cell])),
+      columns: heatmapColumns,
+      overlayCells: nextOverlayCells,
+    };
+  }, [activeMonth, cells]);
+
+  const columnCount = Math.max(columns.length, 1);
+  const innerWidth = Math.max(containerWidth - heatmapMargin.left - heatmapMargin.right, 0);
+  const cellSize = innerWidth > 0 ? innerWidth / columnCount : 0;
+  const plotHeight = cellSize * 7;
+  const chartHeight = Math.max(96, heatmapMargin.top + plotHeight + heatmapMargin.bottom);
 
   function changeMonth(delta: number) {
     const nextMonth = addMonthsToDateKey(activeMonth, delta);
@@ -17957,6 +18039,25 @@ function CalendarHeatmap({
       return;
     }
     setInternalMonth(nextMonth);
+  }
+
+  function handleHeatmapClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!onSelectDate || cellSize <= 0) {
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - bounds.left - heatmapMargin.left;
+    const y = event.clientY - bounds.top - heatmapMargin.top;
+    if (x < 0 || y < 0 || x >= innerWidth || y >= plotHeight) {
+      return;
+    }
+    const column = Math.floor(x / cellSize);
+    const row = Math.floor(y / cellSize);
+    const cell = overlayCells[column * 7 + row];
+    if (!cell || cell.day == null || cell.trades === 0) {
+      return;
+    }
+    onSelectDate(cell.dateKey);
   }
 
   return (
@@ -17970,58 +18071,101 @@ function CalendarHeatmap({
           <ChevronRight size={14} />
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600">
-        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
-          <div key={day}>{compact ? day.slice(0, 1) : day}</div>
-        ))}
-      </div>
-      <div className="mt-2 grid grid-cols-7 gap-1">
-        {cells.map((cell) => {
-          const isRealDay = cell.day != null;
-          const isSelectable = Boolean(onSelectDate && isRealDay && cell.trades > 0);
-          const isSelected =
-            isRealDay &&
-            (selectedDate === cell.date ||
-              Boolean(selectedRange && dateKeyInRange(cell.date, selectedRange.start, selectedRange.end)));
-          const cellClass = `min-h-14 rounded-md border px-2 py-1 text-left text-xs transition ${
-            !isRealDay
-              ? "border-transparent bg-transparent"
-              : isSelected
-                ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-50 ring-1 ring-cyan-300/15"
-                : cell.pnl > 0
-                  ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
-                  : cell.pnl < 0
-                    ? "border-rose-300/20 bg-rose-300/10 text-rose-100"
-                    : "border-white/10 bg-black/20 text-slate-500"
-          } ${isSelectable ? "hover:border-cyan-300/30 hover:bg-cyan-300/10" : ""} ${compact ? "min-h-9 px-1" : ""}`;
-          const content = (
-            <>
-              <div>{cell.day ?? ""}</div>
-              {!compact && cell.day != null && cell.trades > 0 && (
-                <div className="mt-1 truncate font-semibold">{formatMoney(cell.pnl, currency)}</div>
-              )}
-              {compact && cell.day != null && cell.trades > 0 && (
-                <div className="mt-1 h-1 w-1 rounded-full bg-current opacity-80" />
-              )}
-            </>
-          );
-          return isSelectable ? (
-            <button
-              aria-pressed={isSelected}
-              className={cellClass}
-              key={cell.key}
-              onClick={() => onSelectDate?.(cell.date)}
-              title={`${cell.date} · ${cell.trades} trades · ${formatMoney(cell.pnl, currency)}`}
-              type="button"
-            >
-              {content}
-            </button>
-          ) : (
-            <div className={cellClass} key={cell.key} title={cell.date}>
-              {content}
-            </div>
-          );
-        })}
+      <div
+        ref={containerRef}
+        className={`relative overflow-hidden rounded-md border border-white/10 bg-[#070b10]/80 ${
+          onSelectDate ? "cursor-pointer" : ""
+        }`}
+        onClick={handleHeatmapClick}
+        style={{ height: chartHeight }}
+      >
+        <BacklitHeatmapChart
+          className="h-full w-full"
+          data={columns}
+          gap={heatmapGap}
+          layout="fluid"
+          levelColors={[
+            "rgba(15, 23, 42, 0.58)",
+            "rgba(34, 211, 238, 0.14)",
+            "rgba(34, 211, 238, 0.24)",
+            "rgba(6, 182, 212, 0.4)",
+            "rgba(103, 232, 249, 0.62)",
+          ]}
+          margin={heatmapMargin}
+        >
+          <BacklitHeatmapCells cornerRadius={compact ? 4 : 6} />
+          {!compact ? <BacklitHeatmapYAxis /> : null}
+          <BacklitHeatmapTooltip
+            formatLabel={(tradeCount, date) => {
+              const key = dateKeyFromDate(date);
+              const cell = cellByDate.get(key);
+              if (!cell) {
+                return shortDate(key);
+              }
+              const tradeLabel = `${tradeCount} ${tradeCount === 1 ? "trade" : "trades"}`;
+              return `${shortDate(key)} · ${tradeLabel} · ${formatMoney(cell.pnl, currency)}`;
+            }}
+          />
+        </BacklitHeatmapChart>
+        {cellSize > 0 ? (
+          <div
+            className="pointer-events-none absolute inset-0 z-10"
+            style={{
+              left: heatmapMargin.left,
+              top: heatmapMargin.top,
+              width: innerWidth,
+              height: plotHeight,
+            }}
+          >
+            {overlayCells.map((cell) => {
+              const isSelected =
+                selectedDate === cell.dateKey ||
+                Boolean(selectedRange && dateKeyInRange(cell.dateKey, selectedRange.start, selectedRange.end));
+              const isRealDay = cell.day != null;
+              const overlayStyle: CSSProperties = {
+                height: Math.max(cellSize - heatmapGap, 0),
+                left: cell.column * cellSize + heatmapGap / 2,
+                top: cell.row * cellSize + heatmapGap / 2,
+                width: Math.max(cellSize - heatmapGap, 0),
+              };
+
+              return (
+                <div
+                  className={`absolute overflow-hidden rounded-[6px] ${
+                    isSelected ? "ring-1 ring-cyan-300/55 ring-inset" : ""
+                  }`}
+                  key={cell.key}
+                  style={overlayStyle}
+                >
+                  {isRealDay ? (
+                    <div className="flex h-full flex-col justify-between px-1.5 py-1">
+                      <div className="flex items-start justify-between gap-1">
+                        <span className={`text-[10px] font-semibold ${cell.trades > 0 ? "text-slate-100" : "text-slate-500"}`}>
+                          {cell.day}
+                        </span>
+                        {!compact && cell.trades > 0 ? (
+                          <span className="text-[9px] font-semibold text-slate-400">{cell.trades}</span>
+                        ) : null}
+                      </div>
+                      {!compact && cell.trades > 0 ? (
+                        <div className={`truncate text-[9px] font-semibold tabular-nums leading-none ${toneForNumber(cell.pnl)}`}>
+                          {formatCompactMoney(cell.pnl, currency)}
+                        </div>
+                      ) : null}
+                      {compact && cell.trades > 0 ? (
+                        <div
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            cell.pnl > 0 ? "bg-emerald-300" : cell.pnl < 0 ? "bg-rose-300" : "bg-cyan-300"
+                          }`}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -18038,191 +18182,87 @@ function AreaSparkline({
   tone?: "cyan" | "rose";
   values: number[];
 }) {
-  const gradientId = useId().replace(/:/g, "");
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const width = 900;
-  const domain = chartDomain(values);
-  const ticks = chartTicks(domain.min, domain.max, 5);
-  const yAxisWidth = chartAxisLabelWidth(ticks.map((tick) => formatCompactMoney(tick, currency)));
-  const margin = { bottom: 30, left: yAxisWidth, right: 24, top: 18 };
-  const points = chartPoints(values, width, height, margin, domain);
-  const path = linePath(points);
-  const zeroY = chartY(0, height, margin, domain);
-  const areaPath = points.length > 1
-    ? `${path} L ${points[points.length - 1].x.toFixed(2)} ${zeroY.toFixed(2)} L ${points[0].x.toFixed(2)} ${zeroY.toFixed(2)} Z`
-    : "";
-  const stroke = tone === "rose" ? "#fb7185" : "#34d399";
-  const glow = tone === "rose" ? "rgba(251, 113, 133, 0.22)" : "rgba(52, 211, 153, 0.22)";
-  const lastPoint = points[points.length - 1];
-  const firstPoint = points[0];
-  const activePoint = activeIndex == null ? null : points[activeIndex] ?? null;
-  const activeValue = activeIndex == null ? null : values[activeIndex] ?? null;
+  const data = useMemo(
+    () =>
+      values.map((value, index) => ({
+        date: new Date(Date.UTC(2025, 0, index + 1)),
+        label:
+          index === 0
+            ? "Start"
+            : index === values.length - 1
+              ? "Latest"
+              : `Point ${index}`,
+        value,
+      })),
+    [values]
+  );
 
-  function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * width;
-    const plotWidth = width - margin.left - margin.right;
-    const rawIndex = ((x - margin.left) / Math.max(plotWidth, 1)) * (values.length - 1);
-    setActiveIndex(Math.max(0, Math.min(values.length - 1, Math.round(rawIndex))));
-  }
-
-  function moveActiveIndex(delta: number) {
-    setActiveIndex((current) => {
-      const nextIndex = (current ?? values.length - 1) + delta;
-      return Math.max(0, Math.min(values.length - 1, nextIndex));
-    });
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      moveActiveIndex(-1);
-    }
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      moveActiveIndex(1);
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      setActiveIndex(0);
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      setActiveIndex(values.length - 1);
-    }
+  if (values.length < 2) {
+    return (
+      <div
+        className="grid place-items-center rounded-md border border-white/10 bg-[#070b10]/80 text-sm text-slate-500"
+        style={{ height }}
+      >
+        No chart data
+      </div>
+    );
   }
 
   return (
-    <div
-      aria-label="Interactive performance chart"
-      className="relative overflow-hidden rounded-md border border-white/10 bg-black/20 outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/40"
-      onBlur={() => setActiveIndex(null)}
-      onFocus={() => setActiveIndex((current) => current ?? values.length - 1)}
-      onKeyDown={handleKeyDown}
-      role="img"
-      style={{ height }}
-      tabIndex={values.length > 1 ? 0 : -1}
-    >
-      {values.length > 1 ? (
-        <>
-        <svg
-          className="h-full w-full cursor-crosshair"
-          onPointerLeave={() => setActiveIndex(null)}
-          onPointerMove={handlePointerMove}
-          preserveAspectRatio="none"
-          viewBox={`0 0 ${width} ${height}`}
-        >
-          <defs>
-            <linearGradient id={`${gradientId}-fill`} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={stroke} stopOpacity="0.34" />
-              <stop offset="100%" stopColor={stroke} stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          <rect fill="rgba(2, 6, 23, 0.16)" height={height} width={width} />
-          {ticks.map((tick) => {
-            const y = chartY(tick, height, margin, domain);
-            return (
-              <g key={tick}>
-                <line
-                  stroke="rgba(148, 163, 184, 0.14)"
-                  strokeDasharray="5 7"
-                  strokeWidth="1"
-                  x1={margin.left}
-                  x2={width - margin.right}
-                  y1={y}
-                  y2={y}
-                />
-                <text
-                  fill="rgba(203, 213, 225, 0.58)"
-                  fontSize="11"
-                  fontWeight="600"
-                  textAnchor="end"
-                  x={margin.left - 10}
-                  y={y + 4}
-                >
-                  {formatCompactMoney(tick, currency)}
-                </text>
-              </g>
-            );
-          })}
-          <line
-            stroke="rgba(203, 213, 225, 0.22)"
-            strokeWidth="1"
-            x1={margin.left}
-            x2={width - margin.right}
-            y1={zeroY}
-            y2={zeroY}
+    <div className="overflow-hidden rounded-md border border-white/10 bg-[#070b10]/80 p-2" style={{ height }}>
+      <BacklitLineChart
+        aspectRatio={undefined}
+        className="h-full w-full"
+        data={data}
+        style={{ height: "100%" }}
+      >
+        <BacklitGrid highlightRowValues={[0]} horizontal />
+        <BacklitYAxis
+          formatValue={(value) => formatCompactMoney(value, currency)}
+          numTicks={4}
+        />
+        {tone === "rose" ? (
+          <BacklitLine
+            curve={curveLinear}
+            dataKey="value"
+            fadeEdges={false}
+            stroke="var(--loss)"
           />
-          <path d={areaPath} fill={`url(#${gradientId}-fill)`} />
-          <path d={path} fill="none" stroke={glow} strokeLinecap="round" strokeWidth="7" />
-          <path d={path} fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
-          {activePoint && (
-            <g>
-              <line
-                stroke="rgba(226, 232, 240, 0.26)"
-                strokeDasharray="4 6"
-                strokeWidth="1"
-                x1={activePoint.x}
-                x2={activePoint.x}
-                y1={margin.top}
-                y2={height - margin.bottom}
-              />
-              <line
-                stroke="rgba(226, 232, 240, 0.18)"
-                strokeDasharray="4 6"
-                strokeWidth="1"
-                x1={margin.left}
-                x2={width - margin.right}
-                y1={activePoint.y}
-                y2={activePoint.y}
-              />
-              <circle cx={activePoint.x} cy={activePoint.y} fill={stroke} r="5" stroke="#020617" strokeWidth="2.5" />
-            </g>
-          )}
-          {firstPoint && <circle cx={firstPoint.x} cy={firstPoint.y} fill="#0f172a" r="3.5" stroke={stroke} strokeWidth="2" />}
-          {lastPoint && (
-            <>
-              <circle cx={lastPoint.x} cy={lastPoint.y} fill={stroke} r="4" stroke="#020617" strokeWidth="2" />
-              <text
-                fill="rgba(226, 232, 240, 0.82)"
-                fontSize="11"
-                fontWeight="700"
-                textAnchor="end"
-                x={width - margin.right}
-                y={Math.max(margin.top + 12, Math.min(height - margin.bottom, lastPoint.y - 10))}
-              >
-                {formatCompactMoney(values[values.length - 1] ?? 0, currency)}
-              </text>
-            </>
-          )}
-          <text fill="rgba(148, 163, 184, 0.55)" fontSize="11" fontWeight="600" x={margin.left} y={height - 8}>
-            Start
-          </text>
-          <text fill="rgba(148, 163, 184, 0.55)" fontSize="11" fontWeight="600" textAnchor="end" x={width - margin.right} y={height - 8}>
-            Latest
-          </text>
-        </svg>
-        {activePoint && activeValue != null && (
-          <div
-            className="pointer-events-none absolute z-10 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30 backdrop-blur"
-            style={{
-              left: `${clampPercent((activePoint.x / width) * 100, 12, 88)}%`,
-              top: `${clampPercent((activePoint.y / height) * 100, 16, 84)}%`,
-              transform: activePoint.y < height * 0.36 ? "translate(-50%, 14px)" : "translate(-50%, calc(-100% - 12px))",
-            }}
-          >
-            <div className="font-semibold text-white">
-              {activeIndex === 0 ? "Start" : activeIndex === values.length - 1 ? "Latest" : `Point ${activeIndex}`}
-            </div>
-            <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeValue)}`}>
-              {formatMoney(activeValue, currency)}
-            </div>
-          </div>
+        ) : (
+          <>
+            <BacklitLine
+              curve={curveLinear}
+              dataKey="value"
+              fadeEdges={false}
+              showHighlight={false}
+              stroke="transparent"
+              strokeWidth={0}
+            />
+            <ProfitLossLine dataKey="value" fadeEdges={false} />
+          </>
         )}
-        </>
-      ) : (
-        <div className="grid h-full place-items-center text-sm text-slate-500">No chart data</div>
-      )}
+        <BacklitChartTooltip
+          content={({ point }) => {
+            const value = Number(point.value ?? 0);
+            return (
+              <div className="min-w-[136px] px-3 py-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  {String(point.label ?? "Point")}
+                </div>
+                <div className={`mt-1 text-sm font-semibold tabular-nums ${tone === "rose" ? "text-rose-300" : toneForNumber(value)}`}>
+                  {formatMoney(value, currency)}
+                </div>
+              </div>
+            );
+          }}
+          indicatorColor={
+            tone === "rose"
+              ? "var(--loss)"
+              : (point) => profitLossColor(Number(point.value ?? 0))
+          }
+          showDatePill={false}
+        />
+      </BacklitLineChart>
     </div>
   );
 }
@@ -18240,33 +18280,24 @@ function BarBreakdown({
   percent?: boolean;
   rows: Array<{ label: string; value: number }>;
 }) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const visibleRows = rows
-    .filter((row) => Number.isFinite(row.value))
-    .slice(0, maxItems);
-  const activeRow = activeIndex == null ? null : visibleRows[activeIndex] ?? null;
-  const rawMin = Math.min(0, ...visibleRows.map((row) => row.value));
-  const rawMax = Math.max(0, ...visibleRows.map((row) => row.value));
-  const domain = percent ? { max: Math.max(100, rawMax), min: 0 } : expandFlatDomain(rawMin, rawMax);
-  const range = domain.max - domain.min || 1;
-  const zeroBottom = ((0 - domain.min) / range) * 100;
-  const ticks = chartTicks(domain.min, domain.max, 5);
-  const tickLabels = ticks.map((tick) => (percent ? `${tick.toFixed(0)}%` : formatCompactMoney(tick, currency)));
-  const axisWidth = chartAxisLabelWidth(tickLabels, { max: 150, min: 58 });
-  const axisLabelWidth = Math.max(46, axisWidth - 12);
-  const minWidth = Math.max(360, axisWidth + visibleRows.length * 58);
-  const activeLabel = activeRow?.label ?? "";
-  const activeValueLabel = activeRow ? (percent ? `${activeRow.value.toFixed(1)}%` : formatMoney(activeRow.value, currency)) : "";
-  const activeTooltipLeft = activeIndex == null
-    ? 50
-    : clampPercent(((activeIndex + 0.5) / Math.max(visibleRows.length, 1)) * 100, 10, 90);
-  const activeTooltipStyle = activeRow
-    ? {
-        [activeRow.value >= 0 ? "top" : "bottom"]: "0.5rem",
-        left: `${activeTooltipLeft}%`,
-        transform: "translateX(-50%)",
-      }
-    : undefined;
+  const visibleRows = useMemo(
+    () =>
+      rows
+        .filter((row) => Number.isFinite(row.value))
+        .slice(0, maxItems),
+    [maxItems, rows],
+  );
+  const chartData = useMemo(
+    () =>
+      visibleRows.map((row) => ({
+        label: row.label,
+        negative: row.value < 0 ? row.value : 0,
+        positive: row.value > 0 ? row.value : 0,
+        value: row.value,
+      })),
+    [visibleRows],
+  );
+  const minWidth = Math.max(380, visibleRows.length * 62);
 
   if (visibleRows.length === 0) {
     return <EmptyState icon={BarChart3} message="No chart data yet." />;
@@ -18274,86 +18305,48 @@ function BarBreakdown({
 
   return (
     <div className="mt-4 overflow-x-auto rounded-md border border-white/10 bg-black/20 px-3 py-3">
-      <div className="grid min-w-0 grid-rows-[minmax(0,1fr)_42px]" style={{ height: chartHeight, minWidth }}>
-        <div className="relative" onPointerLeave={() => setActiveIndex(null)}>
-          {ticks.map((tick) => {
-            const top = ((domain.max - tick) / range) * 100;
-            const tickLabel = percent ? `${tick.toFixed(0)}%` : formatCompactMoney(tick, currency);
-            return (
-              <div className="absolute left-0 right-0" key={tick} style={{ top: `${top}%` }}>
-                <div className="border-t border-dashed border-white/10" style={{ marginLeft: axisWidth }} />
-                <span
-                  className="absolute -top-2 left-0 text-right text-[10px] font-semibold tabular-nums text-slate-600"
-                  style={{ width: axisLabelWidth }}
-                >
-                  {tickLabel}
-                </span>
-              </div>
-            );
-          })}
-          <div className="absolute right-0 border-t border-white/20" style={{ bottom: `${zeroBottom}%`, left: axisWidth }} />
-          <div className="absolute inset-y-0 right-0 flex items-stretch gap-2" style={{ left: axisWidth }}>
-            {visibleRows.map((row, rowIndex) => {
-              const heightPercent = row.value === 0 ? 1.5 : Math.max(2, (Math.abs(row.value) / range) * 100);
-              const bottomPercent = row.value >= 0 ? zeroBottom : zeroBottom - heightPercent;
-              const active = activeIndex === rowIndex;
+      <div
+        className="overflow-hidden rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(50,211,238,0.12),transparent_34%),rgba(2,6,23,0.84)] p-2"
+        style={{ height: chartHeight, minWidth }}
+      >
+        <BacklitBarChart
+          aspectRatio={undefined}
+          className="h-full w-full"
+          data={chartData}
+          xDataKey="label"
+        >
+          <BacklitGrid horizontal />
+          <BacklitBar dataKey="positive" fill="var(--profit)" lineCap="round" />
+          <BacklitBar dataKey="negative" fill="var(--loss)" lineCap="round" />
+          <BacklitYAxis
+            formatValue={(value) => (percent ? `${value.toFixed(0)}%` : formatCompactMoney(value, currency))}
+            numTicks={5}
+          />
+          <BacklitBarXAxis maxLabels={8} showAllLabels={visibleRows.length <= 8} />
+          <BacklitChartTooltip
+            content={({ point }) => {
+              const rowValue =
+                Number(point.value ?? Number(point.positive ?? 0) + Number(point.negative ?? 0));
               return (
-                <button
-                  aria-label={`${row.label}: ${percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}`}
-                  className="relative min-w-10 flex-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/40"
-                  key={row.label}
-                  onBlur={() => setActiveIndex(null)}
-                  onFocus={() => setActiveIndex(rowIndex)}
-                  onPointerEnter={() => setActiveIndex(rowIndex)}
-                  title={`${row.label}: ${percent ? `${row.value.toFixed(1)}%` : formatMoney(row.value, currency)}`}
-                  type="button"
-                >
-                  <div
-                    className={`absolute left-1/2 w-7 -translate-x-1/2 rounded-t-sm ${
-                      row.value >= 0
-                        ? active
-                          ? "bg-emerald-300 shadow-[0_0_24px_rgba(52,211,153,0.26)]"
-                          : "bg-emerald-400/70 shadow-[0_0_20px_rgba(52,211,153,0.16)]"
-                        : active
-                          ? "bg-rose-300 shadow-[0_0_24px_rgba(251,113,133,0.24)]"
-                          : "bg-rose-400/70 shadow-[0_0_20px_rgba(251,113,133,0.14)]"
-                    }`}
-                    style={{
-                      bottom: `${Math.max(0, bottomPercent)}%`,
-                      height: `${Math.min(100, heightPercent)}%`,
-                    }}
-                  />
-                </button>
+                <div className="min-w-[164px] px-3 py-2">
+                  <div className="truncate text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    {String(point.label ?? "Bucket")}
+                  </div>
+                  <div className={`mt-1 text-sm font-semibold tabular-nums ${toneForNumber(rowValue)}`}>
+                    {percent ? `${rowValue.toFixed(1)}%` : formatMoney(rowValue, currency)}
+                  </div>
+                </div>
               );
-            })}
-          </div>
-          {activeRow && activeTooltipStyle && (
-            <div
-              className="pointer-events-none absolute z-20 max-w-48 rounded-md border border-white/10 bg-slate-950/95 px-2.5 py-2 text-xs shadow-xl shadow-black/30 backdrop-blur"
-              style={activeTooltipStyle}
-            >
-              <div className="truncate font-semibold text-white" title={activeLabel}>{activeLabel}</div>
-              <div className={`mt-1 font-semibold tabular-nums ${toneForNumber(activeRow.value)}`}>
-                {activeValueLabel}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex gap-2 pt-2" style={{ marginLeft: axisWidth }}>
-          {visibleRows.map((row, rowIndex) => (
-            <div
-              className={`min-w-10 flex-1 rounded px-1 text-center transition ${activeIndex === rowIndex ? "bg-white/5" : ""}`}
-              key={row.label}
-            >
-              <div className="truncate text-[10px] font-semibold text-slate-500" title={row.label}>
-                {row.label}
-              </div>
-              <div className={`mt-0.5 truncate text-[10px] font-semibold tabular-nums ${toneForNumber(row.value)}`}>
-                {percent ? `${row.value.toFixed(0)}%` : formatCompactMoney(row.value, currency)}
-              </div>
-            </div>
-          ))}
-        </div>
+            }}
+            indicatorColor={(point) =>
+              Number(point.value ?? Number(point.positive ?? 0) + Number(point.negative ?? 0)) >= 0
+                ? "var(--profit)"
+                : "var(--loss)"
+            }
+            showDatePill={false}
+            showDots={false}
+          />
+        </BacklitBarChart>
       </div>
       {rows.length > visibleRows.length && (
         <div className="mt-2 text-xs text-slate-600">Showing first {visibleRows.length} of {rows.length} buckets.</div>
