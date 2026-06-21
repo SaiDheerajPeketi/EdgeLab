@@ -20,7 +20,10 @@ RUN npm install -g npm@11.16.0
 
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
-RUN npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund \
+    && npm install --no-save --ignore-scripts \
+        "@rollup/rollup-linux-x64-gnu@$(node -p \"require('./node_modules/rollup/package.json').optionalDependencies['@rollup/rollup-linux-x64-gnu']\")" \
+        "@esbuild/linux-x64@$(node -p \"require('./node_modules/esbuild/package.json').optionalDependencies['@esbuild/linux-x64']\")"
 
 WORKDIR /app/frontend
 
