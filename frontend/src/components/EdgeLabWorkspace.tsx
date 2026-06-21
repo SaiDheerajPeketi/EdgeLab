@@ -15096,7 +15096,7 @@ function ReportsPage({
                 tone={toneForNumber(filteredAggregate.netPnl)}
                 value={formatMoney(filteredAggregate.netPnl, reportCurrency)}
               />
-              <div className="px-4 pb-4">
+              <div className="p-4">
                 <AreaSparkline currency={reportCurrency} height={288} values={cumulativeValues(filteredClosedTrades)} />
               </div>
             </FeatureCard>
@@ -15108,7 +15108,7 @@ function ReportsPage({
                 tone={toneForNumber(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl)}
                 value={formatMoney(bestRow(filteredDays.map((day) => ({ aggregate: day.aggregate, label: day.label })))?.aggregate.netPnl ?? 0, reportCurrency)}
               />
-              <div className="px-4 pb-4">
+              <div className="p-4">
                 <BarBreakdown chartHeight={288} currency={reportCurrency} maxItems={18} rows={dailyPnlRows} />
               </div>
             </FeatureCard>
@@ -15155,7 +15155,7 @@ function ReportsPage({
                 tone={toneForNumber(filteredAggregate.netPnl)}
                 value={formatMoney(filteredAggregate.netPnl, reportCurrency)}
               />
-              <div className="px-4 pb-4">
+              <div className="p-4">
                 <AreaSparkline currency={reportCurrency} height={260} values={cumulativeValues(filteredClosedTrades)} />
               </div>
             </FeatureCard>

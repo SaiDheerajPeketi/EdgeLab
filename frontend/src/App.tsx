@@ -1611,7 +1611,6 @@ export function WorkspaceApp() {
 
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
     await newSession(payload);
-    await loadInitial();
     setReplayFocusTrade(null);
     setActiveWorkspace("backtest");
     setSessionGateOpen(false);

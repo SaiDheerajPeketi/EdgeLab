@@ -306,8 +306,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadSession: async (sessionId) => {
     set({ isLoading: true, isPlaying: false, error: null });
     try {
-      const initialState = await getBacktest(sessionId);
-      const meta = await getMeta(initialState.session.id);
+      const [initialState, meta] = await Promise.all([
+        getBacktest(sessionId),
+        getMeta(sessionId),
+      ]);
       const state = await ensureReplayContext(initialState, meta);
       const window = await loadWindow(
         state.session.current_offset,
@@ -319,6 +321,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state,
         bars: window.bars,
         barOffset: window.barOffset,
+        resultSessions: upsertSession(current.resultSessions, state.session),
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
@@ -344,6 +347,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state,
         bars: window.bars,
         barOffset: window.barOffset,
+        resultSessions: upsertSession(current.resultSessions, state.session),
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));

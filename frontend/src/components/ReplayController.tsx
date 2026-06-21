@@ -86,6 +86,13 @@ export function ReplayController({
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const customSpeedRef = useRef<HTMLInputElement | null>(null);
   const currentOffset = state?.session.current_offset ?? 0;
+  const minJumpOffset = state?.session.start_offset ?? 0;
+  const maxJumpOffset = state?.session.end_offset ?? null;
+  const parsedJumpOffset = parseReplayOffset(jumpOffset);
+  const clampedJumpOffset =
+    parsedJumpOffset == null
+      ? null
+      : clampReplayOffset(parsedJumpOffset, minJumpOffset, maxJumpOffset);
   const currentTimestamp =
     state?.current_candle?.timestamp ?? state?.session.start_at ?? null;
   const selectedSpeedValue = useMemo(
@@ -131,6 +138,21 @@ export function ReplayController({
       return;
     }
     setSpeed(barsPerSecondToMs(parsed));
+  }
+
+  async function handleJumpToOffset() {
+    if (!state || clampedJumpOffset == null) {
+      return;
+    }
+    await jumpToOffset(clampedJumpOffset);
+    setJumpOffset("");
+  }
+
+  async function handleJumpToTimestamp() {
+    if (!state || !jumpTime) {
+      return;
+    }
+    await jumpToTimestamp(toDatasetTimestamp(jumpTime));
   }
 
   return (
@@ -260,8 +282,8 @@ export function ReplayController({
           />
           <button
             className="control-button"
-            disabled={!jumpOffset}
-            onClick={() => void jumpToOffset(Number(jumpOffset))}
+            disabled={!state || clampedJumpOffset == null}
+            onClick={() => void handleJumpToOffset()}
             type="button"
           >
             Go
@@ -279,7 +301,7 @@ export function ReplayController({
           <button
             className="control-button"
             disabled={!state || !jumpTime}
-            onClick={() => void jumpToTimestamp(toDatasetTimestamp(jumpTime))}
+            onClick={() => void handleJumpToTimestamp()}
             type="button"
           >
             Go Date
@@ -639,6 +661,24 @@ function toReplayInputValue(value: string | null) {
 
 function toDatasetTimestamp(value: string) {
   return value.length === 16 ? `${value}:00` : value;
+}
+
+function parseReplayOffset(value: string) {
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.trunc(parsed);
+}
+
+function clampReplayOffset(value: number, min: number, max: number | null) {
+  const lowerBound = Math.max(0, min);
+  const upperBound = max == null ? Number.POSITIVE_INFINITY : Math.max(lowerBound, max);
+  return Math.min(Math.max(value, lowerBound), upperBound);
 }
 
 type ReplayDateParts = {

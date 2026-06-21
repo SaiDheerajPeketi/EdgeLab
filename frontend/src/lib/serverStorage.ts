@@ -1,4 +1,5 @@
 import { getAppStorageItem, putAppStorageItem } from "./api";
+import { getStoredAuthSession } from "./authSession";
 
 export const APP_STORAGE_NAMESPACE = "edgelab";
 
@@ -10,7 +11,7 @@ const mutationVersions = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
 
 function storageKey(namespace: string, key: string) {
-  return `${namespace}:${key}`;
+  return `${storageOwnerSegment()}:${namespace}:${key}`;
 }
 
 export function getCachedAppStorageItem<T>(
@@ -120,11 +121,11 @@ function readLocalStorageValue<T>(key: string): { updatedAt: number; value: T } 
   if (typeof window === "undefined") {
     return null;
   }
-  const legacyKey = legacyStorageKeyFor(key);
-  if (!legacyKey) {
+  const localKey = localStorageKeyFor(key);
+  if (!localKey) {
     return null;
   }
-  const raw = window.localStorage.getItem(legacyKey);
+  const raw = window.localStorage.getItem(localKey);
   if (raw == null) {
     return null;
   }
@@ -139,7 +140,7 @@ function readLocalStorageValue<T>(key: string): { updatedAt: number; value: T } 
     }
   }
   return {
-    updatedAt: parseTimestamp(window.localStorage.getItem(localStorageUpdatedAtKey(legacyKey))),
+    updatedAt: parseTimestamp(window.localStorage.getItem(localStorageUpdatedAtKey(localKey))),
     value,
   };
 }
@@ -148,16 +149,32 @@ function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number) {
   if (typeof window === "undefined") {
     return;
   }
-  const legacyKey = legacyStorageKeyFor(key);
-  if (!legacyKey) {
+  const localKey = localStorageKeyFor(key);
+  if (!localKey) {
     return;
   }
   if (legacyStoresPlainString(key)) {
-    window.localStorage.setItem(legacyKey, String(value ?? ""));
+    window.localStorage.setItem(localKey, String(value ?? ""));
   } else {
-    window.localStorage.setItem(legacyKey, JSON.stringify(value));
+    window.localStorage.setItem(localKey, JSON.stringify(value));
   }
-  window.localStorage.setItem(localStorageUpdatedAtKey(legacyKey), String(updatedAt || Date.now()));
+  window.localStorage.setItem(localStorageUpdatedAtKey(localKey), String(updatedAt || Date.now()));
+}
+
+function localStorageKeyFor(key: string) {
+  const legacyKey = legacyStorageKeyFor(key);
+  return legacyKey ? `${legacyKey}.${storageOwnerSegment()}` : null;
+}
+
+function storageOwnerSegment() {
+  const user = getStoredAuthSession()?.user;
+  if (user?.id) {
+    return `user-${user.id}`;
+  }
+  if (user?.email) {
+    return `user-${encodeURIComponent(user.email.toLowerCase())}`;
+  }
+  return "anonymous";
 }
 
 function localStorageUpdatedAtKey(key: string) {
