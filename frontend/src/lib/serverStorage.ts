@@ -4,11 +4,52 @@ import { getStoredAuthSession } from "./authSession";
 export const APP_STORAGE_NAMESPACE = "edgelab";
 
 type Listener<T> = (value: T | null) => void;
+type LocalStorageValue<T> = {
+  source: "legacy" | "scoped";
+  updatedAt: number;
+  value: T;
+};
 
 const memoryCache = new Map<string, unknown>();
 const listeners = new Map<string, Set<Listener<unknown>>>();
 const mutationVersions = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
+
+const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
+  "active-chart-layout.v1": "edgelab.active-chart-layout.v1",
+  "active-chart-settings-preset.v1": "edgelab.active-chart-settings-preset.v1",
+  "active-live-chart-layout.v1": "edgelab.active-live-chart-layout.v1",
+  "backtest-day-notes.v1": "edgelab.backtest-day-notes.v1",
+  "backtest-strategies.v1": "edgelab.backtest-strategies.v1",
+  "chart-layout-cleared-single-horizontal.v1": "edgelab.chart-layout-cleared-single-horizontal.v1",
+  "chart-layout.v1": "edgelab.chart-layout.v1",
+  "chart-layouts.v1": "edgelab.chart-layouts.v1",
+  "chart-settings-presets.v1": "edgelab.chart-settings-presets.v1",
+  "drawing-presets.v1": "edgelab.drawing-presets.v1",
+  "fib-presets.v1": "edgelab.fib-presets.v1",
+  "finance-tracker.v1": "edgelab.finance-tracker.v1",
+  "live-chart-layout.v1": "edgelab.live-chart-layout.v1",
+  "live-chart-layouts.v1": "edgelab.live-chart-layouts.v1",
+  "live-journal-strategies.v1": "edgelab.live-journal-strategies.v1",
+  "live-journal.v1": "edgelab.live-journal.v1",
+  "live-market-catalog.v1": "edgelab.live-market-catalog.v1",
+  "live-watchlists.v1": "edgelab.live-watchlists.v1",
+  "notebook-favorites.v1": "edgelab.notebook-favorites.v1",
+  "notebook-template.v1": "edgelab.notebook-template.v1",
+  "order-commission-fixed.v1": "edgelab.order-commission-fixed.v1",
+  "order-commission-mode.v1": "edgelab.order-commission-mode.v1",
+  "order-commission-percent.v1": "edgelab.order-commission-percent.v1",
+  "order-default-quantity.v1": "edgelab.order-default-quantity.v1",
+  "order-default-risk-percent.v1": "edgelab.order-default-risk-percent.v1",
+  "order-fee-fixed.v1": "edgelab.order-fee-fixed.v1",
+  "order-fee-mode.v1": "edgelab.order-fee-mode.v1",
+  "order-fee-percent.v1": "edgelab.order-fee-percent.v1",
+  "order-line-modification-confirmation.v1": "edgelab.order-line-modification-confirmation.v1",
+  "order-risk-base.v1": "edgelab.order-risk-base.v1",
+  "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
+  "strategy-mistake-tags.v1": "edgelab.strategy-mistake-tags.v1",
+  "workspace-beta-notice-dismissed.v1": "edgelab.workspace.beta-notice.dismissed.v1",
+};
 
 function storageKey(namespace: string, key: string) {
   return `${storageOwnerSegment()}:${namespace}:${key}`;
@@ -38,7 +79,11 @@ export async function loadAppStorageItem<T>(
     }
     if (item.value != null) {
       const serverUpdatedAt = parseTimestamp(item.updated_at);
-      if (localValue != null && localValue.updatedAt > serverUpdatedAt) {
+      if (
+        localValue != null &&
+        localValue.source === "scoped" &&
+        localValue.updatedAt > serverUpdatedAt
+      ) {
         setCachedValue(namespace, key, localValue.value);
         void saveAppStorageItem(key, localValue.value, namespace);
         return localValue.value;
@@ -111,21 +156,43 @@ export function subscribeAppStorageItem<T>(
   };
 }
 
+export function isAppStorageLocalStorageKey(key: string) {
+  return Object.values(LEGACY_STORAGE_KEY_MAP).some(
+    (prefix) => key === prefix || key.startsWith(`${prefix}.`),
+  );
+}
+
 function setCachedValue<T>(namespace: string, key: string, value: T) {
   const combinedKey = storageKey(namespace, key);
   memoryCache.set(combinedKey, value);
   listeners.get(combinedKey)?.forEach((listener) => listener(value));
 }
 
-function readLocalStorageValue<T>(key: string): { updatedAt: number; value: T } | null {
+function readLocalStorageValue<T>(key: string): LocalStorageValue<T> | null {
   if (typeof window === "undefined") {
     return null;
   }
   const localKey = localStorageKeyFor(key);
-  if (!localKey) {
+  const localValue = readLocalStorageKeyValue<T>(key, localKey, "scoped");
+  if (localValue != null) {
+    return localValue;
+  }
+  const legacyKey = legacyStorageKeyFor(key);
+  if (!legacyKey || legacyKey === localKey) {
     return null;
   }
-  const raw = window.localStorage.getItem(localKey);
+  return readLocalStorageKeyValue<T>(key, legacyKey, "legacy");
+}
+
+function readLocalStorageKeyValue<T>(
+  key: string,
+  storageKey: string | null,
+  source: LocalStorageValue<T>["source"],
+): LocalStorageValue<T> | null {
+  if (typeof window === "undefined" || !storageKey) {
+    return null;
+  }
+  const raw = window.localStorage.getItem(storageKey);
   if (raw == null) {
     return null;
   }
@@ -140,7 +207,8 @@ function readLocalStorageValue<T>(key: string): { updatedAt: number; value: T } 
     }
   }
   return {
-    updatedAt: parseTimestamp(window.localStorage.getItem(localStorageUpdatedAtKey(localKey))),
+    source,
+    updatedAt: parseTimestamp(window.localStorage.getItem(localStorageUpdatedAtKey(storageKey))),
     value,
   };
 }
@@ -197,39 +265,7 @@ function parseTimestamp(value: string | number | null | undefined) {
 }
 
 function legacyStorageKeyFor(key: string) {
-  const mappings: Record<string, string> = {
-    "active-chart-layout.v1": "edgelab.active-chart-layout.v1",
-    "active-chart-settings-preset.v1": "edgelab.active-chart-settings-preset.v1",
-    "active-live-chart-layout.v1": "edgelab.active-live-chart-layout.v1",
-    "backtest-strategies.v1": "edgelab.backtest-strategies.v1",
-    "chart-layout-cleared-single-horizontal.v1": "edgelab.chart-layout-cleared-single-horizontal.v1",
-    "chart-layout.v1": "edgelab.chart-layout.v1",
-    "chart-layouts.v1": "edgelab.chart-layouts.v1",
-    "chart-settings-presets.v1": "edgelab.chart-settings-presets.v1",
-    "drawing-presets.v1": "edgelab.drawing-presets.v1",
-    "fib-presets.v1": "edgelab.fib-presets.v1",
-    "finance-tracker.v1": "edgelab.finance-tracker.v1",
-    "live-journal.v1": "edgelab.live-journal.v1",
-    "live-chart-layout.v1": "edgelab.live-chart-layout.v1",
-    "live-chart-layouts.v1": "edgelab.live-chart-layouts.v1",
-    "live-market-catalog.v1": "edgelab.live-market-catalog.v1",
-    "live-watchlists.v1": "edgelab.live-watchlists.v1",
-    "notebook-favorites.v1": "edgelab.notebook-favorites.v1",
-    "notebook-template.v1": "edgelab.notebook-template.v1",
-    "order-commission-fixed.v1": "edgelab.order-commission-fixed.v1",
-    "order-commission-mode.v1": "edgelab.order-commission-mode.v1",
-    "order-commission-percent.v1": "edgelab.order-commission-percent.v1",
-    "order-default-quantity.v1": "edgelab.order-default-quantity.v1",
-    "order-default-risk-percent.v1": "edgelab.order-default-risk-percent.v1",
-    "order-fee-fixed.v1": "edgelab.order-fee-fixed.v1",
-    "order-fee-mode.v1": "edgelab.order-fee-mode.v1",
-    "order-fee-percent.v1": "edgelab.order-fee-percent.v1",
-    "order-line-modification-confirmation.v1": "edgelab.order-line-modification-confirmation.v1",
-    "order-risk-base.v1": "edgelab.order-risk-base.v1",
-    "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
-    "strategy-mistake-tags.v1": "edgelab.strategy-mistake-tags.v1",
-  };
-  return mappings[key] ?? null;
+  return LEGACY_STORAGE_KEY_MAP[key] ?? null;
 }
 
 function legacyStoresPlainString(key: string) {

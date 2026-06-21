@@ -240,6 +240,7 @@ import {
 } from "../lib/richText";
 import {
   getCachedAppStorageItem,
+  isAppStorageLocalStorageKey,
   loadAppStorageItem,
   saveAppStorageItem,
   subscribeAppStorageItem,
@@ -19179,7 +19180,7 @@ function purgeLegacyAppLocalStorage() {
   }
   for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
     const key = window.localStorage.key(index);
-    if (key?.startsWith("edgelab.")) {
+    if (key && isAppStorageLocalStorageKey(key)) {
       window.localStorage.removeItem(key);
     }
   }

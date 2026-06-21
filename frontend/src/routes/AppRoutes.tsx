@@ -9,6 +9,7 @@ import {
   subscribeAuthSession,
   toStoredAuthSession,
 } from "../lib/authSession";
+import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 
 const LandingPage = lazy(() =>
   import("../pages/LandingPage").then((module) => ({ default: module.LandingPage })),
@@ -84,31 +85,42 @@ function SessionRehydrator() {
   return null;
 }
 
-const WORKSPACE_BETA_NOTICE_KEY = "edgelab.workspace.beta-notice.dismissed.v1";
+const WORKSPACE_BETA_NOTICE_KEY = "workspace-beta-notice-dismissed.v1";
 
 function WorkspaceBetaNotice() {
   const session = useAuthSession();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (!session?.user.isBetaUser || typeof window === "undefined") {
+    if (!session?.user.isBetaUser) {
       setVisible(false);
       return;
     }
 
-    if (window.sessionStorage.getItem(WORKSPACE_BETA_NOTICE_KEY) === "1") {
-      setVisible(false);
-      return;
-    }
+    let active = true;
+    let timer: number | null = null;
 
-    setVisible(true);
+    void loadAppStorageItem<unknown>(WORKSPACE_BETA_NOTICE_KEY, false).then((dismissed) => {
+      if (!active) {
+        return;
+      }
+      if (dismissed === true || dismissed === "1") {
+        setVisible(false);
+        return;
+      }
+      setVisible(true);
+      timer = window.setTimeout(() => {
+        void saveAppStorageItem(WORKSPACE_BETA_NOTICE_KEY, true);
+        setVisible(false);
+      }, 3400);
+    });
 
-    const timer = window.setTimeout(() => {
-      window.sessionStorage.setItem(WORKSPACE_BETA_NOTICE_KEY, "1");
-      setVisible(false);
-    }, 3400);
-
-    return () => window.clearTimeout(timer);
+    return () => {
+      active = false;
+      if (timer != null) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [session?.user.isBetaUser]);
 
   if (!session?.user.isBetaUser || !visible) {
