@@ -125,8 +125,9 @@ function extractBarConfigs(children: ReactNode): LineConfig[] {
     if (isBarComponent && props?.dataKey) {
       // Use stroke for tooltip dot color if provided, otherwise fall back to fill
       // This allows gradient/pattern fills to have a solid dot color
+      const fillColor = typeof props.fill === "string" ? props.fill : undefined;
       const dotColor =
-        props.stroke || props.fill || "var(--chart-line-primary)";
+        props.stroke || fillColor || "var(--chart-line-primary)";
       configs.push({
         dataKey: props.dataKey,
         stroke: dotColor,
@@ -242,36 +243,49 @@ const ChartCore = memo(function ChartCore({
   // Band width for bars - use prop if provided, otherwise use scale's bandwidth
   const bandWidth = barWidthProp ?? categoryScale.bandwidth();
 
-  // Compute max value considering stacking
-  const maxValue = useMemo(() => {
+  // Compute value domain considering stacking and negative values.
+  const valueDomain = useMemo<[number, number]>(() => {
     if (stacked) {
-      // For stacked bars, sum all values at each data point
+      let min = 0;
       let max = 0;
       for (const d of data) {
-        let sum = 0;
+        let negativeSum = 0;
+        let positiveSum = 0;
         for (const line of lines) {
           const value = d[line.dataKey];
           if (typeof value === "number") {
-            sum += value;
+            if (value < 0) {
+              negativeSum += value;
+            } else {
+              positiveSum += value;
+            }
           }
         }
-        if (sum > max) {
-          max = sum;
-        }
+        min = Math.min(min, negativeSum);
+        max = Math.max(max, positiveSum);
       }
-      return max || 100;
+      const padding = (max - min) * 0.1 || 10;
+      return [
+        min < 0 ? min - padding : 0,
+        max > 0 ? max + padding : min < 0 ? 0 : 100,
+      ];
     }
-    // For grouped bars, find max single value
+    let min = 0;
     let max = 0;
     for (const line of lines) {
       for (const d of data) {
         const value = d[line.dataKey];
-        if (typeof value === "number" && value > max) {
-          max = value;
+        if (typeof value === "number") {
+          min = Math.min(min, value);
+          max = Math.max(max, value);
         }
       }
     }
-    return max || 100;
+    const padding = (max - min) * 0.1 || 10;
+    return [
+      min < 0 ? min - padding : 0,
+      max > 0 ? max + padding : min < 0 ? 0 : 100,
+    ];
   }, [data, lines, stacked]);
 
   // Value scale (linear) - for the value axis
@@ -279,10 +293,10 @@ const ChartCore = memo(function ChartCore({
     const range = isHorizontal ? [0, innerWidth] : [innerHeight, 0];
     return scaleLinear({
       range,
-      domain: [0, maxValue * 1.1],
+      domain: valueDomain,
       nice: true,
     });
-  }, [innerWidth, innerHeight, maxValue, isHorizontal]);
+  }, [innerWidth, innerHeight, valueDomain, isHorizontal]);
 
   const yScales = useMemo(() => {
     if (isHorizontal) {
@@ -297,12 +311,25 @@ const ChartCore = memo(function ChartCore({
         for (const d of data) {
           for (const key of dataKeys) {
             const value = d[key];
-            if (typeof value === "number" && value > max) {
-              max = value;
+            if (typeof value === "number") {
+              max = Math.max(max, value);
             }
           }
         }
-        return [0, (max || 100) * 1.1];
+        let min = 0;
+        for (const d of data) {
+          for (const key of dataKeys) {
+            const value = d[key];
+            if (typeof value === "number") {
+              min = Math.min(min, value);
+            }
+          }
+        }
+        const padding = (max - min) * 0.1 || 10;
+        return [
+          min < 0 ? min - padding : 0,
+          max > 0 ? max + padding : min < 0 ? 0 : 100,
+        ];
       },
     });
   }, [data, innerHeight, isHorizontal, lines, valueScale]);

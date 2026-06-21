@@ -57,7 +57,7 @@ export interface BarProps {
   /** Y-scale group id for vertical bars (Recharts `yAxisId`). Default: `"left"`. */
   yAxisId?: string | number;
   /** Fill color for the bar. Can be a color, gradient url, or pattern url. Default: var(--chart-line-primary) */
-  fill?: string;
+  fill?: string | ((datum: Record<string, unknown>, index: number) => string);
   /** Color for tooltip dot. Use when fill is a gradient/pattern. Default: uses fill value */
   stroke?: string;
   /** Line cap style for bar ends: "round", "butt", or a number for custom radius. Default: "round" */
@@ -284,10 +284,14 @@ const BarInner = memo(function BarInner({
 
         const scale = isHorizontal ? chartYScale : valueScale;
 
+        const resolvedFill =
+          typeof fill === "function" ? fill(d, i) : fill;
+
         if (isHorizontal) {
           // Horizontal bars: category on y-axis, value on x-axis
           const valuePos = scale(value) ?? 0;
-          barW = valuePos; // Width is the value position (grows from left)
+          const baselineX = scale(0) ?? 0;
+          barW = Math.abs(valuePos - baselineX);
           barHeight = barWidth;
 
           if (stacked && stackOffsets) {
@@ -301,7 +305,7 @@ const BarInner = memo(function BarInner({
               barW = Math.max(0, barW - stackGap);
             }
           } else {
-            x = 0;
+            x = Math.min(valuePos, baselineX);
             // For grouped bars, offset y position
             const effectiveGroupGap = seriesCount > 1 ? groupGap : 0;
             y = bandPos + seriesIndex * (barWidth + effectiveGroupGap);
@@ -313,7 +317,8 @@ const BarInner = memo(function BarInner({
         } else {
           // Vertical bars: category on x-axis, value on y-axis
           const valuePos = scale(value) ?? 0;
-          barHeight = innerHeight - valuePos;
+          const baselineY = scale(0) ?? innerHeight;
+          barHeight = Math.abs(baselineY - valuePos);
           barW = barWidth;
 
           if (stacked && stackOffsets) {
@@ -327,7 +332,7 @@ const BarInner = memo(function BarInner({
               barHeight = Math.max(0, barHeight - stackGap);
             }
           } else {
-            y = valuePos;
+            y = Math.min(valuePos, baselineY);
             // For grouped bars, offset x position
             const effectiveGroupGap = seriesCount > 1 ? groupGap : 0;
             x = bandPos + seriesIndex * (barWidth + effectiveGroupGap);
@@ -346,12 +351,10 @@ const BarInner = memo(function BarInner({
           if (
             !stacked &&
             minBarHeight > 0 &&
-            value >= 0 &&
             barHeight < minBarHeight
           ) {
-            const baselineY = scale(0) ?? innerHeight;
             barHeight = minBarHeight;
-            y = baselineY - minBarHeight;
+            y = value >= 0 ? baselineY - minBarHeight : baselineY;
             isFloored = true;
           }
 
@@ -402,7 +405,7 @@ const BarInner = memo(function BarInner({
               animationType={animationType}
               enterTransition={enterTransition}
               fadedOpacity={fadedOpacity}
-              fill={fill}
+              fill={resolvedFill}
               height={barHeight}
               index={i}
               innerHeight={innerHeight}
@@ -423,7 +426,7 @@ const BarInner = memo(function BarInner({
         // Static bar after animation completes
         return (
           <rect
-            fill={fill}
+            fill={resolvedFill}
             height={barHeight}
             key={barKey}
             opacity={isFaded ? fadedOpacity : 1}

@@ -3243,19 +3243,26 @@ function economicEventGraphPoints(event: EconomicCalendarEvent): EconomicEventCh
 function EconomicEventValueChart({ points }: { points: EconomicEventChartPoint[] }) {
   const data = points.map((point) => ({
     label: point.label,
-    negative: point.value < 0 ? point.value : 0,
-    positive: point.value > 0 ? point.value : 0,
     raw: point.raw,
     value: point.value,
   }));
 
   return (
     <div className="rounded-md border border-white/10 bg-[#060b10]/85 p-3">
-      <div className="overflow-hidden rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(50,211,238,0.12),transparent_36%),rgba(2,6,23,0.82)] p-2">
-        <BacklitBarChart aspectRatio="2.6 / 1" data={data} xDataKey="label">
+      <div className="rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(50,211,238,0.12),transparent_36%),rgba(2,6,23,0.82)] p-2">
+        <BacklitBarChart
+          aspectRatio="2.6 / 1"
+          barGap={0.38}
+          data={data}
+          margin={{ top: 18, right: 18, bottom: 42, left: 62 }}
+          xDataKey="label"
+        >
           <BacklitGrid horizontal />
-          <BacklitBar dataKey="positive" fill="var(--profit)" lineCap="round" />
-          <BacklitBar dataKey="negative" fill="var(--loss)" lineCap="round" />
+          <BacklitBar
+            dataKey="value"
+            fill={(datum) => Number(datum.value ?? 0) >= 0 ? "var(--profit)" : "var(--loss)"}
+            lineCap="round"
+          />
           <BacklitYAxis formatValue={formatCompactCalendarNumber} numTicks={4} />
           <BacklitBarXAxis showAllLabels />
           <BacklitChartTooltip
@@ -18209,11 +18216,12 @@ function AreaSparkline({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/10 bg-[#070b10]/80 p-2" style={{ height }}>
+    <div className="rounded-md border border-white/10 bg-[#070b10]/80 p-2" style={{ height }}>
       <BacklitLineChart
         aspectRatio={undefined}
         className="h-full w-full"
         data={data}
+        margin={{ top: 18, right: 18, bottom: 30, left: 76 }}
         style={{ height: "100%" }}
       >
         <BacklitGrid highlightRowValues={[0]} horizontal />
@@ -18291,8 +18299,6 @@ function BarBreakdown({
     () =>
       visibleRows.map((row) => ({
         label: row.label,
-        negative: row.value < 0 ? row.value : 0,
-        positive: row.value > 0 ? row.value : 0,
         value: row.value,
       })),
     [visibleRows],
@@ -18306,18 +18312,23 @@ function BarBreakdown({
   return (
     <div className="mt-4 overflow-x-auto rounded-md border border-white/10 bg-black/20 px-3 py-3">
       <div
-        className="overflow-hidden rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(50,211,238,0.12),transparent_34%),rgba(2,6,23,0.84)] p-2"
+        className="rounded-md border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(50,211,238,0.12),transparent_34%),rgba(2,6,23,0.84)] p-2"
         style={{ height: chartHeight, minWidth }}
       >
         <BacklitBarChart
           aspectRatio={undefined}
+          barGap={0.36}
           className="h-full w-full"
           data={chartData}
+          margin={{ top: 18, right: 18, bottom: 50, left: percent ? 54 : 76 }}
           xDataKey="label"
         >
           <BacklitGrid horizontal />
-          <BacklitBar dataKey="positive" fill="var(--profit)" lineCap="round" />
-          <BacklitBar dataKey="negative" fill="var(--loss)" lineCap="round" />
+          <BacklitBar
+            dataKey="value"
+            fill={(datum) => Number(datum.value ?? 0) >= 0 ? "var(--profit)" : "var(--loss)"}
+            lineCap="round"
+          />
           <BacklitYAxis
             formatValue={(value) => (percent ? `${value.toFixed(0)}%` : formatCompactMoney(value, currency))}
             numTicks={5}
@@ -18325,8 +18336,7 @@ function BarBreakdown({
           <BacklitBarXAxis maxLabels={8} showAllLabels={visibleRows.length <= 8} />
           <BacklitChartTooltip
             content={({ point }) => {
-              const rowValue =
-                Number(point.value ?? Number(point.positive ?? 0) + Number(point.negative ?? 0));
+              const rowValue = Number(point.value ?? 0);
               return (
                 <div className="min-w-[164px] px-3 py-2">
                   <div className="truncate text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -18339,7 +18349,7 @@ function BarBreakdown({
               );
             }}
             indicatorColor={(point) =>
-              Number(point.value ?? Number(point.positive ?? 0) + Number(point.negative ?? 0)) >= 0
+              Number(point.value ?? 0) >= 0
                 ? "var(--profit)"
                 : "var(--loss)"
             }
@@ -20715,7 +20725,7 @@ function buildMonthCells(days: DayGroup[], monthDate: string) {
       trades: group?.aggregate.totalTrades ?? 0,
     });
   }
-  while (cells.length % 7 !== 0) {
+  while (cells.length < 42) {
     cells.push({ date: "", day: null, key: `tail-${cells.length}`, pnl: 0, trades: 0 });
   }
   return cells;

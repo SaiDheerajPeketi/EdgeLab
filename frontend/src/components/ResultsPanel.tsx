@@ -732,12 +732,13 @@ function EquitySparkline({ currency, trades }: { currency: string; trades: Trade
   }, [orderedTrades]);
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/10 bg-[#070b10] p-2" style={{ height: 170 }}>
+    <div className="rounded-md border border-white/10 bg-[#070b10] p-2" style={{ height: 170 }}>
       {data.length > 1 ? (
         <BacklitLineChart
           aspectRatio={undefined}
           className="h-full w-full"
           data={data}
+          margin={{ top: 18, right: 18, bottom: 30, left: 76 }}
           style={{ height: "100%" }}
         >
           <BacklitGrid highlightRowValues={[0]} horizontal />

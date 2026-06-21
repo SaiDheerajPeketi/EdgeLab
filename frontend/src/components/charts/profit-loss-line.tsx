@@ -16,8 +16,8 @@ import { splitProfitLossSegments } from "./profit-loss-segments";
 // biome-ignore lint/suspicious/noExplicitAny: d3 curve factory type
 type CurveFactory = any;
 
-export const PROFIT_LOSS_POSITIVE_COLOR = "var(--color-emerald-500)";
-export const PROFIT_LOSS_NEGATIVE_COLOR = "var(--color-red-500)";
+export const PROFIT_LOSS_POSITIVE_COLOR = "var(--profit)";
+export const PROFIT_LOSS_NEGATIVE_COLOR = "var(--loss)";
 
 const LEGEND_DIM_OPACITY = 0.25;
 
