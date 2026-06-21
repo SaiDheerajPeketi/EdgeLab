@@ -14,12 +14,15 @@ ENV VITE_BETA_SEATS_TAKEN=${VITE_BETA_SEATS_TAKEN}
 ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 ENV NPM_CONFIG_REPLACE_REGISTRY_HOST=always
 
-WORKDIR /app/frontend
+WORKDIR /app
 
 RUN npm install -g npm@11.16.0
 
-COPY frontend/package.json frontend/package-lock.json ./
+COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package.json
 RUN npm ci --no-audit --no-fund
+
+WORKDIR /app/frontend
 
 COPY frontend ./
 COPY scripts /app/scripts
