@@ -182,51 +182,51 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadInitial: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [datasetsResult, playbooksResult, sessionsResult, tradesResult, latestResult] = await Promise.allSettled([
+      const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
         getDatasets(),
         getPlaybooks(),
         getBacktests(),
         getTrades(),
-        getLatestBacktest().catch((error) => {
-          if (error instanceof ApiError && error.status === 404) {
-            return null;
-          }
-          throw error;
-        }),
       ]);
       const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
       const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
       const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
       const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
-      const latestState = latestResult.status === "fulfilled" ? latestResult.value : null;
-      const meta = latestState ? await getMeta(latestState.session.id) : null;
-      const state = latestState && meta ? await ensureReplayContext(latestState, meta) : null;
-      const window = state
-        ? await loadWindow(
-            state.session.current_offset,
-            state.session.id,
-            state.session.start_offset,
-          )
-        : { bars: [], barOffset: 0 };
-      set((current) => ({
+      set({
         datasets,
-        meta,
-        state,
         playbooks,
         resultSessions,
         resultTrades,
-        bars: window.bars,
-        barOffset: window.barOffset,
         error: firstRejectedMessage([
           datasetsResult,
           playbooksResult,
           sessionsResult,
           tradesResult,
-          latestResult,
         ]),
         isLoading: false,
-        replaySeekVersion: state ? current.replaySeekVersion + 1 : current.replaySeekVersion,
-      }));
+      });
+
+      void loadLatestReplayContext()
+        .then((context) => {
+          if (!context) {
+            return;
+          }
+          set((current) => {
+            if (current.state && current.state.session.id !== context.state.session.id) {
+              return {};
+            }
+            return {
+              meta: context.meta,
+              state: context.state,
+              bars: context.window.bars,
+              barOffset: context.window.barOffset,
+              replaySeekVersion: current.replaySeekVersion + 1,
+            };
+          });
+        })
+        .catch((error) => {
+          set((current) => ({ error: current.error ?? toErrorMessage(error) }));
+        });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
     }
@@ -621,6 +621,27 @@ async function loadResultsData() {
     getTrades(),
   ]);
   return { resultSessions, resultTrades };
+}
+
+async function loadLatestReplayContext() {
+  const latestState = await getLatestBacktest().catch((error) => {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  });
+  if (!latestState) {
+    return null;
+  }
+
+  const meta = await getMeta(latestState.session.id);
+  const state = await ensureReplayContext(latestState, meta);
+  const window = await loadWindow(
+    state.session.current_offset,
+    state.session.id,
+    state.session.start_offset,
+  );
+  return { meta, state, window };
 }
 
 function mergeActiveTradeState(

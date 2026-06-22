@@ -55,6 +55,12 @@ PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
 npm test
 ```
 
+Run Graphify after code changes so the code graph stays current:
+
+```bash
+graphify update .
+```
+
 If Docker is available, also run:
 
 ```bash
