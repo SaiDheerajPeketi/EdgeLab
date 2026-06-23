@@ -71,11 +71,7 @@ The open frontend subscribes to `/api/datasets/stream` over WebSocket, so CSV ra
 
 The upgraded backend uses `backend/trade_journal_v2.db` by default. The current SQLite bootstrap intentionally recreates the schema when the internal schema version changes, so incompatible local data is dropped instead of migrated. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
 
-Backfill default playbooks for already-created beta users with:
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
-```
+Startup and seed commands do not create default user accounts, strategies, or playbooks.
 
 ## Deployment Files
 

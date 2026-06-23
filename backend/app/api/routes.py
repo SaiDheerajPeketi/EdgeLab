@@ -89,7 +89,6 @@ from app.schemas import (
 )
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
-from app.services.default_playbooks import ensure_default_playbooks
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 from app.services.trade_imports import import_trade_csv
@@ -338,7 +337,6 @@ def grant_beta_access_response(
         user.provider = provider
 
     program = sync_beta_program(db)
-    ensure_default_playbooks(db, user.id)
     user.last_login_at = utcnow()
     session = issue_beta_session(db, user)
     return BetaAccessResponse(session=session, program=program)
@@ -350,9 +348,7 @@ def market_data_error_response(exc: Exception) -> HTTPException:
         return HTTPException(
             status_code=503,
             detail=(
-                "Market data CSV is unavailable. "
-                "Add CSV datasets under EDGELAB_DATASETS_ROOT or set EDGELAB_CSV_PATH "
-                "for the legacy single-file replay path."
+                "Market data is unavailable. Add market data in the app before starting a replay."
             ),
         )
     return HTTPException(status_code=400, detail=str(exc))
@@ -1437,7 +1433,7 @@ async def angelone_stream(websocket: WebSocket) -> None:
     try:
         import websockets
     except Exception:
-        await websocket.send_json({"type": "error", "message": "The backend is missing the websockets package. Install backend requirements and restart the server."})
+        await websocket.send_json({"type": "error", "message": "Live streaming is not available right now."})
         await websocket.close()
         return
 

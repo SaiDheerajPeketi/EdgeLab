@@ -5923,7 +5923,6 @@ function stringRecordValue(record: Record<string, unknown>, ...keys: string[]) {
 }
 
 function GlobalSettingsPage({
-  datasets,
   playbooks,
   sessions,
   trades,
@@ -5934,31 +5933,16 @@ function GlobalSettingsPage({
   trades: Trade[];
 }) {
   const { confirm, confirmDialog } = useThemedConfirm();
-  const { catalog, refreshCatalog, refreshStatus } = useLiveMarketCatalog();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [bundle, setBundle] = useState<AppDataBundle | null>(null);
   const [fileName, setFileName] = useState("");
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [catalogStatus, setCatalogStatus] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const datasetTimeframes = datasets?.instruments.reduce((sum, instrument) => sum + instrument.timeframes.length, 0) ?? 0;
   const bundleRows = useMemo(() => bundle ? appDataBundleRows(bundle) : [], [bundle]);
   const bundleTotalRows = useMemo(() => bundleRows.reduce((sum, row) => sum + row.count, 0), [bundleRows]);
-
-  async function refreshLiveCatalog() {
-    setCatalogError(null);
-    setCatalogStatus(null);
-    try {
-      const nextCatalog = await refreshCatalog();
-      setCatalogStatus(`Refreshed ${nextCatalog.binance.length.toLocaleString()} Binance pairs, ${nextCatalog.dukascopy.length.toLocaleString()} Dukascopy instruments, and ${nextCatalog.angelone.length.toLocaleString()} Angel One instruments`);
-    } catch (refreshError) {
-      setCatalogError(importErrorMessage(refreshError));
-    }
-  }
 
   async function exportBundle() {
     setIsExporting(true);
@@ -6011,7 +5995,7 @@ function GlobalSettingsPage({
     }
     const confirmed = await confirm({
       confirmLabel: "Import bundle",
-      detail: "This replaces current sessions, trades, orders, playbooks, Journal data, notes, chart layouts, app settings, and dataset catalog metadata with the selected bundle.",
+      detail: "This replaces current sessions, trades, orders, playbooks, Journal data, notes, chart layouts, app settings, and market data preferences with the selected bundle.",
       message: (
         <>
           Replace current app data with <span className="font-semibold text-white">{fileName || "this bundle"}</span>?
@@ -6048,45 +6032,7 @@ function GlobalSettingsPage({
         <ResultMetricCard icon={PlaySquare} label="Backtest sessions" value={String(sessions.length)} />
         <ResultMetricCard icon={ClipboardList} label="Backtest trades" value={String(trades.length)} />
         <ResultMetricCard icon={BookOpen} label="Playbooks" value={String(playbooks.length)} />
-        <ResultMetricCard icon={Database} label="Dataset assets" value={String(datasets?.instruments.length ?? 0)} />
       </div>
-
-      <FeatureCard>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <CardLabel icon={Globe2} label="Live market catalog" />
-            <h2 className="mt-3 text-xl font-semibold text-white">Available tickers and instruments</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              The Live workspace uses this cached catalog for Binance, Dukascopy, and Angel One search suggestions.
-            </p>
-          </div>
-          <button
-            className="control-button workspace-tab-active h-10"
-            disabled={refreshStatus === "loading"}
-            onClick={() => void refreshLiveCatalog()}
-            type="button"
-          >
-            <RefreshCw className={refreshStatus === "loading" ? "animate-spin" : ""} size={15} />
-            {refreshStatus === "loading" ? "Refreshing..." : "Refresh catalog"}
-          </button>
-        </div>
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          <MiniMetric label="Binance spot pairs" value={catalog.binance.length.toLocaleString()} />
-          <MiniMetric label="Dukascopy instruments" value={catalog.dukascopy.length.toLocaleString()} />
-          <MiniMetric label="Angel One instruments" value={catalog.angelone.length.toLocaleString()} />
-          <MiniMetric label="Last refresh" value={catalog.refreshedAt ? formatDateTime(catalog.refreshedAt) : "Not refreshed"} />
-        </div>
-        {(catalogStatus || refreshStatus === "error") && (
-          <div className={`mt-4 rounded-md border px-3 py-2 text-sm ${
-            refreshStatus === "error"
-              ? "border-rose-300/20 bg-rose-300/10 text-rose-100"
-              : "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
-          }`}
-          >
-            {refreshStatus === "error" ? catalogError ?? "Catalog refresh failed" : catalogStatus}
-          </div>
-        )}
-      </FeatureCard>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <FeatureCard>
@@ -6095,7 +6041,7 @@ function GlobalSettingsPage({
               <CardLabel icon={FileDown} label="Export data" />
               <h2 className="mt-3 text-xl font-semibold text-white">Create a complete app bundle</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                Downloads a JSON bundle with backtest records, Journal data, notes, playbooks, chart layouts, presets, order defaults, and dataset catalog settings.
+                Downloads a JSON bundle with backtest records, Journal data, notes, playbooks, chart layouts, presets, order defaults, and market data preferences.
               </p>
             </div>
             <span className="status-pill h-8 px-2 text-[11px]">JSON bundle</span>
@@ -6103,10 +6049,10 @@ function GlobalSettingsPage({
           <div className="mt-4 grid gap-2 md:grid-cols-3">
             <MiniMetric label="Sessions" value={String(sessions.length)} />
             <MiniMetric label="Trades" value={String(trades.length)} />
-            <MiniMetric label="Timeframes" value={String(datasetTimeframes)} />
+            <MiniMetric label="Playbooks" value={String(playbooks.length)} />
           </div>
           <div className="mt-4 rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm leading-6 text-slate-400">
-            Market CSV files are referenced by path and are not embedded in the JSON export.
+            Large market data files are kept outside app-data bundles.
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             {exportStatus ? (
@@ -6199,7 +6145,7 @@ function FinanceTrackerPage({ journalAccounts }: { journalAccounts: LiveJournalA
   const [accountFilter, setAccountFilter] = useState<"ALL" | FinanceAccountKind>("ALL");
   const [entryTypeFilter, setEntryTypeFilter] = useState<"ALL" | FinanceEntryType>("ALL");
   const [accountKind, setAccountKind] = useState<FinanceAccountKind>("broker");
-  const [accountName, setAccountName] = useState("Primary Broker");
+  const [accountName, setAccountName] = useState("");
   const [provider, setProvider] = useState("");
   const [accountCurrency, setAccountCurrency] = useState("USD");
   const [accountColor, setAccountColor] = useState("#22d3ee");
@@ -11226,7 +11172,7 @@ function JournalAccountsPage({
 }: JournalPageProps) {
   const { confirm, confirmDialog } = useThemedConfirm();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(accounts[0]?.id ?? null);
-  const [name, setName] = useState("Primary Account");
+  const [name, setName] = useState("");
   const [broker, setBroker] = useState(settings.default_broker);
   const [currency, setCurrency] = useState(settings.default_currency);
   const [initialBalance, setInitialBalance] = useState("100000");
@@ -16103,11 +16049,6 @@ function PlaybookRuleTextArea({
 }
 
 function SettingsPage({
-  datasets,
-  onRefreshDatasets,
-  onGetDatasetRefreshStatus,
-  onUpdateDatasetAsset,
-  onUpdateDatasetSettings,
   strategies,
 }: SharedPageProps) {
   const sections: Array<{
@@ -16116,12 +16057,6 @@ function SettingsPage({
     id: SettingsSectionId;
     label: string;
   }> = [
-    {
-      description: "Dataset root, asset metadata, and CSV refresh",
-      icon: Database,
-      id: "data",
-      label: "Data imports",
-    },
     {
       description: "Order ticket defaults and chart-line confirmations",
       icon: SlidersHorizontal,
@@ -16141,7 +16076,7 @@ function SettingsPage({
       label: "Tags",
     },
   ];
-  const [active, setActive] = useState<SettingsSectionId>("data");
+  const [active, setActive] = useState<SettingsSectionId>("orders");
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
   const activeSection = sections.find((section) => section.id === active) ?? sections[0];
 
@@ -16187,15 +16122,7 @@ function SettingsPage({
               <span className="status-pill">Personal workspace</span>
             </div>
           </div>
-          {active === "data" ? (
-            <BacktestDataSettings
-              datasets={datasets}
-              onRefreshDatasets={onRefreshDatasets}
-              onGetDatasetRefreshStatus={onGetDatasetRefreshStatus}
-              onUpdateDatasetAsset={onUpdateDatasetAsset}
-              onUpdateDatasetSettings={onUpdateDatasetSettings}
-            />
-          ) : active === "orders" ? (
+          {active === "orders" ? (
             <BacktestOrderSettings onStatusChange={setSettingsStatus} />
           ) : active === "notes" ? (
             <BacktestNoteTemplateSettings />
@@ -16208,7 +16135,7 @@ function SettingsPage({
   );
 }
 
-type SettingsSectionId = "data" | "orders" | "notes" | "tags";
+type SettingsSectionId = "orders" | "notes" | "tags";
 
 function BacktestOrderSettings({ onStatusChange }: { onStatusChange: (status: string | null) => void }) {
   const [confirmOrderLineModifications, setConfirmOrderLineModifications] =
@@ -19094,9 +19021,9 @@ function downloadTextFile(filename: string, contents: string, type: string) {
 const APP_DATA_TABLE_LABELS: Record<string, string> = {
   app_storage: "App storage",
   backtest_sessions: "Backtest sessions",
-  dataset_assets: "Dataset assets",
-  dataset_settings: "Dataset settings",
-  dataset_timeframes: "Dataset timeframes",
+  dataset_assets: "Market instruments",
+  dataset_settings: "Market data preferences",
+  dataset_timeframes: "Market timeframes",
   executions: "Executions",
   orders: "Orders",
   playbooks: "Playbooks",
@@ -19693,7 +19620,7 @@ function useLiveJournalData(): LiveJournalController {
       const sessions = current.sessions.filter((session) => session.id !== sessionId);
       return {
         ...current,
-        sessions: sessions.length > 0 ? sessions : [defaultLiveSession(current.accounts, current.settings)],
+        sessions,
         trades: current.trades.filter((trade) => trade.session_id !== sessionId),
       };
     });
@@ -19898,7 +19825,7 @@ function sanitizeLiveJournalData(value: unknown): LiveJournalData {
     ? accountsFromStorage
     : buildLegacyJournalAccounts(rawSessions);
   const settings = sanitizeLiveJournalSettings(candidate.settings, accounts);
-  const sessions = (rawSessions.length > 0 ? rawSessions : [defaultLiveSession(accounts, settings)]).map((session) =>
+  const sessions = rawSessions.map((session) =>
     normalizeLiveJournalSession(session, accounts, settings),
   );
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
@@ -19931,22 +19858,18 @@ function sanitizeLiveJournalData(value: unknown): LiveJournalData {
 
 function defaultLiveJournalData(): LiveJournalData {
   const settings = defaultLiveJournalSettings();
-  const account = defaultLiveAccount(settings);
   return {
-    accounts: [account],
+    accounts: [],
     playbooks: [],
-    sessions: [defaultLiveSession([account], settings)],
-    settings: {
-      ...settings,
-      default_account_ids: [account.id],
-    },
+    sessions: [],
+    settings,
     trades: [],
   };
 }
 
 function defaultLiveJournalSettings(): LiveJournalSettings {
   return {
-    default_account_ids: [1],
+    default_account_ids: [],
     default_broker: "Manual",
     default_commission_mode: normalizeCommissionMode(loadOrderCommissionMode()),
     default_commission_value: costValueForPayload(
@@ -19967,22 +19890,8 @@ function defaultLiveJournalSettings(): LiveJournalSettings {
   };
 }
 
-function defaultLiveAccount(settings = defaultLiveJournalSettings()): LiveJournalAccount {
-  return {
-    broker: settings.default_broker || "Manual",
-    color: "#22d3ee",
-    created_at: new Date().toISOString(),
-    currency: normalizeCurrencyCode(settings.default_currency),
-    id: 1,
-    initial_balance: 100000,
-    name: "Primary Journal Account",
-    notes: "",
-    status: "ACTIVE",
-  };
-}
-
 function defaultLiveSession(
-  accounts: LiveJournalAccount[] = [defaultLiveAccount()],
+  accounts: LiveJournalAccount[] = [],
   settings = defaultLiveJournalSettings(),
 ): LiveJournalSession {
   return {
@@ -19997,7 +19906,7 @@ function defaultLiveSession(
     id: 1,
     initial_balance: 0,
     instrument: "Manual",
-    name: "Primary Live Journal",
+    name: "Manual Journal",
     notes: "",
     playbook_id: null,
     status: "ACTIVE",
@@ -20073,7 +19982,7 @@ function sanitizeLiveJournalSettings(
 
 function buildLegacyJournalAccounts(sessions: LiveJournalSession[]) {
   if (sessions.length === 0) {
-    return [defaultLiveAccount()];
+    return [];
   }
   const palette = ["#22d3ee", "#34d399", "#f59e0b", "#a78bfa", "#fb7185", "#60a5fa"];
   const accounts: LiveJournalAccount[] = [];
@@ -20096,7 +20005,7 @@ function buildLegacyJournalAccounts(sessions: LiveJournalSession[]) {
       status: "ACTIVE",
     });
   }
-  return accounts.length > 0 ? accounts : [defaultLiveAccount()];
+  return accounts;
 }
 
 function legacyJournalSessionAccountIds(

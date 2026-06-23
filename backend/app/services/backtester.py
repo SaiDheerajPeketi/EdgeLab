@@ -86,8 +86,7 @@ class BacktestService:
 
         if csv_path is None:
             raise FileNotFoundError(
-                "No dataset CSV is configured. Add CSV files under EDGELAB_DATASETS_ROOT "
-                "or set EDGELAB_CSV_PATH for the legacy single-file replay path."
+                "No market data is available. Add market data before starting a replay."
             )
         symbol = symbol or Path(csv_path).stem.upper()
         name = payload.name or f"{symbol} {timeframe or 'Replay'}"
@@ -1327,7 +1326,7 @@ class BacktestService:
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
         if not session.csv_path and self.market_data is None:
             raise FileNotFoundError(
-                "Backtest session has no CSV path and no legacy EDGELAB_CSV_PATH is configured."
+                "Market data is unavailable for this replay session."
             )
         return self.market_data_for_path(
             session.csv_path or str(self.market_data.csv_path),

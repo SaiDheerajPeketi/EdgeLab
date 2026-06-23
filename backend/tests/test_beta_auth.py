@@ -52,8 +52,8 @@ def test_beta_access_waitlists_after_seats_fill(monkeypatch):
     assert second.session.user.beta_position == 1
     assert second.program.seats_taken == 1
     assert second.program.waitlist_count == 1
-    assert first_playbooks == 3
-    assert second_playbooks == 3
+    assert first_playbooks == 0
+    assert second_playbooks == 0
 
 
 def test_beta_session_can_be_read_and_deleted(monkeypatch):

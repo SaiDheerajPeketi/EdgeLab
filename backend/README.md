@@ -18,11 +18,7 @@ Install audit tooling with:
 pip install -r backend/requirements-dev.txt
 ```
 
-Backfill default playbooks for already-created beta users from the repository root with:
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed.py
-```
+Startup and seed commands do not create default user accounts, strategies, or playbooks.
 
 The app scans dataset CSV folders from `../datasets` by default. Override it with:
 
@@ -166,4 +162,4 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 
 - Tenant-scoped tables use `user_id` foreign keys and the API resolves ownership only from the authenticated beta session.
 - Protected routes require the beta session JWT, which is signed with `EDGELAB_JWT_SECRET`.
-- Default playbooks are provisioned per user on first sign-in; the seed script only backfills users that already exist.
+- User accounts, strategies, and playbooks are created only from explicit user actions.
