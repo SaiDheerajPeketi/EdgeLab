@@ -1273,11 +1273,16 @@ function LiveMarketsPage() {
   const [binanceSearch, setBinanceSearch] = useState("");
   const [dukascopySearch, setDukascopySearch] = useState("");
   const [angelOneSearch, setAngelOneSearch] = useState("");
+  const [isRenamingWatchlist, setIsRenamingWatchlist] = useState(false);
+  const [watchlistNameDraft, setWatchlistNameDraft] = useState("");
   const [angelOneCredentials, setAngelOneCredentials] = useState<AngelOneCredentials>(() => defaultAngelOneCredentials());
   const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
+  const [cachedBarsBySymbol, setCachedBarsBySymbol] = useState<Record<string, Candle[]>>({});
   const [liveBars, setLiveBars] = useState<Candle[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
   const [feedError, setFeedError] = useState<string | null>(null);
+  const watchlistNameInputRef = useRef<HTMLInputElement | null>(null);
+  const cachedBarsBySymbolRef = useRef(cachedBarsBySymbol);
   const selectedTicker = selectedLiveSymbol ? tickers[liveSymbolKey(selectedLiveSymbol)] ?? null : null;
   const binanceSearchResults = useMemo(
     () => filterBinanceInstruments(catalog.binance, binanceSearch),
@@ -1305,6 +1310,15 @@ function LiveMarketsPage() {
   }, [selectedWatchlistId, watchlists]);
 
   useEffect(() => {
+    cachedBarsBySymbolRef.current = cachedBarsBySymbol;
+  }, [cachedBarsBySymbol]);
+
+  useEffect(() => {
+    setIsRenamingWatchlist(false);
+    setWatchlistNameDraft(selectedWatchlist?.name ?? "");
+  }, [selectedWatchlist?.id]);
+
+  useEffect(() => {
     if (symbols.length === 0) {
       setSelectedSymbolKey("");
       return;
@@ -1313,6 +1327,35 @@ function LiveMarketsPage() {
       setSelectedSymbolKey(liveSymbolKey(symbols[0]));
     }
   }, [selectedSymbolKey, symbols]);
+
+  useEffect(() => {
+    if (!isRenamingWatchlist) {
+      return;
+    }
+    watchlistNameInputRef.current?.focus();
+    watchlistNameInputRef.current?.select();
+  }, [isRenamingWatchlist]);
+
+  useEffect(() => {
+    if (!selectedLiveSymbol) {
+      setLiveBars([]);
+      return;
+    }
+    const cachedBars = cachedBarsBySymbol[liveSymbolKey(selectedLiveSymbol)] ?? [];
+    setLiveBars(cachedBars);
+    if (cachedBars.length === 0 || selectedLiveSymbol.feed === "angelone") {
+      return;
+    }
+    const cachedTicker = liveTickerFromCandles(selectedLiveSymbol, cachedBars);
+    if (!cachedTicker) {
+      return;
+    }
+    setTickers((current) =>
+      current[liveSymbolKey(selectedLiveSymbol)]
+        ? current
+        : { ...current, [liveSymbolKey(selectedLiveSymbol)]: cachedTicker },
+    );
+  }, [cachedBarsBySymbol, selectedLiveSymbol]);
 
   useEffect(() => {
     const binanceSymbols = symbols.filter((item) => item.feed === "binance").map((item) => item.symbol);
@@ -1338,18 +1381,23 @@ function LiveMarketsPage() {
       setLiveBars([]);
       return;
     }
+    const symbolKey = liveSymbolKey(selectedLiveSymbol);
+    const cachedBars = cachedBarsBySymbolRef.current[symbolKey] ?? [];
     if (selectedLiveSymbol.feed === "angelone") {
-      setLiveBars([]);
+      setLiveBars(cachedBars);
       return;
     }
     const controller = new AbortController();
-    setLiveBars([]);
     const candleRequest = selectedLiveSymbol.feed === "binance"
       ? fetchBinanceKlines(selectedLiveSymbol.symbol, "1m", controller.signal)
       : fetchDukascopyCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
     void candleRequest
       .then((nextBars) => {
         setLiveBars(nextBars);
+        setCachedBarsBySymbol((current) => ({
+          ...current,
+          [symbolKey]: nextBars.slice(-500),
+        }));
         setFeedError(null);
         if (selectedLiveSymbol.feed === "dukascopy") {
           const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
@@ -1360,7 +1408,7 @@ function LiveMarketsPage() {
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          setFeedError(importErrorMessage(error));
+          setFeedError(liveFeedErrorMessage(error, cachedBars.length > 0));
         }
       });
     return () => controller.abort();
@@ -1407,7 +1455,15 @@ function LiveMarketsPage() {
       if (isBinanceKlinePayload(payload) && payload.s === selectedLiveSymbol?.symbol) {
         const candle = liveCandleFromBinance(payload);
         if (candle) {
-          setLiveBars((current) => upsertLiveCandle(current, candle));
+          const symbolKey = liveSymbolStorageKey("binance", payload.s);
+          setLiveBars((current) => {
+            const nextBars = upsertLiveCandle(current, candle);
+            setCachedBarsBySymbol((cache) => ({
+              ...cache,
+              [symbolKey]: nextBars.slice(-500),
+            }));
+            return nextBars;
+          });
         }
       }
     };
@@ -1482,7 +1538,15 @@ function LiveMarketsPage() {
       if (selectedLiveSymbol && liveSymbolKey(selectedLiveSymbol) === liveSymbolKey(tickSymbol)) {
         const candle = liveCandleFromAngelOneTick(message.tick);
         if (candle) {
-          setLiveBars((current) => upsertLiveTickCandle(current, candle));
+          const symbolKey = liveSymbolKey(tickSymbol);
+          setLiveBars((current) => {
+            const nextBars = upsertLiveTickCandle(current, candle);
+            setCachedBarsBySymbol((cache) => ({
+              ...cache,
+              [symbolKey]: nextBars.slice(-500),
+            }));
+            return nextBars;
+          });
         }
       }
     };
@@ -1509,6 +1573,10 @@ function LiveMarketsPage() {
             return;
           }
           setLiveBars(nextBars);
+          setCachedBarsBySymbol((current) => ({
+            ...current,
+            [liveSymbolKey(selectedLiveSymbol)]: nextBars.slice(-500),
+          }));
           const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
           if (ticker) {
             setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
@@ -1545,6 +1613,34 @@ function LiveMarketsPage() {
     setWatchlists((current) => [...current, nextWatchlist]);
     setSelectedWatchlistId(id);
     setSelectedSymbolKey("");
+  }
+
+  function startWatchlistRename() {
+    if (!selectedWatchlist) {
+      return;
+    }
+    setWatchlistNameDraft(selectedWatchlist.name);
+    setIsRenamingWatchlist(true);
+  }
+
+  function cancelWatchlistRename() {
+    setWatchlistNameDraft(selectedWatchlist?.name ?? "");
+    setIsRenamingWatchlist(false);
+  }
+
+  function saveWatchlistRename() {
+    if (!selectedWatchlist) {
+      return;
+    }
+    const trimmedName = watchlistNameDraft.trim();
+    if (!trimmedName) {
+      return;
+    }
+    persistWatchlist({
+      ...selectedWatchlist,
+      name: trimmedName,
+    });
+    setIsRenamingWatchlist(false);
   }
 
   async function deleteWatchlist() {
@@ -1695,6 +1791,15 @@ function LiveMarketsPage() {
                     <Plus size={16} />
                   </button>
                   <button
+                    className={`icon-button h-10 w-10 ${isRenamingWatchlist ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100" : ""}`}
+                    disabled={!selectedWatchlist}
+                    onClick={startWatchlistRename}
+                    title="Rename watchlist"
+                    type="button"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
                     className="icon-button h-10 w-10 border-rose-300/20 text-rose-200 hover:bg-rose-300/10 hover:text-rose-100"
                     disabled={watchlists.length <= 1}
                     onClick={() => void deleteWatchlist()}
@@ -1707,15 +1812,43 @@ function LiveMarketsPage() {
               </div>
               <span className="status-pill h-8 px-2 text-[11px]">{selectedSourceLabel}</span>
             </div>
-            {selectedWatchlist && (
-              <label className="form-field mt-3">
-                Watchlist name
-                <input
-                  className="input-control h-10 normal-case tracking-normal"
-                  onChange={(event) => persistWatchlist({ ...selectedWatchlist, name: event.target.value })}
-                  value={selectedWatchlist.name}
-                />
-              </label>
+            {selectedWatchlist && isRenamingWatchlist && (
+              <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                  Rename watchlist
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <input
+                    ref={watchlistNameInputRef}
+                    className="input-control h-10 normal-case tracking-normal"
+                    onChange={(event) => setWatchlistNameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        saveWatchlistRename();
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelWatchlistRename();
+                      }
+                    }}
+                    value={watchlistNameDraft}
+                  />
+                  <button className="control-button h-10 px-3" onClick={cancelWatchlistRename} type="button">
+                    <X size={14} />
+                    Cancel
+                  </button>
+                  <button
+                    className="control-button h-10 border-cyan-300/30 bg-cyan-300/10 px-3 text-cyan-100 hover:bg-cyan-300/20"
+                    disabled={!watchlistNameDraft.trim()}
+                    onClick={saveWatchlistRename}
+                    type="button"
+                  >
+                    <Save size={14} />
+                    Save
+                  </button>
+                </div>
+              </div>
             )}
             <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-3">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -7932,6 +8065,16 @@ function inferImportSourceName(fileName: string) {
 
 function importErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected import error";
+}
+
+function liveFeedErrorMessage(error: unknown, hasCachedData: boolean) {
+  const message = importErrorMessage(error);
+  if (message === "Bad Gateway" || message.includes("502")) {
+    return hasCachedData
+      ? "Live feed is temporarily unavailable. Showing cached market data."
+      : "Live feed is temporarily unavailable for this symbol.";
+  }
+  return hasCachedData ? `Showing cached market data. ${message}` : message;
 }
 
 function DayViewPage({
