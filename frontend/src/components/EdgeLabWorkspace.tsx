@@ -6260,17 +6260,10 @@ function FinanceTrackerPage({ journalAccounts }: { journalAccounts: LiveJournalA
       let nextAccounts = current.accounts;
       let nextEntries = current.entries;
       let nextAccountId = nextNumericId(nextAccounts);
-      let nextEntryId = nextNumericId(nextEntries);
 
       for (const journalAccount of journalAccounts) {
         const existingAccount = nextAccounts.find((account) => account.journal_account_id === journalAccount.id);
         if (existingAccount) {
-          const depositEntry = financeDefaultDepositEntry(existingAccount, nextEntryId);
-          if (depositEntry && !financeAccountHasDefaultDeposit(existingAccount, nextEntries)) {
-            nextEntries = [depositEntry, ...nextEntries];
-            nextEntryId += 1;
-            changed = true;
-          }
           continue;
         }
         const account = sanitizeFinanceAccount({
@@ -6289,11 +6282,6 @@ function FinanceTrackerPage({ journalAccounts }: { journalAccounts: LiveJournalA
         });
         nextAccountId += 1;
         nextAccounts = [account, ...nextAccounts];
-        const depositEntry = financeDefaultDepositEntry(account, nextEntryId);
-        if (depositEntry) {
-          nextEntries = [depositEntry, ...nextEntries];
-          nextEntryId += 1;
-        }
         changed = true;
       }
 
@@ -19133,9 +19121,19 @@ function sanitizeFinanceTrackerData(value: unknown): FinanceTrackerData {
   const entries = rawEntries
     .map((entry) => sanitizeFinanceEntry(entry, validAccountIds))
     .filter((entry) => entry.amount > 0 && entry.date.trim().length > 0);
+  const seededAccountIds = new Set(
+    accounts
+      .filter((account) =>
+        isSeededFinanceAccount(account) &&
+        entries.every((entry) =>
+          entry.account_id !== account.id || isSeededFinanceDepositEntry(account, entry),
+        ),
+      )
+      .map((account) => account.id),
+  );
   return {
-    accounts,
-    entries,
+    accounts: accounts.filter((account) => !seededAccountIds.has(account.id)),
+    entries: entries.filter((entry) => entry.account_id == null || !seededAccountIds.has(entry.account_id)),
   };
 }
 
@@ -19242,12 +19240,31 @@ function financeDefaultDepositEntry(account: FinanceTrackerAccount, id: number):
   };
 }
 
-function financeAccountHasDefaultDeposit(account: FinanceTrackerAccount, entries: FinanceTrackerEntry[]) {
-  const defaultCategory = account.kind === "propFirm" ? "Challenge fee deposit" : "Initial deposit";
-  return entries.some((entry) =>
+function isSeededFinanceAccount(account: FinanceTrackerAccount) {
+  return (
+    account.kind === "broker" &&
+    account.journal_account_id === 1 &&
+    account.name === "Primary Journal Account" &&
+    account.provider === "Manual" &&
+    account.currency === "USD" &&
+    account.starting_balance === 100000 &&
+    account.notes === "" &&
+    account.status === "ACTIVE" &&
+    !account.breached
+  );
+}
+
+function isSeededFinanceDepositEntry(
+  account: FinanceTrackerAccount,
+  entry: FinanceTrackerEntry,
+) {
+  return (
     entry.account_id === account.id &&
     entry.type === "deposit" &&
-    entry.category === defaultCategory,
+    entry.category === "Initial deposit" &&
+    entry.amount === account.starting_balance &&
+    entry.currency === account.currency &&
+    entry.description === "Default deposit from the account initial balance."
   );
 }
 
@@ -19821,8 +19838,11 @@ function sanitizeLiveJournalData(value: unknown): LiveJournalData {
   const accountsFromStorage = Array.isArray(candidate.accounts)
     ? candidate.accounts.filter(isLiveJournalAccount).map(sanitizeLiveJournalAccount)
     : [];
+  const usedAccountIds = liveJournalUsedAccountIds(rawSessions, candidate.trades);
   const accounts = accountsFromStorage.length > 0
-    ? accountsFromStorage
+    ? accountsFromStorage.filter((account) =>
+        !isUnusedSeededLiveJournalAccount(account, usedAccountIds),
+      )
     : buildLegacyJournalAccounts(rawSessions);
   const settings = sanitizeLiveJournalSettings(candidate.settings, accounts);
   const sessions = rawSessions.map((session) =>
@@ -19953,6 +19973,49 @@ function sanitizeLiveJournalAccount(account: LiveJournalAccount): LiveJournalAcc
     notes: account.notes?.trim() ?? "",
     status: account.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE",
   };
+}
+
+function liveJournalUsedAccountIds(
+  sessions: LiveJournalSession[],
+  tradesValue: unknown,
+) {
+  const used = new Set<number>();
+  for (const session of sessions) {
+    for (const accountId of session.account_ids ?? []) {
+      if (typeof accountId === "number") {
+        used.add(accountId);
+      }
+    }
+  }
+  if (Array.isArray(tradesValue)) {
+    for (const item of tradesValue) {
+      if (!isPlainRecord(item) || !Array.isArray(item.account_ids)) {
+        continue;
+      }
+      for (const accountId of item.account_ids) {
+        if (typeof accountId === "number") {
+          used.add(accountId);
+        }
+      }
+    }
+  }
+  return used;
+}
+
+function isUnusedSeededLiveJournalAccount(
+  account: LiveJournalAccount,
+  usedAccountIds: Set<number>,
+) {
+  return (
+    !usedAccountIds.has(account.id) &&
+    account.id === 1 &&
+    account.name === "Primary Journal Account" &&
+    account.broker === "Manual" &&
+    account.currency === "USD" &&
+    account.initial_balance === 100000 &&
+    account.notes === "" &&
+    account.status === "ACTIVE"
+  );
 }
 
 function sanitizeLiveJournalSettings(
