@@ -12,8 +12,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricsBar } from "../MetricsBar";
 import { PlaybookBoard } from "../PlaybookBoard";
+import { ReportsPanel } from "../ReportsPanel";
+import { ResultsPanel } from "../ResultsPanel";
+import { TradeLog } from "../TradeLog";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
-import type { Metrics, Playbook, Trade } from "../../lib/api";
+import type { BacktestSession, Metrics, Playbook, Trade } from "../../lib/api";
+import { isRichTextEmpty, normalizeStoredNoteHtml, sanitizeRichTextHtml } from "../../lib/richText";
+import { formatMarketSymbol } from "../../lib/symbols";
+import { tradeStrategyName } from "../../lib/strategy";
 
 type DemoBar = {
   close: number;
@@ -34,6 +40,7 @@ type DemoMarker = {
 
 type DemoScenario = {
   bars: DemoBar[];
+  featuredTradeId?: number;
   id: string;
   label: string;
   markerNote: string;
@@ -41,6 +48,7 @@ type DemoScenario = {
   metrics: Metrics;
   note: string;
   playbooks: Playbook[];
+  session: BacktestSession;
   symbol: string;
   timeframe: string;
   trades: Trade[];
@@ -194,6 +202,58 @@ function createTrade({
     mistake_tags: mistakeTags,
     emotional_state: emotionalState,
     screenshot_url: null,
+  };
+}
+
+function createSession({
+  currentOffset = 128,
+  endOffset = 176,
+  id,
+  instrument,
+  name,
+  realizedPnl,
+  startOffset = 0,
+  strategyName,
+  symbol,
+  timeframe,
+}: {
+  currentOffset?: number;
+  endOffset?: number;
+  id: number;
+  instrument: string;
+  name: string;
+  realizedPnl: number;
+  startOffset?: number;
+  strategyName: string;
+  symbol: string;
+  timeframe: string;
+}): BacktestSession {
+  return {
+    id,
+    name,
+    symbol,
+    instrument,
+    timeframe,
+    csv_path: null,
+    currency: "USD",
+    timezone: "America/New_York",
+    pnl_multiplier: 1,
+    strategy_name: strategyName,
+    playbook_id: null,
+    start_at: "2026-06-10T09:30:00Z",
+    end_at: "2026-06-18T16:00:00Z",
+    start_offset: startOffset,
+    end_offset: endOffset,
+    status: "ACTIVE",
+    current_offset: currentOffset,
+    initial_balance: 25000,
+    realized_pnl: realizedPnl,
+    default_commission_mode: "NONE",
+    default_commission_value: 0,
+    default_fee_mode: "NONE",
+    default_fee_value: 0,
+    created_at: "2026-06-01T00:00:00Z",
+    updated_at: "2026-06-24T00:00:00Z",
   };
 }
 
@@ -426,6 +486,15 @@ const SCENARIOS: DemoScenario[] = [
       { index: 104, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Review" },
     ]),
     metrics: buildMetrics(1426, 0.581, 31, [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426]),
+    session: createSession({
+      id: 7,
+      instrument: "Nasdaq Futures",
+      name: "London Momentum Replay",
+      realizedPnl: 1426,
+      strategyName: "London Break",
+      symbol: "NQ",
+      timeframe: "5m",
+    }),
     trades: [
       createTrade({
         id: 101,
@@ -478,7 +547,17 @@ const SCENARIOS: DemoScenario[] = [
       { index: 46, position: "belowBar", shape: "circle", color: "#f59e0b", text: "Tag" },
       { index: 89, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Re-entry" },
     ]),
+    featuredTradeId: 202,
     metrics: buildMetrics(986, 0.544, 24, [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986]),
+    session: createSession({
+      id: 8,
+      instrument: "Apple",
+      name: "Review Pass: Failed Countertrend",
+      realizedPnl: 986,
+      strategyName: "NY Reversal",
+      symbol: "AAPL",
+      timeframe: "15m",
+    }),
     trades: [
       createTrade({
         id: 201,
@@ -532,6 +611,17 @@ const SCENARIOS: DemoScenario[] = [
       { index: 118, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Close" },
     ]),
     metrics: buildMetrics(1874, 0.603, 37, [0, 164, 298, 552, 488, 736, 924, 1160, 1318, 1514, 1688, 1874]),
+    session: createSession({
+      currentOffset: 214,
+      endOffset: 240,
+      id: 9,
+      instrument: "Euro FX",
+      name: "Results Snapshot: London to NY",
+      realizedPnl: 1874,
+      strategyName: "Trend Continuation",
+      symbol: "EURUSD",
+      timeframe: "5m",
+    }),
     trades: [
       createTrade({
         id: 301,
@@ -801,10 +891,192 @@ function MarketingCandleSurface({
   );
 }
 
+function MarketingReplaySurface({ scenario }: { scenario: DemoScenario }) {
+  return <PlaybookBoard playbooks={scenario.playbooks} trades={scenario.trades} />;
+}
+
+function MarketingReviewSurface({
+  scenario,
+  selectedTrade,
+  onInspectTrade,
+}: {
+  scenario: DemoScenario;
+  selectedTrade: Trade | null;
+  onInspectTrade: (trade: Trade) => void;
+}) {
+  const playbookById = useMemo(
+    () => new Map(scenario.playbooks.map((playbook) => [playbook.id, playbook])),
+    [scenario.playbooks],
+  );
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="terminal-panel p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+              Review Notes
+            </div>
+            <h3 className="mt-2 text-base font-semibold text-white">
+              {selectedTrade ? `Trade #${selectedTrade.id}` : "Select a trade"}
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Notes, tags, and context pulled from the same review language used in the app.
+            </p>
+          </div>
+          <span className="status-pill">
+            {selectedTrade?.side ?? "Review"}
+          </span>
+        </div>
+
+        {selectedTrade ? (
+          <div className="mt-4 grid gap-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <ReviewMetric
+                label="Instrument"
+                value={formatMarketSymbol(scenario.session.symbol)}
+              />
+              <ReviewMetric
+                label="Strategy"
+                value={tradeStrategyName(selectedTrade, scenario.session)}
+              />
+              <ReviewMetric
+                label="Playbook"
+                value={playbookById.get(selectedTrade.playbook_id ?? -1)?.name ?? "Unassigned"}
+              />
+              <ReviewMetric
+                label="Net P&L"
+                tone={selectedTrade.realized_pnl >= 0 ? "text-emerald-300" : "text-rose-300"}
+                value={new Intl.NumberFormat("en-US", {
+                  style: "currency",
+                  currency: scenario.session.currency ?? "USD",
+                  maximumFractionDigits: 2,
+                }).format(selectedTrade.realized_pnl)}
+              />
+            </div>
+
+            <div className="rounded-md bg-ink-950 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Backtest Notes
+              </div>
+              {isRichTextEmpty(selectedTrade.notes) ? (
+                <p className="mt-3 text-sm text-slate-500">No notes yet</p>
+              ) : (
+                <div
+                  className="notebook-rich-note mt-3 text-sm text-slate-300"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeRichTextHtml(normalizeStoredNoteHtml(selectedTrade.notes)),
+                  }}
+                />
+              )}
+            </div>
+
+            <div className="rounded-md bg-ink-950 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Mistake Tags
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedTrade.mistake_tags.length > 0 ? (
+                  selectedTrade.mistake_tags.map((tag) => (
+                    <span
+                      className="inline-flex items-center rounded bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-100"
+                      key={tag}
+                    >
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded bg-white/5 px-2 py-1 text-xs text-slate-500">
+                    No mistake tags
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <TradeLog
+        currency={scenario.session.currency ?? "USD"}
+        onInspect={onInspectTrade}
+        tradeContext={(trade) => ({
+          currency: scenario.session.currency ?? "USD",
+          instrument: formatMarketSymbol(scenario.session.symbol),
+          instrumentDetail: `${scenario.session.timeframe ?? "M1"} · ${scenario.session.name}`,
+          strategy: tradeStrategyName(trade, scenario.session),
+        })}
+        trades={scenario.trades}
+      />
+    </div>
+  );
+}
+
+function MarketingResultsSurface({ scenario }: { scenario: DemoScenario }) {
+  return (
+    <div className="grid gap-4">
+      <section className="terminal-panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+              Day-by-day proof
+            </div>
+            <h3 className="mt-2 text-base font-semibold text-white">
+              Results that still trace back to the session
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              The landing widget now reuses the same in-app results workspace, then carries that into day-level analysis.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">
+              {formatMarketSymbol(scenario.session.symbol)} · {scenario.session.timeframe}
+            </span>
+            <span className="status-pill">
+              {scenario.metrics.total_trades} closed
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <ResultsPanel
+        activeSessionId={scenario.session.id}
+        currency={scenario.session.currency ?? "USD"}
+        sessions={[scenario.session]}
+        trades={scenario.trades}
+        view="overview"
+      />
+
+      <ReportsPanel currency={scenario.session.currency ?? "USD"} metrics={scenario.metrics} />
+    </div>
+  );
+}
+
+function ReviewMetric({
+  label,
+  tone = "text-slate-100",
+  value,
+}: {
+  label: string;
+  tone?: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md bg-ink-950 px-3 py-2">
+      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</div>
+      <div className={`mt-1 text-sm font-semibold ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
 export function HeroDemo() {
   const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [autoplayActive, setAutoplayActive] = useState(true);
+  const [selectedReviewTradeId, setSelectedReviewTradeId] = useState<number | null>(
+    SCENARIOS.find((item) => item.id === "review")?.featuredTradeId ??
+      SCENARIOS.find((item) => item.id === "review")?.trades[0]?.id ??
+      null,
+  );
   const initialCursor = Math.max(0, Math.min(78, (SCENARIOS[0]?.bars.length ?? 1) - 1));
   const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -819,10 +1091,28 @@ export function HeroDemo() {
     () => SCENARIOS.find((item) => item.id === visibleScenarioId) ?? SCENARIOS[0],
     [visibleScenarioId],
   );
+  const selectedReviewTrade = useMemo(() => {
+    if (scenario.id !== "review") {
+      return null;
+    }
+    return (
+      scenario.trades.find((trade) => trade.id === selectedReviewTradeId) ??
+      scenario.trades.find((trade) => trade.id === scenario.featuredTradeId) ??
+      scenario.trades[0] ??
+      null
+    );
+  }, [scenario, selectedReviewTradeId]);
 
   useEffect(() => {
     selectedScenarioIdRef.current = selectedScenarioId;
   }, [selectedScenarioId]);
+
+  useEffect(() => {
+    if (scenario.id !== "review") {
+      return;
+    }
+    setSelectedReviewTradeId(scenario.featuredTradeId ?? scenario.trades[0]?.id ?? null);
+  }, [scenario]);
 
   useEffect(() => {
     return () => {
@@ -846,7 +1136,7 @@ export function HeroDemo() {
         }
         return current + 1;
       });
-    }, 220);
+    }, 280);
 
     return () => window.clearInterval(timer);
   }, [autoplayActive, scenario]);
@@ -1048,7 +1338,15 @@ export function HeroDemo() {
         </div>
 
         <div className="mt-4">
-          <PlaybookBoard playbooks={scenario.playbooks} trades={scenario.trades} />
+          {scenario.id === "replay" ? <MarketingReplaySurface scenario={scenario} /> : null}
+          {scenario.id === "review" ? (
+            <MarketingReviewSurface
+              onInspectTrade={(trade) => setSelectedReviewTradeId(trade.id)}
+              scenario={scenario}
+              selectedTrade={selectedReviewTrade}
+            />
+          ) : null}
+          {scenario.id === "results" ? <MarketingResultsSurface scenario={scenario} /> : null}
         </div>
       </div>
     </div>
