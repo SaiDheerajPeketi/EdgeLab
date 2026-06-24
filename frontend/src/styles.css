@@ -282,7 +282,6 @@
   }
 
   .edgelab-float-metric,
-  .edgelab-marquee,
   .edgelab-mesh,
   .edgelab-stage-enter,
   .edgelab-word-reveal {
@@ -293,11 +292,6 @@
 
   .edgelab-pointer-glow {
     display: none;
-  }
-
-  .edgelab-typeword-caret {
-    animation: none !important;
-    opacity: 0.45 !important;
   }
 }
 

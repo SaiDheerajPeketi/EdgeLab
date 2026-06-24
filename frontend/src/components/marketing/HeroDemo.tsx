@@ -831,7 +831,7 @@ export function HeroDemo() {
   }, []);
 
   useEffect(() => {
-    if (!scenario || !autoplayActive || prefersReducedMotion()) {
+    if (!scenario || !autoplayActive) {
       return;
     }
 
@@ -854,7 +854,7 @@ export function HeroDemo() {
   useEffect(() => {
     const root = rootRef.current;
     const scenarioRail = scenarioRailRef.current;
-    if (!root || !scenarioRail || prefersReducedMotion()) {
+    if (!root || !scenarioRail) {
       return;
     }
 

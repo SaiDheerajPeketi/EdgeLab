@@ -147,7 +147,7 @@ function StatusCard({
 function MarketTape() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState(MARKET_PULSE);
-  const [isActive, setIsActive] = useState(() => !prefersReducedMotion());
+  const [isActive, setIsActive] = useState(true);
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -179,7 +179,7 @@ function MarketTape() {
 
   useEffect(() => {
     const root = rootRef.current;
-    if (!root || prefersReducedMotion()) {
+    if (!root) {
       return;
     }
 
@@ -230,18 +230,10 @@ function MarketTape() {
 }
 
 function AnimatedTypeWord() {
-  const [visibleLength, setVisibleLength] = useState(() =>
-    prefersReducedMotion() ? HERO_TYPEWORD.length : 0,
-  );
+  const [visibleLength, setVisibleLength] = useState(0);
   const [isWordComplete, setIsWordComplete] = useState(false);
 
   useEffect(() => {
-    if (prefersReducedMotion()) {
-      setVisibleLength(HERO_TYPEWORD.length);
-      setIsWordComplete(true);
-      return;
-    }
-
     let phase: "typing" | "hold" | "deleting" = "typing";
     let holdTicks = 0;
     let nextLength = 0;
