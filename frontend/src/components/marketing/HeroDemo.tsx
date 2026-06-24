@@ -12,7 +12,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricsBar } from "../MetricsBar";
 import { PlaybookBoard } from "../PlaybookBoard";
-import { ReportsPanel } from "../ReportsPanel";
 import { ResultsPanel } from "../ResultsPanel";
 import { TradeLog } from "../TradeLog";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
@@ -601,7 +600,7 @@ const SCENARIOS: DemoScenario[] = [
     id: "results",
     label: "Results",
     note: "Metrics make more sense when the candle path still feels live and believable.",
-    markerNote: "Winning sequences remain tied to exact swing structure.",
+    markerNote: "Mixed outcomes remain tied to exact swing structure.",
     symbol: "EURUSD",
     timeframe: "5m results",
     bars: resultsBars,
@@ -610,14 +609,14 @@ const SCENARIOS: DemoScenario[] = [
       { index: 71, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Scale" },
       { index: 118, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Close" },
     ]),
-    metrics: buildMetrics(1874, 0.603, 37, [0, 164, 298, 552, 488, 736, 924, 1160, 1318, 1514, 1688, 1874]),
+    metrics: buildMetrics(471, 0.571, 7, [0, 228, 154, 322, 414, 368, 489, 471]),
     session: createSession({
       currentOffset: 214,
       endOffset: 240,
       id: 9,
       instrument: "Euro FX",
       name: "Results Snapshot: London to NY",
-      realizedPnl: 1874,
+      realizedPnl: 471,
       strategyName: "Trend Continuation",
       symbol: "EURUSD",
       timeframe: "5m",
@@ -639,22 +638,68 @@ const SCENARIOS: DemoScenario[] = [
         sessionId: 9,
         side: "SHORT",
         entryPrice: 1.0886,
-        exitPrice: 1.0878,
-        realizedPnl: 80,
+        exitPrice: 1.0893,
+        realizedPnl: -74,
         playbookId: 2,
         strategyName: "NY Reversal",
-        mistakeTags: ["early cover"],
+        notes: "Covered too quickly after the flush stalled.",
+        mistakeTags: ["rushed cover"],
       }),
       createTrade({
         id: 303,
         sessionId: 9,
         side: "LONG",
         entryPrice: 1.0834,
-        exitPrice: 1.0859,
-        realizedPnl: 250,
+        exitPrice: 1.0852,
+        realizedPnl: 168,
         playbookId: 3,
         strategyName: "Trend Continuation",
         notes: "Clean pullback continuation.",
+      }),
+      createTrade({
+        id: 304,
+        sessionId: 9,
+        side: "SHORT",
+        entryPrice: 1.0879,
+        exitPrice: 1.0867,
+        realizedPnl: 92,
+        playbookId: 2,
+        strategyName: "NY Reversal",
+        notes: "Fade worked once momentum failed to reclaim.",
+      }),
+      createTrade({
+        id: 305,
+        sessionId: 9,
+        side: "LONG",
+        entryPrice: 1.0854,
+        exitPrice: 1.0849,
+        realizedPnl: -46,
+        playbookId: 1,
+        strategyName: "London Break",
+        notes: "Tried to force continuation into lunchtime drift.",
+        mistakeTags: ["midday chase"],
+      }),
+      createTrade({
+        id: 306,
+        sessionId: 9,
+        side: "LONG",
+        entryPrice: 1.0861,
+        exitPrice: 1.0876,
+        realizedPnl: 121,
+        playbookId: 3,
+        strategyName: "Trend Continuation",
+        notes: "Held the cleanest follow-through of the day.",
+      }),
+      createTrade({
+        id: 307,
+        sessionId: 9,
+        side: "SHORT",
+        entryPrice: 1.0884,
+        exitPrice: 1.0887,
+        realizedPnl: -18,
+        playbookId: 2,
+        strategyName: "NY Reversal",
+        notes: "Stopped out quickly after the reclaim stuck.",
       }),
     ],
     playbooks: PLAYBOOKS,
@@ -910,7 +955,7 @@ function MarketingReviewSurface({
   );
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid gap-4 2xl:grid-cols-[320px_minmax(0,1fr)]">
       <section className="terminal-panel p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1002,7 +1047,7 @@ function MarketingReviewSurface({
         tradeContext={(trade) => ({
           currency: scenario.session.currency ?? "USD",
           instrument: formatMarketSymbol(scenario.session.symbol),
-          instrumentDetail: `${scenario.session.timeframe ?? "M1"} · ${scenario.session.name}`,
+          instrumentDetail: `${scenario.session.timeframe ?? "M1"} · ${scenario.session.name.replace("Review Pass: ", "")}`,
           strategy: tradeStrategyName(trade, scenario.session),
         })}
         trades={scenario.trades}
@@ -1012,6 +1057,8 @@ function MarketingReviewSurface({
 }
 
 function MarketingResultsSurface({ scenario }: { scenario: DemoScenario }) {
+  const calendarDays = (scenario.metrics.calendar ?? []).slice(-6);
+
   return (
     <div className="grid gap-4">
       <section className="terminal-panel p-4">
@@ -1041,12 +1088,57 @@ function MarketingResultsSurface({ scenario }: { scenario: DemoScenario }) {
       <ResultsPanel
         activeSessionId={scenario.session.id}
         currency={scenario.session.currency ?? "USD"}
+        hideCsvAction
         sessions={[scenario.session]}
+        showEquityCurve={false}
         trades={scenario.trades}
-        view="overview"
       />
 
-      <ReportsPanel currency={scenario.session.currency ?? "USD"} metrics={scenario.metrics} />
+      <section className="terminal-panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+              Day-by-day analysis
+            </div>
+            <h3 className="mt-2 text-base font-semibold text-white">
+              Recent sessions in sequence
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Daily closes stay visible here so the landing preview still reads like a real review workflow.
+            </p>
+          </div>
+          <span className="status-pill">
+            {calendarDays.length} days tracked
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          {calendarDays.map((day) => (
+            <article
+              className={`rounded-md border px-3 py-3 ${
+                day.pnl >= 0
+                  ? "border-emerald-300/15 bg-emerald-300/10 text-emerald-100"
+                  : "border-rose-300/15 bg-rose-300/10 text-rose-100"
+              }`}
+              key={day.date}
+            >
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55">
+                {day.date}
+              </div>
+              <div className="mt-2 text-lg font-semibold">
+                {new Intl.NumberFormat("en-US", {
+                  style: "currency",
+                  currency: scenario.session.currency ?? "USD",
+                  maximumFractionDigits: 2,
+                }).format(day.pnl)}
+              </div>
+              <div className="mt-1 text-xs text-white/65">
+                {day.trades} closed trades
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -1333,9 +1425,11 @@ export function HeroDemo() {
       <div className="p-4 sm:p-5" ref={stageRef}>
         <MetricsBar metrics={scenario.metrics} />
 
-        <div className="mt-4">
-          <MarketingCandleSurface currentBarIndex={currentBarIndex} scenario={scenario} />
-        </div>
+        {scenario.id === "replay" ? (
+          <div className="mt-4">
+            <MarketingCandleSurface currentBarIndex={currentBarIndex} scenario={scenario} />
+          </div>
+        ) : null}
 
         <div className="mt-4">
           {scenario.id === "replay" ? <MarketingReplaySurface scenario={scenario} /> : null}

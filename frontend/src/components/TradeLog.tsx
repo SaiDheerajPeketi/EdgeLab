@@ -57,7 +57,7 @@ export function TradeLog({
         onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
         ref={scrollContainerRef}
       >
-        <table className="w-full min-w-[1140px] text-left text-sm">
+        <table className="w-full min-w-[980px] text-left text-sm">
           <thead className="sticky top-0 bg-ink-850 text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-4 py-3 font-medium">Instrument</th>

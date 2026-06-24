@@ -35,6 +35,7 @@ type Props = {
   activeSessionId: number | null;
   currency?: string;
   filter?: ResultsTradeOutcomeFilter;
+  hideCsvAction?: boolean;
   onFilterChange?: (filter: ResultsTradeOutcomeFilter) => void;
   onTradeScrollChange?: (scroll: ResultsTradeScroll) => void;
   onTradeScrollRestored?: () => void;
@@ -44,6 +45,7 @@ type Props = {
   trades: Trade[];
   onInspectTrade?: (trade: Trade) => void;
   onSearchChange?: (value: string) => void;
+  showEquityCurve?: boolean;
   onViewChange?: (view: ResultsPanelView) => void;
   view?: ResultsPanelView;
 };
@@ -85,6 +87,7 @@ export function ResultsPanel({
   activeSessionId,
   currency = "USD",
   filter,
+  hideCsvAction = false,
   onFilterChange,
   onTradeScrollChange,
   onTradeScrollRestored,
@@ -94,6 +97,7 @@ export function ResultsPanel({
   trades,
   onInspectTrade,
   onSearchChange,
+  showEquityCurve = true,
   onViewChange,
   view,
 }: Props) {
@@ -249,15 +253,17 @@ export function ResultsPanel({
               <Copy size={14} />
               Copy
             </button>
-            <button
-              className="control-button h-9 px-3 text-xs"
-              disabled={closedTrades.length === 0}
-              onClick={exportCsv}
-              type="button"
-            >
-              <FileDown size={14} />
-              CSV
-            </button>
+            {!hideCsvAction ? (
+              <button
+                className="control-button h-9 px-3 text-xs"
+                disabled={closedTrades.length === 0}
+                onClick={exportCsv}
+                type="button"
+              >
+                <FileDown size={14} />
+                CSV
+              </button>
+            ) : null}
             <div className="flex rounded-md border border-white/10 bg-black/20 p-1">
               <ResultTabButton active={currentView === "overview"} onClick={() => setPanelView("overview")}>
                 <BarChart3 size={14} />
@@ -276,6 +282,7 @@ export function ResultsPanel({
         <OverviewResults
           aggregate={aggregate}
           currency={currency}
+          showEquityCurve={showEquityCurve}
           session={activeSession}
           trades={closedTrades}
         />
@@ -302,16 +309,18 @@ export function ResultsPanel({
 function OverviewResults({
   aggregate,
   currency,
+  showEquityCurve,
   session,
   trades,
 }: {
   aggregate: Aggregate;
   currency: string;
+  showEquityCurve: boolean;
   session: BacktestSession | null;
   trades: Trade[];
 }) {
   return (
-    <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+    <div className={`grid min-w-0 gap-3 ${showEquityCurve ? "xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]" : ""}`}>
       <div className="terminal-panel min-w-0 p-4">
         <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -350,21 +359,23 @@ function OverviewResults({
         </div>
       </div>
 
-      <div className="terminal-panel min-w-0 p-4">
-        <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
-          <h3 className="truncate text-base font-semibold text-white">Equity Curve</h3>
-          <span className="shrink-0 text-xs text-slate-500">
-            {trades.length} exits
-          </span>
+      {showEquityCurve ? (
+        <div className="terminal-panel min-w-0 p-4">
+          <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+            <h3 className="truncate text-base font-semibold text-white">Equity Curve</h3>
+            <span className="shrink-0 text-xs text-slate-500">
+              {trades.length} exits
+            </span>
+          </div>
+          <EquitySparkline currency={currency} trades={trades} />
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <SidePill currency={currency} label="Long P&L" value={aggregate.longPnl} />
+            <SidePill currency={currency} label="Short P&L" value={aggregate.shortPnl} />
+          </div>
         </div>
-        <EquitySparkline currency={currency} trades={trades} />
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <SidePill currency={currency} label="Long P&L" value={aggregate.longPnl} />
-          <SidePill currency={currency} label="Short P&L" value={aggregate.shortPnl} />
-        </div>
-      </div>
+      ) : null}
 
-      <div className="terminal-panel min-w-0 p-4 xl:col-span-2">
+      <div className={`terminal-panel min-w-0 p-4 ${showEquityCurve ? "xl:col-span-2" : ""}`}>
         <div className="grid gap-3 lg:grid-cols-4">
           <ResultSummaryCard title="Outcome Mix">
             <OutcomeBars aggregate={aggregate} />
@@ -601,7 +612,7 @@ function TradeResults({
         }}
         ref={scrollContainerRef}
       >
-        <table className="w-full min-w-[1280px] text-left text-sm">
+        <table className="w-full min-w-[1120px] text-left text-sm">
           <thead className="text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
               <th className="px-3 py-2 font-medium">Exit</th>
