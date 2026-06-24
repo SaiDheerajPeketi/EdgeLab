@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import type { ComponentType } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
+import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { getAuthSession } from "../lib/api";
 import {
   clearStoredAuthSession,
@@ -26,9 +28,6 @@ const TermsPage = lazy(() =>
 const AuthSignInPage = lazy(() =>
   import("../pages/AuthSignInPage").then((module) => ({ default: module.AuthSignInPage })),
 );
-const AuthCallbackPage = lazy(() =>
-  import("../pages/AuthCallbackPage").then((module) => ({ default: module.AuthCallbackPage })),
-);
 
 type AppRoutesProps = {
   NotFoundPage: ComponentType;
@@ -36,23 +35,60 @@ type AppRoutesProps = {
 };
 
 function AppRouteFallback() {
+  const location = useLocation();
+
+  if (location.pathname === "/auth/callback/google") {
+    return (
+      <AuthTransitionScreen
+        activeStep={0}
+        description="Loading the secure callback surface so EdgeLab can finish the Google handoff without flashing a generic route loader."
+        eyebrow="Secure callback"
+        panelEyebrow="Auth path"
+        panelTitle="Google return in progress"
+        statusLabel="Google OAuth"
+        steps={[
+          {
+            detail: "Open the callback route and read the signed OAuth response.",
+            label: "Load callback",
+          },
+          {
+            detail: "Exchange the code for an EdgeLab session.",
+            label: "Restore session",
+          },
+          {
+            detail: "Return approved access straight into workspace.",
+            label: "Open workspace",
+          },
+        ]}
+        title="Securing your EdgeLab sign-in."
+      />
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-edgelab-base px-4 text-edgelab-text-primary">
-      <div className="w-full max-w-md rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(7,16,24,0.96),rgba(5,10,16,0.92))] p-8 text-center shadow-card backdrop-blur-xl">
-        <div className="mx-auto flex w-fit items-center gap-1.5 rounded-full border border-white/8 bg-black/20 px-3 py-2">
-          <span className="h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse motion-reduce:animate-none" />
-          <span className="h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse [animation-delay:140ms] motion-reduce:animate-none" />
-          <span className="h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse [animation-delay:280ms] motion-reduce:animate-none" />
-        </div>
-        <div className="mt-6 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
-          Routing
-        </div>
-        <div className="mt-2 text-display text-[2rem] leading-tight text-white">Opening EdgeLab</div>
-        <p className="mt-3 text-sm leading-7 text-slate-400">
-          Pulling the next trading surface into view.
-        </p>
-      </div>
-    </div>
+    <AuthTransitionScreen
+      activeStep={1}
+      description="Loading the next EdgeLab surface and restoring the right trading context."
+      eyebrow="Routing"
+      panelEyebrow="Route path"
+      panelTitle="Surface transition in progress"
+      statusLabel="Route transition"
+      steps={[
+        {
+          detail: "Resolve the destination and pull the right route bundle.",
+          label: "Match route",
+        },
+        {
+          detail: "Warm the UI shell and hydrate the next surface.",
+          label: "Load surface",
+        },
+        {
+          detail: "Open the workspace with the current session context.",
+          label: "Hand off state",
+        },
+      ]}
+      title="Preparing EdgeLab."
+    />
   );
 }
 
