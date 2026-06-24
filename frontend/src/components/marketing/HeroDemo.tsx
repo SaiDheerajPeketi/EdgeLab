@@ -77,15 +77,31 @@ const PLAYBOOKS: Playbook[] = [
   },
 ];
 
-function buildMetrics(netPnl: number, winRate: number, totalTrades: number, equity: number[]): Metrics {
+function buildMetrics({
+  averageR,
+  equity,
+  netPnl,
+  profitFactor,
+  sharpeRatio,
+  totalTrades,
+  winRate,
+}: {
+  averageR: number;
+  equity: number[];
+  netPnl: number;
+  profitFactor: number;
+  sharpeRatio: number;
+  totalTrades: number;
+  winRate: number;
+}): Metrics {
   return {
     net_pnl: netPnl,
     win_rate: winRate,
     total_trades: totalTrades,
-    profit_factor: 1.84,
+    profit_factor: profitFactor,
     max_drawdown: -412,
-    sharpe_ratio: 1.42,
-    average_r: 0.68,
+    sharpe_ratio: sharpeRatio,
+    average_r: averageR,
     best_trade: 532,
     worst_trade: -184,
     longest_win_streak: 4,
@@ -484,7 +500,15 @@ const SCENARIOS: DemoScenario[] = [
       { index: 63, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Partial" },
       { index: 104, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Review" },
     ]),
-    metrics: buildMetrics(1426, 0.581, 31, [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426]),
+    metrics: buildMetrics({
+      averageR: 0.68,
+      equity: [0, 112, 260, 208, 442, 615, 588, 756, 921, 1108, 1264, 1426],
+      netPnl: 1426,
+      profitFactor: 1.84,
+      sharpeRatio: 1.42,
+      totalTrades: 31,
+      winRate: 0.581,
+    }),
     session: createSession({
       id: 7,
       instrument: "Nasdaq Futures",
@@ -547,7 +571,15 @@ const SCENARIOS: DemoScenario[] = [
       { index: 89, position: "belowBar", shape: "arrowUp", color: "#22c55e", text: "Re-entry" },
     ]),
     featuredTradeId: 202,
-    metrics: buildMetrics(986, 0.544, 24, [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986]),
+    metrics: buildMetrics({
+      averageR: 0.41,
+      equity: [0, 85, 142, 318, 276, 344, 478, 632, 590, 728, 814, 986],
+      netPnl: 986,
+      profitFactor: 1.31,
+      sharpeRatio: 0.96,
+      totalTrades: 24,
+      winRate: 0.544,
+    }),
     session: createSession({
       id: 8,
       instrument: "Apple",
@@ -609,7 +641,15 @@ const SCENARIOS: DemoScenario[] = [
       { index: 71, position: "aboveBar", shape: "circle", color: "#38bdf8", text: "Scale" },
       { index: 118, position: "aboveBar", shape: "arrowDown", color: "#f59e0b", text: "Close" },
     ]),
-    metrics: buildMetrics(471, 0.571, 7, [0, 228, 154, 322, 414, 368, 489, 471]),
+    metrics: buildMetrics({
+      averageR: 0.29,
+      equity: [0, 228, 154, 322, 414, 368, 489, 471],
+      netPnl: 471,
+      profitFactor: 1.22,
+      sharpeRatio: 0.74,
+      totalTrades: 7,
+      winRate: 0.571,
+    }),
     session: createSession({
       currentOffset: 214,
       endOffset: 240,
