@@ -171,136 +171,160 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
     const scrollTriggers: Array<{ kill(): void }> = [];
     let removePointerListeners = () => undefined;
 
+    const restoreRevealNodes = () => {
+      const revealNodes = Array.from(
+        shell.querySelectorAll<HTMLElement>("[data-marketing-reveal]"),
+      );
+      const headerNodes = Array.from(header.querySelectorAll<HTMLElement>("[data-shell-motion]"));
+      [...headerNodes, ...revealNodes].forEach((node) => {
+        node.style.removeProperty("opacity");
+        node.style.removeProperty("transform");
+        node.style.removeProperty("will-change");
+      });
+      splitInstances.splice(0).forEach((instance) => instance.revert());
+    };
+
     void loadGsap({ plugins: ["CustomEase", "ScrollTrigger", "SplitText"] })
       .then(({ gsap, plugins }) => {
         if (cancelled || !shell || !header || !pointerGlow) {
           return;
         }
 
-        context = gsap.context(() => {
-          const reduceMotion = prefersReducedMotion();
-          const revealEase =
-            plugins.CustomEase?.create("edgelab-reveal", "0.16,1,0.3,1") ?? "power3.out";
-          const headerNodes = Array.from(
-            header.querySelectorAll<HTMLElement>("[data-shell-motion]"),
-          );
-          const revealNodes = Array.from(
-            shell.querySelectorAll<HTMLElement>("[data-marketing-reveal]"),
-          );
+        try {
+          context = gsap.context(() => {
+            const reduceMotion = prefersReducedMotion();
+            const revealEase =
+              plugins.CustomEase?.create("edgelab-reveal", "0.16,1,0.3,1") ?? "power3.out";
+            const headerNodes = Array.from(
+              header.querySelectorAll<HTMLElement>("[data-shell-motion]"),
+            );
+            const revealNodes = Array.from(
+              shell.querySelectorAll<HTMLElement>("[data-marketing-reveal]"),
+            );
 
-          if (headerNodes.length > 0) {
-            if (reduceMotion) {
-              gsap.set(headerNodes, { clearProps: "all" });
-            } else {
-              gsap.set(headerNodes, {
-                opacity: 0,
-                y: -18,
-                willChange: "transform, opacity",
-              });
-              gsap.to(headerNodes, {
-                clearProps: "opacity,transform,willChange",
-                duration: 0.72,
-                ease: revealEase,
-                opacity: 1,
-                stagger: 0.08,
-                y: 0,
-              });
-            }
-          }
-
-          if (revealNodes.length > 0) {
-            if (reduceMotion) {
-              gsap.set(revealNodes, { clearProps: "all" });
-            } else {
-              revealNodes.forEach((node) => {
-                const splitResult = resolveSplitTargets(node, plugins.SplitText);
-                const targets = splitResult?.targets ?? [node];
-                const offsetY = node.dataset.splitText ? 44 : 24;
-                const stagger = node.dataset.splitText === "chars" ? 0.014 : 0.08;
-                if (splitResult) {
-                  splitInstances.push(splitResult.instance);
-                }
-                gsap.set(targets, {
+            if (headerNodes.length > 0) {
+              if (reduceMotion) {
+                gsap.set(headerNodes, { clearProps: "all" });
+              } else {
+                gsap.set(headerNodes, {
                   opacity: 0,
-                  y: offsetY,
+                  y: -18,
                   willChange: "transform, opacity",
                 });
-
-                if (plugins.ScrollTrigger) {
-                  scrollTriggers.push(
-                    plugins.ScrollTrigger.create({
-                      once: true,
-                      onEnter: () => {
-                        const delay = Number(node.dataset.revealDelay ?? "0");
-                        gsap.to(targets, {
-                          clearProps: "opacity,transform,willChange",
-                          delay,
-                          duration: 0.82,
-                          ease: revealEase,
-                          opacity: 1,
-                          stagger,
-                          y: 0,
-                        });
-                      },
-                      start: "top 82%",
-                      trigger: node,
-                    }),
-                  );
-                  return;
-                }
-
-                gsap.to(targets, {
+                gsap.to(headerNodes, {
                   clearProps: "opacity,transform,willChange",
-                  duration: 0.82,
+                  duration: 0.72,
                   ease: revealEase,
                   opacity: 1,
-                  stagger,
+                  stagger: 0.08,
                   y: 0,
                 });
-              });
+              }
             }
-          }
 
-          if (!reduceMotion) {
-            gsap.set(pointerGlow, {
-              opacity: 0.28,
-              x: window.innerWidth * 0.5 - 240,
-              y: 120,
-            });
-            const xTo = gsap.quickTo(pointerGlow, "x", {
-              duration: 0.42,
-              ease: "power3.out",
-            });
-            const yTo = gsap.quickTo(pointerGlow, "y", {
-              duration: 0.42,
-              ease: "power3.out",
-            });
-            const opacityTo = gsap.quickTo(pointerGlow, "opacity", {
-              duration: 0.22,
-              ease: "power2.out",
-            });
+            if (revealNodes.length > 0) {
+              if (reduceMotion) {
+                gsap.set(revealNodes, { clearProps: "all" });
+              } else {
+                revealNodes.forEach((node) => {
+                  const splitResult = resolveSplitTargets(node, plugins.SplitText);
+                  const targets = splitResult?.targets ?? [node];
+                  const offsetY = node.dataset.splitText ? 44 : 24;
+                  const stagger = node.dataset.splitText === "chars" ? 0.014 : 0.08;
+                  if (splitResult) {
+                    splitInstances.push(splitResult.instance);
+                  }
+                  gsap.set(targets, {
+                    opacity: 0,
+                    y: offsetY,
+                    willChange: "transform, opacity",
+                  });
 
-            const handlePointerMove = (event: PointerEvent) => {
-              xTo(event.clientX - 240);
-              yTo(event.clientY - 240);
-              opacityTo(0.76);
-            };
-            const handlePointerLeave = () => opacityTo(0.22);
+                  if (plugins.ScrollTrigger) {
+                    scrollTriggers.push(
+                      plugins.ScrollTrigger.create({
+                        once: true,
+                        onEnter: () => {
+                          const delay = Number(node.dataset.revealDelay ?? "0");
+                          gsap.to(targets, {
+                            clearProps: "opacity,transform,willChange",
+                            delay,
+                            duration: 0.82,
+                            ease: revealEase,
+                            opacity: 1,
+                            stagger,
+                            y: 0,
+                          });
+                        },
+                        start: "top 86%",
+                        trigger: node,
+                      }),
+                    );
+                    return;
+                  }
 
-            window.addEventListener("pointermove", handlePointerMove, { passive: true });
-            window.addEventListener("pointerdown", handlePointerMove, { passive: true });
-            window.addEventListener("blur", handlePointerLeave);
-            document.addEventListener("pointerleave", handlePointerLeave);
-            removePointerListeners = () => {
-              window.removeEventListener("pointermove", handlePointerMove);
-              window.removeEventListener("pointerdown", handlePointerMove);
-              window.removeEventListener("blur", handlePointerLeave);
-              document.removeEventListener("pointerleave", handlePointerLeave);
-            };
-          }
-        }, shell);
+                  gsap.to(targets, {
+                    clearProps: "opacity,transform,willChange",
+                    duration: 0.82,
+                    ease: revealEase,
+                    opacity: 1,
+                    stagger,
+                    y: 0,
+                  });
+                });
+              }
+            }
+
+            if (!reduceMotion) {
+              gsap.set(pointerGlow, {
+                opacity: 0.28,
+                x: window.innerWidth * 0.5 - 240,
+                y: 120,
+              });
+              const xTo = gsap.quickTo(pointerGlow, "x", {
+                duration: 0.42,
+                ease: "power3.out",
+              });
+              const yTo = gsap.quickTo(pointerGlow, "y", {
+                duration: 0.42,
+                ease: "power3.out",
+              });
+              const opacityTo = gsap.quickTo(pointerGlow, "opacity", {
+                duration: 0.22,
+                ease: "power2.out",
+              });
+
+              const handlePointerMove = (event: PointerEvent) => {
+                xTo(event.clientX - 240);
+                yTo(event.clientY - 240);
+                opacityTo(0.76);
+              };
+              const handlePointerLeave = () => opacityTo(0.22);
+
+              window.addEventListener("pointermove", handlePointerMove, { passive: true });
+              window.addEventListener("pointerdown", handlePointerMove, { passive: true });
+              window.addEventListener("blur", handlePointerLeave);
+              document.addEventListener("pointerleave", handlePointerLeave);
+              removePointerListeners = () => {
+                window.removeEventListener("pointermove", handlePointerMove);
+                window.removeEventListener("pointerdown", handlePointerMove);
+                window.removeEventListener("blur", handlePointerLeave);
+                document.removeEventListener("pointerleave", handlePointerLeave);
+              };
+            }
+          }, shell);
+
+          plugins.ScrollTrigger?.refresh();
+          void document.fonts?.ready.then(() => plugins.ScrollTrigger?.refresh());
+        } catch (error) {
+          restoreRevealNodes();
+          console.warn("EdgeLab marketing animations were restored after GSAP setup failed.", error);
+        }
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        restoreRevealNodes();
+        console.warn("EdgeLab marketing animations could not load.", error);
+      });
 
     return () => {
       cancelled = true;

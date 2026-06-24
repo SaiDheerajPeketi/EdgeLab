@@ -48,6 +48,24 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
   },
 ];
 
+const PROOF_STEPS: WorkflowStep[] = [
+  {
+    step: "01",
+    title: "Replay stack",
+    body: "Candle replay, order flow, and chart context stay in the same surface.",
+  },
+  {
+    step: "02",
+    title: "Journal memory",
+    body: "Notes, mistake tags, and playbooks stay attached to session truth.",
+  },
+  {
+    step: "03",
+    title: "Private beta",
+    body: "Approved users get full product access while feedback shapes replay, journaling, analytics, and review flow.",
+  },
+];
+
 const MARKET_PULSE: MarketPulse[] = [
   { symbol: "NQ", value: "4301.30", change: "+0.64%", tone: "up" },
   { symbol: "ES", value: "5988.75", change: "+0.28%", tone: "up" },
@@ -509,7 +527,7 @@ export function LandingPage() {
 
       <section className="px-4 pb-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl" data-marketing-reveal="proof-intro">
+          <div className="max-w-5xl" data-marketing-reveal="proof-intro">
             <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
               Included now
             </div>
@@ -520,37 +538,35 @@ export function LandingPage() {
             >
               Product first. Pricing second.
             </h2>
-            <p className="mt-4 text-base leading-8 text-slate-400" data-marketing-reveal="proof-copy">
+            <p className="mt-4 max-w-4xl text-base leading-8 text-slate-400" data-marketing-reveal="proof-copy">
               EdgeLab already ships replay, journal review, analytics, and strategy memory inside
               the same workspace.
             </p>
           </div>
 
           <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {[
-              {
-                title: "Replay stack",
-                body: "Candle replay, order flow, and chart context stay in the same surface.",
-              },
-              {
-                title: "Journal memory",
-                body: "Notes, mistake tags, and playbooks stay attached to session truth.",
-              },
-              {
-                title: "Persistent beta",
-                body: "Docker-backed storage keeps beta users and workspace records across rebuilds.",
-              },
-            ].map((item, index) => (
+            {PROOF_STEPS.map((item, index) => (
               <div
                 key={item.title}
                 data-marketing-reveal={`proof-${item.title}`}
                 data-reveal-delay={String(index * 0.06)}
-                className="rounded-[26px] border border-white/10 bg-[#071018] p-6 shadow-panel"
+                className={`rounded-[28px] border px-6 py-6 shadow-panel transition duration-200 ease-out hover:-translate-y-1 motion-reduce:transition-none ${
+                  index === 1
+                    ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.12),rgba(255,255,255,0.03))]"
+                    : "border-white/10 bg-[#071018]"
+                }`}
               >
-                <div className="text-[1.45rem] font-semibold tracking-[-0.04em] text-white">
-                  {item.title}
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 font-mono text-sm text-cyan-100">
+                    {item.step}
+                  </div>
+                  <div>
+                    <div className="text-[1.45rem] font-semibold tracking-[-0.04em] text-white">
+                      {item.title}
+                    </div>
+                    <p className="mt-3 text-sm leading-7 text-slate-400">{item.body}</p>
+                  </div>
                 </div>
-                <p className="mt-4 text-sm leading-7 text-slate-400">{item.body}</p>
               </div>
             ))}
           </div>

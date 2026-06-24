@@ -19,6 +19,9 @@ type GsapTimeline = GsapAnimation & {
 type GsapQuickTo = (value: number) => void;
 
 export type GsapInstance = {
+  core?: {
+    globals?(): Record<string, unknown>;
+  };
   context(callback: () => void, scope?: Element | null): GsapContext;
   fromTo(
     targets: unknown,
@@ -158,12 +161,17 @@ function loadScriptOnce(src: string) {
   return promise;
 }
 
+function resolvePlugin<K extends GsapPluginName>(pluginName: K): GsapPlugins[K] | undefined {
+  const coreGlobals = window.gsap?.core?.globals?.() ?? {};
+  return (window[pluginName] ?? coreGlobals[pluginName]) as GsapPlugins[K] | undefined;
+}
+
 function registerPluginIfAvailable(gsap: GsapInstance, pluginName: GsapPluginName) {
   if (registeredPlugins.has(pluginName)) {
     return;
   }
 
-  const plugin = window[pluginName];
+  const plugin = resolvePlugin(pluginName);
   if (!plugin) {
     return;
   }
@@ -206,14 +214,14 @@ export async function loadGsap(options: LoadGsapOptions = {}): Promise<GsapRunti
   return {
     gsap,
     plugins: {
-      CustomEase: window.CustomEase,
-      Draggable: window.Draggable,
-      Flip: window.Flip,
-      InertiaPlugin: window.InertiaPlugin,
-      Observer: window.Observer,
-      ScrollToPlugin: window.ScrollToPlugin,
-      ScrollTrigger: window.ScrollTrigger,
-      SplitText: window.SplitText,
+      CustomEase: resolvePlugin("CustomEase"),
+      Draggable: resolvePlugin("Draggable"),
+      Flip: resolvePlugin("Flip"),
+      InertiaPlugin: resolvePlugin("InertiaPlugin"),
+      Observer: resolvePlugin("Observer"),
+      ScrollToPlugin: resolvePlugin("ScrollToPlugin"),
+      ScrollTrigger: resolvePlugin("ScrollTrigger"),
+      SplitText: resolvePlugin("SplitText"),
     },
   };
 }
