@@ -29,7 +29,7 @@ export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem
   return [
     { href: `${prefix}#product`, label: "Product" },
     { href: `${prefix}#how-it-works`, label: "How it works" },
-    { href: "/pricing", label: "Pricing" },
+    { href: `${prefix}#pricing`, label: "Pricing" },
   ];
 }
 

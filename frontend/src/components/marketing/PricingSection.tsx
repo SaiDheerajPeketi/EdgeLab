@@ -99,7 +99,7 @@ function formatCadence(price: number, frequency: PricingFrequency) {
 }
 
 export function FaqAccordion({ items }: { items: FaqItem[] }) {
-  const [openIndex, setOpenIndex] = useState(0);
+  const [openIndex, setOpenIndex] = useState(-1);
 
   return (
     <div className="grid gap-3">
