@@ -231,17 +231,41 @@
   animation: edgelab-caret 1s steps(1) infinite;
 }
 
+.edgelab-split-line {
+  display: block;
+  overflow: clip;
+}
+
+.edgelab-split-word {
+  display: inline-block;
+  white-space: pre-wrap;
+}
+
 .edgelab-stage-enter {
   animation: edgelab-stage-enter 900ms var(--ease-out) 90ms both;
 }
 
 .edgelab-marquee {
-  animation: edgelab-marquee 26s linear infinite;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
 }
 
 .edgelab-float-metric {
   animation: edgelab-float-metric 7s ease-in-out infinite;
   animation-delay: var(--metric-delay, 0s);
+}
+
+.edgelab-pointer-glow {
+  width: 480px;
+  height: 480px;
+  border-radius: 999px;
+  opacity: 0.24;
+  background:
+    radial-gradient(circle, rgba(50, 211, 238, 0.28) 0%, rgba(50, 211, 238, 0.12) 28%, transparent 68%);
+  filter: blur(24px);
+  mix-blend-mode: screen;
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -256,6 +280,10 @@
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .edgelab-pointer-glow {
+    display: none;
   }
 
   .edgelab-typeword-caret {

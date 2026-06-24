@@ -1,10 +1,11 @@
 import { ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
   buildMarketingNavItems,
   MarketingShell,
 } from "../components/marketing/MarketingShell";
+import { loadGsap, prefersReducedMotion, type GsapInstance } from "../lib/gsap";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type WorkflowStep = {
@@ -82,10 +83,16 @@ function SectionIntro({
       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">
         {eyebrow}
       </div>
-      <h2 className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.6rem]">
+      <h2
+        className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.6rem]"
+        data-marketing-reveal={`${title}-title`}
+        data-split-text="lines"
+      >
         {title}
       </h2>
-      <p className="mt-4 text-base leading-8 text-slate-400">{description}</p>
+      <p className="mt-4 text-base leading-8 text-slate-400" data-marketing-reveal={`${title}-body`}>
+        {description}
+      </p>
     </div>
   );
 }
@@ -114,6 +121,7 @@ function StatusCard({
 
 function MarketTape() {
   const [items, setItems] = useState(MARKET_PULSE);
+  const trackRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -138,11 +146,43 @@ function MarketTape() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || prefersReducedMotion()) {
+      return;
+    }
+
+    let cancelled = false;
+    let animation: { kill(): void } | null = null;
+
+    void loadGsap()
+      .then(({ gsap }) => {
+        if (cancelled || !track) {
+          return;
+        }
+        animation = gsap.to(track, {
+          duration: 26,
+          ease: "none",
+          repeat: -1,
+          xPercent: -50,
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      animation?.kill();
+    };
+  }, []);
+
   const loopItems = [...items, ...items];
 
   return (
     <div className="relative h-[64px] w-full max-w-full overflow-hidden rounded-full border border-white/10 bg-[#071018] shadow-panel">
-      <div className="edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4">
+      <div
+        className="edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4"
+        ref={trackRef}
+      >
         {loopItems.map((item, index) => (
           <div
             key={`${item.symbol}-${index}`}
@@ -161,52 +201,63 @@ function MarketTape() {
 }
 
 function AnimatedTypeWord() {
-  const [visibleLength, setVisibleLength] = useState(0);
+  const innerRef = useRef<HTMLSpanElement | null>(null);
   const [isWordComplete, setIsWordComplete] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    let timeoutId: number | null = null;
-    let nextLength = 0;
-    let deleting = false;
+    const inner = innerRef.current;
+    if (!inner) {
+      return;
+    }
 
-    const run = () => {
-      if (!active) {
-        return;
-      }
+    inner.textContent = HERO_TYPEWORD;
+    if (prefersReducedMotion()) {
+      setIsWordComplete(true);
+      return;
+    }
 
-      setVisibleLength(nextLength);
-      setIsWordComplete(!deleting && nextLength === HERO_TYPEWORD.length);
+    let cancelled = false;
+    let timeline: ReturnType<GsapInstance["timeline"]> | null = null;
 
-      if (!deleting && nextLength < HERO_TYPEWORD.length) {
-        nextLength += 1;
-        timeoutId = window.setTimeout(run, 92);
-        return;
-      }
+    void loadGsap()
+      .then(({ gsap }) => {
+        if (cancelled || !inner) {
+          return;
+        }
 
-      if (!deleting) {
-        deleting = true;
-        timeoutId = window.setTimeout(run, 1350);
-        return;
-      }
+        const state = { visibleLength: 0 };
+        const renderWord = () => {
+          inner.textContent = HERO_TYPEWORD.slice(0, Math.round(state.visibleLength)) || "\u00a0";
+        };
 
-      if (nextLength > 0) {
-        nextLength -= 1;
-        timeoutId = window.setTimeout(run, 54);
-        return;
-      }
-
-      deleting = false;
-      timeoutId = window.setTimeout(run, 420);
-    };
-
-    timeoutId = window.setTimeout(run, 220);
+        renderWord();
+        timeline = gsap.timeline({
+          repeat: -1,
+          repeatDelay: 0.42,
+        });
+        timeline
+          .to(state, {
+            duration: 1.05,
+            ease: `steps(${HERO_TYPEWORD.length})`,
+            onComplete: () => setIsWordComplete(true),
+            onStart: () => setIsWordComplete(false),
+            onUpdate: renderWord,
+            visibleLength: HERO_TYPEWORD.length,
+          })
+          .to({}, { duration: 1.15 })
+          .to(state, {
+            duration: 0.52,
+            ease: `steps(${HERO_TYPEWORD.length})`,
+            onStart: () => setIsWordComplete(false),
+            onUpdate: renderWord,
+            visibleLength: 0,
+          });
+      })
+      .catch(() => undefined);
 
     return () => {
-      active = false;
-      if (timeoutId != null) {
-        window.clearTimeout(timeoutId);
-      }
+      cancelled = true;
+      timeline?.kill();
     };
   }, []);
 
@@ -217,9 +268,7 @@ function AnimatedTypeWord() {
         isWordComplete ? "text-cyan-300" : "text-cyan-300/55"
       }`}
     >
-      <span aria-hidden="true" className="edgelab-typeword-inner">
-        {HERO_TYPEWORD.slice(0, visibleLength) || "\u00a0"}
-      </span>
+      <span aria-hidden="true" className="edgelab-typeword-inner" ref={innerRef} />
       <span aria-hidden="true" className="edgelab-typeword-caret" />
     </span>
   );
@@ -242,49 +291,75 @@ export function LandingPage() {
         <div className="mx-auto max-w-7xl min-w-0">
           <div className="grid min-w-0 gap-7 lg:gap-8 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
             <div className="max-w-4xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50">
+              <div
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50"
+                data-marketing-reveal="badge"
+              >
                 <ShieldCheck size={14} />
                 EdgeLab beta
               </div>
 
-              <h1 className="mt-4 max-w-4xl text-[clamp(2.15rem,12.2vw,4.4rem)] font-semibold leading-[0.94] tracking-[-0.08em] text-white sm:mt-5 sm:text-[clamp(2.75rem,8vw,6.3rem)] sm:leading-[0.88]">
+              <h1
+                className="mt-4 max-w-4xl text-[clamp(2.15rem,12.2vw,4.4rem)] font-semibold leading-[0.94] tracking-[-0.08em] text-white sm:mt-5 sm:text-[clamp(2.75rem,8vw,6.3rem)] sm:leading-[0.88]"
+                data-marketing-reveal="title"
+                data-reveal-delay="0.04"
+              >
                 Your Edge <AnimatedTypeWord />
               </h1>
 
-              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+              <p
+                className="mt-5 max-w-2xl text-lg leading-8 text-slate-300"
+                data-marketing-reveal="lede"
+                data-reveal-delay="0.08"
+              >
                 Replay price action, capture decisions, and review outcomes from one trading
                 surface built to tighten process instead of adding more tabs.
               </p>
 
-              <div className="mt-6 text-sm leading-7 text-slate-400">
+              <div
+                className="mt-6 text-sm leading-7 text-slate-400"
+                data-marketing-reveal="meta"
+                data-reveal-delay="0.12"
+              >
                 Seat count updates live. Beta workspaces stay temporary during the test track.
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <StatusCard
-                hint="Current private beta access"
-                label="Access"
-                value={loading ? "..." : accessLabel}
-              />
-              <StatusCard
-                hint="Queue opens automatically once seats fill"
-                label="Waitlist"
-                value={waitlistCount == null ? "..." : String(waitlistCount)}
-              />
-              <StatusCard
-                hint="Approved users enter workspace. Full seats roll into queue."
-                label="Entry"
-                value="Google"
-              />
+              <div data-marketing-reveal="card-access" data-reveal-delay="0.1">
+                <StatusCard
+                  hint="Current private beta access"
+                  label="Access"
+                  value={loading ? "..." : accessLabel}
+                />
+              </div>
+              <div data-marketing-reveal="card-waitlist" data-reveal-delay="0.14">
+                <StatusCard
+                  hint="Queue opens automatically once seats fill"
+                  label="Waitlist"
+                  value={waitlistCount == null ? "..." : String(waitlistCount)}
+                />
+              </div>
+              <div data-marketing-reveal="card-entry" data-reveal-delay="0.18">
+                <StatusCard
+                  hint="Approved users enter workspace. Full seats roll into queue."
+                  label="Entry"
+                  value="Google"
+                />
+              </div>
             </div>
           </div>
 
-          <div className="mt-6 sm:mt-7">
+          <div className="mt-6 sm:mt-7" data-marketing-reveal="tape" data-reveal-delay="0.16">
             <MarketTape />
           </div>
 
-          <div id="product" className="mt-8 lg:mt-10">
+          <div
+            className="mt-8 lg:mt-10"
+            data-marketing-reveal="demo"
+            data-reveal-delay="0.2"
+            id="product"
+          >
             <HeroDemo />
           </div>
         </div>
@@ -302,6 +377,8 @@ export function LandingPage() {
             {WORKFLOW_STEPS.map((step, index) => (
               <div
                 key={step.step}
+                data-marketing-reveal={`workflow-${step.step}`}
+                data-reveal-delay={String(index * 0.06)}
                 className={`rounded-[28px] border px-6 py-6 shadow-panel transition duration-200 ease-out hover:-translate-y-1 motion-reduce:transition-none ${
                   index === 1
                     ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.12),rgba(255,255,255,0.03))]"

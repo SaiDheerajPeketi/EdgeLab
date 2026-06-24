@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MetricsBar } from "../MetricsBar";
 import { PlaybookBoard } from "../PlaybookBoard";
+import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
 import type { Metrics, Playbook, Trade } from "../../lib/api";
 
 type DemoBar = {
@@ -788,8 +789,8 @@ function MarketingCandleSurface({
 
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-emerald-300 transition-[width] duration-200 ease-out motion-reduce:transition-none"
-          style={{ width: `${replayProgress}%` }}
+          className="h-full origin-left rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-emerald-300 will-change-transform"
+          style={{ transform: `scaleX(${replayProgress / 100})` }}
         />
       </div>
 
@@ -803,11 +804,16 @@ function MarketingCandleSurface({
 export function HeroDemo() {
   const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
-  const [showing, setShowing] = useState(true);
+  const [autoplayActive, setAutoplayActive] = useState(() => !prefersReducedMotion());
   const initialCursor = Math.max(0, Math.min(78, (SCENARIOS[0]?.bars.length ?? 1) - 1));
   const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
-  const hideTimerRef = useRef<number | null>(null);
-  const showTimerRef = useRef<number | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const scenarioRailRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const stageTransitionRef = useRef<{ kill(): void } | null>(null);
+  const flipPluginRef = useRef<GsapPlugins["Flip"] | null>(null);
+  const pendingFlipStateRef = useRef<unknown>(null);
+  const selectedScenarioIdRef = useRef(selectedScenarioId);
 
   const scenario = useMemo(
     () => SCENARIOS.find((item) => item.id === visibleScenarioId) ?? SCENARIOS[0],
@@ -815,18 +821,17 @@ export function HeroDemo() {
   );
 
   useEffect(() => {
+    selectedScenarioIdRef.current = selectedScenarioId;
+  }, [selectedScenarioId]);
+
+  useEffect(() => {
     return () => {
-      if (hideTimerRef.current) {
-        window.clearTimeout(hideTimerRef.current);
-      }
-      if (showTimerRef.current) {
-        window.clearTimeout(showTimerRef.current);
-      }
+      stageTransitionRef.current?.kill();
     };
   }, []);
 
   useEffect(() => {
-    if (!scenario) {
+    if (!scenario || !autoplayActive) {
       return;
     }
 
@@ -844,34 +849,160 @@ export function HeroDemo() {
     }, 220);
 
     return () => window.clearInterval(timer);
-  }, [scenario]);
+  }, [autoplayActive, scenario]);
 
-  const selectScenario = (nextScenarioId: string) => {
-    if (nextScenarioId === visibleScenarioId) {
+  useEffect(() => {
+    const root = rootRef.current;
+    const scenarioRail = scenarioRailRef.current;
+    if (!root || !scenarioRail || prefersReducedMotion()) {
       return;
     }
 
-    setSelectedScenarioId(nextScenarioId);
+    let cancelled = false;
+    let observer: { kill(): void } | null = null;
+    let trigger: { kill(): void } | null = null;
 
-    if (hideTimerRef.current) {
-      window.clearTimeout(hideTimerRef.current);
+    const stepScenario = (direction: 1 | -1) => {
+      const currentIndex = SCENARIOS.findIndex(
+        (item) => item.id === selectedScenarioIdRef.current,
+      );
+      const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+      const nextIndex =
+        (safeIndex + direction + SCENARIOS.length) % Math.max(SCENARIOS.length, 1);
+      selectScenario(SCENARIOS[nextIndex]?.id ?? SCENARIOS[0]?.id ?? "replay");
+    };
+
+    void loadGsap({ plugins: ["CustomEase", "Flip", "Observer", "ScrollTrigger"] })
+      .then(({ plugins }) => {
+        if (cancelled) {
+          return;
+        }
+
+        flipPluginRef.current = plugins.Flip ?? null;
+        observer = plugins.Observer?.create({
+          onDown: () => stepScenario(-1),
+          onLeft: () => stepScenario(1),
+          onRight: () => stepScenario(-1),
+          onUp: () => stepScenario(1),
+          target: scenarioRail,
+          tolerance: 18,
+          type: "touch,pointer",
+        }) ?? null;
+
+        trigger = plugins.ScrollTrigger?.create({
+          end: "bottom top",
+          onEnter: () => setAutoplayActive(true),
+          onEnterBack: () => setAutoplayActive(true),
+          onLeave: () => setAutoplayActive(false),
+          onLeaveBack: () => setAutoplayActive(false),
+          start: "top bottom",
+          trigger: root,
+        }) ?? null;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      observer?.kill();
+      trigger?.kill();
+    };
+  }, []);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || selectedScenarioId === visibleScenarioId) {
+      return;
     }
-    if (showTimerRef.current) {
-      window.clearTimeout(showTimerRef.current);
-    }
 
-    setShowing(false);
-
-    hideTimerRef.current = window.setTimeout(() => {
+    const nextScenarioId = selectedScenarioId;
+    if (prefersReducedMotion()) {
       setVisibleScenarioId(nextScenarioId);
-      showTimerRef.current = window.setTimeout(() => {
-        setShowing(true);
-      }, 44);
-    }, 160);
+      return;
+    }
+
+    let cancelled = false;
+    stageTransitionRef.current?.kill();
+
+    void loadGsap()
+      .then(({ gsap }) => {
+        if (cancelled || !stage) {
+          return;
+        }
+
+        const timeline = gsap.timeline();
+        stageTransitionRef.current = timeline;
+        timeline
+          .to(stage, {
+            duration: 0.2,
+            ease: "power2.inOut",
+            opacity: 0,
+            scale: 0.986,
+            y: 16,
+          })
+          .add(() => {
+            setVisibleScenarioId(nextScenarioId);
+          })
+          .fromTo(
+            stage,
+            {
+              opacity: 0,
+              scale: 0.992,
+              y: -14,
+            },
+            {
+              clearProps: "opacity,transform",
+              duration: 0.42,
+              ease: "power3.out",
+              opacity: 1,
+              scale: 1,
+              y: 0,
+            },
+          );
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedScenarioId, visibleScenarioId]);
+
+  const selectScenario = (nextScenarioId: string) => {
+    if (nextScenarioId === selectedScenarioIdRef.current) {
+      return;
+    }
+
+    const scenarioButtons = scenarioRailRef.current?.querySelectorAll("[data-scenario-pill]");
+    if (scenarioButtons && scenarioButtons.length > 0 && flipPluginRef.current && !prefersReducedMotion()) {
+      pendingFlipStateRef.current = flipPluginRef.current.getState(scenarioButtons);
+    }
+    setSelectedScenarioId(nextScenarioId);
   };
 
+  useEffect(() => {
+    const flip = flipPluginRef.current;
+    const state = pendingFlipStateRef.current;
+    if (!flip || !state || prefersReducedMotion()) {
+      pendingFlipStateRef.current = null;
+      return;
+    }
+
+    pendingFlipStateRef.current = null;
+    const animation = flip.from(state, {
+      duration: 0.42,
+      ease: "power3.out",
+      nested: true,
+    });
+
+    return () => {
+      animation.kill();
+    };
+  }, [selectedScenarioId]);
+
   return (
-    <div className="w-full max-w-full min-w-0 overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]">
+    <div
+      className="w-full max-w-full min-w-0 overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]"
+      ref={rootRef}
+    >
       <div className="border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
@@ -892,9 +1023,10 @@ export function HeroDemo() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2" ref={scenarioRailRef}>
           {SCENARIOS.map((item) => (
             <button
+              data-scenario-pill="true"
               key={item.id}
               className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition duration-200 ease-out motion-reduce:transition-none ${
                 item.id === selectedScenarioId
@@ -910,11 +1042,7 @@ export function HeroDemo() {
         </div>
       </div>
 
-      <div
-        className={`p-4 transition duration-300 ease-out motion-reduce:transition-none sm:p-5 ${
-          showing ? "translate-y-0 scale-100 opacity-100 blur-0" : "translate-y-2 scale-[0.985] opacity-0 blur-[2px]"
-        }`}
-      >
+      <div className="p-4 sm:p-5" ref={stageRef}>
         <MetricsBar metrics={scenario.metrics} />
 
         <div className="mt-4">
