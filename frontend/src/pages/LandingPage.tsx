@@ -29,6 +29,12 @@ type MarketPulse = {
 };
 
 const HERO_TYPEWORD = "Engineered.";
+const SECTION_EYEBROW_CLASS = "text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60";
+const SECTION_TITLE_CLASS =
+  "mt-4 text-[clamp(2.5rem,5.2vw,4.4rem)] font-semibold leading-[0.92] tracking-[-0.065em] text-white";
+const SECTION_COPY_CLASS = "mt-4 text-base leading-8 text-slate-400";
+const FEATURE_CARD_TITLE_CLASS = "text-[1.5rem] font-semibold tracking-[-0.04em] text-white";
+const FEATURE_CARD_COPY_CLASS = "mt-3 text-sm leading-7 text-slate-400";
 
 const WORKFLOW_STEPS: WorkflowStep[] = [
   {
@@ -95,27 +101,33 @@ function formatMarketChange(value: number) {
 }
 
 function SectionIntro({
+  className = "",
   description,
   eyebrow,
+  revealKey,
   title,
 }: {
+  className?: string;
   description: string;
   eyebrow: string;
+  revealKey?: string;
   title: string;
 }) {
+  const keyBase = revealKey ?? title;
+
   return (
-    <div className="max-w-3xl">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">
+    <div className={className || "max-w-3xl"}>
+      <div className={SECTION_EYEBROW_CLASS}>
         {eyebrow}
       </div>
       <h2
-        className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.6rem]"
-        data-marketing-reveal={`${title}-title`}
+        className={SECTION_TITLE_CLASS}
+        data-marketing-reveal={`${keyBase}-title`}
         data-split-text="lines"
       >
         {title}
       </h2>
-      <p className="mt-4 text-base leading-8 text-slate-400" data-marketing-reveal={`${title}-body`}>
+      <p className={SECTION_COPY_CLASS} data-marketing-reveal={`${keyBase}-body`}>
         {description}
       </p>
     </div>
@@ -321,7 +333,7 @@ export function LandingPage() {
               </h1>
 
               <p
-                className="mt-5 max-w-2xl text-lg leading-8 text-slate-300"
+                className="mt-5 max-w-2xl text-[1.05rem] leading-8 text-slate-300"
                 data-marketing-reveal="lede"
                 data-reveal-delay="0.08"
               >
@@ -403,10 +415,10 @@ export function LandingPage() {
                     {step.step}
                   </div>
                   <div>
-                    <div className="text-[1.45rem] font-semibold tracking-[-0.04em] text-white">
+                    <div className={FEATURE_CARD_TITLE_CLASS}>
                       {step.title}
                     </div>
-                    <p className="mt-3 text-sm leading-7 text-slate-400">{step.body}</p>
+                    <p className={FEATURE_CARD_COPY_CLASS}>{step.body}</p>
                   </div>
                 </div>
               </div>
@@ -418,28 +430,21 @@ export function LandingPage() {
       <section id="pricing" className="px-4 pb-14 pt-14 sm:px-6 lg:px-8 lg:pb-20 lg:pt-20">
         <div className="mx-auto max-w-7xl">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
-            <div className="max-w-4xl" data-marketing-reveal="pricing-hero">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
-                Pricing
-              </div>
-              <h2
-                className="mt-4 text-[clamp(3rem,6vw,5rem)] font-semibold leading-[0.9] tracking-[-0.07em] text-white"
-                data-marketing-reveal="pricing-title"
-                data-split-text="lines"
-              >
-                {isBetaMode(deploymentMode)
-                  ? "Private beta access, limited seats."
-                  : "Clear plans for replay, review, and growth."}
-              </h2>
-              <p
-                className="mt-5 max-w-2xl text-lg leading-8 text-slate-300"
-                data-marketing-reveal="pricing-copy"
-              >
-                {isBetaMode(deploymentMode)
+            <SectionIntro
+              className="max-w-4xl"
+              description={
+                isBetaMode(deploymentMode)
                   ? "Current phase stays simple: free access for approved beta users, waitlist once seats fill."
-                  : "Choose cadence, compare plans, and see what scales from solo validation to desk-grade review."}
-              </p>
-            </div>
+                  : "Choose cadence, compare plans, and see what scales from solo validation to desk-grade review."
+              }
+              eyebrow="Pricing"
+              revealKey="pricing"
+              title={
+                isBetaMode(deploymentMode)
+                  ? "Private beta access, limited seats."
+                  : "Clear plans for replay, review, and growth."
+              }
+            />
 
             <div
               className="rounded-[28px] border border-white/10 bg-[#061018] p-5 shadow-panel"
@@ -449,7 +454,7 @@ export function LandingPage() {
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Current mode
               </div>
-              <div className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-white">
+              <div className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-white">
                 {isBetaMode(deploymentMode) ? "Private beta" : "Production pricing"}
               </div>
               <p className="mt-3 text-sm leading-7 text-slate-400">
@@ -473,22 +478,13 @@ export function LandingPage() {
 
       <section className="px-4 pb-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="max-w-5xl" data-marketing-reveal="proof-intro">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
-              Included now
-            </div>
-            <h2
-              className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.2rem]"
-              data-marketing-reveal="proof-title"
-              data-split-text="lines"
-            >
-              Product first. Pricing second.
-            </h2>
-            <p className="mt-4 max-w-4xl text-base leading-8 text-slate-400" data-marketing-reveal="proof-copy">
-              EdgeLab already ships replay, journal review, analytics, and strategy memory inside
-              the same workspace.
-            </p>
-          </div>
+          <SectionIntro
+            className="max-w-5xl"
+            description="EdgeLab already ships replay, journal review, analytics, and strategy memory inside the same workspace."
+            eyebrow="Included now"
+            revealKey="proof"
+            title="Product first. Pricing second."
+          />
 
           <div className="mt-10 grid gap-4 lg:grid-cols-3">
             {PROOF_STEPS.map((item, index) => (
@@ -507,10 +503,10 @@ export function LandingPage() {
                     {item.step}
                   </div>
                   <div>
-                    <div className="text-[1.45rem] font-semibold tracking-[-0.04em] text-white">
+                    <div className={FEATURE_CARD_TITLE_CLASS}>
                       {item.title}
                     </div>
-                    <p className="mt-3 text-sm leading-7 text-slate-400">{item.body}</p>
+                    <p className={FEATURE_CARD_COPY_CLASS}>{item.body}</p>
                   </div>
                 </div>
               </div>
@@ -521,21 +517,12 @@ export function LandingPage() {
 
       <section className="px-4 pb-24 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
-          <div data-marketing-reveal="faq-intro">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/65">
-              FAQ
-            </div>
-            <h2
-              className="mt-4 text-4xl font-semibold tracking-[-0.06em] text-white sm:text-[3.2rem]"
-              data-marketing-reveal="faq-title"
-              data-split-text="lines"
-            >
-              What beta users should expect.
-            </h2>
-            <p className="mt-4 text-base leading-8 text-slate-400" data-marketing-reveal="faq-copy">
-              Short answers on beta access, imports, billing timing, and data lifecycle.
-            </p>
-          </div>
+          <SectionIntro
+            description="Short answers on beta access, imports, billing timing, and data lifecycle."
+            eyebrow="FAQ"
+            revealKey="faq"
+            title="What beta users should expect."
+          />
           <div data-marketing-reveal="faq-list" data-reveal-delay="0.08">
             <FaqAccordion items={pricingFaqItems} />
           </div>
