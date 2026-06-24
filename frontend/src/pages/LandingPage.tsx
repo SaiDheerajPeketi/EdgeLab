@@ -12,7 +12,7 @@ import {
   MarketingShell,
 } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
-import { loadGsap, prefersReducedMotion, type GsapInstance } from "../lib/gsap";
+import { prefersReducedMotion } from "../lib/gsap";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type WorkflowStep = {
@@ -183,60 +183,21 @@ function MarketTape() {
       return;
     }
 
-    let cancelled = false;
-    let trigger: { kill(): void } | null = null;
-
-    void loadGsap({ plugins: ["ScrollTrigger"] })
-      .then(({ plugins }) => {
-        if (cancelled) {
-          return;
-        }
-        trigger = plugins.ScrollTrigger?.create({
-          end: "bottom top",
-          onEnter: () => setIsActive(true),
-          onEnterBack: () => setIsActive(true),
-          onLeave: () => setIsActive(false),
-          onLeaveBack: () => setIsActive(false),
-          start: "top bottom",
-          trigger: root,
-        }) ?? null;
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      trigger?.kill();
-    };
-  }, []);
-
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track || prefersReducedMotion() || !isActive) {
+    if (!("IntersectionObserver" in window)) {
+      setIsActive(true);
       return;
     }
 
-    let cancelled = false;
-    let animation: { kill(): void } | null = null;
-
-    void loadGsap()
-      .then(({ gsap }) => {
-        if (cancelled || !track) {
-          return;
-        }
-        animation = gsap.to(track, {
-          duration: 26,
-          ease: "none",
-          repeat: -1,
-          xPercent: -50,
-        });
-      })
-      .catch(() => undefined);
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsActive(entry?.isIntersecting ?? true),
+      { rootMargin: "120px 0px" },
+    );
+    observer.observe(root);
 
     return () => {
-      cancelled = true;
-      animation?.kill();
+      observer.disconnect();
     };
-  }, [isActive]);
+  }, []);
 
   const loopItems = [...items, ...items];
 
@@ -246,7 +207,9 @@ function MarketTape() {
       ref={rootRef}
     >
       <div
-        className="edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4"
+        className={`edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4 ${
+          isActive ? "edgelab-marquee-active" : "edgelab-marquee-paused"
+        }`}
         ref={trackRef}
       >
         {loopItems.map((item, index) => (
@@ -267,63 +230,52 @@ function MarketTape() {
 }
 
 function AnimatedTypeWord() {
-  const innerRef = useRef<HTMLSpanElement | null>(null);
+  const [visibleLength, setVisibleLength] = useState(() =>
+    prefersReducedMotion() ? HERO_TYPEWORD.length : 0,
+  );
   const [isWordComplete, setIsWordComplete] = useState(false);
 
   useEffect(() => {
-    const inner = innerRef.current;
-    if (!inner) {
-      return;
-    }
-
-    inner.textContent = HERO_TYPEWORD;
     if (prefersReducedMotion()) {
+      setVisibleLength(HERO_TYPEWORD.length);
       setIsWordComplete(true);
       return;
     }
 
-    let cancelled = false;
-    let timeline: ReturnType<GsapInstance["timeline"]> | null = null;
+    let phase: "typing" | "hold" | "deleting" = "typing";
+    let holdTicks = 0;
+    let nextLength = 0;
 
-    void loadGsap()
-      .then(({ gsap }) => {
-        if (cancelled || !inner) {
-          return;
+    const timer = window.setInterval(() => {
+      if (phase === "typing") {
+        nextLength += 1;
+        setVisibleLength(nextLength);
+        setIsWordComplete(nextLength >= HERO_TYPEWORD.length);
+        if (nextLength >= HERO_TYPEWORD.length) {
+          phase = "hold";
         }
+        return;
+      }
 
-        const state = { visibleLength: 0 };
-        const renderWord = () => {
-          inner.textContent = HERO_TYPEWORD.slice(0, Math.round(state.visibleLength)) || "\u00a0";
-        };
+      if (phase === "hold") {
+        holdTicks += 1;
+        if (holdTicks >= 9) {
+          holdTicks = 0;
+          phase = "deleting";
+        }
+        return;
+      }
 
-        renderWord();
-        timeline = gsap.timeline({
-          repeat: -1,
-          repeatDelay: 0.42,
-        });
-        timeline
-          .to(state, {
-            duration: 1.05,
-            ease: `steps(${HERO_TYPEWORD.length})`,
-            onComplete: () => setIsWordComplete(true),
-            onStart: () => setIsWordComplete(false),
-            onUpdate: renderWord,
-            visibleLength: HERO_TYPEWORD.length,
-          })
-          .to({}, { duration: 1.15 })
-          .to(state, {
-            duration: 0.52,
-            ease: `steps(${HERO_TYPEWORD.length})`,
-            onStart: () => setIsWordComplete(false),
-            onUpdate: renderWord,
-            visibleLength: 0,
-          });
-      })
-      .catch(() => undefined);
+      nextLength -= 1;
+      setVisibleLength(Math.max(0, nextLength));
+      setIsWordComplete(false);
+      if (nextLength <= 0) {
+        phase = "typing";
+      }
+    }, 115);
 
     return () => {
-      cancelled = true;
-      timeline?.kill();
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -334,7 +286,9 @@ function AnimatedTypeWord() {
         isWordComplete ? "text-cyan-300" : "text-cyan-300/55"
       }`}
     >
-      <span aria-hidden="true" className="edgelab-typeword-inner" ref={innerRef} />
+      <span aria-hidden="true" className="edgelab-typeword-inner">
+        {HERO_TYPEWORD.slice(0, visibleLength) || "\u00a0"}
+      </span>
       <span aria-hidden="true" className="edgelab-typeword-caret" />
     </span>
   );

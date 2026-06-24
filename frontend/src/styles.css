@@ -250,6 +250,14 @@
   will-change: transform;
 }
 
+.edgelab-marquee-active {
+  animation: edgelab-marquee 26s linear infinite;
+}
+
+.edgelab-marquee-paused {
+  animation: edgelab-marquee 26s linear infinite paused;
+}
+
 .edgelab-float-metric {
   animation: edgelab-float-metric 7s ease-in-out infinite;
   animation-delay: var(--metric-delay, 0s);
@@ -274,6 +282,7 @@
   }
 
   .edgelab-float-metric,
+  .edgelab-marquee,
   .edgelab-mesh,
   .edgelab-stage-enter,
   .edgelab-word-reveal {

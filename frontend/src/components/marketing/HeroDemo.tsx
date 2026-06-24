@@ -804,7 +804,7 @@ function MarketingCandleSurface({
 export function HeroDemo() {
   const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
-  const [autoplayActive, setAutoplayActive] = useState(() => !prefersReducedMotion());
+  const [autoplayActive, setAutoplayActive] = useState(true);
   const initialCursor = Math.max(0, Math.min(78, (SCENARIOS[0]?.bars.length ?? 1) - 1));
   const [currentBarIndex, setCurrentBarIndex] = useState(initialCursor);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -831,7 +831,7 @@ export function HeroDemo() {
   }, []);
 
   useEffect(() => {
-    if (!scenario || !autoplayActive) {
+    if (!scenario || !autoplayActive || prefersReducedMotion()) {
       return;
     }
 
@@ -859,8 +859,8 @@ export function HeroDemo() {
     }
 
     let cancelled = false;
+    let intersectionObserver: IntersectionObserver | null = null;
     let observer: { kill(): void } | null = null;
-    let trigger: { kill(): void } | null = null;
 
     const stepScenario = (direction: 1 | -1) => {
       const currentIndex = SCENARIOS.findIndex(
@@ -872,7 +872,15 @@ export function HeroDemo() {
       selectScenario(SCENARIOS[nextIndex]?.id ?? SCENARIOS[0]?.id ?? "replay");
     };
 
-    void loadGsap({ plugins: ["CustomEase", "Flip", "Observer", "ScrollTrigger"] })
+    if ("IntersectionObserver" in window) {
+      intersectionObserver = new IntersectionObserver(
+        ([entry]) => setAutoplayActive(entry?.isIntersecting ?? true),
+        { rootMargin: "160px 0px" },
+      );
+      intersectionObserver.observe(root);
+    }
+
+    void loadGsap({ plugins: ["CustomEase", "Flip", "Observer"] })
       .then(({ plugins }) => {
         if (cancelled) {
           return;
@@ -888,23 +896,13 @@ export function HeroDemo() {
           tolerance: 18,
           type: "touch,pointer",
         }) ?? null;
-
-        trigger = plugins.ScrollTrigger?.create({
-          end: "bottom top",
-          onEnter: () => setAutoplayActive(true),
-          onEnterBack: () => setAutoplayActive(true),
-          onLeave: () => setAutoplayActive(false),
-          onLeaveBack: () => setAutoplayActive(false),
-          start: "top bottom",
-          trigger: root,
-        }) ?? null;
       })
       .catch(() => undefined);
 
     return () => {
       cancelled = true;
+      intersectionObserver?.disconnect();
       observer?.kill();
-      trigger?.kill();
     };
   }, []);
 
