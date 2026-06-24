@@ -120,10 +120,16 @@ function StatusCard({
 }
 
 function MarketTape() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState(MARKET_PULSE);
+  const [isActive, setIsActive] = useState(() => !prefersReducedMotion());
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     const timer = window.setInterval(() => {
       setItems((current) =>
         current.map((item, index) => {
@@ -144,11 +150,43 @@ function MarketTape() {
     }, 1600);
 
     return () => window.clearInterval(timer);
+  }, [isActive]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || prefersReducedMotion()) {
+      return;
+    }
+
+    let cancelled = false;
+    let trigger: { kill(): void } | null = null;
+
+    void loadGsap({ plugins: ["ScrollTrigger"] })
+      .then(({ plugins }) => {
+        if (cancelled) {
+          return;
+        }
+        trigger = plugins.ScrollTrigger?.create({
+          end: "bottom top",
+          onEnter: () => setIsActive(true),
+          onEnterBack: () => setIsActive(true),
+          onLeave: () => setIsActive(false),
+          onLeaveBack: () => setIsActive(false),
+          start: "top bottom",
+          trigger: root,
+        }) ?? null;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      trigger?.kill();
+    };
   }, []);
 
   useEffect(() => {
     const track = trackRef.current;
-    if (!track || prefersReducedMotion()) {
+    if (!track || prefersReducedMotion() || !isActive) {
       return;
     }
 
@@ -173,12 +211,15 @@ function MarketTape() {
       cancelled = true;
       animation?.kill();
     };
-  }, []);
+  }, [isActive]);
 
   const loopItems = [...items, ...items];
 
   return (
-    <div className="relative h-[64px] w-full max-w-full overflow-hidden rounded-full border border-white/10 bg-[#071018] shadow-panel">
+    <div
+      className="relative h-[64px] w-full max-w-full overflow-hidden rounded-full border border-white/10 bg-[#071018] shadow-panel"
+      ref={rootRef}
+    >
       <div
         className="edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4"
         ref={trackRef}
