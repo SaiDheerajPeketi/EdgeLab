@@ -38,11 +38,18 @@ type AppRoutesProps = {
 function AppRouteFallback() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-edgelab-base px-4 text-edgelab-text-primary">
-      <div className="w-full max-w-md rounded-[30px] border border-cyan-300/15 bg-white/[0.04] p-8 text-center shadow-card backdrop-blur-xl">
-        <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-cyan-300/20 border-t-cyan-300" />
-        <div className="mt-6 text-display text-3xl text-white">Opening EdgeLab</div>
+      <div className="w-full max-w-md rounded-[30px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(7,16,24,0.96),rgba(5,10,16,0.92))] p-8 text-center shadow-card backdrop-blur-xl">
+        <div className="mx-auto flex w-fit items-center gap-1.5 rounded-full border border-white/8 bg-black/20 px-3 py-2">
+          <span className="h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse motion-reduce:animate-none" />
+          <span className="h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse [animation-delay:140ms] motion-reduce:animate-none" />
+          <span className="h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse [animation-delay:280ms] motion-reduce:animate-none" />
+        </div>
+        <div className="mt-6 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
+          Routing
+        </div>
+        <div className="mt-2 text-display text-[2rem] leading-tight text-white">Opening EdgeLab</div>
         <p className="mt-3 text-sm leading-7 text-slate-400">
-          Pulling next trading surface into view.
+          Pulling the next trading surface into view.
         </p>
       </div>
     </div>

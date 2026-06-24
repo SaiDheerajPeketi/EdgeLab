@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
 import {
@@ -136,41 +136,182 @@ const TradingChart = lazy(() =>
   })),
 );
 
-function WorkspaceLoadingPanel() {
+function LoadingShell({
+  children,
+  className = "",
+  eyebrow = "Loading",
+  summary = "Preparing interface",
+}: {
+  children: ReactNode;
+  className?: string;
+  eyebrow?: string;
+  summary?: string;
+}) {
   return (
-    <div className="grid gap-3">
-      <div className="h-12 animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
-      <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="h-[calc(100vh-8rem)] animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
-        <div className="h-[calc(100vh-8rem)] animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
+    <div
+      className={`rounded-[22px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(7,16,24,0.96),rgba(5,10,16,0.92))] shadow-panel ${className}`}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
+            {eyebrow}
+          </div>
+          <div className="mt-1 text-sm font-semibold text-white">{summary}</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <LoadingDot delayClass="" />
+          <LoadingDot delayClass="[animation-delay:140ms]" />
+          <LoadingDot delayClass="[animation-delay:280ms]" />
+        </div>
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function LoadingDot({ delayClass }: { delayClass: string }) {
+  return (
+    <span
+      className={`h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse motion-reduce:animate-none ${delayClass}`}
+    />
+  );
+}
+
+function LoadingBar({
+  className = "",
+  tone = "soft",
+}: {
+  className?: string;
+  tone?: "accent" | "soft";
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-full ${
+        tone === "accent" ? "bg-cyan-300/16" : "bg-white/[0.06]"
+      } ${className}`}
+    >
+      <div
+        className={`absolute inset-y-0 left-0 w-1/2 rounded-full ${
+          tone === "accent"
+            ? "bg-gradient-to-r from-cyan-200/10 via-cyan-200/55 to-cyan-100/10"
+            : "bg-gradient-to-r from-white/[0.02] via-white/[0.14] to-white/[0.02]"
+        } animate-pulse motion-reduce:animate-none`}
+      />
+    </div>
+  );
+}
+
+function LoadingPanelBlock({
+  bodyLines = 2,
+  className = "",
+  titleWidth = "w-28",
+}: {
+  bodyLines?: number;
+  className?: string;
+  titleWidth?: string;
+}) {
+  return (
+    <div className={`rounded-[18px] border border-white/8 bg-black/20 p-4 ${className}`}>
+      <LoadingBar className={`h-3 ${titleWidth}`} tone="accent" />
+      <div className="mt-4 grid gap-2">
+        {Array.from({ length: bodyLines }).map((_, index) => (
+          <LoadingBar
+            className={`h-2 ${index === bodyLines - 1 ? "w-2/3" : "w-full"}`}
+            key={index}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
+function WorkspaceLoadingPanel() {
+  return (
+    <LoadingShell
+      className="grid gap-3"
+      eyebrow="Workspace"
+      summary="Preparing trading workspace"
+    >
+      <div className="grid gap-3">
+        <div className="rounded-[18px] border border-white/8 bg-black/20 p-3">
+          <div className="flex items-center gap-3">
+            <LoadingBar className="h-8 w-8 rounded-xl" tone="accent" />
+            <div className="min-w-0 flex-1">
+              <LoadingBar className="h-3 w-36" tone="accent" />
+              <LoadingBar className="mt-2 h-2 w-56 max-w-full" />
+            </div>
+            <LoadingBar className="h-8 w-24 rounded-full" />
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <LoadingPanelBlock bodyLines={7} className="min-h-[calc(100vh-10rem)]" titleWidth="w-32" />
+          <LoadingPanelBlock bodyLines={8} className="min-h-[calc(100vh-10rem)]" titleWidth="w-40" />
+        </div>
+      </div>
+    </LoadingShell>
+  );
+}
+
 function BacktestLoadingPanel() {
   return (
-    <div className="mb-4 grid gap-2 rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
-      <div className="h-3 w-32 animate-pulse rounded bg-cyan-100/30" />
-      <div className="h-2 w-full max-w-md animate-pulse rounded bg-cyan-100/15" />
-      <div className="h-2 w-2/3 max-w-sm animate-pulse rounded bg-cyan-100/10" />
-    </div>
+    <LoadingShell
+      className="mb-4"
+      eyebrow="Session"
+      summary="Syncing replay state"
+    >
+      <div className="grid gap-3">
+        <LoadingBar className="h-3 w-28" tone="accent" />
+        <LoadingBar className="h-2 w-full max-w-lg" />
+        <LoadingBar className="h-2 w-4/5 max-w-md" />
+      </div>
+    </LoadingShell>
   );
 }
 
 function LazyPanelFallback({ className = "" }: { className?: string }) {
   return (
-    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-3 ${className}`}>
-      <div className="h-3 w-32 animate-pulse rounded bg-white/15" />
-      <div className="mt-3 h-2 w-full max-w-md animate-pulse rounded bg-white/10" />
-    </div>
+    <LoadingShell
+      className={className}
+      eyebrow="Panel"
+      summary="Loading tools"
+    >
+      <div className="grid gap-3">
+        <LoadingBar className="h-3 w-32" tone="accent" />
+        <LoadingBar className="h-2 w-full max-w-md" />
+        <LoadingBar className="h-2 w-2/3 max-w-sm" />
+      </div>
+    </LoadingShell>
   );
 }
 
 function ChartChunkFallback() {
   return (
     <div className="chart-studio-layout chart-studio-layout-focus">
-      <div className="min-h-[520px] rounded-md border border-white/10 bg-white/[0.03]" />
+      <LoadingShell
+        className="min-h-[520px]"
+        eyebrow="Chart"
+        summary="Streaming chart studio"
+      >
+        <div className="grid h-full min-h-[440px] gap-4">
+          <div className="flex items-center gap-2">
+            <LoadingBar className="h-8 w-24 rounded-full" />
+            <LoadingBar className="h-8 w-20 rounded-full" />
+            <LoadingBar className="h-8 w-28 rounded-full" tone="accent" />
+          </div>
+          <div className="relative flex-1 overflow-hidden rounded-[20px] border border-white/8 bg-[#071018]">
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px)] bg-[size:100%_56px,72px_100%]" />
+            <div className="absolute inset-x-6 top-8">
+              <LoadingBar className="h-3 w-36" tone="accent" />
+              <LoadingBar className="mt-3 h-2 w-52" />
+            </div>
+            <div className="absolute inset-x-6 bottom-8 grid gap-2">
+              <LoadingBar className="h-2 w-full" />
+              <LoadingBar className="h-2 w-5/6" />
+            </div>
+          </div>
+        </div>
+      </LoadingShell>
     </div>
   );
 }
