@@ -51,6 +51,12 @@ Benchmark the session-summary path without Docker by seeding a temporary SQLite 
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py --sessions 20000 --iterations 25
 ```
 
+Load-test the live frontend/API entrypoints against the current single-VM proxy or future split-service URLs with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py --requests 200 --concurrency 20
+```
+
 SQLite remains available as an explicit fallback:
 
 ```bash
