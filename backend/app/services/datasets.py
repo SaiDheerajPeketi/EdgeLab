@@ -10,7 +10,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import DatasetAsset, DatasetSettings, DatasetTimeframe, utcnow
+from app.models import BacktestSession, DatasetAsset, DatasetSettings, DatasetTimeframe, utcnow
 from app.schemas import (
     DatasetAssetUpdate,
     DatasetCatalogResponse,
@@ -117,6 +117,7 @@ class DatasetCatalogService:
             return
         try:
             self._scan_filesystem_index(db, user_id, strict=False, prune_missing=False)
+            self._sync_session_replay_ready(db, user_id)
             db.commit()
             self._last_discovery_root_by_user[user_id] = root
             self._last_discovery_at_by_user[user_id] = monotonic()
@@ -147,6 +148,7 @@ class DatasetCatalogService:
             raise DatasetRefreshInProgress("Dataset refresh is already running.")
         try:
             summary = self._scan_filesystem_index(db, user_id, strict=True, prune_missing=True)
+            self._sync_session_replay_ready(db, user_id)
             db.commit()
             self._last_discovery_root_by_user[user_id] = str(self._root_path(db, user_id))
             self._last_discovery_at_by_user[user_id] = monotonic()
@@ -177,6 +179,7 @@ class DatasetCatalogService:
                 error=None,
             )
             summary = self._scan_filesystem_index(db, user_id, strict=True, prune_missing=True)
+            self._sync_session_replay_ready(db, user_id)
             db.commit()
             self._last_discovery_root_by_user[user_id] = str(self._root_path(db, user_id))
             self._last_discovery_at_by_user[user_id] = monotonic()
@@ -409,6 +412,25 @@ class DatasetCatalogService:
             timeframes=discovered_timeframes,
             candles=0,
         )
+
+    def _sync_session_replay_ready(self, db: Session, user_id: int) -> None:
+        known_csv_paths = {
+            row
+            for row in db.scalars(
+                select(DatasetTimeframe.csv_path).where(DatasetTimeframe.user_id == user_id)
+            ).all()
+            if row
+        }
+        sessions = db.scalars(
+            select(BacktestSession).where(BacktestSession.user_id == user_id)
+        ).all()
+        for session in sessions:
+            if session.timeframe == "Imported":
+                continue
+            next_ready = bool(session.csv_path and session.csv_path in known_csv_paths)
+            if session.replay_ready != next_ready:
+                session.replay_ready = next_ready
+                session.updated_at = utcnow()
 
     def _upsert_asset_record(
         self,

@@ -276,6 +276,7 @@ function createSession({
     end_offset: endOffset,
     status: "ACTIVE",
     current_offset: currentOffset,
+    replay_ready: true,
     initial_balance: 25000,
     realized_pnl: realizedPnl,
     default_commission_mode: "NONE",

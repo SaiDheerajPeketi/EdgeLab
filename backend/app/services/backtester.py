@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     BacktestSession,
-    DatasetTimeframe,
     Execution,
     Order,
     Playbook,
@@ -138,6 +137,7 @@ class BacktestService:
             start_offset=start_offset,
             end_offset=end_offset,
             current_offset=start_offset,
+            replay_ready=True,
             initial_balance=payload.initial_balance,
             default_commission_mode=_normalize_commission_mode(payload.default_commission_mode),
             default_commission_value=_commission_value(payload.default_commission_mode, payload.default_commission_value),
@@ -628,22 +628,36 @@ class BacktestService:
         offset: int = 0,
         limit: int | None = None,
     ) -> list[BacktestSession]:
-        if self.dataset_catalog is None:
-            sessions = [
-                session
-                for session in self.list_sessions(db, user_id)
-                if self.session_is_listable(session)
-            ]
-            if offset > 0:
-                sessions = sessions[offset:]
-            return sessions[:limit] if limit is not None else sessions
-
-        self.dataset_catalog.discover_catalog(db, user_id)
+        if self.dataset_catalog is not None:
+            self.dataset_catalog.discover_catalog(db, user_id)
         query = (
             select(BacktestSession)
             .where(
                 BacktestSession.user_id == user_id,
-                self._listable_session_clause(user_id),
+                self._listable_session_clause(),
+            )
+            .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
+        )
+        if offset > 0:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        return list(db.scalars(query).all())
+
+    def list_replay_ready_sessions(
+        self,
+        db: Session,
+        user_id: int,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> list[BacktestSession]:
+        if self.dataset_catalog is not None:
+            self.dataset_catalog.discover_catalog(db, user_id)
+        query = (
+            select(BacktestSession)
+            .where(
+                BacktestSession.user_id == user_id,
+                self._replay_ready_session_clause(),
             )
             .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
         )
@@ -1365,30 +1379,24 @@ class BacktestService:
         return self._session_or_404(db, user_id, session_id)
 
     def session_has_replay_data(self, session: BacktestSession) -> bool:
-        csv_path = session.csv_path
-        if not csv_path and self.market_data is not None:
-            csv_path = str(self.market_data.csv_path)
-        return bool(csv_path and Path(csv_path).is_file())
+        return bool(session.replay_ready)
 
     def session_is_listable(self, session: BacktestSession) -> bool:
-        return session.timeframe == "Imported" or self.session_has_replay_data(session)
+        return session.timeframe == "Imported" or session.replay_ready
 
-    def _listable_session_clause(self, user_id: int):
-        dataset_match = (
-            select(DatasetTimeframe.id)
-            .where(
-                DatasetTimeframe.user_id == user_id,
-                DatasetTimeframe.csv_path == BacktestSession.csv_path,
-            )
-            .exists()
-        )
+    def _replay_ready_session_clause(self):
         filters = [
-            BacktestSession.timeframe == "Imported",
-            dataset_match,
+            BacktestSession.replay_ready.is_(True),
         ]
         if self.market_data is not None:
             filters.append(BacktestSession.csv_path == str(self.market_data.csv_path))
         return or_(*filters)
+
+    def _listable_session_clause(self):
+        return or_(
+            BacktestSession.timeframe == "Imported",
+            self._replay_ready_session_clause(),
+        )
 
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
         if not session.csv_path and self.market_data is None:

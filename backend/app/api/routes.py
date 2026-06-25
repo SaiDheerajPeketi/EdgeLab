@@ -1784,7 +1784,7 @@ def latest_backtest(
     try:
         offset = 0
         while True:
-            sessions = backtester.list_listable_sessions(
+            sessions = backtester.list_replay_ready_sessions(
                 db,
                 current_user.id,
                 offset=offset,

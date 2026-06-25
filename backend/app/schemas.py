@@ -321,6 +321,7 @@ class BacktestSessionRead(BaseModel):
     end_offset: int | None = None
     status: Literal["ACTIVE", "COMPLETE"]
     current_offset: int
+    replay_ready: bool = False
     initial_balance: float
     realized_pnl: float
     default_commission_mode: CommissionMode = "NONE"

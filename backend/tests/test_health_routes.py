@@ -175,6 +175,7 @@ def test_latest_backtest_returns_existing_valid_dataset_session(monkeypatch, tmp
         symbol="GBPUSD",
         csv_path=str(csv_path),
         current_offset=0,
+        replay_ready=True,
     )
     db.add(valid_session)
     db.flush()
@@ -218,6 +219,7 @@ def test_list_backtests_hides_stale_replay_sessions(monkeypatch, tmp_path):
         symbol="GBPUSD",
         csv_path=str(csv_path),
         current_offset=0,
+        replay_ready=True,
     )
     db.add_all([stale_session, valid_session])
     db.flush()
@@ -459,6 +461,7 @@ def test_backtest_summaries_paginate_listable_sessions(monkeypatch, tmp_path):
             symbol="GBPUSD",
             csv_path=str(csv_path),
             current_offset=0,
+            replay_ready=True,
         )
         for index in range(3)
     ]
@@ -526,6 +529,7 @@ def test_backtest_summaries_use_catalog_index_without_filesystem_checks(monkeypa
                 timeframe="M1",
                 csv_path=csv_path,
                 current_offset=0,
+                replay_ready=True,
             ),
             BacktestSession(
                 user_id=user_id,

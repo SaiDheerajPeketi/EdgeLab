@@ -187,6 +187,7 @@ def import_trade_csv(
         start_offset=0,
         end_offset=current_offset,
         current_offset=current_offset,
+        replay_ready=fallback_csv_path.is_file(),
         initial_balance=payload.initial_balance,
         realized_pnl=realized_pnl,
         status="COMPLETE",

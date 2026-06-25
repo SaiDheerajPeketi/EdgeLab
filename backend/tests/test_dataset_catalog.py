@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import BetaUser, DatasetAsset, DatasetTimeframe
+from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -153,6 +153,57 @@ def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
         assert timeframe.rows == 2
         assert timeframe.imported is False
         assert resolution.stored is True
+
+
+def test_refresh_catalog_syncs_session_replay_readiness(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        db.add_all(
+            [
+                BacktestSession(
+                    user_id=user_id,
+                    name="Valid dataset session",
+                    symbol="GBPUSD",
+                    timeframe="M1",
+                    csv_path=str(csv_path),
+                    replay_ready=False,
+                    current_offset=0,
+                ),
+                BacktestSession(
+                    user_id=user_id,
+                    name="Stale legacy session",
+                    symbol="EURUSD",
+                    timeframe="M1",
+                    csv_path="/data/EURUSD_M1.csv",
+                    replay_ready=True,
+                    current_offset=0,
+                ),
+            ]
+        )
+        db.commit()
+
+        service.refresh_catalog(db, user_id)
+
+        sessions = db.query(BacktestSession).order_by(BacktestSession.name.asc()).all()
+        assert [(session.name, session.replay_ready) for session in sessions] == [
+            ("Stale legacy session", False),
+            ("Valid dataset session", True),
+        ]
 
 
 def test_list_catalog_throttles_auto_discovery_within_ttl(tmp_path, monkeypatch):

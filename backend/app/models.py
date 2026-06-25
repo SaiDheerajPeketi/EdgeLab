@@ -55,6 +55,7 @@ class BacktestSession(UserOwnedMixin, Base):
     end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE", index=True)
     current_offset: Mapped[int] = mapped_column(Integer, default=299)
+    replay_ready: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     initial_balance: Mapped[float] = mapped_column(Float, default=100_000.0)
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     default_commission_mode: Mapped[str] = mapped_column(String(16), default="NONE")

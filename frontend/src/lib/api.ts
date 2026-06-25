@@ -189,6 +189,7 @@ export type BacktestSession = {
   end_offset: number | null;
   status: "ACTIVE" | "COMPLETE";
   current_offset: number;
+  replay_ready: boolean;
   initial_balance: number;
   realized_pnl: number;
   default_commission_mode: CommissionMode;
