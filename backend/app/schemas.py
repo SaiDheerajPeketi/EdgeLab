@@ -575,10 +575,21 @@ class MetricsResponse(BaseModel):
     net_pnl: float
     win_rate: float
     total_trades: int
+    winning_trades: int
+    breakeven_trades: int
+    open_trades: int
     profit_factor: float | None
+    gross_pnl: float
+    total_commissions: float
+    total_fees: float
     max_drawdown: float
+    recovery_factor: float | None
     sharpe_ratio: float | None
     average_r: float | None
+    average_hold_minutes: float | None
+    average_win: float | None
+    average_loss: float | None
+    expectancy: float | None
     best_trade: float | None
     worst_trade: float | None
     longest_win_streak: int

@@ -1,7 +1,7 @@
 import math
 from collections import defaultdict
 
-from sqlalchemy import asc, select
+from sqlalchemy import asc, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Trade
@@ -23,19 +23,29 @@ def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> Met
         )
         .order_by(asc(Trade.exit_time))
     )
+    open_trade_query = select(func.count()).select_from(Trade).where(
+        Trade.user_id == user_id,
+        Trade.status == "OPEN",
+    )
     if session_id is not None:
         query = query.where(Trade.session_id == session_id)
+        open_trade_query = open_trade_query.where(Trade.session_id == session_id)
     closed_trades = list(db.scalars(query).all())
+    open_trades = int(db.scalar(open_trade_query) or 0)
 
     total_trades = len(closed_trades)
     pnl_values = [trade.realized_pnl for trade in closed_trades]
     net_pnl = float(sum(pnl_values))
     wins = [pnl for pnl in pnl_values if pnl > 0]
     losses = [pnl for pnl in pnl_values if pnl < 0]
+    breakeven_trades = sum(1 for pnl in pnl_values if pnl == 0)
     win_rate = len(wins) / total_trades if total_trades else 0.0
     gross_profit = sum(wins)
     gross_loss = abs(sum(losses))
     profit_factor = gross_profit / gross_loss if gross_loss else None
+    gross_pnl = sum(_trade_gross_pnl(trade) for trade in closed_trades)
+    total_commissions = sum(float(trade.commission_amount or 0.0) for trade in closed_trades)
+    total_fees = sum(float(trade.fee_amount or 0.0) for trade in closed_trades)
 
     equity_curve = _equity_curve(closed_trades)
     r_values = [
@@ -43,15 +53,32 @@ def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> Met
         for trade in closed_trades
         if trade.r_multiple is not None and math.isfinite(trade.r_multiple)
     ]
+    hold_values = [
+        hold_minutes
+        for hold_minutes in (_hold_minutes(trade) for trade in closed_trades)
+        if hold_minutes is not None and math.isfinite(hold_minutes)
+    ]
+    max_drawdown = _max_drawdown([point.equity for point in equity_curve])
 
     return MetricsResponse(
         net_pnl=net_pnl,
         win_rate=win_rate,
         total_trades=total_trades,
+        winning_trades=len(wins),
+        breakeven_trades=breakeven_trades,
+        open_trades=open_trades,
         profit_factor=profit_factor,
-        max_drawdown=_max_drawdown([point.equity for point in equity_curve]),
+        gross_pnl=gross_pnl,
+        total_commissions=total_commissions,
+        total_fees=total_fees,
+        max_drawdown=max_drawdown,
+        recovery_factor=(net_pnl / max_drawdown if max_drawdown > 0 else None),
         sharpe_ratio=_sharpe_ratio(closed_trades),
         average_r=(sum(r_values) / len(r_values) if r_values else None),
+        average_hold_minutes=_average(hold_values),
+        average_win=_average(wins),
+        average_loss=_average(losses),
+        expectancy=(net_pnl / total_trades if total_trades else None),
         best_trade=max(pnl_values) if pnl_values else None,
         worst_trade=min(pnl_values) if pnl_values else None,
         longest_win_streak=_longest_streak(pnl_values, winning=True),
@@ -73,6 +100,21 @@ def _equity_curve(trades: list[Trade]) -> list[EquityPoint]:
     return equity
 
 
+def _average(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
+def _hold_minutes(trade: Trade) -> float | None:
+    if trade.exit_time is None:
+        return None
+    hold_minutes = (trade.exit_time - trade.entry_time).total_seconds() / 60
+    if not math.isfinite(hold_minutes) or hold_minutes < 0:
+        return None
+    return float(hold_minutes)
+
+
 def _max_drawdown(equity_values: list[float]) -> float:
     peak = 0.0
     worst = 0.0
@@ -90,6 +132,13 @@ def _longest_streak(pnl_values: list[float], winning: bool) -> int:
         current = current + 1 if hit else 0
         longest = max(longest, current)
     return longest
+
+
+def _trade_gross_pnl(trade: Trade) -> float:
+    gross_pnl = trade.gross_pnl
+    if gross_pnl is not None and math.isfinite(gross_pnl):
+        return float(gross_pnl)
+    return float(trade.realized_pnl + (trade.commission_amount or 0.0) + (trade.fee_amount or 0.0))
 
 
 def _strategy_performance(trades: list[Trade]) -> list[StrategyPerformance]:

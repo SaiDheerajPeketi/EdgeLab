@@ -26,7 +26,7 @@ import {
   profitLossColor,
 } from "@/components/charts/profit-loss-line";
 import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
-import type { BacktestSession, Trade } from "../lib/api";
+import type { BacktestSession, Metrics, Trade } from "../lib/api";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { formatMarketSymbol } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
@@ -36,6 +36,7 @@ type Props = {
   currency?: string;
   filter?: ResultsTradeOutcomeFilter;
   hideCsvAction?: boolean;
+  metrics?: Metrics | null;
   onFilterChange?: (filter: ResultsTradeOutcomeFilter) => void;
   onTradeScrollChange?: (scroll: ResultsTradeScroll) => void;
   onTradeScrollRestored?: () => void;
@@ -61,10 +62,7 @@ type Aggregate = {
   averageWin: number | null;
   bestTrade: number | null;
   breakevenTrades: number;
-  closedTrades: Trade[];
   expectancy: number | null;
-  grossLosses: number;
-  grossWins: number;
   grossPnl: number;
   largestLoss: number | null;
   longPnl: number;
@@ -88,6 +86,7 @@ export function ResultsPanel({
   currency = "USD",
   filter,
   hideCsvAction = false,
+  metrics = null,
   onFilterChange,
   onTradeScrollChange,
   onTradeScrollRestored,
@@ -136,12 +135,15 @@ export function ResultsPanel({
     [scopedTrades],
   );
   const aggregate = useMemo(
-    () => aggregateTrades(closedTrades, scopedTrades),
-    [closedTrades, scopedTrades],
+    () => (metrics ? aggregateFromMetrics(metrics) : aggregateTrades(closedTrades, scopedTrades)),
+    [closedTrades, metrics, scopedTrades],
   );
   const filteredTrades = useMemo(
-    () =>
-      closedTrades.filter((trade) => {
+    () => {
+      if (currentView !== "trades") {
+        return [];
+      }
+      return closedTrades.filter((trade) => {
         const pnl = trade.realized_pnl ?? 0;
         if (currentOutcomeFilter === "WIN" && pnl <= 0) {
           return false;
@@ -168,8 +170,9 @@ export function ResultsPanel({
         ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(normalizedSearch));
-      }),
-    [closedTrades, currentOutcomeFilter, currentTradeSearch, sessionById],
+      });
+    },
+    [closedTrades, currentOutcomeFilter, currentTradeSearch, currentView, sessionById],
   );
   const progress = activeSession ? sessionProgress(activeSession) : null;
   const sessionLabel = activeSession?.name ?? "Current replay";
@@ -232,7 +235,7 @@ export function ResultsPanel({
                 Current Session Results
               </h2>
               <span className="status-pill">
-                {closedTrades.length} closed
+                {aggregate.totalTrades} closed
               </span>
               <span className="status-pill">
                 {aggregate.openTrades} open
@@ -299,7 +302,7 @@ export function ResultsPanel({
           search={currentTradeSearch}
           sessionById={sessionById}
           trades={filteredTrades}
-          totalTrades={closedTrades.length}
+          totalTrades={aggregate.totalTrades}
         />
       )}
     </section>
@@ -803,6 +806,40 @@ function EmptyResults({ message }: { message: string }) {
   );
 }
 
+function aggregateFromMetrics(metrics: Metrics): Aggregate {
+  const longBreakdown = metrics.side_breakdown.find((row) => row.side === "LONG");
+  const shortBreakdown = metrics.side_breakdown.find((row) => row.side === "SHORT");
+  const losingTrades =
+    metrics.total_trades - metrics.winning_trades - metrics.breakeven_trades;
+
+  return {
+    averageHoldMinutes: metrics.average_hold_minutes,
+    averageLoss: metrics.average_loss,
+    averageR: metrics.average_r,
+    averageWin: metrics.average_win,
+    bestTrade: metrics.best_trade,
+    breakevenTrades: metrics.breakeven_trades,
+    expectancy: metrics.expectancy,
+    grossPnl: metrics.gross_pnl,
+    largestLoss: metrics.worst_trade,
+    longPnl: longBreakdown?.net_pnl ?? 0,
+    longTrades: longBreakdown?.trades ?? 0,
+    maxDrawdown: metrics.max_drawdown > 0 ? -metrics.max_drawdown : 0,
+    netPnl: metrics.net_pnl,
+    openTrades: metrics.open_trades,
+    profitFactor:
+      metrics.profit_factor ?? (metrics.winning_trades > 0 && losingTrades === 0 ? Number.POSITIVE_INFINITY : null),
+    recoveryFactor: metrics.recovery_factor,
+    shortPnl: shortBreakdown?.net_pnl ?? 0,
+    shortTrades: shortBreakdown?.trades ?? 0,
+    totalCommissions: metrics.total_commissions,
+    totalFees: metrics.total_fees,
+    totalTrades: metrics.total_trades,
+    winRate: metrics.win_rate,
+    wins: metrics.winning_trades,
+  };
+}
+
 function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggregate {
   const orderedTrades = closedTrades.slice().sort(compareTradesAscending);
   const netPnl = orderedTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0);
@@ -840,10 +877,7 @@ function aggregateTrades(closedTrades: Trade[], allTrades = closedTrades): Aggre
     averageWin: average(winningTrades.map((trade) => trade.realized_pnl ?? 0)),
     bestTrade,
     breakevenTrades,
-    closedTrades: orderedTrades,
     expectancy: orderedTrades.length > 0 ? netPnl / orderedTrades.length : null,
-    grossLosses,
-    grossWins,
     grossPnl,
     largestLoss,
     longPnl: longTrades.reduce((sum, trade) => sum + (trade.realized_pnl ?? 0), 0),

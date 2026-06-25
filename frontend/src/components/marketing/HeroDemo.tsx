@@ -94,14 +94,29 @@ function buildMetrics({
   totalTrades: number;
   winRate: number;
 }): Metrics {
+  const winningTrades = Math.max(1, Math.round(totalTrades * winRate));
+  const breakevenTrades = Math.max(0, Math.round(totalTrades * 0.08));
+  const openTrades = 2;
+
   return {
     net_pnl: netPnl,
     win_rate: winRate,
     total_trades: totalTrades,
+    winning_trades: winningTrades,
+    breakeven_trades: breakevenTrades,
+    open_trades: openTrades,
     profit_factor: profitFactor,
-    max_drawdown: -412,
+    gross_pnl: netPnl + 214,
+    total_commissions: 126,
+    total_fees: 88,
+    max_drawdown: 412,
+    recovery_factor: netPnl / 412,
     sharpe_ratio: sharpeRatio,
     average_r: averageR,
+    average_hold_minutes: 73,
+    average_win: 168,
+    average_loss: -94,
+    expectancy: totalTrades > 0 ? netPnl / totalTrades : null,
     best_trade: 532,
     worst_trade: -184,
     longest_win_streak: 4,
@@ -1129,6 +1144,7 @@ function MarketingResultsSurface({ scenario }: { scenario: DemoScenario }) {
         activeSessionId={scenario.session.id}
         currency={scenario.session.currency ?? "USD"}
         hideCsvAction
+        metrics={scenario.metrics}
         sessions={[scenario.session]}
         showEquityCurve={false}
         trades={scenario.trades}

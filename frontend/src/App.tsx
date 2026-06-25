@@ -2453,6 +2453,7 @@ export function WorkspaceApp() {
                     activeSessionId={state?.session.id ?? null}
                     currency={sessionCurrency}
                     filter={resultsPanelFilter}
+                    metrics={state?.metrics ?? null}
                     onFilterChange={setResultsPanelFilter}
                     onInspectTrade={(trade) => openTradeNoteFromBacktestPanel(trade, "results")}
                     onSearchChange={setResultsPanelSearch}
