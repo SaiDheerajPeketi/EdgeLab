@@ -30,6 +30,11 @@ pipeline {
                             target_commit="${GIT_COMMIT:-}"
                             target_branch="${BRANCH_NAME:-${GIT_BRANCH:-}}"
                             target_branch="${target_branch#origin/}"
+                            deploy_dir="$(pwd)"
+
+                            if ! git config --global --get-all safe.directory | grep -Fxq "${deploy_dir}"; then
+                                git config --global --add safe.directory "${deploy_dir}"
+                            fi
 
                             if [ ! -d .git ]; then
                                 if find . -mindepth 1 -maxdepth 1 | read; then
@@ -47,6 +52,8 @@ pipeline {
                                 git reset --hard "${target_commit}"
                             elif [ -n "${target_branch}" ] && git show-ref --verify --quiet "refs/remotes/origin/${target_branch}"; then
                                 git reset --hard "refs/remotes/origin/${target_branch}"
+                            elif git show-ref --verify --quiet refs/remotes/origin/main; then
+                                git reset --hard refs/remotes/origin/main
                             else
                                 git reset --hard refs/remotes/origin/master
                             fi
@@ -76,7 +83,7 @@ pipeline {
                             compose_cmd="docker-compose"
                         fi
 
-                        ${compose_cmd} up -d --build --force-recreate postgres data-populator api frontend
+                        ${compose_cmd} up -d --build --remove-orphans
                     '''
                 }
             }
