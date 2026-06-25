@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -23,6 +24,7 @@ from app.schemas import (
     DatasetSettingsUpdate,
     DatasetTimeframe as DatasetTimeframeRead,
 )
+from app.services.data_populator import MANIFEST_FILENAME
 from app.services.market_data_imports import import_market_data_to_db
 
 TIMEFRAME_ORDER = {
@@ -407,19 +409,34 @@ class DatasetCatalogService:
             return DatasetRefreshSummary(assets=0, timeframes=0, candles=0)
 
         seen_asset_keys: set[str] = set()
+        seen_timeframes_by_asset_key: dict[str, set[str]] = defaultdict(set)
         discovered_assets = 0
         discovered_timeframes = 0
 
+        manifest_asset_keys, manifest_timeframes_by_asset_key, manifest_timeframes = self._scan_manifest_index(
+            db,
+            user_id,
+            root,
+        )
+        seen_asset_keys.update(manifest_asset_keys)
+        for asset_key, timeframes in manifest_timeframes_by_asset_key.items():
+            seen_timeframes_by_asset_key[asset_key].update(timeframes)
+        discovered_assets += len(manifest_asset_keys)
+        discovered_timeframes += manifest_timeframes
+
         for directory in sorted(item for item in root.iterdir() if item.is_dir()):
             asset_key = directory.name
+            if asset_key not in seen_asset_keys:
+                discovered_assets += 1
             seen_asset_keys.add(asset_key)
             asset = self._upsert_asset_record(db, user_id, asset_key, directory)
-            discovered_assets += 1
 
-            seen_timeframes: set[str] = set()
+            seen_timeframes = seen_timeframes_by_asset_key.setdefault(asset_key, set())
             for csv_path in sorted(directory.glob("*.csv")):
                 timeframe = self._timeframe_from_file(csv_path)
                 if timeframe is None:
+                    continue
+                if timeframe in seen_timeframes:
                     continue
                 seen_timeframes.add(timeframe)
                 try:
@@ -438,7 +455,7 @@ class DatasetCatalogService:
                     )
                 ).all()
                 for stale_timeframe in stale_timeframes:
-                    if stale_timeframe.timeframe not in seen_timeframes:
+                    if stale_timeframe.timeframe not in seen_timeframes_by_asset_key.get(asset_key, set()):
                         if stale_timeframe.database_imported:
                             continue
                         db.query(MarketCandle).filter(
@@ -471,6 +488,102 @@ class DatasetCatalogService:
             timeframes=discovered_timeframes,
             candles=0,
         )
+
+    def _scan_manifest_index(
+        self,
+        db: Session,
+        user_id: int,
+        root: Path,
+    ) -> tuple[set[str], dict[str, set[str]], int]:
+        manifest_path = root / MANIFEST_FILENAME
+        if not manifest_path.is_file():
+            return set(), {}, 0
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Dataset manifest is unreadable: %s", manifest_path)
+            return set(), {}, 0
+        markets = payload.get("markets")
+        if not isinstance(markets, dict):
+            return set(), {}, 0
+
+        seen_asset_keys: set[str] = set()
+        seen_timeframes_by_asset_key: dict[str, set[str]] = defaultdict(set)
+        discovered_timeframes = 0
+        for asset_key, raw_market in markets.items():
+            if not isinstance(asset_key, str) or not isinstance(raw_market, dict):
+                continue
+            raw_timeframes = raw_market.get("timeframes")
+            if not isinstance(raw_timeframes, dict):
+                continue
+            asset = self._upsert_asset_record(db, user_id, asset_key, root / asset_key)
+            seen_asset_keys.add(asset_key)
+            for raw_timeframe, raw_entry in raw_timeframes.items():
+                timeframe = normalize_timeframe(str(raw_timeframe))
+                if timeframe not in TIMEFRAME_ORDER or not isinstance(raw_entry, dict):
+                    continue
+                csv_path = self._manifest_csv_path(root, raw_entry)
+                self._index_manifest_timeframe(db, user_id, asset, timeframe, csv_path, raw_entry)
+                seen_timeframes_by_asset_key[asset_key].add(timeframe)
+                discovered_timeframes += 1
+        return seen_asset_keys, seen_timeframes_by_asset_key, discovered_timeframes
+
+    def _manifest_csv_path(self, root: Path, entry: dict[str, object]) -> Path:
+        raw_path = str(entry.get("csv_path") or "")
+        path = Path(raw_path)
+        return path if path.is_absolute() else root / path
+
+    def _index_manifest_timeframe(
+        self,
+        db: Session,
+        user_id: int,
+        asset: DatasetAsset,
+        timeframe: str,
+        csv_path: Path,
+        entry: dict[str, object],
+    ) -> DatasetTimeframe:
+        existing = db.scalar(
+            select(DatasetTimeframe).where(
+                DatasetTimeframe.user_id == user_id,
+                DatasetTimeframe.asset_id == asset.id,
+                DatasetTimeframe.timeframe == timeframe,
+            )
+        )
+        file_size = int(entry.get("file_size") or 0)
+        file_mtime_ns = int(entry.get("file_mtime_ns") or 0)
+        if csv_path.exists():
+            stat = csv_path.stat()
+            file_size = file_size or stat.st_size
+            file_mtime_ns = file_mtime_ns or stat.st_mtime_ns
+        unchanged = (
+            existing is not None
+            and existing.csv_path == str(csv_path)
+            and existing.file_size == file_size
+            and existing.file_mtime_ns == file_mtime_ns
+        )
+        if unchanged:
+            return existing
+        if existing is None:
+            existing = DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe=timeframe,
+                csv_path=str(csv_path),
+                imported=False,
+            )
+            db.add(existing)
+        existing.csv_path = str(csv_path)
+        existing.rows = int(entry.get("rows") or 0)
+        existing.first_timestamp = str(entry.get("first_timestamp") or "").replace("T", " ").replace("Z", "") or None
+        existing.last_timestamp = str(entry.get("last_timestamp") or "").replace("T", " ").replace("Z", "") or None
+        existing.file_size = file_size
+        existing.file_mtime_ns = file_mtime_ns
+        existing.imported = False
+        existing.database_imported = False
+        existing.database_imported_at = None
+        existing.updated_at = utcnow()
+        db.flush()
+        return existing
 
     def _maybe_import_market_data(
         self,

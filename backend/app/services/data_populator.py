@@ -258,6 +258,8 @@ class DataPopulatorManifest:
                 "rows": int(len(frame)),
                 "first_timestamp": utc_manifest_timestamp(first_timestamp),
                 "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
+                "file_size": csv_path.stat().st_size if csv_path.exists() else 0,
+                "file_mtime_ns": csv_path.stat().st_mtime_ns if csv_path.exists() else 0,
                 "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
             }
             if no_data_before:

@@ -1,4 +1,5 @@
 import pytest
+import json
 from sqlalchemy import BigInteger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,6 +8,7 @@ from app.db import Base
 from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe, MarketCandle
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
+from app.services.data_populator import MANIFEST_FILENAME
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 
 
@@ -503,6 +505,64 @@ def test_refresh_catalog_keeps_database_imported_timeframe_without_csv_file(tmp_
         assert refreshed.catalog.instruments[0].timeframes[0].database_imported is True
         assert db.query(DatasetAsset).count() == 1
         assert db.query(DatasetTimeframe).count() == 1
+
+
+def test_refresh_catalog_prefers_manifest_metadata_without_reading_csv(tmp_path, monkeypatch):
+    root = tmp_path / "datasets"
+    asset_dir = root / "BTC_USDT"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "BTCUSDT_M1.csv"
+    csv_path.write_text("bad,data\n1,2\n", encoding="utf-8")
+    manifest_path = root / MANIFEST_FILENAME
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "markets": {
+                    "BTC_USDT": {
+                        "provider": "binance",
+                        "instrument": "BTCUSDT",
+                        "symbol": "BTCUSDT",
+                        "timeframes": {
+                            "M1": {
+                                "csv_path": "BTC_USDT/BTCUSDT_M1.csv",
+                                "rows": 42,
+                                "first_timestamp": "2024-01-01T00:00:00Z",
+                                "last_timestamp": "2024-01-01T00:41:00Z",
+                                "file_size": csv_path.stat().st_size,
+                                "file_mtime_ns": csv_path.stat().st_mtime_ns,
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    def fail_read(*_args, **_kwargs):
+        raise AssertionError("CSV metadata read should be skipped when manifest entry exists")
+
+    monkeypatch.setattr(service, "_read_csv_metadata", fail_read)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        refreshed = service.refresh_catalog(db, user_id)
+
+        timeframe = refreshed.catalog.instruments[0].timeframes[0]
+        stored = db.query(DatasetTimeframe).one()
+
+        assert refreshed.catalog.instruments[0].id == "BTC_USDT"
+        assert timeframe.rows == 42
+        assert timeframe.first_timestamp is not None
+        assert timeframe.last_timestamp is not None
+        assert stored.file_size == csv_path.stat().st_size
+        assert stored.file_mtime_ns == csv_path.stat().st_mtime_ns
 
 
 def test_refresh_catalog_marks_dataset_asset_session_ready_without_session_csv_path(tmp_path):

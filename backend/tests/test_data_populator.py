@@ -87,8 +87,12 @@ def test_data_populator_derives_higher_timeframes_from_m1(tmp_path):
     timeframes = manifest["markets"]["BTC_USDT"]["timeframes"]
     assert timeframes["M1"]["rows"] == 10
     assert timeframes["M1"]["last_timestamp"] == "2024-01-01T00:09:00Z"
+    assert timeframes["M1"]["file_size"] > 0
+    assert timeframes["M1"]["file_mtime_ns"] > 0
     assert timeframes["M5"]["rows"] == 2
     assert timeframes["M5"]["last_timestamp"] == "2024-01-01T00:05:00Z"
+    assert timeframes["M5"]["file_size"] > 0
+    assert timeframes["M5"]["file_mtime_ns"] > 0
 
 
 def test_data_populator_does_not_synthesize_missing_m1_minutes(tmp_path):
