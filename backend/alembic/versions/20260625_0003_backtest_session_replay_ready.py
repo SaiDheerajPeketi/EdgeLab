@@ -17,6 +17,12 @@ depends_on = None
 
 
 def upgrade() -> None:
+    backtest_sessions = sa.table(
+        "backtest_sessions",
+        sa.column("csv_path", sa.Text()),
+        sa.column("timeframe", sa.String()),
+        sa.column("replay_ready", sa.Boolean()),
+    )
     op.add_column(
         "backtest_sessions",
         sa.Column(
@@ -27,13 +33,21 @@ def upgrade() -> None:
         ),
     )
     op.execute(
-        """
-        UPDATE backtest_sessions
-        SET replay_ready = CASE
-            WHEN csv_path IS NOT NULL AND (timeframe IS NULL OR timeframe != 'Imported') THEN 1
-            ELSE 0
-        END
-        """
+        backtest_sessions.update().values(
+            replay_ready=sa.case(
+                (
+                    sa.and_(
+                        backtest_sessions.c.csv_path.is_not(None),
+                        sa.or_(
+                            backtest_sessions.c.timeframe.is_(None),
+                            backtest_sessions.c.timeframe != "Imported",
+                        ),
+                    ),
+                    sa.true(),
+                ),
+                else_=sa.false(),
+            )
+        )
     )
 
 
