@@ -117,6 +117,8 @@ class DatasetTimeframe(BaseModel):
     last_timestamp: datetime | None
     imported: bool = False
     imported_at: datetime | None = None
+    database_imported: bool = False
+    database_imported_at: datetime | None = None
 
 
 class DatasetInstrument(BaseModel):

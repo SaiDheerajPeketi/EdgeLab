@@ -67,7 +67,7 @@ npm run market-data:import -- \
   --csv-path /absolute/path/to/datasets/EUR_USD/EURUSD_M1.csv
 ```
 
-After that import, `/api/market-data/bars` and `/api/market-data/meta` can serve that timeframe from DB even if the original CSV is unavailable, while non-imported datasets still fall back to CSV.
+After that import, `/api/market-data/bars` and `/api/market-data/meta` can serve that timeframe from DB even if the original CSV is unavailable, and dataset catalog metadata now keeps that imported timeframe visible for replay instead of pruning it. Non-imported datasets still fall back to CSV.
 
 You can also rebuild the analytics read models on demand with `npm run analytics:refresh-read-models` or the backward-compatible `npm run analytics:refresh-session-summaries`.
 

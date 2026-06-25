@@ -413,6 +413,8 @@ class DatasetCatalogService:
                 ).all()
                 for stale_timeframe in stale_timeframes:
                     if stale_timeframe.timeframe not in seen_timeframes:
+                        if stale_timeframe.database_imported:
+                            continue
                         db.query(MarketCandle).filter(
                             MarketCandle.user_id == user_id,
                             MarketCandle.asset_id == asset.id,
@@ -426,6 +428,15 @@ class DatasetCatalogService:
             ).all()
             for stale_asset in stale_assets:
                 if stale_asset.asset_key in seen_asset_keys:
+                    continue
+                imported_timeframe_exists = db.scalar(
+                    select(DatasetTimeframe.id).where(
+                        DatasetTimeframe.user_id == user_id,
+                        DatasetTimeframe.asset_id == stale_asset.id,
+                        DatasetTimeframe.database_imported.is_(True),
+                    ).limit(1)
+                )
+                if imported_timeframe_exists is not None:
                     continue
                 db.delete(stale_asset)
 
@@ -621,6 +632,8 @@ class DatasetCatalogService:
                     last_timestamp=parse_source_timestamp(item.last_timestamp, asset.timezone),
                     imported=item.imported,
                     imported_at=item.imported_at,
+                    database_imported=item.database_imported,
+                    database_imported_at=item.database_imported_at,
                 )
                 for item in sorted(
                     timeframes_by_asset_id.get(asset.id, []),

@@ -52,6 +52,7 @@ def test_refresh_indexes_asset_timeframe_and_allows_metadata_updates(tmp_path):
         assert response.catalog.instruments[0].timeframes[0].timeframe == "M1"
         assert response.catalog.instruments[0].timeframes[0].rows == 2
         assert response.catalog.instruments[0].timeframes[0].imported is False
+        assert response.catalog.instruments[0].timeframes[0].database_imported is False
         assert db.query(DatasetAsset).count() == 1
         assert db.query(DatasetTimeframe).count() == 1
 
@@ -153,6 +154,7 @@ def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
         assert timeframe.csv_path == str(csv_path)
         assert timeframe.rows == 2
         assert timeframe.imported is False
+        assert timeframe.database_imported is False
         assert resolution.stored is True
 
 
@@ -350,6 +352,7 @@ def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch)
         assert timeframe.first_timestamp is not None
         assert timeframe.last_timestamp is not None
         assert timeframe.imported is False
+        assert timeframe.database_imported is False
 
 
 def test_dataset_timeframe_file_mtime_uses_bigint_and_stores_nanoseconds(tmp_path):
@@ -419,3 +422,55 @@ def test_resolve_dataset_rejects_csv_path_outside_catalog(tmp_path):
         user_id = seed_user(db)
         with pytest.raises(FileNotFoundError, match="catalog"):
             service.resolve_dataset(db, user_id, csv_path=str(rogue_csv))
+
+
+def test_refresh_catalog_keeps_database_imported_timeframe_without_csv_file(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1,1.2,1.0,1.15,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        asset = DatasetAsset(
+            user_id=user_id,
+            asset_key="EUR_USD",
+            name="EUR/USD",
+            symbol="EURUSD",
+            folder_path=str(asset_dir),
+        )
+        db.add(asset)
+        db.flush()
+        db.add(
+            DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe="M1",
+                csv_path=str(csv_path),
+                rows=1,
+                first_timestamp="2024-01-01 09:30:00",
+                last_timestamp="2024-01-01 09:30:00",
+                file_size=csv_path.stat().st_size,
+                file_mtime_ns=csv_path.stat().st_mtime_ns,
+                database_imported=True,
+            )
+        )
+        db.commit()
+
+        csv_path.unlink()
+        refreshed = service.refresh_catalog(db, user_id)
+
+        assert refreshed.catalog.instruments[0].timeframes[0].csv_path == str(csv_path)
+        assert refreshed.catalog.instruments[0].timeframes[0].database_imported is True
+        assert db.query(DatasetAsset).count() == 1
+        assert db.query(DatasetTimeframe).count() == 1

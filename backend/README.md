@@ -87,7 +87,7 @@ npm run market-data:import -- \
   --csv-path /absolute/path/to/datasets/EUR_USD/EURUSD_M1.csv
 ```
 
-When a timeframe is imported, `GET /api/market-data/bars` and `GET /api/market-data/meta` can serve it from DB even if the CSV disappears later. Non-imported datasets still fall back to CSV.
+When a timeframe is imported, `GET /api/market-data/bars` and `GET /api/market-data/meta` can serve it from DB even if the CSV disappears later, and dataset catalog refresh keeps that imported timeframe row instead of pruning it. Non-imported datasets still fall back to CSV.
 
 The root Compose file also exposes a `benchmark` profile that starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner alongside the current API/frontend stack:
 

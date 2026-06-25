@@ -91,6 +91,11 @@ def test_imported_market_data_serves_bars_without_csv_file(tmp_path, monkeypatch
     monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
 
     with session_factory() as db:
+        refreshed = catalog.refresh_catalog(db, user_id)
+        session_row = db.scalar(select(BacktestSession).where(BacktestSession.id == session_id))
+        assert session_row is not None
+        assert session_row.replay_ready is True
+        assert refreshed.catalog.instruments[0].timeframes[0].database_imported is True
         response = routes.market_data_bars(
             offset=0,
             limit=2,
