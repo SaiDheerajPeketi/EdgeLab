@@ -94,9 +94,11 @@ class DatasetCatalogService:
         catalog_discovery_ttl_seconds: float = CATALOG_AUTO_DISCOVERY_TTL_SECONDS,
         market_data_import_enabled: bool = False,
         auto_discovery_enabled: bool = True,
+        market_data_session_factory: sessionmaker | None = None,
     ):
         self.default_root = root
         self.session_factory = session_factory
+        self.market_data_session_factory = market_data_session_factory or session_factory
         self.catalog_discovery_ttl_seconds = catalog_discovery_ttl_seconds
         self.market_data_import_enabled = market_data_import_enabled
         self.auto_discovery_enabled = auto_discovery_enabled
@@ -472,11 +474,12 @@ class DatasetCatalogService:
                     if stale_timeframe.timeframe not in seen_timeframes_by_asset_key.get(asset_key, set()):
                         if stale_timeframe.database_imported:
                             continue
-                        db.query(MarketCandle).filter(
-                            MarketCandle.user_id == user_id,
-                            MarketCandle.asset_id == asset.id,
-                            MarketCandle.timeframe == stale_timeframe.timeframe,
-                        ).delete(synchronize_session=False)
+                        self._delete_market_candles(
+                            user_id=user_id,
+                            asset_id=asset.id,
+                            timeframe=stale_timeframe.timeframe,
+                            db=db,
+                        )
                         db.delete(stale_timeframe)
 
         if prune_missing:
@@ -611,12 +614,37 @@ class DatasetCatalogService:
             db,
             user_id=user_id,
             pending_only=True,
+            market_data_session_factory=self.market_data_session_factory,
         )
         return DatasetRefreshSummary(
             assets=summary.assets,
             timeframes=summary.timeframes,
             candles=int(import_summary["candles"]),
         )
+
+    def _delete_market_candles(
+        self,
+        *,
+        user_id: int,
+        asset_id: int,
+        timeframe: str,
+        db: Session,
+    ) -> None:
+        if _same_bind(db, self.market_data_session_factory):
+            db.query(MarketCandle).filter(
+                MarketCandle.user_id == user_id,
+                MarketCandle.asset_id == asset_id,
+                MarketCandle.timeframe == timeframe,
+            ).delete(synchronize_session=False)
+            return
+
+        with self.market_data_session_factory() as market_db:
+            market_db.query(MarketCandle).filter(
+                MarketCandle.user_id == user_id,
+                MarketCandle.asset_id == asset_id,
+                MarketCandle.timeframe == timeframe,
+            ).delete(synchronize_session=False)
+            market_db.commit()
 
     def _sync_session_replay_ready(self, db: Session, user_id: int) -> None:
         stored_timeframes = db.scalars(
@@ -954,3 +982,7 @@ def normalize_timeframe(value: str) -> str:
     }
     normalized = aliases.get(value, aliases.get(value.upper(), value))
     return normalized.upper() if normalized.upper() in TIMEFRAME_ORDER else normalized
+
+
+def _same_bind(db: Session, session_factory: sessionmaker) -> bool:
+    return session_factory.kw.get("bind") is db.get_bind()

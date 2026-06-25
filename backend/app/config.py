@@ -55,6 +55,13 @@ def default_database_url() -> str:
     )
 
 
+def default_market_data_database_url() -> str:
+    explicit_url = os.getenv("EDGELAB_MARKET_DATA_DATABASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url
+    return default_database_url()
+
+
 @dataclass(frozen=True)
 class GoogleOAuthCredentials:
     client_id: str = ""
@@ -114,6 +121,7 @@ class Settings:
         )
     )
     database_url: str = default_database_url()
+    market_data_database_url: str = default_market_data_database_url()
     api_token: str = os.getenv("EDGELAB_API_TOKEN", "").strip()
     jwt_secret: str = os.getenv("EDGELAB_JWT_SECRET", "").strip()
     google_client_id: str = GOOGLE_OAUTH_CREDENTIALS.client_id
@@ -210,6 +218,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         csv_path=settings.csv_path,
         datasets_root=settings.datasets_root,
         database_url=settings.database_url,
+        market_data_database_url=settings.market_data_database_url,
         api_token=settings.api_token,
         jwt_secret=settings.jwt_secret,
         google_client_id=settings.google_client_id,

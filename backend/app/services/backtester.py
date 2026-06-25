@@ -1504,6 +1504,7 @@ class BacktestService:
             if service is None or service.source_has_changed():
                 self._market_data_cache[cache_key] = DatabaseMarketDataService(
                     self.dataset_catalog.session_factory,
+                    self.dataset_catalog.market_data_session_factory,
                     user_id=user_id,
                     asset_id=asset_id,
                     timeframe=timeframe_row.timeframe,
@@ -1548,6 +1549,7 @@ class BacktestService:
                 if service is None or service.source_has_changed():
                     self._market_data_cache[cache_key] = DatabaseMarketDataService(
                         self.dataset_catalog.session_factory,
+                        self.dataset_catalog.market_data_session_factory,
                         user_id=user_id,
                         asset_id=resolution.asset_id,
                         timeframe=resolution.timeframe,

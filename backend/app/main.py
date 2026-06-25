@@ -9,6 +9,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.api.routes import router
 from app.config import settings
 from app.db import init_db
+from app.market_data_db import init_market_data_db
 
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    init_market_data_db()
 
 
 app.include_router(router, prefix="/api")

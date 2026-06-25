@@ -19,7 +19,8 @@ DEFAULT_WARMUP = 120
 class DatabaseMarketDataService:
     def __init__(
         self,
-        session_factory: sessionmaker,
+        metadata_session_factory: sessionmaker,
+        market_data_session_factory: sessionmaker,
         *,
         user_id: int,
         asset_id: int,
@@ -27,7 +28,8 @@ class DatabaseMarketDataService:
         csv_path: str,
         timestamp_timezone: str = "UTC",
     ):
-        self.session_factory = session_factory
+        self.metadata_session_factory = metadata_session_factory
+        self.market_data_session_factory = market_data_session_factory
         self.user_id = user_id
         self.asset_id = asset_id
         self.timeframe = timeframe
@@ -42,7 +44,7 @@ class DatabaseMarketDataService:
         if self._metadata is not None and not self.source_has_changed():
             return self._metadata
 
-        with self.session_factory() as db:
+        with self.metadata_session_factory() as db:
             timeframe_row = self._timeframe_row(db)
             if timeframe_row is None or not timeframe_row.database_imported:
                 raise FileNotFoundError("Database-backed market data is unavailable for this dataset")
@@ -96,7 +98,7 @@ class DatabaseMarketDataService:
             if positions >= len(frame):
                 return None
             return int(positions)
-        with self.session_factory() as db:
+        with self.market_data_session_factory() as db:
             candle = db.scalar(
                 select(MarketCandle)
                 .where(
@@ -113,7 +115,7 @@ class DatabaseMarketDataService:
     def source_has_changed(self) -> bool:
         if self._frame is None and self._metadata is None:
             return False
-        with self.session_factory() as db:
+        with self.metadata_session_factory() as db:
             timeframe_row = self._timeframe_row(db)
             if timeframe_row is None or not timeframe_row.database_imported:
                 return self._source_signature is not None
@@ -126,10 +128,11 @@ class DatabaseMarketDataService:
         with self._lock:
             if self._frame is not None and not self.source_has_changed():
                 return self._frame
-            with self.session_factory() as db:
+            with self.metadata_session_factory() as db:
                 timeframe_row = self._timeframe_row(db)
                 if timeframe_row is None or not timeframe_row.database_imported:
                     raise FileNotFoundError("Database-backed market data is unavailable for this dataset")
+            with self.market_data_session_factory() as db:
                 rows = db.scalars(
                     select(MarketCandle)
                     .where(

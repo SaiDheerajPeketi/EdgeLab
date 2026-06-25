@@ -3,6 +3,7 @@ import time
 
 from app.config import settings
 from app.db import SessionLocal
+from app.market_data_db import MarketDataSessionLocal, init_market_data_db
 from app.services.data_populator import ScheduledDataPopulator
 
 
@@ -14,6 +15,7 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    init_market_data_db()
     populator = ScheduledDataPopulator(
         settings.datasets_root,
         forex_symbols=settings.data_populator_forex_symbols,
@@ -25,6 +27,7 @@ def main() -> None:
         crypto_start_date=settings.data_populator_crypto_start_date,
         request_timeout_seconds=settings.data_populator_request_timeout_seconds,
         catalog_session_factory=SessionLocal,
+        market_data_session_factory=MarketDataSessionLocal,
         catalog_import_enabled=settings.market_data_import_enabled,
     )
     interval = max(60, settings.data_populator_interval_seconds)

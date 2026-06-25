@@ -26,6 +26,7 @@ from app.auth import (
 )
 from app.config import settings
 from app.db import SessionLocal, get_db
+from app.market_data_db import MarketDataSessionLocal
 from app.models import (
     AppStorageItem,
     BacktestSession,
@@ -126,6 +127,7 @@ dataset_catalog = DatasetCatalogService(
     SessionLocal,
     market_data_import_enabled=settings.market_data_import_enabled,
     auto_discovery_enabled=settings.dataset_auto_discovery_enabled,
+    market_data_session_factory=MarketDataSessionLocal,
 )
 backtester = BacktestService(market_data, dataset_catalog)
 read_model_cache = ReadModelCacheService(

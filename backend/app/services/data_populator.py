@@ -605,6 +605,7 @@ class ScheduledDataPopulator:
         fetch_json: FetchJson | None = None,
         fetch_bytes: FetchBytes | None = None,
         catalog_session_factory: sessionmaker | None = None,
+        market_data_session_factory: sessionmaker | None = None,
         catalog_import_enabled: bool = True,
     ):
         self.root = root
@@ -626,6 +627,7 @@ class ScheduledDataPopulator:
         self.fetch_bytes = fetch_bytes or fetch_bytes_url
         self.manifest = DataPopulatorManifest(root)
         self.catalog_session_factory = catalog_session_factory
+        self.market_data_session_factory = market_data_session_factory
         self.catalog_import_enabled = bool(catalog_import_enabled)
 
     def specs(self) -> list[MarketSpec]:
@@ -1449,6 +1451,7 @@ class ScheduledDataPopulator:
                             user_id=user_id,
                             instrument=spec.asset_id,
                             pending_only=True,
+                            market_data_session_factory=self.market_data_session_factory,
                         )
             db.commit()
 

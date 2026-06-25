@@ -423,3 +423,81 @@ def test_market_data_import_replaces_rows_when_prefix_changes(tmp_path):
             datetime(2024, 1, 1, 9, 30),
             datetime(2024, 1, 1, 9, 31),
         ]
+
+
+def test_market_data_import_and_reads_can_use_dedicated_market_data_database(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n"
+        "2024-01-01 09:32:00,1.1010,1.1020,1.1000,1.1015,110\n",
+        encoding="utf-8",
+    )
+
+    metadata_engine = create_engine(f"sqlite:///{tmp_path / 'metadata.db'}")
+    market_engine = create_engine(f"sqlite:///{tmp_path / 'market.db'}")
+    Base.metadata.create_all(metadata_engine)
+    Base.metadata.create_all(market_engine)
+    metadata_session_factory = sessionmaker(bind=metadata_engine)
+    market_session_factory = sessionmaker(bind=market_engine)
+
+    catalog = DatasetCatalogService(
+        datasets_root,
+        metadata_session_factory,
+        market_data_import_enabled=True,
+        market_data_session_factory=market_session_factory,
+    )
+    backtester = BacktestService(dataset_catalog=catalog)
+
+    with metadata_session_factory() as db:
+        user_id = seed_user(db)
+        catalog.refresh_catalog(db, user_id)
+        asset = db.scalar(select(DatasetAsset).where(DatasetAsset.user_id == user_id))
+        timeframe = db.scalar(select(DatasetTimeframe).where(DatasetTimeframe.user_id == user_id))
+        assert asset is not None
+        assert timeframe is not None
+        assert timeframe.database_imported is True
+        session = BacktestSession(
+            user_id=user_id,
+            name="Split DB replay",
+            symbol="EURUSD",
+            instrument="EUR_USD",
+            timeframe="M1",
+            dataset_asset_id=asset.id,
+            csv_path=str(csv_path),
+            timezone="UTC",
+            replay_ready=True,
+            current_offset=1,
+        )
+        db.add(session)
+        db.commit()
+        session_id = session.id
+
+    with metadata_session_factory() as metadata_db:
+        assert metadata_db.query(MarketCandle).count() == 0
+        service = backtester.market_data_for_path(
+            str(csv_path),
+            "UTC",
+            db=metadata_db,
+            user_id=user_id,
+        )
+        assert isinstance(service, DatabaseMarketDataService)
+        assert service.get_metadata().rows == 3
+        assert service.get_candle(2).close == 1.1015
+        state = backtester.get_state(metadata_db, user_id, session_id)
+        assert state.current_candle is not None
+        assert state.current_candle.close == 1.101
+
+    with market_session_factory() as market_db:
+        stored = market_db.scalars(
+            select(MarketCandle)
+            .where(MarketCandle.user_id == user_id)
+            .order_by(MarketCandle.offset)
+        ).all()
+        assert len(stored) == 3
+        assert stored[0].open == 1.1
+        assert stored[-1].close == 1.1015

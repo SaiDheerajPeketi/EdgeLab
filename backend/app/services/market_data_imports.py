@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import delete, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import DatasetTimeframe, MarketCandle, utcnow
 
@@ -30,6 +30,7 @@ def import_market_data_to_db(
     timeframe: str | None = None,
     csv_path: str | None = None,
     pending_only: bool = False,
+    market_data_session_factory: sessionmaker | None = None,
 ) -> dict[str, object]:
     imported = []
     total_candles = 0
@@ -54,61 +55,81 @@ def import_market_data_to_db(
             )
         ]
 
-    for timeframe_row in timeframes:
-        rows = _read_csv_rows(Path(timeframe_row.csv_path))
-        existing = _existing_import_state(
-            db,
-            user_id=user_id,
-            asset_id=timeframe_row.asset_id,
-            timeframe=timeframe_row.timeframe,
-        )
-        start_index = _append_start_index(rows, existing)
-        if start_index is None:
-            db.execute(
-                delete(MarketCandle).where(
-                    MarketCandle.user_id == user_id,
-                    MarketCandle.asset_id == timeframe_row.asset_id,
-                    MarketCandle.timeframe == timeframe_row.timeframe,
-                )
+    market_db, owns_market_db = _market_data_session(db, market_data_session_factory)
+    try:
+        _ensure_market_candle_table(market_db)
+        for timeframe_row in timeframes:
+            rows = _read_csv_rows(Path(timeframe_row.csv_path))
+            existing = _existing_import_state(
+                market_db,
+                user_id=user_id,
+                asset_id=timeframe_row.asset_id,
+                timeframe=timeframe_row.timeframe,
             )
-            start_index = 0
-
-        for start in range(start_index, len(rows), IMPORT_BATCH_SIZE):
-            db.add_all(
-                [
-                    MarketCandle(
-                        user_id=user_id,
-                        asset_id=timeframe_row.asset_id,
-                        timeframe=timeframe_row.timeframe,
-                        offset=index,
-                        timestamp=row["Timestamp"].to_pydatetime().replace(tzinfo=None),
-                        open=float(row["Open"]),
-                        high=float(row["High"]),
-                        low=float(row["Low"]),
-                        close=float(row["Close"]),
-                        volume=float(row["Volume"]),
+            start_index = _append_start_index(rows, existing)
+            if start_index is None:
+                market_db.execute(
+                    delete(MarketCandle).where(
+                        MarketCandle.user_id == user_id,
+                        MarketCandle.asset_id == timeframe_row.asset_id,
+                        MarketCandle.timeframe == timeframe_row.timeframe,
                     )
-                    for index, row in rows[start : start + IMPORT_BATCH_SIZE]
-                ]
+                )
+                start_index = 0
+
+            for start in range(start_index, len(rows), IMPORT_BATCH_SIZE):
+                market_db.add_all(
+                    [
+                        MarketCandle(
+                            user_id=user_id,
+                            asset_id=timeframe_row.asset_id,
+                            timeframe=timeframe_row.timeframe,
+                            offset=index,
+                            timestamp=row["Timestamp"].to_pydatetime().replace(tzinfo=None),
+                            open=float(row["Open"]),
+                            high=float(row["High"]),
+                            low=float(row["Low"]),
+                            close=float(row["Close"]),
+                            volume=float(row["Volume"]),
+                        )
+                        for index, row in rows[start : start + IMPORT_BATCH_SIZE]
+                    ]
+                )
+                market_db.flush()
+            timeframe_row.rows = len(rows)
+            timeframe_row.first_timestamp = (
+                rows[0][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                if rows
+                else None
             )
-            db.flush()
-        timeframe_row.rows = len(rows)
-        timeframe_row.first_timestamp = rows[0][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S") if rows else None
-        timeframe_row.last_timestamp = rows[-1][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S") if rows else None
-        timeframe_row.database_imported = True
-        timeframe_row.database_imported_at = utcnow()
-        imported_rows = len(rows) - start_index
-        total_candles += imported_rows
-        imported.append(
-            {
-                "asset_id": timeframe_row.asset_id,
-                "timeframe": timeframe_row.timeframe,
-                "csv_path": timeframe_row.csv_path,
-                "rows": len(rows),
-                "imported_rows": imported_rows,
-                "mode": "append" if start_index > 0 else "replace",
-            }
-        )
+            timeframe_row.last_timestamp = (
+                rows[-1][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                if rows
+                else None
+            )
+            timeframe_row.database_imported = True
+            timeframe_row.database_imported_at = utcnow()
+            imported_rows = len(rows) - start_index
+            total_candles += imported_rows
+            imported.append(
+                {
+                    "asset_id": timeframe_row.asset_id,
+                    "timeframe": timeframe_row.timeframe,
+                    "csv_path": timeframe_row.csv_path,
+                    "rows": len(rows),
+                    "imported_rows": imported_rows,
+                    "mode": "append" if start_index > 0 else "replace",
+                }
+            )
+        if owns_market_db:
+            market_db.commit()
+    except Exception:
+        if owns_market_db:
+            market_db.rollback()
+        raise
+    finally:
+        if owns_market_db:
+            market_db.close()
 
     return {
         "ok": True,
@@ -148,6 +169,19 @@ def _existing_import_state(
         first_timestamp=first_timestamp,
         last_timestamp=last_timestamp,
     )
+
+
+def _market_data_session(
+    db: Session,
+    session_factory: sessionmaker | None,
+) -> tuple[Session, bool]:
+    if session_factory is None or session_factory.kw.get("bind") is db.get_bind():
+        return db, False
+    return session_factory(), True
+
+
+def _ensure_market_candle_table(db: Session) -> None:
+    MarketCandle.__table__.create(bind=db.get_bind(), checkfirst=True)
 
 
 def _append_start_index(
