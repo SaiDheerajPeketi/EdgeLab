@@ -15,6 +15,7 @@ from app.db import Base
 from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe, Position, Trade
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
+from app.services.rate_limits import RateLimitDecision
 
 
 class FakeDatasetCatalog:
@@ -154,6 +155,49 @@ def test_datasets_route_maps_sqlalchemy_failures_to_dataset_error(monkeypatch):
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Dataset operation failed"
+
+
+def test_refresh_datasets_returns_429_when_rate_limited(monkeypatch):
+    class RejectLimiter:
+        def consume(self, *_args, **_kwargs):
+            return RateLimitDecision(allowed=False, retry_after_seconds=17)
+
+    class Catalog:
+        def start_refresh(self, *_args, **_kwargs):
+            raise AssertionError("refresh should be blocked before catalog call")
+
+    db = make_model_session()
+    user_id = seed_user(db)
+    monkeypatch.setattr(routes, "rate_limiter", RejectLimiter())
+    monkeypatch.setattr(routes, "dataset_catalog", Catalog())
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routes.refresh_datasets(db=db, current_user=current_user(user_id))
+    finally:
+        db.close()
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.headers == {"Retry-After": "17"}
+
+
+def test_market_data_bars_returns_429_when_rate_limited(monkeypatch):
+    class RejectLimiter:
+        def consume(self, *_args, **_kwargs):
+            return RateLimitDecision(allowed=False, retry_after_seconds=9)
+
+    db = make_model_session()
+    user_id = seed_user(db)
+    monkeypatch.setattr(routes, "rate_limiter", RejectLimiter())
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routes.market_data_bars(db=db, current_user=current_user(user_id))
+    finally:
+        db.close()
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.headers == {"Retry-After": "9"}
 
 
 def test_latest_backtest_skips_stale_legacy_csv_session_without_creating_default(monkeypatch, tmp_path):

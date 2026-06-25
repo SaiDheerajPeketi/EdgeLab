@@ -184,6 +184,10 @@ class Settings:
         5,
     )
     redis_url: str = os.getenv("EDGELAB_REDIS_URL", "").strip()
+    rate_limit_window_seconds: int = int_env("EDGELAB_RATE_LIMIT_WINDOW_SECONDS", 60)
+    dataset_refresh_rate_limit: int = int_env("EDGELAB_DATASET_REFRESH_RATE_LIMIT", 6)
+    market_data_meta_rate_limit: int = int_env("EDGELAB_MARKET_DATA_META_RATE_LIMIT", 240)
+    market_data_bars_rate_limit: int = int_env("EDGELAB_MARKET_DATA_BARS_RATE_LIMIT", 240)
     dataset_auto_discovery_enabled: bool = bool_env(
         "EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED",
         True,
@@ -230,6 +234,10 @@ if not settings.google_redirect_uri and settings.public_origin:
         bootstrap_shell_cache_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
         dataset_catalog_cache_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
         redis_url=settings.redis_url,
+        rate_limit_window_seconds=settings.rate_limit_window_seconds,
+        dataset_refresh_rate_limit=settings.dataset_refresh_rate_limit,
+        market_data_meta_rate_limit=settings.market_data_meta_rate_limit,
+        market_data_bars_rate_limit=settings.market_data_bars_rate_limit,
         dataset_auto_discovery_enabled=settings.dataset_auto_discovery_enabled,
         analytics_interval_seconds=settings.analytics_interval_seconds,
         beta_seats_total=settings.beta_seats_total,

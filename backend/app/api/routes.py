@@ -102,6 +102,7 @@ from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics, get_metrics_curves, get_metrics_summary
+from app.services.rate_limits import build_rate_limiter
 from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
@@ -132,6 +133,7 @@ read_model_cache = ReadModelCacheService(
     dataset_catalog_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
     redis_url=settings.redis_url,
 )
+rate_limiter = build_rate_limiter(settings.redis_url)
 
 
 def bootstrap_shell_cache_scope(user_id: int) -> str:
@@ -391,6 +393,21 @@ def market_data_error_response(exc: Exception) -> HTTPException:
             ),
         )
     return HTTPException(status_code=400, detail=str(exc))
+
+
+def enforce_rate_limit(bucket: str, user_id: int, limit: int) -> None:
+    decision = rate_limiter.consume(
+        f"rate-limit:{bucket}:user:{user_id}",
+        limit=limit,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
+    if decision.allowed:
+        return
+    raise HTTPException(
+        status_code=429,
+        detail="Rate limit exceeded",
+        headers={"Retry-After": str(decision.retry_after_seconds)},
+    )
 
 
 def default_market_data_reference(db: Session, user_id: int) -> tuple[Path, int]:
@@ -1063,6 +1080,7 @@ def market_data_meta(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetMeta:
+    enforce_rate_limit("market-data-meta", current_user.id, settings.market_data_meta_rate_limit)
     try:
         return requested_market_data_service(
             db,
@@ -1117,6 +1135,7 @@ def refresh_datasets(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetRefreshResponse:
+    enforce_rate_limit("datasets-refresh", current_user.id, settings.dataset_refresh_rate_limit)
     try:
         response = dataset_catalog.start_refresh(db, current_user.id)
         read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
@@ -1366,6 +1385,7 @@ def market_data_bars(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BarsResponse:
+    enforce_rate_limit("market-data-bars", current_user.id, settings.market_data_bars_rate_limit)
     try:
         service = requested_market_data_service(
             db,

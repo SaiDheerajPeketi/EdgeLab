@@ -116,6 +116,15 @@ export EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS=3
 export EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS=5
 ```
 
+Expensive authenticated routes can also be rate-limited in the same shared Redis tier. Tune them with:
+
+```bash
+export EDGELAB_RATE_LIMIT_WINDOW_SECONDS=60
+export EDGELAB_DATASET_REFRESH_RATE_LIMIT=6
+export EDGELAB_MARKET_DATA_META_RATE_LIMIT=240
+export EDGELAB_MARKET_DATA_BARS_RATE_LIMIT=240
+```
+
 The denormalized backtest session summary read model is also refreshed continuously by the default worker loop. Tune that cadence with:
 
 ```bash
