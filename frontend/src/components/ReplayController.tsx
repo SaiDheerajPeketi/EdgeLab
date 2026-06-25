@@ -44,10 +44,10 @@ const CUSTOM_SPEED_VALUE = "custom";
 const MIN_CUSTOM_BARS_PER_SECOND = 0.1;
 const MAX_CUSTOM_BARS_PER_SECOND = 50;
 const SPEED_PRESETS = [
-  { label: "0.5x", value: "900" },
-  { label: "1x", value: "450" },
-  { label: "2.5x", value: "180" },
-  { label: "5x", value: "80" },
+  { label: "0.5x", value: "400" },
+  { label: "1x", value: "200" },
+  { label: "2.5x", value: "80" },
+  { label: "5x", value: "40" },
 ];
 
 export function ReplayController({

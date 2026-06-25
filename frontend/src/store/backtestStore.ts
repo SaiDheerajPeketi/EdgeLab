@@ -59,7 +59,9 @@ import {
   updateBacktestSession,
 } from "../lib/api";
 
-const WINDOW_SIZE = 1500;
+const WINDOW_SIZE = 5000;
+const WINDOW_HISTORY_BARS = 1000;
+const WINDOW_PREFETCH_BARS = 2500;
 const RESULT_SESSIONS_PAGE_LIMIT = 50;
 const RESULT_TRADES_PAGE_LIMIT = 100;
 
@@ -536,6 +538,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         initialState.session.current_offset,
         initialState.session.id,
         initialState.session.start_offset,
+        initialState.session.end_offset,
       );
       set((current) => ({
         meta,
@@ -567,6 +570,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         initialState.session.current_offset,
         initialState.session.id,
         initialState.session.start_offset,
+        initialState.session.end_offset,
       );
       set((current) => ({
         meta,
@@ -669,6 +673,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           targetOffset,
           previousState.session.id,
           previousState.session.start_offset,
+          previousState.session.end_offset,
         );
         const currentCandle = bars.bars[targetOffset - bars.barOffset] ?? previousState.current_candle;
         const state: BacktestState = {
@@ -702,6 +707,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.current_offset,
         state.session.id,
         state.session.start_offset,
+        state.session.end_offset,
       );
       set({
         state,
@@ -756,6 +762,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.current_offset,
         state.session.id,
         state.session.start_offset,
+        state.session.end_offset,
       );
       set((current) => ({
         state,
@@ -782,6 +789,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.current_offset,
         state.session.id,
         state.session.start_offset,
+        state.session.end_offset,
       );
       set((current) => ({
         state,
@@ -1033,6 +1041,7 @@ async function loadLatestReplayContext() {
     latestState.session.current_offset,
     latestState.session.id,
     latestState.session.start_offset,
+    latestState.session.end_offset,
   );
   return { meta, state: latestState, window };
 }
@@ -1169,9 +1178,19 @@ async function hydrateRemainingResultTrades(version: number) {
   }
 }
 
-async function loadWindow(currentOffset: number, sessionId?: number, startOffset = 0) {
-  const barOffset = Math.max(0, currentOffset - WINDOW_SIZE + 1);
-  const limit = currentOffset - barOffset + 1;
+async function loadWindow(
+  currentOffset: number,
+  sessionId?: number,
+  startOffset = 0,
+  endOffset: number | null = null,
+) {
+  const effectiveStartOffset = Math.max(0, startOffset);
+  const effectiveEndOffset = endOffset ?? currentOffset;
+  const barOffset = Math.max(effectiveStartOffset, currentOffset - WINDOW_HISTORY_BARS);
+  const limit = Math.max(
+    1,
+    Math.min(WINDOW_SIZE, effectiveEndOffset - barOffset + 1),
+  );
   const response = await getBars(barOffset, limit, sessionId);
   return { bars: response.bars, barOffset };
 }
@@ -1182,18 +1201,44 @@ async function ensureBarsForOffset(
   offset: number,
   sessionId?: number,
   startOffset = 0,
+  endOffset: number | null = null,
 ) {
-  if (offset < barOffset || offset >= barOffset + WINDOW_SIZE) {
-    return loadWindow(offset, sessionId, startOffset);
+  if (bars.length === 0 || offset < barOffset || offset >= barOffset + bars.length) {
+    return loadWindow(offset, sessionId, startOffset, endOffset);
   }
 
   const loadedThrough = barOffset + bars.length - 1;
-  if (offset <= loadedThrough) {
+  const effectiveEndOffset = endOffset ?? offset;
+  const desiredLoadedThrough = Math.min(
+    effectiveEndOffset,
+    Math.max(offset, offset + WINDOW_PREFETCH_BARS),
+  );
+  if (desiredLoadedThrough <= loadedThrough) {
     return { bars, barOffset };
   }
 
-  const response = await getBars(loadedThrough + 1, offset - loadedThrough, sessionId);
-  return { bars: [...bars, ...response.bars], barOffset };
+  const limit = Math.max(1, desiredLoadedThrough - loadedThrough);
+  const response = await getBars(loadedThrough + 1, limit, sessionId);
+  return mergeBarWindow(bars, barOffset, response.bars);
+}
+
+function mergeBarWindow(
+  existingBars: Candle[],
+  barOffset: number,
+  incomingBars: Candle[],
+) {
+  if (incomingBars.length === 0) {
+    return { bars: existingBars, barOffset };
+  }
+  const mergedBars = [...existingBars, ...incomingBars];
+  if (mergedBars.length <= WINDOW_SIZE) {
+    return { bars: mergedBars, barOffset };
+  }
+  const overflow = mergedBars.length - WINDOW_SIZE;
+  return {
+    bars: mergedBars.slice(overflow),
+    barOffset: barOffset + overflow,
+  };
 }
 
 async function syncPendingReplayOffset() {
@@ -1208,6 +1253,7 @@ async function syncPendingReplayOffset() {
     state.session.current_offset,
     state.session.id,
     state.session.start_offset,
+    state.session.end_offset,
   );
   useBacktestStore.setState((current) => ({
     state,

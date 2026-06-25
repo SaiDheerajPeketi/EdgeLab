@@ -53,7 +53,7 @@ DUKASCOPY_HEADERS = {
 NETWORK_RETRY_COUNT = 5
 NETWORK_RETRY_BASE_SECONDS = 0.75
 WRITE_BATCH_CANDLES = 25_000
-BACKFILL_WRITE_BATCH_CANDLES = 10_000_000
+BACKFILL_WRITE_BATCH_CANDLES = 250_000
 BINANCE_ARCHIVE_WORKERS = 2
 DUKASCOPY_REQUEST_DELAY_SECONDS = 0.05
 
@@ -160,6 +160,14 @@ class DataPopulatorManifest:
             if first > last:
                 return None
             return first, last
+
+    def row_count(self, spec: MarketSpec, timeframe: str = "M1") -> int | None:
+        with self._lock:
+            entry = self.timeframe_entry(spec, timeframe)
+            if entry is None:
+                return None
+            rows = entry.get("rows")
+            return int(rows) if isinstance(rows, int) else None
 
     def timeframe_entry(self, spec: MarketSpec, timeframe: str) -> dict[str, object] | None:
         with self._lock:
@@ -278,7 +286,48 @@ class DataPopulatorManifest:
                 timeframes[timeframe]["empty_ranges"] = empty_ranges
             if isinstance(retry_ranges, list) and retry_ranges:
                 timeframes[timeframe]["retry_ranges"] = retry_ranges
+
+    def append_timeframe(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        csv_path: Path,
+        frame: pd.DataFrame,
+    ) -> int:
+        if frame.empty:
+            return self.row_count(spec, timeframe) or 0
+        with self._lock:
+            timeframes = self.timeframes_for_spec(spec)
+            existing = timeframes.get(timeframe)
+            no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
+            empty_ranges = existing.get("empty_ranges") if isinstance(existing, dict) else None
+            retry_ranges = existing.get("retry_ranges") if isinstance(existing, dict) else None
+            first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
+            last_timestamp = parse_csv_timestamp(frame.iloc[-1]["Timestamp"])
+            existing_rows = int(existing.get("rows") or 0) if isinstance(existing, dict) else 0
+            existing_first_raw = existing.get("first_timestamp") if isinstance(existing, dict) else None
+            if existing_first_raw:
+                try:
+                    first_timestamp = min(first_timestamp, parse_csv_timestamp(existing_first_raw))
+                except (TypeError, ValueError):
+                    pass
+            timeframes[timeframe] = {
+                "csv_path": self.relative_path(csv_path),
+                "rows": existing_rows + int(len(frame)),
+                "first_timestamp": utc_manifest_timestamp(first_timestamp),
+                "last_timestamp": utc_manifest_timestamp(last_timestamp),
+                "file_size": csv_path.stat().st_size if csv_path.exists() else 0,
+                "file_mtime_ns": csv_path.stat().st_mtime_ns if csv_path.exists() else 0,
+                "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
+            }
+            if no_data_before:
+                timeframes[timeframe]["no_data_before"] = no_data_before
+            if isinstance(empty_ranges, list) and empty_ranges:
+                timeframes[timeframe]["empty_ranges"] = empty_ranges
+            if isinstance(retry_ranges, list) and retry_ranges:
+                timeframes[timeframe]["retry_ranges"] = retry_ranges
             self.payload["updated_at"] = utc_manifest_timestamp(datetime.now(tz=timezone.utc))
+            return int(timeframes[timeframe]["rows"])
 
     def update_no_data_range(
         self,
@@ -1282,6 +1331,37 @@ class ScheduledDataPopulator:
         sync_catalog: bool = True,
     ) -> PopulationResult:
         target_path = csv_path or self.csv_path_for_spec(spec)
+        if can_append_backfill_batch(
+            self.manifest,
+            spec,
+            target_path,
+            candles,
+            write_derived=write_derived,
+            sync_catalog=sync_catalog,
+        ):
+            frame = candles_to_frame(candles)
+            if frame.empty:
+                return PopulationResult(
+                    asset_id=spec.asset_id,
+                    symbol=spec.symbol,
+                    csv_path=str(target_path),
+                    fetched=len(candles),
+                    rows=self.manifest.row_count(spec, "M1") or 0,
+                )
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with target_path.open("a", encoding="utf-8", newline="") as handle:
+                frame.to_csv(handle, index=False, header=False)
+            total_rows = self.manifest.append_timeframe(spec, "M1", target_path, frame)
+            self.manifest.save()
+            return PopulationResult(
+                asset_id=spec.asset_id,
+                symbol=spec.symbol,
+                csv_path=str(target_path),
+                fetched=len(candles),
+                rows=total_rows,
+                first_timestamp=parse_csv_timestamp(frame.iloc[0]["Timestamp"]),
+                last_timestamp=parse_csv_timestamp(frame.iloc[-1]["Timestamp"]),
+            )
         frame = merge_candles(
             load_csv_frame(target_path),
             candles_to_frame(candles),
@@ -1584,6 +1664,24 @@ class ScheduledDataPopulator:
             if session.replay_ready != next_ready:
                 session.replay_ready = next_ready
                 session.updated_at = utcnow()
+
+
+def can_append_backfill_batch(
+    manifest: DataPopulatorManifest,
+    spec: MarketSpec,
+    csv_path: Path,
+    candles: list[MarketCandle],
+    *,
+    write_derived: bool,
+    sync_catalog: bool,
+) -> bool:
+    if write_derived or sync_catalog or not candles or not csv_path.exists():
+        return False
+    timestamp_range = manifest.timestamp_range(spec, "M1")
+    if timestamp_range is None:
+        return False
+    _first_timestamp, last_timestamp = timestamp_range
+    return candles[0].timestamp > last_timestamp
 
 
 def linked_session_dataset_asset_id(

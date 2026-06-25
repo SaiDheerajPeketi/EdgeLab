@@ -180,6 +180,10 @@ class Settings:
         "EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS",
         20,
     )
+    data_populator_backfill_write_batch_candles: int = int_env(
+        "EDGELAB_DATA_POPULATOR_BACKFILL_WRITE_BATCH_CANDLES",
+        250_000,
+    )
     data_populator_binance_archive_workers: int = int_env(
         "EDGELAB_DATA_POPULATOR_BINANCE_ARCHIVE_WORKERS",
         2,

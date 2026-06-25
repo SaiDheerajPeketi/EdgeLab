@@ -387,6 +387,7 @@ export default function App() {
 export function WorkspaceApp() {
   const {
     bars,
+    barOffset,
     datasets,
     meta,
     state,
@@ -426,6 +427,7 @@ export function WorkspaceApp() {
   } = useBacktestStore(
     (store) => ({
       bars: store.bars,
+      barOffset: store.barOffset,
       datasets: store.datasets,
       meta: store.meta,
       state: store.state,
@@ -553,6 +555,14 @@ export function WorkspaceApp() {
     replayTimeframeOptions[0]?.value ??
     effectiveSourceFallbackTimeframe(sourceTimeframe);
   const replayStepBars = getReplayStepBars(normalizedReplayTimeframe, sourceTimeframe);
+  const visibleBars = useMemo(() => {
+    const currentOffset = state?.session.current_offset;
+    if (currentOffset == null) {
+      return bars;
+    }
+    const visibleCount = Math.max(0, Math.min(bars.length, currentOffset - barOffset + 1));
+    return bars.slice(0, visibleCount);
+  }, [barOffset, bars, state?.session.current_offset]);
   const playbackStepBars = isMultiChartLayout ? replayStepBars : 1;
   const playbackTickMs = Math.max(
     16,
@@ -2337,7 +2347,7 @@ export function WorkspaceApp() {
                               </div>
                             )}
                             <TradingChart
-                              bars={bars}
+                              bars={visibleBars}
                               canUndoDrawingChange={paneActive && drawingUndoDepth > 0}
                               chartSettings={pane.chartSettings}
                               chartStyle={pane.chartStyle}
