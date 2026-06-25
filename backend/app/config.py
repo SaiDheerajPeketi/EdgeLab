@@ -40,6 +40,21 @@ def optional_path_env(name: str) -> Path | None:
     return Path(raw_value)
 
 
+def default_database_url() -> str:
+    explicit_url = os.getenv("DATABASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url
+    postgres_user = os.getenv("POSTGRES_USER", "edgelab").strip() or "edgelab"
+    postgres_password = os.getenv("POSTGRES_PASSWORD", "edgelab").strip() or "edgelab"
+    postgres_db = os.getenv("POSTGRES_DB", "edgelab").strip() or "edgelab"
+    postgres_host = os.getenv("EDGELAB_POSTGRES_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    postgres_port = os.getenv("EDGELAB_POSTGRES_CONNECT_PORT", "5432").strip() or "5432"
+    return (
+        "postgresql+psycopg://"
+        f"{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
+    )
+
+
 @dataclass(frozen=True)
 class GoogleOAuthCredentials:
     client_id: str = ""
@@ -98,9 +113,7 @@ class Settings:
             PROJECT_ROOT / "datasets",
         )
     )
-    database_url: str = os.getenv(
-        "DATABASE_URL", f"sqlite:///{BACKEND_ROOT / 'trade_journal_v2.db'}"
-    )
+    database_url: str = default_database_url()
     api_token: str = os.getenv("EDGELAB_API_TOKEN", "").strip()
     jwt_secret: str = os.getenv("EDGELAB_JWT_SECRET", "").strip()
     google_client_id: str = GOOGLE_OAUTH_CREDENTIALS.client_id

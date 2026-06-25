@@ -74,7 +74,8 @@ services:
         condition: service_healthy
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
       EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
       EDGELAB_API_WORKERS: ${EDGELAB_API_WORKERS:-}
       EDGELAB_API_TIMEOUT_SECONDS: ${EDGELAB_API_TIMEOUT_SECONDS:-120}
@@ -146,7 +147,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
       EDGELAB_ANALYTICS_INTERVAL_SECONDS: ${EDGELAB_ANALYTICS_INTERVAL_SECONDS:-60}
       EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-}
     restart: unless-stopped

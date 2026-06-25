@@ -6,7 +6,7 @@ alembic -c /app/backend/alembic.ini upgrade head
 if [ -n "${EDGELAB_API_WORKERS:-}" ]; then
   workers="${EDGELAB_API_WORKERS}"
 else
-  workers="$(python -c 'import os; database_url = os.getenv("DATABASE_URL", ""); cpu_count = os.cpu_count() or 1; print(1 if database_url.startswith("sqlite") else max(cpu_count * 2, 2))')"
+  workers="$(python -c 'import os; from app.config import settings; cpu_count = os.cpu_count() or 1; print(1 if settings.database_url.startswith("sqlite") else max(cpu_count * 2, 2))')"
 fi
 
 exec gunicorn app.main:app \
