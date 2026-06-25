@@ -69,6 +69,15 @@ Seed authenticated benchmark users into the configured database and print beta-s
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py --reset > /tmp/edgelab-benchmark-seed.json
 ```
 
+Verify a copied SQLite export against a target database before Postgres cutover with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/migrate_sqlite_to_database.py \
+  --source-sqlite-path /absolute/path/to/trade_journal_v2.db \
+  --target-database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab \
+  --reset-target
+```
+
 The root Compose file also exposes a `benchmark` profile that starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner alongside the current API/frontend stack:
 
 ```bash

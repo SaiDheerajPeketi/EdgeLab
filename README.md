@@ -60,6 +60,15 @@ Trade reads now also have an explicit page contract at `GET /api/trades/page?cur
 
 You can also rebuild the analytics read models on demand with `npm run analytics:refresh-read-models` or the backward-compatible `npm run analytics:refresh-session-summaries`.
 
+Before PostgreSQL cutover, verify a copied SQLite export against the target database with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/migrate_sqlite_to_database.py \
+  --source-sqlite-path /absolute/path/to/trade_journal_v2.db \
+  --target-database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab \
+  --reset-target
+```
+
 The optional legacy Node API can be started with:
 
 ```bash
