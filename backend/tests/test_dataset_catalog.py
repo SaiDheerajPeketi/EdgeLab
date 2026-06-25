@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import BigInteger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -349,6 +350,34 @@ def test_list_catalog_does_not_count_rows_for_large_files(tmp_path, monkeypatch)
         assert timeframe.first_timestamp is not None
         assert timeframe.last_timestamp is not None
         assert timeframe.imported is False
+
+
+def test_dataset_timeframe_file_mtime_uses_bigint_and_stores_nanoseconds(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "BTCUSDT"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "BTCUSDT_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,43000,43010,42990,43005,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    assert isinstance(DatasetTimeframe.__table__.c.file_mtime_ns.type, BigInteger)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        catalog = service.list_catalog(db, user_id)
+        stored = db.query(DatasetTimeframe).one()
+
+        assert catalog.instruments[0].id == "BTCUSDT"
+        assert stored.file_mtime_ns == csv_path.stat().st_mtime_ns
+        assert stored.file_mtime_ns > 2_147_483_647
 
 
 def test_dataset_refresh_rejects_concurrent_runs(tmp_path):

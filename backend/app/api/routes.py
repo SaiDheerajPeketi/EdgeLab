@@ -1003,7 +1003,7 @@ def datasets(
 ) -> DatasetCatalogResponse:
     try:
         return cached_dataset_catalog_response(db, current_user.id)
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         raise dataset_error_response(exc) from exc
 
 
@@ -1014,7 +1014,7 @@ def dataset_settings(
 ) -> DatasetSettingsRead:
     try:
         return dataset_catalog.get_settings(db, current_user.id)
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         raise dataset_error_response(exc) from exc
 
 
@@ -1028,7 +1028,7 @@ def update_dataset_settings(
         response = dataset_catalog.update_settings(db, current_user.id, payload)
         read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
         return response
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
 
@@ -1042,7 +1042,7 @@ def refresh_datasets(
         response = dataset_catalog.start_refresh(db, current_user.id)
         read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
         return response
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
 
@@ -1094,10 +1094,10 @@ def dataset_catalog_stream_payload(user_id: int) -> dict[str, object]:
             "type": "catalog",
             "catalog": catalog.model_dump(mode="json"),
         }
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         return {
             "type": "error",
-            "message": str(exc),
+            "message": dataset_error_response(exc).detail,
         }
     finally:
         db.close()
@@ -1114,7 +1114,7 @@ def update_dataset_asset(
         response = dataset_catalog.update_asset(db, current_user.id, asset_id, payload)
         read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
         return response
-    except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
 

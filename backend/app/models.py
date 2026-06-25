@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Float,
@@ -130,7 +131,7 @@ class DatasetTimeframe(UserOwnedMixin, Base):
     first_timestamp: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_timestamp: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    file_mtime_ns: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    file_mtime_ns: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     imported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

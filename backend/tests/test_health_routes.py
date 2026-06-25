@@ -6,6 +6,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 from sqlalchemy import create_engine
+from sqlalchemy.exc import DataError
 from sqlalchemy.orm import sessionmaker
 
 from app.api import routes
@@ -119,6 +120,40 @@ def test_dataset_catalog_stream_payload_serializes_catalog(monkeypatch, tmp_path
     assert payload["type"] == "catalog"
     assert payload["catalog"]["root"] == str(datasets_root)
     assert payload["catalog"]["instruments"][0]["id"] == "GBP_USD"
+
+
+def test_dataset_catalog_stream_payload_hides_internal_errors(monkeypatch):
+    db = make_model_session()
+    user_id = seed_user(db)
+    db.close()
+
+    def fail_catalog(*_args, **_kwargs):
+        raise DataError("insert", {}, OverflowError("integer out of range"))
+
+    monkeypatch.setattr(routes, "cached_dataset_catalog_response", fail_catalog)
+
+    payload = routes.dataset_catalog_stream_payload(user_id)
+
+    assert payload == {"type": "error", "message": "Dataset operation failed"}
+
+
+def test_datasets_route_maps_sqlalchemy_failures_to_dataset_error(monkeypatch):
+    db = make_model_session()
+    user_id = seed_user(db)
+
+    def fail_catalog(*_args, **_kwargs):
+        raise DataError("insert", {}, OverflowError("integer out of range"))
+
+    monkeypatch.setattr(routes, "cached_dataset_catalog_response", fail_catalog)
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routes.datasets(db=db, current_user=current_user(user_id))
+    finally:
+        db.close()
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Dataset operation failed"
 
 
 def test_latest_backtest_skips_stale_legacy_csv_session_without_creating_default(monkeypatch, tmp_path):
