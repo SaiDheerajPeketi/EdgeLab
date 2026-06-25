@@ -9,13 +9,17 @@ from app.config import settings
 SCHEMA_VERSION = 2
 
 
+engine_kwargs = {"pool_pre_ping": True}
 connect_args = (
     {"check_same_thread": False, "timeout": 60}
     if settings.database_url.startswith("sqlite")
     else {}
 )
 
-engine = create_engine(settings.database_url, connect_args=connect_args)
+if not settings.database_url.startswith("sqlite"):
+    engine_kwargs["pool_recycle"] = 1800
+
+engine = create_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
 
 
 if settings.database_url.startswith("sqlite"):
@@ -62,4 +66,4 @@ def init_db() -> None:
             _set_sqlite_schema_version(SCHEMA_VERSION)
             return
 
-    Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine)

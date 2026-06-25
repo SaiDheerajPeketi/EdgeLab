@@ -1,11 +1,34 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-edgelab} -d ${POSTGRES_DB:-edgelab}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   api:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
-      DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/edgelab/trade_journal_v2.db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab}
       EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
       EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-}
       EDGELAB_BETA_MANUAL_ACCESS_ENABLED: ${EDGELAB_BETA_MANUAL_ACCESS_ENABLED:-0}
@@ -101,5 +124,6 @@ services:
 
 volumes:
   api-data:
+  postgres-data:
   legacy-api-data:
   legacy-uploads:

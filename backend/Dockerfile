@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     EDGELAB_DATASETS_ROOT=/datasets \
     EDGELAB_MAX_APP_DATA_ROWS=100000 \
     EDGELAB_MAX_REQUEST_BODY_BYTES=26214400 \
-    DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db
+    DATABASE_URL=postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab
 
 WORKDIR /app
 
@@ -25,4 +25,4 @@ COPY backend /app/backend
 USER edgelab
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "/app/backend/scripts/start_api.sh"]

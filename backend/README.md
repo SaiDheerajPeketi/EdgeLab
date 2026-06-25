@@ -32,13 +32,24 @@ Market data is cached in memory by default for smooth replay. Disable it with:
 export EDGELAB_CACHE_MARKET_DATA=0
 ```
 
-The SQLite database defaults to `backend/trade_journal_v2.db`. Override it with:
+The default local Python path can still use SQLite, but the containerized stack now defaults to PostgreSQL. Override either mode with:
+
+```bash
+export DATABASE_URL=postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab
+```
+
+Run migrations explicitly before local backend startup:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+SQLite remains available as an explicit fallback:
 
 ```bash
 export DATABASE_URL=sqlite:////absolute/path/to/trade_journal_v2.db
 ```
-
-Startup recreates the SQLite schema when the internal schema version changes. This intentionally drops incompatible local data instead of running migrations.
 
 Set an API bearer token for protected mutation and app-data routes with:
 
@@ -128,9 +139,9 @@ Container defaults:
 - `EDGELAB_JWT_SECRET=`
 - `EDGELAB_MAX_APP_DATA_ROWS=100000`
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
-- `DATABASE_URL=sqlite:////var/lib/edgelab/trade_journal_v2.db`
+- `DATABASE_URL=postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab`
 
-The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists the SQLite database in the `api-data` named volume. The populator does not mount or write the SQLite volume; the API discovers generated CSV files when serving dataset catalog requests. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and SQLite connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists PostgreSQL in the `postgres-data` named volume. The PostgreSQL service is bound to `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}` so bare-metal backend runs can reuse the same default database. The API container runs `alembic upgrade head` before starting Uvicorn, which keeps the single-VM Docker/Jenkins path aligned with later multi-service deployments that point `DATABASE_URL` at an external PostgreSQL instance. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and database connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
 
 Run the scheduled data populator directly from the repository root with:
 

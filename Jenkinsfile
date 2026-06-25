@@ -67,7 +67,17 @@ pipeline {
         stage('Deploy') {
             steps {
                 dir(params.DEPLOY_DIR) {
-                    sh 'docker compose up -d --build --force-recreate data-populator api frontend'
+                    sh '''#!/usr/bin/env bash
+                        set -euo pipefail
+
+                        if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                            compose_cmd="docker compose"
+                        else
+                            compose_cmd="docker-compose"
+                        fi
+
+                        ${compose_cmd} up -d --build --force-recreate postgres data-populator api frontend
+                    '''
                 }
             }
         }
