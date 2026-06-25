@@ -48,13 +48,13 @@ docker compose down
 docker compose down --volumes
 ```
 
-Bring up the benchmark profile when you want the default stack plus MinIO and the bundled k6 runner on one VM:
+Bring up the benchmark profile when you want default stack plus MinIO, Prometheus, Grafana, and bundled k6 runner on one VM:
 
 ```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio prometheus grafana
 ```
 
-The benchmark profile now adds only MinIO and the `benchmark-k6` runner on top of the default Postgres + Redis + TimescaleDB stack. Seed authenticated benchmark data with `npm run bench:seed`, then run the bundled k6 scripts from `benchmark/` for `bootstrap`, `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, and `market-data-bars`.
+Benchmark profile now adds MinIO, Prometheus, Grafana, and `benchmark-k6` on top of default Postgres + PgBouncer + Redis + TimescaleDB stack. Prometheus scrapes both FastAPI services at `/api/observability/metrics`, and Grafana boots with provisioned Prometheus datasource plus starter `EdgeLab Overview` dashboard. Seed authenticated benchmark data with `npm run bench:seed`, then run bundled k6 scripts from `benchmark/` for `bootstrap`, `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, and `market-data-bars`.
 
 For local storage-path latency comparisons, run `npm run bench:market-data-storage -- --rows 20000 --iterations 25`. It benchmarks cached CSV reads against DB-backed `market_candles` reads on same dataset shape so market-data migration wins stay measurable between commits.
 

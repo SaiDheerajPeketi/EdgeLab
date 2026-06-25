@@ -16,9 +16,11 @@ The root `docker-compose.yml` now exposes an optional `benchmark` profile with:
 - `timescaledb`
 - `redis`
 - `minio`
+- `prometheus`
+- `grafana`
 - `benchmark-k6`
 
-Those services do not replace the current request path yet. They exist so benchmark and migration work can start before the full split into `app-api` and `market-api`.
+Those services do not replace current request path. They exist so benchmark, migration, and observability work can start before final production topology rollout.
 
 ## Seed Benchmark Data
 
@@ -48,7 +50,7 @@ Optional sizing flags:
 Bring up the current app stack plus benchmark infra:
 
 ```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio prometheus grafana
 ```
 
 Run a k6 benchmark from the bundled `benchmark-k6` service:

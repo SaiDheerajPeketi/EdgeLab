@@ -127,6 +127,55 @@ services:
     volumes:
       - minio-data:/data
 
+  prometheus:
+    profiles:
+      - benchmark
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    depends_on:
+      api:
+        condition: service_started
+      market-api:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${EDGELAB_PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./docker/observability/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+
+  grafana:
+    profiles:
+      - benchmark
+    image: grafana/grafana:11.1.4
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${EDGELAB_GRAFANA_ADMIN_USER:-edgelab}
+      GF_SECURITY_ADMIN_PASSWORD: ${EDGELAB_GRAFANA_ADMIN_PASSWORD:-edgelab}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:${EDGELAB_GRAFANA_PORT:-3000}:3000"
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./docker/observability/grafana/provisioning/datasources/prometheus.yml
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
+        read_only: true
+      - type: bind
+        source: ./docker/observability/grafana/provisioning/dashboards/dashboards.yml
+        target: /etc/grafana/provisioning/dashboards/dashboards.yml
+        read_only: true
+      - type: bind
+        source: ./docker/observability/grafana/dashboards
+        target: /etc/grafana/provisioning/dashboards/json
+        read_only: true
+
   api:
     build:
       context: .
