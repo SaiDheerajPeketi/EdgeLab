@@ -302,6 +302,14 @@ export type AppBootstrap = {
   recent_trade_limit: number;
 };
 
+export type AppBootstrapShell = {
+  playbooks: Playbook[];
+  recent_sessions: BacktestSession[];
+  recent_sessions_next_offset: number;
+  recent_sessions_has_more: boolean;
+  recent_session_limit: number;
+};
+
 export type BacktestSessionPage = {
   items: BacktestSession[];
   offset: number;
@@ -897,6 +905,10 @@ export function getPlaybooks() {
 
 export function getBootstrap() {
   return request<AppBootstrap>("/bootstrap");
+}
+
+export function getBootstrapShell() {
+  return request<AppBootstrapShell>("/bootstrap-shell");
 }
 
 export function postPlaybook(payload: PlaybookPayload) {

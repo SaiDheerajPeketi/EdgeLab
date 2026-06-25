@@ -607,6 +607,14 @@ class BacktestSessionPage(BaseModel):
     has_more: bool
 
 
+class AppBootstrapShellResponse(BaseModel):
+    playbooks: list[PlaybookRead]
+    recent_sessions: list[BacktestSessionRead]
+    recent_sessions_next_offset: int
+    recent_sessions_has_more: bool
+    recent_session_limit: int
+
+
 class AppBootstrapResponse(BaseModel):
     datasets: DatasetCatalogResponse
     playbooks: list[PlaybookRead]

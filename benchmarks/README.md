@@ -10,6 +10,16 @@ PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_su
 
 This script does not require Docker. It seeds a temporary SQLite database, injects stale sessions, and reports mean/p95 latency plus the speedup factor for the indexed query path.
 
+## Bootstrap Profile Benchmark
+
+Compare the full bootstrap payload against the new shell bootstrap profile that powers the first paint:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py --assets 200 --sessions 200 --trades 200 --iterations 20
+```
+
+This script reports mean/p95 latency and payload sizes for `bootstrap` versus `bootstrap-shell`.
+
 ## Single-VM and Split-Service Load Test
 
 Exercise the frontend, `/api/health`, `/api/ready`, and optionally authenticated `/api/bootstrap` and `/api/backtests/summaries` endpoints against either:
@@ -33,5 +43,7 @@ PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.p
   --requests 500 \
   --concurrency 50
 ```
+
+With an auth token the load test also hits `/api/bootstrap-shell` and `/api/bootstrap`, so you can compare the lighter first-paint profile against the full payload on the same deployment.
 
 Point it at future multi-service endpoints by overriding `--frontend-url` and `--api-url`.

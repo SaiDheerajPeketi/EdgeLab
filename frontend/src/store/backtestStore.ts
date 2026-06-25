@@ -30,6 +30,7 @@ import {
   getBacktestSessionSummaries,
   getBacktests,
   getBootstrap,
+  getBootstrapShell,
   getDatasetRefreshStatus,
   getDatasets,
   getLatestBacktest,
@@ -214,53 +215,83 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         });
     };
 
+    const hydrateShellData = () => {
+      void Promise.allSettled([getDatasets(), getTrades()]).then(([datasetsResult, tradesResult]) => {
+        set((current) => ({
+          datasets: datasetsResult.status === "fulfilled" ? datasetsResult.value : current.datasets,
+          resultTrades: tradesResult.status === "fulfilled" ? tradesResult.value : current.resultTrades,
+          error:
+            current.error ??
+            firstRejectedMessage([
+              datasetsResult,
+              tradesResult,
+            ]),
+        }));
+      });
+    };
+
     set({ isLoading: true, error: null });
     try {
-      const bootstrap = await getBootstrap();
+      const shell = await getBootstrapShell();
       set({
-        datasets: bootstrap.datasets,
-        playbooks: bootstrap.playbooks,
-        resultSessions: bootstrap.recent_sessions,
-        resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
-        resultSessionsHasMore: bootstrap.recent_sessions_has_more,
-        resultTrades: bootstrap.recent_trades,
+        playbooks: shell.playbooks,
+        resultSessions: shell.recent_sessions,
+        resultSessionsNextOffset: shell.recent_sessions_next_offset,
+        resultSessionsHasMore: shell.recent_sessions_has_more,
         error: null,
         isLoading: false,
       });
       syncLatestReplayContext();
-      void get().refreshResults();
+      hydrateShellData();
       return;
     } catch {
       try {
-        const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
-          getDatasets(),
-          getPlaybooks(),
-          getBacktests(),
-          getTrades(),
-        ]);
-        const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
-        const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
-        const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
-        const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
+        const bootstrap = await getBootstrap();
         set({
-          datasets,
-          playbooks,
-          resultSessions,
-          resultSessionsNextOffset: resultSessions.length,
-          resultSessionsHasMore: false,
-          resultTrades,
-          error: firstRejectedMessage([
-            datasetsResult,
-            playbooksResult,
-            sessionsResult,
-            tradesResult,
-          ]),
+          datasets: bootstrap.datasets,
+          playbooks: bootstrap.playbooks,
+          resultSessions: bootstrap.recent_sessions,
+          resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
+          resultSessionsHasMore: bootstrap.recent_sessions_has_more,
+          resultTrades: bootstrap.recent_trades,
+          error: null,
           isLoading: false,
         });
-
         syncLatestReplayContext();
-      } catch (error) {
-        set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
+        void get().refreshResults();
+        return;
+      } catch {
+        try {
+          const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
+            getDatasets(),
+            getPlaybooks(),
+            getBacktests(),
+            getTrades(),
+          ]);
+          const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
+          const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
+          const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
+          const resultTrades = tradesResult.status === "fulfilled" ? tradesResult.value : [];
+          set({
+            datasets,
+            playbooks,
+            resultSessions,
+            resultSessionsNextOffset: resultSessions.length,
+            resultSessionsHasMore: false,
+            resultTrades,
+            error: firstRejectedMessage([
+              datasetsResult,
+              playbooksResult,
+              sessionsResult,
+              tradesResult,
+            ]),
+            isLoading: false,
+          });
+
+          syncLatestReplayContext();
+        } catch (error) {
+          set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
+        }
       }
     }
   },

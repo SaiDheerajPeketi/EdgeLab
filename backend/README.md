@@ -51,6 +51,12 @@ Benchmark the session-summary path without Docker by seeding a temporary SQLite 
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py --sessions 20000 --iterations 25
 ```
 
+Compare the full bootstrap payload against the lighter shell bootstrap used for the first paint with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py --assets 200 --sessions 200 --trades 200 --iterations 20
+```
+
 Load-test the live frontend/API entrypoints against the current single-VM proxy or future split-service URLs with:
 
 ```bash

@@ -42,6 +42,7 @@ from app.models import (
 from app.schemas import (
     AppDataBundle,
     AppBootstrapResponse,
+    AppBootstrapShellResponse,
     AppDataImportResult,
     AppStoragePayload,
     AppStorageRead,
@@ -103,6 +104,7 @@ BOOTSTRAP_SESSION_LIMIT = 25
 BOOTSTRAP_TRADE_LIMIT = 100
 SESSION_SUMMARIES_LIMIT = 50
 SESSION_SUMMARIES_LIMIT_MAX = 200
+BOOTSTRAP_SHELL_SESSION_LIMIT = SESSION_SUMMARIES_LIMIT
 market_data = (
     MarketDataService(settings.csv_path, cache=settings.cache_market_data)
     if settings.csv_path is not None
@@ -1576,30 +1578,64 @@ def forex_factory_calendar(
         return forex_factory_calendar_response(events, fetched_at, stale=True)
 
 
+def build_bootstrap_shell_response(
+    db: Session,
+    user_id: int,
+    *,
+    limit: int = BOOTSTRAP_SHELL_SESSION_LIMIT,
+) -> AppBootstrapShellResponse:
+    sessions_page = list_listable_backtest_sessions_page(
+        db,
+        user_id,
+        limit=limit,
+    )
+    return AppBootstrapShellResponse(
+        playbooks=backtester.list_playbooks(db, user_id),
+        recent_sessions=sessions_page.items,
+        recent_sessions_next_offset=sessions_page.next_offset,
+        recent_sessions_has_more=sessions_page.has_more,
+        recent_session_limit=limit,
+    )
+
+
+def build_bootstrap_response(
+    db: Session,
+    user_id: int,
+    *,
+    session_limit: int = BOOTSTRAP_SESSION_LIMIT,
+    trade_limit: int = BOOTSTRAP_TRADE_LIMIT,
+) -> AppBootstrapResponse:
+    shell = build_bootstrap_shell_response(db, user_id, limit=session_limit)
+    return AppBootstrapResponse(
+        datasets=dataset_catalog.list_catalog(db, user_id),
+        playbooks=shell.playbooks,
+        recent_sessions=shell.recent_sessions,
+        recent_sessions_next_offset=shell.recent_sessions_next_offset,
+        recent_sessions_has_more=shell.recent_sessions_has_more,
+        recent_trades=backtester.list_trades(
+            db,
+            user_id,
+            limit=trade_limit,
+        ),
+        recent_session_limit=session_limit,
+        recent_trade_limit=trade_limit,
+    )
+
+
 @router.get("/bootstrap", response_model=AppBootstrapResponse)
 def bootstrap(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppBootstrapResponse:
-    sessions_page = list_listable_backtest_sessions_page(
-        db,
-        current_user.id,
-        limit=BOOTSTRAP_SESSION_LIMIT,
-    )
-    return AppBootstrapResponse(
-        datasets=dataset_catalog.list_catalog(db, current_user.id),
-        playbooks=backtester.list_playbooks(db, current_user.id),
-        recent_sessions=sessions_page.items,
-        recent_sessions_next_offset=sessions_page.next_offset,
-        recent_sessions_has_more=sessions_page.has_more,
-        recent_trades=backtester.list_trades(
-            db,
-            current_user.id,
-            limit=BOOTSTRAP_TRADE_LIMIT,
-        ),
-        recent_session_limit=BOOTSTRAP_SESSION_LIMIT,
-        recent_trade_limit=BOOTSTRAP_TRADE_LIMIT,
-    )
+    return build_bootstrap_response(db, current_user.id)
+
+
+@router.get("/bootstrap-shell", response_model=AppBootstrapShellResponse)
+def bootstrap_shell(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AppBootstrapShellResponse:
+    return build_bootstrap_shell_response(db, current_user.id)
 
 
 @router.post("/backtests", response_model=BacktestState)

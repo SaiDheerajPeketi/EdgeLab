@@ -303,6 +303,42 @@ def test_bootstrap_returns_recent_payload(monkeypatch, tmp_path):
     assert payload.recent_trades[0].realized_pnl == 10.0
 
 
+def test_bootstrap_shell_returns_recent_payload_without_heavy_sections(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    db = make_model_session()
+    user_id = seed_user(db)
+    valid_session = BacktestSession(
+        user_id=user_id,
+        name="Valid dataset session",
+        symbol="GBPUSD",
+        csv_path=str(csv_path),
+        current_offset=0,
+    )
+    db.add(valid_session)
+    db.commit()
+    catalog = DatasetCatalogService(datasets_root, sessionmaker(bind=db.get_bind()))
+    monkeypatch.setattr(routes, "dataset_catalog", catalog)
+    monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
+
+    try:
+        payload = routes.bootstrap_shell(db, current_user(user_id))
+    finally:
+        db.close()
+
+    assert payload.playbooks == []
+    assert payload.recent_session_limit == routes.BOOTSTRAP_SHELL_SESSION_LIMIT
+    assert payload.recent_sessions_has_more is False
+    assert [session.csv_path for session in payload.recent_sessions] == [str(csv_path)]
+
+
 def test_backtest_summaries_paginate_listable_sessions(monkeypatch, tmp_path):
     datasets_root = tmp_path / "datasets"
     asset_dir = datasets_root / "GBP_USD"

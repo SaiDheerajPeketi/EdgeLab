@@ -140,6 +140,7 @@ def main() -> None:
             auth_headers = {"Authorization": f"Bearer {args.auth_token}"}
             targets.extend(
                 [
+                    ("api_bootstrap_shell", f"{api_url}/bootstrap-shell", auth_headers),
                     ("api_bootstrap", f"{api_url}/bootstrap", auth_headers),
                     (
                         "api_session_summaries",
