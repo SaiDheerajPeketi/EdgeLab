@@ -119,7 +119,11 @@ market_data = (
     if settings.csv_path is not None
     else None
 )
-dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
+dataset_catalog = DatasetCatalogService(
+    settings.datasets_root,
+    SessionLocal,
+    market_data_import_enabled=settings.market_data_import_enabled,
+)
 backtester = BacktestService(market_data, dataset_catalog)
 read_model_cache = ReadModelCacheService(
     bootstrap_shell_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,

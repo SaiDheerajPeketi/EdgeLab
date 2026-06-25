@@ -89,6 +89,8 @@ npm run market-data:import -- \
 
 When a timeframe is imported, `GET /api/market-data/bars` and `GET /api/market-data/meta` can serve it from DB even if the CSV disappears later, and dataset catalog refresh keeps that imported timeframe row instead of pruning it. Non-imported datasets still fall back to CSV.
 
+Default runtime now also sets `EDGELAB_MARKET_DATA_IMPORT_ENABLED=1`, so explicit dataset catalog refreshes automatically import changed CSV timeframes into `market_candles`. Set it to `0` only when you need metadata-only scans while debugging migration behavior.
+
 The root Compose file also exposes a `benchmark` profile that starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner alongside the current API/frontend stack:
 
 ```bash

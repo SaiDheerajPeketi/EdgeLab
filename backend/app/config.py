@@ -130,6 +130,10 @@ class Settings:
         if origin.strip()
     )
     cache_market_data: bool = os.getenv("EDGELAB_CACHE_MARKET_DATA", "1") != "0"
+    market_data_import_enabled: bool = bool_env(
+        "EDGELAB_MARKET_DATA_IMPORT_ENABLED",
+        True,
+    )
     data_populator_interval_seconds: int = int_env(
         "EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS",
         3600,
@@ -206,6 +210,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         google_redirect_uri=f"{settings.public_origin}/auth/callback/google",
         cors_origins=settings.cors_origins,
         cache_market_data=settings.cache_market_data,
+        market_data_import_enabled=settings.market_data_import_enabled,
         data_populator_interval_seconds=settings.data_populator_interval_seconds,
         data_populator_backfill_mode=settings.data_populator_backfill_mode,
         data_populator_lookback_days=settings.data_populator_lookback_days,

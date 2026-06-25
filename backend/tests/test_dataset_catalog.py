@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe
+from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe, MarketCandle
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -90,6 +90,35 @@ def test_refresh_skips_unchanged_files_after_initial_index(tmp_path):
 
         assert first.summary.candles == 0
         assert second.summary.candles == 0
+
+
+def test_refresh_catalog_imports_market_data_when_enabled(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "NQ"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "NQ_M5.csv").write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,100,101,99,100.5,10\n"
+        "2024-01-01 09:35:00,100.5,101.5,99.5,101,11\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, market_data_import_enabled=True)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        first = service.refresh_catalog(db, user_id)
+        second = service.refresh_catalog(db, user_id)
+        timeframe = db.query(DatasetTimeframe).one()
+
+        assert first.summary.candles == 2
+        assert second.summary.candles == 0
+        assert timeframe.database_imported is True
+        assert timeframe.database_imported_at is not None
+        assert db.query(MarketCandle).count() == 2
 
 
 def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):

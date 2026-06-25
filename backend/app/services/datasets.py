@@ -23,6 +23,7 @@ from app.schemas import (
     DatasetSettingsUpdate,
     DatasetTimeframe as DatasetTimeframeRead,
 )
+from app.services.market_data_imports import import_market_data_to_db
 
 TIMEFRAME_ORDER = {
     "M1": 1,
@@ -89,10 +90,12 @@ class DatasetCatalogService:
         root: Path,
         session_factory: sessionmaker,
         catalog_discovery_ttl_seconds: float = CATALOG_AUTO_DISCOVERY_TTL_SECONDS,
+        market_data_import_enabled: bool = False,
     ):
         self.default_root = root
         self.session_factory = session_factory
         self.catalog_discovery_ttl_seconds = catalog_discovery_ttl_seconds
+        self.market_data_import_enabled = market_data_import_enabled
         self._state_lock = Lock()
         self._locks_by_user: dict[int, Lock] = {}
         self._refresh_state_by_user: dict[int, DatasetRefreshState] = {}
@@ -157,6 +160,7 @@ class DatasetCatalogService:
             raise DatasetRefreshInProgress("Dataset refresh is already running.")
         try:
             summary = self._scan_filesystem_index(db, user_id, strict=True, prune_missing=True)
+            summary = self._maybe_import_market_data(db, user_id, summary)
             self._sync_session_replay_ready(db, user_id)
             db.commit()
             self._last_discovery_root_by_user[user_id] = str(self._root_path(db, user_id))
@@ -188,6 +192,12 @@ class DatasetCatalogService:
                 error=None,
             )
             summary = self._scan_filesystem_index(db, user_id, strict=True, prune_missing=True)
+            if self.market_data_import_enabled:
+                self._set_refresh_state(
+                    user_id,
+                    current="Importing market data into DB",
+                )
+            summary = self._maybe_import_market_data(db, user_id, summary)
             self._sync_session_replay_ready(db, user_id)
             db.commit()
             self._last_discovery_root_by_user[user_id] = str(self._root_path(db, user_id))
@@ -444,6 +454,25 @@ class DatasetCatalogService:
             assets=discovered_assets,
             timeframes=discovered_timeframes,
             candles=0,
+        )
+
+    def _maybe_import_market_data(
+        self,
+        db: Session,
+        user_id: int,
+        summary: DatasetRefreshSummary,
+    ) -> DatasetRefreshSummary:
+        if not self.market_data_import_enabled:
+            return summary
+        import_summary = import_market_data_to_db(
+            db,
+            user_id=user_id,
+            pending_only=True,
+        )
+        return DatasetRefreshSummary(
+            assets=summary.assets,
+            timeframes=summary.timeframes,
+            candles=int(import_summary["candles"]),
         )
 
     def _sync_session_replay_ready(self, db: Session, user_id: int) -> None:
