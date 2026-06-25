@@ -72,6 +72,7 @@ npm run dev
 
 The backend scans dataset CSV folders from `datasets` by default. Normal catalog reads auto-discover filesystem changes at most every 30 seconds; explicit dataset refreshes and dataset root changes still force an immediate scan. Set `EDGELAB_DATASETS_ROOT` to point at a different dataset root.
 The open frontend subscribes to `/api/datasets/stream` over WebSocket, so CSV range changes from the populator appear without a browser refresh. Replay sessions are created only from the session builder or `POST /api/backtests`; startup does not create a default EURUSD/M1 session.
+The API also keeps short-lived in-process read-model caches for the initial shell bootstrap and dataset catalog responses. Those defaults are sized for the current single-VM deployment path, and the cache boundary is isolated so the same endpoints can later move to a shared cache tier without changing clients. Tune them with `EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS` and `EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS`.
 
 The default containerized stack uses PostgreSQL plus Alembic migrations. SQLite remains an explicit fallback only when `DATABASE_URL` is overridden to a SQLite path. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
 

@@ -57,6 +57,13 @@ Compare the full bootstrap payload against the lighter shell bootstrap used for 
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py --assets 200 --sessions 200 --trades 200 --iterations 20
 ```
 
+The API also keeps short-lived in-process read-model caches for `/api/bootstrap-shell` and `/api/datasets`. Tune them with:
+
+```bash
+export EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS=3
+export EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS=5
+```
+
 Load-test the live frontend/API entrypoints against the current single-VM proxy or future split-service URLs with:
 
 ```bash

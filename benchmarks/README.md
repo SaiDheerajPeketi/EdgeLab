@@ -19,6 +19,7 @@ PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_
 ```
 
 This script reports mean/p95 latency and payload sizes for `bootstrap` versus `bootstrap-shell`.
+It also reports warm-cache timings for the same endpoints after the in-process read-model cache is populated.
 
 ## Single-VM and Split-Service Load Test
 

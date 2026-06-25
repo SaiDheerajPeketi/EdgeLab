@@ -94,6 +94,7 @@ from app.services.backtester import BacktestService, list_latest_session
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
+from app.services.read_models import ReadModelCacheService
 from app.services.trade_imports import import_trade_csv
 
 
@@ -112,6 +113,18 @@ market_data = (
 )
 dataset_catalog = DatasetCatalogService(settings.datasets_root, SessionLocal)
 backtester = BacktestService(market_data, dataset_catalog)
+read_model_cache = ReadModelCacheService(
+    bootstrap_shell_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
+    dataset_catalog_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
+)
+
+
+def bootstrap_shell_cache_scope(user_id: int) -> str:
+    return f"{id(backtester)}:{user_id}"
+
+
+def dataset_catalog_cache_scope(user_id: int) -> str:
+    return f"{id(dataset_catalog)}:{user_id}"
 
 BINANCE_REST_URLS = (
     "https://data-api.binance.vision/api/v3",
@@ -984,7 +997,7 @@ def datasets(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.list_catalog(db, current_user.id)
+        return cached_dataset_catalog_response(db, current_user.id)
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         raise dataset_error_response(exc) from exc
 
@@ -1007,7 +1020,9 @@ def update_dataset_settings(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.update_settings(db, current_user.id, payload)
+        response = dataset_catalog.update_settings(db, current_user.id, payload)
+        read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
+        return response
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
@@ -1019,7 +1034,9 @@ def refresh_datasets(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetRefreshResponse:
     try:
-        return dataset_catalog.start_refresh(db, current_user.id)
+        response = dataset_catalog.start_refresh(db, current_user.id)
+        read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
+        return response
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
@@ -1067,7 +1084,7 @@ async def dataset_stream(websocket: WebSocket) -> None:
 def dataset_catalog_stream_payload(user_id: int) -> dict[str, object]:
     db = SessionLocal()
     try:
-        catalog = dataset_catalog.list_catalog(db, user_id)
+        catalog = cached_dataset_catalog_response(db, user_id)
         return {
             "type": "catalog",
             "catalog": catalog.model_dump(mode="json"),
@@ -1089,7 +1106,9 @@ def update_dataset_asset(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetCatalogResponse:
     try:
-        return dataset_catalog.update_asset(db, current_user.id, asset_id, payload)
+        response = dataset_catalog.update_asset(db, current_user.id, asset_id, payload)
+        read_model_cache.invalidate_dataset_catalog(dataset_catalog_cache_scope(current_user.id))
+        return response
     except (DatasetRefreshInProgress, FileNotFoundError, OperationalError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
@@ -1160,6 +1179,10 @@ def import_app_data(
                 db.add_all(batch)
                 db.flush()
         db.commit()
+        read_model_cache.invalidate_user(
+            bootstrap_shell_cache_scope(current_user.id),
+            dataset_catalog_cache_scope(current_user.id),
+        )
         return AppDataImportResult(imported_at=utcnow(), summary=summary)
     except Exception as exc:
         db.rollback()
@@ -1598,6 +1621,33 @@ def build_bootstrap_shell_response(
     )
 
 
+def cached_dataset_catalog_response(
+    db: Session,
+    user_id: int,
+) -> DatasetCatalogResponse:
+    return read_model_cache.get_dataset_catalog(
+        dataset_catalog_cache_scope(user_id),
+        lambda: dataset_catalog.list_catalog(db, user_id),
+    )
+
+
+def cached_bootstrap_shell_response(
+    db: Session,
+    user_id: int,
+    *,
+    limit: int = BOOTSTRAP_SHELL_SESSION_LIMIT,
+) -> AppBootstrapShellResponse:
+    return read_model_cache.get_bootstrap_shell(
+        bootstrap_shell_cache_scope(user_id),
+        limit,
+        lambda: build_bootstrap_shell_response(
+            db,
+            user_id,
+            limit=limit,
+        ),
+    )
+
+
 def build_bootstrap_response(
     db: Session,
     user_id: int,
@@ -1622,12 +1672,36 @@ def build_bootstrap_response(
     )
 
 
+def cached_bootstrap_response(
+    db: Session,
+    user_id: int,
+    *,
+    session_limit: int = BOOTSTRAP_SESSION_LIMIT,
+    trade_limit: int = BOOTSTRAP_TRADE_LIMIT,
+) -> AppBootstrapResponse:
+    shell = cached_bootstrap_shell_response(db, user_id, limit=session_limit)
+    return AppBootstrapResponse(
+        datasets=cached_dataset_catalog_response(db, user_id),
+        playbooks=shell.playbooks,
+        recent_sessions=shell.recent_sessions,
+        recent_sessions_next_offset=shell.recent_sessions_next_offset,
+        recent_sessions_has_more=shell.recent_sessions_has_more,
+        recent_trades=backtester.list_trades(
+            db,
+            user_id,
+            limit=trade_limit,
+        ),
+        recent_session_limit=session_limit,
+        recent_trade_limit=trade_limit,
+    )
+
+
 @router.get("/bootstrap", response_model=AppBootstrapResponse)
 def bootstrap(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppBootstrapResponse:
-    return build_bootstrap_response(db, current_user.id)
+    return cached_bootstrap_response(db, current_user.id)
 
 
 @router.get("/bootstrap-shell", response_model=AppBootstrapShellResponse)
@@ -1635,7 +1709,7 @@ def bootstrap_shell(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppBootstrapShellResponse:
-    return build_bootstrap_shell_response(db, current_user.id)
+    return cached_bootstrap_shell_response(db, current_user.id)
 
 
 @router.post("/backtests", response_model=BacktestState)
@@ -1645,7 +1719,9 @@ def create_backtest(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
     try:
-        return backtester.create_session(db, current_user.id, payload)
+        state = backtester.create_session(db, current_user.id, payload)
+        read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
+        return state
     except (FileNotFoundError, ValueError) as exc:
         db.rollback()
         raise market_data_error_response(exc) from exc
@@ -1717,13 +1793,15 @@ def import_backtest_trades(
         except (FileNotFoundError, ValueError):
             fallback_csv_path = settings.datasets_root
             fallback_rows = 1
-        return import_trade_csv(
+        result = import_trade_csv(
             db,
             current_user.id,
             payload,
             fallback_csv_path=fallback_csv_path,
             fallback_rows=fallback_rows,
         )
+        read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
+        return result
     except HTTPException:
         db.rollback()
         raise
@@ -1751,9 +1829,11 @@ def patch_backtest_session(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestSessionRead:
-    return BacktestSessionRead.model_validate(
+    session = BacktestSessionRead.model_validate(
         backtester.update_session(db, current_user.id, session_id, payload),
     )
+    read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
+    return session
 
 
 @router.delete("/backtests/{session_id}")
@@ -1763,6 +1843,7 @@ def delete_backtest_session(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> dict[str, bool]:
     backtester.delete_session(db, current_user.id, session_id)
+    read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
     return {"ok": True}
 
 
@@ -1841,7 +1922,9 @@ def create_playbook(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> PlaybookRead:
-    return backtester.create_playbook(db, current_user.id, payload)
+    playbook = backtester.create_playbook(db, current_user.id, payload)
+    read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
+    return playbook
 
 
 @router.patch("/playbooks/{playbook_id}", response_model=PlaybookRead)
@@ -1851,7 +1934,9 @@ def update_playbook(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> PlaybookRead:
-    return backtester.update_playbook(db, current_user.id, playbook_id, payload)
+    playbook = backtester.update_playbook(db, current_user.id, playbook_id, payload)
+    read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
+    return playbook
 
 
 @router.delete("/playbooks/{playbook_id}")
@@ -1861,6 +1946,7 @@ def delete_playbook(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> dict[str, bool]:
     backtester.delete_playbook(db, current_user.id, playbook_id)
+    read_model_cache.invalidate_bootstrap_shell(bootstrap_shell_cache_scope(current_user.id))
     return {"ok": True}
 
 

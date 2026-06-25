@@ -158,6 +158,14 @@ class Settings:
         25 * 1024 * 1024,
     )
     max_app_data_rows: int = int_env("EDGELAB_MAX_APP_DATA_ROWS", 100_000)
+    bootstrap_shell_cache_ttl_seconds: int = int_env(
+        "EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS",
+        3,
+    )
+    dataset_catalog_cache_ttl_seconds: int = int_env(
+        "EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS",
+        5,
+    )
     beta_seats_total: int = int_env("EDGELAB_BETA_SEATS_TOTAL", 500)
     beta_manual_access_enabled: bool = bool_env(
         "EDGELAB_BETA_MANUAL_ACCESS_ENABLED",
@@ -192,6 +200,8 @@ if not settings.google_redirect_uri and settings.public_origin:
         data_populator_crypto_symbols=settings.data_populator_crypto_symbols,
         max_request_body_bytes=settings.max_request_body_bytes,
         max_app_data_rows=settings.max_app_data_rows,
+        bootstrap_shell_cache_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
+        dataset_catalog_cache_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
         beta_seats_total=settings.beta_seats_total,
         beta_manual_access_enabled=settings.beta_manual_access_enabled,
     )

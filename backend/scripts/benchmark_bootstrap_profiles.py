@@ -185,12 +185,21 @@ def main() -> None:
 
         original_dataset_catalog = routes.dataset_catalog
         original_backtester = routes.backtester
+        original_read_model_cache = routes.read_model_cache
         try:
             routes.dataset_catalog = SeededCatalogService(temp_root / "datasets", session_factory)
             routes.backtester = BacktestService(dataset_catalog=routes.dataset_catalog)
+            routes.read_model_cache.clear()
             with session_factory() as db:
                 shell_payload, shell_samples = benchmark_profile(
                     routes.build_bootstrap_shell_response,
+                    db,
+                    user_id,
+                    iterations=args.iterations,
+                )
+                routes.read_model_cache.clear()
+                cached_shell_payload, cached_shell_samples = benchmark_profile(
+                    routes.cached_bootstrap_shell_response,
                     db,
                     user_id,
                     iterations=args.iterations,
@@ -201,12 +210,22 @@ def main() -> None:
                     user_id,
                     iterations=args.iterations,
                 )
+                routes.read_model_cache.clear()
+                cached_full_payload, cached_full_samples = benchmark_profile(
+                    routes.cached_bootstrap_response,
+                    db,
+                    user_id,
+                    iterations=args.iterations,
+                )
         finally:
             routes.dataset_catalog = original_dataset_catalog
             routes.backtester = original_backtester
+            routes.read_model_cache = original_read_model_cache
 
     shell_size = len(shell_payload.model_dump_json().encode("utf-8"))
+    cached_shell_size = len(cached_shell_payload.model_dump_json().encode("utf-8"))
     full_size = len(full_payload.model_dump_json().encode("utf-8"))
+    cached_full_size = len(cached_full_payload.model_dump_json().encode("utf-8"))
 
     print(f"Assets: {args.assets}")
     print(f"Timeframes per asset: {args.timeframes}")
@@ -218,14 +237,32 @@ def main() -> None:
     print(f"Shell p95:  {percentile(shell_samples, 0.95):.2f} ms")
     print(f"Shell size: {shell_size} bytes")
     print()
+    print(f"Cached shell mean: {statistics.mean(cached_shell_samples):.2f} ms")
+    print(f"Cached shell p95:  {percentile(cached_shell_samples, 0.95):.2f} ms")
+    print(f"Cached shell size: {cached_shell_size} bytes")
+    print()
     print(f"Full mean:  {statistics.mean(full_samples):.2f} ms")
     print(f"Full p95:   {percentile(full_samples, 0.95):.2f} ms")
     print(f"Full size:  {full_size} bytes")
+    print()
+    print(f"Cached full mean: {statistics.mean(cached_full_samples):.2f} ms")
+    print(f"Cached full p95:  {percentile(cached_full_samples, 0.95):.2f} ms")
+    print(f"Cached full size: {cached_full_size} bytes")
     print()
     if shell_size > 0:
         print(f"Payload reduction: {(1 - (shell_size / full_size)) * 100:.2f}%")
     if statistics.mean(shell_samples) > 0:
         print(f"Latency reduction: {(1 - (statistics.mean(shell_samples) / statistics.mean(full_samples))) * 100:.2f}%")
+    if statistics.mean(cached_shell_samples) > 0:
+        print(
+            "Warm shell latency reduction: "
+            f"{(1 - (statistics.mean(cached_shell_samples) / statistics.mean(shell_samples))) * 100:.2f}%"
+        )
+    if statistics.mean(cached_full_samples) > 0:
+        print(
+            "Warm full latency reduction: "
+            f"{(1 - (statistics.mean(cached_full_samples) / statistics.mean(full_samples))) * 100:.2f}%"
+        )
 
 
 if __name__ == "__main__":
