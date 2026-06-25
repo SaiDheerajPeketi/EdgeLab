@@ -855,6 +855,10 @@ export function getBacktestSessionSummaries(
   return request<BacktestSessionPage>(`/backtests/summaries${query}`);
 }
 
+export function getBacktestStrategySummaries(limit = 50) {
+  return request<StrategySummary[]>(`/backtests/strategy-summaries?limit=${limit}`);
+}
+
 export function createBacktest(payload: BacktestCreatePayload = {}) {
   return request<BacktestState>("/backtests", {
     method: "POST",

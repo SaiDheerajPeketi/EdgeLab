@@ -28,6 +28,8 @@ import {
   deletePlaybook as deletePlaybookApi,
   getBars,
   getBacktest,
+  getBacktestSessionSummaries,
+  getBacktestStrategySummaries,
   getBacktests,
   getBootstrap,
   getBootstrapShell,
@@ -420,14 +422,33 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   loadMoreSessions: async () => {
-    const { isLoadingMoreSessions, resultSessionsHasMore, resultSessions } = get();
+    const {
+      isLoadingMoreSessions,
+      resultSessionsHasMore,
+      resultSessions,
+      resultSessionsNextOffset,
+    } = get();
     if (isLoadingMoreSessions || !resultSessionsHasMore) {
       return;
     }
     set({ isLoadingMoreSessions: true });
     try {
-      await get().refreshShellSnapshot(resultSessions.length + RESULT_SESSIONS_PAGE_LIMIT);
-      set({ isLoadingMoreSessions: false, error: null });
+      const nextLimit = resultSessions.length + RESULT_SESSIONS_PAGE_LIMIT;
+      const [page, strategySummaries] = await Promise.all([
+        getBacktestSessionSummaries({
+          offset: resultSessionsNextOffset,
+          limit: RESULT_SESSIONS_PAGE_LIMIT,
+        }),
+        getBacktestStrategySummaries(nextLimit),
+      ]);
+      set((current) => ({
+        resultSessions: mergeSessions(current.resultSessions, page.items),
+        resultSessionsHasMore: page.has_more,
+        resultSessionsNextOffset: page.next_offset,
+        strategySummaries,
+        isLoadingMoreSessions: false,
+        error: null,
+      }));
     } catch (error) {
       set({ error: toErrorMessage(error), isLoadingMoreSessions: false });
     }
@@ -778,6 +799,19 @@ function upsertSession(sessions: BacktestSession[], session: BacktestSession) {
     return sessions.map((item) => (item.id === session.id ? session : item));
   }
   return [session, ...sessions];
+}
+
+function mergeSessions(existing: BacktestSession[], incoming: BacktestSession[]) {
+  const merged = [...existing];
+  for (const session of incoming) {
+    const index = merged.findIndex((item) => item.id === session.id);
+    if (index >= 0) {
+      merged[index] = session;
+      continue;
+    }
+    merged.push(session);
+  }
+  return merged;
 }
 
 async function loadResultsData(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
