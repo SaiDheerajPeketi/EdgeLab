@@ -215,6 +215,55 @@ def test_data_populator_syncs_catalog_rows_and_imports_market_candles(tmp_path):
         assert session.replay_ready is True
 
 
+def test_data_populator_can_defer_catalog_sync_until_final_backfill_flush(tmp_path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine)
+    spec = crypto_spec("BTCUSDT")
+
+    with session_factory() as db:
+        user = BetaUser(email="defer@example.com", status="ACTIVE")
+        db.add(user)
+        db.flush()
+        db.add(DatasetSettings(user_id=user.id, root_path=str(tmp_path)))
+        db.commit()
+        user_id = user.id
+
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        derived_timeframes=("M5",),
+        catalog_session_factory=session_factory,
+        catalog_import_enabled=True,
+    )
+
+    partial = populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+            candle("2024-01-01T00:02:00", 102.0),
+            candle("2024-01-01T00:03:00", 103.0),
+            candle("2024-01-01T00:04:00", 104.0),
+        ],
+        write_derived=False,
+        sync_catalog=False,
+    )
+    assert partial.rows == 5
+
+    with session_factory() as db:
+        assert db.scalar(select(DatasetAsset).where(DatasetAsset.user_id == user_id)) is None
+        assert db.scalar(select(StoredMarketCandle).where(StoredMarketCandle.user_id == user_id)) is None
+
+    final = populator.write_candles(spec, [], sync_catalog=True)
+    assert final.rows == 5
+
+    with session_factory() as db:
+        assert db.scalar(select(DatasetAsset).where(DatasetAsset.user_id == user_id)) is not None
+        assert db.scalar(select(StoredMarketCandle).where(StoredMarketCandle.user_id == user_id)) is not None
+
+
 def test_data_populator_uses_max_backfill_mode_by_default(tmp_path):
     populator = ScheduledDataPopulator(
         tmp_path,
@@ -577,9 +626,16 @@ def test_populate_once_batches_provider_pages_by_threshold(tmp_path):
             csv_path=None,
             *,
             write_derived=True,
+            sync_catalog=True,
         ):
             write_calls.append([item.timestamp for item in candles])
-            return super().write_candles(spec, candles, csv_path, write_derived=write_derived)
+            return super().write_candles(
+                spec,
+                candles,
+                csv_path,
+                write_derived=write_derived,
+                sync_catalog=sync_catalog,
+            )
 
     populator = ThreePagePopulator(
         tmp_path,

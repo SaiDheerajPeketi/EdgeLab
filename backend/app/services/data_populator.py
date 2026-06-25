@@ -759,6 +759,7 @@ class ScheduledDataPopulator:
                                     pending_candles,
                                     csv_path,
                                     write_derived=not defer_derived_timeframes,
+                                    sync_catalog=not defer_derived_timeframes,
                                 )
                                 pending_candles = []
                             if page_result is not None:
@@ -1276,6 +1277,7 @@ class ScheduledDataPopulator:
         csv_path: Path | None = None,
         *,
         write_derived: bool = True,
+        sync_catalog: bool = True,
     ) -> PopulationResult:
         target_path = csv_path or self.csv_path_for_spec(spec)
         frame = merge_candles(
@@ -1300,7 +1302,8 @@ class ScheduledDataPopulator:
         for timeframe, derived_path, derived_frame in derived_frames:
             self.manifest.update_timeframe(spec, timeframe, derived_path, derived_frame)
         self.manifest.save()
-        self.sync_catalog_rows(spec, target_path, frame, derived_frames)
+        if sync_catalog:
+            self.sync_catalog_rows(spec, target_path, frame, derived_frames)
 
         return PopulationResult(
             asset_id=spec.asset_id,
