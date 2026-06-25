@@ -4,15 +4,17 @@ set -eu
 attempt=1
 max_attempts=12
 
-until alembic -c /app/backend/alembic.ini upgrade head; do
-  if [ "${attempt}" -ge "${max_attempts}" ]; then
-    echo "alembic upgrade failed after ${attempt} attempts" >&2
-    exit 1
-  fi
-  echo "alembic upgrade failed on attempt ${attempt}; retrying in 5 seconds" >&2
-  attempt=$((attempt + 1))
-  sleep 5
-done
+if [ "${EDGELAB_RUN_MIGRATIONS:-1}" != "0" ]; then
+  until alembic -c /app/backend/alembic.ini upgrade head; do
+    if [ "${attempt}" -ge "${max_attempts}" ]; then
+      echo "alembic upgrade failed after ${attempt} attempts" >&2
+      exit 1
+    fi
+    echo "alembic upgrade failed on attempt ${attempt}; retrying in 5 seconds" >&2
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+fi
 
 if [ -n "${EDGELAB_API_WORKERS:-}" ]; then
   workers="${EDGELAB_API_WORKERS}"

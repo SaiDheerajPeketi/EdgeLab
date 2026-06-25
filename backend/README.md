@@ -45,7 +45,7 @@ cd backend
 alembic upgrade head
 ```
 
-Container startup wraps that same Alembic upgrade in retry logic, so transient PgBouncer or PostgreSQL login races during Docker/Jenkins deploys do not crash the API immediately.
+Container startup wraps that same Alembic upgrade in retry logic, so transient PgBouncer or PostgreSQL login races during Docker/Jenkins deploys do not crash the API immediately. Use `EDGELAB_RUN_MIGRATIONS=0` on secondary API containers such as `market-api` so only one service instance owns schema upgrades during a rollout.
 
 Benchmark the session-summary path without Docker by seeding a temporary SQLite workload and comparing the legacy filesystem filter against the indexed catalog query:
 
