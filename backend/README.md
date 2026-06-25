@@ -45,6 +45,12 @@ cd backend
 alembic upgrade head
 ```
 
+Benchmark the session-summary path without Docker by seeding a temporary SQLite workload and comparing the legacy filesystem filter against the indexed catalog query:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py --sessions 20000 --iterations 25
+```
+
 SQLite remains available as an explicit fallback:
 
 ```bash

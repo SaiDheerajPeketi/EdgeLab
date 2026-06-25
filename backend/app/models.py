@@ -1,6 +1,17 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -20,6 +31,9 @@ class UserOwnedMixin:
 
 class BacktestSession(UserOwnedMixin, Base):
     __tablename__ = "backtest_sessions"
+    __table_args__ = (
+        Index("ix_backtest_sessions_user_created_id", "user_id", "created_at", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(160), default="Dataset Replay")
@@ -101,6 +115,7 @@ class DatasetTimeframe(UserOwnedMixin, Base):
             "timeframe",
             name="uq_dataset_timeframes_user_asset_timeframe",
         ),
+        Index("ix_dataset_timeframes_user_csv_path", "user_id", "csv_path"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

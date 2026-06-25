@@ -376,13 +376,10 @@ def list_listable_backtest_sessions(
     user_id: int,
     limit: int | None = None,
 ) -> list[BacktestSessionRead]:
-    candidate_limit = None if limit is None else max(limit * 3, limit)
-    sessions = [
+    return [
         BacktestSessionRead.model_validate(session)
-        for session in backtester.list_sessions(db, user_id, limit=candidate_limit)
-        if backtester.session_is_listable(session)
+        for session in backtester.list_listable_sessions(db, user_id, limit=limit)
     ]
-    return sessions[:limit] if limit is not None else sessions
 
 
 def list_listable_backtest_sessions_page(
@@ -391,58 +388,24 @@ def list_listable_backtest_sessions_page(
     offset: int = 0,
     limit: int = SESSION_SUMMARIES_LIMIT,
 ) -> BacktestSessionPage:
-    batch_size = max(limit * 3, limit)
-    next_offset = offset
-    items: list[BacktestSessionRead] = []
-
-    while len(items) < limit:
-        candidates = backtester.list_sessions(
+    items = [
+        BacktestSessionRead.model_validate(session)
+        for session in backtester.list_listable_sessions(
             db,
             user_id,
-            offset=next_offset,
-            limit=batch_size,
+            offset=offset,
+            limit=limit,
         )
-        if not candidates:
-            return BacktestSessionPage(
-                items=items,
-                offset=offset,
-                limit=limit,
-                next_offset=next_offset,
-                has_more=False,
-            )
-
-        for index, session in enumerate(candidates):
-            next_offset += 1
-            if not backtester.session_is_listable(session):
-                continue
-            items.append(BacktestSessionRead.model_validate(session))
-            if len(items) == limit:
-                has_more = (index + 1) < len(candidates) or bool(
-                    backtester.list_sessions(
-                        db,
-                        user_id,
-                        offset=next_offset,
-                        limit=1,
-                    )
-                )
-                return BacktestSessionPage(
-                    items=items,
-                    offset=offset,
-                    limit=limit,
-                    next_offset=next_offset,
-                    has_more=has_more,
-                )
-
-        if len(candidates) < batch_size:
-            break
-
+    ]
+    next_offset = offset + len(items)
     return BacktestSessionPage(
         items=items,
         offset=offset,
         limit=limit,
         next_offset=next_offset,
-        has_more=bool(
-            backtester.list_sessions(
+        has_more=len(items) == limit
+        and bool(
+            backtester.list_listable_sessions(
                 db,
                 user_id,
                 offset=next_offset,
@@ -1681,14 +1644,23 @@ def latest_backtest(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
     try:
-        for session in backtester.list_sessions(db, current_user.id):
-            if not backtester.session_has_replay_data(session):
-                continue
-            try:
-                return backtester.get_state(db, current_user.id, session.id)
-            except (FileNotFoundError, ValueError):
-                db.rollback()
-                continue
+        offset = 0
+        while True:
+            sessions = backtester.list_listable_sessions(
+                db,
+                current_user.id,
+                offset=offset,
+                limit=SESSION_SUMMARIES_LIMIT,
+            )
+            if not sessions:
+                break
+            for session in sessions:
+                try:
+                    return backtester.get_state(db, current_user.id, session.id)
+                except (FileNotFoundError, ValueError):
+                    db.rollback()
+                    continue
+            offset += len(sessions)
         raise HTTPException(status_code=404, detail="No replay session exists yet")
     except HTTPException:
         raise

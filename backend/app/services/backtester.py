@@ -2,10 +2,19 @@ import json
 from datetime import datetime
 from pathlib import Path
 from fastapi import HTTPException
-from sqlalchemy import asc, desc, select
+from sqlalchemy import asc, desc, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import BacktestSession, Execution, Order, Playbook, Position, Trade, TradeNote
+from app.models import (
+    BacktestSession,
+    DatasetTimeframe,
+    Execution,
+    Order,
+    Playbook,
+    Position,
+    Trade,
+    TradeNote,
+)
 from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
@@ -604,6 +613,38 @@ class BacktestService:
         query = (
             select(BacktestSession)
             .where(BacktestSession.user_id == user_id)
+            .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
+        )
+        if offset > 0:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        return list(db.scalars(query).all())
+
+    def list_listable_sessions(
+        self,
+        db: Session,
+        user_id: int,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> list[BacktestSession]:
+        if self.dataset_catalog is None:
+            sessions = [
+                session
+                for session in self.list_sessions(db, user_id)
+                if self.session_is_listable(session)
+            ]
+            if offset > 0:
+                sessions = sessions[offset:]
+            return sessions[:limit] if limit is not None else sessions
+
+        self.dataset_catalog.discover_catalog(db, user_id)
+        query = (
+            select(BacktestSession)
+            .where(
+                BacktestSession.user_id == user_id,
+                self._listable_session_clause(user_id),
+            )
             .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
         )
         if offset > 0:
@@ -1331,6 +1372,23 @@ class BacktestService:
 
     def session_is_listable(self, session: BacktestSession) -> bool:
         return session.timeframe == "Imported" or self.session_has_replay_data(session)
+
+    def _listable_session_clause(self, user_id: int):
+        dataset_match = (
+            select(DatasetTimeframe.id)
+            .where(
+                DatasetTimeframe.user_id == user_id,
+                DatasetTimeframe.csv_path == BacktestSession.csv_path,
+            )
+            .exists()
+        )
+        filters = [
+            BacktestSession.timeframe == "Imported",
+            dataset_match,
+        ]
+        if self.market_data is not None:
+            filters.append(BacktestSession.csv_path == str(self.market_data.csv_path))
+        return or_(*filters)
 
     def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
         if not session.csv_path and self.market_data is None:

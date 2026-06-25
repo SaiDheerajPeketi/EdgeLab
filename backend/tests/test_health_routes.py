@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api import routes
 from app.auth import AuthenticatedUser
 from app.db import Base
-from app.models import BacktestSession, BetaUser, Position, Trade
+from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe, Position, Trade
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
 
@@ -354,6 +354,72 @@ def test_backtest_summaries_paginate_listable_sessions(monkeypatch, tmp_path):
     assert page.has_more is True
     assert next_page.has_more is False
     assert [session.name for session in next_page.items] == ["Session 0"]
+
+
+def test_backtest_summaries_use_catalog_index_without_filesystem_checks(monkeypatch):
+    db = make_model_session()
+    user_id = seed_user(db)
+    asset = DatasetAsset(
+        user_id=user_id,
+        asset_key="GBP_USD",
+        name="GBP/USD",
+        symbol="GBPUSD",
+        folder_path="/datasets/GBP_USD",
+    )
+    db.add(asset)
+    db.flush()
+    csv_path = "/datasets/GBP_USD/GBPUSD_M1.csv"
+    db.add(
+        DatasetTimeframe(
+            user_id=user_id,
+            asset_id=asset.id,
+            timeframe="M1",
+            csv_path=csv_path,
+            rows=1,
+            file_size=0,
+            file_mtime_ns=0,
+        )
+    )
+    db.add_all(
+        [
+            BacktestSession(
+                user_id=user_id,
+                name="Catalog session",
+                symbol="GBPUSD",
+                timeframe="M1",
+                csv_path=csv_path,
+                current_offset=0,
+            ),
+            BacktestSession(
+                user_id=user_id,
+                name="Stale legacy session",
+                symbol="EURUSD",
+                timeframe="M1",
+                csv_path="/data/EURUSD_M1.csv",
+                current_offset=0,
+            ),
+        ]
+    )
+    db.commit()
+
+    class NoopCatalog:
+        def discover_catalog(self, db, user_id, *, force=False):
+            return None
+
+    service = BacktestService(dataset_catalog=NoopCatalog())
+
+    def fail_session_check(_session):
+        raise AssertionError("session_has_replay_data should not run for summary queries")
+
+    monkeypatch.setattr(service, "session_has_replay_data", fail_session_check)
+    monkeypatch.setattr(routes, "backtester", service)
+
+    try:
+        page = routes.list_backtest_summaries(offset=0, limit=10, db=db, current_user=current_user(user_id))
+    finally:
+        db.close()
+
+    assert [session.name for session in page.items] == ["Catalog session"]
 
 
 def test_market_data_error_response_does_not_expose_legacy_csv_path():
