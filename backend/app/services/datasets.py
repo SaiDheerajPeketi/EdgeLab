@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -556,13 +557,15 @@ class DatasetCatalogService:
             .where(DatasetAsset.user_id == user_id)
             .order_by(DatasetAsset.name.asc())
         ).all()
+        timeframes_by_asset_id: dict[int, list[DatasetTimeframe]] = defaultdict(list)
+        for timeframe in db.scalars(
+            select(DatasetTimeframe)
+            .where(DatasetTimeframe.user_id == user_id)
+            .order_by(DatasetTimeframe.asset_id.asc())
+        ).all():
+            timeframes_by_asset_id[timeframe.asset_id].append(timeframe)
+
         for asset in assets:
-            timeframes = db.scalars(
-                select(DatasetTimeframe).where(
-                    DatasetTimeframe.user_id == user_id,
-                    DatasetTimeframe.asset_id == asset.id,
-                )
-            ).all()
             timeframe_reads = [
                 DatasetTimeframeRead(
                     timeframe=item.timeframe,
@@ -574,7 +577,7 @@ class DatasetCatalogService:
                     imported_at=item.imported_at,
                 )
                 for item in sorted(
-                    timeframes,
+                    timeframes_by_asset_id.get(asset.id, []),
                     key=lambda row: TIMEFRAME_ORDER.get(row.timeframe, 999999),
                 )
             ]
