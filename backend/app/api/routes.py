@@ -41,6 +41,7 @@ from app.models import (
 )
 from app.schemas import (
     AppDataBundle,
+    AppBootstrapResponse,
     AppDataImportResult,
     AppStoragePayload,
     AppStorageRead,
@@ -97,6 +98,8 @@ from app.services.trade_imports import import_trade_csv
 router = APIRouter()
 logger = logging.getLogger(__name__)
 DATASET_STREAM_INTERVAL_SECONDS = 3
+BOOTSTRAP_SESSION_LIMIT = 25
+BOOTSTRAP_TRADE_LIMIT = 100
 market_data = (
     MarketDataService(settings.csv_path, cache=settings.cache_market_data)
     if settings.csv_path is not None
@@ -363,6 +366,20 @@ def default_market_data_reference(db: Session, user_id: int) -> tuple[Path, int]
         resolution.timezone or "UTC",
     ).get_metadata()
     return resolution.csv_path, metadata.rows
+
+
+def list_listable_backtest_sessions(
+    db: Session,
+    user_id: int,
+    limit: int | None = None,
+) -> list[BacktestSessionRead]:
+    candidate_limit = None if limit is None else max(limit * 3, limit)
+    sessions = [
+        BacktestSessionRead.model_validate(session)
+        for session in backtester.list_sessions(db, user_id, limit=candidate_limit)
+        if backtester.session_is_listable(session)
+    ]
+    return sessions[:limit] if limit is not None else sessions
 
 
 def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
@@ -1526,6 +1543,29 @@ def forex_factory_calendar(
         return forex_factory_calendar_response(events, fetched_at, stale=True)
 
 
+@router.get("/bootstrap", response_model=AppBootstrapResponse)
+def bootstrap(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AppBootstrapResponse:
+    return AppBootstrapResponse(
+        datasets=dataset_catalog.list_catalog(db, current_user.id),
+        playbooks=backtester.list_playbooks(db, current_user.id),
+        recent_sessions=list_listable_backtest_sessions(
+            db,
+            current_user.id,
+            limit=BOOTSTRAP_SESSION_LIMIT,
+        ),
+        recent_trades=backtester.list_trades(
+            db,
+            current_user.id,
+            limit=BOOTSTRAP_TRADE_LIMIT,
+        ),
+        recent_session_limit=BOOTSTRAP_SESSION_LIMIT,
+        recent_trade_limit=BOOTSTRAP_TRADE_LIMIT,
+    )
+
+
 @router.post("/backtests", response_model=BacktestState)
 def create_backtest(
     payload: BacktestCreate,
@@ -1544,11 +1584,7 @@ def list_backtests(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> list[BacktestSessionRead]:
-    return [
-        BacktestSessionRead.model_validate(session)
-        for session in backtester.list_sessions(db, current_user.id)
-        if backtester.session_is_listable(session)
-    ]
+    return list_listable_backtest_sessions(db, current_user.id)
 
 
 @router.get("/backtests/latest", response_model=BacktestState)

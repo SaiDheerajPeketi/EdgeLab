@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -8,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api import routes
 from app.auth import AuthenticatedUser
 from app.db import Base
-from app.models import BacktestSession, BetaUser, Position
+from app.models import BacktestSession, BetaUser, Position, Trade
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
 
@@ -235,6 +236,68 @@ def test_list_backtests_hides_stale_replay_sessions(monkeypatch, tmp_path):
         db.close()
 
     assert [session.csv_path for session in sessions] == [str(csv_path)]
+
+
+def test_bootstrap_returns_recent_payload(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    db = make_model_session()
+    user_id = seed_user(db)
+    stale_session = BacktestSession(
+        user_id=user_id,
+        name="Stale legacy session",
+        symbol="EURUSD",
+        csv_path="/data/EURUSD_M1.csv",
+        current_offset=0,
+    )
+    valid_session = BacktestSession(
+        user_id=user_id,
+        name="Valid dataset session",
+        symbol="GBPUSD",
+        csv_path=str(csv_path),
+        current_offset=0,
+    )
+    db.add_all([stale_session, valid_session])
+    db.flush()
+    db.add(
+        Trade(
+            user_id=user_id,
+            session_id=valid_session.id,
+            status="CLOSED",
+            side="LONG",
+            entry_time=datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc),
+            entry_price=1.2,
+            quantity=1.0,
+            remaining_quantity=0.0,
+            exit_time=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+            exit_price=1.3,
+            realized_pnl=10.0,
+        )
+    )
+    db.commit()
+    catalog = DatasetCatalogService(datasets_root, sessionmaker(bind=db.get_bind()))
+    monkeypatch.setattr(routes, "dataset_catalog", catalog)
+    monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
+
+    try:
+        payload = routes.bootstrap(db, current_user(user_id))
+    finally:
+        db.close()
+
+    assert payload.datasets.root == str(datasets_root)
+    assert payload.playbooks == []
+    assert payload.recent_session_limit == routes.BOOTSTRAP_SESSION_LIMIT
+    assert payload.recent_trade_limit == routes.BOOTSTRAP_TRADE_LIMIT
+    assert [session.csv_path for session in payload.recent_sessions] == [str(csv_path)]
+    assert [trade.session_id for trade in payload.recent_trades] == [valid_session.id]
+    assert payload.recent_trades[0].realized_pnl == 10.0
 
 
 def test_market_data_error_response_does_not_expose_legacy_csv_path():

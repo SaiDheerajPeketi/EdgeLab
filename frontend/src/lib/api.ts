@@ -291,6 +291,15 @@ export type Trade = {
   screenshot_url: string | null;
 };
 
+export type AppBootstrap = {
+  datasets: DatasetCatalog;
+  playbooks: Playbook[];
+  recent_sessions: BacktestSession[];
+  recent_trades: Trade[];
+  recent_session_limit: number;
+  recent_trade_limit: number;
+};
+
 export type Metrics = {
   net_pnl: number;
   win_rate: number;
@@ -860,6 +869,10 @@ export function deleteBacktestOrder(sessionId: number, orderId: number) {
 
 export function getPlaybooks() {
   return request<Playbook[]>("/playbooks");
+}
+
+export function getBootstrap() {
+  return request<AppBootstrap>("/bootstrap");
 }
 
 export function postPlaybook(payload: PlaybookPayload) {

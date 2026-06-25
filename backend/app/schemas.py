@@ -597,3 +597,12 @@ class BacktestState(BaseModel):
     executions: list[ExecutionRead]
     trades: list[TradeRead]
     metrics: MetricsResponse
+
+
+class AppBootstrapResponse(BaseModel):
+    datasets: DatasetCatalogResponse
+    playbooks: list[PlaybookRead]
+    recent_sessions: list[BacktestSessionRead]
+    recent_trades: list[TradeRead]
+    recent_session_limit: int
+    recent_trade_limit: int

@@ -594,14 +594,20 @@ class BacktestService:
         db.delete(playbook)
         db.commit()
 
-    def list_sessions(self, db: Session, user_id: int) -> list[BacktestSession]:
-        return list(
-            db.scalars(
-                select(BacktestSession)
-                .where(BacktestSession.user_id == user_id)
-                .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
-            ).all()
+    def list_sessions(
+        self,
+        db: Session,
+        user_id: int,
+        limit: int | None = None,
+    ) -> list[BacktestSession]:
+        query = (
+            select(BacktestSession)
+            .where(BacktestSession.user_id == user_id)
+            .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
         )
+        if limit is not None:
+            query = query.limit(limit)
+        return list(db.scalars(query).all())
 
     def update_session(
         self,
