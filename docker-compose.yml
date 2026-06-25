@@ -115,6 +115,56 @@ services:
         target: /opt/edgelab/deployment
         read_only: true
 
+  market-api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
+      EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
+      EDGELAB_API_WORKERS: ${EDGELAB_API_WORKERS:-}
+      EDGELAB_API_TIMEOUT_SECONDS: ${EDGELAB_API_TIMEOUT_SECONDS:-120}
+      EDGELAB_API_GRACEFUL_TIMEOUT_SECONDS: ${EDGELAB_API_GRACEFUL_TIMEOUT_SECONDS:-30}
+      EDGELAB_API_KEEPALIVE_SECONDS: ${EDGELAB_API_KEEPALIVE_SECONDS:-5}
+      EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-}
+      EDGELAB_BETA_MANUAL_ACCESS_ENABLED: ${EDGELAB_BETA_MANUAL_ACCESS_ENABLED:-0}
+      EDGELAB_BETA_SEATS_TOTAL: ${EDGELAB_BETA_SEATS_TOTAL:-500}
+      EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
+      EDGELAB_DATASETS_ROOT: /datasets
+      EDGELAB_PUBLIC_ORIGIN: ${EDGELAB_PUBLIC_ORIGIN:-}
+      EDGELAB_MAX_APP_DATA_ROWS: ${EDGELAB_MAX_APP_DATA_ROWS:-100000}
+      EDGELAB_MAX_REQUEST_BODY_BYTES: ${EDGELAB_MAX_REQUEST_BODY_BYTES:-26214400}
+      GOOGLE_CLIENT_SECRETS_FILE: ${GOOGLE_CLIENT_SECRETS_FILE:-/opt/edgelab/deployment/google-oauth-client.json}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+    volumes:
+      - api-data:/var/lib/edgelab
+      - type: bind
+        source: ${EDGELAB_DATASETS_ROOT:-./datasets}
+        target: /datasets
+        read_only: true
+      - type: bind
+        source: ./deployment
+        target: /opt/edgelab/deployment
+        read_only: true
+
   data-populator:
     build:
       context: .
@@ -166,6 +216,8 @@ services:
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
     depends_on:
       api:
+        condition: service_healthy
+      market-api:
         condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-8080}:80"

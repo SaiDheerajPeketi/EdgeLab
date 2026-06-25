@@ -8,7 +8,7 @@ The current pass focuses on manual bar replay: long/short orders, market/limit/s
 
 ## Run With Docker Compose
 
-Docker Compose is the fastest end-to-end deployment path. It builds the FastAPI backend, builds the React app, runs the scheduled data populator, serves the static frontend through Nginx, proxies `/api` to FastAPI, and persists the backend PostgreSQL database in a named Docker volume.
+Docker Compose is the fastest end-to-end deployment path. It builds the React app, runs split `api` and `market-api` FastAPI services behind Nginx, runs the scheduled data populator, serves the static frontend through Nginx, and persists the backend PostgreSQL database in a named Docker volume.
 
 ```bash
 cp .env.example .env
@@ -107,12 +107,12 @@ Startup and seed commands do not create default user accounts, strategies, or pl
 
 ## Deployment Files
 
-- `docker-compose.yml` defines the deployable service graph.
+- `docker-compose.yml` defines the deployable service graph, including the split `api` and `market-api` containers used in the single-VM default.
 - `backend/alembic.ini` and `backend/alembic/versions/*` define the database migration path.
 - `backend/Dockerfile` builds the primary FastAPI API image.
 - `backend/app/data_populator.py` runs the scheduled dataset writer used by the Compose `data-populator` service.
 - `frontend/Dockerfile` builds the Vite app and serves it with Nginx.
-- `docker/nginx.conf` proxies `/api` to FastAPI and serves the SPA fallback.
+- `docker/nginx.conf` proxies auth/session/journal APIs to `api`, market-data and dataset routes to `market-api`, and serves the SPA fallback.
 - `backend/Dockerfile.node` supports the optional legacy Node API profile.
 - `.env.example` documents deploy-time settings.
 - `.dockerignore` keeps local data and generated artifacts out of Docker build contexts.
