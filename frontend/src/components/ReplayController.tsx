@@ -225,7 +225,7 @@ export function ReplayController({
               ...SPEED_PRESETS,
               {
                 label: "Custom",
-                sublabel: `${MIN_CUSTOM_BARS_PER_SECOND}-${MAX_CUSTOM_BARS_PER_SECOND} bars/s`,
+                sublabel: `${MIN_CUSTOM_BARS_PER_SECOND}-${MAX_CUSTOM_BARS_PER_SECOND} replay bars/s`,
                 value: CUSTOM_SPEED_VALUE,
               },
             ]}
@@ -234,7 +234,7 @@ export function ReplayController({
           />
           <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-500">
             <input
-              aria-label="Custom replay speed in bars per second"
+              aria-label="Custom replay speed in replay bars per second"
               className="w-16 bg-transparent text-right text-sm font-semibold text-slate-100 outline-none"
               inputMode="decimal"
               max={MAX_CUSTOM_BARS_PER_SECOND}
@@ -245,7 +245,7 @@ export function ReplayController({
               type="number"
               value={customSpeed}
             />
-            bars/s
+            replay bars/s
           </label>
           <span className="rounded-md bg-white/5 px-3 py-2 text-sm text-slate-400">
             Bar {currentOffset.toLocaleString()}

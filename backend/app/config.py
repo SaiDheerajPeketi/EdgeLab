@@ -180,6 +180,10 @@ class Settings:
         "EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS",
         20,
     )
+    data_populator_binance_archive_workers: int = int_env(
+        "EDGELAB_DATA_POPULATOR_BINANCE_ARCHIVE_WORKERS",
+        2,
+    )
     data_populator_forex_start_date: str = os.getenv(
         "EDGELAB_DATA_POPULATOR_FOREX_START_DATE",
         "2003-01-01",

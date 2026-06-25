@@ -37,6 +37,7 @@ def main() -> None:
         forex_start_date=settings.data_populator_forex_start_date,
         crypto_start_date=settings.data_populator_crypto_start_date,
         request_timeout_seconds=settings.data_populator_request_timeout_seconds,
+        binance_archive_workers=settings.data_populator_binance_archive_workers,
         catalog_session_factory=SessionLocal,
         market_data_session_factory=MarketDataSessionLocal,
         catalog_import_enabled=settings.market_data_import_enabled,

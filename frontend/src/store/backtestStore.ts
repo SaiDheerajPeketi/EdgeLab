@@ -85,6 +85,7 @@ type BacktestStore = {
   isLoadingMoreSessions: boolean;
   isStepping: boolean;
   isPlaying: boolean;
+  pendingReplaySyncOffset: number | null;
   speedMs: number;
   error: string | null;
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
@@ -145,6 +146,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   isLoadingMoreSessions: false,
   isStepping: false,
   isPlaying: false,
+  pendingReplaySyncOffset: null,
   speedMs: 450,
   error: null,
 
@@ -540,6 +542,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state: initialState,
         bars: window.bars,
         barOffset: window.barOffset,
+        pendingReplaySyncOffset: null,
         resultSessions: upsertSession(current.resultSessions, initialState.session),
         strategySummaries: current.strategySummaries,
         isLoading: false,
@@ -570,6 +573,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state: initialState,
         bars: window.bars,
         barOffset: window.barOffset,
+        pendingReplaySyncOffset: null,
         resultSessions: upsertSession(current.resultSessions, initialState.session),
         strategySummaries: current.strategySummaries,
         isLoading: false,
@@ -622,6 +626,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           meta: deletingActiveSession ? null : current.meta,
           bars: deletingActiveSession ? [] : current.bars,
           barOffset: deletingActiveSession ? 0 : current.barOffset,
+          pendingReplaySyncOffset: deletingActiveSession ? null : current.pendingReplaySyncOffset,
           replaySeekVersion: deletingActiveSession
             ? current.replaySeekVersion + 1
             : current.replaySeekVersion,
@@ -649,6 +654,46 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 
     set({ isStepping: true });
     try {
+      if (
+        steps > 0 &&
+        previousState.session.end_offset != null &&
+        canAdvanceLocally(previousState)
+      ) {
+        const targetOffset = Math.min(
+          previousState.session.current_offset + steps,
+          previousState.session.end_offset,
+        );
+        const bars = await ensureBarsForOffset(
+          get().bars,
+          get().barOffset,
+          targetOffset,
+          previousState.session.id,
+          previousState.session.start_offset,
+        );
+        const currentCandle = bars.bars[targetOffset - bars.barOffset] ?? previousState.current_candle;
+        const state: BacktestState = {
+          ...previousState,
+          session: {
+            ...previousState.session,
+            current_offset: targetOffset,
+            status:
+              targetOffset >= previousState.session.end_offset
+                ? "COMPLETE"
+                : "ACTIVE",
+          },
+          current_candle: currentCandle,
+        };
+        set({
+          state,
+          bars: bars.bars,
+          barOffset: bars.barOffset,
+          pendingReplaySyncOffset: targetOffset,
+          error: null,
+          isStepping: false,
+          isPlaying: state.session.status === "ACTIVE" ? get().isPlaying : false,
+        });
+        return;
+      }
       const replay = await advanceBacktestCompact(sessionId, steps);
       const state = mergeReplayUpdate(previousState, replay);
       const bars = await ensureBarsForOffset(
@@ -662,6 +707,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state,
         bars: bars.bars,
         barOffset: bars.barOffset,
+        pendingReplaySyncOffset: null,
         error: null,
         isStepping: false,
         isPlaying: state.session.status === "ACTIVE" ? get().isPlaying : false,
@@ -715,6 +761,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state,
         bars,
         barOffset,
+        pendingReplaySyncOffset: null,
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
@@ -740,6 +787,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state,
         bars,
         barOffset,
+        pendingReplaySyncOffset: null,
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
@@ -748,17 +796,23 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
   },
 
-  setPlaying: (value) => set({ isPlaying: value }),
+  setPlaying: (value) => {
+    set({ isPlaying: value });
+    if (!value) {
+      void syncPendingReplayOffset();
+    }
+  },
   setSpeed: (value) => set({ speedMs: value }),
 
   placeOrder: async (payload) => {
-    const sessionId = get().state?.session.id;
-    if (!sessionId) {
-      return false;
-    }
     try {
+      await syncPendingReplayOffset();
+      const sessionId = get().state?.session.id;
+      if (!sessionId) {
+        return false;
+      }
       const state = await postBacktestOrder(sessionId, payload);
-      set({ state, error: null });
+      set({ state, pendingReplaySyncOffset: null, error: null });
       if (state.trades.some((trade) => trade.status === "CLOSED")) {
         if (get().resultTradesLoaded) {
           void get().refreshResults();
@@ -774,39 +828,42 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   amendOrder: async (orderId, payload) => {
-    const sessionId = get().state?.session.id;
-    if (!sessionId) {
-      return;
-    }
     try {
+      await syncPendingReplayOffset();
+      const sessionId = get().state?.session.id;
+      if (!sessionId) {
+        return;
+      }
       const state = await patchBacktestOrder(sessionId, orderId, payload);
-      set({ state, error: null });
+      set({ state, pendingReplaySyncOffset: null, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
     }
   },
 
   updatePosition: async (payload) => {
-    const sessionId = get().state?.session.id;
-    if (!sessionId) {
-      return;
-    }
     try {
+      await syncPendingReplayOffset();
+      const sessionId = get().state?.session.id;
+      if (!sessionId) {
+        return;
+      }
       const state = await patchBacktestPosition(sessionId, payload);
-      set({ state, error: null });
+      set({ state, pendingReplaySyncOffset: null, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
     }
   },
 
   cancelOrder: async (orderId) => {
-    const sessionId = get().state?.session.id;
-    if (!sessionId) {
-      return;
-    }
     try {
+      await syncPendingReplayOffset();
+      const sessionId = get().state?.session.id;
+      if (!sessionId) {
+        return;
+      }
       const state = await deleteBacktestOrder(sessionId, orderId);
-      set({ state, error: null });
+      set({ state, pendingReplaySyncOffset: null, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error) });
     }
@@ -1139,6 +1196,30 @@ async function ensureBarsForOffset(
   return { bars: [...bars, ...response.bars], barOffset };
 }
 
+async function syncPendingReplayOffset() {
+  const snapshot = useBacktestStore.getState();
+  const pendingOffset = snapshot.pendingReplaySyncOffset;
+  const sessionId = snapshot.state?.session.id;
+  if (pendingOffset == null || !sessionId) {
+    return snapshot.state;
+  }
+  const state = await jumpBacktest(sessionId, { offset: pendingOffset });
+  const { bars, barOffset } = await loadWindow(
+    state.session.current_offset,
+    state.session.id,
+    state.session.start_offset,
+  );
+  useBacktestStore.setState((current) => ({
+    state,
+    bars,
+    barOffset,
+    pendingReplaySyncOffset: null,
+    replaySeekVersion: current.replaySeekVersion + 1,
+    error: null,
+  }));
+  return state;
+}
+
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected error";
 }
@@ -1180,6 +1261,12 @@ function didTradeHistoryChange(previous: BacktestState, next: BacktestState) {
     previousLatest.exit_offset !== nextLatest.exit_offset ||
     previousLatest.realized_pnl !== nextLatest.realized_pnl
   );
+}
+
+function canAdvanceLocally(state: BacktestState) {
+  const quantity = state.position?.quantity ?? 0;
+  const side = state.position?.side ?? "FLAT";
+  return side === "FLAT" && quantity <= 0 && !state.orders.some((order) => order.status === "PENDING");
 }
 
 function initialDatasetSessionPayload(datasets: DatasetCatalog | null): BacktestCreatePayload {

@@ -555,7 +555,7 @@ export function WorkspaceApp() {
   const replayStepBars = getReplayStepBars(normalizedReplayTimeframe, sourceTimeframe);
   const playbackStepBars = isMultiChartLayout ? replayStepBars : 1;
   const playbackTickMs = Math.max(
-    40,
+    16,
     Math.round(speedMs / Math.max(replayStepBars, 1)),
   );
 
