@@ -345,7 +345,7 @@ export type StrategySummary = {
   sessions: StrategySummarySession[];
 };
 
-export type Metrics = {
+export type MetricsSummary = {
   net_pnl: number;
   win_rate: number;
   total_trades: number;
@@ -368,6 +368,9 @@ export type Metrics = {
   worst_trade: number | null;
   longest_win_streak: number;
   longest_loss_streak: number;
+};
+
+export type MetricsCurves = {
   equity_curve: Array<{ timestamp: string; equity: number }>;
   strategy_performance: Array<{
     strategy_name: string;
@@ -384,6 +387,8 @@ export type Metrics = {
   }>;
   calendar: Array<{ date: string; pnl: number; trades: number }>;
 };
+
+export type Metrics = MetricsSummary & MetricsCurves;
 
 export type BacktestState = {
   session: BacktestSession;
@@ -996,6 +1001,16 @@ export function getTrades(
 export function getMetrics(sessionId?: number) {
   const query = sessionId ? `?session_id=${sessionId}` : "";
   return request<Metrics>(`/metrics${query}`);
+}
+
+export function getMetricsSummary(sessionId?: number) {
+  const query = sessionId ? `?session_id=${sessionId}` : "";
+  return request<MetricsSummary>(`/metrics/summary${query}`);
+}
+
+export function getMetricsCurves(sessionId?: number) {
+  const query = sessionId ? `?session_id=${sessionId}` : "";
+  return request<MetricsCurves>(`/metrics/curves${query}`);
 }
 
 export function patchJournal(tradeId: number, payload: JournalPayload) {

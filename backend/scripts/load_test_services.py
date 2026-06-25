@@ -142,6 +142,8 @@ def main() -> None:
                 [
                     ("api_bootstrap_shell", f"{api_url}/bootstrap-shell", auth_headers),
                     ("api_bootstrap", f"{api_url}/bootstrap", auth_headers),
+                    ("api_metrics_summary", f"{api_url}/metrics/summary", auth_headers),
+                    ("api_metrics_curves", f"{api_url}/metrics/curves", auth_headers),
                     (
                         "api_session_summaries",
                         f"{api_url}/backtests/summaries?limit={args.summaries_limit}",

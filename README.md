@@ -51,6 +51,8 @@ docker compose --profile benchmark up -d postgres api frontend redis timescaledb
 
 The benchmark profile does not switch request paths to Redis, TimescaleDB, or MinIO yet. It keeps the current app behavior intact while exposing the data-tier components and the `benchmark-k6` runner needed for incremental load testing. Seed authenticated benchmark data with `npm run bench:seed`, then run the bundled k6 scripts from `benchmark/`.
 
+The metrics API is also split now: `GET /api/metrics/summary` serves lightweight card-level aggregates and `GET /api/metrics/curves` serves the heavier equity/report payload. `GET /api/metrics` remains as the backward-compatible combined endpoint while the UI migrates.
+
 The optional legacy Node API can be started with:
 
 ```bash

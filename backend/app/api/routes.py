@@ -81,6 +81,8 @@ from app.schemas import (
     GoogleAuthExchangeRequest,
     JournalUpdate,
     MetricsResponse,
+    MetricsCurvesResponse,
+    MetricsSummaryResponse,
     OrderCreate,
     OrderUpdate,
     PlaybookCreate,
@@ -94,7 +96,7 @@ from app.schemas import (
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 from app.services.market_data import MarketDataService
-from app.services.metrics import get_metrics
+from app.services.metrics import get_metrics, get_metrics_curves, get_metrics_summary
 from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
@@ -2041,3 +2043,27 @@ def metrics(
         session = list_latest_session(db, current_user.id)
         session_id = session.id if session else None
     return get_metrics(db, current_user.id, session_id)
+
+
+@router.get("/metrics/summary", response_model=MetricsSummaryResponse)
+def metrics_summary(
+    session_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MetricsSummaryResponse:
+    if session_id is None:
+        session = list_latest_session(db, current_user.id)
+        session_id = session.id if session else None
+    return get_metrics_summary(db, current_user.id, session_id)
+
+
+@router.get("/metrics/curves", response_model=MetricsCurvesResponse)
+def metrics_curves(
+    session_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MetricsCurvesResponse:
+    if session_id is None:
+        session = list_latest_session(db, current_user.id)
+        session_id = session.id if session else None
+    return get_metrics_curves(db, current_user.id, session_id)

@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import BacktestSession, BetaUser, Trade
-from app.services.metrics import get_metrics
+from app.services.metrics import get_metrics, get_metrics_curves, get_metrics_summary
 
 
 def make_model_session():
@@ -135,3 +135,65 @@ def test_metrics_include_results_overview_aggregates():
     assert metrics.side_breakdown[1].side == "SHORT"
     assert metrics.side_breakdown[1].trades == 1
     assert metrics.side_breakdown[1].net_pnl == -5.0
+
+
+def test_metrics_summary_and_curves_split_payload():
+    db = make_model_session()
+    user_id = seed_user(db)
+    session = BacktestSession(
+        user_id=user_id,
+        name="Metrics Split Session",
+        symbol="GBPUSD",
+        current_offset=0,
+    )
+    db.add(session)
+    db.flush()
+
+    db.add_all(
+        [
+            Trade(
+                user_id=user_id,
+                session_id=session.id,
+                status="CLOSED",
+                side="LONG",
+                entry_time=datetime(2024, 1, 2, 9, 0, tzinfo=timezone.utc),
+                entry_price=100.0,
+                quantity=1.0,
+                remaining_quantity=0.0,
+                exit_time=datetime(2024, 1, 2, 9, 30, tzinfo=timezone.utc),
+                exit_price=105.0,
+                realized_pnl=5.0,
+                r_multiple=1.0,
+                strategy_name="Breakout",
+            ),
+            Trade(
+                user_id=user_id,
+                session_id=session.id,
+                status="CLOSED",
+                side="SHORT",
+                entry_time=datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc),
+                entry_price=105.0,
+                quantity=1.0,
+                remaining_quantity=0.0,
+                exit_time=datetime(2024, 1, 2, 10, 20, tzinfo=timezone.utc),
+                exit_price=107.0,
+                realized_pnl=-2.0,
+                r_multiple=-0.5,
+                strategy_name="Fade",
+            ),
+        ]
+    )
+    db.commit()
+
+    try:
+        summary = get_metrics_summary(db, user_id, session.id)
+        curves = get_metrics_curves(db, user_id, session.id)
+        metrics = get_metrics(db, user_id, session.id)
+    finally:
+        db.close()
+
+    assert summary.total_trades == 2
+    assert summary.net_pnl == 3.0
+    assert len(curves.equity_curve) == 2
+    assert [row.strategy_name for row in curves.strategy_performance] == ["Breakout", "Fade"]
+    assert metrics.model_dump() == {**summary.model_dump(), **curves.model_dump()}

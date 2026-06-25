@@ -659,3 +659,45 @@ def test_market_data_error_response_does_not_expose_legacy_csv_path():
 
     assert response.status_code == 503
     assert "/data/EURUSD_M1.csv" not in response.detail
+
+
+def test_metrics_summary_and_curves_routes_split_payloads():
+    db = make_model_session()
+    user_id = seed_user(db)
+    session = BacktestSession(
+        user_id=user_id,
+        name="Metrics route session",
+        symbol="GBPUSD",
+        current_offset=0,
+    )
+    db.add(session)
+    db.flush()
+    db.add(
+        Trade(
+            user_id=user_id,
+            session_id=session.id,
+            status="CLOSED",
+            side="LONG",
+            entry_time=datetime(2024, 1, 3, 9, 0, tzinfo=timezone.utc),
+            entry_price=100.0,
+            quantity=1.0,
+            remaining_quantity=0.0,
+            exit_time=datetime(2024, 1, 3, 9, 30, tzinfo=timezone.utc),
+            exit_price=103.0,
+            realized_pnl=3.0,
+            strategy_name="Breakout",
+        )
+    )
+    db.commit()
+
+    try:
+        summary = routes.metrics_summary(db=db, current_user=current_user(user_id), session_id=session.id)
+        curves = routes.metrics_curves(db=db, current_user=current_user(user_id), session_id=session.id)
+        combined = routes.metrics(db=db, current_user=current_user(user_id), session_id=session.id)
+    finally:
+        db.close()
+
+    assert summary.total_trades == 1
+    assert len(curves.equity_curve) == 1
+    assert curves.strategy_performance[0].strategy_name == "Breakout"
+    assert combined.model_dump() == {**summary.model_dump(), **curves.model_dump()}

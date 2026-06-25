@@ -12,6 +12,8 @@ import {
   DatasetRefreshStatus,
   JournalPayload,
   Metrics,
+  MetricsCurves,
+  MetricsSummary,
   OrderPayload,
   OrderUpdatePayload,
   PositionUpdatePayload,
@@ -37,6 +39,8 @@ import {
   getDatasets,
   getLatestBacktest,
   getMetrics,
+  getMetricsCurves,
+  getMetricsSummary,
   getMeta,
   getPlaybooks,
   getTrades,
@@ -746,9 +750,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const trade = await patchJournal(tradeId, payload);
       const activeSessionId = get().state?.session.id;
       const shouldRefreshActiveMetrics = activeSessionId === trade.session_id;
-      const [results, metrics] = await Promise.all([
+      const shouldRefreshMetricSummary =
+        shouldRefreshActiveMetrics && journalPayloadNeedsMetricSummary(payload);
+      const shouldRefreshMetricCurves =
+        shouldRefreshActiveMetrics && journalPayloadNeedsMetricCurves(payload);
+      const [results, metricsSummary, metricsCurves] = await Promise.all([
         loadResultsData(Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT)),
-        shouldRefreshActiveMetrics ? getMetrics(trade.session_id) : Promise.resolve(null),
+        shouldRefreshMetricSummary ? getMetricsSummary(trade.session_id) : Promise.resolve(null),
+        shouldRefreshMetricCurves ? getMetricsCurves(trade.session_id) : Promise.resolve(null),
       ]);
       set((current) => ({
         resultSessions: results.resultSessions,
@@ -756,7 +765,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsNextOffset: results.resultSessionsNextOffset,
         strategySummaries: results.strategySummaries,
         resultTrades: results.resultTrades,
-        state: mergeActiveTradeState(current.state, trade, metrics),
+        state: mergeActiveTradeState(current.state, trade, metricsSummary, metricsCurves),
         error: null,
       }));
       return trade;
@@ -771,9 +780,10 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const trade = await patchTradeStrategy(tradeId, payload);
       const activeSessionId = get().state?.session.id;
       const shouldRefreshActiveMetrics = activeSessionId === trade.session_id;
-      const [results, metrics] = await Promise.all([
+      const [results, metricsSummary, metricsCurves] = await Promise.all([
         loadResultsData(Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT)),
-        shouldRefreshActiveMetrics ? getMetrics(trade.session_id) : Promise.resolve(null),
+        shouldRefreshActiveMetrics ? getMetricsSummary(trade.session_id) : Promise.resolve(null),
+        shouldRefreshActiveMetrics ? getMetricsCurves(trade.session_id) : Promise.resolve(null),
       ]);
       set((current) => ({
         resultSessions: results.resultSessions,
@@ -781,7 +791,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsNextOffset: results.resultSessionsNextOffset,
         strategySummaries: results.strategySummaries,
         resultTrades: results.resultTrades,
-        state: mergeActiveTradeState(current.state, trade, metrics),
+        state: mergeActiveTradeState(current.state, trade, metricsSummary, metricsCurves),
         error: null,
       }));
       return trade;
@@ -862,7 +872,8 @@ async function loadLatestReplayContext() {
 function mergeActiveTradeState(
   state: BacktestState | null,
   trade: Trade,
-  metrics: Metrics | null,
+  metricsSummary: MetricsSummary | null,
+  metricsCurves: MetricsCurves | null,
 ) {
   if (!state || state.session.id !== trade.session_id) {
     return state;
@@ -871,8 +882,39 @@ function mergeActiveTradeState(
   return {
     ...state,
     trades: state.trades.map((item) => (item.id === trade.id ? trade : item)),
-    metrics: metrics ?? state.metrics,
+    metrics: mergeMetrics(state.metrics, metricsSummary, metricsCurves),
   };
+}
+
+function mergeMetrics(
+  metrics: Metrics,
+  metricsSummary: MetricsSummary | null,
+  metricsCurves: MetricsCurves | null,
+): Metrics {
+  if (!metricsSummary && !metricsCurves) {
+    return metrics;
+  }
+  return {
+    ...metrics,
+    ...(metricsSummary ?? {}),
+    ...(metricsCurves ?? {}),
+  };
+}
+
+function journalPayloadNeedsMetricSummary(payload: JournalPayload) {
+  return (
+    payload.strategy_name !== undefined ||
+    payload.commission_mode !== undefined ||
+    payload.commission_value !== undefined ||
+    payload.commission_amount !== undefined ||
+    payload.fee_mode !== undefined ||
+    payload.fee_value !== undefined ||
+    payload.fee_amount !== undefined
+  );
+}
+
+function journalPayloadNeedsMetricCurves(payload: JournalPayload) {
+  return payload.strategy_name !== undefined;
 }
 
 async function loadWindow(currentOffset: number, sessionId?: number, startOffset = 0) {

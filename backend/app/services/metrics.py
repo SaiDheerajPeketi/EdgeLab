@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 
 from sqlalchemy import asc, func, select
 from sqlalchemy.orm import Session
@@ -8,13 +9,50 @@ from app.models import Trade
 from app.schemas import (
     CalendarPoint,
     EquityPoint,
+    MetricsCurvesResponse,
     MetricsResponse,
+    MetricsSummaryResponse,
     SideBreakdown,
     StrategyPerformance,
 )
 
 
+@dataclass(frozen=True)
+class MetricsTradeSet:
+    closed_trades: list[Trade]
+    open_trades: int
+
+
+def get_metrics_summary(
+    db: Session,
+    user_id: int,
+    session_id: int | None = None,
+) -> MetricsSummaryResponse:
+    trade_set = _load_metrics_trade_set(db, user_id, session_id)
+    return _build_metrics_summary(trade_set.closed_trades, trade_set.open_trades)
+
+
+def get_metrics_curves(
+    db: Session,
+    user_id: int,
+    session_id: int | None = None,
+) -> MetricsCurvesResponse:
+    trade_set = _load_metrics_trade_set(db, user_id, session_id)
+    return _build_metrics_curves(trade_set.closed_trades)
+
+
 def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> MetricsResponse:
+    trade_set = _load_metrics_trade_set(db, user_id, session_id)
+    summary = _build_metrics_summary(trade_set.closed_trades, trade_set.open_trades)
+    curves = _build_metrics_curves(trade_set.closed_trades)
+    return MetricsResponse(**summary.model_dump(), **curves.model_dump())
+
+
+def _load_metrics_trade_set(
+    db: Session,
+    user_id: int,
+    session_id: int | None = None,
+) -> MetricsTradeSet:
     query = (
         select(Trade)
         .where(
@@ -32,7 +70,13 @@ def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> Met
         open_trade_query = open_trade_query.where(Trade.session_id == session_id)
     closed_trades = list(db.scalars(query).all())
     open_trades = int(db.scalar(open_trade_query) or 0)
+    return MetricsTradeSet(closed_trades=closed_trades, open_trades=open_trades)
 
+
+def _build_metrics_summary(
+    closed_trades: list[Trade],
+    open_trades: int,
+) -> MetricsSummaryResponse:
     total_trades = len(closed_trades)
     pnl_values = [trade.realized_pnl for trade in closed_trades]
     net_pnl = float(sum(pnl_values))
@@ -60,7 +104,7 @@ def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> Met
     ]
     max_drawdown = _max_drawdown([point.equity for point in equity_curve])
 
-    return MetricsResponse(
+    return MetricsSummaryResponse(
         net_pnl=net_pnl,
         win_rate=win_rate,
         total_trades=total_trades,
@@ -83,7 +127,12 @@ def get_metrics(db: Session, user_id: int, session_id: int | None = None) -> Met
         worst_trade=min(pnl_values) if pnl_values else None,
         longest_win_streak=_longest_streak(pnl_values, winning=True),
         longest_loss_streak=_longest_streak(pnl_values, winning=False),
-        equity_curve=equity_curve,
+    )
+
+
+def _build_metrics_curves(closed_trades: list[Trade]) -> MetricsCurvesResponse:
+    return MetricsCurvesResponse(
+        equity_curve=_equity_curve(closed_trades),
         strategy_performance=_strategy_performance(closed_trades),
         side_breakdown=_side_breakdown(closed_trades),
         calendar=_calendar(closed_trades),

@@ -596,7 +596,7 @@ class CalendarPoint(BaseModel):
     trades: int
 
 
-class MetricsResponse(BaseModel):
+class MetricsSummaryResponse(BaseModel):
     net_pnl: float
     win_rate: float
     total_trades: int
@@ -619,10 +619,17 @@ class MetricsResponse(BaseModel):
     worst_trade: float | None
     longest_win_streak: int
     longest_loss_streak: int
+
+
+class MetricsCurvesResponse(BaseModel):
     equity_curve: list[EquityPoint]
     strategy_performance: list[StrategyPerformance]
     side_breakdown: list[SideBreakdown]
     calendar: list[CalendarPoint]
+
+
+class MetricsResponse(MetricsSummaryResponse, MetricsCurvesResponse):
+    pass
 
 
 class BacktestState(BaseModel):

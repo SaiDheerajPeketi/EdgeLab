@@ -17,6 +17,7 @@
     "bench:seed": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py",
     "bench:load": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py",
     "bench:bootstrap-profiles": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py",
-    "bench:session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py"
+    "bench:session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py",
+    "bench:metrics-profiles": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_metrics_profiles.py"
   }
 }
