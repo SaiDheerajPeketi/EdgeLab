@@ -78,11 +78,43 @@ class BacktestSession(UserOwnedMixin, Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    summary: Mapped["BacktestSessionSummary | None"] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     position: Mapped["Position | None"] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         uselist=False,
     )
+
+
+class BacktestSessionSummary(UserOwnedMixin, Base):
+    __tablename__ = "backtest_session_summaries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "session_id", name="uq_backtest_session_summaries_user_session"),
+        Index("ix_backtest_session_summaries_user_updated_id", "user_id", "updated_at", "session_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("backtest_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    closed_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    winning_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    breakeven_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    net_pnl: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    gross_profit: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    gross_loss: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    r_sum: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    r_samples: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    session: Mapped[BacktestSession] = relationship(back_populates="summary")
 
 
 class DatasetAsset(UserOwnedMixin, Base):

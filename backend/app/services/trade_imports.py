@@ -17,6 +17,7 @@ from app.schemas import (
     BacktestTradeImport,
     BacktestTradeImportResult,
 )
+from app.services.session_summaries import refresh_session_summary
 from app.services.backtester import _commission_value, _normalize_commission_mode, to_trade_read
 
 
@@ -236,6 +237,7 @@ def import_trade_csv(
         db.add(trade)
         trades.append(trade)
 
+    refresh_session_summary(db, user_id, session.id)
     db.commit()
     db.refresh(session)
     for trade in trades:

@@ -86,6 +86,18 @@ export EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS=3
 export EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS=5
 ```
 
+The denormalized backtest session summary read model is also refreshed continuously by the default worker loop. Tune that cadence with:
+
+```bash
+export EDGELAB_ANALYTICS_INTERVAL_SECONDS=60
+```
+
+Rebuild all user session-summary rows on demand with:
+
+```bash
+npm run analytics:refresh-session-summaries
+```
+
 Load-test the live frontend/API entrypoints against the current single-VM proxy or future split-service URLs with:
 
 ```bash
@@ -192,7 +204,7 @@ Container defaults:
 - `EDGELAB_MAX_REQUEST_BODY_BYTES=26214400`
 - `DATABASE_URL=postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab`
 
-The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists PostgreSQL in the `postgres-data` named volume. The PostgreSQL service is bound to `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}` so bare-metal backend runs can reuse the same default database. The API container runs `alembic upgrade head` before starting Gunicorn with Uvicorn workers, which keeps the single-VM Docker/Jenkins path aligned with later multi-service deployments that point `DATABASE_URL` at an external PostgreSQL instance while also matching the stateless multi-worker runtime shape needed for scale-out. When `DATABASE_URL` still points at SQLite, the startup script automatically drops back to a single worker so legacy single-VM deployments keep working while the stack is migrating toward the default PostgreSQL path. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and database connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists PostgreSQL in the `postgres-data` named volume. The PostgreSQL service is bound to `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}` so bare-metal backend runs can reuse the same default database. The API container runs `alembic upgrade head` before starting Gunicorn with Uvicorn workers, which keeps the single-VM Docker/Jenkins path aligned with later multi-service deployments that point `DATABASE_URL` at an external PostgreSQL instance while also matching the stateless multi-worker runtime shape needed for scale-out. The default Compose stack also starts an `analytics-worker` companion that periodically refreshes the `backtest_session_summaries` table, which keeps heavier session-list and strategy-summary reads on a precomputed path without changing the frontend contract. When `DATABASE_URL` still points at SQLite, the startup script automatically drops back to a single worker so legacy single-VM deployments keep working while the stack is migrating toward the default PostgreSQL path. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and database connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
 
 When you enable the `benchmark` profile, Docker Compose also starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner. Those services are for staged migration and load testing; the current request path still uses PostgreSQL plus dataset CSV metadata until later market-data cutover work lands.
 

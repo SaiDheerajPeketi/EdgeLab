@@ -37,6 +37,7 @@ from app.schemas import (
 from app.services.datasets import DatasetCatalogService
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
+from app.services.session_summaries import refresh_session_summary
 
 
 OPEN_ORDER = "PENDING"
@@ -147,6 +148,7 @@ class BacktestService:
         db.add(session)
         db.flush()
         db.add(Position(user_id=user_id, session_id=session.id))
+        refresh_session_summary(db, user_id, session.id)
         db.commit()
         return self.get_state(db, user_id, session.id)
 
@@ -252,6 +254,7 @@ class BacktestService:
 
         if order.order_type == "MARKET":
             self._fill_order(db, user_id, session, order, current_candle, current_candle.close)
+        refresh_session_summary(db, user_id, session.id)
         db.commit()
         return self.get_state(db, user_id, session.id)
 
@@ -366,6 +369,7 @@ class BacktestService:
                 break
             session.current_offset = next_offset
             self._process_candle(db, user_id, session, candle)
+        refresh_session_summary(db, user_id, session.id)
         db.commit()
         return self.get_state(db, user_id, session.id)
 
@@ -407,6 +411,7 @@ class BacktestService:
                 self._process_candle(db, user_id, session, candle)
         else:
             session.current_offset = target_offset
+        refresh_session_summary(db, user_id, session.id)
         db.commit()
         return self.get_state(db, user_id, session.id)
 
@@ -497,6 +502,7 @@ class BacktestService:
                 screenshot_url=payload.screenshot_url,
             )
         )
+        refresh_session_summary(db, user_id, trade.session_id)
         db.commit()
         db.refresh(trade)
         return to_trade_read(trade)
@@ -518,6 +524,7 @@ class BacktestService:
             raise HTTPException(status_code=404, detail="Trade not found")
         strategy_name = payload.strategy_name.strip() if isinstance(payload.strategy_name, str) else None
         trade.strategy_name = strategy_name or None
+        refresh_session_summary(db, user_id, trade.session_id)
         db.commit()
         db.refresh(trade)
         return to_trade_read(trade)

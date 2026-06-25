@@ -137,6 +137,20 @@ services:
         source: ${EDGELAB_DATASETS_ROOT:-./datasets}
         target: /datasets
 
+  analytics-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.analytics_worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab}
+      EDGELAB_ANALYTICS_INTERVAL_SECONDS: ${EDGELAB_ANALYTICS_INTERVAL_SECONDS:-60}
+      EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-}
+    restart: unless-stopped
+
   frontend:
     build:
       context: .

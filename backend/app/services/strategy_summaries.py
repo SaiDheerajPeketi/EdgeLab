@@ -3,16 +3,14 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
-
-from app.models import Trade
 from app.schemas import (
     BacktestSessionRead,
     StrategySummary,
     StrategySummaryAggregate,
     StrategySummarySession,
 )
+from app.services.session_summaries import load_session_summary_aggregates
 
 DEFAULT_STRATEGY_NAME = "London Continuation"
 
@@ -67,61 +65,7 @@ def _load_session_aggregates(
 ) -> dict[int, StrategySummaryAggregate]:
     if not session_ids:
         return {}
-
-    query = (
-        select(
-            Trade.session_id.label("session_id"),
-            func.count(Trade.id).label("closed_trades"),
-            func.sum(case((Trade.realized_pnl > 0, 1), else_=0)).label("winning_trades"),
-            func.coalesce(func.sum(Trade.realized_pnl), 0.0).label("net_pnl"),
-            func.coalesce(
-                func.sum(case((Trade.realized_pnl > 0, Trade.realized_pnl), else_=0.0)),
-                0.0,
-            ).label("gross_profit"),
-            func.coalesce(
-                func.sum(case((Trade.realized_pnl < 0, -Trade.realized_pnl), else_=0.0)),
-                0.0,
-            ).label("gross_loss"),
-            func.coalesce(
-                func.sum(case((Trade.r_multiple.is_not(None), Trade.r_multiple), else_=0.0)),
-                0.0,
-            ).label("r_sum"),
-            func.sum(case((Trade.r_multiple.is_not(None), 1), else_=0)).label("r_samples"),
-        )
-        .where(
-            Trade.user_id == user_id,
-            Trade.status == "CLOSED",
-            Trade.session_id.in_(session_ids),
-        )
-        .group_by(Trade.session_id)
-    )
-
-    aggregates: dict[int, StrategySummaryAggregate] = {}
-    for row in db.execute(query):
-        aggregates[int(row.session_id)] = _aggregate_from_row(row)
-    return aggregates
-
-
-def _aggregate_from_row(row: object) -> StrategySummaryAggregate:
-    closed_trades = int(getattr(row, "closed_trades", 0) or 0)
-    winning_trades = int(getattr(row, "winning_trades", 0) or 0)
-    gross_profit = float(getattr(row, "gross_profit", 0.0) or 0.0)
-    gross_loss = float(getattr(row, "gross_loss", 0.0) or 0.0)
-    r_sum = float(getattr(row, "r_sum", 0.0) or 0.0)
-    r_samples = int(getattr(row, "r_samples", 0) or 0)
-
-    return StrategySummaryAggregate(
-        closed_trades=closed_trades,
-        winning_trades=winning_trades,
-        net_pnl=float(getattr(row, "net_pnl", 0.0) or 0.0),
-        gross_profit=gross_profit,
-        gross_loss=gross_loss,
-        win_rate=(winning_trades / closed_trades if closed_trades else 0.0),
-        average_r=(r_sum / r_samples if r_samples else None),
-        profit_factor=(gross_profit / gross_loss if gross_loss > 0 else None),
-        r_sum=r_sum,
-        r_samples=r_samples,
-    )
+    return load_session_summary_aggregates(db, user_id, session_ids)
 
 
 def _combine_aggregates(aggregates: Sequence[StrategySummaryAggregate]) -> StrategySummaryAggregate:
