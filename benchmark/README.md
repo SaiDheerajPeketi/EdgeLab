@@ -60,6 +60,15 @@ docker compose --profile benchmark run --rm \
   benchmark-k6 run /benchmark/k6/bootstrap.js
 ```
 
+Bootstrap shell benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  benchmark-k6 run /benchmark/k6/bootstrap-shell.js
+```
+
 Session summary pagination benchmark:
 
 ```bash
@@ -68,6 +77,53 @@ docker compose --profile benchmark run --rm \
   -e EDGELAB_AUTH_TOKEN=your-seeded-token \
   benchmark-k6 run /benchmark/k6/backtests-summaries.js
 ```
+
+Session summary cursor traversal benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  benchmark-k6 run /benchmark/k6/backtests-summaries-cursor.js
+```
+
+Trade page benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  benchmark-k6 run /benchmark/k6/trades-page.js
+```
+
+Trade page cursor traversal benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  benchmark-k6 run /benchmark/k6/trades-page-cursor.js
+```
+
+Metrics summary benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  benchmark-k6 run /benchmark/k6/metrics-summary.js
+```
+
+Metrics curves benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  benchmark-k6 run /benchmark/k6/metrics-curves.js
+```
+
+When you want session-scoped curves or trade-page runs, pull one seeded benchmark user `user_id`, then query one of that user's session ids and pass it as `EDGELAB_SESSION_ID`.
 
 ## Existing Python Micro-Benchmarks
 

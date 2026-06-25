@@ -79,6 +79,8 @@ docker compose --profile benchmark run --rm \
   benchmark-k6 run /benchmark/k6/bootstrap.js
 ```
 
+Additional bundled k6 scenarios cover `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, and `metrics-curves`.
+
 The API also keeps short-lived in-process read-model caches for `/api/bootstrap-shell` and `/api/datasets`. Tune them with:
 
 ```bash
