@@ -109,7 +109,7 @@ docker compose --profile benchmark run --rm \
 
 Additional bundled k6 scenarios cover `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, and `market-data-bars`.
 
-The API also keeps short-lived in-process read-model caches for `/api/bootstrap-shell` and `/api/datasets`. Tune them with:
+The API also keeps short-lived read-model caches for `/api/bootstrap-shell` and `/api/datasets`. When `EDGELAB_REDIS_URL` is set, those caches move to Redis and become shared across workers and split services; otherwise they fall back to in-process memory. Tune TTLs with:
 
 ```bash
 export EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS=3

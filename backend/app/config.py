@@ -183,6 +183,7 @@ class Settings:
         "EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS",
         5,
     )
+    redis_url: str = os.getenv("EDGELAB_REDIS_URL", "").strip()
     dataset_auto_discovery_enabled: bool = bool_env(
         "EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED",
         True,
@@ -228,6 +229,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         max_app_data_rows=settings.max_app_data_rows,
         bootstrap_shell_cache_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
         dataset_catalog_cache_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
+        redis_url=settings.redis_url,
         dataset_auto_discovery_enabled=settings.dataset_auto_discovery_enabled,
         analytics_interval_seconds=settings.analytics_interval_seconds,
         beta_seats_total=settings.beta_seats_total,

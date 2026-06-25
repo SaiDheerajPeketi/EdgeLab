@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import json
+import logging
 from threading import Lock
 from time import monotonic
 from typing import TypeVar
 
+try:
+    import redis
+except Exception:  # pragma: no cover - optional dependency
+    redis = None
+
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,7 +30,15 @@ class MemoryReadModelCache:
         self._locks_by_key: dict[str, Lock] = {}
         self._lock = Lock()
 
-    def get_or_load(self, key: str, ttl_seconds: int, loader: Callable[[], T]) -> T:
+    def get_or_load(
+        self,
+        key: str,
+        ttl_seconds: int,
+        loader: Callable[[], T],
+        *,
+        serializer: Callable[[T], str] | None = None,
+        deserializer: Callable[[str], T] | None = None,
+    ) -> T:
         if ttl_seconds <= 0:
             return loader()
 
@@ -58,34 +74,119 @@ class MemoryReadModelCache:
             self._entries.clear()
 
 
+class RedisReadModelCache:
+    def __init__(self, client) -> None:
+        self._client = client
+
+    def get_or_load(
+        self,
+        key: str,
+        ttl_seconds: int,
+        loader: Callable[[], T],
+        *,
+        serializer: Callable[[T], str] | None = None,
+        deserializer: Callable[[str], T] | None = None,
+    ) -> T:
+        if ttl_seconds <= 0:
+            return loader()
+
+        raw = self._client.get(key)
+        if raw is not None:
+            payload = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+            if deserializer is not None:
+                return deserializer(payload)
+            return json.loads(payload)
+
+        value = loader()
+        payload = serializer(value) if serializer is not None else json.dumps(value)
+        self._client.set(key, payload, ex=ttl_seconds)
+        return value
+
+    def invalidate_prefix(self, prefix: str) -> None:
+        keys = list(self._client.scan_iter(match=f"{prefix}*"))
+        if keys:
+            self._client.delete(*keys)
+
+    def clear(self) -> None:
+        keys = list(self._client.scan_iter(match="*"))
+        if keys:
+            self._client.delete(*keys)
+
+
+def build_read_model_cache_backend(redis_url: str):
+    if not redis_url:
+        return MemoryReadModelCache()
+    if redis is None:
+        logger.warning("Redis cache requested but redis package missing; using memory cache")
+        return MemoryReadModelCache()
+    try:
+        client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=0.25,
+            socket_timeout=0.25,
+        )
+        client.ping()
+        return RedisReadModelCache(client)
+    except Exception:
+        logger.warning("Redis cache unavailable at %s; using memory cache", redis_url, exc_info=True)
+        return MemoryReadModelCache()
+
+
+def serialize_cached_value(value: object) -> str:
+    if hasattr(value, "model_dump_json"):
+        return value.model_dump_json()
+    return json.dumps(value)
+
+
+def deserialize_cached_value(payload: str, model_cls: type[T] | None = None) -> T:
+    if model_cls is not None and hasattr(model_cls, "model_validate_json"):
+        return model_cls.model_validate_json(payload)
+    return json.loads(payload)
+
+
 class ReadModelCacheService:
     def __init__(
         self,
         *,
         bootstrap_shell_ttl_seconds: int,
         dataset_catalog_ttl_seconds: int,
+        redis_url: str = "",
+        backend=None,
     ) -> None:
         self.bootstrap_shell_ttl_seconds = bootstrap_shell_ttl_seconds
         self.dataset_catalog_ttl_seconds = dataset_catalog_ttl_seconds
-        self._cache = MemoryReadModelCache()
+        self._cache = backend or build_read_model_cache_backend(redis_url)
 
     def get_bootstrap_shell(
         self,
         user_scope: object,
         limit: int,
         loader: Callable[[], T],
+        *,
+        model_cls: type[T] | None = None,
     ) -> T:
         return self._cache.get_or_load(
             f"bootstrap-shell:{user_scope}:{limit}",
             self.bootstrap_shell_ttl_seconds,
             loader,
+            serializer=serialize_cached_value,
+            deserializer=lambda payload: deserialize_cached_value(payload, model_cls),
         )
 
-    def get_dataset_catalog(self, user_scope: object, loader: Callable[[], T]) -> T:
+    def get_dataset_catalog(
+        self,
+        user_scope: object,
+        loader: Callable[[], T],
+        *,
+        model_cls: type[T] | None = None,
+    ) -> T:
         return self._cache.get_or_load(
             f"dataset-catalog:{user_scope}",
             self.dataset_catalog_ttl_seconds,
             loader,
+            serializer=serialize_cached_value,
+            deserializer=lambda payload: deserialize_cached_value(payload, model_cls),
         )
 
     def invalidate_bootstrap_shell(self, user_scope: object) -> None:

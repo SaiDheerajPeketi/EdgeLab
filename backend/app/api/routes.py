@@ -130,6 +130,7 @@ backtester = BacktestService(market_data, dataset_catalog)
 read_model_cache = ReadModelCacheService(
     bootstrap_shell_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
     dataset_catalog_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
+    redis_url=settings.redis_url,
 )
 
 
@@ -1714,6 +1715,7 @@ def cached_dataset_catalog_response(
     return read_model_cache.get_dataset_catalog(
         dataset_catalog_cache_scope(user_id),
         lambda: dataset_catalog.list_catalog(db, user_id),
+        model_cls=DatasetCatalogResponse,
     )
 
 
@@ -1731,6 +1733,7 @@ def cached_bootstrap_shell_response(
             user_id,
             limit=limit,
         ),
+        model_cls=AppBootstrapShellResponse,
     )
 
 

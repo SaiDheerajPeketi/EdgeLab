@@ -42,8 +42,6 @@ services:
       - timescaledb-data:/var/lib/postgresql/data
 
   redis:
-    profiles:
-      - benchmark
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     ports:
@@ -72,6 +70,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
@@ -86,6 +86,7 @@ services:
       EDGELAB_BETA_SEATS_TOTAL: ${EDGELAB_BETA_SEATS_TOTAL:-500}
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
+      EDGELAB_REDIS_URL: ${EDGELAB_REDIS_URL:-redis://redis:6379/0}
       EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED: ${EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED:-0}
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_PUBLIC_ORIGIN: ${EDGELAB_PUBLIC_ORIGIN:-}
@@ -124,6 +125,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
@@ -138,6 +141,7 @@ services:
       EDGELAB_BETA_SEATS_TOTAL: ${EDGELAB_BETA_SEATS_TOTAL:-500}
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
+      EDGELAB_REDIS_URL: ${EDGELAB_REDIS_URL:-redis://redis:6379/0}
       EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED: ${EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED:-0}
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_PUBLIC_ORIGIN: ${EDGELAB_PUBLIC_ORIGIN:-}
