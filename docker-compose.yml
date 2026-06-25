@@ -55,7 +55,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql "host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}" -c "SHOW VERSION;" >/dev/null
+        - PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql "host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}" -c "SELECT 1;" >/dev/null
       interval: 10s
       timeout: 5s
       retries: 10
@@ -120,7 +120,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql "host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}" -c "SHOW VERSION;" >/dev/null
+        - PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql "host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}" -c "SELECT 1;" >/dev/null
       interval: 10s
       timeout: 5s
       retries: 10
