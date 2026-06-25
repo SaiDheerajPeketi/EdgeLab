@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models import DatasetTimeframe, MarketCandle, utcnow
@@ -11,6 +13,13 @@ from app.models import DatasetTimeframe, MarketCandle, utcnow
 
 IMPORT_BATCH_SIZE = 1000
 REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
+
+
+@dataclass(frozen=True)
+class ExistingImportState:
+    rows: int
+    first_timestamp: datetime | None
+    last_timestamp: datetime | None
 
 
 def import_market_data_to_db(
@@ -47,14 +56,24 @@ def import_market_data_to_db(
 
     for timeframe_row in timeframes:
         rows = _read_csv_rows(Path(timeframe_row.csv_path))
-        db.execute(
-            delete(MarketCandle).where(
-                MarketCandle.user_id == user_id,
-                MarketCandle.asset_id == timeframe_row.asset_id,
-                MarketCandle.timeframe == timeframe_row.timeframe,
-            )
+        existing = _existing_import_state(
+            db,
+            user_id=user_id,
+            asset_id=timeframe_row.asset_id,
+            timeframe=timeframe_row.timeframe,
         )
-        for start in range(0, len(rows), IMPORT_BATCH_SIZE):
+        start_index = _append_start_index(rows, existing)
+        if start_index is None:
+            db.execute(
+                delete(MarketCandle).where(
+                    MarketCandle.user_id == user_id,
+                    MarketCandle.asset_id == timeframe_row.asset_id,
+                    MarketCandle.timeframe == timeframe_row.timeframe,
+                )
+            )
+            start_index = 0
+
+        for start in range(start_index, len(rows), IMPORT_BATCH_SIZE):
             db.add_all(
                 [
                     MarketCandle(
@@ -78,13 +97,16 @@ def import_market_data_to_db(
         timeframe_row.last_timestamp = rows[-1][1]["Timestamp"].strftime("%Y-%m-%d %H:%M:%S") if rows else None
         timeframe_row.database_imported = True
         timeframe_row.database_imported_at = utcnow()
-        total_candles += len(rows)
+        imported_rows = len(rows) - start_index
+        total_candles += imported_rows
         imported.append(
             {
                 "asset_id": timeframe_row.asset_id,
                 "timeframe": timeframe_row.timeframe,
                 "csv_path": timeframe_row.csv_path,
                 "rows": len(rows),
+                "imported_rows": imported_rows,
+                "mode": "append" if start_index > 0 else "replace",
             }
         )
 
@@ -101,3 +123,55 @@ def _read_csv_rows(csv_path: Path) -> list[tuple[int, dict[str, object]]]:
     if missing:
         raise ValueError(f"CSV is missing required columns: {', '.join(missing)}")
     return list(enumerate(frame.to_dict(orient="records")))
+
+
+def _existing_import_state(
+    db: Session,
+    *,
+    user_id: int,
+    asset_id: int,
+    timeframe: str,
+) -> ExistingImportState:
+    rows, first_timestamp, last_timestamp = db.execute(
+        select(
+            func.count(MarketCandle.id),
+            func.min(MarketCandle.timestamp),
+            func.max(MarketCandle.timestamp),
+        ).where(
+            MarketCandle.user_id == user_id,
+            MarketCandle.asset_id == asset_id,
+            MarketCandle.timeframe == timeframe,
+        )
+    ).one()
+    return ExistingImportState(
+        rows=int(rows or 0),
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+    )
+
+
+def _append_start_index(
+    rows: list[tuple[int, dict[str, object]]],
+    existing: ExistingImportState,
+) -> int | None:
+    if existing.rows <= 0:
+        return 0
+    if existing.rows > len(rows):
+        return None
+    if existing.first_timestamp is None or existing.last_timestamp is None:
+        return None
+    if not rows:
+        return None
+
+    first_timestamp = _row_timestamp(rows[0][1])
+    last_prefix_timestamp = _row_timestamp(rows[existing.rows - 1][1])
+    if first_timestamp != existing.first_timestamp:
+        return None
+    if last_prefix_timestamp != existing.last_timestamp:
+        return None
+    return existing.rows
+
+
+def _row_timestamp(row: dict[str, object]) -> datetime:
+    value = row["Timestamp"]
+    return value.to_pydatetime().replace(tzinfo=None)

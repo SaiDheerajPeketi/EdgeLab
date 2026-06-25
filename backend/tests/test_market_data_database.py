@@ -242,3 +242,184 @@ def test_imported_market_data_session_works_without_session_csv_path(tmp_path):
     assert state.current_candle is not None
     assert state.current_candle.close == 1.101
     assert state.session.csv_path is None
+
+
+def test_market_data_import_appends_only_new_tail_rows(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        asset = DatasetAsset(
+            user_id=user_id,
+            asset_key="EUR_USD",
+            name="EUR/USD",
+            symbol="EURUSD",
+            folder_path=str(asset_dir),
+        )
+        db.add(asset)
+        db.flush()
+        db.add(
+            DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe="M1",
+                csv_path=str(csv_path),
+                rows=2,
+                first_timestamp="2024-01-01 09:30:00",
+                last_timestamp="2024-01-01 09:31:00",
+                file_size=csv_path.stat().st_size,
+                file_mtime_ns=csv_path.stat().st_mtime_ns,
+            )
+        )
+        db.commit()
+        asset_id = asset.id
+
+    first_summary = import_market_data_to_db(
+        session_factory,
+        user_id=user_id,
+        csv_path=str(csv_path),
+    )
+    assert first_summary["candles"] == 2
+
+    with session_factory() as db:
+        original = db.scalars(
+            select(MarketCandle)
+            .where(
+                MarketCandle.user_id == user_id,
+                MarketCandle.asset_id == asset_id,
+                MarketCandle.timeframe == "M1",
+            )
+            .order_by(MarketCandle.offset)
+        ).all()
+        original_ids = [row.id for row in original]
+
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n"
+        "2024-01-01 09:32:00,1.1010,1.1020,1.1000,1.1015,110\n",
+        encoding="utf-8",
+    )
+
+    second_summary = import_market_data_to_db(
+        session_factory,
+        user_id=user_id,
+        csv_path=str(csv_path),
+    )
+    assert second_summary["candles"] == 1
+    assert second_summary["imported"][0]["imported_rows"] == 1
+    assert second_summary["imported"][0]["mode"] == "append"
+
+    with session_factory() as db:
+        stored = db.scalars(
+            select(MarketCandle)
+            .where(
+                MarketCandle.user_id == user_id,
+                MarketCandle.asset_id == asset_id,
+                MarketCandle.timeframe == "M1",
+            )
+            .order_by(MarketCandle.offset)
+        ).all()
+        assert [row.id for row in stored[:2]] == original_ids
+        assert len(stored) == 3
+        assert stored[-1].close == 1.1015
+
+
+def test_market_data_import_replaces_rows_when_prefix_changes(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        asset = DatasetAsset(
+            user_id=user_id,
+            asset_key="EUR_USD",
+            name="EUR/USD",
+            symbol="EURUSD",
+            folder_path=str(asset_dir),
+        )
+        db.add(asset)
+        db.flush()
+        db.add(
+            DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe="M1",
+                csv_path=str(csv_path),
+                rows=2,
+                first_timestamp="2024-01-01 09:30:00",
+                last_timestamp="2024-01-01 09:31:00",
+                file_size=csv_path.stat().st_size,
+                file_mtime_ns=csv_path.stat().st_mtime_ns,
+            )
+        )
+        db.commit()
+        asset_id = asset.id
+
+    import_market_data_to_db(
+        session_factory,
+        user_id=user_id,
+        csv_path=str(csv_path),
+    )
+
+    with session_factory() as db:
+        assert db.scalar(select(MarketCandle).where(MarketCandle.asset_id == asset_id)) is not None
+
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:29:00,1.0995,1.1005,1.0985,1.1000,95\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n",
+        encoding="utf-8",
+    )
+
+    summary = import_market_data_to_db(
+        session_factory,
+        user_id=user_id,
+        csv_path=str(csv_path),
+    )
+    assert summary["candles"] == 3
+    assert summary["imported"][0]["imported_rows"] == 3
+    assert summary["imported"][0]["mode"] == "replace"
+
+    with session_factory() as db:
+        stored = db.scalars(
+            select(MarketCandle)
+            .where(
+                MarketCandle.user_id == user_id,
+                MarketCandle.asset_id == asset_id,
+                MarketCandle.timeframe == "M1",
+            )
+            .order_by(MarketCandle.offset)
+        ).all()
+        assert len(stored) == 3
+        assert [row.timestamp for row in stored] == [
+            datetime(2024, 1, 1, 9, 29),
+            datetime(2024, 1, 1, 9, 30),
+            datetime(2024, 1, 1, 9, 31),
+        ]
