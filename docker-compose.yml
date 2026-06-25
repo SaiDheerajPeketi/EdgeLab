@@ -19,6 +19,52 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  timescaledb:
+    profiles:
+      - benchmark
+    image: timescale/timescaledb:2.16.1-pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-edgelab} -d ${POSTGRES_DB:-edgelab}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${EDGELAB_TIMESCALE_PORT:-5433}:5432"
+    restart: unless-stopped
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+
+  redis:
+    profiles:
+      - benchmark
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "127.0.0.1:${EDGELAB_REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+
+  minio:
+    profiles:
+      - benchmark
+    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-edgelabminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-edgelabminio}
+    ports:
+      - "127.0.0.1:${EDGELAB_MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${EDGELAB_MINIO_CONSOLE_PORT:-9001}:9001"
+    restart: unless-stopped
+    volumes:
+      - minio-data:/data
+
   api:
     build:
       context: .
@@ -126,8 +172,22 @@ services:
       - legacy-api-data:/app/backend/data
       - legacy-uploads:/app/backend/uploads
 
+  benchmark-k6:
+    profiles:
+      - benchmark
+    image: grafana/k6:0.49.0
+    depends_on:
+      frontend:
+        condition: service_started
+    entrypoint: ["k6"]
+    working_dir: /benchmark
+    volumes:
+      - ./benchmark:/benchmark:ro
+
 volumes:
   api-data:
   postgres-data:
+  timescaledb-data:
+  minio-data:
   legacy-api-data:
   legacy-uploads:

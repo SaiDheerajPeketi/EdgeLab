@@ -13,6 +13,10 @@
     "dev:frontend": "npm --prefix frontend run dev -- --port 5173",
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
-    "test": "node --test \"backend/tests/*.test.js\""
+    "test": "node --test \"backend/tests/*.test.js\"",
+    "bench:seed": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py",
+    "bench:load": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py",
+    "bench:bootstrap-profiles": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py",
+    "bench:session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py"
   }
 }

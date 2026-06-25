@@ -58,3 +58,5 @@ docker compose up --build
 ```
 
 Use `docker-compose` instead when the host provides only the standalone Compose binary.
+
+For staging-style load checks against the browser-facing stack, the root Compose file also exposes a `benchmark` profile. It keeps the same frontend/API runtime path and adds Redis, TimescaleDB, MinIO, and a `benchmark-k6` runner so you can load-test through the same Nginx entrypoint without changing the current single-VM deploy shape.

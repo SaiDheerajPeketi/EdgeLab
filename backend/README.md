@@ -57,6 +57,22 @@ Compare the full bootstrap payload against the lighter shell bootstrap used for 
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py --assets 200 --sessions 200 --trades 200 --iterations 20
 ```
 
+Seed authenticated benchmark users into the configured database and print beta-session JWTs for k6 runs with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py --reset > /tmp/edgelab-benchmark-seed.json
+```
+
+The root Compose file also exposes a `benchmark` profile that starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner alongside the current API/frontend stack:
+
+```bash
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=replace-with-seeded-token \
+  benchmark-k6 run /benchmark/k6/bootstrap.js
+```
+
 The API also keeps short-lived in-process read-model caches for `/api/bootstrap-shell` and `/api/datasets`. Tune them with:
 
 ```bash
@@ -171,6 +187,8 @@ Container defaults:
 - `DATABASE_URL=postgresql+psycopg://edgelab:edgelab@postgres:5432/edgelab`
 
 The Compose file mounts the dataset root read-only for the API and read-write for the `data-populator` worker, then persists PostgreSQL in the `postgres-data` named volume. The PostgreSQL service is bound to `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}` so bare-metal backend runs can reuse the same default database. The API container runs `alembic upgrade head` before starting Gunicorn with Uvicorn workers, which keeps the single-VM Docker/Jenkins path aligned with later multi-service deployments that point `DATABASE_URL` at an external PostgreSQL instance while also matching the stateless multi-worker runtime shape needed for scale-out. When `DATABASE_URL` still points at SQLite, the startup script automatically drops back to a single worker so legacy single-VM deployments keep working while the stack is migrating toward the default PostgreSQL path. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and database connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+
+When you enable the `benchmark` profile, Docker Compose also starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner. Those services are for staged migration and load testing; the current request path still uses PostgreSQL plus dataset CSV metadata until later market-data cutover work lands.
 
 SQLite fallback startup now auto-creates missing tables without destructive schema resets. Keep Alembic as the upgrade path for the default PostgreSQL deployment and for any SQLite database you care about preserving across schema changes.
 

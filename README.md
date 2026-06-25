@@ -43,6 +43,14 @@ docker compose down
 docker compose down --volumes
 ```
 
+Bring up the benchmark profile when you want the current stack plus the future-scale support services available on one VM:
+
+```bash
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio
+```
+
+The benchmark profile does not switch request paths to Redis, TimescaleDB, or MinIO yet. It keeps the current app behavior intact while exposing the data-tier components and the `benchmark-k6` runner needed for incremental load testing. Seed authenticated benchmark data with `npm run bench:seed`, then run the bundled k6 scripts from `benchmark/`.
+
 The optional legacy Node API can be started with:
 
 ```bash
