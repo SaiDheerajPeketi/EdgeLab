@@ -18,6 +18,7 @@ from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
+    BacktestReplayUpdate,
     BacktestSessionUpdate,
     BacktestState,
     Candle,
@@ -162,6 +163,14 @@ class BacktestService:
     def get_state(self, db: Session, user_id: int, session_id: int) -> BacktestState:
         session = self._session_or_404(db, user_id, session_id)
         self._repair_negative_open_position(db, user_id, session)
+        return self._build_state(db, user_id, session)
+
+    def _build_state(
+        self,
+        db: Session,
+        user_id: int,
+        session: BacktestSession,
+    ) -> BacktestState:
         current_candle = self.market_data_for_session(session).get_candle(session.current_offset)
         return BacktestState(
             session=session,
@@ -204,6 +213,38 @@ class BacktestService:
                 )
             ],
             metrics=get_metrics(db, user_id, session.id),
+        )
+
+    def _build_replay_update(
+        self,
+        db: Session,
+        user_id: int,
+        session: BacktestSession,
+        *,
+        include_history: bool,
+        include_metrics: bool,
+    ) -> BacktestReplayUpdate:
+        current_candle = self.market_data_for_session(session).get_candle(session.current_offset)
+        position = self._position_read(db, user_id, session, current_candle)
+        if not include_history and not include_metrics:
+            return BacktestReplayUpdate(
+                session=session,
+                current_candle=current_candle,
+                position=position,
+                history_changed=False,
+                metrics_changed=False,
+            )
+        full_state = self._build_state(db, user_id, session)
+        return BacktestReplayUpdate(
+            session=full_state.session,
+            current_candle=full_state.current_candle,
+            position=full_state.position,
+            orders=full_state.orders if include_history else None,
+            executions=full_state.executions if include_history else None,
+            trades=full_state.trades if include_history else None,
+            metrics=full_state.metrics if include_metrics else None,
+            history_changed=include_history,
+            metrics_changed=include_metrics,
         )
 
     def place_order(
@@ -379,6 +420,39 @@ class BacktestService:
         refresh_session_summary(db, user_id, session.id)
         db.commit()
         return self.get_state(db, user_id, session.id)
+
+    def advance_compact(
+        self,
+        db: Session,
+        user_id: int,
+        session_id: int,
+        payload: BacktestAdvanceRequest,
+    ) -> BacktestReplayUpdate:
+        session = self._session_or_404(db, user_id, session_id)
+        had_runtime_activity = self._has_runtime_activity(db, user_id, session)
+        market_data = self.market_data_for_session(session)
+        for _ in range(payload.steps):
+            next_offset = session.current_offset + 1
+            if session.end_offset is not None and next_offset > session.end_offset:
+                session.status = "COMPLETE"
+                break
+            candle = market_data.get_candle(next_offset)
+            if candle is None:
+                session.status = "COMPLETE"
+                break
+            session.current_offset = next_offset
+            if had_runtime_activity:
+                self._process_candle(db, user_id, session, candle)
+        if had_runtime_activity:
+            refresh_session_summary(db, user_id, session.id)
+        db.commit()
+        return self._build_replay_update(
+            db,
+            user_id,
+            session,
+            include_history=had_runtime_activity,
+            include_metrics=had_runtime_activity,
+        )
 
     def jump(
         self,
@@ -1603,6 +1677,12 @@ class BacktestService:
             db.add(position)
             db.flush()
         return position
+
+    def _has_runtime_activity(self, db: Session, user_id: int, session: BacktestSession) -> bool:
+        position = self._position(db, user_id, session)
+        if position is not None and position.side != "FLAT" and position.quantity > 0:
+            return True
+        return bool(self._pending_orders(db, user_id, session.id))
 
     def _pending_orders(self, db: Session, user_id: int, session_id: int) -> list[Order]:
         return list(

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   ApiError,
+  BacktestReplayUpdate,
   BacktestState,
   BacktestCreatePayload,
   BacktestSession,
@@ -23,7 +24,7 @@ import {
   StrategySummary,
   Trade,
   TradeStrategyPayload,
-  advanceBacktest,
+  advanceBacktestCompact,
   createBacktest,
   deleteBacktestSession,
   deleteBacktestOrder,
@@ -59,7 +60,6 @@ import {
 } from "../lib/api";
 
 const WINDOW_SIZE = 1500;
-const DEFAULT_CONTEXT_BARS = 300;
 const RESULT_SESSIONS_PAGE_LIMIT = 50;
 const RESULT_TRADES_PAGE_LIMIT = 100;
 
@@ -530,18 +530,17 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         getBacktest(sessionId),
         getMeta(sessionId),
       ]);
-      const state = await ensureReplayContext(initialState, meta);
       const window = await loadWindow(
-        state.session.current_offset,
-        state.session.id,
-        state.session.start_offset,
+        initialState.session.current_offset,
+        initialState.session.id,
+        initialState.session.start_offset,
       );
       set((current) => ({
         meta,
-        state,
+        state: initialState,
         bars: window.bars,
         barOffset: window.barOffset,
-        resultSessions: upsertSession(current.resultSessions, state.session),
+        resultSessions: upsertSession(current.resultSessions, initialState.session),
         strategySummaries: current.strategySummaries,
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
@@ -561,18 +560,17 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       const initialState = await createBacktest(payload);
       const meta = await getMeta(initialState.session.id);
-      const state = await ensureReplayContext(initialState, meta);
       const window = await loadWindow(
-        state.session.current_offset,
-        state.session.id,
-        state.session.start_offset,
+        initialState.session.current_offset,
+        initialState.session.id,
+        initialState.session.start_offset,
       );
       set((current) => ({
         meta,
-        state,
+        state: initialState,
         bars: window.bars,
         barOffset: window.barOffset,
-        resultSessions: upsertSession(current.resultSessions, state.session),
+        resultSessions: upsertSession(current.resultSessions, initialState.session),
         strategySummaries: current.strategySummaries,
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
@@ -643,14 +641,16 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   stepForward: async (steps = 1) => {
-    const sessionId = get().state?.session.id;
-    if (!sessionId || get().isStepping) {
+    const previousState = get().state;
+    const sessionId = previousState?.session.id;
+    if (!sessionId || get().isStepping || !previousState) {
       return;
     }
 
     set({ isStepping: true });
     try {
-      const state = await advanceBacktest(sessionId, steps);
+      const replay = await advanceBacktestCompact(sessionId, steps);
+      const state = mergeReplayUpdate(previousState, replay);
       const bars = await ensureBarsForOffset(
         get().bars,
         get().barOffset,
@@ -666,7 +666,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         isStepping: false,
         isPlaying: state.session.status === "ACTIVE" ? get().isPlaying : false,
       });
-      if (state.trades.some((trade) => trade.status === "CLOSED")) {
+      if (didTradeHistoryChange(previousState, state)) {
         if (get().resultTradesLoaded) {
           void get().refreshResults();
         } else {
@@ -972,13 +972,12 @@ async function loadLatestReplayContext() {
   }
 
   const meta = await getMeta(latestState.session.id);
-  const state = await ensureReplayContext(latestState, meta);
   const window = await loadWindow(
-    state.session.current_offset,
-    state.session.id,
-    state.session.start_offset,
+    latestState.session.current_offset,
+    latestState.session.id,
+    latestState.session.start_offset,
   );
-  return { meta, state, window };
+  return { meta, state: latestState, window };
 }
 
 function mergeActiveTradeState(
@@ -1140,34 +1139,6 @@ async function ensureBarsForOffset(
   return { bars: [...bars, ...response.bars], barOffset };
 }
 
-async function ensureReplayContext(state: BacktestState, meta: DatasetMeta) {
-  if (!isEmptyFreshReplay(state)) {
-    return state;
-  }
-
-  if (state.session.current_offset >= DEFAULT_CONTEXT_BARS || meta.rows <= 1) {
-    return state;
-  }
-
-  const sessionEnd = state.session.end_offset ?? meta.rows - 1;
-  const targetOffset = Math.min(DEFAULT_CONTEXT_BARS, sessionEnd, meta.rows - 1);
-  if (targetOffset <= state.session.current_offset) {
-    return state;
-  }
-
-  return jumpBacktest(state.session.id, { offset: targetOffset });
-}
-
-function isEmptyFreshReplay(state: BacktestState) {
-  const position = state.position;
-  return (
-    state.orders.length === 0 &&
-    state.executions.length === 0 &&
-    state.trades.length === 0 &&
-    (!position || position.side === "FLAT" || position.quantity <= 0)
-  );
-}
-
 function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unexpected error";
 }
@@ -1177,6 +1148,38 @@ function firstRejectedMessage(results: PromiseSettledResult<unknown>[]) {
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   return rejected ? toErrorMessage(rejected.reason) : null;
+}
+
+function mergeReplayUpdate(previous: BacktestState, update: BacktestReplayUpdate): BacktestState {
+  return {
+    session: update.session,
+    current_candle: update.current_candle,
+    position: update.position,
+    orders: update.orders ?? previous.orders,
+    executions: update.executions ?? previous.executions,
+    trades: update.trades ?? previous.trades,
+    metrics: update.metrics ?? previous.metrics,
+  };
+}
+
+function didTradeHistoryChange(previous: BacktestState, next: BacktestState) {
+  if (previous.trades.length !== next.trades.length) {
+    return true;
+  }
+  const previousLatest = previous.trades[0];
+  const nextLatest = next.trades[0];
+  if (!previousLatest && !nextLatest) {
+    return false;
+  }
+  if (!previousLatest || !nextLatest) {
+    return true;
+  }
+  return (
+    previousLatest.id !== nextLatest.id ||
+    previousLatest.status !== nextLatest.status ||
+    previousLatest.exit_offset !== nextLatest.exit_offset ||
+    previousLatest.realized_pnl !== nextLatest.realized_pnl
+  );
 }
 
 function initialDatasetSessionPayload(datasets: DatasetCatalog | null): BacktestCreatePayload {

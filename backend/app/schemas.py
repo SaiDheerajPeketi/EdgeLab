@@ -644,6 +644,18 @@ class BacktestState(BaseModel):
     metrics: MetricsResponse
 
 
+class BacktestReplayUpdate(BaseModel):
+    session: BacktestSessionRead
+    current_candle: Candle | None
+    position: PositionRead | None
+    orders: list[OrderRead] | None = None
+    executions: list[ExecutionRead] | None = None
+    trades: list[TradeRead] | None = None
+    metrics: MetricsResponse | None = None
+    history_changed: bool = False
+    metrics_changed: bool = False
+
+
 class BacktestSessionPage(BaseModel):
     items: list[BacktestSessionRead]
     offset: int

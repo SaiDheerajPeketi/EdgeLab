@@ -554,6 +554,7 @@ export function WorkspaceApp() {
     effectiveSourceFallbackTimeframe(sourceTimeframe);
   const replayStepBars = getReplayStepBars(normalizedReplayTimeframe, sourceTimeframe);
   const playbackStepBars = isMultiChartLayout ? replayStepBars : 1;
+  const playbackTickStartedAtRef = useRef<number | null>(null);
 
   function updateChartPane(
     paneId: string,
@@ -843,12 +844,28 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (!isPlaying) {
+      playbackTickStartedAtRef.current = null;
       return;
     }
+    playbackTickStartedAtRef.current = performance.now();
     const timer = window.setInterval(() => {
-      void stepForward(playbackStepBars);
+      if (useBacktestStore.getState().isStepping) {
+        return;
+      }
+      const now = performance.now();
+      const previousTickStartedAt = playbackTickStartedAtRef.current ?? now;
+      const elapsedMs = Math.max(speedMs, now - previousTickStartedAt);
+      const targetBlocks = Math.max(
+        1,
+        Math.round(elapsedMs / Math.max(speedMs, 1)),
+      );
+      playbackTickStartedAtRef.current = now;
+      void stepForward(playbackStepBars * targetBlocks);
     }, speedMs);
-    return () => window.clearInterval(timer);
+    return () => {
+      playbackTickStartedAtRef.current = null;
+      window.clearInterval(timer);
+    };
   }, [isPlaying, playbackStepBars, speedMs, stepForward]);
 
   useEffect(() => {

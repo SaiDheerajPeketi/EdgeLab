@@ -61,6 +61,7 @@ from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
+    BacktestReplayUpdate,
     BacktestSessionPage,
     BacktestSessionRead,
     BacktestSessionUpdate,
@@ -2014,6 +2015,16 @@ def advance_backtest(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestState:
     return backtester.advance(db, current_user.id, session_id, payload)
+
+
+@router.post("/backtests/{session_id}/advance-compact", response_model=BacktestReplayUpdate)
+def advance_backtest_compact(
+    session_id: int,
+    payload: BacktestAdvanceRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BacktestReplayUpdate:
+    return backtester.advance_compact(db, current_user.id, session_id, payload)
 
 
 @router.post("/backtests/{session_id}/jump", response_model=BacktestState)

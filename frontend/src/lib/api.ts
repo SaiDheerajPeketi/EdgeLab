@@ -416,6 +416,18 @@ export type BacktestState = {
   metrics: Metrics;
 };
 
+export type BacktestReplayUpdate = {
+  session: BacktestSession;
+  current_candle: Candle | null;
+  position: Position | null;
+  orders: Order[] | null;
+  executions: Execution[] | null;
+  trades: Trade[] | null;
+  metrics: Metrics | null;
+  history_changed: boolean;
+  metrics_changed: boolean;
+};
+
 export type OrderPayload = {
   side: "BUY" | "SELL";
   order_type: "MARKET" | "LIMIT" | "STOP";
@@ -919,6 +931,13 @@ export function deleteBacktestSession(sessionId: number) {
 
 export function advanceBacktest(sessionId: number, steps = 1) {
   return request<BacktestState>(`/backtests/${sessionId}/advance`, {
+    method: "POST",
+    body: JSON.stringify({ steps }),
+  });
+}
+
+export function advanceBacktestCompact(sessionId: number, steps = 1) {
+  return request<BacktestReplayUpdate>(`/backtests/${sessionId}/advance-compact`, {
     method: "POST",
     body: JSON.stringify({ steps }),
   });

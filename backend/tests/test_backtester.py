@@ -21,6 +21,7 @@ from app.services.market_data import MarketDataService
 
 USER_SCOPED_METHODS = {
     "advance",
+    "advance_compact",
     "cancel_order",
     "create_playbook",
     "create_session",
@@ -419,6 +420,25 @@ def test_same_candle_stop_and_target_fills_stop_first(tmp_path: Path):
 
     assert state.metrics.net_pnl == pytest.approx(-10)
     assert state.trades[0].exit_price == pytest.approx(94)
+
+
+def test_advance_compact_reuses_history_when_session_is_flat(tmp_path: Path):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+
+    update = service.advance_compact(db, state.session.id, BacktestAdvanceRequest(steps=2))
+
+    assert update.session.current_offset == 2
+    assert update.current_candle is not None
+    assert update.current_candle.close == pytest.approx(105)
+    assert update.position is not None
+    assert update.position.side == "FLAT"
+    assert update.orders is None
+    assert update.executions is None
+    assert update.trades is None
+    assert update.metrics is None
+    assert update.history_changed is False
+    assert update.metrics_changed is False
 
 
 def test_limit_and_stop_orders_fill_on_advanced_candle(tmp_path: Path):
