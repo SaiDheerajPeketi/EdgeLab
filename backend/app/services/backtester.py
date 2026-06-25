@@ -1477,7 +1477,7 @@ class BacktestService:
                     f"::{timestamp_timezone or 'UTC'}"
                 )
                 service = self._market_data_cache.get(cache_key)
-                if service is None:
+                if service is None or service.source_has_changed():
                     self._market_data_cache[cache_key] = DatabaseMarketDataService(
                         self.dataset_catalog.session_factory,
                         user_id=user_id,

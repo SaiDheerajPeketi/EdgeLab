@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api import routes
 from app.models import BacktestSession, DatasetAsset, DatasetTimeframe, MarketCandle
 from app.services.backtester import BacktestService
+from app.services.database_market_data import DatabaseMarketDataService
 from app.services.datasets import DatasetCatalogService
 from backend.scripts.import_market_data_to_db import import_market_data_to_db
 from tests.test_health_routes import current_user, seed_user
@@ -115,3 +116,59 @@ def test_imported_market_data_serves_bars_without_csv_file(tmp_path, monkeypatch
     assert response.bars[1].close == 1.101
     assert metadata.rows == 3
     assert metadata.first_timestamp == datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc)
+
+
+def test_database_market_data_cache_invalidates_after_reimport(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n"
+        "2024-01-01 09:32:00,1.1010,1.1020,1.1000,1.1015,110\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    catalog = DatasetCatalogService(datasets_root, session_factory, market_data_import_enabled=True)
+    backtester = BacktestService(dataset_catalog=catalog)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        catalog.refresh_catalog(db, user_id)
+        first_service = backtester.market_data_for_path(
+            str(csv_path),
+            "UTC",
+            db=db,
+            user_id=user_id,
+        )
+        assert isinstance(first_service, DatabaseMarketDataService)
+        assert first_service.get_metadata().rows == 3
+        assert first_service.get_candle(2).close == 1.1015
+
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n"
+        "2024-01-01 09:32:00,1.1010,1.1020,1.1000,1.1015,110\n"
+        "2024-01-01 09:33:00,1.1015,1.1025,1.1005,1.1020,115\n",
+        encoding="utf-8",
+    )
+
+    with session_factory() as db:
+        catalog.refresh_catalog(db, user_id)
+        second_service = backtester.market_data_for_path(
+            str(csv_path),
+            "UTC",
+            db=db,
+            user_id=user_id,
+        )
+        assert isinstance(second_service, DatabaseMarketDataService)
+        assert second_service.get_metadata().rows == 4
+        assert second_service.get_candle(3).close == 1.102
+        assert first_service.source_has_changed() is True
+        assert second_service is not first_service
