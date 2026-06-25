@@ -72,6 +72,14 @@ def default_market_data_database_url() -> str:
     return default_database_url()
 
 
+def database_connect_args(database_url: str) -> dict[str, object]:
+    if database_url.startswith("sqlite"):
+        return {"check_same_thread": False, "timeout": 60}
+    if database_url.startswith("postgresql+psycopg"):
+        return {"prepare_threshold": None}
+    return {}
+
+
 @dataclass(frozen=True)
 class GoogleOAuthCredentials:
     client_id: str = ""

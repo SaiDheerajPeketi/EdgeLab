@@ -21,7 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import settings
+from app.config import database_connect_args, settings
 
 
 logger = logging.getLogger(__name__)
@@ -74,11 +74,7 @@ _MARKET_CANDLES_TABLE = Table(
 
 def _engine_for_url(database_url: str):
     engine_kwargs = {"pool_pre_ping": True}
-    connect_args = (
-        {"check_same_thread": False, "timeout": 60}
-        if database_url.startswith("sqlite")
-        else {}
-    )
+    connect_args = database_connect_args(database_url)
     if not database_url.startswith("sqlite"):
         engine_kwargs["pool_recycle"] = 1800
     engine = create_engine(database_url, connect_args=connect_args, **engine_kwargs)

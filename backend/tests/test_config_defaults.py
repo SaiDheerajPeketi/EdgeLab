@@ -1,4 +1,8 @@
-from app.config import default_database_url, default_market_data_database_url
+from app.config import (
+    database_connect_args,
+    default_database_url,
+    default_market_data_database_url,
+)
 
 
 def test_default_database_url_builds_postgres_url_from_parts(monkeypatch):
@@ -49,3 +53,16 @@ def test_default_market_data_database_url_prefers_explicit_override(monkeypatch)
         default_market_data_database_url()
         == "postgresql+psycopg://edge:secret@timescaledb:5432/market"
     )
+
+
+def test_database_connect_args_disable_psycopg_prepared_statements():
+    assert database_connect_args("postgresql+psycopg://edge:secret@pgbouncer:6432/edgelab") == {
+        "prepare_threshold": None,
+    }
+
+
+def test_database_connect_args_keep_sqlite_timeout():
+    assert database_connect_args("sqlite:////tmp/edgelab.db") == {
+        "check_same_thread": False,
+        "timeout": 60,
+    }

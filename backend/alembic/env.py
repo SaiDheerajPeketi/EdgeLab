@@ -4,10 +4,10 @@ from logging.config import fileConfig
 import os
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 from app.db import Base
-from app.config import settings
+from app.config import database_connect_args, settings
 from app import models  # noqa: F401
 
 
@@ -36,9 +36,9 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_engine(
+        database_url,
+        connect_args=database_connect_args(database_url),
         poolclass=pool.NullPool,
     )
 

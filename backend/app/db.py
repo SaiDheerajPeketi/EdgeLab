@@ -3,15 +3,11 @@ from collections.abc import Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import settings
+from app.config import database_connect_args, settings
 
 
 engine_kwargs = {"pool_pre_ping": True}
-connect_args = (
-    {"check_same_thread": False, "timeout": 60}
-    if settings.database_url.startswith("sqlite")
-    else {}
-)
+connect_args = database_connect_args(settings.database_url)
 
 if not settings.database_url.startswith("sqlite"):
     engine_kwargs["pool_recycle"] = 1800
