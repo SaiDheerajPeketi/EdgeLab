@@ -27,6 +27,7 @@ from app.schemas import (
     OrderCreate,
     OrderRead,
     OrderUpdate,
+    MetricsResponse,
     PlaybookCreate,
     PlaybookRead,
     PlaybookUpdate,
@@ -158,7 +159,16 @@ class BacktestService:
         db.add(Position(user_id=user_id, session_id=session.id))
         refresh_session_summary(db, user_id, session.id)
         db.commit()
-        return self.get_state(db, user_id, session.id)
+        current_candle = self.market_data_for_session(session).get_candle(session.current_offset)
+        return BacktestState(
+            session=session,
+            current_candle=current_candle,
+            position=self._position_read(db, user_id, session, current_candle),
+            orders=[],
+            executions=[],
+            trades=[],
+            metrics=_empty_metrics(),
+        )
 
     def get_state(self, db: Session, user_id: int, session_id: int) -> BacktestState:
         session = self._session_or_404(db, user_id, session_id)
@@ -431,6 +441,23 @@ class BacktestService:
         session = self._session_or_404(db, user_id, session_id)
         had_runtime_activity = self._has_runtime_activity(db, user_id, session)
         market_data = self.market_data_for_session(session)
+        if not had_runtime_activity:
+            metadata = market_data.get_metadata()
+            max_offset = max(metadata.rows - 1, 0)
+            if session.end_offset is not None:
+                max_offset = min(max_offset, session.end_offset)
+            target_offset = min(session.current_offset + payload.steps, max_offset)
+            session.current_offset = max(session.start_offset, target_offset)
+            if session.current_offset >= max_offset:
+                session.status = "COMPLETE"
+            db.commit()
+            return self._build_replay_update(
+                db,
+                user_id,
+                session,
+                include_history=False,
+                include_metrics=False,
+            )
         for _ in range(payload.steps):
             next_offset = session.current_offset + 1
             if session.end_offset is not None and next_offset > session.end_offset:
@@ -1847,3 +1874,34 @@ def _payload_cost_config(
         value = getattr(payload, value_field)
     normalized_mode = _normalize_commission_mode(mode)
     return normalized_mode, _commission_value(normalized_mode, value)
+
+
+def _empty_metrics() -> MetricsResponse:
+    return MetricsResponse(
+        net_pnl=0.0,
+        win_rate=0.0,
+        total_trades=0,
+        winning_trades=0,
+        breakeven_trades=0,
+        open_trades=0,
+        profit_factor=None,
+        gross_pnl=0.0,
+        total_commissions=0.0,
+        total_fees=0.0,
+        max_drawdown=0.0,
+        recovery_factor=None,
+        sharpe_ratio=None,
+        average_r=None,
+        average_hold_minutes=None,
+        average_win=None,
+        average_loss=None,
+        expectancy=None,
+        best_trade=None,
+        worst_trade=None,
+        longest_win_streak=0,
+        longest_loss_streak=0,
+        equity_curve=[],
+        strategy_performance=[],
+        side_breakdown=[],
+        calendar=[],
+    )

@@ -138,7 +138,7 @@ def test_imported_market_data_serves_bars_without_csv_file(tmp_path, monkeypatch
     assert direct_metadata.rows == 3
 
 
-def test_database_market_data_cache_invalidates_after_reimport(tmp_path):
+def test_database_market_data_cache_invalidates_after_reimport(tmp_path, monkeypatch):
     datasets_root = tmp_path / "datasets"
     asset_dir = datasets_root / "EUR_USD"
     asset_dir.mkdir(parents=True)
@@ -168,6 +168,11 @@ def test_database_market_data_cache_invalidates_after_reimport(tmp_path):
         )
         assert isinstance(first_service, DatabaseMarketDataService)
         assert first_service.get_metadata().rows == 3
+        monkeypatch.setattr(
+            first_service,
+            "_get_frame",
+            lambda: (_ for _ in ()).throw(AssertionError("full frame should not load")),
+        )
         assert first_service.get_candle(2).close == 1.1015
 
     csv_path.write_text(

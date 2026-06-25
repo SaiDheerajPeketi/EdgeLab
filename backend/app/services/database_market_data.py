@@ -71,11 +71,11 @@ class DatabaseMarketDataService:
         if limit < 1 or limit > MAX_LIMIT:
             raise ValueError(f"limit must be between 1 and {MAX_LIMIT}")
 
-        frame = self._get_frame()
+        frame, visible_start = self._get_window_frame(offset, limit, warmup)
         if frame.empty:
             return BarsResponse(offset=offset, limit=limit, next_offset=offset, bars=[])
 
-        visible = frame.iloc[offset : offset + limit]
+        visible = frame.iloc[visible_start : visible_start + limit]
         bars = [self._row_to_candle(row) for _, row in visible.iterrows()]
         return BarsResponse(
             offset=offset,
@@ -87,17 +87,19 @@ class DatabaseMarketDataService:
     def get_candle(self, offset: int) -> Candle | None:
         if offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
-        response = self.get_bars(offset=offset, limit=1, warmup=DEFAULT_WARMUP)
-        return response.bars[0] if response.bars else None
+        with self.market_data_session_factory() as db:
+            row = db.scalar(
+                select(MarketCandle).where(
+                    MarketCandle.user_id == self.user_id,
+                    MarketCandle.asset_id == self.asset_id,
+                    MarketCandle.timeframe == self.timeframe,
+                    MarketCandle.offset == offset,
+                )
+            )
+        return self._model_to_candle(row) if row is not None else None
 
     def find_offset_at_or_after(self, timestamp: datetime) -> int | None:
         target = self._to_source_naive(timestamp)
-        frame = self._get_frame()
-        if not frame.empty:
-            positions = frame["Timestamp"].searchsorted(pd.Timestamp(target), side="left")
-            if positions >= len(frame):
-                return None
-            return int(positions)
         with self.market_data_session_factory() as db:
             candle = db.scalar(
                 select(MarketCandle)
@@ -111,6 +113,34 @@ class DatabaseMarketDataService:
                 .limit(1)
             )
         return candle.offset if candle is not None else None
+
+    def _get_window_frame(
+        self,
+        offset: int,
+        limit: int,
+        warmup: int,
+    ) -> tuple[pd.DataFrame, int]:
+        metadata = self.get_metadata()
+        if offset >= metadata.rows:
+            return pd.DataFrame(), 0
+
+        warmup_start = max(0, offset - max(warmup, 0))
+        visible_start = offset - warmup_start
+        fetch_limit = visible_start + limit
+        with self.market_data_session_factory() as db:
+            rows = db.scalars(
+                select(MarketCandle)
+                .where(
+                    MarketCandle.user_id == self.user_id,
+                    MarketCandle.asset_id == self.asset_id,
+                    MarketCandle.timeframe == self.timeframe,
+                    MarketCandle.offset >= warmup_start,
+                )
+                .order_by(asc(MarketCandle.offset))
+                .limit(fetch_limit)
+            ).all()
+        frame = self._rows_to_frame(rows)
+        return (_with_indicators(frame) if not frame.empty else frame), visible_start
 
     def source_has_changed(self) -> bool:
         if self._frame is None and self._metadata is None:
@@ -142,19 +172,7 @@ class DatabaseMarketDataService:
                     )
                     .order_by(asc(MarketCandle.offset))
                 ).all()
-            frame = pd.DataFrame(
-                [
-                    {
-                        "Timestamp": row.timestamp,
-                        "Open": row.open,
-                        "High": row.high,
-                        "Low": row.low,
-                        "Close": row.close,
-                        "Volume": row.volume,
-                    }
-                    for row in rows
-                ]
-            )
+            frame = self._rows_to_frame(rows)
             self._frame = _with_indicators(frame) if not frame.empty else frame
             self._metadata = DatasetMeta(
                 csv_path=self.csv_path,
@@ -164,6 +182,21 @@ class DatabaseMarketDataService:
             )
             self._source_signature = self._signature_for_row(timeframe_row)
             return self._frame
+
+    def _rows_to_frame(self, rows: list[MarketCandle]) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "Timestamp": row.timestamp,
+                    "Open": row.open,
+                    "High": row.high,
+                    "Low": row.low,
+                    "Close": row.close,
+                    "Volume": row.volume,
+                }
+                for row in rows
+            ]
+        )
 
     def _timeframe_row(self, db: Session) -> DatasetTimeframe | None:
         return db.scalar(
@@ -207,6 +240,18 @@ class DatabaseMarketDataService:
             ema_20=_optional_float(row["ema_20"]),
             ema_50=_optional_float(row["ema_50"]),
             rsi_14=_optional_float(row["rsi_14"]),
+        )
+
+    def _model_to_candle(self, row: MarketCandle) -> Candle:
+        epoch = int(self._local_to_utc(row.timestamp).timestamp())
+        return Candle(
+            time=epoch,
+            timestamp=row.timestamp,
+            open=float(row.open),
+            high=float(row.high),
+            low=float(row.low),
+            close=float(row.close),
+            volume=float(row.volume),
         )
 
     def _parse_timestamp(self, value: str | None) -> datetime | None:
