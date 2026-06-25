@@ -3,6 +3,11 @@ fastapi==0.115.6
 gunicorn==23.0.0
 uvicorn[standard]==0.34.0
 pandas==2.2.3
+opentelemetry-api==1.28.2
+opentelemetry-exporter-otlp-proto-http==1.28.2
+opentelemetry-instrumentation-fastapi==0.49b2
+opentelemetry-instrumentation-sqlalchemy==0.49b2
+opentelemetry-sdk==1.28.2
 psycopg[binary]==3.2.9
 redis==5.2.1
 SQLAlchemy==2.0.36

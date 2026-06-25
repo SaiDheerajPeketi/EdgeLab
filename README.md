@@ -48,13 +48,13 @@ docker compose down
 docker compose down --volumes
 ```
 
-Bring up the benchmark profile when you want default stack plus MinIO, Prometheus, Grafana, and bundled k6 runner on one VM:
+Bring up the benchmark profile when you want default stack plus MinIO, Loki, Tempo, Prometheus, Grafana, Postgres exporters, and bundled k6 runner on one VM:
 
 ```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio prometheus grafana
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio loki tempo prometheus grafana postgres-exporter timescaledb-exporter
 ```
 
-Benchmark profile now adds MinIO, Prometheus, Grafana, and `benchmark-k6` on top of default Postgres + PgBouncer + Redis + TimescaleDB stack. Prometheus scrapes both FastAPI services at `/api/observability/metrics`, and Grafana boots with provisioned Prometheus datasource plus starter `EdgeLab Overview` dashboard. Seed authenticated benchmark data with `npm run bench:seed`, then run bundled k6 scripts from `benchmark/` for `bootstrap`, `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, and `market-data-bars`.
+Benchmark profile now adds MinIO, Loki, Tempo, Prometheus, Grafana, Postgres exporters, and `benchmark-k6` on top of default Postgres + PgBouncer + Redis + TimescaleDB stack. Prometheus scrapes both FastAPI services at `/api/observability/metrics` plus both database exporters with `pg_stat_statements` enabled on PostgreSQL and TimescaleDB. Grafana boots with provisioned Prometheus, Loki, and Tempo datasources plus starter `EdgeLab Overview` dashboard. Seed authenticated benchmark data with `npm run bench:seed`, then run bundled k6 scripts from `benchmark/` for `bootstrap`, `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, and `market-data-bars`.
 
 For local storage-path latency comparisons, run `npm run bench:market-data-storage -- --rows 20000 --iterations 25`. It benchmarks cached CSV reads against DB-backed `market_candles` reads on same dataset shape so market-data migration wins stay measurable between commits.
 
@@ -117,7 +117,7 @@ The backend scans dataset CSV folders from `datasets` by default. Normal catalog
 The open frontend subscribes to `/api/datasets/stream` over WebSocket, so CSV range changes from the populator appear without a browser refresh. Replay sessions are created only from the session builder or `POST /api/backtests`; startup does not create a default EURUSD/M1 session.
 The API also keeps short-lived read-model caches for the initial shell bootstrap and dataset catalog responses. In Docker Compose, `api` and `market-api` now default those caches to the bundled Redis service through `EDGELAB_REDIS_URL=redis://redis:6379/0`, so cache hits are shared across workers and containers instead of being process-local only. Bare-metal runs can leave `EDGELAB_REDIS_URL` blank and fall back to in-process memory. Tune cache TTLs with `EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS` and `EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS`.
 That same shared Redis tier now also rate-limits expensive authenticated routes. Default container limits are `EDGELAB_DATASET_REFRESH_RATE_LIMIT=6`, `EDGELAB_MARKET_DATA_META_RATE_LIMIT=240`, and `EDGELAB_MARKET_DATA_BARS_RATE_LIMIT=240` inside a `EDGELAB_RATE_LIMIT_WINDOW_SECONDS=60` window.
-Both FastAPI services now also expose Prometheus-scrapeable HTTP metrics at `GET /api/observability/metrics`, which makes the current single-VM stack and later split-service deployment compatible with Prometheus/Grafana without changing app routes again.
+Both FastAPI services now also expose Prometheus-scrapeable HTTP metrics at `GET /api/observability/metrics`, emit structured JSON logs with request IDs for Loki ingestion, and can export OpenTelemetry traces by setting `OTEL_EXPORTER_OTLP_ENDPOINT` plus service names. That keeps current single-VM stack and later split-service deployment on same observability contract without changing app routes again.
 
 The default containerized stack uses PostgreSQL plus Alembic migrations. SQLite remains an explicit fallback only when `DATABASE_URL` is overridden to a SQLite path. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
 SQLite startup no longer drops existing tables on version mismatch; fresh SQLite files are still auto-created for local fallback use, while schema upgrades are expected to come through Alembic in the default containerized path.

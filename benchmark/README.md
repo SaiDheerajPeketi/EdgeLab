@@ -16,8 +16,12 @@ The root `docker-compose.yml` now exposes an optional `benchmark` profile with:
 - `timescaledb`
 - `redis`
 - `minio`
+- `loki`
+- `tempo`
 - `prometheus`
 - `grafana`
+- `postgres-exporter`
+- `timescaledb-exporter`
 - `benchmark-k6`
 
 Those services do not replace current request path. They exist so benchmark, migration, and observability work can start before final production topology rollout.
@@ -50,8 +54,16 @@ Optional sizing flags:
 Bring up the current app stack plus benchmark infra:
 
 ```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio prometheus grafana
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio loki tempo prometheus grafana postgres-exporter timescaledb-exporter
 ```
+
+When you want full trace export into bundled Tempo, set:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces
+```
+
+Prometheus scrapes both FastAPI metrics endpoints and both database exporters. PostgreSQL and TimescaleDB both preload `pg_stat_statements`, so Grafana/Prometheus can surface slow statement fingerprints during the same load test run. Loki ingests structured JSON logs from Docker via Promtail, and Tempo receives OTLP HTTP traces from the instrumented services.
 
 Run a k6 benchmark from the bundled `benchmark-k6` service:
 

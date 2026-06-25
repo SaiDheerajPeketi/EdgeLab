@@ -97,10 +97,10 @@ When a timeframe is imported, `GET /api/market-data/bars` and `GET /api/market-d
 
 Default runtime now also sets `EDGELAB_MARKET_DATA_IMPORT_ENABLED=1`, so explicit dataset catalog refreshes automatically import changed CSV timeframes into `market_candles`. Set `EDGELAB_MARKET_DATA_DATABASE_URL` when you want those candle reads/writes isolated onto dedicated market-data DB such as TimescaleDB; recommended local single-VM path is `postgresql+psycopg://edgelab:edgelab@127.0.0.1:6433/edgelab` through `pgbouncer-timescaledb`. Leave it blank only when you want market data to fall back to `DATABASE_URL`. Set `EDGELAB_MARKET_DATA_IMPORT_ENABLED=0` only when you need metadata-only scans while debugging migration behavior.
 
-Root Compose file now starts Redis, PgBouncer, and TimescaleDB in default stack, and `benchmark` profile adds MinIO, Prometheus, Grafana, plus `benchmark-k6` runner:
+Root Compose file now starts Redis, PgBouncer, and TimescaleDB in default stack, and `benchmark` profile adds MinIO, Loki, Tempo, Prometheus, Grafana, Postgres exporters, plus `benchmark-k6` runner:
 
 ```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio prometheus grafana
+docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio loki tempo prometheus grafana postgres-exporter timescaledb-exporter
 docker compose --profile benchmark run --rm \
   -e EDGELAB_API_BASE_URL=http://frontend/api \
   -e EDGELAB_AUTH_TOKEN=replace-with-seeded-token \
@@ -135,7 +135,28 @@ Benchmark profile now also provisions:
 
 - Prometheus on `127.0.0.1:${EDGELAB_PROMETHEUS_PORT:-9090}`
 - Grafana on `127.0.0.1:${EDGELAB_GRAFANA_PORT:-3000}`
+- Loki on `127.0.0.1:${EDGELAB_LOKI_PORT:-3100}`
+- Tempo on `127.0.0.1:${EDGELAB_TEMPO_PORT:-3200}`
+- Postgres exporter on `127.0.0.1:${EDGELAB_POSTGRES_EXPORTER_PORT:-9187}`
+- Timescale exporter on `127.0.0.1:${EDGELAB_TIMESCALE_EXPORTER_PORT:-9188}`
 - starter `EdgeLab Overview` dashboard with request rate, p95 latency, 5xx rate, and in-flight requests
+
+Both PostgreSQL services now preload `pg_stat_statements`, and benchmark profile scrapes those views through exporters so slow-query attribution survives the single-VM Docker path too.
+
+Structured JSON logs are enabled by default through `EDGELAB_OBSERVABILITY_JSON_LOGS=1`. Switch back to plain text with:
+
+```bash
+export EDGELAB_OBSERVABILITY_JSON_LOGS=0
+```
+
+OpenTelemetry traces stay disabled until you point the runtime at an OTLP HTTP collector such as bundled Tempo:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces
+export OTEL_SERVICE_NAMESPACE=edgelab
+export EDGELAB_OTEL_ENVIRONMENT=staging
+export EDGELAB_OTEL_TRACE_SAMPLE_RATIO=0.2
+```
 
 The denormalized backtest session summary read model is also refreshed continuously by the default worker loop. Tune that cadence with:
 

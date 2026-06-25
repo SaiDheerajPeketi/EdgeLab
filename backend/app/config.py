@@ -33,6 +33,16 @@ def tuple_env(name: str, default: str) -> tuple[str, ...]:
     )
 
 
+def float_env(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        return float(raw_value)
+    except ValueError:
+        return default
+
+
 def optional_path_env(name: str) -> Path | None:
     raw_value = os.getenv(name, "").strip()
     if not raw_value:
@@ -204,6 +214,29 @@ class Settings:
         "EDGELAB_ANALYTICS_INTERVAL_SECONDS",
         60,
     )
+    observability_log_level: str = os.getenv(
+        "EDGELAB_OBSERVABILITY_LOG_LEVEL",
+        "INFO",
+    ).strip() or "INFO"
+    observability_json_logs: bool = bool_env(
+        "EDGELAB_OBSERVABILITY_JSON_LOGS",
+        True,
+    )
+    otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "").strip()
+    otel_service_namespace: str = os.getenv("OTEL_SERVICE_NAMESPACE", "edgelab").strip()
+    otel_environment: str = os.getenv("EDGELAB_OTEL_ENVIRONMENT", "production").strip()
+    otel_exporter_otlp_endpoint: str = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "",
+    ).strip()
+    otel_exporter_otlp_headers: str = os.getenv(
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "",
+    ).strip()
+    otel_trace_sample_ratio: float = float_env(
+        "EDGELAB_OTEL_TRACE_SAMPLE_RATIO",
+        1.0,
+    )
     beta_seats_total: int = int_env("EDGELAB_BETA_SEATS_TOTAL", 500)
     beta_manual_access_enabled: bool = bool_env(
         "EDGELAB_BETA_MANUAL_ACCESS_ENABLED",
@@ -249,6 +282,14 @@ if not settings.google_redirect_uri and settings.public_origin:
         market_data_bars_rate_limit=settings.market_data_bars_rate_limit,
         dataset_auto_discovery_enabled=settings.dataset_auto_discovery_enabled,
         analytics_interval_seconds=settings.analytics_interval_seconds,
+        observability_log_level=settings.observability_log_level,
+        observability_json_logs=settings.observability_json_logs,
+        otel_service_name=settings.otel_service_name,
+        otel_service_namespace=settings.otel_service_namespace,
+        otel_environment=settings.otel_environment,
+        otel_exporter_otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+        otel_exporter_otlp_headers=settings.otel_exporter_otlp_headers,
+        otel_trace_sample_ratio=settings.otel_trace_sample_ratio,
         beta_seats_total=settings.beta_seats_total,
         beta_manual_access_enabled=settings.beta_manual_access_enabled,
     )

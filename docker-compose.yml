@@ -1,6 +1,14 @@
 services:
   postgres:
     image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.track=all
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-edgelab}
       POSTGRES_USER: ${POSTGRES_USER:-edgelab}
@@ -18,6 +26,10 @@ services:
     restart: unless-stopped
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./docker/observability/postgres/init-observability.sql
+        target: /docker-entrypoint-initdb.d/10-observability.sql
+        read_only: true
 
   pgbouncer-postgres:
     build:
@@ -54,6 +66,14 @@ services:
 
   timescaledb:
     image: timescale/timescaledb:2.16.1-pg16
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb,pg_stat_statements
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.track=all
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-edgelab}
       POSTGRES_USER: ${POSTGRES_USER:-edgelab}
@@ -71,6 +91,10 @@ services:
     restart: unless-stopped
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./docker/observability/postgres/init-observability.sql
+        target: /docker-entrypoint-initdb.d/10-observability.sql
+        read_only: true
 
   pgbouncer-timescaledb:
     build:
@@ -168,6 +192,14 @@ services:
         target: /etc/grafana/provisioning/datasources/prometheus.yml
         read_only: true
       - type: bind
+        source: ./docker/observability/grafana/provisioning/datasources/loki.yml
+        target: /etc/grafana/provisioning/datasources/loki.yml
+        read_only: true
+      - type: bind
+        source: ./docker/observability/grafana/provisioning/datasources/tempo.yml
+        target: /etc/grafana/provisioning/datasources/tempo.yml
+        read_only: true
+      - type: bind
         source: ./docker/observability/grafana/provisioning/dashboards/dashboards.yml
         target: /etc/grafana/provisioning/dashboards/dashboards.yml
         read_only: true
@@ -175,6 +207,92 @@ services:
         source: ./docker/observability/grafana/dashboards
         target: /etc/grafana/provisioning/dashboards/json
         read_only: true
+
+  loki:
+    profiles:
+      - benchmark
+    image: grafana/loki:3.1.1
+    command:
+      - -config.file=/etc/loki/config.yml
+    ports:
+      - "127.0.0.1:${EDGELAB_LOKI_PORT:-3100}:3100"
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./docker/observability/loki-config.yml
+        target: /etc/loki/config.yml
+        read_only: true
+      - loki-data:/loki
+
+  promtail:
+    profiles:
+      - benchmark
+    image: grafana/promtail:3.1.1
+    command:
+      - -config.file=/etc/promtail/config.yml
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./docker/observability/promtail.yml
+        target: /etc/promtail/config.yml
+        read_only: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - promtail-data:/tmp/promtail
+
+  tempo:
+    profiles:
+      - benchmark
+    image: grafana/tempo:2.5.0
+    command:
+      - -config.file=/etc/tempo/config.yml
+    ports:
+      - "127.0.0.1:${EDGELAB_TEMPO_PORT:-3200}:3200"
+      - "127.0.0.1:${EDGELAB_TEMPO_OTLP_HTTP_PORT:-4318}:4318"
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./docker/observability/tempo.yml
+        target: /etc/tempo/config.yml
+        read_only: true
+      - tempo-data:/var/tempo
+
+  postgres-exporter:
+    profiles:
+      - benchmark
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - --collector.stat_statements
+      - --collector.database
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-edgelab}:${POSTGRES_PASSWORD:-edgelab}@postgres:5432/${POSTGRES_DB:-edgelab}?sslmode=disable
+    ports:
+      - "127.0.0.1:${EDGELAB_POSTGRES_EXPORTER_PORT:-9187}:9187"
+    restart: unless-stopped
+
+  timescaledb-exporter:
+    profiles:
+      - benchmark
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command:
+      - --collector.stat_statements
+      - --collector.database
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-edgelab}:${POSTGRES_PASSWORD:-edgelab}@timescaledb:5432/${POSTGRES_DB:-edgelab}?sslmode=disable
+    ports:
+      - "127.0.0.1:${EDGELAB_TIMESCALE_EXPORTER_PORT:-9188}:9187"
+    restart: unless-stopped
 
   api:
     build:
@@ -202,7 +320,11 @@ services:
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
       EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab}
+      EDGELAB_OBSERVABILITY_LOG_LEVEL: ${EDGELAB_OBSERVABILITY_LOG_LEVEL:-INFO}
+      EDGELAB_OBSERVABILITY_JSON_LOGS: ${EDGELAB_OBSERVABILITY_JSON_LOGS:-1}
+      EDGELAB_OTEL_ENVIRONMENT: ${EDGELAB_OTEL_ENVIRONMENT:-production}
       EDGELAB_REDIS_URL: ${EDGELAB_REDIS_URL:-redis://redis:6379/0}
+      EDGELAB_OTEL_TRACE_SAMPLE_RATIO: ${EDGELAB_OTEL_TRACE_SAMPLE_RATIO:-1.0}
       EDGELAB_RATE_LIMIT_WINDOW_SECONDS: ${EDGELAB_RATE_LIMIT_WINDOW_SECONDS:-60}
       EDGELAB_DATASET_REFRESH_RATE_LIMIT: ${EDGELAB_DATASET_REFRESH_RATE_LIMIT:-6}
       EDGELAB_MARKET_DATA_META_RATE_LIMIT: ${EDGELAB_MARKET_DATA_META_RATE_LIMIT:-240}
@@ -216,6 +338,10 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: edgelab-api
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-edgelab}
     healthcheck:
       test:
         - CMD
@@ -264,7 +390,11 @@ services:
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
       EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab}
+      EDGELAB_OBSERVABILITY_LOG_LEVEL: ${EDGELAB_OBSERVABILITY_LOG_LEVEL:-INFO}
+      EDGELAB_OBSERVABILITY_JSON_LOGS: ${EDGELAB_OBSERVABILITY_JSON_LOGS:-1}
+      EDGELAB_OTEL_ENVIRONMENT: ${EDGELAB_OTEL_ENVIRONMENT:-production}
       EDGELAB_REDIS_URL: ${EDGELAB_REDIS_URL:-redis://redis:6379/0}
+      EDGELAB_OTEL_TRACE_SAMPLE_RATIO: ${EDGELAB_OTEL_TRACE_SAMPLE_RATIO:-1.0}
       EDGELAB_RATE_LIMIT_WINDOW_SECONDS: ${EDGELAB_RATE_LIMIT_WINDOW_SECONDS:-60}
       EDGELAB_DATASET_REFRESH_RATE_LIMIT: ${EDGELAB_DATASET_REFRESH_RATE_LIMIT:-6}
       EDGELAB_MARKET_DATA_META_RATE_LIMIT: ${EDGELAB_MARKET_DATA_META_RATE_LIMIT:-240}
@@ -278,6 +408,10 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: edgelab-market-api
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-edgelab}
     healthcheck:
       test:
         - CMD
@@ -320,6 +454,10 @@ services:
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
       EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab}
+      EDGELAB_OBSERVABILITY_LOG_LEVEL: ${EDGELAB_OBSERVABILITY_LOG_LEVEL:-INFO}
+      EDGELAB_OBSERVABILITY_JSON_LOGS: ${EDGELAB_OBSERVABILITY_JSON_LOGS:-1}
+      EDGELAB_OTEL_ENVIRONMENT: ${EDGELAB_OTEL_ENVIRONMENT:-production}
+      EDGELAB_OTEL_TRACE_SAMPLE_RATIO: ${EDGELAB_OTEL_TRACE_SAMPLE_RATIO:-1.0}
       EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS: ${EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT}
       EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE: ${EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE:-2017-08-17}
       EDGELAB_DATA_POPULATOR_BACKFILL_MODE: ${EDGELAB_DATA_POPULATOR_BACKFILL_MODE:-max}
@@ -329,6 +467,10 @@ services:
       EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS: ${EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS:-3600}
       EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS: ${EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS:-30}
       EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS: ${EDGELAB_DATA_POPULATOR_REQUEST_TIMEOUT_SECONDS:-20}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: edgelab-data-populator
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-edgelab}
     restart: unless-stopped
     volumes:
       - type: bind
@@ -348,6 +490,14 @@ services:
       EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-6432}
       EDGELAB_ANALYTICS_INTERVAL_SECONDS: ${EDGELAB_ANALYTICS_INTERVAL_SECONDS:-60}
       EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-}
+      EDGELAB_OBSERVABILITY_LOG_LEVEL: ${EDGELAB_OBSERVABILITY_LOG_LEVEL:-INFO}
+      EDGELAB_OBSERVABILITY_JSON_LOGS: ${EDGELAB_OBSERVABILITY_JSON_LOGS:-1}
+      EDGELAB_OTEL_ENVIRONMENT: ${EDGELAB_OTEL_ENVIRONMENT:-production}
+      EDGELAB_OTEL_TRACE_SAMPLE_RATIO: ${EDGELAB_OTEL_TRACE_SAMPLE_RATIO:-1.0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: edgelab-analytics-worker
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-edgelab}
     restart: unless-stopped
 
   frontend:
@@ -404,5 +554,8 @@ volumes:
   postgres-data:
   timescaledb-data:
   minio-data:
+  loki-data:
   legacy-api-data:
   legacy-uploads:
+  promtail-data:
+  tempo-data:

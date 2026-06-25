@@ -6,8 +6,9 @@ import time
 from sqlalchemy import select
 
 from app.config import settings
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.models import BetaUser
+from app.observability import configure_logging, configure_tracing
 from app.services.dashboard_summaries import refresh_user_dashboard_summary
 from app.services.session_summaries import refresh_user_session_summaries
 
@@ -32,7 +33,20 @@ def run_once() -> dict[str, int]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_logging(
+        log_level=settings.observability_log_level,
+        json_logs=settings.observability_json_logs,
+        service_name=settings.otel_service_name or "edgelab-analytics-worker",
+    )
+    configure_tracing(
+        service_name=settings.otel_service_name or "edgelab-analytics-worker",
+        service_namespace=settings.otel_service_namespace,
+        environment=settings.otel_environment,
+        otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+        otlp_headers=settings.otel_exporter_otlp_headers,
+        sample_ratio=settings.otel_trace_sample_ratio,
+        sql_engines=(engine,),
+    )
     interval_seconds = max(settings.analytics_interval_seconds, 5)
     logger.info("analytics-worker starting with %ss interval", interval_seconds)
     while True:

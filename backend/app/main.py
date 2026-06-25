@@ -8,11 +8,23 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.routes import router
 from app.config import settings
-from app.db import init_db
-from app.market_data_db import init_market_data_db
-from app.observability import HTTPMetricsMiddleware, HttpMetricsRegistry, PROMETHEUS_CONTENT_TYPE
+from app.db import engine, init_db
+from app.market_data_db import init_market_data_db, market_data_engine
+from app.observability import (
+    HTTPMetricsMiddleware,
+    HttpMetricsRegistry,
+    PROMETHEUS_CONTENT_TYPE,
+    RequestContextMiddleware,
+    configure_logging,
+    configure_tracing,
+)
 
 
+configure_logging(
+    log_level=settings.observability_log_level,
+    json_logs=settings.observability_json_logs,
+    service_name=settings.otel_service_name or "edgelab-api",
+)
 logger = logging.getLogger(__name__)
 http_metrics = HttpMetricsRegistry()
 
@@ -78,6 +90,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(HTTPMetricsMiddleware, registry=http_metrics)
+app.add_middleware(RequestContextMiddleware)
+
+tracing_status = configure_tracing(
+    app=app,
+    service_name=settings.otel_service_name or "edgelab-api",
+    service_namespace=settings.otel_service_namespace,
+    environment=settings.otel_environment,
+    otlp_endpoint=settings.otel_exporter_otlp_endpoint,
+    otlp_headers=settings.otel_exporter_otlp_headers,
+    sample_ratio=settings.otel_trace_sample_ratio,
+    sql_engines=(engine, market_data_engine),
+)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -121,6 +145,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 def on_startup() -> None:
     init_db()
     init_market_data_db()
+    if tracing_status.enabled:
+        logger.info(
+            "OpenTelemetry tracing enabled for %s",
+            tracing_status.exporter_endpoint,
+        )
+    else:
+        logger.info("OpenTelemetry tracing disabled: %s", tracing_status.reason)
 
 
 @app.get("/api/observability/metrics", include_in_schema=False)
