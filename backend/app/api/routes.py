@@ -1,4 +1,6 @@
 import asyncio
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+import binascii
 import json
 import logging
 import re
@@ -410,15 +412,22 @@ def list_listable_backtest_sessions_page(
     user_id: int,
     offset: int = 0,
     limit: int = SESSION_SUMMARIES_LIMIT,
+    cursor: str | None = None,
+    status: str | None = None,
 ) -> BacktestSessionPage:
+    cursor_value = decode_page_cursor(cursor) if cursor else None
+    rows = backtester.list_listable_sessions(
+        db,
+        user_id,
+        offset=offset,
+        limit=limit + 1,
+        cursor=cursor_value,
+        status=status,
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
     items = [
-        BacktestSessionRead.model_validate(session)
-        for session in backtester.list_listable_sessions(
-            db,
-            user_id,
-            offset=offset,
-            limit=limit,
-        )
+        BacktestSessionRead.model_validate(session) for session in rows
     ]
     next_offset = offset + len(items)
     return BacktestSessionPage(
@@ -426,16 +435,33 @@ def list_listable_backtest_sessions_page(
         offset=offset,
         limit=limit,
         next_offset=next_offset,
-        has_more=len(items) == limit
-        and bool(
-            backtester.list_listable_sessions(
-                db,
-                user_id,
-                offset=next_offset,
-                limit=1,
-            )
-        ),
+        next_cursor=encode_page_cursor(rows[-1].created_at, rows[-1].id) if has_more and rows else None,
+        has_more=has_more,
     )
+
+
+def normalize_page_cursor_timestamp(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def encode_page_cursor(timestamp: datetime, row_id: int) -> str:
+    normalized = normalize_page_cursor_timestamp(timestamp)
+    payload = f"{normalized.isoformat()}|{row_id}".encode("utf-8")
+    return urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def decode_page_cursor(cursor: str) -> tuple[datetime, int]:
+    try:
+        padded = cursor + ("=" * (-len(cursor) % 4))
+        decoded = urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        timestamp_text, row_id_text = decoded.rsplit("|", 1)
+        return normalize_page_cursor_timestamp(datetime.fromisoformat(timestamp_text)), int(
+            row_id_text
+        )
+    except (ValueError, binascii.Error, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
 
 
 def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
@@ -1625,6 +1651,7 @@ def build_bootstrap_shell_response(
         recent_sessions=sessions_page.items,
         strategy_summaries=build_strategy_summaries(db, user_id, sessions_page.items),
         recent_sessions_next_offset=sessions_page.next_offset,
+        recent_sessions_next_cursor=sessions_page.next_cursor,
         recent_sessions_has_more=sessions_page.has_more,
         recent_session_limit=limit,
     )
@@ -1671,6 +1698,7 @@ def build_bootstrap_response(
         recent_sessions=shell.recent_sessions,
         strategy_summaries=shell.strategy_summaries,
         recent_sessions_next_offset=shell.recent_sessions_next_offset,
+        recent_sessions_next_cursor=shell.recent_sessions_next_cursor,
         recent_sessions_has_more=shell.recent_sessions_has_more,
         recent_trades=backtester.list_trades(
             db,
@@ -1696,6 +1724,7 @@ def cached_bootstrap_response(
         recent_sessions=shell.recent_sessions,
         strategy_summaries=shell.strategy_summaries,
         recent_sessions_next_offset=shell.recent_sessions_next_offset,
+        recent_sessions_next_cursor=shell.recent_sessions_next_cursor,
         recent_sessions_has_more=shell.recent_sessions_has_more,
         recent_trades=backtester.list_trades(
             db,
@@ -1771,7 +1800,9 @@ def create_backtest(
 @router.get("/backtests/summaries", response_model=BacktestSessionPage)
 def list_backtest_summaries(
     offset: int = Query(default=0, ge=0),
+    cursor: str | None = None,
     limit: int = Query(default=SESSION_SUMMARIES_LIMIT, ge=1, le=SESSION_SUMMARIES_LIMIT_MAX),
+    status: str | None = None,
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestSessionPage:
@@ -1780,7 +1811,9 @@ def list_backtest_summaries(
             db,
             current_user.id,
             offset=offset,
+            cursor=cursor,
             limit=limit,
+            status=status,
         )
     except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         raise dataset_error_response(exc) from exc

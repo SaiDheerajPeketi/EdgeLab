@@ -54,6 +54,8 @@ The benchmark profile does not switch request paths to Redis, TimescaleDB, or Mi
 
 The metrics API is also split now: `GET /api/metrics/summary` serves lightweight card-level aggregates and `GET /api/metrics/curves` serves the heavier equity/report payload. `GET /api/metrics` remains as the backward-compatible combined endpoint while the UI migrates.
 
+Session summary reads now support cursor-first pagination at `GET /api/backtests/summaries?cursor=&limit=&status=` while keeping offset fallback for legacy callers.
+
 Trade reads now also have an explicit page contract at `GET /api/trades/page?offset=&limit=`. The legacy `GET /api/trades` list route stays available while the UI moves off full-list assumptions.
 
 You can also rebuild the session-summary read model on demand with `npm run analytics:refresh-session-summaries`.

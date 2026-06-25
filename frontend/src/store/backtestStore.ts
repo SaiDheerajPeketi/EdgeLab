@@ -72,6 +72,7 @@ type BacktestStore = {
   playbooks: Playbook[];
   resultSessions: BacktestSession[];
   resultSessionsNextOffset: number;
+  resultSessionsNextCursor: string | null;
   resultSessionsHasMore: boolean;
   strategySummaries: StrategySummary[];
   resultTrades: Trade[];
@@ -128,6 +129,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   playbooks: [],
   resultSessions: [],
   resultSessionsNextOffset: 0,
+  resultSessionsNextCursor: null,
   resultSessionsHasMore: false,
   strategySummaries: [],
   resultTrades: [],
@@ -224,6 +226,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         playbooks: shell.playbooks,
         resultSessions: shell.recent_sessions,
         resultSessionsNextOffset: shell.recent_sessions_next_offset,
+        resultSessionsNextCursor: shell.recent_sessions_next_cursor,
         resultSessionsHasMore: shell.recent_sessions_has_more,
         strategySummaries: shell.strategy_summaries,
         resultTradesLoaded: false,
@@ -240,6 +243,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           playbooks: bootstrap.playbooks,
           resultSessions: bootstrap.recent_sessions,
           resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
+          resultSessionsNextCursor: bootstrap.recent_sessions_next_cursor,
           resultSessionsHasMore: bootstrap.recent_sessions_has_more,
           strategySummaries: bootstrap.strategy_summaries,
           resultTrades: bootstrap.recent_trades,
@@ -265,6 +269,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             playbooks,
             resultSessions,
             resultSessionsNextOffset: resultSessions.length,
+            resultSessionsNextCursor: null,
             resultSessionsHasMore: false,
             strategySummaries: [],
             resultTrades,
@@ -356,6 +361,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: shell.resultSessions,
         resultSessionsHasMore: shell.resultSessionsHasMore,
         resultSessionsNextOffset: shell.resultSessionsNextOffset,
+        resultSessionsNextCursor: shell.resultSessionsNextCursor,
         strategySummaries: shell.strategySummaries,
         resultTradesLoaded: current.resultTradesLoaded,
         error: null,
@@ -373,6 +379,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions,
         resultSessionsHasMore,
         resultSessionsNextOffset,
+        resultSessionsNextCursor,
         strategySummaries,
         resultTrades,
       } = await loadResultsData(sessionTarget);
@@ -381,6 +388,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions,
         resultSessionsHasMore,
         resultSessionsNextOffset,
+        resultSessionsNextCursor,
         strategySummaries,
         resultTrades,
         resultTradesLoaded: true,
@@ -429,6 +437,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       resultSessionsHasMore,
       resultSessions,
       resultSessionsNextOffset,
+      resultSessionsNextCursor,
     } = get();
     if (isLoadingMoreSessions || !resultSessionsHasMore) {
       return;
@@ -438,6 +447,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const nextLimit = resultSessions.length + RESULT_SESSIONS_PAGE_LIMIT;
       const [page, strategySummaries] = await Promise.all([
         getBacktestSessionSummaries({
+          cursor: resultSessionsNextCursor,
           offset: resultSessionsNextOffset,
           limit: RESULT_SESSIONS_PAGE_LIMIT,
         }),
@@ -447,6 +457,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: mergeSessions(current.resultSessions, page.items),
         resultSessionsHasMore: page.has_more,
         resultSessionsNextOffset: page.next_offset,
+        resultSessionsNextCursor: page.next_cursor,
         strategySummaries,
         isLoadingMoreSessions: false,
         error: null,
@@ -763,6 +774,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: results.resultSessions,
         resultSessionsHasMore: results.resultSessionsHasMore,
         resultSessionsNextOffset: results.resultSessionsNextOffset,
+        resultSessionsNextCursor: results.resultSessionsNextCursor,
         strategySummaries: results.strategySummaries,
         resultTrades: results.resultTrades,
         state: mergeActiveTradeState(current.state, trade, metricsSummary, metricsCurves),
@@ -789,6 +801,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: results.resultSessions,
         resultSessionsHasMore: results.resultSessionsHasMore,
         resultSessionsNextOffset: results.resultSessionsNextOffset,
+        resultSessionsNextCursor: results.resultSessionsNextCursor,
         strategySummaries: results.strategySummaries,
         resultTrades: results.resultTrades,
         state: mergeActiveTradeState(current.state, trade, metricsSummary, metricsCurves),
@@ -831,6 +844,7 @@ async function loadResultsData(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
     playbooks: shell.playbooks,
     resultSessions: shell.recent_sessions,
     resultSessionsNextOffset: shell.recent_sessions_next_offset,
+    resultSessionsNextCursor: shell.recent_sessions_next_cursor,
     resultSessionsHasMore: shell.recent_sessions_has_more,
     strategySummaries: shell.strategy_summaries,
     resultTrades,
@@ -843,6 +857,7 @@ async function loadShellSnapshot(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
     playbooks: shell.playbooks,
     resultSessions: shell.recent_sessions,
     resultSessionsNextOffset: shell.recent_sessions_next_offset,
+    resultSessionsNextCursor: shell.recent_sessions_next_cursor,
     resultSessionsHasMore: shell.recent_sessions_has_more,
     strategySummaries: shell.strategy_summaries,
   };

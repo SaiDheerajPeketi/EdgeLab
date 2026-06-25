@@ -647,6 +647,7 @@ class BacktestSessionPage(BaseModel):
     offset: int
     limit: int
     next_offset: int
+    next_cursor: str | None = None
     has_more: bool
 
 
@@ -655,6 +656,7 @@ class TradePage(BaseModel):
     offset: int
     limit: int
     next_offset: int
+    next_cursor: str | None = None
     has_more: bool
 
 
@@ -663,6 +665,7 @@ class AppBootstrapShellResponse(BaseModel):
     recent_sessions: list[BacktestSessionRead]
     strategy_summaries: list[StrategySummary]
     recent_sessions_next_offset: int
+    recent_sessions_next_cursor: str | None = None
     recent_sessions_has_more: bool
     recent_session_limit: int
 
@@ -673,6 +676,7 @@ class AppBootstrapResponse(BaseModel):
     recent_sessions: list[BacktestSessionRead]
     strategy_summaries: list[StrategySummary]
     recent_sessions_next_offset: int
+    recent_sessions_next_cursor: str | None = None
     recent_sessions_has_more: bool
     recent_trades: list[TradeRead]
     recent_session_limit: int

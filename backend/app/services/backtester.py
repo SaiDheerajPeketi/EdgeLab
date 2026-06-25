@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from fastapi import HTTPException
-from sqlalchemy import asc, desc, or_, select
+from sqlalchemy import and_, asc, desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -634,6 +634,8 @@ class BacktestService:
         user_id: int,
         offset: int = 0,
         limit: int | None = None,
+        cursor: tuple[datetime, int] | None = None,
+        status: str | None = None,
     ) -> list[BacktestSession]:
         if self.dataset_catalog is not None:
             self.dataset_catalog.discover_catalog(db, user_id)
@@ -645,7 +647,20 @@ class BacktestService:
             )
             .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
         )
-        if offset > 0:
+        if status in {"ACTIVE", "COMPLETE"}:
+            query = query.where(BacktestSession.status == status)
+        if cursor is not None:
+            cursor_created_at, cursor_id = cursor
+            query = query.where(
+                or_(
+                    BacktestSession.created_at < cursor_created_at,
+                    and_(
+                        BacktestSession.created_at == cursor_created_at,
+                        BacktestSession.id < cursor_id,
+                    ),
+                )
+            )
+        elif offset > 0:
             query = query.offset(offset)
         if limit is not None:
             query = query.limit(limit)

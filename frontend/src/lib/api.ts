@@ -298,6 +298,7 @@ export type AppBootstrap = {
   recent_sessions: BacktestSession[];
   strategy_summaries: StrategySummary[];
   recent_sessions_next_offset: number;
+  recent_sessions_next_cursor: string | null;
   recent_sessions_has_more: boolean;
   recent_trades: Trade[];
   recent_session_limit: number;
@@ -309,6 +310,7 @@ export type AppBootstrapShell = {
   recent_sessions: BacktestSession[];
   strategy_summaries: StrategySummary[];
   recent_sessions_next_offset: number;
+  recent_sessions_next_cursor: string | null;
   recent_sessions_has_more: boolean;
   recent_session_limit: number;
 };
@@ -318,6 +320,7 @@ export type BacktestSessionPage = {
   offset: number;
   limit: number;
   next_offset: number;
+  next_cursor: string | null;
   has_more: boolean;
 };
 
@@ -326,6 +329,7 @@ export type TradePage = {
   offset: number;
   limit: number;
   next_offset: number;
+  next_cursor: string | null;
   has_more: boolean;
 };
 
@@ -856,14 +860,20 @@ export function getBacktests() {
 }
 
 export function getBacktestSessionSummaries(
-  options: { offset?: number; limit?: number } = {},
+  options: { cursor?: string | null; offset?: number; limit?: number; status?: "ACTIVE" | "COMPLETE" } = {},
 ) {
   const params = new URLSearchParams();
+  if (options.cursor) {
+    params.set("cursor", options.cursor);
+  }
   if (options.offset !== undefined) {
     params.set("offset", String(options.offset));
   }
   if (options.limit !== undefined) {
     params.set("limit", String(options.limit));
+  }
+  if (options.status !== undefined) {
+    params.set("status", options.status);
   }
   const query = params.toString() ? `?${params.toString()}` : "";
   return request<BacktestSessionPage>(`/backtests/summaries${query}`);
