@@ -15,6 +15,12 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pandas as pd
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import settings
+from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetSettings, DatasetTimeframe, utcnow
+from app.services.market_data_imports import import_market_data_to_db
 
 DATA_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
 MINUTE = timedelta(minutes=1)
@@ -598,6 +604,8 @@ class ScheduledDataPopulator:
         dukascopy_request_delay_seconds: float = DUKASCOPY_REQUEST_DELAY_SECONDS,
         fetch_json: FetchJson | None = None,
         fetch_bytes: FetchBytes | None = None,
+        catalog_session_factory: sessionmaker | None = None,
+        catalog_import_enabled: bool = True,
     ):
         self.root = root
         self.forex_symbols = forex_symbols
@@ -617,6 +625,8 @@ class ScheduledDataPopulator:
         self.fetch_json = fetch_json or fetch_json_url
         self.fetch_bytes = fetch_bytes or fetch_bytes_url
         self.manifest = DataPopulatorManifest(root)
+        self.catalog_session_factory = catalog_session_factory
+        self.catalog_import_enabled = bool(catalog_import_enabled)
 
     def specs(self) -> list[MarketSpec]:
         return [
@@ -1290,6 +1300,7 @@ class ScheduledDataPopulator:
         for timeframe, derived_path, derived_frame in derived_frames:
             self.manifest.update_timeframe(spec, timeframe, derived_path, derived_frame)
         self.manifest.save()
+        self.sync_catalog_rows(spec, target_path, frame, derived_frames)
 
         return PopulationResult(
             asset_id=spec.asset_id,
@@ -1396,6 +1407,247 @@ class ScheduledDataPopulator:
 
     def csv_path_for_spec(self, spec: MarketSpec, timeframe: str = "M1") -> Path:
         return self.root / spec.asset_id / f"{spec.filename_symbol}_{timeframe}.csv"
+
+    def sync_catalog_rows(
+        self,
+        spec: MarketSpec,
+        target_path: Path,
+        frame: pd.DataFrame,
+        derived_frames: list[tuple[str, Path, pd.DataFrame]],
+    ) -> None:
+        if self.catalog_session_factory is None:
+            return
+        with self.catalog_session_factory() as db:
+            user_ids = self.catalog_user_ids(db)
+            if not user_ids:
+                return
+            for user_id in user_ids:
+                asset = self.upsert_catalog_asset(db, user_id, spec)
+                changed_timeframes = [
+                    timeframe
+                    for timeframe, path, timeframe_frame in [
+                        ("M1", target_path, frame),
+                        *derived_frames,
+                    ]
+                    if self.upsert_catalog_timeframe(
+                        db,
+                        user_id,
+                        asset,
+                        timeframe,
+                        path,
+                        timeframe_frame,
+                    )
+                ]
+                if changed_timeframes:
+                    self.sync_catalog_replay_ready(db, user_id)
+                    if self.catalog_import_enabled:
+                        import_market_data_to_db(
+                            db,
+                            user_id=user_id,
+                            instrument=spec.asset_id,
+                            pending_only=True,
+                        )
+            db.commit()
+
+    def catalog_user_ids(self, db: Session) -> list[int]:
+        user_ids = list(
+            db.scalars(
+                select(DatasetSettings.user_id).where(DatasetSettings.root_path == str(self.root))
+            ).all()
+        )
+        if self.root == settings.datasets_root:
+            explicit_user_ids = set(user_ids)
+            default_user_ids = db.scalars(
+                select(BetaUser.id).where(
+                    BetaUser.id.not_in(select(DatasetSettings.user_id)),
+                )
+            ).all()
+            user_ids.extend(user_id for user_id in default_user_ids if user_id not in explicit_user_ids)
+        return sorted(set(user_ids))
+
+    def upsert_catalog_asset(
+        self,
+        db: Session,
+        user_id: int,
+        spec: MarketSpec,
+    ) -> DatasetAsset:
+        asset = db.scalar(
+            select(DatasetAsset).where(
+                DatasetAsset.user_id == user_id,
+                DatasetAsset.asset_key == spec.asset_id,
+            )
+        )
+        folder_path = str(self.root / spec.asset_id)
+        asset_name = spec.asset_id.replace("_", "/")
+        symbol = spec.symbol
+        if asset is None:
+            asset = DatasetAsset(
+                user_id=user_id,
+                asset_key=spec.asset_id,
+                name=asset_name,
+                symbol=symbol,
+                folder_path=folder_path,
+                currency="USD",
+                timezone="UTC",
+                pnl_multiplier=1.0,
+            )
+            db.add(asset)
+            db.flush()
+            return asset
+        if asset.name != asset_name or asset.symbol != symbol or asset.folder_path != folder_path:
+            asset.name = asset_name
+            asset.symbol = symbol
+            asset.folder_path = folder_path
+            asset.updated_at = utcnow()
+        return asset
+
+    def upsert_catalog_timeframe(
+        self,
+        db: Session,
+        user_id: int,
+        asset: DatasetAsset,
+        timeframe: str,
+        csv_path: Path,
+        frame: pd.DataFrame,
+    ) -> bool:
+        stat = csv_path.stat()
+        existing = db.scalar(
+            select(DatasetTimeframe).where(
+                DatasetTimeframe.user_id == user_id,
+                DatasetTimeframe.asset_id == asset.id,
+                DatasetTimeframe.timeframe == timeframe,
+            )
+        )
+        unchanged = (
+            existing is not None
+            and existing.csv_path == str(csv_path)
+            and existing.file_size == stat.st_size
+            and existing.file_mtime_ns == stat.st_mtime_ns
+        )
+        if unchanged:
+            return False
+        if existing is None:
+            existing = DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe=timeframe,
+                csv_path=str(csv_path),
+                imported=False,
+            )
+            db.add(existing)
+        existing.csv_path = str(csv_path)
+        existing.rows = int(len(frame))
+        existing.first_timestamp = frame.iloc[0]["Timestamp"] if not frame.empty else None
+        existing.last_timestamp = frame.iloc[-1]["Timestamp"] if not frame.empty else None
+        existing.file_size = stat.st_size
+        existing.file_mtime_ns = stat.st_mtime_ns
+        existing.imported = False
+        existing.database_imported = False
+        existing.database_imported_at = None
+        existing.updated_at = utcnow()
+        db.flush()
+        return True
+
+    def sync_catalog_replay_ready(self, db: Session, user_id: int) -> None:
+        stored_timeframes = db.scalars(
+            select(DatasetTimeframe).where(DatasetTimeframe.user_id == user_id)
+        ).all()
+        known_csv_paths = {row.csv_path for row in stored_timeframes if row.csv_path}
+        known_dataset_keys = {(row.asset_id, row.timeframe) for row in stored_timeframes}
+        assets_by_id = {
+            asset.id: asset
+            for asset in db.scalars(select(DatasetAsset).where(DatasetAsset.user_id == user_id)).all()
+        }
+        sessions = db.scalars(
+            select(BacktestSession).where(BacktestSession.user_id == user_id)
+        ).all()
+        for session in sessions:
+            if session.timeframe == "Imported":
+                continue
+            linked_asset_id = linked_session_dataset_asset_id(session, stored_timeframes, assets_by_id)
+            if linked_asset_id is not None and session.dataset_asset_id != linked_asset_id:
+                session.dataset_asset_id = linked_asset_id
+            next_ready = bool(
+                (session.csv_path and session.csv_path in known_csv_paths)
+                or (
+                    session.dataset_asset_id is not None
+                    and session.timeframe is not None
+                    and (session.dataset_asset_id, session.timeframe) in known_dataset_keys
+                )
+            )
+            if session.replay_ready != next_ready:
+                session.replay_ready = next_ready
+                session.updated_at = utcnow()
+
+
+def linked_session_dataset_asset_id(
+    session: BacktestSession,
+    stored_timeframes: list[DatasetTimeframe],
+    assets_by_id: dict[int, DatasetAsset],
+) -> int | None:
+    if session.dataset_asset_id is not None:
+        return session.dataset_asset_id
+
+    wanted_timeframe = normalize_catalog_timeframe(session.timeframe) if session.timeframe else None
+    if session.csv_path:
+        for row in stored_timeframes:
+            if row.csv_path != session.csv_path:
+                continue
+            if wanted_timeframe is None or row.timeframe == wanted_timeframe:
+                return row.asset_id
+
+    if not session.instrument:
+        return None
+
+    wanted_instrument = normalize_catalog_key(session.instrument)
+    for row in stored_timeframes:
+        if wanted_timeframe is not None and row.timeframe != wanted_timeframe:
+            continue
+        asset = assets_by_id.get(row.asset_id)
+        if asset is None:
+            continue
+        if wanted_instrument in {
+            normalize_catalog_key(asset.asset_key),
+            normalize_catalog_key(asset.name),
+            normalize_catalog_key(asset.symbol),
+        }:
+            return row.asset_id
+    return None
+
+
+def normalize_catalog_key(value: str) -> str:
+    return value.replace("/", "_").replace(" ", "_").upper()
+
+
+def normalize_catalog_timeframe(value: str) -> str:
+    aliases = {
+        "1M": "M1",
+        "1MIN": "M1",
+        "1MINUTE": "M1",
+        "1m": "M1",
+        "5M": "M5",
+        "5MIN": "M5",
+        "5m": "M5",
+        "15M": "M15",
+        "15m": "M15",
+        "30M": "M30",
+        "30m": "M30",
+        "1H": "H1",
+        "1h": "H1",
+        "4H": "H4",
+        "4h": "H4",
+        "D": "Daily",
+        "1D": "Daily",
+        "Daily": "Daily",
+        "W": "Weekly",
+        "1W": "Weekly",
+        "Weekly": "Weekly",
+        "M": "Monthly",
+        "1MO": "Monthly",
+        "Monthly": "Monthly",
+    }
+    normalized = aliases.get(value, aliases.get(value.upper(), value))
+    return normalized.upper() if normalized.upper() in RESAMPLE_RULES or normalized.upper() == "M1" else normalized
 
 
 def fetch_json_url(url: str, timeout: int) -> object:

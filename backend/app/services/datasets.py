@@ -610,12 +610,19 @@ class DatasetCatalogService:
         ).all()
         known_csv_paths = {row.csv_path for row in stored_timeframes if row.csv_path}
         known_dataset_keys = {(row.asset_id, row.timeframe) for row in stored_timeframes}
+        assets_by_id = {
+            asset.id: asset
+            for asset in db.scalars(select(DatasetAsset).where(DatasetAsset.user_id == user_id)).all()
+        }
         sessions = db.scalars(
             select(BacktestSession).where(BacktestSession.user_id == user_id)
         ).all()
         for session in sessions:
             if session.timeframe == "Imported":
                 continue
+            linked_asset_id = self._linked_session_dataset_asset_id(session, stored_timeframes, assets_by_id)
+            if linked_asset_id is not None and session.dataset_asset_id != linked_asset_id:
+                session.dataset_asset_id = linked_asset_id
             next_ready = bool(
                 (session.csv_path and session.csv_path in known_csv_paths)
                 or (
@@ -627,6 +634,41 @@ class DatasetCatalogService:
             if session.replay_ready != next_ready:
                 session.replay_ready = next_ready
                 session.updated_at = utcnow()
+
+    def _linked_session_dataset_asset_id(
+        self,
+        session: BacktestSession,
+        stored_timeframes: list[DatasetTimeframe],
+        assets_by_id: dict[int, DatasetAsset],
+    ) -> int | None:
+        if session.dataset_asset_id is not None:
+            return session.dataset_asset_id
+
+        wanted_timeframe = normalize_timeframe(session.timeframe) if session.timeframe else None
+        if session.csv_path:
+            for row in stored_timeframes:
+                if row.csv_path != session.csv_path:
+                    continue
+                if wanted_timeframe is None or row.timeframe == wanted_timeframe:
+                    return row.asset_id
+
+        if not session.instrument:
+            return None
+
+        wanted_instrument = normalize_key(session.instrument)
+        for row in stored_timeframes:
+            if wanted_timeframe is not None and row.timeframe != wanted_timeframe:
+                continue
+            asset = assets_by_id.get(row.asset_id)
+            if asset is None:
+                continue
+            if wanted_instrument in {
+                normalize_key(asset.asset_key),
+                normalize_key(asset.name),
+                normalize_key(asset.symbol),
+            }:
+                return row.asset_id
+        return None
 
     def _upsert_asset_record(
         self,

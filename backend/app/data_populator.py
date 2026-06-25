@@ -2,6 +2,7 @@ import logging
 import time
 
 from app.config import settings
+from app.db import SessionLocal
 from app.services.data_populator import ScheduledDataPopulator
 
 
@@ -23,6 +24,8 @@ def main() -> None:
         forex_start_date=settings.data_populator_forex_start_date,
         crypto_start_date=settings.data_populator_crypto_start_date,
         request_timeout_seconds=settings.data_populator_request_timeout_seconds,
+        catalog_session_factory=SessionLocal,
+        catalog_import_enabled=settings.market_data_import_enabled,
     )
     interval = max(60, settings.data_populator_interval_seconds)
     logger.info(

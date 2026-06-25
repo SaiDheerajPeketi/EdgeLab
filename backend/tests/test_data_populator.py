@@ -7,7 +7,18 @@ from urllib.parse import parse_qs, urlparse
 from zipfile import ZipFile
 
 import pandas as pd
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
+from app.db import Base
+from app.models import (
+    BacktestSession,
+    BetaUser,
+    DatasetAsset,
+    DatasetSettings,
+    DatasetTimeframe,
+    MarketCandle as StoredMarketCandle,
+)
 from app.services import data_populator as data_populator_module
 from app.services.data_populator import (
     MANIFEST_FILENAME,
@@ -121,6 +132,87 @@ def test_data_populator_does_not_synthesize_missing_m1_minutes(tmp_path):
     assert m5.loc[0, "Open"] == 100.0
     assert m5.loc[0, "Close"] == 102.0
     assert m5.loc[0, "Volume"] == 20.0
+
+
+def test_data_populator_syncs_catalog_rows_and_imports_market_candles(tmp_path):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session_factory = sessionmaker(bind=engine)
+    spec = crypto_spec("BTCUSDT")
+
+    with session_factory() as db:
+        user = BetaUser(email="sync@example.com", status="ACTIVE")
+        db.add(user)
+        db.flush()
+        db.add(DatasetSettings(user_id=user.id, root_path=str(tmp_path)))
+        db.add(
+            BacktestSession(
+                user_id=user.id,
+                name="BTC replay",
+                symbol="BTCUSDT",
+                instrument=spec.asset_id,
+                timeframe="M1",
+                replay_ready=False,
+            )
+        )
+        db.commit()
+        user_id = user.id
+
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        derived_timeframes=("M5",),
+        catalog_session_factory=session_factory,
+        catalog_import_enabled=True,
+    )
+    result = populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+            candle("2024-01-01T00:02:00", 102.0),
+            candle("2024-01-01T00:03:00", 103.0),
+            candle("2024-01-01T00:04:00", 104.0),
+        ],
+    )
+
+    assert result.rows == 5
+
+    with session_factory() as db:
+        asset = db.scalar(select(DatasetAsset).where(DatasetAsset.user_id == user_id))
+        assert asset is not None
+        assert asset.asset_key == spec.asset_id
+        assert asset.symbol == spec.symbol
+
+        stored_timeframes = db.scalars(
+            select(DatasetTimeframe)
+            .where(DatasetTimeframe.user_id == user_id)
+            .order_by(DatasetTimeframe.timeframe)
+        ).all()
+        assert [row.timeframe for row in stored_timeframes] == ["M1", "M5"]
+        assert all(row.database_imported for row in stored_timeframes)
+        assert all(row.database_imported_at is not None for row in stored_timeframes)
+
+        m1_timeframe = next(row for row in stored_timeframes if row.timeframe == "M1")
+        candles = db.scalars(
+            select(StoredMarketCandle)
+            .where(
+                StoredMarketCandle.user_id == user_id,
+                StoredMarketCandle.asset_id == asset.id,
+                StoredMarketCandle.timeframe == "M1",
+            )
+            .order_by(StoredMarketCandle.offset)
+        ).all()
+        assert len(candles) == 5
+        assert candles[0].timestamp == datetime(2024, 1, 1, 0, 0)
+        assert candles[-1].timestamp == datetime(2024, 1, 1, 0, 4)
+        assert m1_timeframe.rows == 5
+        assert m1_timeframe.csv_path.endswith("BTCUSDT_M1.csv")
+
+        session = db.scalar(select(BacktestSession).where(BacktestSession.user_id == user_id))
+        assert session is not None
+        assert session.replay_ready is True
 
 
 def test_data_populator_uses_max_backfill_mode_by_default(tmp_path):

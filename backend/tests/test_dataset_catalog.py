@@ -604,3 +604,40 @@ def test_refresh_catalog_marks_dataset_asset_session_ready_without_session_csv_p
         db.refresh(session)
 
         assert session.replay_ready is True
+
+
+def test_refresh_catalog_links_session_to_dataset_asset_by_instrument(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "EURUSD_M1.csv").write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1,1.2,1.0,1.15,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, market_data_import_enabled=True)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        session = BacktestSession(
+            user_id=user_id,
+            name="Needs asset link",
+            symbol="EURUSD",
+            instrument="EUR_USD",
+            timeframe="M1",
+            csv_path=None,
+            replay_ready=False,
+            current_offset=0,
+        )
+        db.add(session)
+        db.commit()
+
+        service.refresh_catalog(db, user_id)
+        db.refresh(session)
+
+        assert session.dataset_asset_id is not None
+        assert session.replay_ready is True
