@@ -297,6 +297,8 @@ export type AppBootstrap = {
   playbooks: Playbook[];
   recent_sessions: BacktestSession[];
   strategy_summaries: StrategySummary[];
+  dashboard_summary: MetricsSummary | null;
+  active_session_id: number | null;
   recent_sessions_next_offset: number;
   recent_sessions_next_cursor: string | null;
   recent_sessions_has_more: boolean;
@@ -309,6 +311,8 @@ export type AppBootstrapShell = {
   playbooks: Playbook[];
   recent_sessions: BacktestSession[];
   strategy_summaries: StrategySummary[];
+  dashboard_summary: MetricsSummary | null;
+  active_session_id: number | null;
   recent_sessions_next_offset: number;
   recent_sessions_next_cursor: string | null;
   recent_sessions_has_more: boolean;

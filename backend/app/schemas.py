@@ -664,6 +664,8 @@ class AppBootstrapShellResponse(BaseModel):
     playbooks: list[PlaybookRead]
     recent_sessions: list[BacktestSessionRead]
     strategy_summaries: list[StrategySummary]
+    dashboard_summary: MetricsSummaryResponse | None = None
+    active_session_id: int | None = None
     recent_sessions_next_offset: int
     recent_sessions_next_cursor: str | None = None
     recent_sessions_has_more: bool
@@ -675,6 +677,8 @@ class AppBootstrapResponse(BaseModel):
     playbooks: list[PlaybookRead]
     recent_sessions: list[BacktestSessionRead]
     strategy_summaries: list[StrategySummary]
+    dashboard_summary: MetricsSummaryResponse | None = None
+    active_session_id: int | None = None
     recent_sessions_next_offset: int
     recent_sessions_next_cursor: str | None = None
     recent_sessions_has_more: bool

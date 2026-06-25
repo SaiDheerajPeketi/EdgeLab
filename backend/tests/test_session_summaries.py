@@ -6,7 +6,17 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import BacktestSession, BacktestSessionSummary, BetaUser, Trade
+from app.models import (
+    BacktestSession,
+    BacktestSessionSummary,
+    BetaUser,
+    Trade,
+    UserDashboardSummary,
+)
+from app.services.dashboard_summaries import (
+    load_user_dashboard_summary,
+    refresh_user_dashboard_summary,
+)
 from app.services.session_summaries import (
     load_session_summary_aggregates,
     refresh_session_summary,
@@ -202,3 +212,43 @@ def test_refresh_user_session_summaries_backfills_empty_sessions():
         assert summaries[0].net_pnl == 25.0
         assert summaries[1].closed_trades == 0
         assert summaries[1].net_pnl == 0.0
+
+
+def test_refresh_user_dashboard_summary_persists_metrics_summary():
+    session_factory = _session_factory()
+    with session_factory() as db:
+        user = _seed_user(db)
+        session = _seed_session(db, user.id, name="Replay A")
+        now = datetime.now(UTC)
+        _seed_closed_trade(
+            db,
+            user.id,
+            session.id,
+            realized_pnl=30.0,
+            r_multiple=1.5,
+            entry_time=now,
+        )
+        _seed_closed_trade(
+            db,
+            user.id,
+            session.id,
+            realized_pnl=-10.0,
+            r_multiple=-0.5,
+            entry_time=now + timedelta(hours=1),
+        )
+
+        refresh_user_dashboard_summary(db, user.id)
+        db.commit()
+
+        stored = db.scalar(
+            select(UserDashboardSummary).where(UserDashboardSummary.user_id == user.id)
+        )
+        assert stored is not None
+        assert stored.total_trades == 2
+        assert stored.net_pnl == 20.0
+        assert stored.winning_trades == 1
+
+        loaded = load_user_dashboard_summary(db, user.id)
+        assert loaded.total_trades == 2
+        assert loaded.net_pnl == 20.0
+        assert loaded.average_r == 0.5

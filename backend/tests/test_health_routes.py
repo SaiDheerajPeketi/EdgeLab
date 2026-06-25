@@ -337,6 +337,9 @@ def test_bootstrap_returns_recent_payload(monkeypatch, tmp_path):
     assert payload.recent_trade_limit == routes.BOOTSTRAP_TRADE_LIMIT
     assert payload.recent_sessions_next_offset >= len(payload.recent_sessions)
     assert payload.recent_sessions_has_more is False
+    assert payload.active_session_id == valid_session_id
+    assert payload.dashboard_summary is not None
+    assert payload.dashboard_summary.total_trades == 1
     assert [session.csv_path for session in payload.recent_sessions] == [str(csv_path)]
     assert [trade.session_id for trade in payload.recent_trades] == [valid_session_id]
     assert payload.recent_trades[0].realized_pnl == 10.0
@@ -375,6 +378,9 @@ def test_bootstrap_shell_returns_recent_payload_without_heavy_sections(monkeypat
     assert payload.playbooks == []
     assert payload.recent_session_limit == routes.BOOTSTRAP_SHELL_SESSION_LIMIT
     assert payload.recent_sessions_has_more is False
+    assert payload.active_session_id == valid_session.id
+    assert payload.dashboard_summary is not None
+    assert payload.dashboard_summary.total_trades == 0
     assert [session.csv_path for session in payload.recent_sessions] == [str(csv_path)]
     assert len(payload.strategy_summaries) == 1
     assert payload.strategy_summaries[0].sessions[0].session.id == valid_session.id

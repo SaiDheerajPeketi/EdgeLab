@@ -97,6 +97,7 @@ from app.schemas import (
     TradeStrategyUpdate,
 )
 from app.services.backtester import BacktestService, list_latest_session
+from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics, get_metrics_curves, get_metrics_summary
@@ -1650,6 +1651,8 @@ def build_bootstrap_shell_response(
         playbooks=backtester.list_playbooks(db, user_id),
         recent_sessions=sessions_page.items,
         strategy_summaries=build_strategy_summaries(db, user_id, sessions_page.items),
+        dashboard_summary=load_user_dashboard_summary(db, user_id),
+        active_session_id=sessions_page.items[0].id if sessions_page.items else None,
         recent_sessions_next_offset=sessions_page.next_offset,
         recent_sessions_next_cursor=sessions_page.next_cursor,
         recent_sessions_has_more=sessions_page.has_more,
@@ -1697,6 +1700,8 @@ def build_bootstrap_response(
         playbooks=shell.playbooks,
         recent_sessions=shell.recent_sessions,
         strategy_summaries=shell.strategy_summaries,
+        dashboard_summary=shell.dashboard_summary,
+        active_session_id=shell.active_session_id,
         recent_sessions_next_offset=shell.recent_sessions_next_offset,
         recent_sessions_next_cursor=shell.recent_sessions_next_cursor,
         recent_sessions_has_more=shell.recent_sessions_has_more,
@@ -1723,6 +1728,8 @@ def cached_bootstrap_response(
         playbooks=shell.playbooks,
         recent_sessions=shell.recent_sessions,
         strategy_summaries=shell.strategy_summaries,
+        dashboard_summary=shell.dashboard_summary,
+        active_session_id=shell.active_session_id,
         recent_sessions_next_offset=shell.recent_sessions_next_offset,
         recent_sessions_next_cursor=shell.recent_sessions_next_cursor,
         recent_sessions_has_more=shell.recent_sessions_has_more,

@@ -117,6 +117,40 @@ class BacktestSessionSummary(UserOwnedMixin, Base):
     session: Mapped[BacktestSession] = relationship(back_populates="summary")
 
 
+class UserDashboardSummary(UserOwnedMixin, Base):
+    __tablename__ = "user_dashboard_summaries"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_dashboard_summaries_user"),
+        Index("ix_user_dashboard_summaries_user_updated_at", "user_id", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    net_pnl: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    win_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    total_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    winning_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    breakeven_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    open_trades: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    profit_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_pnl: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    total_commissions: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    total_fees: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    max_drawdown: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    recovery_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sharpe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_r: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_hold_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_win: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expectancy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    best_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
+    worst_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longest_win_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    longest_loss_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class DatasetAsset(UserOwnedMixin, Base):
     __tablename__ = "dataset_assets"
     __table_args__ = (

@@ -58,7 +58,7 @@ Session summary reads now support cursor-first pagination at `GET /api/backtests
 
 Trade reads now also have an explicit page contract at `GET /api/trades/page?cursor=&offset=&limit=`. The legacy `GET /api/trades` list route stays available while the UI moves off full-list assumptions.
 
-You can also rebuild the session-summary read model on demand with `npm run analytics:refresh-session-summaries`.
+You can also rebuild the analytics read models on demand with `npm run analytics:refresh-read-models` or the backward-compatible `npm run analytics:refresh-session-summaries`.
 
 The optional legacy Node API can be started with:
 
