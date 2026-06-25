@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import pytest
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -440,6 +442,58 @@ def test_bootstrap_shell_returns_strategy_summaries(monkeypatch, tmp_path):
     assert payload.strategy_summaries[0].aggregate.profit_factor == pytest.approx(2.5)
     assert payload.strategy_summaries[0].aggregate.average_r == pytest.approx(0.5)
     assert payload.strategy_summaries[0].sessions[0].session.id == first_session.id
+
+
+def test_bootstrap_shell_strategy_summaries_are_json_safe_without_losses(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    db = make_model_session()
+    user_id = seed_user(db)
+    session = BacktestSession(
+        user_id=user_id,
+        name="Breakout / GBPUSD M1",
+        symbol="GBPUSD",
+        strategy_name="Breakout",
+        csv_path=str(csv_path),
+        current_offset=0,
+    )
+    db.add(session)
+    db.flush()
+    db.add(
+        Trade(
+            user_id=user_id,
+            session_id=session.id,
+            status="CLOSED",
+            side="LONG",
+            entry_time=datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc),
+            entry_price=1.2,
+            quantity=1.0,
+            remaining_quantity=0.0,
+            exit_time=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+            exit_price=1.3,
+            realized_pnl=10.0,
+            r_multiple=2.0,
+        )
+    )
+    db.commit()
+    catalog = DatasetCatalogService(datasets_root, sessionmaker(bind=db.get_bind()))
+    monkeypatch.setattr(routes, "dataset_catalog", catalog)
+    monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
+
+    try:
+        payload = routes.bootstrap_shell(db=db, current_user=current_user(user_id), limit=10)
+        JSONResponse(content=jsonable_encoder(payload))
+    finally:
+        db.close()
+
+    assert payload.strategy_summaries[0].aggregate.profit_factor is None
 
 
 def test_backtest_summaries_paginate_listable_sessions(monkeypatch, tmp_path):

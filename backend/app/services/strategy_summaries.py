@@ -118,11 +118,7 @@ def _aggregate_from_row(row: object) -> StrategySummaryAggregate:
         gross_loss=gross_loss,
         win_rate=(winning_trades / closed_trades if closed_trades else 0.0),
         average_r=(r_sum / r_samples if r_samples else None),
-        profit_factor=(
-            gross_profit / gross_loss
-            if gross_loss > 0
-            else (float("inf") if gross_profit > 0 else None)
-        ),
+        profit_factor=(gross_profit / gross_loss if gross_loss > 0 else None),
         r_sum=r_sum,
         r_samples=r_samples,
     )
@@ -145,11 +141,7 @@ def _combine_aggregates(aggregates: Sequence[StrategySummaryAggregate]) -> Strat
         gross_loss=gross_loss,
         win_rate=(winning_trades / closed_trades if closed_trades else 0.0),
         average_r=(r_sum / r_samples if r_samples else None),
-        profit_factor=(
-            gross_profit / gross_loss
-            if gross_loss > 0
-            else (float("inf") if gross_profit > 0 else None)
-        ),
+        profit_factor=(gross_profit / gross_loss if gross_loss > 0 else None),
         r_sum=r_sum,
         r_samples=r_samples,
     )
