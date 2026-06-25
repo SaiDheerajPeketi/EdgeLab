@@ -125,6 +125,12 @@ export EDGELAB_MARKET_DATA_META_RATE_LIMIT=240
 export EDGELAB_MARKET_DATA_BARS_RATE_LIMIT=240
 ```
 
+Both FastAPI services also expose Prometheus-scrapeable HTTP metrics at:
+
+```bash
+curl http://127.0.0.1:8000/api/observability/metrics
+```
+
 The denormalized backtest session summary read model is also refreshed continuously by the default worker loop. Tune that cadence with:
 
 ```bash

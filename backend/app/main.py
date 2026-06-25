@@ -2,7 +2,7 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -10,9 +10,11 @@ from app.api.routes import router
 from app.config import settings
 from app.db import init_db
 from app.market_data_db import init_market_data_db
+from app.observability import HTTPMetricsMiddleware, HttpMetricsRegistry, PROMETHEUS_CONTENT_TYPE
 
 
 logger = logging.getLogger(__name__)
+http_metrics = HttpMetricsRegistry()
 
 
 class RequestBodyTooLarge(Exception):
@@ -75,6 +77,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(HTTPMetricsMiddleware, registry=http_metrics)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -118,6 +121,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 def on_startup() -> None:
     init_db()
     init_market_data_db()
+
+
+@app.get("/api/observability/metrics", include_in_schema=False)
+def observability_metrics() -> PlainTextResponse:
+    return PlainTextResponse(
+        http_metrics.render(),
+        media_type=PROMETHEUS_CONTENT_TYPE,
+    )
 
 
 app.include_router(router, prefix="/api")
