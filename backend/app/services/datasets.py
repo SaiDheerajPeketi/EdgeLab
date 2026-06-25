@@ -93,11 +93,13 @@ class DatasetCatalogService:
         session_factory: sessionmaker,
         catalog_discovery_ttl_seconds: float = CATALOG_AUTO_DISCOVERY_TTL_SECONDS,
         market_data_import_enabled: bool = False,
+        auto_discovery_enabled: bool = True,
     ):
         self.default_root = root
         self.session_factory = session_factory
         self.catalog_discovery_ttl_seconds = catalog_discovery_ttl_seconds
         self.market_data_import_enabled = market_data_import_enabled
+        self.auto_discovery_enabled = auto_discovery_enabled
         self._state_lock = Lock()
         self._locks_by_user: dict[int, Lock] = {}
         self._refresh_state_by_user: dict[int, DatasetRefreshState] = {}
@@ -112,6 +114,8 @@ class DatasetCatalogService:
         return DatasetSettingsRead(root_path=str(self._root_path(db, user_id)))
 
     def discover_catalog(self, db: Session, user_id: int, *, force: bool = False) -> None:
+        if not force and not self.auto_discovery_enabled and self._stored_catalog_exists(db, user_id):
+            return
         root = str(self._root_path(db, user_id))
         now = monotonic()
         if (
@@ -137,6 +141,16 @@ class DatasetCatalogService:
             self._last_discovery_at_by_user[user_id] = monotonic()
         finally:
             lock.release()
+
+    def _stored_catalog_exists(self, db: Session, user_id: int) -> bool:
+        return (
+            db.scalar(
+                select(DatasetTimeframe.id)
+                .where(DatasetTimeframe.user_id == user_id)
+                .limit(1)
+            )
+            is not None
+        )
 
     def update_settings(
         self,

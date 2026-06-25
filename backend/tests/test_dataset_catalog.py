@@ -231,6 +231,72 @@ def test_list_catalog_uses_stored_catalog_when_auto_discovery_fails(tmp_path, mo
         assert catalog.instruments[0].timeframes[0].rows == 42
 
 
+def test_list_catalog_skips_filesystem_scan_when_auto_discovery_disabled_and_store_warm(tmp_path, monkeypatch):
+    root = tmp_path / "datasets"
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, auto_discovery_enabled=False)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        asset = DatasetAsset(
+            user_id=user_id,
+            asset_key="GBP_USD",
+            name="GBP/USD",
+            symbol="GBPUSD",
+            folder_path=str(root / "GBP_USD"),
+        )
+        db.add(asset)
+        db.flush()
+        db.add(
+            DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe="M1",
+                csv_path=str(root / "GBP_USD" / "GBPUSD_M1.csv"),
+                rows=42,
+                file_size=100,
+                file_mtime_ns=1,
+            )
+        )
+        db.commit()
+
+        def fail_scan(*_args, **_kwargs):
+            raise AssertionError("filesystem scan should be skipped for warm stored catalog")
+
+        monkeypatch.setattr(service, "_scan_filesystem_index", fail_scan)
+
+        catalog = service.list_catalog(db, user_id)
+
+        assert catalog.instruments[0].id == "GBP_USD"
+        assert catalog.instruments[0].timeframes[0].rows == 42
+
+
+def test_list_catalog_still_bootstraps_empty_store_when_auto_discovery_disabled(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, auto_discovery_enabled=False)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        catalog = service.list_catalog(db, user_id)
+
+        assert catalog.instruments[0].id == "GBP_USD"
+        assert catalog.instruments[0].timeframes[0].csv_path == str(csv_path)
+
+
 def test_refresh_catalog_syncs_session_replay_readiness(tmp_path):
     root = tmp_path / "datasets"
     asset_dir = root / "GBP_USD"

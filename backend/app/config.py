@@ -183,6 +183,10 @@ class Settings:
         "EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS",
         5,
     )
+    dataset_auto_discovery_enabled: bool = bool_env(
+        "EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED",
+        True,
+    )
     analytics_interval_seconds: int = int_env(
         "EDGELAB_ANALYTICS_INTERVAL_SECONDS",
         60,
@@ -224,6 +228,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         max_app_data_rows=settings.max_app_data_rows,
         bootstrap_shell_cache_ttl_seconds=settings.bootstrap_shell_cache_ttl_seconds,
         dataset_catalog_cache_ttl_seconds=settings.dataset_catalog_cache_ttl_seconds,
+        dataset_auto_discovery_enabled=settings.dataset_auto_discovery_enabled,
         analytics_interval_seconds=settings.analytics_interval_seconds,
         beta_seats_total=settings.beta_seats_total,
         beta_manual_access_enabled=settings.beta_manual_access_enabled,

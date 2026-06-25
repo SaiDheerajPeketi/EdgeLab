@@ -124,6 +124,7 @@ dataset_catalog = DatasetCatalogService(
     settings.datasets_root,
     SessionLocal,
     market_data_import_enabled=settings.market_data_import_enabled,
+    auto_discovery_enabled=settings.dataset_auto_discovery_enabled,
 )
 backtester = BacktestService(market_data, dataset_catalog)
 read_model_cache = ReadModelCacheService(
