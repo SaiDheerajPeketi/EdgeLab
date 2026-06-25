@@ -397,6 +397,7 @@ export function WorkspaceApp() {
     strategySummaries,
     resultTrades,
     ensureResultTradesLoaded,
+    ensureLatestReplayLoaded,
     error,
     isLoading,
     isLoadingMoreSessions,
@@ -435,6 +436,7 @@ export function WorkspaceApp() {
       strategySummaries: store.strategySummaries,
       resultTrades: store.resultTrades,
       ensureResultTradesLoaded: store.ensureResultTradesLoaded,
+      ensureLatestReplayLoaded: store.ensureLatestReplayLoaded,
       error: store.error,
       isLoading: store.isLoading,
       isLoadingMoreSessions: store.isLoadingMoreSessions,
@@ -659,6 +661,13 @@ export function WorkspaceApp() {
     }
     void ensureResultTradesLoaded();
   }, [activeWorkspace, ensureResultTradesLoaded]);
+
+  useEffect(() => {
+    if (activeWorkspace !== "backtest" || sessionGateOpen || state != null) {
+      return;
+    }
+    void ensureLatestReplayLoaded();
+  }, [activeWorkspace, ensureLatestReplayLoaded, sessionGateOpen, state]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -1781,6 +1790,8 @@ export function WorkspaceApp() {
   async function resumeSessionFromGateway(sessionId?: number) {
     if (sessionId) {
       await loadSession(sessionId);
+    } else {
+      await ensureLatestReplayLoaded();
     }
     setReplayFocusTrade(null);
     setActiveWorkspace("backtest");

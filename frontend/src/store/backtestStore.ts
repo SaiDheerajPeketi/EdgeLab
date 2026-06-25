@@ -94,6 +94,7 @@ type BacktestStore = {
   refreshShellSnapshot: (targetCount?: number) => Promise<void>;
   refreshResults: () => Promise<void>;
   ensureResultTradesLoaded: () => Promise<void>;
+  ensureLatestReplayLoaded: () => Promise<void>;
   loadMoreSessions: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
@@ -199,30 +200,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   loadInitial: async () => {
-    const syncLatestReplayContext = () => {
-      void loadLatestReplayContext()
-        .then((context) => {
-          if (!context) {
-            return;
-          }
-          set((current) => {
-            if (current.state && current.state.session.id !== context.state.session.id) {
-              return {};
-            }
-            return {
-              meta: context.meta,
-              state: context.state,
-              bars: context.window.bars,
-              barOffset: context.window.barOffset,
-              replaySeekVersion: current.replaySeekVersion + 1,
-            };
-          });
-        })
-        .catch((error) => {
-          set((current) => ({ error: current.error ?? toErrorMessage(error) }));
-        });
-    };
-
     const hydrateShellData = () => {
       void Promise.allSettled([getDatasets()]).then(([datasetsResult]) => {
         set((current) => ({
@@ -249,7 +226,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         error: null,
         isLoading: false,
       });
-      syncLatestReplayContext();
       hydrateShellData();
       return;
     } catch {
@@ -267,7 +243,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           error: null,
           isLoading: false,
         });
-        syncLatestReplayContext();
         return;
       } catch {
         try {
@@ -298,8 +273,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             ]),
             isLoading: false,
           });
-
-          syncLatestReplayContext();
         } catch (error) {
           set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
         }
@@ -419,6 +392,31 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
     await get().refreshResults();
+  },
+
+  ensureLatestReplayLoaded: async () => {
+    if (get().state != null || get().isLoading) {
+      return;
+    }
+
+    set({ isLoading: true, error: null });
+    try {
+      const context = await loadLatestReplayContext();
+      if (!context) {
+        set({ isLoading: false });
+        return;
+      }
+      set((current) => ({
+        meta: context.meta,
+        state: context.state,
+        bars: context.window.bars,
+        barOffset: context.window.barOffset,
+        isLoading: false,
+        replaySeekVersion: current.replaySeekVersion + 1,
+      }));
+    } catch (error) {
+      set({ error: toErrorMessage(error), isLoading: false });
+    }
   },
 
   loadMoreSessions: async () => {
