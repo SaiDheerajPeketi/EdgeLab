@@ -89,6 +89,23 @@ pipeline {
         }
         failure {
             echo 'Deployment failed!'
+            dir(params.DEPLOY_DIR) {
+                sh '''#!/usr/bin/env bash
+                    set +e
+
+                    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                        compose_cmd="docker compose"
+                    elif command -v docker-compose >/dev/null 2>&1; then
+                        compose_cmd="docker-compose"
+                    else
+                        echo "Docker Compose is unavailable; cannot dump container logs." >&2
+                        exit 0
+                    fi
+
+                    ${compose_cmd} ps
+                    ${compose_cmd} logs --tail=200 postgres api data-populator frontend
+                '''
+            }
         }
     }
 }
