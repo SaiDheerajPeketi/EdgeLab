@@ -396,6 +396,7 @@ export function WorkspaceApp() {
     resultSessionsHasMore,
     strategySummaries,
     resultTrades,
+    ensureResultTradesLoaded,
     error,
     isLoading,
     isLoadingMoreSessions,
@@ -433,6 +434,7 @@ export function WorkspaceApp() {
       resultSessionsHasMore: store.resultSessionsHasMore,
       strategySummaries: store.strategySummaries,
       resultTrades: store.resultTrades,
+      ensureResultTradesLoaded: store.ensureResultTradesLoaded,
       error: store.error,
       isLoading: store.isLoading,
       isLoadingMoreSessions: store.isLoadingMoreSessions,
@@ -650,6 +652,13 @@ export function WorkspaceApp() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    if (activeWorkspace === "sessions" || activeWorkspace === "backtest") {
+      return;
+    }
+    void ensureResultTradesLoaded();
+  }, [activeWorkspace, ensureResultTradesLoaded]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;

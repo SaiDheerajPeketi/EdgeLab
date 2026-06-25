@@ -69,6 +69,7 @@ type BacktestStore = {
   resultSessionsHasMore: boolean;
   strategySummaries: StrategySummary[];
   resultTrades: Trade[];
+  resultTradesLoaded: boolean;
   isLoading: boolean;
   isLoadingMoreSessions: boolean;
   isStepping: boolean;
@@ -88,7 +89,9 @@ type BacktestStore = {
     payload: { currency?: string | null; timezone?: string | null; pnl_multiplier?: number | null },
   ) => Promise<void>;
   updateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
+  refreshShellSnapshot: (targetCount?: number) => Promise<void>;
   refreshResults: () => Promise<void>;
+  ensureResultTradesLoaded: () => Promise<void>;
   loadMoreSessions: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
@@ -121,6 +124,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   resultSessionsHasMore: false,
   strategySummaries: [],
   resultTrades: [],
+  resultTradesLoaded: false,
   isLoading: false,
   isLoadingMoreSessions: false,
   isStepping: false,
@@ -239,6 +243,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsNextOffset: shell.recent_sessions_next_offset,
         resultSessionsHasMore: shell.recent_sessions_has_more,
         strategySummaries: shell.strategy_summaries,
+        resultTradesLoaded: false,
         error: null,
         isLoading: false,
       });
@@ -256,6 +261,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           resultSessionsHasMore: bootstrap.recent_sessions_has_more,
           strategySummaries: bootstrap.strategy_summaries,
           resultTrades: bootstrap.recent_trades,
+          resultTradesLoaded: true,
           error: null,
           isLoading: false,
         });
@@ -281,6 +287,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             resultSessionsHasMore: false,
             strategySummaries: [],
             resultTrades,
+            resultTradesLoaded: true,
             error: firstRejectedMessage([
               datasetsResult,
               playbooksResult,
@@ -360,6 +367,25 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
   },
 
+  refreshShellSnapshot: async (targetCount) => {
+    try {
+      const shell = await loadShellSnapshot(
+        targetCount ?? Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT),
+      );
+      set((current) => ({
+        playbooks: shell.playbooks,
+        resultSessions: shell.resultSessions,
+        resultSessionsHasMore: shell.resultSessionsHasMore,
+        resultSessionsNextOffset: shell.resultSessionsNextOffset,
+        strategySummaries: shell.strategySummaries,
+        resultTradesLoaded: current.resultTradesLoaded,
+        error: null,
+      }));
+    } catch (error) {
+      set({ error: toErrorMessage(error) });
+    }
+  },
+
   refreshResults: async () => {
     try {
       const sessionTarget = Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT);
@@ -378,11 +404,19 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsNextOffset,
         strategySummaries,
         resultTrades,
+        resultTradesLoaded: true,
         error: null,
       });
     } catch (error) {
       set({ error: toErrorMessage(error) });
     }
+  },
+
+  ensureResultTradesLoaded: async () => {
+    if (get().resultTradesLoaded) {
+      return;
+    }
+    await get().refreshResults();
   },
 
   loadMoreSessions: async () => {
@@ -392,16 +426,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
     set({ isLoadingMoreSessions: true });
     try {
-      const shell = await getBootstrapShell(resultSessions.length + RESULT_SESSIONS_PAGE_LIMIT);
-      set(() => ({
-        playbooks: shell.playbooks,
-        resultSessions: shell.recent_sessions,
-        resultSessionsHasMore: shell.recent_sessions_has_more,
-        resultSessionsNextOffset: shell.recent_sessions_next_offset,
-        strategySummaries: shell.strategy_summaries,
-        isLoadingMoreSessions: false,
-        error: null,
-      }));
+      await get().refreshShellSnapshot(resultSessions.length + RESULT_SESSIONS_PAGE_LIMIT);
+      set({ isLoadingMoreSessions: false, error: null });
     } catch (error) {
       set({ error: toErrorMessage(error), isLoadingMoreSessions: false });
     }
@@ -430,7 +456,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
-      void get().refreshResults();
+      if (get().resultTradesLoaded) {
+        void get().refreshResults();
+      } else {
+        void get().refreshShellSnapshot();
+      }
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
     }
@@ -457,7 +487,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
-      void get().refreshResults();
+      if (get().resultTradesLoaded) {
+        void get().refreshResults();
+      } else {
+        void get().refreshShellSnapshot();
+      }
     } catch (error) {
       set({ error: toErrorMessage(error), isLoading: false });
     }
@@ -474,7 +508,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             : current.state,
         error: null,
       }));
-      void get().refreshResults();
+      if (get().resultTradesLoaded) {
+        void get().refreshResults();
+      } else {
+        void get().refreshShellSnapshot();
+      }
       return session;
     } catch (error) {
       set({ error: toErrorMessage(error) });
@@ -491,6 +529,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           resultSessions: current.resultSessions.filter((session) => session.id !== sessionId),
           resultTrades: current.resultTrades.filter((trade) => trade.session_id !== sessionId),
           strategySummaries: current.strategySummaries,
+          resultTradesLoaded: current.resultTradesLoaded,
           state: deletingActiveSession ? null : current.state,
           meta: deletingActiveSession ? null : current.meta,
           bars: deletingActiveSession ? [] : current.bars,
@@ -502,7 +541,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           error: null,
         };
       });
-      void get().refreshResults();
+      if (get().resultTradesLoaded) {
+        void get().refreshResults();
+      } else {
+        void get().refreshShellSnapshot();
+      }
     } catch (error) {
       set({ error: toErrorMessage(error) });
       throw error;
@@ -534,7 +577,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         isPlaying: state.session.status === "ACTIVE" ? get().isPlaying : false,
       });
       if (state.trades.some((trade) => trade.status === "CLOSED")) {
-        void get().refreshResults();
+        if (get().resultTradesLoaded) {
+          void get().refreshResults();
+        } else {
+          void get().refreshShellSnapshot();
+        }
       }
     } catch (error) {
       set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
@@ -623,7 +670,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const state = await postBacktestOrder(sessionId, payload);
       set({ state, error: null });
       if (state.trades.some((trade) => trade.status === "CLOSED")) {
-        void get().refreshResults();
+        if (get().resultTradesLoaded) {
+          void get().refreshResults();
+        } else {
+          void get().refreshShellSnapshot();
+        }
       }
       return true;
     } catch (error) {
@@ -741,6 +792,17 @@ async function loadResultsData(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
     resultSessionsHasMore: shell.recent_sessions_has_more,
     strategySummaries: shell.strategy_summaries,
     resultTrades,
+  };
+}
+
+async function loadShellSnapshot(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
+  const shell = await getBootstrapShell(sessionTarget);
+  return {
+    playbooks: shell.playbooks,
+    resultSessions: shell.recent_sessions,
+    resultSessionsNextOffset: shell.recent_sessions_next_offset,
+    resultSessionsHasMore: shell.recent_sessions_has_more,
+    strategySummaries: shell.strategy_summaries,
   };
 }
 
