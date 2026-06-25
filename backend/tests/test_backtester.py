@@ -441,6 +441,32 @@ def test_advance_compact_reuses_history_when_session_is_flat(tmp_path: Path):
     assert update.metrics_changed is False
 
 
+def test_advance_compact_single_step_walks_flat_session_exactly(
+    tmp_path: Path,
+    monkeypatch,
+):
+    service, db = make_service(tmp_path, DEFAULT_ROWS)
+    state = service.create_session(db, BacktestCreate(initial_offset=0))
+    session = db.get(BacktestSession, state.session.id)
+    assert session is not None
+    market_data = service._service.market_data_for_session(session)
+    requested_offsets: list[int] = []
+    original_get_candle = market_data.get_candle
+
+    def counted_get_candle(offset: int):
+        requested_offsets.append(offset)
+        return original_get_candle(offset)
+
+    monkeypatch.setattr(market_data, "get_candle", counted_get_candle)
+
+    update = service.advance_compact(db, state.session.id, BacktestAdvanceRequest(steps=1))
+
+    assert update.session.current_offset == 1
+    assert update.current_candle is not None
+    assert update.current_candle.close == pytest.approx(102)
+    assert requested_offsets == [1, 1]
+
+
 def test_advance_compact_jumps_flat_session_without_walking_each_candle(
     tmp_path: Path,
     monkeypatch,

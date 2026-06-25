@@ -554,6 +554,10 @@ export function WorkspaceApp() {
     effectiveSourceFallbackTimeframe(sourceTimeframe);
   const replayStepBars = getReplayStepBars(normalizedReplayTimeframe, sourceTimeframe);
   const playbackStepBars = isMultiChartLayout ? replayStepBars : 1;
+  const playbackTickMs = Math.max(
+    40,
+    Math.round(speedMs / Math.max(replayStepBars, 1)),
+  );
 
   function updateChartPane(
     paneId: string,
@@ -849,12 +853,12 @@ export function WorkspaceApp() {
       if (useBacktestStore.getState().isStepping) {
         return;
       }
-      void stepForward(playbackStepBars);
-    }, speedMs);
+      void stepForward(1);
+    }, playbackTickMs);
     return () => {
       window.clearInterval(timer);
     };
-  }, [isPlaying, playbackStepBars, speedMs, stepForward]);
+  }, [isPlaying, playbackTickMs, stepForward]);
 
   useEffect(() => {
     function handleHeaderControlPointerDown(event: PointerEvent) {

@@ -83,7 +83,20 @@ pipeline {
                             compose_cmd="docker-compose"
                         fi
 
-                        ${compose_cmd} up -d --build --remove-orphans
+                        export COMPOSE_PARALLEL_LIMIT=1
+                        export DOCKER_BUILDKIT=0
+                        export COMPOSE_DOCKER_CLI_BUILD=0
+
+                        ${compose_cmd} down --remove-orphans
+                        ${compose_cmd} build --no-cache \
+                          pgbouncer-postgres \
+                          pgbouncer-timescaledb \
+                          api \
+                          market-api \
+                          analytics-worker \
+                          data-populator \
+                          frontend
+                        ${compose_cmd} up -d --remove-orphans
                     '''
                 }
             }
@@ -110,7 +123,7 @@ pipeline {
                     fi
 
                     ${compose_cmd} ps
-                    ${compose_cmd} logs --tail=200 postgres api data-populator frontend
+                    ${compose_cmd} logs --tail=200 postgres timescaledb pgbouncer-postgres pgbouncer-timescaledb redis api market-api analytics-worker data-populator frontend
                 '''
             }
         }

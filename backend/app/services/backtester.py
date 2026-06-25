@@ -442,6 +442,24 @@ class BacktestService:
         had_runtime_activity = self._has_runtime_activity(db, user_id, session)
         market_data = self.market_data_for_session(session)
         if not had_runtime_activity:
+            if payload.steps <= 1:
+                next_offset = session.current_offset + 1
+                if session.end_offset is not None and next_offset > session.end_offset:
+                    session.status = "COMPLETE"
+                else:
+                    candle = market_data.get_candle(next_offset)
+                    if candle is None:
+                        session.status = "COMPLETE"
+                    else:
+                        session.current_offset = next_offset
+                db.commit()
+                return self._build_replay_update(
+                    db,
+                    user_id,
+                    session,
+                    include_history=False,
+                    include_metrics=False,
+                )
             metadata = market_data.get_metadata()
             max_offset = max(metadata.rows - 1, 0)
             if session.end_offset is not None:
