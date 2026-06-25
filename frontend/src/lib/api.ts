@@ -295,9 +295,19 @@ export type AppBootstrap = {
   datasets: DatasetCatalog;
   playbooks: Playbook[];
   recent_sessions: BacktestSession[];
+  recent_sessions_next_offset: number;
+  recent_sessions_has_more: boolean;
   recent_trades: Trade[];
   recent_session_limit: number;
   recent_trade_limit: number;
+};
+
+export type BacktestSessionPage = {
+  items: BacktestSession[];
+  offset: number;
+  limit: number;
+  next_offset: number;
+  has_more: boolean;
 };
 
 export type Metrics = {
@@ -784,6 +794,20 @@ export function getBacktest(sessionId: number) {
 
 export function getBacktests() {
   return request<BacktestSession[]>("/backtests");
+}
+
+export function getBacktestSessionSummaries(
+  options: { offset?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (options.offset !== undefined) {
+    params.set("offset", String(options.offset));
+  }
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return request<BacktestSessionPage>(`/backtests/summaries${query}`);
 }
 
 export function createBacktest(payload: BacktestCreatePayload = {}) {

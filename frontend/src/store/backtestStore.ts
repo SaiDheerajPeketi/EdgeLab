@@ -27,6 +27,7 @@ import {
   deletePlaybook as deletePlaybookApi,
   getBars,
   getBacktest,
+  getBacktestSessionSummaries,
   getBacktests,
   getBootstrap,
   getDatasetRefreshStatus,
@@ -52,6 +53,7 @@ import {
 
 const WINDOW_SIZE = 1500;
 const DEFAULT_CONTEXT_BARS = 300;
+const RESULT_SESSIONS_PAGE_LIMIT = 50;
 
 type BacktestStore = {
   bars: Candle[];
@@ -62,8 +64,11 @@ type BacktestStore = {
   state: BacktestState | null;
   playbooks: Playbook[];
   resultSessions: BacktestSession[];
+  resultSessionsNextOffset: number;
+  resultSessionsHasMore: boolean;
   resultTrades: Trade[];
   isLoading: boolean;
+  isLoadingMoreSessions: boolean;
   isStepping: boolean;
   isPlaying: boolean;
   speedMs: number;
@@ -82,6 +87,7 @@ type BacktestStore = {
   ) => Promise<void>;
   updateDatasetSettings: (payload: { root_path: string }) => Promise<void>;
   refreshResults: () => Promise<void>;
+  loadMoreSessions: () => Promise<void>;
   loadSession: (sessionId: number) => Promise<void>;
   newSession: (payload?: BacktestCreatePayload) => Promise<void>;
   updateSession: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<BacktestSession>;
@@ -109,8 +115,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   state: null,
   playbooks: [],
   resultSessions: [],
+  resultSessionsNextOffset: 0,
+  resultSessionsHasMore: false,
   resultTrades: [],
   isLoading: false,
+  isLoadingMoreSessions: false,
   isStepping: false,
   isPlaying: false,
   speedMs: 450,
@@ -212,6 +221,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         datasets: bootstrap.datasets,
         playbooks: bootstrap.playbooks,
         resultSessions: bootstrap.recent_sessions,
+        resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
+        resultSessionsHasMore: bootstrap.recent_sessions_has_more,
         resultTrades: bootstrap.recent_trades,
         error: null,
         isLoading: false,
@@ -235,6 +246,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           datasets,
           playbooks,
           resultSessions,
+          resultSessionsNextOffset: resultSessions.length,
+          resultSessionsHasMore: false,
           resultTrades,
           error: firstRejectedMessage([
             datasetsResult,
@@ -316,10 +329,45 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 
   refreshResults: async () => {
     try {
-      const { resultSessions, resultTrades } = await loadResultsData();
-      set({ resultSessions, resultTrades, error: null });
+      const sessionTarget = Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT);
+      const {
+        resultSessions,
+        resultSessionsHasMore,
+        resultSessionsNextOffset,
+        resultTrades,
+      } = await loadResultsData(sessionTarget);
+      set({
+        resultSessions,
+        resultSessionsHasMore,
+        resultSessionsNextOffset,
+        resultTrades,
+        error: null,
+      });
     } catch (error) {
       set({ error: toErrorMessage(error) });
+    }
+  },
+
+  loadMoreSessions: async () => {
+    const { isLoadingMoreSessions, resultSessionsHasMore, resultSessionsNextOffset } = get();
+    if (isLoadingMoreSessions || !resultSessionsHasMore) {
+      return;
+    }
+    set({ isLoadingMoreSessions: true });
+    try {
+      const page = await getBacktestSessionSummaries({
+        offset: resultSessionsNextOffset,
+        limit: RESULT_SESSIONS_PAGE_LIMIT,
+      });
+      set((current) => ({
+        resultSessions: mergeSessions(current.resultSessions, page.items),
+        resultSessionsHasMore: page.has_more,
+        resultSessionsNextOffset: page.next_offset,
+        isLoadingMoreSessions: false,
+        error: null,
+      }));
+    } catch (error) {
+      set({ error: toErrorMessage(error), isLoadingMoreSessions: false });
     }
   },
 
@@ -589,11 +637,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const activeSessionId = get().state?.session.id;
       const shouldRefreshActiveMetrics = activeSessionId === trade.session_id;
       const [results, metrics] = await Promise.all([
-        loadResultsData(),
+        loadResultsData(Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT)),
         shouldRefreshActiveMetrics ? getMetrics(trade.session_id) : Promise.resolve(null),
       ]);
       set((current) => ({
         resultSessions: results.resultSessions,
+        resultSessionsHasMore: results.resultSessionsHasMore,
+        resultSessionsNextOffset: results.resultSessionsNextOffset,
         resultTrades: results.resultTrades,
         state: mergeActiveTradeState(current.state, trade, metrics),
         error: null,
@@ -611,11 +661,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const activeSessionId = get().state?.session.id;
       const shouldRefreshActiveMetrics = activeSessionId === trade.session_id;
       const [results, metrics] = await Promise.all([
-        loadResultsData(),
+        loadResultsData(Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT)),
         shouldRefreshActiveMetrics ? getMetrics(trade.session_id) : Promise.resolve(null),
       ]);
       set((current) => ({
         resultSessions: results.resultSessions,
+        resultSessionsHasMore: results.resultSessionsHasMore,
+        resultSessionsNextOffset: results.resultSessionsNextOffset,
         resultTrades: results.resultTrades,
         state: mergeActiveTradeState(current.state, trade, metrics),
         error: null,
@@ -635,12 +687,54 @@ function upsertSession(sessions: BacktestSession[], session: BacktestSession) {
   return [session, ...sessions];
 }
 
-async function loadResultsData() {
-  const [resultSessions, resultTrades] = await Promise.all([
-    getBacktests(),
+function mergeSessions(existing: BacktestSession[], incoming: BacktestSession[]) {
+  const merged = [...existing];
+  for (const session of incoming) {
+    const index = merged.findIndex((item) => item.id === session.id);
+    if (index >= 0) {
+      merged[index] = session;
+      continue;
+    }
+    merged.push(session);
+  }
+  return merged;
+}
+
+async function loadSessionSummaries(targetCount = RESULT_SESSIONS_PAGE_LIMIT) {
+  let resultSessions: BacktestSession[] = [];
+  let nextOffset = 0;
+  let hasMore = false;
+
+  while (resultSessions.length < targetCount) {
+    const remaining = Math.max(targetCount - resultSessions.length, 1);
+    const page = await getBacktestSessionSummaries({
+      offset: nextOffset,
+      limit: Math.min(RESULT_SESSIONS_PAGE_LIMIT, remaining),
+    });
+    resultSessions = mergeSessions(resultSessions, page.items);
+    nextOffset = page.next_offset;
+    hasMore = page.has_more;
+    if (!page.has_more || page.items.length === 0) {
+      break;
+    }
+  }
+
+  return {
+    resultSessions,
+    resultSessionsNextOffset: nextOffset,
+    resultSessionsHasMore: hasMore,
+  };
+}
+
+async function loadResultsData(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
+  const [sessionData, resultTrades] = await Promise.all([
+    loadSessionSummaries(sessionTarget),
     getTrades(),
   ]);
-  return { resultSessions, resultTrades };
+  return {
+    ...sessionData,
+    resultTrades,
+  };
 }
 
 async function loadLatestReplayContext() {

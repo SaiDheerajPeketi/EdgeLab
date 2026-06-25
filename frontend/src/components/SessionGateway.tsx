@@ -60,12 +60,15 @@ type Props = {
   onCreateSession: (payload: BacktestCreatePayload) => Promise<void>;
   onCreatePlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   onDeleteSession: (sessionId: number) => Promise<void> | void;
+  onLoadMoreSessions: () => Promise<void> | void;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
   onUpdateSession: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<void> | void;
   playbooks: Playbook[];
   session: BacktestSession | null;
   sessions: BacktestSession[];
+  sessionsHasMore: boolean;
   trades: Trade[];
+  isLoadingMoreSessions: boolean;
 };
 
 type PlaybookMode = "none" | "existing" | "new";
@@ -114,12 +117,15 @@ export function SessionGateway({
   onCreateSession,
   onCreatePlaybook,
   onDeleteSession,
+  onLoadMoreSessions,
   onResumeSession,
   onUpdateSession,
   playbooks,
   session,
   sessions,
+  sessionsHasMore,
   trades,
+  isLoadingMoreSessions,
 }: Props) {
   const instruments = datasets?.instruments ?? [];
   const savedStrategyNames = useBacktestStrategyNames();
@@ -595,6 +601,23 @@ export function SessionGateway({
             </div>
           )}
         </div>
+
+        {sessionsHasMore && (
+          <div className="mt-4 flex justify-center">
+            <button
+              className="control-button"
+              disabled={isLoadingMoreSessions}
+              onClick={() => void onLoadMoreSessions()}
+              type="button"
+            >
+              <RefreshCw
+                className={isLoadingMoreSessions ? "animate-spin motion-reduce:animate-none" : ""}
+                size={16}
+              />
+              {isLoadingMoreSessions ? "Loading older sessions..." : "Load older sessions"}
+            </button>
+          </div>
+        )}
 
         {selectedStrategyGroup && (
           <StrategyDetails

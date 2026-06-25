@@ -598,6 +598,7 @@ class BacktestService:
         self,
         db: Session,
         user_id: int,
+        offset: int = 0,
         limit: int | None = None,
     ) -> list[BacktestSession]:
         query = (
@@ -605,6 +606,8 @@ class BacktestService:
             .where(BacktestSession.user_id == user_id)
             .order_by(desc(BacktestSession.created_at), desc(BacktestSession.id))
         )
+        if offset > 0:
+            query = query.offset(offset)
         if limit is not None:
             query = query.limit(limit)
         return list(db.scalars(query).all())

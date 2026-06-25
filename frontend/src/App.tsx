@@ -393,9 +393,11 @@ export function WorkspaceApp() {
     replaySeekVersion,
     playbooks,
     resultSessions,
+    resultSessionsHasMore,
     resultTrades,
     error,
     isLoading,
+    isLoadingMoreSessions,
     isPlaying,
     speedMs,
     createPlaybook,
@@ -411,6 +413,7 @@ export function WorkspaceApp() {
     refreshDatasetStatus,
     updateDatasetAsset,
     updateDatasetSettings,
+    loadMoreSessions,
     jumpToOffset,
     amendOrder,
     placeOrder,
@@ -426,9 +429,11 @@ export function WorkspaceApp() {
       replaySeekVersion: store.replaySeekVersion,
       playbooks: store.playbooks,
       resultSessions: store.resultSessions,
+      resultSessionsHasMore: store.resultSessionsHasMore,
       resultTrades: store.resultTrades,
       error: store.error,
       isLoading: store.isLoading,
+      isLoadingMoreSessions: store.isLoadingMoreSessions,
       isPlaying: store.isPlaying,
       speedMs: store.speedMs,
       createPlaybook: store.createPlaybook,
@@ -444,6 +449,7 @@ export function WorkspaceApp() {
       refreshDatasetStatus: store.refreshDatasetStatus,
       updateDatasetAsset: store.updateDatasetAsset,
       updateDatasetSettings: store.updateDatasetSettings,
+      loadMoreSessions: store.loadMoreSessions,
       jumpToOffset: store.jumpToOffset,
       amendOrder: store.amendOrder,
       placeOrder: store.placeOrder,
@@ -2130,7 +2136,10 @@ export function WorkspaceApp() {
                 playbooks={playbooks}
                 session={state?.session ?? null}
                 sessions={resultSessions}
+                sessionsHasMore={resultSessionsHasMore}
+                isLoadingMoreSessions={isLoadingMoreSessions}
                 trades={resultTrades}
+                onLoadMoreSessions={loadMoreSessions}
               />
             </>
           ) : (

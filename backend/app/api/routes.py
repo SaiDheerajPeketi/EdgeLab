@@ -56,6 +56,7 @@ from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestJumpRequest,
+    BacktestSessionPage,
     BacktestSessionRead,
     BacktestSessionUpdate,
     BacktestState,
@@ -100,6 +101,8 @@ logger = logging.getLogger(__name__)
 DATASET_STREAM_INTERVAL_SECONDS = 3
 BOOTSTRAP_SESSION_LIMIT = 25
 BOOTSTRAP_TRADE_LIMIT = 100
+SESSION_SUMMARIES_LIMIT = 50
+SESSION_SUMMARIES_LIMIT_MAX = 200
 market_data = (
     MarketDataService(settings.csv_path, cache=settings.cache_market_data)
     if settings.csv_path is not None
@@ -380,6 +383,73 @@ def list_listable_backtest_sessions(
         if backtester.session_is_listable(session)
     ]
     return sessions[:limit] if limit is not None else sessions
+
+
+def list_listable_backtest_sessions_page(
+    db: Session,
+    user_id: int,
+    offset: int = 0,
+    limit: int = SESSION_SUMMARIES_LIMIT,
+) -> BacktestSessionPage:
+    batch_size = max(limit * 3, limit)
+    next_offset = offset
+    items: list[BacktestSessionRead] = []
+
+    while len(items) < limit:
+        candidates = backtester.list_sessions(
+            db,
+            user_id,
+            offset=next_offset,
+            limit=batch_size,
+        )
+        if not candidates:
+            return BacktestSessionPage(
+                items=items,
+                offset=offset,
+                limit=limit,
+                next_offset=next_offset,
+                has_more=False,
+            )
+
+        for index, session in enumerate(candidates):
+            next_offset += 1
+            if not backtester.session_is_listable(session):
+                continue
+            items.append(BacktestSessionRead.model_validate(session))
+            if len(items) == limit:
+                has_more = (index + 1) < len(candidates) or bool(
+                    backtester.list_sessions(
+                        db,
+                        user_id,
+                        offset=next_offset,
+                        limit=1,
+                    )
+                )
+                return BacktestSessionPage(
+                    items=items,
+                    offset=offset,
+                    limit=limit,
+                    next_offset=next_offset,
+                    has_more=has_more,
+                )
+
+        if len(candidates) < batch_size:
+            break
+
+    return BacktestSessionPage(
+        items=items,
+        offset=offset,
+        limit=limit,
+        next_offset=next_offset,
+        has_more=bool(
+            backtester.list_sessions(
+                db,
+                user_id,
+                offset=next_offset,
+                limit=1,
+            )
+        ),
+    )
 
 
 def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
@@ -1548,14 +1618,17 @@ def bootstrap(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppBootstrapResponse:
+    sessions_page = list_listable_backtest_sessions_page(
+        db,
+        current_user.id,
+        limit=BOOTSTRAP_SESSION_LIMIT,
+    )
     return AppBootstrapResponse(
         datasets=dataset_catalog.list_catalog(db, current_user.id),
         playbooks=backtester.list_playbooks(db, current_user.id),
-        recent_sessions=list_listable_backtest_sessions(
-            db,
-            current_user.id,
-            limit=BOOTSTRAP_SESSION_LIMIT,
-        ),
+        recent_sessions=sessions_page.items,
+        recent_sessions_next_offset=sessions_page.next_offset,
+        recent_sessions_has_more=sessions_page.has_more,
         recent_trades=backtester.list_trades(
             db,
             current_user.id,
@@ -1577,6 +1650,21 @@ def create_backtest(
     except (FileNotFoundError, ValueError) as exc:
         db.rollback()
         raise market_data_error_response(exc) from exc
+
+
+@router.get("/backtests/summaries", response_model=BacktestSessionPage)
+def list_backtest_summaries(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=SESSION_SUMMARIES_LIMIT, ge=1, le=SESSION_SUMMARIES_LIMIT_MAX),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BacktestSessionPage:
+    return list_listable_backtest_sessions_page(
+        db,
+        current_user.id,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/backtests", response_model=list[BacktestSessionRead])
