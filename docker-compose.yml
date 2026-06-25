@@ -19,6 +19,39 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  pgbouncer-postgres:
+    build:
+      context: .
+      dockerfile: docker/pgbouncer/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+      EDGELAB_PGBOUNCER_DATABASE: ${POSTGRES_DB:-edgelab}
+      EDGELAB_PGBOUNCER_TARGET_DB: ${POSTGRES_DB:-edgelab}
+      EDGELAB_PGBOUNCER_TARGET_HOST: postgres
+      EDGELAB_PGBOUNCER_TARGET_PORT: 5432
+      EDGELAB_PGBOUNCER_LISTEN_PORT: 6432
+      EDGELAB_PGBOUNCER_MAX_CLIENT_CONN: ${EDGELAB_PGBOUNCER_MAX_CLIENT_CONN:-400}
+      EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE: ${EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE:-25}
+      EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE: ${EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS: ${EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS:-600}
+      EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS: ${EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS:-15}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql "host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}" -c "SHOW VERSION;" >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${EDGELAB_PGBOUNCER_POSTGRES_PORT:-6432}:6432"
+    restart: unless-stopped
+
   timescaledb:
     image: timescale/timescaledb:2.16.1-pg16
     environment:
@@ -38,6 +71,39 @@ services:
     restart: unless-stopped
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
+
+  pgbouncer-timescaledb:
+    build:
+      context: .
+      dockerfile: docker/pgbouncer/Dockerfile
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgelab}
+      POSTGRES_USER: ${POSTGRES_USER:-edgelab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
+      EDGELAB_PGBOUNCER_DATABASE: ${POSTGRES_DB:-edgelab}
+      EDGELAB_PGBOUNCER_TARGET_DB: ${POSTGRES_DB:-edgelab}
+      EDGELAB_PGBOUNCER_TARGET_HOST: timescaledb
+      EDGELAB_PGBOUNCER_TARGET_PORT: 5432
+      EDGELAB_PGBOUNCER_LISTEN_PORT: 6432
+      EDGELAB_PGBOUNCER_MAX_CLIENT_CONN: ${EDGELAB_PGBOUNCER_MAX_CLIENT_CONN:-400}
+      EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE: ${EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE:-25}
+      EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE: ${EDGELAB_PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS: ${EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS:-600}
+      EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS: ${EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS:-15}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - PGPASSWORD=${POSTGRES_PASSWORD:-edgelab} psql "host=127.0.0.1 port=6432 user=${POSTGRES_USER:-edgelab} dbname=${POSTGRES_DB:-edgelab}" -c "SHOW VERSION;" >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${EDGELAB_PGBOUNCER_TIMESCALE_PORT:-6433}:6432"
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -66,16 +132,16 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     depends_on:
-      postgres:
+      pgbouncer-postgres:
         condition: service_healthy
-      timescaledb:
+      pgbouncer-timescaledb:
         condition: service_healthy
       redis:
         condition: service_started
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
-      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
-      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-pgbouncer-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-6432}
       EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
       EDGELAB_API_WORKERS: ${EDGELAB_API_WORKERS:-}
       EDGELAB_API_TIMEOUT_SECONDS: ${EDGELAB_API_TIMEOUT_SECONDS:-120}
@@ -86,7 +152,7 @@ services:
       EDGELAB_BETA_SEATS_TOTAL: ${EDGELAB_BETA_SEATS_TOTAL:-500}
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
-      EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@timescaledb:5432/edgelab}
+      EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab}
       EDGELAB_REDIS_URL: ${EDGELAB_REDIS_URL:-redis://redis:6379/0}
       EDGELAB_RATE_LIMIT_WINDOW_SECONDS: ${EDGELAB_RATE_LIMIT_WINDOW_SECONDS:-60}
       EDGELAB_DATASET_REFRESH_RATE_LIMIT: ${EDGELAB_DATASET_REFRESH_RATE_LIMIT:-6}
@@ -128,16 +194,16 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     depends_on:
-      postgres:
+      pgbouncer-postgres:
         condition: service_healthy
-      timescaledb:
+      pgbouncer-timescaledb:
         condition: service_healthy
       redis:
         condition: service_started
     environment:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
-      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
-      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-pgbouncer-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-6432}
       EDGELAB_API_TOKEN: ${EDGELAB_API_TOKEN:-}
       EDGELAB_API_WORKERS: ${EDGELAB_API_WORKERS:-}
       EDGELAB_API_TIMEOUT_SECONDS: ${EDGELAB_API_TIMEOUT_SECONDS:-120}
@@ -148,7 +214,7 @@ services:
       EDGELAB_BETA_SEATS_TOTAL: ${EDGELAB_BETA_SEATS_TOTAL:-500}
       EDGELAB_CACHE_MARKET_DATA: ${EDGELAB_CACHE_MARKET_DATA:-1}
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
-      EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@timescaledb:5432/edgelab}
+      EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab}
       EDGELAB_REDIS_URL: ${EDGELAB_REDIS_URL:-redis://redis:6379/0}
       EDGELAB_RATE_LIMIT_WINDOW_SECONDS: ${EDGELAB_RATE_LIMIT_WINDOW_SECONDS:-60}
       EDGELAB_DATASET_REFRESH_RATE_LIMIT: ${EDGELAB_DATASET_REFRESH_RATE_LIMIT:-6}
@@ -191,20 +257,20 @@ services:
       dockerfile: backend/Dockerfile
     command: ["python", "-m", "app.data_populator"]
     depends_on:
-      postgres:
+      pgbouncer-postgres:
         condition: service_healthy
-      timescaledb:
+      pgbouncer-timescaledb:
         condition: service_healthy
     user: "${EDGELAB_DATA_POPULATOR_USER:-0:0}"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-edgelab}
       POSTGRES_USER: ${POSTGRES_USER:-edgelab}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgelab}
-      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
-      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-pgbouncer-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-6432}
       EDGELAB_DATASETS_ROOT: /datasets
       EDGELAB_MARKET_DATA_IMPORT_ENABLED: ${EDGELAB_MARKET_DATA_IMPORT_ENABLED:-1}
-      EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@timescaledb:5432/edgelab}
+      EDGELAB_MARKET_DATA_DATABASE_URL: ${EDGELAB_MARKET_DATA_DATABASE_URL:-postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab}
       EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS: ${EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS:-BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT}
       EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE: ${EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE:-2017-08-17}
       EDGELAB_DATA_POPULATOR_BACKFILL_MODE: ${EDGELAB_DATA_POPULATOR_BACKFILL_MODE:-max}
@@ -226,11 +292,11 @@ services:
       dockerfile: backend/Dockerfile
     command: ["python", "-m", "app.analytics_worker"]
     depends_on:
-      postgres:
+      pgbouncer-postgres:
         condition: service_healthy
     environment:
-      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-postgres}
-      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-5432}
+      EDGELAB_POSTGRES_HOST: ${EDGELAB_POSTGRES_HOST:-pgbouncer-postgres}
+      EDGELAB_POSTGRES_CONNECT_PORT: ${EDGELAB_POSTGRES_CONNECT_PORT:-6432}
       EDGELAB_ANALYTICS_INTERVAL_SECONDS: ${EDGELAB_ANALYTICS_INTERVAL_SECONDS:-60}
       EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-}
     restart: unless-stopped

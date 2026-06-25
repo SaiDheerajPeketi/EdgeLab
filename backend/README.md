@@ -32,10 +32,10 @@ Market data is cached in memory by default for smooth replay. Disable it with:
 export EDGELAB_CACHE_MARKET_DATA=0
 ```
 
-The default backend path now targets PostgreSQL. Override it directly with:
+Default backend path now targets PostgreSQL through PgBouncer. Override it directly with:
 
 ```bash
-export DATABASE_URL=postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab
+export DATABASE_URL=postgresql+psycopg://edgelab:edgelab@127.0.0.1:6432/edgelab
 ```
 
 Run migrations explicitly before local backend startup:
@@ -80,7 +80,7 @@ Verify a copied SQLite export against a target database before Postgres cutover 
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/migrate_sqlite_to_database.py \
   --source-sqlite-path /absolute/path/to/trade_journal_v2.db \
-  --target-database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab \
+  --target-database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:6432/edgelab \
   --reset-target
 ```
 
@@ -88,16 +88,16 @@ Import dataset CSV candles into DB-backed `market_candles` storage with:
 
 ```bash
 npm run market-data:import -- \
-  --database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab \
+  --database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:6433/edgelab \
   --user-id 1 \
   --csv-path /absolute/path/to/datasets/EUR_USD/EURUSD_M1.csv
 ```
 
 When a timeframe is imported, `GET /api/market-data/bars` and `GET /api/market-data/meta` can serve it from DB even if the CSV disappears later, and dataset catalog refresh keeps that imported timeframe row instead of pruning it. Non-imported datasets still fall back to CSV.
 
-Default runtime now also sets `EDGELAB_MARKET_DATA_IMPORT_ENABLED=1`, so explicit dataset catalog refreshes automatically import changed CSV timeframes into `market_candles`. Set `EDGELAB_MARKET_DATA_DATABASE_URL` when you want those candle reads/writes isolated onto a dedicated market-data database such as TimescaleDB; leave it blank to fall back to `DATABASE_URL`. Set `EDGELAB_MARKET_DATA_IMPORT_ENABLED=0` only when you need metadata-only scans while debugging migration behavior.
+Default runtime now also sets `EDGELAB_MARKET_DATA_IMPORT_ENABLED=1`, so explicit dataset catalog refreshes automatically import changed CSV timeframes into `market_candles`. Set `EDGELAB_MARKET_DATA_DATABASE_URL` when you want those candle reads/writes isolated onto dedicated market-data DB such as TimescaleDB; recommended local single-VM path is `postgresql+psycopg://edgelab:edgelab@127.0.0.1:6433/edgelab` through `pgbouncer-timescaledb`. Leave it blank only when you want market data to fall back to `DATABASE_URL`. Set `EDGELAB_MARKET_DATA_IMPORT_ENABLED=0` only when you need metadata-only scans while debugging migration behavior.
 
-The root Compose file now starts Redis and TimescaleDB in the default stack, and the `benchmark` profile adds MinIO plus the `benchmark-k6` runner:
+Root Compose file now starts Redis, PgBouncer, and TimescaleDB in default stack, and `benchmark` profile adds MinIO plus `benchmark-k6` runner:
 
 ```bash
 docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio
@@ -171,7 +171,7 @@ export POSTGRES_DB=edgelab
 export POSTGRES_USER=edgelab
 export POSTGRES_PASSWORD=edgelab
 export EDGELAB_POSTGRES_HOST=127.0.0.1
-export EDGELAB_POSTGRES_CONNECT_PORT=5432
+export EDGELAB_POSTGRES_CONNECT_PORT=6432
 ```
 
 SQLite remains available as an explicit fallback:
@@ -275,15 +275,16 @@ Container defaults:
 - `POSTGRES_DB=edgelab`
 - `POSTGRES_USER=edgelab`
 - `POSTGRES_PASSWORD=edgelab`
-- `EDGELAB_POSTGRES_HOST=postgres`
-- `EDGELAB_POSTGRES_CONNECT_PORT=5432`
+- `EDGELAB_POSTGRES_HOST=pgbouncer-postgres`
+- `EDGELAB_POSTGRES_CONNECT_PORT=6432`
+- `EDGELAB_MARKET_DATA_DATABASE_URL=` (Compose defaults to `postgresql+psycopg://edgelab:edgelab@pgbouncer-timescaledb:6432/edgelab`)
 - `DATABASE_URL=` (optional full override only)
 
-The Compose file mounts the dataset root read-only for the `api` and `market-api` services and read-write for the `data-populator` worker, then persists PostgreSQL in the `postgres-data` named volume. The PostgreSQL service is bound to `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}` so bare-metal backend runs can reuse the same default database, while the containers themselves resolve Postgres through `EDGELAB_POSTGRES_HOST` and `EDGELAB_POSTGRES_CONNECT_PORT` instead of a hard-coded `DATABASE_URL`. TimescaleDB persists separately in `timescaledb-data` and is the default `EDGELAB_MARKET_DATA_DATABASE_URL` inside the Compose `api`, `market-api`, and `data-populator` containers, which isolates candle imports and replay reads onto the dedicated market-data store while keeping user/session metadata on primary Postgres. The API containers run `alembic upgrade head` before starting Gunicorn with Uvicorn workers, which keeps the single-VM Docker/Jenkins path aligned with later multi-service deployments that point either the Postgres host vars or a full `DATABASE_URL` at an external database while also matching the stateless multi-worker runtime shape needed for scale-out. Nginx now routes auth/session/journal flows to `api` and market-data, dataset, and live-feed routes to `market-api`, so the single-VM stack already matches the future service split at the edge. The default Compose stack also starts an `analytics-worker` companion that periodically refreshes both `backtest_session_summaries` and `user_dashboard_summaries`, which keeps heavier session-list, bootstrap, and dashboard reads on precomputed paths without changing the frontend contract. When the resolved database URL points at SQLite, the startup script automatically drops back to a single worker so explicit SQLite fallback deployments still work. The default dataset root is the tracked `./datasets` directory; generated CSVs and the local manifest are ignored by Git. The API containers also mount `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto the host without entering the image build context. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and database connectivity; `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts.
+Compose file mounts dataset root read-only for `api` and `market-api` services and read-write for `data-populator` worker, then persists PostgreSQL in `postgres-data` named volume. PostgreSQL service keeps direct admin access on `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}`, while pooled app traffic now enters through `pgbouncer-postgres` on `127.0.0.1:${EDGELAB_PGBOUNCER_POSTGRES_PORT:-6432}` and through `EDGELAB_POSTGRES_HOST` / `EDGELAB_POSTGRES_CONNECT_PORT` inside Compose network. TimescaleDB persists separately in `timescaledb-data`, keeps direct admin access on `127.0.0.1:${EDGELAB_TIMESCALE_PORT:-5433}`, and is fronted by `pgbouncer-timescaledb` on `127.0.0.1:${EDGELAB_PGBOUNCER_TIMESCALE_PORT:-6433}` for default `EDGELAB_MARKET_DATA_DATABASE_URL` inside Compose `api`, `market-api`, and `data-populator` containers. That keeps candle imports and replay reads on dedicated pooled market-data store while user/session metadata stays on primary Postgres. API containers run `alembic upgrade head` before starting Gunicorn with Uvicorn workers, which keeps single-VM Docker/Jenkins path aligned with later multi-service deployments that point either PgBouncer host vars or full `DATABASE_URL` / `EDGELAB_MARKET_DATA_DATABASE_URL` at external databases while also matching stateless multi-worker runtime shape needed for scale-out. Nginx now routes auth/session/journal flows to `api` and market-data, dataset, and live-feed routes to `market-api`, so single-VM stack already matches future service split at edge. Default Compose stack also starts `analytics-worker` companion that periodically refreshes both `backtest_session_summaries` and `user_dashboard_summaries`, which keeps heavier session-list, bootstrap, and dashboard reads on precomputed paths without changing frontend contract. When resolved database URL points at SQLite, startup script automatically drops back to single worker so explicit SQLite fallback deployments still work. Default dataset root is tracked `./datasets` directory; generated CSVs and local manifest are ignored by Git. API containers also mount `./deployment` read-only at `/opt/edgelab/deployment` so runtime OAuth secrets can be supplied by Jenkins or copied onto host without entering image build context. Populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create folders in Linux host bind mounts; set that to specific `UID:GID` when host dataset folder is owned by another deploy user. `/api/health` validates API process and database connectivity; `/api/ready` reports scanned dataset root and discovered asset/timeframe counts.
 When `.edgelab-data-populator-manifest.json` exists under the dataset root, dataset catalog refresh now ingests its rows/timestamps/file signatures before touching CSV files, so populator-managed datasets avoid per-file metadata reads on the API path.
 Container defaults also set `EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED=0`, so normal runtime dataset reads use stored DB catalog rows instead of request-path filesystem scans. Explicit refresh endpoints still rescan the dataset root, and an empty catalog still performs one bootstrap discovery.
 
-When you enable the `benchmark` profile, Docker Compose also starts MinIO and the `benchmark-k6` runner. Redis and TimescaleDB are already part of the default stack, and the hot replay/data-import path now uses the dedicated market-data database when `EDGELAB_MARKET_DATA_DATABASE_URL` points at it.
+When you enable `benchmark` profile, Docker Compose also starts MinIO and `benchmark-k6` runner. Redis, PgBouncer, and TimescaleDB are already part of default stack, and hot replay/data-import path now uses dedicated pooled market-data DB when `EDGELAB_MARKET_DATA_DATABASE_URL` points at it.
 
 SQLite fallback startup now auto-creates missing tables without destructive schema resets. Keep Alembic as the upgrade path for the default PostgreSQL deployment and for any SQLite database you care about preserving across schema changes.
 

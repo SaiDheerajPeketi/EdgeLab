@@ -25,3 +25,4 @@ datasets/*
 .env
 deployment/client_secret_*.json
 deployment/google-oauth-client.json
+graphify-out/
