@@ -768,9 +768,12 @@ def test_default_session_uses_first_discovered_dataset(tmp_path: Path):
     service = UserScopedBacktestService(BacktestService(dataset_catalog=catalog), user.id)
     try:
         state = service.create_session(db, BacktestCreate())
+        stored_session = db.get(BacktestSession, state.session.id)
     finally:
         db.close()
 
+    assert stored_session is not None
+    assert stored_session.dataset_asset_id is not None
     assert state.session.csv_path == str(csv_path)
     assert state.session.instrument == "GBP_USD"
     assert state.session.timeframe == "M1"

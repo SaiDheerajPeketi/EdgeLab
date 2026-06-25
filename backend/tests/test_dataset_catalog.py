@@ -503,3 +503,44 @@ def test_refresh_catalog_keeps_database_imported_timeframe_without_csv_file(tmp_
         assert refreshed.catalog.instruments[0].timeframes[0].database_imported is True
         assert db.query(DatasetAsset).count() == 1
         assert db.query(DatasetTimeframe).count() == 1
+
+
+def test_refresh_catalog_marks_dataset_asset_session_ready_without_session_csv_path(tmp_path):
+    root = tmp_path / "datasets"
+    asset_dir = root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1,1.2,1.0,1.15,100\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory, market_data_import_enabled=True)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        refreshed = service.refresh_catalog(db, user_id)
+        asset = db.query(DatasetAsset).one()
+        session = BacktestSession(
+            user_id=user_id,
+            name="DB identity replay",
+            symbol="EURUSD",
+            instrument=refreshed.catalog.instruments[0].id,
+            timeframe="M1",
+            dataset_asset_id=asset.id,
+            csv_path=None,
+            replay_ready=False,
+            current_offset=0,
+        )
+        db.add(session)
+        db.commit()
+
+        csv_path.unlink()
+        service.refresh_catalog(db, user_id)
+        db.refresh(session)
+
+        assert session.replay_ready is True

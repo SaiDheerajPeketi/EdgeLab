@@ -69,6 +69,7 @@ class BacktestService:
         currency = payload.currency
         timestamp_timezone = payload.timezone
         pnl_multiplier = payload.pnl_multiplier
+        dataset_asset_id = None
         if self.dataset_catalog is not None and (payload.csv_path or payload.instrument or payload.timeframe):
             resolution = self.dataset_catalog.resolve_dataset(
                 db,
@@ -84,6 +85,7 @@ class BacktestService:
             currency = currency or resolution.currency
             timestamp_timezone = timestamp_timezone or resolution.timezone
             pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
+            dataset_asset_id = resolution.asset_id
         elif csv_path is None and self.dataset_catalog is not None:
             resolution = self.dataset_catalog.resolve_default_dataset(db, user_id)
             csv_path = resolution.csv_path
@@ -93,6 +95,7 @@ class BacktestService:
             currency = currency or resolution.currency
             timestamp_timezone = timestamp_timezone or resolution.timezone
             pnl_multiplier = pnl_multiplier or resolution.pnl_multiplier
+            dataset_asset_id = resolution.asset_id
 
         if csv_path is None:
             raise FileNotFoundError(
@@ -130,6 +133,7 @@ class BacktestService:
             symbol=symbol,
             instrument=instrument,
             timeframe=timeframe,
+            dataset_asset_id=dataset_asset_id,
             csv_path=str(csv_path),
             currency=currency,
             timezone=timestamp_timezone,
@@ -1441,16 +1445,80 @@ class BacktestService:
         self,
         session: BacktestSession,
     ) -> MarketDataService | DatabaseMarketDataService:
+        db = object_session(session)
+        if (
+            db is not None
+            and self.dataset_catalog is not None
+            and session.dataset_asset_id is not None
+            and session.timeframe is not None
+            and (
+                service := self.market_data_for_dataset_identity(
+                    db,
+                    session.user_id,
+                    asset_id=session.dataset_asset_id,
+                    timeframe=session.timeframe,
+                    csv_path=session.csv_path,
+                    timestamp_timezone=session.timezone or "UTC",
+                )
+            )
+            is not None
+        ):
+            return service
         if not session.csv_path and self.market_data is None:
             raise FileNotFoundError(
                 "Market data is unavailable for this replay session."
             )
-        db = object_session(session)
         return self.market_data_for_path(
             session.csv_path or str(self.market_data.csv_path),
             session.timezone or "UTC",
             db=db,
             user_id=session.user_id,
+        )
+
+    def market_data_for_dataset_identity(
+        self,
+        db: Session,
+        user_id: int,
+        *,
+        asset_id: int,
+        timeframe: str,
+        csv_path: str | None,
+        timestamp_timezone: str = "UTC",
+    ) -> MarketDataService | DatabaseMarketDataService | None:
+        if self.dataset_catalog is None:
+            return None
+        timeframe_row = self.dataset_catalog.stored_timeframe(
+            db,
+            user_id,
+            asset_id=asset_id,
+            timeframe=timeframe,
+        )
+        if timeframe_row is None:
+            return None
+        if timeframe_row.database_imported:
+            cache_key = (
+                f"db::{user_id}::{asset_id}::{timeframe_row.timeframe}"
+                f"::{timestamp_timezone or 'UTC'}"
+            )
+            service = self._market_data_cache.get(cache_key)
+            if service is None or service.source_has_changed():
+                self._market_data_cache[cache_key] = DatabaseMarketDataService(
+                    self.dataset_catalog.session_factory,
+                    user_id=user_id,
+                    asset_id=asset_id,
+                    timeframe=timeframe_row.timeframe,
+                    csv_path=timeframe_row.csv_path or (csv_path or ""),
+                    timestamp_timezone=timestamp_timezone or "UTC",
+                )
+            return self._market_data_cache[cache_key]
+        resolved_csv_path = timeframe_row.csv_path or csv_path
+        if not resolved_csv_path:
+            return None
+        return self.market_data_for_path(
+            resolved_csv_path,
+            timestamp_timezone,
+            db=db,
+            user_id=user_id,
         )
 
     def market_data_for_path(

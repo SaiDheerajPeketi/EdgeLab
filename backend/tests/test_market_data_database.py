@@ -172,3 +172,54 @@ def test_database_market_data_cache_invalidates_after_reimport(tmp_path):
         assert second_service.get_candle(3).close == 1.102
         assert first_service.source_has_changed() is True
         assert second_service is not first_service
+
+
+def test_imported_market_data_session_works_without_session_csv_path(tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "EUR_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "EURUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.1000,1.1010,1.0990,1.1005,100\n"
+        "2024-01-01 09:31:00,1.1005,1.1015,1.0995,1.1010,105\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    catalog = DatasetCatalogService(datasets_root, session_factory, market_data_import_enabled=True)
+    backtester = BacktestService(dataset_catalog=catalog)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        refreshed = catalog.refresh_catalog(db, user_id)
+        dataset_asset = refreshed.catalog.instruments[0]
+        asset = db.scalar(select(DatasetAsset).where(DatasetAsset.user_id == user_id))
+        assert asset is not None
+        session = BacktestSession(
+            user_id=user_id,
+            name="DB identity replay",
+            symbol=dataset_asset.symbol,
+            instrument=dataset_asset.id,
+            timeframe="M1",
+            dataset_asset_id=asset.id,
+            csv_path=None,
+            timezone="UTC",
+            replay_ready=True,
+            current_offset=1,
+        )
+        db.add(session)
+        db.commit()
+        session_id = session.id
+
+    csv_path.unlink()
+
+    with session_factory() as db:
+        catalog.refresh_catalog(db, user_id)
+        state = backtester.get_state(db, user_id, session_id)
+
+    assert state.current_candle is not None
+    assert state.current_candle.close == 1.101
+    assert state.session.csv_path is None

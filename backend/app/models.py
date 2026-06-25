@@ -34,6 +34,7 @@ class BacktestSession(UserOwnedMixin, Base):
     __tablename__ = "backtest_sessions"
     __table_args__ = (
         Index("ix_backtest_sessions_user_created_id", "user_id", "created_at", "id"),
+        Index("ix_backtest_sessions_user_dataset_asset_timeframe", "user_id", "dataset_asset_id", "timeframe"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -41,6 +42,11 @@ class BacktestSession(UserOwnedMixin, Base):
     symbol: Mapped[str] = mapped_column(String(40), default="DATASET")
     instrument: Mapped[str | None] = mapped_column(String(120), nullable=True)
     timeframe: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    dataset_asset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     csv_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(12), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(80), nullable=True)

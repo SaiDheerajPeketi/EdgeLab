@@ -368,6 +368,22 @@ class DatasetCatalogService:
             )
         raise FileNotFoundError(f"No datasets found under {self._root_path(db, user_id)}")
 
+    def stored_timeframe(
+        self,
+        db: Session,
+        user_id: int,
+        *,
+        asset_id: int,
+        timeframe: str,
+    ) -> DatasetTimeframe | None:
+        return db.scalar(
+            select(DatasetTimeframe).where(
+                DatasetTimeframe.user_id == user_id,
+                DatasetTimeframe.asset_id == asset_id,
+                DatasetTimeframe.timeframe == normalize_timeframe(timeframe),
+            )
+        )
+
     def _lock_for_user(self, user_id: int) -> Lock:
         with self._state_lock:
             return self._locks_by_user.setdefault(user_id, Lock())
@@ -476,20 +492,25 @@ class DatasetCatalogService:
         )
 
     def _sync_session_replay_ready(self, db: Session, user_id: int) -> None:
-        known_csv_paths = {
-            row
-            for row in db.scalars(
-                select(DatasetTimeframe.csv_path).where(DatasetTimeframe.user_id == user_id)
-            ).all()
-            if row
-        }
+        stored_timeframes = db.scalars(
+            select(DatasetTimeframe).where(DatasetTimeframe.user_id == user_id)
+        ).all()
+        known_csv_paths = {row.csv_path for row in stored_timeframes if row.csv_path}
+        known_dataset_keys = {(row.asset_id, row.timeframe) for row in stored_timeframes}
         sessions = db.scalars(
             select(BacktestSession).where(BacktestSession.user_id == user_id)
         ).all()
         for session in sessions:
             if session.timeframe == "Imported":
                 continue
-            next_ready = bool(session.csv_path and session.csv_path in known_csv_paths)
+            next_ready = bool(
+                (session.csv_path and session.csv_path in known_csv_paths)
+                or (
+                    session.dataset_asset_id is not None
+                    and session.timeframe is not None
+                    and (session.dataset_asset_id, session.timeframe) in known_dataset_keys
+                )
+            )
             if session.replay_ready != next_ready:
                 session.replay_ready = next_ready
                 session.updated_at = utcnow()
