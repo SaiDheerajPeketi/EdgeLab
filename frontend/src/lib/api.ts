@@ -321,6 +321,14 @@ export type BacktestSessionPage = {
   has_more: boolean;
 };
 
+export type TradePage = {
+  items: Trade[];
+  offset: number;
+  limit: number;
+  next_offset: number;
+  has_more: boolean;
+};
+
 export type StrategySummaryAggregate = {
   closed_trades: number;
   winning_trades: number;
@@ -996,6 +1004,24 @@ export function getTrades(
   }
   const query = params.toString() ? `?${params.toString()}` : "";
   return request<Trade[]>(`/trades${query}`);
+}
+
+export function getTradesPage(
+  sessionId?: number,
+  options: { offset?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  if (sessionId) {
+    params.set("session_id", String(sessionId));
+  }
+  if (options.offset !== undefined) {
+    params.set("offset", String(options.offset));
+  }
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return request<TradePage>(`/trades/page${query}`);
 }
 
 export function getMetrics(sessionId?: number) {

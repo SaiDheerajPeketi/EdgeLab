@@ -650,6 +650,14 @@ class BacktestSessionPage(BaseModel):
     has_more: bool
 
 
+class TradePage(BaseModel):
+    items: list[TradeRead]
+    offset: int
+    limit: int
+    next_offset: int
+    has_more: bool
+
+
 class AppBootstrapShellResponse(BaseModel):
     playbooks: list[PlaybookRead]
     recent_sessions: list[BacktestSessionRead]

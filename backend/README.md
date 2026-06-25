@@ -219,6 +219,7 @@ It pulls one-minute candles for the configured forex majors through Dukascopy an
 - `GET /api/metrics?session_id=...` returns session analytics.
 - `GET /api/metrics/summary?session_id=...` returns lightweight session aggregates for cards and quick refreshes.
 - `GET /api/metrics/curves?session_id=...` returns the heavier equity/report payload used by charts and calendar panels.
+- `GET /api/trades/page?offset=&limit=&session_id=` returns paginated trades without forcing a full trade list read.
 - `GET /api/auth/beta/status` returns live beta seat and waitlist counts.
 - `GET /api/auth/config` returns runtime auth config for frontend, including public Google callback URI.
 - `POST /api/auth/beta/access` issues beta access or waitlist sessions only when `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=1`.

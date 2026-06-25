@@ -701,3 +701,57 @@ def test_metrics_summary_and_curves_routes_split_payloads():
     assert len(curves.equity_curve) == 1
     assert curves.strategy_performance[0].strategy_name == "Breakout"
     assert combined.model_dump() == {**summary.model_dump(), **curves.model_dump()}
+
+
+def test_trades_page_paginates_recent_trades():
+    db = make_model_session()
+    user_id = seed_user(db)
+    session = BacktestSession(
+        user_id=user_id,
+        name="Trade page session",
+        symbol="GBPUSD",
+        current_offset=0,
+    )
+    db.add(session)
+    db.flush()
+    for index in range(3):
+        db.add(
+            Trade(
+                user_id=user_id,
+                session_id=session.id,
+                status="CLOSED",
+                side="LONG",
+                entry_time=datetime(2024, 1, 4, 9, index, tzinfo=timezone.utc),
+                entry_price=100.0,
+                quantity=1.0,
+                remaining_quantity=0.0,
+                exit_time=datetime(2024, 1, 4, 10, index, tzinfo=timezone.utc),
+                exit_price=101.0,
+                realized_pnl=float(index + 1),
+            )
+        )
+    db.commit()
+
+    try:
+        first = routes.get_trades_page(
+            db=db,
+            current_user=current_user(user_id),
+            session_id=session.id,
+            offset=0,
+            limit=2,
+        )
+        second = routes.get_trades_page(
+            db=db,
+            current_user=current_user(user_id),
+            session_id=session.id,
+            offset=first.next_offset,
+            limit=2,
+        )
+    finally:
+        db.close()
+
+    assert len(first.items) == 2
+    assert first.has_more is True
+    assert first.items[0].realized_pnl == 3.0
+    assert len(second.items) == 1
+    assert second.has_more is False

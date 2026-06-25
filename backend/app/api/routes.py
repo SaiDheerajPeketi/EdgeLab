@@ -91,6 +91,7 @@ from app.schemas import (
     PositionUpdate,
     StrategySummary,
     TradeRead,
+    TradePage,
     TradeStrategyUpdate,
 )
 from app.services.backtester import BacktestService, list_latest_session
@@ -2010,6 +2011,40 @@ def get_trades(
         session_id,
         offset=offset,
         limit=limit,
+    )
+
+
+@router.get("/trades/page", response_model=TradePage)
+def get_trades_page(
+    session_id: int | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> TradePage:
+    items = backtester.list_trades(
+        db,
+        current_user.id,
+        session_id,
+        offset=offset,
+        limit=limit,
+    )
+    next_offset = offset + len(items)
+    has_more = len(items) == limit and bool(
+        backtester.list_trades(
+            db,
+            current_user.id,
+            session_id,
+            offset=next_offset,
+            limit=1,
+        )
+    )
+    return TradePage(
+        items=items,
+        offset=offset,
+        limit=limit,
+        next_offset=next_offset,
+        has_more=has_more,
     )
 
 
