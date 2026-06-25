@@ -1018,11 +1018,14 @@ export function getTrades(
 
 export function getTradesPage(
   sessionId?: number,
-  options: { offset?: number; limit?: number } = {},
+  options: { cursor?: string | null; offset?: number; limit?: number } = {},
 ) {
   const params = new URLSearchParams();
   if (sessionId) {
     params.set("session_id", String(sessionId));
+  }
+  if (options.cursor) {
+    params.set("cursor", options.cursor);
   }
   if (options.offset !== undefined) {
     params.set("offset", String(options.offset));

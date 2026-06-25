@@ -2050,33 +2050,32 @@ def get_trades(
 @router.get("/trades/page", response_model=TradePage)
 def get_trades_page(
     session_id: int | None = Query(default=None),
+    cursor: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> TradePage:
+    cursor_value = decode_page_cursor(cursor) if cursor else None
     items = backtester.list_trades(
         db,
         current_user.id,
         session_id,
         offset=offset,
-        limit=limit,
+        limit=limit + 1,
+        cursor=cursor_value,
     )
+    has_more = len(items) > limit
+    items = items[:limit]
     next_offset = offset + len(items)
-    has_more = len(items) == limit and bool(
-        backtester.list_trades(
-            db,
-            current_user.id,
-            session_id,
-            offset=next_offset,
-            limit=1,
-        )
-    )
     return TradePage(
         items=items,
         offset=offset,
         limit=limit,
         next_offset=next_offset,
+        next_cursor=(
+            encode_page_cursor(items[-1].entry_time, items[-1].id) if has_more and items else None
+        ),
         has_more=has_more,
     )
 

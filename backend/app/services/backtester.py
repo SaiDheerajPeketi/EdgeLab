@@ -422,6 +422,7 @@ class BacktestService:
         session_id: int | None = None,
         offset: int = 0,
         limit: int = 500,
+        cursor: tuple[datetime, int] | None = None,
     ) -> list[TradeRead]:
         query = (
             select(Trade)
@@ -430,7 +431,20 @@ class BacktestService:
         )
         if session_id is not None:
             query = query.where(Trade.session_id == session_id)
-        query = query.offset(offset).limit(limit)
+        if cursor is not None:
+            cursor_entry_time, cursor_id = cursor
+            query = query.where(
+                or_(
+                    Trade.entry_time < cursor_entry_time,
+                    and_(
+                        Trade.entry_time == cursor_entry_time,
+                        Trade.id < cursor_id,
+                    ),
+                )
+            )
+        else:
+            query = query.offset(offset)
+        query = query.limit(limit)
         return [to_trade_read(trade) for trade in db.scalars(query).all()]
 
     def update_journal(
