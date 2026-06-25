@@ -99,7 +99,7 @@ docker compose --profile benchmark run --rm \
   benchmark-k6 run /benchmark/k6/bootstrap.js
 ```
 
-Additional bundled k6 scenarios cover `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, and `metrics-curves`.
+Additional bundled k6 scenarios cover `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, and `market-data-bars`.
 
 The API also keeps short-lived in-process read-model caches for `/api/bootstrap-shell` and `/api/datasets`. Tune them with:
 
@@ -130,6 +130,15 @@ Load-test the live frontend/API entrypoints against the current single-VM proxy 
 
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py --requests 200 --concurrency 20
+```
+
+Add `--session-id` when you want `market-data/meta`, `market-data/bars`, `metrics`, or trade-page runs pinned to one replay session:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py \
+  --auth-token your-beta-session-jwt \
+  --session-id 123 \
+  --bars-limit 300
 ```
 
 Or set the Postgres pieces instead of a full URL:

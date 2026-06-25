@@ -123,7 +123,27 @@ docker compose --profile benchmark run --rm \
   benchmark-k6 run /benchmark/k6/metrics-curves.js
 ```
 
-When you want session-scoped curves or trade-page runs, use `latest_backtest_session_id` or one of `sample_backtest_session_ids` from seed output and pass it as `EDGELAB_SESSION_ID`.
+Market-data meta benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  -e EDGELAB_SESSION_ID=your-session-id \
+  benchmark-k6 run /benchmark/k6/market-data-meta.js
+```
+
+Market-data bars benchmark:
+
+```bash
+docker compose --profile benchmark run --rm \
+  -e EDGELAB_API_BASE_URL=http://frontend/api \
+  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
+  -e EDGELAB_SESSION_ID=your-session-id \
+  benchmark-k6 run /benchmark/k6/market-data-bars.js
+```
+
+When you want session-scoped curves, trade-page, or market-data runs, use `latest_backtest_session_id` or one of `sample_backtest_session_ids` from seed output and pass it as `EDGELAB_SESSION_ID`. If you imported that session's dataset into DB-backed `market_candles`, the same bars benchmark measures the DB path without changing the URL.
 
 ## Existing Python Micro-Benchmarks
 

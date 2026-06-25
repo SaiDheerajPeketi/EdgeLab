@@ -121,6 +121,8 @@ def main() -> None:
     parser.add_argument("--concurrency", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--summaries-limit", type=int, default=50)
+    parser.add_argument("--bars-limit", type=int, default=300)
+    parser.add_argument("--session-id", type=int)
     args = parser.parse_args()
 
     frontend_url = args.frontend_url.rstrip("/")
@@ -138,10 +140,19 @@ def main() -> None:
         )
         if args.auth_token:
             auth_headers = {"Authorization": f"Bearer {args.auth_token}"}
+            market_meta_url = f"{api_url}/market-data/meta"
+            market_bars_url = f"{api_url}/market-data/bars?limit={args.bars_limit}"
+            if args.session_id is not None:
+                market_meta_url = f"{market_meta_url}?session_id={args.session_id}"
+                market_bars_url = (
+                    f"{api_url}/market-data/bars?session_id={args.session_id}&limit={args.bars_limit}"
+                )
             targets.extend(
                 [
                     ("api_bootstrap_shell", f"{api_url}/bootstrap-shell", auth_headers),
                     ("api_bootstrap", f"{api_url}/bootstrap", auth_headers),
+                    ("api_market_data_meta", market_meta_url, auth_headers),
+                    ("api_market_data_bars", market_bars_url, auth_headers),
                     ("api_metrics_summary", f"{api_url}/metrics/summary", auth_headers),
                     ("api_metrics_curves", f"{api_url}/metrics/curves", auth_headers),
                     ("api_trades_page", f"{api_url}/trades/page?limit=100", auth_headers),
