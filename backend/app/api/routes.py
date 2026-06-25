@@ -393,6 +393,8 @@ def default_market_data_reference(db: Session, user_id: int) -> tuple[Path, int]
     metadata = backtester.market_data_for_path(
         str(resolution.csv_path),
         resolution.timezone or "UTC",
+        db=db,
+        user_id=user_id,
     ).get_metadata()
     return resolution.csv_path, metadata.rows
 
@@ -1020,6 +1022,8 @@ def market_data_meta(
             return backtester.market_data_for_path(
                 str(resolution.csv_path),
                 resolution.timezone or "UTC",
+                db=db,
+                user_id=current_user.id,
             ).get_metadata()
         return market_data.get_metadata()
     except (FileNotFoundError, ValueError) as exc:
@@ -1325,6 +1329,8 @@ def market_data_bars(
             service = backtester.market_data_for_path(
                 str(resolution.csv_path),
                 resolution.timezone or "UTC",
+                db=db,
+                user_id=current_user.id,
             )
         return service.get_bars(offset=offset, limit=limit, warmup=warmup)
     except (FileNotFoundError, ValueError) as exc:

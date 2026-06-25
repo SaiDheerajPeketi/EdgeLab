@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import BacktestSession, DatasetAsset, DatasetSettings, DatasetTimeframe, utcnow
+from app.models import BacktestSession, DatasetAsset, DatasetSettings, DatasetTimeframe, MarketCandle, utcnow
 from app.schemas import (
     DatasetAssetUpdate,
     DatasetCatalogResponse,
@@ -53,6 +53,9 @@ class DatasetResolution:
     timezone: str | None
     pnl_multiplier: float
     stored: bool
+    asset_id: int | None = None
+    dataset_timeframe_id: int | None = None
+    database_imported: bool = False
 
 
 @dataclass(frozen=True)
@@ -291,10 +294,15 @@ class DatasetCatalogService:
                     csv_path=Path(stored.csv_path),
                     instrument=asset.asset_key if asset else instrument,
                     timeframe=stored.timeframe,
-                    symbol=asset.symbol if asset else self._symbol_from_asset_key(instrument or path.parent.name),
+                    symbol=asset.symbol
+                    if asset
+                    else self._symbol_from_asset_key(instrument or Path(requested_path).parent.name),
                     currency=asset.currency if asset else None,
                     timezone=asset.timezone if asset else None,
                     pnl_multiplier=asset.pnl_multiplier if asset else 1.0,
+                    asset_id=asset.id if asset else None,
+                    dataset_timeframe_id=stored.id,
+                    database_imported=stored.database_imported,
                     stored=True,
                 )
             raise FileNotFoundError("Dataset CSV not found in the authenticated user's catalog")
@@ -330,6 +338,9 @@ class DatasetCatalogService:
                     currency=asset.currency,
                     timezone=asset.timezone,
                     pnl_multiplier=asset.pnl_multiplier,
+                    asset_id=asset.id,
+                    dataset_timeframe_id=dataset_timeframe.id,
+                    database_imported=dataset_timeframe.database_imported,
                     stored=True,
                 )
         raise FileNotFoundError(f"No dataset found for {instrument} {timeframe}")
@@ -402,6 +413,11 @@ class DatasetCatalogService:
                 ).all()
                 for stale_timeframe in stale_timeframes:
                     if stale_timeframe.timeframe not in seen_timeframes:
+                        db.query(MarketCandle).filter(
+                            MarketCandle.user_id == user_id,
+                            MarketCandle.asset_id == asset.id,
+                            MarketCandle.timeframe == stale_timeframe.timeframe,
+                        ).delete(synchronize_session=False)
                         db.delete(stale_timeframe)
 
         if prune_missing:
@@ -520,6 +536,8 @@ class DatasetCatalogService:
         existing.file_size = metadata.file_size
         existing.file_mtime_ns = metadata.file_mtime_ns
         existing.imported = False
+        existing.database_imported = False
+        existing.database_imported_at = None
         existing.updated_at = utcnow()
         db.flush()
         return existing

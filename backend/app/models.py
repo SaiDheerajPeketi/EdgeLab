@@ -200,9 +200,63 @@ class DatasetTimeframe(UserOwnedMixin, Base):
     file_mtime_ns: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     imported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    database_imported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    database_imported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     asset: Mapped[DatasetAsset] = relationship(back_populates="timeframes")
+
+
+class MarketCandle(UserOwnedMixin, Base):
+    __tablename__ = "market_candles"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "asset_id",
+            "timeframe",
+            "offset",
+            name="uq_market_candles_user_asset_timeframe_offset",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "asset_id",
+            "timeframe",
+            "timestamp",
+            name="uq_market_candles_user_asset_timeframe_timestamp",
+        ),
+        Index(
+            "ix_market_candles_user_asset_timeframe_offset",
+            "user_id",
+            "asset_id",
+            "timeframe",
+            "offset",
+        ),
+        Index(
+            "ix_market_candles_user_asset_timeframe_timestamp",
+            "user_id",
+            "asset_id",
+            "timeframe",
+            "timestamp",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    timeframe: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    offset: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    open: Mapped[float] = mapped_column(Float, nullable=False)
+    high: Mapped[float] = mapped_column(Float, nullable=False)
+    low: Mapped[float] = mapped_column(Float, nullable=False)
+    close: Mapped[float] = mapped_column(Float, nullable=False)
+    volume: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    asset: Mapped[DatasetAsset] = relationship()
 
 
 class DatasetSettings(UserOwnedMixin, Base):

@@ -78,6 +78,17 @@ PYTHONPATH=backend backend/.venv/bin/python backend/scripts/migrate_sqlite_to_da
   --reset-target
 ```
 
+Import dataset CSV candles into DB-backed `market_candles` storage with:
+
+```bash
+npm run market-data:import -- \
+  --database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab \
+  --user-id 1 \
+  --csv-path /absolute/path/to/datasets/EUR_USD/EURUSD_M1.csv
+```
+
+When a timeframe is imported, `GET /api/market-data/bars` and `GET /api/market-data/meta` can serve it from DB even if the CSV disappears later. Non-imported datasets still fall back to CSV.
+
 The root Compose file also exposes a `benchmark` profile that starts Redis, TimescaleDB, MinIO, and the `benchmark-k6` runner alongside the current API/frontend stack:
 
 ```bash

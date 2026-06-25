@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import and_, asc, desc, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.models import (
     BacktestSession,
@@ -35,6 +35,7 @@ from app.schemas import (
     TradeStrategyUpdate,
 )
 from app.services.datasets import DatasetCatalogService
+from app.services.database_market_data import DatabaseMarketDataService
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 from app.services.session_summaries import refresh_session_summary
@@ -56,7 +57,7 @@ class BacktestService:
     ):
         self.market_data = market_data
         self.dataset_catalog = dataset_catalog
-        self._market_data_cache: dict[str, MarketDataService] = {}
+        self._market_data_cache: dict[str, MarketDataService | DatabaseMarketDataService] = {}
         if market_data is not None:
             self._market_data_cache[str(market_data.csv_path)] = market_data
 
@@ -103,6 +104,8 @@ class BacktestService:
         market_data = self.market_data_for_path(
             str(csv_path),
             timestamp_timezone or "UTC",
+            db=db,
+            user_id=user_id,
         )
         metadata = market_data.get_metadata()
         start_offset = payload.initial_offset
@@ -1434,17 +1437,57 @@ class BacktestService:
             self._replay_ready_session_clause(),
         )
 
-    def market_data_for_session(self, session: BacktestSession) -> MarketDataService:
+    def market_data_for_session(
+        self,
+        session: BacktestSession,
+    ) -> MarketDataService | DatabaseMarketDataService:
         if not session.csv_path and self.market_data is None:
             raise FileNotFoundError(
                 "Market data is unavailable for this replay session."
             )
+        db = object_session(session)
         return self.market_data_for_path(
             session.csv_path or str(self.market_data.csv_path),
             session.timezone or "UTC",
+            db=db,
+            user_id=session.user_id,
         )
 
-    def market_data_for_path(self, csv_path: str, timestamp_timezone: str = "UTC") -> MarketDataService:
+    def market_data_for_path(
+        self,
+        csv_path: str,
+        timestamp_timezone: str = "UTC",
+        *,
+        db: Session | None = None,
+        user_id: int | None = None,
+    ) -> MarketDataService | DatabaseMarketDataService:
+        if db is not None and user_id is not None and self.dataset_catalog is not None:
+            try:
+                resolution = self.dataset_catalog.resolve_dataset(db, user_id, csv_path=csv_path)
+            except FileNotFoundError:
+                resolution = None
+            if (
+                resolution is not None
+                and resolution.asset_id is not None
+                and resolution.timeframe is not None
+                and resolution.database_imported
+            ):
+                cache_key = (
+                    f"db::{user_id}::{resolution.asset_id}::{resolution.timeframe}"
+                    f"::{timestamp_timezone or 'UTC'}"
+                )
+                service = self._market_data_cache.get(cache_key)
+                if service is None:
+                    self._market_data_cache[cache_key] = DatabaseMarketDataService(
+                        self.dataset_catalog.session_factory,
+                        user_id=user_id,
+                        asset_id=resolution.asset_id,
+                        timeframe=resolution.timeframe,
+                        csv_path=str(resolution.csv_path),
+                        timestamp_timezone=timestamp_timezone or "UTC",
+                    )
+                return self._market_data_cache[cache_key]
+
         cache_key = f"{csv_path}::{timestamp_timezone or 'UTC'}"
         service = self._market_data_cache.get(cache_key)
         if service is None or service.source_has_changed():

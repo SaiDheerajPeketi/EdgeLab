@@ -58,6 +58,17 @@ Session summary reads now support cursor-first pagination at `GET /api/backtests
 
 Trade reads now also have an explicit page contract at `GET /api/trades/page?cursor=&offset=&limit=`. The legacy `GET /api/trades` list route stays available while the UI moves off full-list assumptions.
 
+Market-data request paths can now prefer DB-backed candle storage when a dataset timeframe has been imported into `market_candles`. Import one dataset CSV into the active database with:
+
+```bash
+npm run market-data:import -- \
+  --database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:5432/edgelab \
+  --user-id 1 \
+  --csv-path /absolute/path/to/datasets/EUR_USD/EURUSD_M1.csv
+```
+
+After that import, `/api/market-data/bars` and `/api/market-data/meta` can serve that timeframe from DB even if the original CSV is unavailable, while non-imported datasets still fall back to CSV.
+
 You can also rebuild the analytics read models on demand with `npm run analytics:refresh-read-models` or the backward-compatible `npm run analytics:refresh-session-summaries`.
 
 Before PostgreSQL cutover, verify a copied SQLite export against the target database with:
