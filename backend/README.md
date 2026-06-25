@@ -45,6 +45,8 @@ cd backend
 alembic upgrade head
 ```
 
+Container startup wraps that same Alembic upgrade in retry logic, so transient PgBouncer or PostgreSQL login races during Docker/Jenkins deploys do not crash the API immediately.
+
 Benchmark the session-summary path without Docker by seeding a temporary SQLite workload and comparing the legacy filesystem filter against the indexed catalog query:
 
 ```bash
