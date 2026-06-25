@@ -8,6 +8,7 @@ import pandas as pd
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.market_data_db import ensure_market_data_schema
 from app.models import DatasetTimeframe, MarketCandle, utcnow
 
 
@@ -181,7 +182,7 @@ def _market_data_session(
 
 
 def _ensure_market_candle_table(db: Session) -> None:
-    MarketCandle.__table__.create(bind=db.get_bind(), checkfirst=True)
+    ensure_market_data_schema(db.get_bind())
 
 
 def _append_start_index(

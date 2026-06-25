@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.api import routes
+from app.market_data_db import ensure_market_data_schema, market_candles_table
 from app.models import BacktestSession, DatasetAsset, DatasetTimeframe, MarketCandle
 from app.services.backtester import BacktestService
 from app.services.database_market_data import DatabaseMarketDataService
@@ -441,7 +442,7 @@ def test_market_data_import_and_reads_can_use_dedicated_market_data_database(tmp
     metadata_engine = create_engine(f"sqlite:///{tmp_path / 'metadata.db'}")
     market_engine = create_engine(f"sqlite:///{tmp_path / 'market.db'}")
     Base.metadata.create_all(metadata_engine)
-    Base.metadata.create_all(market_engine)
+    ensure_market_data_schema(market_engine)
     metadata_session_factory = sessionmaker(bind=metadata_engine)
     market_session_factory = sessionmaker(bind=market_engine)
 
@@ -501,3 +502,17 @@ def test_market_data_import_and_reads_can_use_dedicated_market_data_database(tmp
         assert len(stored) == 3
         assert stored[0].open == 1.1
         assert stored[-1].close == 1.1015
+
+
+def test_dedicated_market_candles_schema_has_no_cross_database_foreign_keys(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'market.db'}")
+
+    ensure_market_data_schema(engine)
+
+    assert len(market_candles_table().foreign_keys) == 0
+    with engine.connect() as connection:
+        table_names = set(connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").scalars())
+
+    assert "market_candles" in table_names
+    assert "beta_users" not in table_names
+    assert "dataset_assets" not in table_names
