@@ -151,6 +151,7 @@ The repo still keeps the fast local Python benchmarks for isolated before/after 
 
 - `backend/scripts/benchmark_session_summaries.py`
 - `backend/scripts/benchmark_bootstrap_profiles.py`
+- `backend/scripts/benchmark_market_data_storage.py`
 - `backend/scripts/load_test_services.py`
 
 Use those for quick iteration and the k6 harness for repeatable HTTP-level measurements through the deployed stack.

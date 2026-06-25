@@ -19,6 +19,7 @@
     "bench:bootstrap-profiles": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py",
     "bench:session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py",
     "bench:metrics-profiles": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_metrics_profiles.py",
+    "bench:market-data-storage": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_market_data_storage.py",
     "market-data:import": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/import_market_data_to_db.py",
     "analytics:refresh-session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py",
     "analytics:refresh-read-models": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py"

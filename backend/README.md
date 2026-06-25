@@ -63,6 +63,12 @@ Compare the lighter metrics summary payload against the heavier curves payload a
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_metrics_profiles.py --sessions 50 --trades-per-session 100 --iterations 20
 ```
 
+Compare cached CSV-backed replay reads against DB-backed `market_candles` reads with:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_market_data_storage.py --rows 20000 --iterations 25
+```
+
 Seed authenticated benchmark users into the configured database and print beta-session JWTs for k6 runs with:
 
 ```bash
