@@ -68,6 +68,7 @@ def test_imported_market_data_serves_bars_without_csv_file(tmp_path, monkeypatch
         db.add(session)
         db.commit()
         session_id = session.id
+        asset_id = asset.id
 
     summary = import_market_data_to_db(
         session_factory,
@@ -110,12 +111,30 @@ def test_imported_market_data_serves_bars_without_csv_file(tmp_path, monkeypatch
             db=db,
             current_user=current_user(user_id),
         )
+        direct_response = routes.market_data_bars(
+            offset=1,
+            limit=1,
+            warmup=0,
+            dataset_asset_id=asset_id,
+            timeframe="M1",
+            db=db,
+            current_user=current_user(user_id),
+        )
+        direct_metadata = routes.market_data_meta(
+            dataset_asset_id=asset_id,
+            timeframe="M1",
+            db=db,
+            current_user=current_user(user_id),
+        )
 
     assert len(response.bars) == 2
     assert response.bars[0].open == 1.1
     assert response.bars[1].close == 1.101
     assert metadata.rows == 3
     assert metadata.first_timestamp == datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc)
+    assert len(direct_response.bars) == 1
+    assert direct_response.bars[0].close == 1.101
+    assert direct_metadata.rows == 3
 
 
 def test_database_market_data_cache_invalidates_after_reimport(tmp_path):

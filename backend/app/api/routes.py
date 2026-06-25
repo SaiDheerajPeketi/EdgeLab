@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.params import Param
 from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -401,6 +402,47 @@ def default_market_data_reference(db: Session, user_id: int) -> tuple[Path, int]
         user_id=user_id,
     ).get_metadata()
     return resolution.csv_path, metadata.rows
+
+
+def requested_market_data_service(
+    db: Session,
+    user_id: int,
+    *,
+    session_id: int | None = None,
+    dataset_asset_id: int | None = None,
+    timeframe: str | None = None,
+):
+    session_id = session_id.default if isinstance(session_id, Param) else session_id
+    dataset_asset_id = (
+        dataset_asset_id.default if isinstance(dataset_asset_id, Param) else dataset_asset_id
+    )
+    timeframe = timeframe.default if isinstance(timeframe, Param) else timeframe
+    if session_id is not None:
+        session = backtester.get_session(db, user_id, session_id)
+        return backtester.market_data_for_session(session)
+    if dataset_asset_id is not None or timeframe is not None:
+        if dataset_asset_id is None or timeframe is None:
+            raise ValueError("dataset_asset_id and timeframe are required together")
+        service = backtester.market_data_for_dataset_identity(
+            db,
+            user_id,
+            asset_id=dataset_asset_id,
+            timeframe=timeframe,
+            csv_path=None,
+            timestamp_timezone="UTC",
+        )
+        if service is None:
+            raise FileNotFoundError("Requested dataset timeframe is unavailable")
+        return service
+    if market_data is not None:
+        return market_data
+    resolution = dataset_catalog.resolve_default_dataset(db, user_id)
+    return backtester.market_data_for_path(
+        str(resolution.csv_path),
+        resolution.timezone or "UTC",
+        db=db,
+        user_id=user_id,
+    )
 
 
 def list_listable_backtest_sessions(
@@ -1014,22 +1056,19 @@ def delete_beta_session(
 @router.get("/market-data/meta", response_model=DatasetMeta)
 def market_data_meta(
     session_id: int | None = Query(default=None),
+    dataset_asset_id: int | None = Query(default=None, ge=1),
+    timeframe: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DatasetMeta:
     try:
-        if session_id is not None:
-            session = backtester.get_session(db, current_user.id, session_id)
-            return backtester.market_data_for_session(session).get_metadata()
-        if market_data is None:
-            resolution = dataset_catalog.resolve_default_dataset(db, current_user.id)
-            return backtester.market_data_for_path(
-                str(resolution.csv_path),
-                resolution.timezone or "UTC",
-                db=db,
-                user_id=current_user.id,
-            ).get_metadata()
-        return market_data.get_metadata()
+        return requested_market_data_service(
+            db,
+            current_user.id,
+            session_id=session_id,
+            dataset_asset_id=dataset_asset_id,
+            timeframe=timeframe,
+        ).get_metadata()
     except (FileNotFoundError, ValueError) as exc:
         raise market_data_error_response(exc) from exc
 
@@ -1320,22 +1359,19 @@ def market_data_bars(
     limit: int = Query(default=300, ge=1, le=5000),
     warmup: int = Query(default=120, ge=0, le=1000),
     session_id: int | None = Query(default=None),
+    dataset_asset_id: int | None = Query(default=None, ge=1),
+    timeframe: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BarsResponse:
     try:
-        service = market_data
-        if session_id is not None:
-            session = backtester.get_session(db, current_user.id, session_id)
-            service = backtester.market_data_for_session(session)
-        elif service is None:
-            resolution = dataset_catalog.resolve_default_dataset(db, current_user.id)
-            service = backtester.market_data_for_path(
-                str(resolution.csv_path),
-                resolution.timezone or "UTC",
-                db=db,
-                user_id=current_user.id,
-            )
+        service = requested_market_data_service(
+            db,
+            current_user.id,
+            session_id=session_id,
+            dataset_asset_id=dataset_asset_id,
+            timeframe=timeframe,
+        )
         return service.get_bars(offset=offset, limit=limit, warmup=warmup)
     except (FileNotFoundError, ValueError) as exc:
         raise market_data_error_response(exc) from exc
