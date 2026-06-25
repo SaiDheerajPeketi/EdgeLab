@@ -257,6 +257,8 @@ def seed_user_workload(
         "email": user.email,
         "session_id": beta_session.id,
         "token": token,
+        "latest_backtest_session_id": sessions[0].id if sessions else None,
+        "sample_backtest_session_ids": [session.id for session in sessions[: min(len(sessions), 5)]],
         "assets": len(catalog_blueprint),
         "timeframes_per_asset": len(timeframe_names),
         "sessions": len(sessions),

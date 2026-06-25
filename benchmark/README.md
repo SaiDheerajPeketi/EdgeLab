@@ -123,7 +123,7 @@ docker compose --profile benchmark run --rm \
   benchmark-k6 run /benchmark/k6/metrics-curves.js
 ```
 
-When you want session-scoped curves or trade-page runs, pull one seeded benchmark user `user_id`, then query one of that user's session ids and pass it as `EDGELAB_SESSION_ID`.
+When you want session-scoped curves or trade-page runs, use `latest_backtest_session_id` or one of `sample_backtest_session_ids` from seed output and pass it as `EDGELAB_SESSION_ID`.
 
 ## Existing Python Micro-Benchmarks
 
