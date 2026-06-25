@@ -337,6 +337,107 @@ def test_bootstrap_shell_returns_recent_payload_without_heavy_sections(monkeypat
     assert payload.recent_session_limit == routes.BOOTSTRAP_SHELL_SESSION_LIMIT
     assert payload.recent_sessions_has_more is False
     assert [session.csv_path for session in payload.recent_sessions] == [str(csv_path)]
+    assert len(payload.strategy_summaries) == 1
+    assert payload.strategy_summaries[0].sessions[0].session.id == valid_session.id
+    assert payload.strategy_summaries[0].aggregate.closed_trades == 0
+
+
+def test_bootstrap_shell_returns_strategy_summaries(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    csv_path = asset_dir / "GBPUSD_M1.csv"
+    csv_path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    db = make_model_session()
+    user_id = seed_user(db)
+    first_session = BacktestSession(
+        user_id=user_id,
+        name="London Continuation / GBPUSD M1",
+        symbol="GBPUSD",
+        strategy_name="London Continuation",
+        csv_path=str(csv_path),
+        current_offset=0,
+    )
+    second_session = BacktestSession(
+        user_id=user_id,
+        name="Breakout / GBPUSD M1",
+        symbol="GBPUSD",
+        strategy_name="Breakout",
+        csv_path=str(csv_path),
+        current_offset=0,
+    )
+    db.add_all([first_session, second_session])
+    db.flush()
+    db.add_all(
+        [
+            Trade(
+                user_id=user_id,
+                session_id=first_session.id,
+                status="CLOSED",
+                side="LONG",
+                entry_time=datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc),
+                entry_price=1.2,
+                quantity=1.0,
+                remaining_quantity=0.0,
+                exit_time=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+                exit_price=1.3,
+                realized_pnl=10.0,
+                r_multiple=2.0,
+            ),
+            Trade(
+                user_id=user_id,
+                session_id=first_session.id,
+                status="CLOSED",
+                side="LONG",
+                entry_time=datetime(2024, 1, 1, 10, 30, tzinfo=timezone.utc),
+                entry_price=1.2,
+                quantity=1.0,
+                remaining_quantity=0.0,
+                exit_time=datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc),
+                exit_price=1.1,
+                realized_pnl=-4.0,
+                r_multiple=-1.0,
+            ),
+            Trade(
+                user_id=user_id,
+                session_id=second_session.id,
+                status="CLOSED",
+                side="SHORT",
+                entry_time=datetime(2024, 1, 1, 11, 30, tzinfo=timezone.utc),
+                entry_price=1.3,
+                quantity=1.0,
+                remaining_quantity=0.0,
+                exit_time=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+                exit_price=1.2,
+                realized_pnl=6.0,
+                r_multiple=1.5,
+            ),
+        ]
+    )
+    db.commit()
+    catalog = DatasetCatalogService(datasets_root, sessionmaker(bind=db.get_bind()))
+    monkeypatch.setattr(routes, "dataset_catalog", catalog)
+    monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
+
+    try:
+        payload = routes.bootstrap_shell(db=db, current_user=current_user(user_id), limit=10)
+    finally:
+        db.close()
+
+    assert [summary.name for summary in payload.strategy_summaries] == [
+        "London Continuation",
+        "Breakout",
+    ]
+    assert payload.strategy_summaries[0].aggregate.closed_trades == 2
+    assert payload.strategy_summaries[0].aggregate.winning_trades == 1
+    assert payload.strategy_summaries[0].aggregate.net_pnl == pytest.approx(6.0)
+    assert payload.strategy_summaries[0].aggregate.profit_factor == pytest.approx(2.5)
+    assert payload.strategy_summaries[0].aggregate.average_r == pytest.approx(0.5)
+    assert payload.strategy_summaries[0].sessions[0].session.id == first_session.id
 
 
 def test_backtest_summaries_paginate_listable_sessions(monkeypatch, tmp_path):

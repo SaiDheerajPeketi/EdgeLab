@@ -331,6 +331,30 @@ class BacktestSessionRead(BaseModel):
     updated_at: datetime
 
 
+class StrategySummaryAggregate(BaseModel):
+    closed_trades: int = 0
+    winning_trades: int = 0
+    net_pnl: float = 0.0
+    gross_profit: float = 0.0
+    gross_loss: float = 0.0
+    win_rate: float = 0.0
+    average_r: float | None = None
+    profit_factor: float | None = None
+    r_sum: float = 0.0
+    r_samples: int = 0
+
+
+class StrategySummarySession(BaseModel):
+    session: BacktestSessionRead
+    aggregate: StrategySummaryAggregate
+
+
+class StrategySummary(BaseModel):
+    name: str
+    aggregate: StrategySummaryAggregate
+    sessions: list[StrategySummarySession]
+
+
 class BacktestTradeImport(BaseModel):
     account_name: str = Field(default="Imported Backtest", min_length=1, max_length=160)
     source_name: str | None = Field(default=None, max_length=120)
@@ -621,6 +645,7 @@ class BacktestSessionPage(BaseModel):
 class AppBootstrapShellResponse(BaseModel):
     playbooks: list[PlaybookRead]
     recent_sessions: list[BacktestSessionRead]
+    strategy_summaries: list[StrategySummary]
     recent_sessions_next_offset: int
     recent_sessions_has_more: bool
     recent_session_limit: int
@@ -630,6 +655,7 @@ class AppBootstrapResponse(BaseModel):
     datasets: DatasetCatalogResponse
     playbooks: list[PlaybookRead]
     recent_sessions: list[BacktestSessionRead]
+    strategy_summaries: list[StrategySummary]
     recent_sessions_next_offset: int
     recent_sessions_has_more: bool
     recent_trades: list[TradeRead]

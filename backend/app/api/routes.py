@@ -87,6 +87,7 @@ from app.schemas import (
     PlaybookRead,
     PlaybookUpdate,
     PositionUpdate,
+    StrategySummary,
     TradeRead,
     TradeStrategyUpdate,
 )
@@ -95,6 +96,7 @@ from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgres
 from app.services.market_data import MarketDataService
 from app.services.metrics import get_metrics
 from app.services.read_models import ReadModelCacheService
+from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
 
 
@@ -1615,6 +1617,7 @@ def build_bootstrap_shell_response(
     return AppBootstrapShellResponse(
         playbooks=backtester.list_playbooks(db, user_id),
         recent_sessions=sessions_page.items,
+        strategy_summaries=build_strategy_summaries(db, user_id, sessions_page.items),
         recent_sessions_next_offset=sessions_page.next_offset,
         recent_sessions_has_more=sessions_page.has_more,
         recent_session_limit=limit,
@@ -1660,6 +1663,7 @@ def build_bootstrap_response(
         datasets=dataset_catalog.list_catalog(db, user_id),
         playbooks=shell.playbooks,
         recent_sessions=shell.recent_sessions,
+        strategy_summaries=shell.strategy_summaries,
         recent_sessions_next_offset=shell.recent_sessions_next_offset,
         recent_sessions_has_more=shell.recent_sessions_has_more,
         recent_trades=backtester.list_trades(
@@ -1684,6 +1688,7 @@ def cached_bootstrap_response(
         datasets=cached_dataset_catalog_response(db, user_id),
         playbooks=shell.playbooks,
         recent_sessions=shell.recent_sessions,
+        strategy_summaries=shell.strategy_summaries,
         recent_sessions_next_offset=shell.recent_sessions_next_offset,
         recent_sessions_has_more=shell.recent_sessions_has_more,
         recent_trades=backtester.list_trades(
@@ -1700,16 +1705,37 @@ def cached_bootstrap_response(
 def bootstrap(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
+    limit: int = Query(BOOTSTRAP_SESSION_LIMIT, ge=1, le=SESSION_SUMMARIES_LIMIT_MAX),
 ) -> AppBootstrapResponse:
-    return cached_bootstrap_response(db, current_user.id)
+    if not isinstance(limit, int):
+        limit = BOOTSTRAP_SESSION_LIMIT
+    return cached_bootstrap_response(db, current_user.id, session_limit=limit)
 
 
 @router.get("/bootstrap-shell", response_model=AppBootstrapShellResponse)
 def bootstrap_shell(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
+    limit: int = Query(BOOTSTRAP_SHELL_SESSION_LIMIT, ge=1, le=SESSION_SUMMARIES_LIMIT_MAX),
 ) -> AppBootstrapShellResponse:
-    return cached_bootstrap_shell_response(db, current_user.id)
+    if not isinstance(limit, int):
+        limit = BOOTSTRAP_SHELL_SESSION_LIMIT
+    return cached_bootstrap_shell_response(db, current_user.id, limit=limit)
+
+
+@router.get("/backtests/strategy-summaries", response_model=list[StrategySummary])
+def list_backtest_strategy_summaries(
+    limit: int = Query(SESSION_SUMMARIES_LIMIT, ge=1, le=SESSION_SUMMARIES_LIMIT_MAX),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[StrategySummary]:
+    if not isinstance(limit, int):
+        limit = SESSION_SUMMARIES_LIMIT
+    return cached_bootstrap_shell_response(
+        db,
+        current_user.id,
+        limit=limit,
+    ).strategy_summaries
 
 
 @router.post("/backtests", response_model=BacktestState)

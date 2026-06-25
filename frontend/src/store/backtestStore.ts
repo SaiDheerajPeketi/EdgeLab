@@ -18,6 +18,7 @@ import {
   Playbook,
   PlaybookPayload,
   PlaybookUpdatePayload,
+  StrategySummary,
   Trade,
   TradeStrategyPayload,
   advanceBacktest,
@@ -27,7 +28,6 @@ import {
   deletePlaybook as deletePlaybookApi,
   getBars,
   getBacktest,
-  getBacktestSessionSummaries,
   getBacktests,
   getBootstrap,
   getBootstrapShell,
@@ -67,6 +67,7 @@ type BacktestStore = {
   resultSessions: BacktestSession[];
   resultSessionsNextOffset: number;
   resultSessionsHasMore: boolean;
+  strategySummaries: StrategySummary[];
   resultTrades: Trade[];
   isLoading: boolean;
   isLoadingMoreSessions: boolean;
@@ -118,6 +119,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   resultSessions: [],
   resultSessionsNextOffset: 0,
   resultSessionsHasMore: false,
+  strategySummaries: [],
   resultTrades: [],
   isLoading: false,
   isLoadingMoreSessions: false,
@@ -216,15 +218,13 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     };
 
     const hydrateShellData = () => {
-      void Promise.allSettled([getDatasets(), getTrades()]).then(([datasetsResult, tradesResult]) => {
+      void Promise.allSettled([getDatasets()]).then(([datasetsResult]) => {
         set((current) => ({
           datasets: datasetsResult.status === "fulfilled" ? datasetsResult.value : current.datasets,
-          resultTrades: tradesResult.status === "fulfilled" ? tradesResult.value : current.resultTrades,
           error:
             current.error ??
             firstRejectedMessage([
               datasetsResult,
-              tradesResult,
             ]),
         }));
       });
@@ -238,6 +238,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: shell.recent_sessions,
         resultSessionsNextOffset: shell.recent_sessions_next_offset,
         resultSessionsHasMore: shell.recent_sessions_has_more,
+        strategySummaries: shell.strategy_summaries,
         error: null,
         isLoading: false,
       });
@@ -253,12 +254,12 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           resultSessions: bootstrap.recent_sessions,
           resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
           resultSessionsHasMore: bootstrap.recent_sessions_has_more,
+          strategySummaries: bootstrap.strategy_summaries,
           resultTrades: bootstrap.recent_trades,
           error: null,
           isLoading: false,
         });
         syncLatestReplayContext();
-        void get().refreshResults();
         return;
       } catch {
         try {
@@ -278,6 +279,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             resultSessions,
             resultSessionsNextOffset: resultSessions.length,
             resultSessionsHasMore: false,
+            strategySummaries: [],
             resultTrades,
             error: firstRejectedMessage([
               datasetsResult,
@@ -362,15 +364,19 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       const sessionTarget = Math.max(get().resultSessions.length, RESULT_SESSIONS_PAGE_LIMIT);
       const {
+        playbooks,
         resultSessions,
         resultSessionsHasMore,
         resultSessionsNextOffset,
+        strategySummaries,
         resultTrades,
       } = await loadResultsData(sessionTarget);
       set({
+        playbooks,
         resultSessions,
         resultSessionsHasMore,
         resultSessionsNextOffset,
+        strategySummaries,
         resultTrades,
         error: null,
       });
@@ -380,20 +386,19 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   loadMoreSessions: async () => {
-    const { isLoadingMoreSessions, resultSessionsHasMore, resultSessionsNextOffset } = get();
+    const { isLoadingMoreSessions, resultSessionsHasMore, resultSessions } = get();
     if (isLoadingMoreSessions || !resultSessionsHasMore) {
       return;
     }
     set({ isLoadingMoreSessions: true });
     try {
-      const page = await getBacktestSessionSummaries({
-        offset: resultSessionsNextOffset,
-        limit: RESULT_SESSIONS_PAGE_LIMIT,
-      });
-      set((current) => ({
-        resultSessions: mergeSessions(current.resultSessions, page.items),
-        resultSessionsHasMore: page.has_more,
-        resultSessionsNextOffset: page.next_offset,
+      const shell = await getBootstrapShell(resultSessions.length + RESULT_SESSIONS_PAGE_LIMIT);
+      set(() => ({
+        playbooks: shell.playbooks,
+        resultSessions: shell.recent_sessions,
+        resultSessionsHasMore: shell.recent_sessions_has_more,
+        resultSessionsNextOffset: shell.recent_sessions_next_offset,
+        strategySummaries: shell.strategy_summaries,
         isLoadingMoreSessions: false,
         error: null,
       }));
@@ -421,6 +426,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         bars: window.bars,
         barOffset: window.barOffset,
         resultSessions: upsertSession(current.resultSessions, state.session),
+        strategySummaries: current.strategySummaries,
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
@@ -447,6 +453,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         bars: window.bars,
         barOffset: window.barOffset,
         resultSessions: upsertSession(current.resultSessions, state.session),
+        strategySummaries: current.strategySummaries,
         isLoading: false,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
@@ -467,6 +474,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             : current.state,
         error: null,
       }));
+      void get().refreshResults();
       return session;
     } catch (error) {
       set({ error: toErrorMessage(error) });
@@ -482,6 +490,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         return {
           resultSessions: current.resultSessions.filter((session) => session.id !== sessionId),
           resultTrades: current.resultTrades.filter((trade) => trade.session_id !== sessionId),
+          strategySummaries: current.strategySummaries,
           state: deletingActiveSession ? null : current.state,
           meta: deletingActiveSession ? null : current.meta,
           bars: deletingActiveSession ? [] : current.bars,
@@ -675,6 +684,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: results.resultSessions,
         resultSessionsHasMore: results.resultSessionsHasMore,
         resultSessionsNextOffset: results.resultSessionsNextOffset,
+        strategySummaries: results.strategySummaries,
         resultTrades: results.resultTrades,
         state: mergeActiveTradeState(current.state, trade, metrics),
         error: null,
@@ -699,6 +709,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessions: results.resultSessions,
         resultSessionsHasMore: results.resultSessionsHasMore,
         resultSessionsNextOffset: results.resultSessionsNextOffset,
+        strategySummaries: results.strategySummaries,
         resultTrades: results.resultTrades,
         state: mergeActiveTradeState(current.state, trade, metrics),
         error: null,
@@ -718,52 +729,17 @@ function upsertSession(sessions: BacktestSession[], session: BacktestSession) {
   return [session, ...sessions];
 }
 
-function mergeSessions(existing: BacktestSession[], incoming: BacktestSession[]) {
-  const merged = [...existing];
-  for (const session of incoming) {
-    const index = merged.findIndex((item) => item.id === session.id);
-    if (index >= 0) {
-      merged[index] = session;
-      continue;
-    }
-    merged.push(session);
-  }
-  return merged;
-}
-
-async function loadSessionSummaries(targetCount = RESULT_SESSIONS_PAGE_LIMIT) {
-  let resultSessions: BacktestSession[] = [];
-  let nextOffset = 0;
-  let hasMore = false;
-
-  while (resultSessions.length < targetCount) {
-    const remaining = Math.max(targetCount - resultSessions.length, 1);
-    const page = await getBacktestSessionSummaries({
-      offset: nextOffset,
-      limit: Math.min(RESULT_SESSIONS_PAGE_LIMIT, remaining),
-    });
-    resultSessions = mergeSessions(resultSessions, page.items);
-    nextOffset = page.next_offset;
-    hasMore = page.has_more;
-    if (!page.has_more || page.items.length === 0) {
-      break;
-    }
-  }
-
-  return {
-    resultSessions,
-    resultSessionsNextOffset: nextOffset,
-    resultSessionsHasMore: hasMore,
-  };
-}
-
 async function loadResultsData(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
-  const [sessionData, resultTrades] = await Promise.all([
-    loadSessionSummaries(sessionTarget),
+  const [shell, resultTrades] = await Promise.all([
+    getBootstrapShell(sessionTarget),
     getTrades(),
   ]);
   return {
-    ...sessionData,
+    playbooks: shell.playbooks,
+    resultSessions: shell.recent_sessions,
+    resultSessionsNextOffset: shell.recent_sessions_next_offset,
+    resultSessionsHasMore: shell.recent_sessions_has_more,
+    strategySummaries: shell.strategy_summaries,
     resultTrades,
   };
 }

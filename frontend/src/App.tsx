@@ -394,6 +394,7 @@ export function WorkspaceApp() {
     playbooks,
     resultSessions,
     resultSessionsHasMore,
+    strategySummaries,
     resultTrades,
     error,
     isLoading,
@@ -430,6 +431,7 @@ export function WorkspaceApp() {
       playbooks: store.playbooks,
       resultSessions: store.resultSessions,
       resultSessionsHasMore: store.resultSessionsHasMore,
+      strategySummaries: store.strategySummaries,
       resultTrades: store.resultTrades,
       error: store.error,
       isLoading: store.isLoading,
@@ -2138,6 +2140,7 @@ export function WorkspaceApp() {
                 sessions={resultSessions}
                 sessionsHasMore={resultSessionsHasMore}
                 isLoadingMoreSessions={isLoadingMoreSessions}
+                strategySummaries={strategySummaries}
                 trades={resultTrades}
                 onLoadMoreSessions={loadMoreSessions}
               />

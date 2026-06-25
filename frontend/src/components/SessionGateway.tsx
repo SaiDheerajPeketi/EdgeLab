@@ -29,6 +29,8 @@ import type {
   DatasetTimeframe,
   Playbook,
   PlaybookPayload,
+  StrategySummary,
+  StrategySummaryAggregate,
   Trade,
 } from "../lib/api";
 import { currencyForSession, currencyForSessions } from "../lib/currency";
@@ -67,6 +69,7 @@ type Props = {
   session: BacktestSession | null;
   sessions: BacktestSession[];
   sessionsHasMore: boolean;
+  strategySummaries: StrategySummary[];
   trades: Trade[];
   isLoadingMoreSessions: boolean;
 };
@@ -124,6 +127,7 @@ export function SessionGateway({
   session,
   sessions,
   sessionsHasMore,
+  strategySummaries,
   trades,
   isLoadingMoreSessions,
 }: Props) {
@@ -175,8 +179,11 @@ export function SessionGateway({
     [playbookId, playbooks],
   );
   const strategyGroups = useMemo(
-    () => buildStrategyGroups(sessions, trades),
-    [sessions, trades],
+    () =>
+      strategySummaries.length > 0
+        ? buildStrategyGroupsFromSummaries(strategySummaries)
+        : buildStrategyGroups(sessions, trades),
+    [sessions, strategySummaries, trades],
   );
   const selectedStrategyGroup = useMemo(
     () =>
@@ -1511,22 +1518,25 @@ function ReadOnlyPill({ label, value }: { label: string; value: string }) {
 type GatewayAggregate = {
   averageR: number | null;
   closedTrades: number;
+  grossLoss: number;
+  grossProfit: number;
   netPnl: number;
   profitFactor: number | null;
+  rSamples: number;
+  rSum: number;
   winRate: number;
+  wins: number;
 };
 
 type GatewaySessionResult = {
   aggregate: GatewayAggregate;
   session: BacktestSession;
-  trades: Trade[];
 };
 
 type GatewayStrategyGroup = {
   aggregate: GatewayAggregate;
   name: string;
   sessions: GatewaySessionResult[];
-  trades: Trade[];
 };
 
 function buildDefaultSessionName(
@@ -1647,7 +1657,7 @@ function buildExistingStrategyOptions(
 
   for (const group of strategyGroups) {
     const sessionLabel = `${group.sessions.length} session${group.sessions.length === 1 ? "" : "s"}`;
-    const tradeLabel = `${group.trades.length} trade${group.trades.length === 1 ? "" : "s"}`;
+    const tradeLabel = `${group.aggregate.closedTrades} closed trade${group.aggregate.closedTrades === 1 ? "" : "s"}`;
     push(group.name, `${sessionLabel} / ${tradeLabel}`);
   }
   for (const name of savedStrategyNames) {
@@ -1728,21 +1738,18 @@ function buildStrategyGroups(
       {
         aggregate: aggregateGatewayTrades(tradesBySessionStrategy.get(key) ?? []),
         session,
-        trades: tradesBySessionStrategy.get(key) ?? [],
       },
     ]);
   }
 
   return Array.from(groups.entries())
     .map(([name, strategySessions]) => {
-      const strategyTrades = strategySessions.flatMap((row) =>
-        tradesBySessionStrategy.get(sessionStrategyKey(row.session.id, name)) ?? [],
-      );
       return {
-        aggregate: aggregateGatewayTrades(strategyTrades),
+        aggregate: combineGatewayAggregates(
+          strategySessions.map((row) => row.aggregate),
+        ),
         name,
         sessions: strategySessions.sort((a, b) => b.session.id - a.session.id),
-        trades: strategyTrades,
       };
     })
     .sort((a, b) => {
@@ -1751,6 +1758,54 @@ function buildStrategyGroups(
       }
       return a.name.localeCompare(b.name);
     });
+}
+
+function buildStrategyGroupsFromSummaries(strategySummaries: StrategySummary[]): GatewayStrategyGroup[] {
+  return strategySummaries.map((summary) => ({
+    aggregate: gatewayAggregateFromSummary(summary.aggregate),
+    name: summary.name,
+    sessions: summary.sessions.map((row) => ({
+      aggregate: gatewayAggregateFromSummary(row.aggregate),
+      session: row.session,
+    })),
+  }));
+}
+
+function gatewayAggregateFromSummary(aggregate: StrategySummaryAggregate): GatewayAggregate {
+  return {
+    averageR: aggregate.average_r,
+    closedTrades: aggregate.closed_trades,
+    grossLoss: aggregate.gross_loss,
+    grossProfit: aggregate.gross_profit,
+    netPnl: aggregate.net_pnl,
+    profitFactor: aggregate.profit_factor,
+    rSamples: aggregate.r_samples,
+    rSum: aggregate.r_sum,
+    winRate: aggregate.win_rate,
+    wins: aggregate.winning_trades,
+  };
+}
+
+function combineGatewayAggregates(aggregates: GatewayAggregate[]): GatewayAggregate {
+  const closedTrades = aggregates.reduce((sum, aggregate) => sum + aggregate.closedTrades, 0);
+  const wins = aggregates.reduce((sum, aggregate) => sum + aggregate.wins, 0);
+  const grossProfit = aggregates.reduce((sum, aggregate) => sum + aggregate.grossProfit, 0);
+  const grossLoss = aggregates.reduce((sum, aggregate) => sum + aggregate.grossLoss, 0);
+  const rSum = aggregates.reduce((sum, aggregate) => sum + aggregate.rSum, 0);
+  const rSamples = aggregates.reduce((sum, aggregate) => sum + aggregate.rSamples, 0);
+
+  return {
+    averageR: rSamples > 0 ? rSum / rSamples : null,
+    closedTrades,
+    grossLoss,
+    grossProfit,
+    netPnl: aggregates.reduce((sum, aggregate) => sum + aggregate.netPnl, 0),
+    profitFactor: grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : null,
+    rSamples,
+    rSum,
+    winRate: closedTrades > 0 ? wins / closedTrades : 0,
+    wins,
+  };
 }
 
 function aggregateGatewayTrades(trades: Trade[]): GatewayAggregate {
@@ -1773,9 +1828,14 @@ function aggregateGatewayTrades(trades: Trade[]): GatewayAggregate {
         ? rValues.reduce((sum, value) => sum + value, 0) / rValues.length
         : null,
     closedTrades: closedTrades.length,
+    grossLoss: grossLosses,
+    grossProfit: grossWins,
     netPnl,
     profitFactor: grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : null,
+    rSamples: rValues.length,
+    rSum: rValues.reduce((sum, value) => sum + value, 0),
     winRate: closedTrades.length > 0 ? wins.length / closedTrades.length : 0,
+    wins: wins.length,
   };
 }
 
@@ -1825,7 +1885,7 @@ function StrategyDetails({
     [group.sessions, selectedSessionIds.length, selectedSessionSet],
   );
   const filteredAggregate = useMemo(
-    () => aggregateGatewayTrades(filteredRows.flatMap((row) => row.trades)),
+    () => combineGatewayAggregates(filteredRows.map((row) => row.aggregate)),
     [filteredRows],
   );
   const filteredCurrency = currencyForSessions(

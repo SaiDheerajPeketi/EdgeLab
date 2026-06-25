@@ -295,6 +295,7 @@ export type AppBootstrap = {
   datasets: DatasetCatalog;
   playbooks: Playbook[];
   recent_sessions: BacktestSession[];
+  strategy_summaries: StrategySummary[];
   recent_sessions_next_offset: number;
   recent_sessions_has_more: boolean;
   recent_trades: Trade[];
@@ -305,6 +306,7 @@ export type AppBootstrap = {
 export type AppBootstrapShell = {
   playbooks: Playbook[];
   recent_sessions: BacktestSession[];
+  strategy_summaries: StrategySummary[];
   recent_sessions_next_offset: number;
   recent_sessions_has_more: boolean;
   recent_session_limit: number;
@@ -316,6 +318,30 @@ export type BacktestSessionPage = {
   limit: number;
   next_offset: number;
   has_more: boolean;
+};
+
+export type StrategySummaryAggregate = {
+  closed_trades: number;
+  winning_trades: number;
+  net_pnl: number;
+  gross_profit: number;
+  gross_loss: number;
+  win_rate: number;
+  average_r: number | null;
+  profit_factor: number | null;
+  r_sum: number;
+  r_samples: number;
+};
+
+export type StrategySummarySession = {
+  session: BacktestSession;
+  aggregate: StrategySummaryAggregate;
+};
+
+export type StrategySummary = {
+  name: string;
+  aggregate: StrategySummaryAggregate;
+  sessions: StrategySummarySession[];
 };
 
 export type Metrics = {
@@ -914,12 +940,14 @@ export function getPlaybooks() {
   return request<Playbook[]>("/playbooks");
 }
 
-export function getBootstrap() {
-  return request<AppBootstrap>("/bootstrap");
+export function getBootstrap(limit?: number) {
+  const query = limit == null ? "" : `?limit=${limit}`;
+  return request<AppBootstrap>(`/bootstrap${query}`);
 }
 
-export function getBootstrapShell() {
-  return request<AppBootstrapShell>("/bootstrap-shell");
+export function getBootstrapShell(limit?: number) {
+  const query = limit == null ? "" : `?limit=${limit}`;
+  return request<AppBootstrapShell>(`/bootstrap-shell${query}`);
 }
 
 export function postPlaybook(payload: PlaybookPayload) {
