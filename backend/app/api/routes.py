@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import DateTime, func, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -238,6 +238,9 @@ def dataset_error_response(exc: Exception) -> HTTPException:
             status_code=409,
             detail="Dataset database is busy. Wait for the active refresh to finish, then try again.",
         )
+    if isinstance(exc, (OSError, SQLAlchemyError)):
+        logger.exception("Dataset operation failed")
+        return HTTPException(status_code=500, detail="Dataset operation failed")
     if isinstance(exc, (FileNotFoundError, ValueError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Dataset operation failed")
@@ -1709,7 +1712,10 @@ def bootstrap(
 ) -> AppBootstrapResponse:
     if not isinstance(limit, int):
         limit = BOOTSTRAP_SESSION_LIMIT
-    return cached_bootstrap_response(db, current_user.id, session_limit=limit)
+    try:
+        return cached_bootstrap_response(db, current_user.id, session_limit=limit)
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.get("/bootstrap-shell", response_model=AppBootstrapShellResponse)
@@ -1720,7 +1726,10 @@ def bootstrap_shell(
 ) -> AppBootstrapShellResponse:
     if not isinstance(limit, int):
         limit = BOOTSTRAP_SHELL_SESSION_LIMIT
-    return cached_bootstrap_shell_response(db, current_user.id, limit=limit)
+    try:
+        return cached_bootstrap_shell_response(db, current_user.id, limit=limit)
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.get("/backtests/strategy-summaries", response_model=list[StrategySummary])
@@ -1731,11 +1740,14 @@ def list_backtest_strategy_summaries(
 ) -> list[StrategySummary]:
     if not isinstance(limit, int):
         limit = SESSION_SUMMARIES_LIMIT
-    return cached_bootstrap_shell_response(
-        db,
-        current_user.id,
-        limit=limit,
-    ).strategy_summaries
+    try:
+        return cached_bootstrap_shell_response(
+            db,
+            current_user.id,
+            limit=limit,
+        ).strategy_summaries
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.post("/backtests", response_model=BacktestState)
@@ -1760,12 +1772,15 @@ def list_backtest_summaries(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BacktestSessionPage:
-    return list_listable_backtest_sessions_page(
-        db,
-        current_user.id,
-        offset=offset,
-        limit=limit,
-    )
+    try:
+        return list_listable_backtest_sessions_page(
+            db,
+            current_user.id,
+            offset=offset,
+            limit=limit,
+        )
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.get("/backtests", response_model=list[BacktestSessionRead])
@@ -1773,7 +1788,10 @@ def list_backtests(
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> list[BacktestSessionRead]:
-    return list_listable_backtest_sessions(db, current_user.id)
+    try:
+        return list_listable_backtest_sessions(db, current_user.id)
+    except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
+        raise dataset_error_response(exc) from exc
 
 
 @router.get("/backtests/latest", response_model=BacktestState)

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from threading import Lock
 from time import monotonic
@@ -39,6 +40,7 @@ REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
 CATALOG_ROW_COUNT_MAX_BYTES = 25_000_000
 CATALOG_AUTO_DISCOVERY_TTL_SECONDS = 30.0
 SOURCE_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -116,9 +118,13 @@ class DatasetCatalogService:
         if not lock.acquire(blocking=False):
             return
         try:
-            self._scan_filesystem_index(db, user_id, strict=False, prune_missing=False)
-            self._sync_session_replay_ready(db, user_id)
-            db.commit()
+            try:
+                self._scan_filesystem_index(db, user_id, strict=False, prune_missing=False)
+                self._sync_session_replay_ready(db, user_id)
+                db.commit()
+            except (OSError, ValueError):
+                db.rollback()
+                logger.exception("Dataset auto-discovery failed; using stored catalog")
             self._last_discovery_root_by_user[user_id] = root
             self._last_discovery_at_by_user[user_id] = monotonic()
         finally:

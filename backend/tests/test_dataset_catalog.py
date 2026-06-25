@@ -155,6 +155,48 @@ def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
         assert resolution.stored is True
 
 
+def test_list_catalog_uses_stored_catalog_when_auto_discovery_fails(tmp_path, monkeypatch):
+    root = tmp_path / "datasets"
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        asset = DatasetAsset(
+            user_id=user_id,
+            asset_key="GBP_USD",
+            name="GBP/USD",
+            symbol="GBPUSD",
+            folder_path=str(root / "GBP_USD"),
+        )
+        db.add(asset)
+        db.flush()
+        db.add(
+            DatasetTimeframe(
+                user_id=user_id,
+                asset_id=asset.id,
+                timeframe="M1",
+                csv_path=str(root / "GBP_USD" / "GBPUSD_M1.csv"),
+                rows=42,
+                file_size=100,
+                file_mtime_ns=1,
+            )
+        )
+        db.commit()
+
+        def fail_scan(*_args, **_kwargs):
+            raise PermissionError("dataset root is temporarily unavailable")
+
+        monkeypatch.setattr(service, "_scan_filesystem_index", fail_scan)
+
+        catalog = service.list_catalog(db, user_id)
+
+        assert catalog.instruments[0].id == "GBP_USD"
+        assert catalog.instruments[0].timeframes[0].rows == 42
+
+
 def test_refresh_catalog_syncs_session_replay_readiness(tmp_path):
     root = tmp_path / "datasets"
     asset_dir = root / "GBP_USD"

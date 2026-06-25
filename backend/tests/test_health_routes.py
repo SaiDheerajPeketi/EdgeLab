@@ -488,7 +488,7 @@ def test_bootstrap_shell_strategy_summaries_are_json_safe_without_losses(monkeyp
     monkeypatch.setattr(routes, "backtester", BacktestService(dataset_catalog=catalog))
 
     try:
-        payload = routes.bootstrap_shell(db=db, current_user=current_user(user_id), limit=10)
+        payload = routes.build_bootstrap_shell_response(db=db, user_id=user_id, limit=10)
         JSONResponse(content=jsonable_encoder(payload))
     finally:
         db.close()
