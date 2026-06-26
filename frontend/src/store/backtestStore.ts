@@ -149,7 +149,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   isStepping: false,
   isPlaying: false,
   pendingReplaySyncOffset: null,
-  speedMs: 450,
+  speedMs: 200,
   error: null,
 
   createPlaybook: async (payload) => {

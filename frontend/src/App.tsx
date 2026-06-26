@@ -543,9 +543,10 @@ export function WorkspaceApp() {
   const undoShortcutLabel = systemUndoShortcutLabel();
   const showOrderOverlays = activeChartPane.showOrderOverlays;
   const smoothCandles = activeChartPane.smoothCandles;
+  const maxReplayTimeframe = coerceTimeframeToSource(timeframe, sourceTimeframe);
   const replayTimeframeOptions = useMemo(
-    () => buildReplayTimeframeOptions(visibleChartPanes, sourceTimeframe),
-    [sourceTimeframe, visibleChartPanes],
+    () => buildReplayTimeframeOptions(visibleChartPanes, sourceTimeframe, maxReplayTimeframe),
+    [maxReplayTimeframe, sourceTimeframe, visibleChartPanes],
   );
   const [replayTimeframe, setReplayTimeframe] = useState<ChartTimeframe>(() =>
     loadInitialReplayTimeframe(),
@@ -851,9 +852,11 @@ export function WorkspaceApp() {
       return;
     }
     setReplayTimeframe(
-      replayTimeframeOptions[0]?.value ?? effectiveSourceFallbackTimeframe(sourceTimeframe),
+      replayTimeframeOptions.find((option) => option.value === maxReplayTimeframe)?.value ??
+        replayTimeframeOptions[0]?.value ??
+        effectiveSourceFallbackTimeframe(sourceTimeframe),
     );
-  }, [replayTimeframe, replayTimeframeOptions, sourceTimeframe]);
+  }, [maxReplayTimeframe, replayTimeframe, replayTimeframeOptions, sourceTimeframe]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -3065,8 +3068,10 @@ function effectiveSourceFallbackTimeframe(sourceTimeframe: ChartTimeframe | null
 function buildReplayTimeframeOptions(
   panes: ChartPaneState[],
   sourceTimeframe: ChartTimeframe | null,
+  maxReplayTimeframe: ChartTimeframe,
 ): ReplayTimeframeOption[] {
   const source = effectiveSourceFallbackTimeframe(sourceTimeframe);
+  const maxSeconds = getTimeframeSeconds(maxReplayTimeframe);
   const orderedTimeframes = [
     source,
     ...panes.map((pane) => coerceTimeframeToSource(pane.timeframe, sourceTimeframe)),
@@ -3075,7 +3080,12 @@ function buildReplayTimeframeOptions(
   const seen = new Set<string>();
   return orderedTimeframes.flatMap((timeframe) => {
     const normalized = normalizeChartTimeframe(timeframe);
-    if (!normalized || seen.has(normalized) || !canAggregateTimeframe(normalized, sourceTimeframe)) {
+    if (
+      !normalized ||
+      seen.has(normalized) ||
+      !canAggregateTimeframe(normalized, sourceTimeframe) ||
+      getTimeframeSeconds(normalized) > maxSeconds
+    ) {
       return [];
     }
     seen.add(normalized);

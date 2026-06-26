@@ -288,24 +288,26 @@ export function ReplayController({
           >
             Go
           </button>
-          <ReplayDateTimePicker
-            currentTimestamp={currentTimestamp}
-            dateFormat={dateFormat}
-            dayOfWeekLabels={dayOfWeekLabels}
-            disabled={!state}
-            onChange={setJumpTime}
-            onOpenChange={setDatePickerOpen}
-            timeHoursFormat={timeHoursFormat}
-            value={jumpTime}
-          />
-          <button
-            className="control-button"
-            disabled={!state || !jumpTime}
-            onClick={() => void handleJumpToTimestamp()}
-            type="button"
-          >
-            Go Date
-          </button>
+          <div className="flex shrink-0 flex-nowrap items-center gap-2">
+            <ReplayDateTimePicker
+              currentTimestamp={currentTimestamp}
+              dateFormat={dateFormat}
+              dayOfWeekLabels={dayOfWeekLabels}
+              disabled={!state}
+              onChange={setJumpTime}
+              onOpenChange={setDatePickerOpen}
+              timeHoursFormat={timeHoursFormat}
+              value={jumpTime}
+            />
+            <button
+              className="control-button shrink-0"
+              disabled={!state || !jumpTime}
+              onClick={() => void handleJumpToTimestamp()}
+              type="button"
+            >
+              Go Date
+            </button>
+          </div>
         </div>
       </div>
     </section>
