@@ -134,6 +134,78 @@ def test_data_populator_does_not_synthesize_missing_m1_minutes(tmp_path):
     assert m5.loc[0, "Volume"] == 20.0
 
 
+def test_data_populator_streams_overlap_updates_without_full_reload(tmp_path, monkeypatch):
+    populator = ScheduledDataPopulator(
+        tmp_path,
+        forex_symbols=(),
+        crypto_symbols=("BTCUSDT",),
+        derived_timeframes=("M5",),
+    )
+    spec = crypto_spec("BTCUSDT")
+    populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:00:00", 100.0),
+            candle("2024-01-01T00:01:00", 101.0),
+            candle("2024-01-01T00:02:00", 102.0),
+            candle("2024-01-01T00:03:00", 103.0),
+            candle("2024-01-01T00:04:00", 104.0),
+            candle("2024-01-01T00:05:00", 105.0),
+            candle("2024-01-01T00:06:00", 106.0),
+            candle("2024-01-01T00:07:00", 107.0),
+            candle("2024-01-01T00:08:00", 108.0),
+            candle("2024-01-01T00:09:00", 109.0),
+        ],
+    )
+
+    def fail_load_csv_frame(*_args, **_kwargs):
+        raise AssertionError("stream overlap merge should not reload the full CSV")
+
+    monkeypatch.setattr(data_populator_module, "load_csv_frame", fail_load_csv_frame)
+
+    result = populator.write_candles(
+        spec,
+        [
+            candle("2024-01-01T00:03:00", 203.0),
+            candle("2024-01-01T00:04:00", 204.0),
+            candle("2024-01-01T00:05:00", 205.0),
+            candle("2024-01-01T00:06:00", 206.0),
+        ],
+    )
+
+    m1 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_M1.csv")
+    m5 = pd.read_csv(tmp_path / "BTC_USDT" / "BTCUSDT_M5.csv")
+    manifest = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    timeframes = manifest["markets"]["BTC_USDT"]["timeframes"]
+
+    assert result.rows == 10
+    assert m1["Timestamp"].tolist() == [
+        "2024-01-01 00:00:00",
+        "2024-01-01 00:01:00",
+        "2024-01-01 00:02:00",
+        "2024-01-01 00:03:00",
+        "2024-01-01 00:04:00",
+        "2024-01-01 00:05:00",
+        "2024-01-01 00:06:00",
+        "2024-01-01 00:07:00",
+        "2024-01-01 00:08:00",
+        "2024-01-01 00:09:00",
+    ]
+    assert m1["Close"].tolist() == [100.0, 101.0, 102.0, 203.0, 204.0, 205.0, 206.0, 107.0, 108.0, 109.0]
+    assert m5["Timestamp"].tolist() == ["2024-01-01 00:00:00", "2024-01-01 00:05:00"]
+    assert m5["Open"].tolist() == [100.0, 205.0]
+    assert m5["High"].tolist() == [204.0, 206.0]
+    assert m5["Low"].tolist() == [100.0, 107.0]
+    assert m5["Close"].tolist() == [204.0, 109.0]
+    assert m5["Volume"].tolist() == [50.0, 50.0]
+    assert timeframes["M1"]["rows"] == 10
+    assert timeframes["M1"]["first_timestamp"] == "2024-01-01T00:00:00Z"
+    assert timeframes["M1"]["last_timestamp"] == "2024-01-01T00:09:00Z"
+    assert timeframes["M5"]["rows"] == 2
+    assert timeframes["M5"]["first_timestamp"] == "2024-01-01T00:00:00Z"
+    assert timeframes["M5"]["last_timestamp"] == "2024-01-01T00:05:00Z"
+
+
 def test_data_populator_syncs_catalog_rows_and_imports_market_candles(tmp_path):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)

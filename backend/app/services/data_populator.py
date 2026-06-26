@@ -56,6 +56,7 @@ WRITE_BATCH_CANDLES = 25_000
 BACKFILL_WRITE_BATCH_CANDLES = 250_000
 BINANCE_ARCHIVE_WORKERS = 2
 DUKASCOPY_REQUEST_DELAY_SECONDS = 0.05
+CSV_READ_CHUNK_ROWS = 100_000
 
 FetchJson = Callable[[str, int], object]
 FetchBytes = Callable[[str, int], bytes]
@@ -93,6 +94,13 @@ class PopulationResult:
     first_timestamp: datetime | None = None
     last_timestamp: datetime | None = None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class FrameMetadata:
+    rows: int
+    first_timestamp: datetime | None
+    last_timestamp: datetime | None
 
 
 @dataclass(frozen=True)
@@ -258,7 +266,19 @@ class DataPopulatorManifest:
         csv_path: Path,
         frame: pd.DataFrame,
     ) -> None:
-        if frame.empty:
+        metadata = frame_metadata(frame)
+        if metadata.rows <= 0:
+            return
+        self.update_timeframe_metadata(spec, timeframe, csv_path, metadata)
+
+    def update_timeframe_metadata(
+        self,
+        spec: MarketSpec,
+        timeframe: str,
+        csv_path: Path,
+        metadata: FrameMetadata,
+    ) -> None:
+        if metadata.rows <= 0 or metadata.first_timestamp is None or metadata.last_timestamp is None:
             return
         with self._lock:
             timeframes = self.timeframes_for_spec(spec)
@@ -266,19 +286,18 @@ class DataPopulatorManifest:
             no_data_before = existing.get("no_data_before") if isinstance(existing, dict) else None
             empty_ranges = existing.get("empty_ranges") if isinstance(existing, dict) else None
             retry_ranges = existing.get("retry_ranges") if isinstance(existing, dict) else None
-            first_timestamp = parse_csv_timestamp(frame.iloc[0]["Timestamp"])
             timeframes[timeframe] = {
                 "csv_path": self.relative_path(csv_path),
-                "rows": int(len(frame)),
-                "first_timestamp": utc_manifest_timestamp(first_timestamp),
-                "last_timestamp": manifest_timestamp(frame.iloc[-1]["Timestamp"]),
+                "rows": metadata.rows,
+                "first_timestamp": utc_manifest_timestamp(metadata.first_timestamp),
+                "last_timestamp": utc_manifest_timestamp(metadata.last_timestamp),
                 "file_size": csv_path.stat().st_size if csv_path.exists() else 0,
                 "file_mtime_ns": csv_path.stat().st_mtime_ns if csv_path.exists() else 0,
                 "updated_at": utc_manifest_timestamp(datetime.now(tz=timezone.utc)),
             }
             if no_data_before:
                 try:
-                    if first_timestamp > parse_csv_timestamp(no_data_before):
+                    if metadata.first_timestamp > parse_csv_timestamp(no_data_before):
                         timeframes[timeframe]["no_data_before"] = no_data_before
                 except (TypeError, ValueError):
                     pass
@@ -1362,9 +1381,44 @@ class ScheduledDataPopulator:
                 first_timestamp=parse_csv_timestamp(frame.iloc[0]["Timestamp"]),
                 last_timestamp=parse_csv_timestamp(frame.iloc[-1]["Timestamp"]),
             )
+        incoming_frame = normalize_frame(candles_to_frame(candles))
+        if can_stream_overlap_merge(
+            self.manifest,
+            spec,
+            target_path,
+            incoming_frame,
+        ):
+            rewrite_start = incoming_frame.iloc[0]["Timestamp"]
+            rewrite_end = incoming_frame.iloc[-1]["Timestamp"]
+            metadata = rewrite_csv_overlap_range(
+                target_path,
+                incoming_frame,
+                rewrite_start,
+                rewrite_end,
+            )
+            derived_frames = (
+                self.write_derived_timeframes_incremental(spec, target_path, rewrite_start, rewrite_end)
+                if write_derived
+                else []
+            )
+            self.manifest.update_timeframe_metadata(spec, "M1", target_path, metadata)
+            for timeframe, derived_path, derived_metadata in derived_frames:
+                self.manifest.update_timeframe_metadata(spec, timeframe, derived_path, derived_metadata)
+            self.manifest.save()
+            if sync_catalog:
+                self.sync_catalog_rows(spec, target_path, metadata, derived_frames)
+            return PopulationResult(
+                asset_id=spec.asset_id,
+                symbol=spec.symbol,
+                csv_path=str(target_path),
+                fetched=len(candles),
+                rows=metadata.rows,
+                first_timestamp=metadata.first_timestamp,
+                last_timestamp=metadata.last_timestamp,
+            )
         frame = merge_candles(
             load_csv_frame(target_path),
-            candles_to_frame(candles),
+            incoming_frame,
         )
         if frame.empty:
             return PopulationResult(
@@ -1380,21 +1434,22 @@ class ScheduledDataPopulator:
         frame.to_csv(temp_path, index=False)
         temp_path.replace(target_path)
         derived_frames = self.write_derived_timeframes(spec, frame) if write_derived else []
-        self.manifest.update_timeframe(spec, "M1", target_path, frame)
-        for timeframe, derived_path, derived_frame in derived_frames:
-            self.manifest.update_timeframe(spec, timeframe, derived_path, derived_frame)
+        metadata = frame_metadata(frame)
+        self.manifest.update_timeframe_metadata(spec, "M1", target_path, metadata)
+        for timeframe, derived_path, derived_metadata in derived_frames:
+            self.manifest.update_timeframe_metadata(spec, timeframe, derived_path, derived_metadata)
         self.manifest.save()
         if sync_catalog:
-            self.sync_catalog_rows(spec, target_path, frame, derived_frames)
+            self.sync_catalog_rows(spec, target_path, metadata, derived_frames)
 
         return PopulationResult(
             asset_id=spec.asset_id,
             symbol=spec.symbol,
             csv_path=str(target_path),
             fetched=len(candles),
-            rows=len(frame),
-            first_timestamp=parse_csv_timestamp(frame.iloc[0]["Timestamp"]),
-            last_timestamp=parse_csv_timestamp(frame.iloc[-1]["Timestamp"]),
+            rows=metadata.rows,
+            first_timestamp=metadata.first_timestamp,
+            last_timestamp=metadata.last_timestamp,
         )
 
     def result_for_existing_file(
@@ -1477,8 +1532,8 @@ class ScheduledDataPopulator:
         self.manifest.update_timeframe(spec, timeframe, csv_path, frame)
         self.manifest.save()
 
-    def write_derived_timeframes(self, spec: MarketSpec, m1_frame: pd.DataFrame) -> list[tuple[str, Path, pd.DataFrame]]:
-        derived_frames: list[tuple[str, Path, pd.DataFrame]] = []
+    def write_derived_timeframes(self, spec: MarketSpec, m1_frame: pd.DataFrame) -> list[tuple[str, Path, FrameMetadata]]:
+        derived_frames: list[tuple[str, Path, FrameMetadata]] = []
         for timeframe in self.derived_timeframes:
             frame = derive_timeframe(m1_frame, timeframe)
             if frame.empty:
@@ -1487,7 +1542,33 @@ class ScheduledDataPopulator:
             temp_path = target_path.with_name(f".{target_path.name}.tmp")
             frame.to_csv(temp_path, index=False)
             temp_path.replace(target_path)
-            derived_frames.append((timeframe, target_path, frame))
+            derived_frames.append((timeframe, target_path, frame_metadata(frame)))
+        return derived_frames
+
+    def write_derived_timeframes_incremental(
+        self,
+        spec: MarketSpec,
+        m1_csv_path: Path,
+        rewrite_start: datetime,
+        rewrite_end: datetime,
+    ) -> list[tuple[str, Path, FrameMetadata]]:
+        derived_frames: list[tuple[str, Path, FrameMetadata]] = []
+        for timeframe in self.derived_timeframes:
+            bucket_start = timeframe_bucket_start(rewrite_start, timeframe)
+            bucket_end = timeframe_bucket_start(rewrite_end, timeframe)
+            source_end = timeframe_bucket_end(rewrite_end, timeframe)
+            source_frame = load_csv_frame_between(m1_csv_path, bucket_start, source_end)
+            frame = derive_timeframe(source_frame, timeframe)
+            if frame.empty:
+                continue
+            target_path = self.csv_path_for_spec(spec, timeframe)
+            metadata = rewrite_csv_overlap_range(
+                target_path,
+                frame,
+                bucket_start,
+                bucket_end,
+            )
+            derived_frames.append((timeframe, target_path, metadata))
         return derived_frames
 
     def csv_path_for_spec(self, spec: MarketSpec, timeframe: str = "M1") -> Path:
@@ -1497,8 +1578,8 @@ class ScheduledDataPopulator:
         self,
         spec: MarketSpec,
         target_path: Path,
-        frame: pd.DataFrame,
-        derived_frames: list[tuple[str, Path, pd.DataFrame]],
+        metadata: FrameMetadata,
+        derived_frames: list[tuple[str, Path, FrameMetadata]],
     ) -> None:
         if self.catalog_session_factory is None:
             return
@@ -1510,8 +1591,8 @@ class ScheduledDataPopulator:
                 asset = self.upsert_catalog_asset(db, user_id, spec)
                 changed_timeframes = [
                     timeframe
-                    for timeframe, path, timeframe_frame in [
-                        ("M1", target_path, frame),
+                    for timeframe, path, timeframe_metadata in [
+                        ("M1", target_path, metadata),
                         *derived_frames,
                     ]
                     if self.upsert_catalog_timeframe(
@@ -1520,7 +1601,7 @@ class ScheduledDataPopulator:
                         asset,
                         timeframe,
                         path,
-                        timeframe_frame,
+                        timeframe_metadata,
                     )
                 ]
                 if changed_timeframes:
@@ -1594,7 +1675,7 @@ class ScheduledDataPopulator:
         asset: DatasetAsset,
         timeframe: str,
         csv_path: Path,
-        frame: pd.DataFrame,
+        metadata: FrameMetadata,
     ) -> bool:
         stat = csv_path.stat()
         existing = db.scalar(
@@ -1622,9 +1703,9 @@ class ScheduledDataPopulator:
             )
             db.add(existing)
         existing.csv_path = str(csv_path)
-        existing.rows = int(len(frame))
-        existing.first_timestamp = frame.iloc[0]["Timestamp"] if not frame.empty else None
-        existing.last_timestamp = frame.iloc[-1]["Timestamp"] if not frame.empty else None
+        existing.rows = metadata.rows
+        existing.first_timestamp = metadata.first_timestamp
+        existing.last_timestamp = metadata.last_timestamp
         existing.file_size = stat.st_size
         existing.file_mtime_ns = stat.st_mtime_ns
         existing.imported = False
@@ -1682,6 +1763,22 @@ def can_append_backfill_batch(
         return False
     _first_timestamp, last_timestamp = timestamp_range
     return candles[0].timestamp > last_timestamp
+
+
+def can_stream_overlap_merge(
+    manifest: DataPopulatorManifest,
+    spec: MarketSpec,
+    csv_path: Path,
+    incoming_frame: pd.DataFrame,
+) -> bool:
+    if incoming_frame.empty or not csv_path.exists():
+        return False
+    timestamp_range = manifest.timestamp_range(spec, "M1")
+    if timestamp_range is None:
+        return False
+    first_timestamp, _last_timestamp = timestamp_range
+    rewrite_start = parse_csv_timestamp(incoming_frame.iloc[0]["Timestamp"])
+    return rewrite_start > first_timestamp
 
 
 def linked_session_dataset_asset_id(
@@ -1951,6 +2048,163 @@ def merge_candles(
     frame = frame.drop_duplicates(subset=["Timestamp"], keep="last")
     frame["Timestamp"] = frame["Timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
     return frame[DATA_COLUMNS]
+
+
+def frame_metadata(frame: pd.DataFrame) -> FrameMetadata:
+    normalized = normalize_frame(frame)
+    if normalized.empty:
+        return FrameMetadata(rows=0, first_timestamp=None, last_timestamp=None)
+    return FrameMetadata(
+        rows=int(len(normalized)),
+        first_timestamp=parse_csv_timestamp(normalized.iloc[0]["Timestamp"]),
+        last_timestamp=parse_csv_timestamp(normalized.iloc[-1]["Timestamp"]),
+    )
+
+
+def format_frame_for_csv(frame: pd.DataFrame) -> pd.DataFrame:
+    normalized = normalize_frame(frame)
+    if normalized.empty:
+        return empty_frame()
+    formatted = normalized.copy()
+    formatted["Timestamp"] = formatted["Timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    return formatted[DATA_COLUMNS]
+
+
+def iter_csv_chunks(csv_path: Path, chunksize: int = CSV_READ_CHUNK_ROWS) -> Iterator[pd.DataFrame]:
+    if not csv_path.exists():
+        return
+    try:
+        reader = pd.read_csv(csv_path, usecols=DATA_COLUMNS, chunksize=chunksize)
+    except ValueError as exc:
+        raise ValueError(f"CSV is missing required columns: {', '.join(DATA_COLUMNS)}") from exc
+    for chunk in reader:
+        normalized = normalize_frame(chunk[DATA_COLUMNS])
+        if not normalized.empty:
+            yield normalized
+
+
+def load_csv_frame_between(
+    csv_path: Path,
+    start_timestamp: datetime,
+    end_timestamp: datetime,
+) -> pd.DataFrame:
+    if not csv_path.exists() or start_timestamp > end_timestamp:
+        return empty_frame()
+    frames: list[pd.DataFrame] = []
+    for chunk in iter_csv_chunks(csv_path):
+        if chunk.iloc[-1]["Timestamp"] < start_timestamp:
+            continue
+        window = chunk[
+            (chunk["Timestamp"] >= start_timestamp)
+            & (chunk["Timestamp"] <= end_timestamp)
+        ]
+        if not window.empty:
+            frames.append(window)
+        if chunk.iloc[-1]["Timestamp"] > end_timestamp:
+            break
+    if not frames:
+        return empty_frame()
+    return pd.concat(frames, ignore_index=True)[DATA_COLUMNS]
+
+
+def rewrite_csv_overlap_range(
+    csv_path: Path,
+    incoming_frame: pd.DataFrame,
+    rewrite_start: datetime,
+    rewrite_end: datetime,
+) -> FrameMetadata:
+    normalized_incoming = normalize_frame(incoming_frame)
+    overlap_frames: list[pd.DataFrame] = []
+    total_rows = 0
+    first_timestamp: datetime | None = None
+    last_timestamp: datetime | None = None
+    merged_written = False
+    wrote_anything = False
+
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = csv_path.with_name(f".{csv_path.name}.tmp")
+    with temp_path.open("w", encoding="utf-8", newline="") as handle:
+        if csv_path.exists():
+            for chunk in iter_csv_chunks(csv_path):
+                before = chunk[chunk["Timestamp"] < rewrite_start]
+                overlap = chunk[
+                    (chunk["Timestamp"] >= rewrite_start)
+                    & (chunk["Timestamp"] <= rewrite_end)
+                ]
+                after = chunk[chunk["Timestamp"] > rewrite_end]
+                if not before.empty:
+                    formatted_before = format_frame_for_csv(before)
+                    formatted_before.to_csv(handle, index=False, header=not wrote_anything)
+                    wrote_anything = True
+                    total_rows += len(formatted_before)
+                    if first_timestamp is None:
+                        first_timestamp = parse_csv_timestamp(formatted_before.iloc[0]["Timestamp"])
+                    last_timestamp = parse_csv_timestamp(formatted_before.iloc[-1]["Timestamp"])
+                if not overlap.empty:
+                    overlap_frames.append(overlap)
+                if not after.empty:
+                    if not merged_written:
+                        merged = merge_candles(
+                            pd.concat(overlap_frames, ignore_index=True) if overlap_frames else empty_frame(),
+                            normalized_incoming,
+                        )
+                        if not merged.empty:
+                            merged.to_csv(handle, index=False, header=not wrote_anything)
+                            wrote_anything = True
+                            total_rows += len(merged)
+                            if first_timestamp is None:
+                                first_timestamp = parse_csv_timestamp(merged.iloc[0]["Timestamp"])
+                            last_timestamp = parse_csv_timestamp(merged.iloc[-1]["Timestamp"])
+                        merged_written = True
+                    formatted_after = format_frame_for_csv(after)
+                    formatted_after.to_csv(handle, index=False, header=not wrote_anything)
+                    wrote_anything = True
+                    total_rows += len(formatted_after)
+                    if first_timestamp is None:
+                        first_timestamp = parse_csv_timestamp(formatted_after.iloc[0]["Timestamp"])
+                    last_timestamp = parse_csv_timestamp(formatted_after.iloc[-1]["Timestamp"])
+
+        if not merged_written:
+            merged = merge_candles(
+                pd.concat(overlap_frames, ignore_index=True) if overlap_frames else empty_frame(),
+                normalized_incoming,
+            )
+            if not merged.empty:
+                merged.to_csv(handle, index=False, header=not wrote_anything)
+                total_rows += len(merged)
+                if first_timestamp is None:
+                    first_timestamp = parse_csv_timestamp(merged.iloc[0]["Timestamp"])
+                last_timestamp = parse_csv_timestamp(merged.iloc[-1]["Timestamp"])
+                wrote_anything = True
+
+    temp_path.replace(csv_path)
+    return FrameMetadata(
+        rows=total_rows,
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+    )
+
+
+def timeframe_bucket_start(value: datetime, timeframe: str) -> datetime:
+    normalized_timeframe = normalize_timeframe(timeframe)
+    if normalized_timeframe == "M1":
+        return to_utc_naive(value)
+    rule = RESAMPLE_RULES.get(normalized_timeframe)
+    if rule is None:
+        raise ValueError(f"Unsupported timeframe bucket start: {timeframe}")
+    return pd.Timestamp(to_utc_naive(value)).floor(rule).to_pydatetime()
+
+
+def timeframe_bucket_end(value: datetime, timeframe: str) -> datetime:
+    bucket_start = timeframe_bucket_start(value, timeframe)
+    normalized_timeframe = normalize_timeframe(timeframe)
+    if normalized_timeframe == "M1":
+        return bucket_start
+    rule = RESAMPLE_RULES.get(normalized_timeframe)
+    if rule is None:
+        raise ValueError(f"Unsupported timeframe bucket end: {timeframe}")
+    next_bucket = (pd.Timestamp(bucket_start) + pd.tseries.frequencies.to_offset(rule)).to_pydatetime()
+    return next_bucket - MINUTE
 
 
 def derive_timeframe(m1_frame: pd.DataFrame, timeframe: str) -> pd.DataFrame:
