@@ -58,6 +58,7 @@ export function ThemedSelect({
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selectedValue = value ?? internalValue;
   const selectedOption = options.find((option) => option.value === selectedValue);
   const portalHost = portal ? currentPortalHost() : null;
@@ -152,6 +153,9 @@ export function ThemedSelect({
       setInternalValue(nextValue);
     }
     setOpen(false);
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.blur();
+    });
     onChange?.(nextValue);
   }
 
@@ -252,6 +256,7 @@ export function ThemedSelect({
         disabled={disabled}
         onKeyDown={handleTriggerKeyDown}
         onPointerDown={handleTriggerPointerDown}
+        ref={triggerRef}
         type="button"
       >
         <span className={`themed-select-value ${selectedOption ? "" : "text-slate-500"}`}>

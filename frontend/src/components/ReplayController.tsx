@@ -48,7 +48,7 @@ const SPEED_PRESETS = [
   { label: "1x", value: "200" },
   { label: "2.5x", value: "80" },
   { label: "5x", value: "40" },
-];
+].sort((left, right) => Number(right.value) - Number(left.value));
 
 export function ReplayController({
   dateFormat = "dd MMM yy",
@@ -216,37 +216,39 @@ export function ReplayController({
             <RotateCcw size={17} />
           </button>
 
-          <ThemedSelect
-            ariaLabel="Replay speed"
-            className="h-10 w-32"
-            onChange={handlePresetSpeedChange}
-            onOpenChange={setSpeedMenuOpen}
-            options={[
-              ...SPEED_PRESETS,
-              {
-                label: "Custom",
-                sublabel: `${MIN_CUSTOM_BARS_PER_SECOND}-${MAX_CUSTOM_BARS_PER_SECOND} replay bars/s`,
-                value: CUSTOM_SPEED_VALUE,
-              },
-            ]}
-            portal
-            value={selectedSpeedValue}
-          />
-          <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-500">
-            <input
-              aria-label="Custom replay speed in replay bars per second"
-              className="w-16 bg-transparent text-right text-sm font-semibold text-slate-100 outline-none"
-              inputMode="decimal"
-              max={MAX_CUSTOM_BARS_PER_SECOND}
-              min={MIN_CUSTOM_BARS_PER_SECOND}
-              onChange={(event) => handleCustomSpeedChange(event.target.value)}
-              ref={customSpeedRef}
-              step="0.1"
-              type="number"
-              value={customSpeed}
+          <div className="flex shrink-0 flex-nowrap items-center gap-2">
+            <ThemedSelect
+              ariaLabel="Replay speed"
+              className="h-10 w-32"
+              onChange={handlePresetSpeedChange}
+              onOpenChange={setSpeedMenuOpen}
+              options={[
+                ...SPEED_PRESETS,
+                {
+                  label: "Custom",
+                  sublabel: `${MIN_CUSTOM_BARS_PER_SECOND}-${MAX_CUSTOM_BARS_PER_SECOND} replay bars/s`,
+                  value: CUSTOM_SPEED_VALUE,
+                },
+              ]}
+              portal
+              value={selectedSpeedValue}
             />
-            replay bars/s
-          </label>
+            <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-500">
+              <input
+                aria-label="Custom replay speed in replay bars per second"
+                className="w-16 bg-transparent text-right text-sm font-semibold text-slate-100 outline-none"
+                inputMode="decimal"
+                max={MAX_CUSTOM_BARS_PER_SECOND}
+                min={MIN_CUSTOM_BARS_PER_SECOND}
+                onChange={(event) => handleCustomSpeedChange(event.target.value)}
+                ref={customSpeedRef}
+                step="0.1"
+                type="number"
+                value={customSpeed}
+              />
+              replay bars/s
+            </label>
+          </div>
           <span className="rounded-md bg-white/5 px-3 py-2 text-sm text-slate-400">
             Bar {currentOffset.toLocaleString()}
           </span>
