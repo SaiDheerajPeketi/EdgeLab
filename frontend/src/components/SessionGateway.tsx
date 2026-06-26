@@ -388,7 +388,7 @@ export function SessionGateway({
     event.preventDefault();
     const trimmedStrategy = strategy.trim();
     const trimmedSessionName = sessionName.trim() || defaultSessionName;
-    if (!selectedInstrument || !selectedTimeframe || !trimmedStrategy || !trimmedSessionName) {
+    if (submitting || isLoading || !selectedInstrument || !selectedTimeframe || !trimmedStrategy || !trimmedSessionName) {
       return;
     }
 

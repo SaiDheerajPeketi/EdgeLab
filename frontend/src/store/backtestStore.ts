@@ -235,7 +235,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       const shell = await getBootstrapShell();
       set({
         playbooks: shell.playbooks,
-        resultSessions: shell.recent_sessions,
+        resultSessions: uniqueSessions(shell.recent_sessions),
         resultSessionsNextOffset: shell.recent_sessions_next_offset,
         resultSessionsNextCursor: shell.recent_sessions_next_cursor,
         resultSessionsHasMore: shell.recent_sessions_has_more,
@@ -257,7 +257,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         set({
           datasets: bootstrap.datasets,
           playbooks: bootstrap.playbooks,
-          resultSessions: bootstrap.recent_sessions,
+          resultSessions: uniqueSessions(bootstrap.recent_sessions),
           resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
           resultSessionsNextCursor: bootstrap.recent_sessions_next_cursor,
           resultSessionsHasMore: bootstrap.recent_sessions_has_more,
@@ -285,14 +285,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           const datasets = datasetsResult.status === "fulfilled" ? datasetsResult.value : null;
           const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
           const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
+          const uniqueResultSessions = uniqueSessions(resultSessions);
           const tradeSnapshot =
             tradesResult.status === "fulfilled" ? tradesResult.value : emptyTradeSnapshot();
           const tradeLoadVersion = startResultTradesLoad();
           set({
             datasets,
             playbooks,
-            resultSessions,
-            resultSessionsNextOffset: resultSessions.length,
+            resultSessions: uniqueResultSessions,
+            resultSessionsNextOffset: uniqueResultSessions.length,
             resultSessionsNextCursor: null,
             resultSessionsHasMore: false,
             strategySummaries: [],
@@ -896,7 +897,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         shouldRefreshMetricCurves ? getMetricsCurves(trade.session_id) : Promise.resolve(null),
       ]);
       set((current) => ({
-        resultSessions: results.resultSessions,
+        resultSessions: uniqueSessions(results.resultSessions),
         resultSessionsHasMore: results.resultSessionsHasMore,
         resultSessionsNextOffset: results.resultSessionsNextOffset,
         resultSessionsNextCursor: results.resultSessionsNextCursor,
@@ -934,7 +935,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         shouldRefreshActiveMetrics ? getMetricsCurves(trade.session_id) : Promise.resolve(null),
       ]);
       set((current) => ({
-        resultSessions: results.resultSessions,
+        resultSessions: uniqueSessions(results.resultSessions),
         resultSessionsHasMore: results.resultSessionsHasMore,
         resultSessionsNextOffset: results.resultSessionsNextOffset,
         resultSessionsNextCursor: results.resultSessionsNextCursor,
@@ -959,14 +960,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
 }));
 
 function upsertSession(sessions: BacktestSession[], session: BacktestSession) {
-  if (sessions.some((item) => item.id === session.id)) {
-    return sessions.map((item) => (item.id === session.id ? session : item));
+  const deduped = uniqueSessions(sessions);
+  if (deduped.some((item) => item.id === session.id)) {
+    return deduped.map((item) => (item.id === session.id ? session : item));
   }
-  return [session, ...sessions];
+  return [session, ...deduped];
 }
 
 function mergeSessions(existing: BacktestSession[], incoming: BacktestSession[]) {
-  const merged = [...existing];
+  const merged = uniqueSessions(existing);
   for (const session of incoming) {
     const index = merged.findIndex((item) => item.id === session.id);
     if (index >= 0) {
@@ -975,7 +977,22 @@ function mergeSessions(existing: BacktestSession[], incoming: BacktestSession[])
     }
     merged.push(session);
   }
-  return merged;
+  return uniqueSessions(merged);
+}
+
+function uniqueSessions(sessions: BacktestSession[]) {
+  const byId = new Map<number, BacktestSession>();
+  const orderedIds: number[] = [];
+  for (const session of sessions) {
+    if (!byId.has(session.id)) {
+      orderedIds.push(session.id);
+    }
+    byId.set(session.id, session);
+  }
+  return orderedIds.flatMap((id) => {
+    const session = byId.get(id);
+    return session ? [session] : [];
+  });
 }
 
 function mergeTrades(existing: Trade[], incoming: Trade[]) {
@@ -1001,7 +1018,7 @@ async function loadResultsData(
   ]);
   return {
     playbooks: shell.playbooks,
-    resultSessions: shell.recent_sessions,
+    resultSessions: uniqueSessions(shell.recent_sessions),
     resultSessionsNextOffset: shell.recent_sessions_next_offset,
     resultSessionsNextCursor: shell.recent_sessions_next_cursor,
     resultSessionsHasMore: shell.recent_sessions_has_more,
@@ -1017,7 +1034,7 @@ async function loadShellSnapshot(sessionTarget = RESULT_SESSIONS_PAGE_LIMIT) {
   const shell = await getBootstrapShell(sessionTarget);
   return {
     playbooks: shell.playbooks,
-    resultSessions: shell.recent_sessions,
+    resultSessions: uniqueSessions(shell.recent_sessions),
     resultSessionsNextOffset: shell.recent_sessions_next_offset,
     resultSessionsNextCursor: shell.recent_sessions_next_cursor,
     resultSessionsHasMore: shell.recent_sessions_has_more,

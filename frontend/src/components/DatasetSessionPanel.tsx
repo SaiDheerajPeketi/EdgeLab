@@ -36,6 +36,7 @@ export function DatasetSessionPanel({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [setupOpen, setSetupOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const selectedInstrument = useMemo(
     () => instruments.find((instrument) => instrument.id === instrumentId) ?? instruments[0],
@@ -77,9 +78,9 @@ export function DatasetSessionPanel({
     setTimeframe(instrument.timeframes[0]?.timeframe ?? "");
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!selectedInstrument || !selectedTimeframe) {
+    if (!selectedInstrument || !selectedTimeframe || isLoading || submitting) {
       return;
     }
     const payload: BacktestCreatePayload = {
@@ -97,7 +98,12 @@ export function DatasetSessionPanel({
       end_timestamp: endDate ? new Date(endDate).toISOString() : null,
       initial_balance: Number(startingBalance) || 100000,
     };
-    void onCreateSession(payload);
+    setSubmitting(true);
+    try {
+      await onCreateSession(payload);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -169,7 +175,7 @@ export function DatasetSessionPanel({
       <form
         autoComplete="off"
         className={`dataset-session-form ${setupOpen ? "grid" : "hidden"} gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]`}
-        onSubmit={handleSubmit}
+        onSubmit={(event) => void handleSubmit(event)}
       >
         <label className="form-field">
           <span>Instrument</span>
@@ -271,10 +277,10 @@ export function DatasetSessionPanel({
 
         <button
           className="control-button h-10 self-end border-cyan-300/30 bg-cyan-300/10 text-cyan-100 xl:col-span-1"
-          disabled={!selectedTimeframe || isLoading}
+          disabled={!selectedTimeframe || isLoading || submitting}
           type="submit"
         >
-          {isLoading ? <RefreshCw size={16} className="animate-spin" /> : <PlayCircle size={16} />}
+          {isLoading || submitting ? <RefreshCw size={16} className="animate-spin" /> : <PlayCircle size={16} />}
           Start
         </button>
       </form>

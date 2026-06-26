@@ -1404,18 +1404,26 @@ function LiveMarketsPage() {
       : fetchDukascopyHistoricalCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
     void candleRequest
       .then((nextBars) => {
-        setLiveBars(nextBars);
-        setCachedBarsBySymbol((current) => ({
-          ...current,
-          [symbolKey]: nextBars.slice(-LIVE_HISTORY_CACHE_BARS),
-        }));
-        setFeedError(null);
-        if (selectedLiveSymbol.feed === "dukascopy") {
-          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
-          if (ticker) {
-            setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
+        setLiveBars((current) => {
+          const preservedBars = mergeLiveCandles(
+            cachedBarsBySymbolRef.current[symbolKey] ?? [],
+            current,
+            LIVE_HISTORY_CACHE_BARS,
+          );
+          const mergedBars = mergeLiveCandles(preservedBars, nextBars, LIVE_HISTORY_CACHE_BARS);
+          setCachedBarsBySymbol((cache) => ({
+            ...cache,
+            [symbolKey]: mergedBars,
+          }));
+          if (selectedLiveSymbol.feed === "dukascopy") {
+            const ticker = liveTickerFromCandles(selectedLiveSymbol, mergedBars);
+            if (ticker) {
+              setTickers((current) => ({ ...current, [symbolKey]: ticker }));
+            }
           }
-        }
+          return mergedBars;
+        });
+        setFeedError(null);
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
@@ -4870,30 +4878,33 @@ function sanitizeLiveTimeframe(value: unknown): ChartTimeframe {
 }
 
 function buildLiveTimeframeOptions(panes: LiveChartPaneState[]) {
-  const orderedTimeframes = [
+  const candidateTimeframes = [
     LIVE_SOURCE_TIMEFRAME,
     ...panes.map((pane) => sanitizeLiveTimeframe(pane.timeframe)),
     ...TIMEFRAMES.map((timeframe) => timeframe.id),
   ];
   const seen = new Set<string>();
-  return orderedTimeframes.flatMap((timeframe) => {
-    const normalized = normalizeChartTimeframe(timeframe);
-    if (!normalized || seen.has(normalized) || !canAggregateTimeframe(normalized, LIVE_SOURCE_TIMEFRAME)) {
-      return [];
-    }
-    seen.add(normalized);
-    const stepBars = Math.max(
-      1,
-      Math.round(getTimeframeSeconds(normalized) / getTimeframeSeconds(LIVE_SOURCE_TIMEFRAME)),
-    );
-    return [
-      {
+  return candidateTimeframes
+    .flatMap((timeframe) => {
+      const normalized = normalizeChartTimeframe(timeframe);
+      if (!normalized || seen.has(normalized) || !canAggregateTimeframe(normalized, LIVE_SOURCE_TIMEFRAME)) {
+        return [];
+      }
+      seen.add(normalized);
+      return [normalized];
+    })
+    .sort((left, right) => getTimeframeSeconds(left) - getTimeframeSeconds(right) || left.localeCompare(right))
+    .map((normalized) => {
+      const stepBars = Math.max(
+        1,
+        Math.round(getTimeframeSeconds(normalized) / getTimeframeSeconds(LIVE_SOURCE_TIMEFRAME)),
+      );
+      return {
         label: `${formatChartTimeframeLabel(normalized)} bars`,
         sublabel: stepBars === 1 ? "Live source" : `${stepBars} source bars`,
         value: normalized,
-      },
-    ];
-  });
+      };
+    });
 }
 
 function buildTimeframeShortcutFeedback(

@@ -150,18 +150,14 @@ function LoadingShell({
 }) {
   return (
     <div
-      className={`rounded-[22px] border border-cyan-400/10 bg-[linear-gradient(180deg,rgba(6,14,22,0.98),rgba(5,10,16,0.94))] shadow-[0_22px_50px_rgba(0,0,0,0.34)] ${className}`}
+      aria-label={`${eyebrow}: ${summary}`}
+      className={`rounded-[22px] bg-[#050b11]/55 ${className}`}
+      role="status"
     >
-      <div className="flex items-center justify-between gap-3 border-b border-cyan-400/8 px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/48">
-            {eyebrow}
-          </div>
-          <div className="mt-1 text-sm font-semibold text-slate-100">{summary}</div>
-        </div>
-        <EdgePulseLoader label={eyebrow} />
+      <div className="flex items-center justify-end px-3 py-2">
+        <EdgePulseLoader label={summary} />
       </div>
-      <div className="p-4">{children}</div>
+      <div className="px-3 pb-3">{children}</div>
     </div>
   );
 }
@@ -176,7 +172,7 @@ function LoadingBar({
   return (
     <div
       className={`relative overflow-hidden rounded-full ${
-        tone === "accent" ? "bg-cyan-300/12" : "bg-slate-800/80"
+        tone === "accent" ? "bg-cyan-300/[0.08]" : "bg-slate-800/50"
       } ${className}`}
     >
       <div
@@ -200,7 +196,7 @@ function LoadingPanelBlock({
   titleWidth?: string;
 }) {
   return (
-    <div className={`rounded-[18px] border border-cyan-400/8 bg-[#08111a]/84 p-4 ${className}`}>
+    <div className={`rounded-[18px] bg-[#08111a]/55 p-4 ${className}`}>
       <LoadingBar className={`h-3 ${titleWidth}`} tone="accent" />
       <div className="mt-4 grid gap-2">
         {Array.from({ length: bodyLines }).map((_, index) => (
@@ -222,7 +218,7 @@ function WorkspaceLoadingPanel() {
       summary="Opening trading workspace"
     >
       <div className="grid gap-3">
-        <div className="rounded-[18px] border border-cyan-400/8 bg-[#08111a]/84 p-3">
+        <div className="rounded-[18px] bg-[#08111a]/55 p-3">
           <div className="flex items-center gap-3">
             <LoadingBar className="h-8 w-8 rounded-xl" tone="accent" />
             <div className="min-w-0 flex-1">
@@ -288,7 +284,7 @@ function ChartChunkFallback() {
             <LoadingBar className="h-8 w-20 rounded-full" />
             <LoadingBar className="h-8 w-28 rounded-full" tone="accent" />
           </div>
-          <div className="relative flex-1 overflow-hidden rounded-[20px] border border-cyan-400/8 bg-[#071018]">
+          <div className="relative flex-1 overflow-hidden rounded-[20px] bg-[#071018]/70">
             <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px)] bg-[size:100%_56px,72px_100%]" />
             <div className="absolute inset-x-6 top-8">
               <LoadingBar className="h-3 w-36" tone="accent" />
@@ -3061,32 +3057,35 @@ function buildReplayTimeframeOptions(
 ): ReplayTimeframeOption[] {
   const source = effectiveSourceFallbackTimeframe(sourceTimeframe);
   const maxSeconds = getTimeframeSeconds(maxReplayTimeframe);
-  const orderedTimeframes = [
+  const candidateTimeframes = [
     source,
     ...panes.map((pane) => coerceTimeframeToSource(pane.timeframe, sourceTimeframe)),
     ...TIMEFRAMES.map((timeframe) => timeframe.id),
   ];
   const seen = new Set<string>();
-  return orderedTimeframes.flatMap((timeframe) => {
-    const normalized = normalizeChartTimeframe(timeframe);
-    if (
-      !normalized ||
-      seen.has(normalized) ||
-      !canAggregateTimeframe(normalized, sourceTimeframe) ||
-      getTimeframeSeconds(normalized) > maxSeconds
-    ) {
-      return [];
-    }
-    seen.add(normalized);
-    const stepBars = getReplayStepBars(normalized, sourceTimeframe);
-    return [
-      {
+  return candidateTimeframes
+    .flatMap((timeframe) => {
+      const normalized = normalizeChartTimeframe(timeframe);
+      if (
+        !normalized ||
+        seen.has(normalized) ||
+        !canAggregateTimeframe(normalized, sourceTimeframe) ||
+        getTimeframeSeconds(normalized) > maxSeconds
+      ) {
+        return [];
+      }
+      seen.add(normalized);
+      return [normalized];
+    })
+    .sort((left, right) => getTimeframeSeconds(left) - getTimeframeSeconds(right) || left.localeCompare(right))
+    .map((normalized) => {
+      const stepBars = getReplayStepBars(normalized, sourceTimeframe);
+      return {
         label: `${formatChartTimeframeLabel(normalized)} bars`,
         sublabel: stepBars === 1 ? "Source step" : `${stepBars} source bars`,
         value: normalized,
-      },
-    ];
-  });
+      };
+    });
 }
 
 function getReplayStepBars(
