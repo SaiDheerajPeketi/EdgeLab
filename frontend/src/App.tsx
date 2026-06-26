@@ -36,6 +36,7 @@ import type {
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
+import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import {
   getApiWebSocketUrl,
   type BacktestCreatePayload,
@@ -149,31 +150,19 @@ function LoadingShell({
 }) {
   return (
     <div
-      className={`rounded-[22px] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(7,16,24,0.96),rgba(5,10,16,0.92))] shadow-panel ${className}`}
+      className={`rounded-[22px] border border-cyan-400/10 bg-[linear-gradient(180deg,rgba(6,14,22,0.98),rgba(5,10,16,0.94))] shadow-[0_22px_50px_rgba(0,0,0,0.34)] ${className}`}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-cyan-400/8 px-4 py-3">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/60">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/48">
             {eyebrow}
           </div>
-          <div className="mt-1 text-sm font-semibold text-white">{summary}</div>
+          <div className="mt-1 text-sm font-semibold text-slate-100">{summary}</div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <LoadingDot delayClass="" />
-          <LoadingDot delayClass="[animation-delay:140ms]" />
-          <LoadingDot delayClass="[animation-delay:280ms]" />
-        </div>
+        <EdgePulseLoader label={eyebrow} />
       </div>
       <div className="p-4">{children}</div>
     </div>
-  );
-}
-
-function LoadingDot({ delayClass }: { delayClass: string }) {
-  return (
-    <span
-      className={`h-2 w-2 rounded-full bg-cyan-200/65 animate-pulse motion-reduce:animate-none ${delayClass}`}
-    />
   );
 }
 
@@ -187,15 +176,15 @@ function LoadingBar({
   return (
     <div
       className={`relative overflow-hidden rounded-full ${
-        tone === "accent" ? "bg-cyan-300/16" : "bg-white/[0.06]"
+        tone === "accent" ? "bg-cyan-300/12" : "bg-slate-800/80"
       } ${className}`}
     >
       <div
         className={`absolute inset-y-0 left-0 w-1/2 rounded-full ${
           tone === "accent"
-            ? "bg-gradient-to-r from-cyan-200/10 via-cyan-200/55 to-cyan-100/10"
-            : "bg-gradient-to-r from-white/[0.02] via-white/[0.14] to-white/[0.02]"
-        } animate-pulse motion-reduce:animate-none`}
+            ? "bg-gradient-to-r from-cyan-300/0 via-cyan-200/60 to-cyan-100/0"
+            : "bg-gradient-to-r from-slate-700/0 via-slate-500/55 to-slate-700/0"
+        } motion-safe:animate-[edgelab-loader-rise_1s_ease-in-out_infinite] motion-reduce:animate-none`}
       />
     </div>
   );
@@ -211,7 +200,7 @@ function LoadingPanelBlock({
   titleWidth?: string;
 }) {
   return (
-    <div className={`rounded-[18px] border border-white/8 bg-black/20 p-4 ${className}`}>
+    <div className={`rounded-[18px] border border-cyan-400/8 bg-[#08111a]/84 p-4 ${className}`}>
       <LoadingBar className={`h-3 ${titleWidth}`} tone="accent" />
       <div className="mt-4 grid gap-2">
         {Array.from({ length: bodyLines }).map((_, index) => (
@@ -230,10 +219,10 @@ function WorkspaceLoadingPanel() {
     <LoadingShell
       className="grid gap-3"
       eyebrow="Workspace"
-      summary="Preparing trading workspace"
+      summary="Opening trading workspace"
     >
       <div className="grid gap-3">
-        <div className="rounded-[18px] border border-white/8 bg-black/20 p-3">
+        <div className="rounded-[18px] border border-cyan-400/8 bg-[#08111a]/84 p-3">
           <div className="flex items-center gap-3">
             <LoadingBar className="h-8 w-8 rounded-xl" tone="accent" />
             <div className="min-w-0 flex-1">
@@ -258,7 +247,7 @@ function BacktestLoadingPanel() {
     <LoadingShell
       className="mb-4"
       eyebrow="Session"
-      summary="Syncing replay state"
+      summary="Loading replay state"
     >
       <div className="grid gap-3">
         <LoadingBar className="h-3 w-28" tone="accent" />
@@ -274,7 +263,7 @@ function LazyPanelFallback({ className = "" }: { className?: string }) {
     <LoadingShell
       className={className}
       eyebrow="Panel"
-      summary="Loading tools"
+      summary="Loading panel"
     >
       <div className="grid gap-3">
         <LoadingBar className="h-3 w-32" tone="accent" />
@@ -291,7 +280,7 @@ function ChartChunkFallback() {
       <LoadingShell
         className="min-h-[520px]"
         eyebrow="Chart"
-        summary="Streaming chart studio"
+        summary="Loading chart"
       >
         <div className="grid h-full min-h-[440px] gap-4">
           <div className="flex items-center gap-2">
@@ -299,7 +288,7 @@ function ChartChunkFallback() {
             <LoadingBar className="h-8 w-20 rounded-full" />
             <LoadingBar className="h-8 w-28 rounded-full" tone="accent" />
           </div>
-          <div className="relative flex-1 overflow-hidden rounded-[20px] border border-white/8 bg-[#071018]">
+          <div className="relative flex-1 overflow-hidden rounded-[20px] border border-cyan-400/8 bg-[#071018]">
             <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px)] bg-[size:100%_56px,72px_100%]" />
             <div className="absolute inset-x-6 top-8">
               <LoadingBar className="h-3 w-36" tone="accent" />

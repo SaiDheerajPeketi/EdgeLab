@@ -41,26 +41,26 @@ function AppRouteFallback() {
     return (
       <AuthTransitionScreen
         activeStep={0}
-        description="Loading the secure callback surface so EdgeLab can finish the Google handoff without flashing a generic route loader."
+        description="Finishing the Google handoff and restoring your workspace."
         eyebrow="Secure callback"
         panelEyebrow="Auth path"
-        panelTitle="Google return in progress"
+        panelTitle="Google return"
         statusLabel="Google OAuth"
         steps={[
           {
-            detail: "Open the callback route and read the signed OAuth response.",
+            detail: "Open callback route.",
             label: "Load callback",
           },
           {
-            detail: "Exchange the code for an EdgeLab session.",
+            detail: "Exchange code.",
             label: "Restore session",
           },
           {
-            detail: "Return approved access straight into workspace.",
+            detail: "Open workspace.",
             label: "Open workspace",
           },
         ]}
-        title="Securing your EdgeLab sign-in."
+        title="Finishing sign-in."
       />
     );
   }
@@ -68,26 +68,26 @@ function AppRouteFallback() {
   return (
     <AuthTransitionScreen
       activeStep={1}
-      description="Loading the next EdgeLab surface and restoring the right trading context."
+      description="Opening the next EdgeLab surface and restoring session context."
       eyebrow="Routing"
       panelEyebrow="Route path"
-      panelTitle="Surface transition in progress"
+      panelTitle="Surface transition"
       statusLabel="Route transition"
       steps={[
         {
-          detail: "Resolve the destination and pull the right route bundle.",
+          detail: "Resolve destination.",
           label: "Match route",
         },
         {
-          detail: "Warm the UI shell and hydrate the next surface.",
+          detail: "Load surface.",
           label: "Load surface",
         },
         {
-          detail: "Open the workspace with the current session context.",
+          detail: "Restore state.",
           label: "Hand off state",
         },
       ]}
-      title="Preparing EdgeLab."
+      title="Opening EdgeLab."
     />
   );
 }

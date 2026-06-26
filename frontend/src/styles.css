@@ -181,6 +181,20 @@
   }
 }
 
+@keyframes edgelab-loader-rise {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleY(0.58);
+    transform-origin: bottom;
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
+}
+
 .edgelab-mesh {
   background:
     radial-gradient(circle at 15% 20%, rgba(50, 211, 238, 0.22), transparent 28%),

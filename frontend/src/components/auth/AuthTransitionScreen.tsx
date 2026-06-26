@@ -1,5 +1,5 @@
-import { ArrowRight } from "lucide-react";
 import { EdgeLabWordmark } from "../marketing/MarketingShell";
+import { EdgePulseLoader } from "../EdgePulseLoader";
 
 type AuthTransitionStep = {
   detail: string;
@@ -39,93 +39,74 @@ export function AuthTransitionScreen({
 
       <div
         aria-live="polite"
-        className="relative w-full max-w-5xl rounded-[34px] border border-white/10 bg-[#061018]/94 p-6 shadow-card backdrop-blur-xl sm:p-8 lg:p-10"
+        className="relative w-full max-w-xl rounded-[30px] border border-cyan-400/10 bg-[linear-gradient(180deg,rgba(6,15,24,0.96),rgba(5,10,16,0.94))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.36)] backdrop-blur-xl sm:p-8"
         role="status"
       >
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <EdgeLabWordmark showTagline={false} />
+        <EdgeLabWordmark showTagline={false} />
 
-            <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100/80">
-              <span className="h-2 w-2 rounded-full bg-cyan-200/80 shadow-[0_0_18px_rgba(139,245,255,0.55)] motion-safe:animate-pulse" />
-              {statusLabel}
-            </div>
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          <div className="rounded-full border border-cyan-400/10 bg-cyan-300/[0.07] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-100/62">
+            {eyebrow}
+          </div>
+          <EdgePulseLoader label={statusLabel} />
+        </div>
 
-            <div className="mt-6 text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-100/55">
-              {eyebrow}
+        <div className="mt-6">
+          <h1 className="text-[clamp(2rem,6vw,3rem)] font-semibold leading-[0.95] tracking-[-0.05em] text-white">
+            {title}
+          </h1>
+          <p className="mt-3 max-w-lg text-sm leading-6 text-slate-400 sm:text-base">
+            {description}
+          </p>
+        </div>
+
+        <div className="mt-6 rounded-[24px] border border-cyan-400/8 bg-[#08111a]/86 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                {panelEyebrow}
+              </div>
+              <div className="mt-2 text-sm font-semibold text-slate-100">
+                {panelTitle}
+              </div>
             </div>
-            <h1 className="mt-3 max-w-2xl text-[clamp(2.6rem,6vw,4.7rem)] font-semibold leading-[0.92] tracking-[-0.07em] text-white">
-              {title}
-            </h1>
-            <p className="mt-4 max-w-xl text-base leading-8 text-slate-300 sm:text-lg">
-              {description}
-            </p>
+            <div className="rounded-full border border-cyan-400/10 bg-black/20 px-3 py-1 text-[11px] font-medium text-slate-300">
+              {safeActiveStep + 1} / {steps.length}
+            </div>
           </div>
 
-          <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-black/20 p-4 sm:p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  {panelEyebrow}
-                </div>
-                <div className="mt-2 text-sm font-semibold text-white">
-                  {panelTitle}
-                </div>
-              </div>
-              <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300 sm:inline-flex">
-                <span>{safeActiveStep + 1}</span>
-                <ArrowRight size={12} />
-                <span>{steps.length}</span>
-              </div>
-            </div>
-
+          <div
+            aria-hidden="true"
+            className="mt-4 h-1 overflow-hidden rounded-full bg-slate-800/90"
+          >
             <div
-              aria-hidden="true"
-              className="mt-5 h-1 overflow-hidden rounded-full bg-white/[0.06]"
-            >
-              <div
-                className="h-full rounded-full bg-[linear-gradient(90deg,rgba(139,245,255,0.18),rgba(139,245,255,0.85),rgba(246,194,107,0.78))] transition-[width] duration-500 ease-out motion-reduce:transition-none"
-                style={{
-                  width: `${((safeActiveStep + 1) / Math.max(steps.length, 1)) * 100}%`,
-                }}
-              />
-            </div>
+              className="h-full rounded-full bg-[linear-gradient(90deg,rgba(34,197,94,0.32),rgba(139,245,255,0.88),rgba(139,245,255,0.38))] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+              style={{
+                width: `${((safeActiveStep + 1) / Math.max(steps.length, 1)) * 100}%`,
+              }}
+            />
+          </div>
 
-            <div className="mt-5 grid gap-3">
-              {steps.map((step, index) => {
-                const isCurrent = index === safeActiveStep;
-                const isComplete = index < safeActiveStep;
+          <div className="mt-4 flex flex-wrap gap-2">
+            {steps.map((step, index) => {
+              const isCurrent = index === safeActiveStep;
+              const isComplete = index < safeActiveStep;
 
-                return (
-                  <div
-                    className={`rounded-[22px] border px-4 py-4 transition-colors duration-200 ${
-                      isCurrent
-                        ? "border-cyan-300/20 bg-cyan-300/[0.08]"
-                        : isComplete
-                          ? "border-white/10 bg-white/[0.04]"
-                          : "border-white/8 bg-black/20"
-                    }`}
-                    key={step.label}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`mt-1 h-2.5 w-2.5 rounded-full ${
-                          isCurrent
-                            ? "bg-cyan-200 shadow-[0_0_18px_rgba(139,245,255,0.45)] motion-safe:animate-pulse"
-                            : isComplete
-                              ? "bg-amber-200"
-                              : "bg-white/20"
-                        }`}
-                      />
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-white">{step.label}</div>
-                        <div className="mt-1 text-sm leading-6 text-slate-400">{step.detail}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+              return (
+                <div
+                  className={`rounded-full border px-3 py-2 text-xs font-medium transition-colors duration-200 ${
+                    isCurrent
+                      ? "border-cyan-300/18 bg-cyan-300/[0.08] text-cyan-50"
+                      : isComplete
+                        ? "border-emerald-400/16 bg-emerald-400/[0.08] text-emerald-100"
+                        : "border-cyan-400/8 bg-black/20 text-slate-400"
+                  }`}
+                  key={step.label}
+                >
+                  {step.label}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
