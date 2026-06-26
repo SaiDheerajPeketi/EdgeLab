@@ -5,6 +5,7 @@ import {
   BookOpen,
   CalendarDays,
   Calculator,
+  MessageSquareQuote,
   Network,
   PlaySquare,
   LogOut,
@@ -51,6 +52,7 @@ const sections: Array<{
     shortLabel: "APP",
     items: [
       { id: "globalSettings", label: "Global Settings", icon: Settings },
+      { id: "feedback", label: "Feedback", icon: MessageSquareQuote },
     ],
   },
   {

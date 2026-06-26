@@ -8,12 +8,13 @@ from sqlalchemy.orm import sessionmaker
 from app.api import routes
 from app.auth import AuthenticatedUser
 from app.db import Base
-from app.models import AppStorageItem, BacktestSession, BetaUser
+from app.models import AppStorageItem, BacktestSession, BetaUser, FeedbackSubmission
 from app.schemas import (
     AppStoragePayload,
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestSessionUpdate,
+    FeedbackCreate,
     OrderCreate,
     PlaybookCreate,
 )
@@ -213,3 +214,34 @@ def test_playbooks_storage_and_metrics_are_user_scoped(tmp_path, monkeypatch):
                 current_user=intruder,
             )
         assert exc_info.value.status_code == 404
+
+
+def test_feedback_submission_is_stored_for_authenticated_user():
+    session_factory = make_session_factory()
+
+    with session_factory() as db:
+        owner_id = seed_user(db, "owner@edgelab.local", "Owner")
+        intruder_id = seed_user(db, "intruder@edgelab.local", "Intruder")
+
+        submission = routes.create_feedback(
+            payload=FeedbackCreate(
+                category="FEATURE",
+                message="Please add richer replay analytics to the trade review screens.",
+                context={"source_view": "feedback"},
+            ),
+            db=db,
+            current_user=auth_user(owner_id, "owner@edgelab.local", "Owner"),
+        )
+
+        assert submission.category == "FEATURE"
+        stored_submission = db.scalar(
+            select(FeedbackSubmission).where(FeedbackSubmission.id == submission.id)
+        )
+        assert stored_submission is not None
+        assert stored_submission.user_id == owner_id
+        assert stored_submission.context == {"source_view": "feedback"}
+
+        intruder_rows = db.scalars(
+            select(FeedbackSubmission).where(FeedbackSubmission.user_id == intruder_id)
+        ).all()
+        assert intruder_rows == []

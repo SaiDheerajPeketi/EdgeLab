@@ -36,6 +36,7 @@ from app.models import (
     DatasetSettings,
     DatasetTimeframe,
     Execution,
+    FeedbackSubmission,
     Order,
     Playbook,
     Position,
@@ -83,6 +84,8 @@ from app.schemas import (
     DukascopyInstrumentsResponse,
     EconomicCalendarEvent,
     EconomicCalendarResponse,
+    FeedbackCreate,
+    FeedbackRead,
     GoogleAuthExchangeRequest,
     JournalUpdate,
     MetricsResponse,
@@ -1375,6 +1378,31 @@ def delete_app_storage_item(
     db.delete(item)
     db.commit()
     return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
+
+
+@router.post("/feedback", response_model=FeedbackRead)
+def create_feedback(
+    payload: FeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> FeedbackRead:
+    submission = FeedbackSubmission(
+        user_id=current_user.id,
+        category=payload.category,
+        message=clean_text(payload.message),
+        context=payload.context,
+        status="NEW",
+    )
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+    return FeedbackRead(
+        id=submission.id,
+        category=submission.category,
+        message=submission.message,
+        status=submission.status,
+        created_at=submission.created_at,
+    )
 
 
 @router.get("/market-data/bars", response_model=BarsResponse)

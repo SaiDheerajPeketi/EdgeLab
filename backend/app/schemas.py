@@ -10,6 +10,8 @@ OrderStatus = Literal["PENDING", "FILLED", "CANCELLED"]
 PositionSide = Literal["FLAT", "LONG", "SHORT"]
 RiskBase = Literal["CURRENT_BALANCE", "INITIAL_BALANCE"]
 CommissionMode = Literal["NONE", "FIXED", "PERCENT"]
+FeedbackCategory = Literal["BUG", "FEATURE", "UX", "PERFORMANCE", "DATA", "OTHER"]
+FeedbackStatus = Literal["NEW", "REVIEWED", "CLOSED"]
 
 
 class Candle(BaseModel):
@@ -184,6 +186,27 @@ class AppStorageRead(BaseModel):
     key: str
     value: Any = None
     updated_at: datetime | None = None
+
+
+class FeedbackCreate(BaseModel):
+    category: FeedbackCategory = "OTHER"
+    message: str = Field(min_length=10, max_length=4000)
+    context: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def normalize_message(self):
+        self.message = self.message.strip()
+        if len(self.message) < 10:
+            raise ValueError("Feedback message must be at least 10 characters")
+        return self
+
+
+class FeedbackRead(BaseModel):
+    id: int
+    category: FeedbackCategory
+    message: str
+    status: FeedbackStatus = "NEW"
+    created_at: datetime
 
 
 class AppDataBundle(BaseModel):

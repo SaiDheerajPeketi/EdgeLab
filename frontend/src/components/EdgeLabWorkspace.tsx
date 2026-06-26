@@ -48,10 +48,12 @@ import {
   Info,
   Italic,
   Layers,
+  Lightbulb,
   Link2,
   LineChart,
   List,
   ListOrdered,
+  MessageSquareQuote,
   MoreHorizontal,
   NotebookPen,
   Palette,
@@ -62,6 +64,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Send,
   Settings,
   Share2,
   SlidersHorizontal,
@@ -107,6 +110,7 @@ import {
   getForexFactoryCalendar,
   importAppDataBundle,
   importBacktestTrades,
+  postFeedback,
 } from "../lib/api";
 import type {
   AppDataBundle,
@@ -122,6 +126,7 @@ import type {
   DukascopyInstrument as ApiDukascopyInstrument,
   EconomicCalendarEvent,
   EconomicCalendarResponse,
+  FeedbackCategory,
   Playbook,
   PlaybookPayload,
   PlaybookUpdatePayload,
@@ -173,6 +178,7 @@ import {
   normalizeCurrencyCode,
 } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
+import { getStoredAuthSession } from "../lib/authSession";
 import {
   DEFAULT_MISTAKE_TAGS,
   hydrateStrategyMistakeTags,
@@ -847,6 +853,8 @@ export function EdgeLabWorkspace({
       return <AccountsPage {...shared} />;
     case "dashboard":
       return <DashboardPage {...shared} />;
+    case "feedback":
+      return <FeedbackPage activeSession={activeSession} />;
     case "globalSettings":
       return <GlobalSettingsPage datasets={datasets} playbooks={playbooks} sessions={sessions} trades={trades} />;
     case "dayView":
@@ -6261,6 +6269,185 @@ function stringRecordValue(record: Record<string, unknown>, ...keys: string[]) {
     }
   }
   return "";
+}
+
+function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null }) {
+  const authSession = getStoredAuthSession();
+  const [category, setCategory] = useState<FeedbackCategory>("FEATURE");
+  const [message, setMessage] = useState("");
+  const [includeSessionContext, setIncludeSessionContext] = useState(true);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastSubmittedAt, setLastSubmittedAt] = useState<string | null>(null);
+  const trimmedMessage = message.trim();
+  const canSubmit = trimmedMessage.length >= 10 && !isSubmitting;
+  const activeSessionLabel = activeSession
+    ? [activeSession.instrument ?? activeSession.symbol, activeSession.timeframe ?? "Replay", activeSession.name]
+        .filter(Boolean)
+        .join(" · ")
+    : "No active backtest session";
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+    setIsSubmitting(true);
+    setStatus(null);
+    setError(null);
+    try {
+      const submission = await postFeedback({
+        category,
+        context: {
+          app: "edgelab",
+          include_session_context: includeSessionContext,
+          pathname: typeof window !== "undefined" ? window.location.pathname : "/app",
+          session: includeSessionContext && activeSession
+            ? {
+                id: activeSession.id,
+                instrument: activeSession.instrument ?? activeSession.symbol,
+                name: activeSession.name,
+                timeframe: activeSession.timeframe,
+              }
+            : null,
+          submitted_at: new Date().toISOString(),
+          user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+        },
+        message: trimmedMessage,
+      });
+      setLastSubmittedAt(submission.created_at);
+      setMessage("");
+      setStatus("Feedback sent. Thanks for helping sharpen EdgeLab.");
+    } catch (submissionError) {
+      setError(importErrorMessage(submissionError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <PageScaffold
+      eyebrow="Feedback"
+      title="Tell Us What To Fix"
+      description="Send bugs, UX friction, missing features, or performance issues straight into the EdgeLab product queue."
+    >
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <FeatureCard>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardLabel icon={MessageSquareQuote} label="Product feedback" />
+              <h2 className="mt-3 text-xl font-semibold text-white">Ship the rough edges to us</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                Be concrete. Tell us what happened, what you expected instead, and where the workflow slowed you down.
+              </p>
+            </div>
+            <span className="status-pill h-8 px-2 text-[11px]">Authenticated submit</span>
+          </div>
+
+          <form className="mt-5 grid gap-4" onSubmit={(event) => void handleSubmit(event)}>
+            <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+              <label className="form-field">
+                Type
+                <ThemedSelect
+                  className="h-10"
+                  onChange={(value) => setCategory(value as FeedbackCategory)}
+                  options={[
+                    { label: "Feature request", sublabel: "New workflow or capability", value: "FEATURE" },
+                    { label: "Bug", sublabel: "Something is broken", value: "BUG" },
+                    { label: "UX friction", sublabel: "Confusing or clunky flow", value: "UX" },
+                    { label: "Performance", sublabel: "Slow or resource-heavy behavior", value: "PERFORMANCE" },
+                    { label: "Data quality", sublabel: "Incorrect or missing market/app data", value: "DATA" },
+                    { label: "Other", sublabel: "Everything else", value: "OTHER" },
+                  ]}
+                  portal
+                  value={category}
+                />
+              </label>
+              <div className="grid gap-2 rounded-md border border-white/10 bg-black/20 px-3 py-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                  Submission context
+                </div>
+                <label className="flex items-start gap-3 text-sm text-slate-300">
+                  <input
+                    checked={includeSessionContext}
+                    className="mt-1 h-4 w-4 rounded border-white/15 bg-black/30 text-cyan-300 focus:ring-cyan-300/25"
+                    onChange={(event) => setIncludeSessionContext(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>
+                    Include current session context
+                    <span className="mt-1 block text-xs text-slate-500">{activeSessionLabel}</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <label className="form-field">
+              Feedback
+              <textarea
+                className="min-h-[220px] w-full rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/10 placeholder:text-slate-600"
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder="What were you doing, what went wrong, and what should EdgeLab do instead?"
+                value={message}
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-slate-500">
+                {trimmedMessage.length < 10
+                  ? "Use at least 10 characters so we have enough detail to act on it."
+                  : `${trimmedMessage.length.toLocaleString()} characters ready to send.`}
+              </div>
+              <button
+                className="control-button workspace-tab-active h-10 px-4"
+                disabled={!canSubmit}
+                type="submit"
+              >
+                {isSubmitting ? <RefreshCw className="animate-spin motion-reduce:animate-none" size={15} /> : <Send size={15} />}
+                {isSubmitting ? "Sending..." : "Send feedback"}
+              </button>
+            </div>
+
+            {status ? (
+              <div className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-3 py-3 text-sm text-emerald-100">
+                {status}
+              </div>
+            ) : null}
+            {error ? (
+              <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-3 text-sm text-rose-100">
+                {error}
+              </div>
+            ) : null}
+          </form>
+        </FeatureCard>
+
+        <div className="space-y-4">
+          <FeatureCard>
+            <CardLabel icon={Lightbulb} label="What helps most" />
+            <div className="mt-4 grid gap-2 text-sm leading-6 text-slate-400">
+              <p>1. The exact screen or flow where the problem showed up.</p>
+              <p>2. What you expected to happen.</p>
+              <p>3. What actually happened instead.</p>
+              <p>4. If the issue is performance-related, how it felt: lag, memory spike, blocked action, or stale data.</p>
+            </div>
+          </FeatureCard>
+
+          <FeatureCard>
+            <CardLabel icon={Info} label="Submission info" />
+            <div className="mt-4 grid gap-2">
+              <CompactMetric label="Signed in as" value={authSession?.user.email ?? "Authenticated user"} />
+              <CompactMetric label="Current session" value={activeSession ? String(activeSession.id) : "None"} />
+              <CompactMetric
+                label="Last sent"
+                value={lastSubmittedAt ? formatDateTime(lastSubmittedAt) : "Not yet submitted"}
+              />
+            </div>
+          </FeatureCard>
+        </div>
+      </div>
+    </PageScaffold>
+  );
 }
 
 function GlobalSettingsPage({

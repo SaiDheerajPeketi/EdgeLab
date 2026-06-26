@@ -544,6 +544,23 @@ export type AppStorageItem<T = unknown> = {
   updated_at: string | null;
 };
 
+export type FeedbackCategory = "BUG" | "FEATURE" | "UX" | "PERFORMANCE" | "DATA" | "OTHER";
+export type FeedbackStatus = "NEW" | "REVIEWED" | "CLOSED";
+
+export type FeedbackPayload = {
+  category: FeedbackCategory;
+  message: string;
+  context?: Record<string, unknown> | null;
+};
+
+export type FeedbackSubmission = {
+  id: number;
+  category: FeedbackCategory;
+  message: string;
+  status: FeedbackStatus;
+  created_at: string;
+};
+
 export type AppDataBundle = {
   app: "edgelab";
   version: number;
@@ -803,6 +820,13 @@ export function importAppDataBundle(bundle: AppDataBundle) {
   return request<AppDataImportResult>("/app-data/import", {
     method: "POST",
     body: JSON.stringify(bundle),
+  });
+}
+
+export function postFeedback(payload: FeedbackPayload) {
+  return request<FeedbackSubmission>("/feedback", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

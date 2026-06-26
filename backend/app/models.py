@@ -290,6 +290,22 @@ class AppStorageItem(UserOwnedMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class FeedbackSubmission(UserOwnedMixin, Base):
+    __tablename__ = "feedback_submissions"
+    __table_args__ = (
+        Index("ix_feedback_submissions_user_created_id", "user_id", "created_at", "id"),
+        Index("ix_feedback_submissions_status_created_id", "status", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    category: Mapped[str] = mapped_column(String(24), default="OTHER", nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="NEW", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class BetaUser(Base):
     __tablename__ = "beta_users"
 
