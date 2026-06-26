@@ -563,7 +563,7 @@ export function WorkspaceApp() {
     const visibleCount = Math.max(0, Math.min(bars.length, currentOffset - barOffset + 1));
     return bars.slice(0, visibleCount);
   }, [barOffset, bars, state?.session.current_offset]);
-  const playbackStepBars = isMultiChartLayout ? replayStepBars : 1;
+  const playbackStepBars = replayStepBars;
   const playbackTickMs = Math.max(
     16,
     Math.round(speedMs / Math.max(replayStepBars, 1)),
@@ -863,12 +863,12 @@ export function WorkspaceApp() {
       if (useBacktestStore.getState().isStepping) {
         return;
       }
-      void stepForward(1);
+      void stepForward(playbackStepBars);
     }, playbackTickMs);
     return () => {
       window.clearInterval(timer);
     };
-  }, [isPlaying, playbackTickMs, stepForward]);
+  }, [isPlaying, playbackStepBars, playbackTickMs, stepForward]);
 
   useEffect(() => {
     function handleHeaderControlPointerDown(event: PointerEvent) {
@@ -1361,9 +1361,6 @@ export function WorkspaceApp() {
       setActiveChartPaneId("chart-pane-1");
       setSelectedDrawingId(null);
       resetDrawingUndoHistory();
-    }
-    if (layout.panes > 1) {
-      setReplayTimeframe(coerceTimeframeToSource(activeChartPane.timeframe, sourceTimeframe));
     }
   }
 
@@ -2251,12 +2248,8 @@ export function WorkspaceApp() {
                   onToggleOrderPane={toggleOrderPanel}
                   onReplayTimeframeChange={changeReplayTimeframe}
                   replayStepBars={playbackStepBars}
-                  replayTimeframe={isMultiChartLayout ? normalizedReplayTimeframe : null}
-                  replayTimeframeLabel={
-                    isMultiChartLayout
-                      ? formatChartTimeframeLabel(normalizedReplayTimeframe)
-                      : null
-                  }
+                  replayTimeframe={normalizedReplayTimeframe}
+                  replayTimeframeLabel={formatChartTimeframeLabel(normalizedReplayTimeframe)}
                   replayTimeframeOptions={replayTimeframeOptions}
                   showOrderToggle={false}
                   timeHoursFormat={chartSettings.timeHoursFormat}
@@ -2288,7 +2281,6 @@ export function WorkspaceApp() {
                       onLayoutNameChange={setLayoutName}
                       onLoadLayout={loadNamedChartLayout}
                       magnetMode={magnetMode}
-                      multiChart={isMultiChartLayout}
                       onMagnetModeChange={setMagnetMode}
                       onPaneLayoutChange={changeChartPaneLayout}
                       onReplayTimeframeChange={changeReplayTimeframe}

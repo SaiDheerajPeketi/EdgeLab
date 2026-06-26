@@ -4319,7 +4319,6 @@ function LiveChartStudio({
           layoutName={layoutName}
           layoutNames={availableLayouts}
           magnetMode={activeChartPane.magnetMode}
-          multiChart={isMultiChartLayout}
           onAddIndicator={addIndicator}
           onChartSettingsChange={(settings) => updateActiveChartPane((pane) => ({ ...pane, chartSettings: sanitizeChartVisualSettings(settings) }))}
           onChartSettingsReset={() => updateActiveChartPane((pane) => ({ ...pane, chartSettings: DEFAULT_CHART_VISUAL_SETTINGS }))}

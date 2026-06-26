@@ -88,7 +88,6 @@ type Props = {
   layoutName: string;
   layoutNames: string[];
   magnetMode: MagnetMode;
-  multiChart: boolean;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onChartSettingsChange: (settings: ChartVisualSettings) => void;
   onChartSettingsReset: () => void;
@@ -202,7 +201,6 @@ export function ChartToolbar({
   layoutName,
   layoutNames,
   magnetMode,
-  multiChart,
   onAddIndicator,
   onChartSettingsChange,
   onChartSettingsReset,
@@ -611,7 +609,7 @@ export function ChartToolbar({
           })}
         </div>
         <span className="chart-pane-active-label">{activePaneLabel}</span>
-        {multiChart && (
+        {replayTimeframeOptions.length > 1 && (
           <div className="chart-replay-timeframe-control">
             <span className="chart-replay-timeframe-label">Replay</span>
             <ThemedSelect
