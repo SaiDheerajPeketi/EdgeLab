@@ -173,7 +173,7 @@ ANGELONE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; EdgeLab/0.1; +https://github.com/SaiDheerajPeketi/EdgeLab)",
 }
 FOREX_FACTORY_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-FOREX_FACTORY_CACHE_TTL_SECONDS = 180
+FOREX_FACTORY_CACHE_TTL_SECONDS = 60
 FOREX_FACTORY_HEADERS = {
     "Accept": "application/json",
     "Referer": "https://www.forexfactory.com/calendar",

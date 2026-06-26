@@ -2829,17 +2829,31 @@ function EconomicCalendarPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [detailEvent, setDetailEvent] = useState<EconomicCalendarEvent | null>(null);
   const [graphEvent, setGraphEvent] = useState<EconomicCalendarEvent | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  async function loadCalendar(refresh = false) {
+    const nextCalendar = await getForexFactoryCalendar(refresh);
+    if (isMountedRef.current) {
+      setCalendar(nextCalendar);
+      setError(null);
+    }
+    return nextCalendar;
+  }
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    void getForexFactoryCalendar(false)
-      .then((nextCalendar) => {
+    void loadCalendar(false)
+      .then(() => {
         if (cancelled) {
           return;
         }
-        setCalendar(nextCalendar);
-        setError(null);
       })
       .catch((requestError) => {
         if (!cancelled) {
@@ -2855,6 +2869,69 @@ function EconomicCalendarPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!calendar) {
+      return;
+    }
+    const refreshAt = Date.parse(calendar.cache_expires_at);
+    if (!Number.isFinite(refreshAt)) {
+      return;
+    }
+    const delayMs = Math.max(5_000, refreshAt - Date.now());
+    const timer = window.setTimeout(() => {
+      void loadCalendar(false).catch((requestError) => {
+        setError(importErrorMessage(requestError));
+      });
+    }, delayMs);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [calendar?.cache_expires_at]);
+
+  useEffect(() => {
+    function refreshIfExpired() {
+      if (!calendar || !economicCalendarIsExpired(calendar)) {
+        return;
+      }
+      void loadCalendar(false).catch((requestError) => {
+        setError(importErrorMessage(requestError));
+      });
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshIfExpired();
+      }
+    }
+
+    window.addEventListener("focus", refreshIfExpired);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshIfExpired);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [calendar]);
+
+  useEffect(() => {
+    if (!detailEvent || !calendar) {
+      return;
+    }
+    const nextDetailEvent = findMatchingEconomicEvent(calendar.events, detailEvent);
+    if (nextDetailEvent && nextDetailEvent !== detailEvent) {
+      setDetailEvent(nextDetailEvent);
+    }
+  }, [calendar, detailEvent]);
+
+  useEffect(() => {
+    if (!graphEvent || !calendar) {
+      return;
+    }
+    const nextGraphEvent = findMatchingEconomicEvent(calendar.events, graphEvent);
+    if (nextGraphEvent && nextGraphEvent !== graphEvent) {
+      setGraphEvent(nextGraphEvent);
+    }
+  }, [calendar, graphEvent]);
 
   const events = calendar?.events ?? [];
   const currencyOptions = useMemo(() => buildEconomicCurrencyOptions(events), [events]);
@@ -2882,14 +2959,16 @@ function EconomicCalendarPage() {
   async function refreshCalendar() {
     setIsRefreshing(true);
     try {
-      const nextCalendar = await getForexFactoryCalendar(true);
-      setCalendar(nextCalendar);
-      setError(null);
+      await loadCalendar(true);
     } catch (requestError) {
-      setError(importErrorMessage(requestError));
+      if (isMountedRef.current) {
+        setError(importErrorMessage(requestError));
+      }
     } finally {
-      setIsRefreshing(false);
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsRefreshing(false);
+        setIsLoading(false);
+      }
     }
   }
 
@@ -3319,6 +3398,23 @@ function economicEventDetailRows(event: EconomicCalendarEvent) {
     { label: "Previous", value: event.previous || "—" },
     { label: "Surprise", value: surprise.label },
   ];
+}
+
+function economicCalendarIsExpired(calendar: EconomicCalendarResponse) {
+  const expiresAt = Date.parse(calendar.cache_expires_at);
+  return Number.isFinite(expiresAt) && Date.now() >= expiresAt;
+}
+
+function economicEventCacheKey(event: EconomicCalendarEvent) {
+  return [event.starts_at, event.currency, event.title].join("|");
+}
+
+function findMatchingEconomicEvent(
+  events: EconomicCalendarEvent[],
+  selected: EconomicCalendarEvent,
+) {
+  const key = economicEventCacheKey(selected);
+  return events.find((event) => economicEventCacheKey(event) === key) ?? null;
 }
 
 function economicEventDetailNarrative(event: EconomicCalendarEvent) {
