@@ -159,6 +159,68 @@ docker compose --profile benchmark run --rm \
 
 When you want session-scoped curves, trade-page, or market-data runs, use `latest_backtest_session_id` or one of `sample_backtest_session_ids` from seed output and pass it as `EDGELAB_SESSION_ID`. If you imported that session's dataset into DB-backed `market_candles`, the same bars benchmark measures the DB path without changing the URL.
 
+## Production E2E Capacity Sweep
+
+Use the production capacity sweep when you need the practical answer to: "how many concurrent users can this deployment handle before latency or errors degrade?"
+
+The sweep runs the authenticated workspace path through the browser-facing URL:
+
+- frontend root
+- `/api/bootstrap-shell`
+- `/api/bootstrap`
+- `/api/datasets`
+- `/api/backtests/summaries`
+- `/api/trades/page`
+- `/api/metrics/summary`
+- `/api/metrics/curves`
+- `/api/market-data/meta`
+- `/api/market-data/bars`
+
+Default thresholds are production-oriented but configurable:
+
+- HTTP error rate below 1%
+- global p95 below 750 ms
+- global p99 below 1500 ms
+- endpoint checks above 99%
+
+Seed benchmark users on the deployment VM and keep the output somewhere private:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py \
+  --users 25 \
+  --sessions-per-user 500 \
+  --trades-per-session 10 \
+  > /tmp/edgelab-benchmark-seed.json
+```
+
+Export a token, or preferably a comma-separated list of tokens, from that JSON:
+
+```bash
+export EDGELAB_AUTH_TOKENS="token-1,token-2,token-3"
+export EDGELAB_SESSION_IDS="1,2,3"
+```
+
+Run the sweep against production without starting local app dependencies:
+
+```bash
+npm run bench:e2e-capacity
+```
+
+Useful production overrides:
+
+```bash
+EDGELAB_CAPACITY_VUS_STEPS="5 10 25 50 75 100 150 200 300" \
+K6_DURATION=3m \
+EDGELAB_CAPACITY_P95_MS=750 \
+EDGELAB_CAPACITY_P99_MS=1500 \
+EDGELAB_CAPACITY_MAX_ERROR_RATE=0.01 \
+npm run bench:e2e-capacity
+```
+
+The last passing VU step is the current observed capacity under the configured workload and thresholds. The first failing VU step is the degradation point. Summary JSON files are written under `benchmark/results/`.
+
+By default the production sweep is read-only. To measure replay mutation cost, set `EDGELAB_INCLUDE_REPLAY_ADVANCE=1` and provide `EDGELAB_SESSION_IDS`. To measure session creation cost, set `EDGELAB_INCLUDE_SESSION_CREATE=1`; only do that against seeded benchmark users because it creates backtest rows.
+
 ## Existing Python Micro-Benchmarks
 
 The repo still keeps the fast local Python benchmarks for isolated before/after comparisons:
