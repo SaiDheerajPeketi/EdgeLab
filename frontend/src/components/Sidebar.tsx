@@ -14,7 +14,6 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
-import { useNavigate } from "react-router-dom";
 import { deleteAuthSession } from "../lib/api";
 import {
   clearStoredAuthSession,
@@ -114,6 +113,7 @@ const sections: Array<{
 ];
 
 const SIDEBAR_ICON_SIZE = 18;
+const LOGOUT_REDIRECT_TIMEOUT_MS = 800;
 
 function sidebarItemClass(compact: boolean, active: boolean) {
   return `group relative flex h-11 items-center rounded-md border transition focus-visible:ring-1 focus-visible:ring-cyan-300/35 ${
@@ -144,8 +144,22 @@ export function Sidebar({
 }: Props) {
   const [hoverExpanded, setHoverExpanded] = useState(false);
   const session = useAuthSession();
-  const navigate = useNavigate();
   const compact = collapsed && !hoverExpanded;
+
+  async function handleSignOut() {
+    if (!session?.token) {
+      window.location.replace("/");
+      return;
+    }
+
+    const token = session.token;
+    clearStoredAuthSession();
+    await Promise.race([
+      deleteAuthSession(token).catch(() => undefined),
+      new Promise((resolve) => window.setTimeout(resolve, LOGOUT_REDIRECT_TIMEOUT_MS)),
+    ]);
+    window.location.replace("/");
+  }
 
   return (
     <aside
@@ -301,12 +315,7 @@ export function Sidebar({
                 </div>
                 <button
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
-                  onClick={() => {
-                    const token = session.token;
-                    clearStoredAuthSession();
-                    void deleteAuthSession(token).catch(() => undefined);
-                    navigate("/", { replace: true });
-                  }}
+                  onClick={() => void handleSignOut()}
                   type="button"
                 >
                   <LogOut size={14} />
@@ -317,12 +326,7 @@ export function Sidebar({
               <button
                 aria-label="Sign out"
                 className="mt-3 flex w-full items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
-                onClick={() => {
-                  const token = session.token;
-                  clearStoredAuthSession();
-                  void deleteAuthSession(token).catch(() => undefined);
-                  navigate("/", { replace: true });
-                }}
+                onClick={() => void handleSignOut()}
                 type="button"
               >
                 <LogOut size={14} />
