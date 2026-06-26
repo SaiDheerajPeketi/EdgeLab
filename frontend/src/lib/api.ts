@@ -838,12 +838,20 @@ export function getDukascopyInstruments(search = "", limit = 160) {
   return request<DukascopyInstrumentsResponse>(`/live/dukascopy/instruments?${query.toString()}`);
 }
 
-export function getDukascopyCandles(instrument: string, interval: string, limit = 260) {
+export function getDukascopyCandles(
+  instrument: string,
+  interval: string,
+  limit = 260,
+  before?: number,
+) {
   const query = new URLSearchParams({
     instrument,
     interval,
     limit: String(limit),
   });
+  if (before != null && Number.isFinite(before)) {
+    query.set("before", String(Math.max(0, Math.floor(before))));
+  }
   return request<DukascopyCandlesResponse>(`/live/dukascopy/candles?${query.toString()}`);
 }
 

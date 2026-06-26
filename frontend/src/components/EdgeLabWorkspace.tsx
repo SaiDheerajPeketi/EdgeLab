@@ -1123,6 +1123,9 @@ const LIVE_MAX_WATCHLIST_SYMBOLS = 40;
 const LIVE_SOURCE_TIMEFRAME: ChartTimeframe = "1m";
 const LIVE_DRAWING_UNDO_LIMIT = 50;
 const LIVE_DRAWING_UNDO_COALESCE_MS = 350;
+const LIVE_HISTORY_TARGET_BARS = 5000;
+const LIVE_HISTORY_CACHE_BARS = 5000;
+const LIVE_PROVIDER_PAGE_BARS = 1000;
 const LIVE_CATALOG_LIMITS = {
   angelone: 4000,
   binance: 3000,
@@ -1389,14 +1392,14 @@ function LiveMarketsPage() {
     }
     const controller = new AbortController();
     const candleRequest = selectedLiveSymbol.feed === "binance"
-      ? fetchBinanceKlines(selectedLiveSymbol.symbol, "1m", controller.signal)
-      : fetchDukascopyCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
+      ? fetchBinanceHistoricalCandles(selectedLiveSymbol.symbol, "1m", controller.signal)
+      : fetchDukascopyHistoricalCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
     void candleRequest
       .then((nextBars) => {
         setLiveBars(nextBars);
         setCachedBarsBySymbol((current) => ({
           ...current,
-          [symbolKey]: nextBars.slice(-500),
+          [symbolKey]: nextBars.slice(-LIVE_HISTORY_CACHE_BARS),
         }));
         setFeedError(null);
         if (selectedLiveSymbol.feed === "dukascopy") {
@@ -1460,7 +1463,7 @@ function LiveMarketsPage() {
             const nextBars = upsertLiveCandle(current, candle);
             setCachedBarsBySymbol((cache) => ({
               ...cache,
-              [symbolKey]: nextBars.slice(-500),
+              [symbolKey]: nextBars.slice(-LIVE_HISTORY_CACHE_BARS),
             }));
             return nextBars;
           });
@@ -1543,7 +1546,7 @@ function LiveMarketsPage() {
             const nextBars = upsertLiveTickCandle(current, candle);
             setCachedBarsBySymbol((cache) => ({
               ...cache,
-              [symbolKey]: nextBars.slice(-500),
+              [symbolKey]: nextBars.slice(-LIVE_HISTORY_CACHE_BARS),
             }));
             return nextBars;
           });
@@ -1567,20 +1570,31 @@ function LiveMarketsPage() {
       activeController?.abort();
       const controller = new AbortController();
       activeController = controller;
-      void fetchDukascopyCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal, 1000)
+      void fetchDukascopyCandles(
+        selectedLiveSymbol.symbol,
+        "1MIN",
+        controller.signal,
+        LIVE_PROVIDER_PAGE_BARS,
+      )
         .then((nextBars) => {
           if (!isActive || controller.signal.aborted) {
             return;
           }
-          setLiveBars(nextBars);
-          setCachedBarsBySymbol((current) => ({
-            ...current,
-            [liveSymbolKey(selectedLiveSymbol)]: nextBars.slice(-500),
-          }));
-          const ticker = liveTickerFromCandles(selectedLiveSymbol, nextBars);
-          if (ticker) {
-            setTickers((current) => ({ ...current, [liveSymbolKey(selectedLiveSymbol)]: ticker }));
-          }
+          const symbolKey = liveSymbolKey(selectedLiveSymbol);
+          setLiveBars((current) => {
+            const mergedBars = mergeLiveCandles(current, nextBars);
+            setCachedBarsBySymbol((cache) => ({
+              ...cache,
+              [symbolKey]: mergedBars,
+            }));
+            const ticker = liveTickerFromCandles(selectedLiveSymbol, mergedBars);
+            if (ticker) {
+              setTickers((currentTickers) => ({ ...currentTickers, [symbolKey]: ticker }));
+            }
+            return mergedBars;
+          });
+          setConnectionStatus("live");
+          setFeedError(null);
         })
         .catch(() => {
           if (!isActive || controller.signal.aborted) {
@@ -1589,6 +1603,7 @@ function LiveMarketsPage() {
           setConnectionStatus("error");
         });
     };
+    poll();
     const interval = window.setInterval(poll, DUKASCOPY_POLL_INTERVAL_MS);
     return () => {
       isActive = false;
@@ -5184,6 +5199,8 @@ async function fetchBinanceKlines(
   symbol: string,
   interval: (typeof LIVE_TIMEFRAMES)[number]["binanceInterval"],
   signal: AbortSignal,
+  limit = LIVE_PROVIDER_PAGE_BARS,
+  endTimeMs?: number,
 ): Promise<Candle[]> {
   const normalized = normalizeLiveSymbolInput(symbol);
   if (!normalized) {
@@ -5191,9 +5208,12 @@ async function fetchBinanceKlines(
   }
   const query = new URLSearchParams({
     interval,
-    limit: "240",
+    limit: String(Math.max(1, Math.min(LIVE_PROVIDER_PAGE_BARS, Math.floor(limit)))),
     symbol: normalized,
   });
+  if (endTimeMs != null && Number.isFinite(endTimeMs)) {
+    query.set("endTime", String(Math.max(0, Math.floor(endTimeMs))));
+  }
   const response = await fetch(`${BINANCE_REST_BASE}/api/v3/klines?${query}`, { signal });
   if (!response.ok) {
     throw new Error(`Binance candle request failed (${response.status})`);
@@ -5206,6 +5226,43 @@ async function fetchBinanceKlines(
     .map(liveCandleFromRestKline)
     .filter((candle): candle is Candle => candle !== null)
     .sort((left, right) => left.time - right.time);
+}
+
+async function fetchBinanceHistoricalCandles(
+  symbol: string,
+  interval: (typeof LIVE_TIMEFRAMES)[number]["binanceInterval"],
+  signal: AbortSignal,
+  targetBars = LIVE_HISTORY_TARGET_BARS,
+): Promise<Candle[]> {
+  let beforeTimeMs: number | undefined;
+  let merged: Candle[] = [];
+  while (!signal.aborted && merged.length < targetBars) {
+    const remaining = targetBars - merged.length;
+    const page = await fetchBinanceKlines(
+      symbol,
+      interval,
+      signal,
+      Math.min(LIVE_PROVIDER_PAGE_BARS, remaining),
+      beforeTimeMs,
+    );
+    if (signal.aborted || page.length === 0) {
+      break;
+    }
+    merged = mergeLiveCandles(merged, page, targetBars);
+    const oldestTime = page[0]?.time;
+    if (!Number.isFinite(oldestTime)) {
+      break;
+    }
+    const nextBeforeTimeMs = oldestTime * 1000 - 1;
+    if (beforeTimeMs != null && nextBeforeTimeMs >= beforeTimeMs) {
+      break;
+    }
+    beforeTimeMs = nextBeforeTimeMs;
+    if (page.length < Math.min(LIVE_PROVIDER_PAGE_BARS, remaining)) {
+      break;
+    }
+  }
+  return merged;
 }
 
 async function fetchLiveMarketCatalog(): Promise<LiveMarketCatalog> {
@@ -5268,8 +5325,9 @@ async function fetchDukascopyCandles(
   interval: (typeof LIVE_TIMEFRAMES)[number]["dukascopyInterval"],
   signal: AbortSignal,
   limit = 260,
+  beforeTimeMs?: number,
 ): Promise<Candle[]> {
-  const response = await getDukascopyCandles(symbol, interval, limit);
+  const response = await getDukascopyCandles(symbol, interval, limit, beforeTimeMs);
   if (signal.aborted) {
     return [];
   }
@@ -5285,6 +5343,43 @@ async function fetchDukascopyCandles(
       ),
     )
     .sort((left, right) => left.time - right.time);
+}
+
+async function fetchDukascopyHistoricalCandles(
+  symbol: string,
+  interval: (typeof LIVE_TIMEFRAMES)[number]["dukascopyInterval"],
+  signal: AbortSignal,
+  targetBars = LIVE_HISTORY_TARGET_BARS,
+): Promise<Candle[]> {
+  let beforeTimeMs: number | undefined;
+  let merged: Candle[] = [];
+  while (!signal.aborted && merged.length < targetBars) {
+    const remaining = targetBars - merged.length;
+    const page = await fetchDukascopyCandles(
+      symbol,
+      interval,
+      signal,
+      Math.min(LIVE_PROVIDER_PAGE_BARS, remaining),
+      beforeTimeMs,
+    );
+    if (signal.aborted || page.length === 0) {
+      break;
+    }
+    merged = mergeLiveCandles(merged, page, targetBars);
+    const oldestTime = page[0]?.time;
+    if (!Number.isFinite(oldestTime)) {
+      break;
+    }
+    const nextBeforeTimeMs = oldestTime * 1000 - 1;
+    if (beforeTimeMs != null && nextBeforeTimeMs >= beforeTimeMs) {
+      break;
+    }
+    beforeTimeMs = nextBeforeTimeMs;
+    if (page.length < Math.min(LIVE_PROVIDER_PAGE_BARS, remaining)) {
+      break;
+    }
+  }
+  return merged;
 }
 
 function defaultBinanceInstruments(): BinanceInstrument[] {
@@ -5528,13 +5623,31 @@ function createLiveCandle(
   };
 }
 
-function upsertLiveCandle(candles: Candle[], candle: Candle) {
-  const existingIndex = candles.findIndex((item) => item.time === candle.time);
-  if (existingIndex >= 0) {
-    return candles.map((item, index) => index === existingIndex ? candle : item);
+function mergeLiveCandles(
+  existing: Candle[],
+  incoming: Candle[],
+  maxBars = LIVE_HISTORY_CACHE_BARS,
+) {
+  if (existing.length === 0) {
+    return incoming.slice(-maxBars);
   }
-  const next = [...candles, candle].sort((left, right) => left.time - right.time);
-  return next.slice(-500);
+  if (incoming.length === 0) {
+    return existing.slice(-maxBars);
+  }
+  const byTime = new Map<number, Candle>();
+  for (const candle of existing) {
+    byTime.set(candle.time, candle);
+  }
+  for (const candle of incoming) {
+    byTime.set(candle.time, candle);
+  }
+  return Array.from(byTime.values())
+    .sort((left, right) => left.time - right.time)
+    .slice(-maxBars);
+}
+
+function upsertLiveCandle(candles: Candle[], candle: Candle) {
+  return mergeLiveCandles(candles, [candle]);
 }
 
 function upsertLiveTickCandle(candles: Candle[], candle: Candle) {

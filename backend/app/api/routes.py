@@ -1527,18 +1527,20 @@ def dukascopy_candles(
     instrument: str = Query(min_length=1, max_length=80),
     interval: str = Query(default="1HOUR", max_length=12),
     limit: int = Query(default=260, ge=1, le=1000),
+    before: int | None = Query(default=None, ge=0),
 ) -> DukascopyCandlesResponse:
     normalized_interval = interval.upper()
     if normalized_interval not in DUKASCOPY_INTERVALS:
         raise HTTPException(status_code=400, detail="Unsupported Dukascopy interval")
 
+    last_update = before if before is not None else int(datetime.now(tz=timezone.utc).timestamp() * 1000)
     data = fetch_dukascopy_json(
         "chart/json3",
         {
             "splits": "true",
             "stocks": "true",
             "time_direction": "P",
-            "last_update": str(int(datetime.now(tz=timezone.utc).timestamp() * 1000)),
+            "last_update": str(last_update),
             "offer_side": "B",
             "instrument": instrument,
             "interval": normalized_interval,
