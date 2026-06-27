@@ -1,5 +1,7 @@
 .git
+.claude/
 .codex/
+.serena/
 .pytest_cache/
 .DS_Store
 

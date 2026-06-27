@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM postgres:16-alpine
 
 ENV EDGELAB_PGBOUNCER_LISTEN_PORT=6432 \
     EDGELAB_PGBOUNCER_POOL_MODE=transaction \
@@ -8,10 +8,11 @@ ENV EDGELAB_PGBOUNCER_LISTEN_PORT=6432 \
     EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS=600 \
     EDGELAB_PGBOUNCER_SERVER_CONNECT_TIMEOUT_SECONDS=15
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends pgbouncer postgresql-client ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --create-home --home-dir /var/lib/pgbouncer pgbouncer
+RUN set -eux; \
+    apk add --no-cache pgbouncer; \
+    if ! grep -q '^pgbouncer:' /etc/group; then addgroup -S pgbouncer; fi; \
+    if ! id -u pgbouncer >/dev/null 2>&1; then adduser -S -D -h /var/lib/pgbouncer -G pgbouncer pgbouncer; fi; \
+    install -d -o pgbouncer -g pgbouncer /var/lib/pgbouncer
 
 COPY docker/pgbouncer/entrypoint.sh /usr/local/bin/edgelab-pgbouncer-entrypoint.sh
 
