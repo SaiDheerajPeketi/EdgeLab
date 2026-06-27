@@ -253,6 +253,7 @@ import {
 } from "../lib/serverStorage";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
+import { buildDiagnosticsHarSnapshot, trackDiagnosticWebSocket } from "../lib/browserDiagnostics";
 import {
   copyTradeSnapshotToClipboard,
   createTradeSnapshotDataUrl,
@@ -1443,7 +1444,9 @@ function LiveMarketsPage() {
       ...streamSymbols.map((symbol) => `${symbol.toLowerCase()}@ticker`),
       selectedLiveSymbol?.feed === "binance" ? `${selectedLiveSymbol.symbol.toLowerCase()}@kline_1m` : "",
     ].filter(Boolean);
-    const socket = new WebSocket(`${BINANCE_WS_BASE}/stream?streams=${streams.join("/")}`);
+    const socketUrl = `${BINANCE_WS_BASE}/stream?streams=${streams.join("/")}`;
+    const socket = new WebSocket(socketUrl);
+    trackDiagnosticWebSocket(socket, socketUrl);
     let closedByEffect = false;
     setConnectionStatus("connecting");
     socket.onopen = () => {
@@ -1505,7 +1508,9 @@ function LiveMarketsPage() {
       return undefined;
     }
 
-    const socket = new WebSocket(getApiWebSocketUrl("/live/angelone/stream"));
+    const socketUrl = getApiWebSocketUrl("/live/angelone/stream");
+    const socket = new WebSocket(socketUrl);
+    trackDiagnosticWebSocket(socket, socketUrl);
     let closedByEffect = false;
     setConnectionStatus("connecting");
 
@@ -6282,11 +6287,48 @@ function stringRecordValue(record: Record<string, unknown>, ...keys: string[]) {
   return "";
 }
 
+type FeedbackScreenshotAttachment = {
+  data_url: string;
+  name: string;
+  size: number;
+  type: string;
+};
+
+const FEEDBACK_MAX_SCREENSHOTS = 3;
+const FEEDBACK_MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read screenshot file."));
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Could not read screenshot file."));
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024).toLocaleString()} KB`;
+  }
+  return `${bytes.toLocaleString()} B`;
+}
+
 function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null }) {
   const authSession = getStoredAuthSession();
   const [category, setCategory] = useState<FeedbackCategory>("FEATURE");
   const [message, setMessage] = useState("");
   const [includeSessionContext, setIncludeSessionContext] = useState(true);
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(true);
+  const [screenshots, setScreenshots] = useState<FeedbackScreenshotAttachment[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -6298,6 +6340,49 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
         .filter(Boolean)
         .join(" · ")
     : "No active backtest session";
+
+  async function handleScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) {
+      return;
+    }
+
+    setError(null);
+    const remainingSlots = FEEDBACK_MAX_SCREENSHOTS - screenshots.length;
+    if (remainingSlots <= 0) {
+      setError(`You can attach up to ${FEEDBACK_MAX_SCREENSHOTS} screenshots.`);
+      return;
+    }
+
+    const acceptedFiles = files.slice(0, remainingSlots);
+    const attachments: FeedbackScreenshotAttachment[] = [];
+    for (const file of acceptedFiles) {
+      if (!file.type.startsWith("image/")) {
+        setError("Only image screenshots can be attached.");
+        continue;
+      }
+      if (file.size > FEEDBACK_MAX_SCREENSHOT_BYTES) {
+        setError(`Each screenshot must be ${formatBytes(FEEDBACK_MAX_SCREENSHOT_BYTES)} or smaller.`);
+        continue;
+      }
+
+      attachments.push({
+        data_url: await readFileAsDataUrl(file),
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+    }
+
+    if (attachments.length > 0) {
+      setScreenshots((current) => [...current, ...attachments].slice(0, FEEDBACK_MAX_SCREENSHOTS));
+    }
+  }
+
+  function removeScreenshot(index: number) {
+    setScreenshots((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -6313,7 +6398,15 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
         context: {
           app: "edgelab",
           include_session_context: includeSessionContext,
+          diagnostics: includeDiagnostics
+            ? {
+                captured_at: new Date().toISOString(),
+                format: "har-1.2",
+                har: buildDiagnosticsHarSnapshot(),
+              }
+            : null,
           pathname: typeof window !== "undefined" ? window.location.pathname : "/app",
+          screenshots,
           session: includeSessionContext && activeSession
             ? {
                 id: activeSession.id,
@@ -6329,6 +6422,7 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
       });
       setLastSubmittedAt(submission.created_at);
       setMessage("");
+      setScreenshots([]);
       setStatus("Feedback sent. Thanks for helping sharpen EdgeLab.");
     } catch (submissionError) {
       setError(importErrorMessage(submissionError));
@@ -6391,6 +6485,20 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
                     <span className="mt-1 block text-xs text-slate-500">{activeSessionLabel}</span>
                   </span>
                 </label>
+                <label className="flex items-start gap-3 text-sm text-slate-300">
+                  <input
+                    checked={includeDiagnostics}
+                    className="mt-1 h-4 w-4 rounded border-white/15 bg-black/30 text-cyan-300 focus:ring-cyan-300/25"
+                    onChange={(event) => setIncludeDiagnostics(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>
+                    Attach HAR network logs
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Default on. Includes recent request URLs, status codes, timings, and WebSocket failures with secrets redacted.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
 
@@ -6403,6 +6511,56 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
                 value={message}
               />
             </label>
+
+            <div className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                    <Image size={15} />
+                    Screenshots
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Add up to {FEEDBACK_MAX_SCREENSHOTS} images, {formatBytes(FEEDBACK_MAX_SCREENSHOT_BYTES)} each.
+                  </p>
+                </div>
+                <label className="control-button h-9 cursor-pointer px-3">
+                  <FileUp size={14} />
+                  Add screenshots
+                  <input
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="sr-only"
+                    multiple
+                    onChange={(event) => void handleScreenshotChange(event)}
+                    type="file"
+                  />
+                </label>
+              </div>
+              {screenshots.length > 0 ? (
+                <div className="grid gap-2">
+                  {screenshots.map((screenshot, index) => (
+                    <div
+                      className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-950/70 px-3 py-2"
+                      key={`${screenshot.name}-${screenshot.size}-${index}`}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-100">{screenshot.name}</div>
+                        <div className="text-xs text-slate-500">
+                          {screenshot.type || "image"} · {formatBytes(screenshot.size)}
+                        </div>
+                      </div>
+                      <button
+                        className="icon-button h-8 w-8"
+                        onClick={() => removeScreenshot(index)}
+                        type="button"
+                        aria-label={`Remove ${screenshot.name}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-slate-500">

@@ -96,6 +96,7 @@ import {
 } from "./lib/serverStorage";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
+import { trackDiagnosticWebSocket } from "./lib/browserDiagnostics";
 import type { WorkspaceView } from "./lib/workspace";
 import { AppRoutes } from "./routes/AppRoutes";
 import { useBacktestStore } from "./store/backtestStore";
@@ -546,7 +547,9 @@ export function WorkspaceApp() {
       if (stopped) {
         return;
       }
-      socket = new WebSocket(getApiWebSocketUrl("/datasets/stream"));
+      const socketUrl = getApiWebSocketUrl("/datasets/stream");
+      socket = new WebSocket(socketUrl);
+      trackDiagnosticWebSocket(socket, socketUrl);
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data as string) as {
