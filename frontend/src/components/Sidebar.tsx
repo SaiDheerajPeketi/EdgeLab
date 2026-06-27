@@ -185,8 +185,8 @@ export function Sidebar({
             <EdgeLabMark className="h-8 w-8" />
           </div>
         ) : (
-          <div className="min-w-0 flex-1">
-            <EdgeLabWordmark showTagline size="sm" />
+          <div className="min-w-0 flex-1 px-1">
+            <EdgeLabWordmark markFrame="bare" showTagline size="sm" />
           </div>
         )}
       </div>

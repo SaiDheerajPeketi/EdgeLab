@@ -6,6 +6,7 @@ type EdgeLabMarkProps = {
 
 type EdgeLabWordmarkProps = {
   align?: "center" | "left";
+  markFrame?: "bare" | "panel";
   showTagline?: boolean;
   size?: "hero" | "md" | "sm";
 };
@@ -14,19 +15,19 @@ const WORDMARK_SIZE_STYLES = {
   hero: {
     gap: "gap-4 sm:gap-5",
     mark: "h-14 w-14 sm:h-16 sm:w-16",
-    text: "font-display text-[1.9rem] leading-none sm:text-[2.4rem]",
+    text: "text-[1.9rem] font-semibold leading-none sm:text-[2.4rem]",
     tagline: "mt-2 text-[11px] tracking-[0.18em] text-cyan-100/60",
   },
   md: {
     gap: "gap-3",
     mark: "h-11 w-11",
-    text: "font-display text-lg leading-none",
+    text: "text-lg font-semibold leading-none",
     tagline: "mt-1.5 text-[10px] tracking-[0.16em] text-cyan-100/55",
   },
   sm: {
     gap: "gap-2.5",
     mark: "h-9 w-9",
-    text: "font-display text-base leading-none",
+    text: "text-base font-semibold leading-none",
     tagline: "mt-1 whitespace-nowrap text-[9px] tracking-[0.12em] text-cyan-100/55",
   },
 } as const;
@@ -84,15 +85,20 @@ export function EdgeLabMark({ className = "" }: EdgeLabMarkProps) {
 
 export function EdgeLabWordmark({
   align = "left",
+  markFrame = "panel",
   showTagline = true,
   size = "md",
 }: EdgeLabWordmarkProps) {
   const styles = WORDMARK_SIZE_STYLES[size];
   const alignment = align === "center" ? "items-center text-center" : "items-start text-left";
+  const markContainerClassName =
+    markFrame === "panel"
+      ? "relative grid shrink-0 place-items-center rounded-[1.35rem] border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)]"
+      : "relative grid shrink-0 place-items-center";
 
   return (
     <div className={`flex items-center ${styles.gap} text-slate-50`}>
-      <div className="relative grid shrink-0 place-items-center rounded-[1.35rem] border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)]">
+      <div className={markContainerClassName}>
         <EdgeLabMark className={styles.mark} />
       </div>
       <div className={`flex min-w-0 flex-col ${alignment}`}>
