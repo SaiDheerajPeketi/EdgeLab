@@ -212,6 +212,31 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   );
 }
 
+function authRedirectTarget(location: { search: string; state: unknown }) {
+  const state = location.state;
+  const fromState =
+    typeof state === "object" &&
+    state &&
+    "fromPath" in state &&
+    typeof state.fromPath === "string"
+      ? state.fromPath
+      : null;
+  const fromQuery = new URLSearchParams(location.search).get("from");
+  const target = fromState ?? fromQuery;
+  return target?.startsWith("/") && !target.startsWith("/auth") ? target : "/app";
+}
+
+function AuthSignInRoute() {
+  const session = useAuthSession();
+  const location = useLocation();
+
+  if (session?.user.approved) {
+    return <Navigate replace to={authRedirectTarget(location)} />;
+  }
+
+  return <AuthSignInPage />;
+}
+
 export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
   return (
     <BrowserRouter>
@@ -223,7 +248,7 @@ export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
           <Route element={<PricingPage />} path="/pricing" />
           <Route element={<PrivacyPage />} path="/privacy" />
           <Route element={<TermsPage />} path="/terms" />
-          <Route element={<AuthSignInPage />} path="/auth/signin" />
+          <Route element={<AuthSignInRoute />} path="/auth/signin" />
           <Route element={<AuthCallbackPage />} path="/auth/callback/google" />
           <Route element={<ProtectedWorkspace WorkspaceApp={WorkspaceApp} />} path="/app" />
           <Route element={<ProtectedWorkspace WorkspaceApp={WorkspaceApp} />} path="/app/*" />

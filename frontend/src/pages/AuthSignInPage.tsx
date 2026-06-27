@@ -74,10 +74,12 @@ export function AuthSignInPage() {
     }
     setIsSubmitting(true);
     setErrorMessage(null);
-    window.location.href = buildGoogleAuthorizeUrl(
-      fromPath,
-      config.google_client_id,
-      config.google_redirect_uri,
+    window.location.replace(
+      buildGoogleAuthorizeUrl(
+        fromPath,
+        config.google_client_id,
+        config.google_redirect_uri,
+      ),
     );
   };
 
