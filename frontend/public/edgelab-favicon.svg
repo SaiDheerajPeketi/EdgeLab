@@ -1,14 +1,27 @@
 <svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="160" height="160" rx="36" fill="#060B12"/>
-  <path d="M42 30H123L105 50H56L47 65H97L80 84H47V98H86L69 117H29V61L42 30Z" fill="url(#paint0_linear_10_2)"/>
-  <path d="M88 118L133 63H146L100 118H88Z" fill="#22D3EE"/>
-  <path d="M97 118L116 96V118H97Z" fill="#0F6D81"/>
-  <path d="M121 118V82L134 68V118H121Z" fill="#115B6E"/>
-  <path d="M140 118V55L153 42V118H140Z" fill="#16758C"/>
+  <rect width="160" height="160" rx="34" fill="#060B12"/>
+  <path d="M47 27H121L105 47H60C53 47 49 51 48 58L45 70H100L84 89H40L37 102C35 111 40 117 49 117H88L72 136H39C20 136 10 122 15 103L27 52C31 36 37 27 47 27Z" fill="url(#e)"/>
+  <path d="M49 64H96L81 82H45L49 64Z" fill="#061018" fill-opacity="0.92"/>
+  <path d="M53 97H96L80 117H49L53 97Z" fill="#061018" fill-opacity="0.92"/>
+  <path d="M83 136L124 82L139 60L126 116H151L136 136H83Z" fill="url(#l)"/>
+  <path d="M92 136L102 112H119L113 136H92Z" fill="#BAE6FD" fill-opacity="0.95"/>
+  <path d="M120 136L132 88L143 74L136 136H120Z" fill="#7DD3FC" fill-opacity="0.88"/>
+  <path d="M82 106L100 99L115 82L130 67" stroke="url(#line)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="82" cy="106" r="6" fill="#E0F7FF"/>
+  <circle cx="100" cy="99" r="5.5" fill="#BFF4FF"/>
+  <circle cx="115" cy="82" r="5.5" fill="#8EEAFF"/>
   <defs>
-    <linearGradient id="paint0_linear_10_2" x1="24" y1="28" x2="126" y2="118" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#34E2FF"/>
-      <stop offset="1" stop-color="#12B9E3"/>
+    <linearGradient id="e" x1="30" y1="30" x2="116" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="l" x1="82" y1="118" x2="152" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="line" x1="82" y1="102" x2="130" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CFFAFE"/>
+      <stop offset="1" stop-color="#38BDF8"/>
     </linearGradient>
   </defs>
 </svg>
