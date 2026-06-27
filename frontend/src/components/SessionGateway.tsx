@@ -53,6 +53,7 @@ import {
 import { sameStrategyName, useBacktestStrategyNames } from "../lib/strategyNames";
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { sessionStrategyName } from "../lib/strategy";
+import { EdgePulseLoader } from "./EdgePulseLoader";
 import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedSelect } from "./ThemedSelect";
 
@@ -160,6 +161,7 @@ export function SessionGateway({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [resumingSessionId, setResumingSessionId] = useState<number | "latest" | null>(null);
   const [selectedStrategyName, setSelectedStrategyName] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<BacktestSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<BacktestSession | null>(null);
@@ -431,6 +433,19 @@ export function SessionGateway({
     }
   }
 
+  async function handleResumeSession(sessionId?: number) {
+    if (isLoading || resumingSessionId != null) {
+      return;
+    }
+    const loadingId = sessionId ?? "latest";
+    setResumingSessionId(loadingId);
+    try {
+      await onResumeSession(sessionId);
+    } finally {
+      setResumingSessionId(null);
+    }
+  }
+
   async function saveSessionDetails(
     sessionId: number,
     payload: BacktestSessionUpdatePayload,
@@ -481,11 +496,15 @@ export function SessionGateway({
           </div>
           <button
             className="control-button mt-5 w-full border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20"
-            disabled={!resumeSession}
-            onClick={() => onResumeSession(resumeSession?.id)}
+            disabled={!resumeSession || isLoading || resumingSessionId != null}
+            onClick={() => void handleResumeSession(resumeSession?.id)}
             type="button"
           >
-            <RotateCcw size={16} />
+            {resumingSessionId != null || isLoading ? (
+              <EdgePulseLoader label="Opening session" size="sm" />
+            ) : (
+              <RotateCcw size={16} />
+            )}
             Resume Session
           </button>
         </div>
@@ -570,7 +589,8 @@ export function SessionGateway({
                   >
                     <button
                       className="grid min-w-0 gap-3 rounded px-1 py-0.5 text-left sm:grid-cols-[minmax(0,1fr)_auto]"
-                      onClick={() => onResumeSession(row.session.id)}
+                      disabled={resumingSessionId != null || isLoading}
+                      onClick={() => void handleResumeSession(row.session.id)}
                       type="button"
                     >
                       <span className="min-w-0">
@@ -590,6 +610,9 @@ export function SessionGateway({
                             {row.aggregate.closedTrades} trades · {formatPercent(row.aggregate.winRate)}
                           </span>
                         </span>
+                        {resumingSessionId === row.session.id ? (
+                          <EdgePulseLoader label="Opening session" size="sm" />
+                        ) : null}
                         <ArrowRight size={15} className="text-slate-500" />
                       </span>
                     </button>
@@ -632,9 +655,10 @@ export function SessionGateway({
             activeSessionId={session?.id ?? null}
             datasets={datasets}
             group={selectedStrategyGroup}
+            loadingSessionId={resumingSessionId}
             onDeleteSession={setDeletingSession}
             onEditSession={setEditingSession}
-            onResumeSession={onResumeSession}
+            onResumeSession={handleResumeSession}
           />
         )}
       </section>
@@ -1007,7 +1031,11 @@ export function SessionGateway({
             disabled={!selectedTimeframe || isLoading || submitting || !strategy.trim()}
             type="submit"
           >
-            {submitting || isLoading ? <RefreshCw size={16} className="animate-spin" /> : <PlayCircle size={16} />}
+            {submitting || isLoading ? (
+              <EdgePulseLoader label="Creating session" size="sm" />
+            ) : (
+              <PlayCircle size={16} />
+            )}
             Create Session
           </button>
         </div>
@@ -1857,6 +1885,7 @@ function StrategyDetails({
   activeSessionId,
   datasets,
   group,
+  loadingSessionId,
   onDeleteSession,
   onEditSession,
   onResumeSession,
@@ -1864,6 +1893,7 @@ function StrategyDetails({
   activeSessionId: number | null;
   datasets: DatasetCatalog | null;
   group: GatewayStrategyGroup;
+  loadingSessionId: number | "latest" | null;
   onDeleteSession: (session: BacktestSession) => void;
   onEditSession: (session: BacktestSession) => void;
   onResumeSession: (sessionId?: number) => Promise<void> | void;
@@ -2017,9 +2047,13 @@ function StrategyDetails({
                     />
                     <button
                       className="control-button h-9"
-                      onClick={() => onResumeSession(row.session.id)}
+                      disabled={loadingSessionId != null}
+                      onClick={() => void onResumeSession(row.session.id)}
                       type="button"
                     >
+                      {loadingSessionId === row.session.id ? (
+                        <EdgePulseLoader label="Opening session" size="sm" />
+                      ) : null}
                       Open
                       <ArrowRight size={14} />
                     </button>

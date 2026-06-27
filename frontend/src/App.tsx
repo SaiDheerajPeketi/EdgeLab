@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
 import {
@@ -137,166 +137,34 @@ const TradingChart = lazy(() =>
   })),
 );
 
-function LoadingShell({
-  children,
-  className = "",
-  eyebrow = "Loading",
-  summary = "Preparing interface",
-}: {
-  children: ReactNode;
-  className?: string;
-  eyebrow?: string;
-  summary?: string;
-}) {
+function AppLoadingSpinner({ className = "", label = "Loading" }: { className?: string; label?: string }) {
   return (
     <div
-      aria-label={`${eyebrow}: ${summary}`}
-      className={`rounded-[22px] bg-[#050b11]/55 ${className}`}
+      aria-label={label}
+      className={`grid min-h-32 place-items-center ${className}`}
       role="status"
     >
-      <div className="flex items-center justify-end px-3 py-2">
-        <EdgePulseLoader label={summary} />
-      </div>
-      <div className="px-3 pb-3">{children}</div>
-    </div>
-  );
-}
-
-function LoadingBar({
-  className = "",
-  tone = "soft",
-}: {
-  className?: string;
-  tone?: "accent" | "soft";
-}) {
-  return (
-    <div
-      className={`relative overflow-hidden rounded-full ${
-        tone === "accent" ? "bg-cyan-300/[0.08]" : "bg-slate-800/50"
-      } ${className}`}
-    >
-      <div
-        className={`absolute inset-y-0 left-0 w-1/2 rounded-full ${
-          tone === "accent"
-            ? "bg-gradient-to-r from-cyan-300/0 via-cyan-200/60 to-cyan-100/0"
-            : "bg-gradient-to-r from-slate-700/0 via-slate-500/55 to-slate-700/0"
-        } motion-safe:animate-[edgelab-loader-rise_1s_ease-in-out_infinite] motion-reduce:animate-none`}
-      />
-    </div>
-  );
-}
-
-function LoadingPanelBlock({
-  bodyLines = 2,
-  className = "",
-  titleWidth = "w-28",
-}: {
-  bodyLines?: number;
-  className?: string;
-  titleWidth?: string;
-}) {
-  return (
-    <div className={`rounded-[18px] bg-[#08111a]/55 p-4 ${className}`}>
-      <LoadingBar className={`h-3 ${titleWidth}`} tone="accent" />
-      <div className="mt-4 grid gap-2">
-        {Array.from({ length: bodyLines }).map((_, index) => (
-          <LoadingBar
-            className={`h-2 ${index === bodyLines - 1 ? "w-2/3" : "w-full"}`}
-            key={index}
-          />
-        ))}
-      </div>
+      <EdgePulseLoader label={label} labelClassName="text-slate-400" showLabel size="lg" />
     </div>
   );
 }
 
 function WorkspaceLoadingPanel() {
-  return (
-    <LoadingShell
-      className="grid gap-3"
-      eyebrow="Workspace"
-      summary="Opening trading workspace"
-    >
-      <div className="grid gap-3">
-        <div className="rounded-[18px] bg-[#08111a]/55 p-3">
-          <div className="flex items-center gap-3">
-            <LoadingBar className="h-8 w-8 rounded-xl" tone="accent" />
-            <div className="min-w-0 flex-1">
-              <LoadingBar className="h-3 w-36" tone="accent" />
-              <LoadingBar className="mt-2 h-2 w-56 max-w-full" />
-            </div>
-            <LoadingBar className="h-8 w-24 rounded-full" />
-          </div>
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <LoadingPanelBlock bodyLines={7} className="min-h-[calc(100vh-10rem)]" titleWidth="w-32" />
-          <LoadingPanelBlock bodyLines={8} className="min-h-[calc(100vh-10rem)]" titleWidth="w-40" />
-        </div>
-      </div>
-    </LoadingShell>
-  );
+  return <AppLoadingSpinner className="min-h-screen bg-[#05070a]" label="Opening workspace" />;
 }
 
 function BacktestLoadingPanel() {
-  return (
-    <LoadingShell
-      className="mb-4"
-      eyebrow="Session"
-      summary="Loading replay state"
-    >
-      <div className="grid gap-3">
-        <LoadingBar className="h-3 w-28" tone="accent" />
-        <LoadingBar className="h-2 w-full max-w-lg" />
-        <LoadingBar className="h-2 w-4/5 max-w-md" />
-      </div>
-    </LoadingShell>
-  );
+  return <AppLoadingSpinner className="mb-4 rounded-md bg-[#050b11]/70 py-10" label="Loading session" />;
 }
 
 function LazyPanelFallback({ className = "" }: { className?: string }) {
-  return (
-    <LoadingShell
-      className={className}
-      eyebrow="Panel"
-      summary="Loading panel"
-    >
-      <div className="grid gap-3">
-        <LoadingBar className="h-3 w-32" tone="accent" />
-        <LoadingBar className="h-2 w-full max-w-md" />
-        <LoadingBar className="h-2 w-2/3 max-w-sm" />
-      </div>
-    </LoadingShell>
-  );
+  return <AppLoadingSpinner className={className} label="Loading panel" />;
 }
 
 function ChartChunkFallback() {
   return (
     <div className="chart-studio-layout chart-studio-layout-focus">
-      <LoadingShell
-        className="min-h-[520px]"
-        eyebrow="Chart"
-        summary="Loading chart"
-      >
-        <div className="grid h-full min-h-[440px] gap-4">
-          <div className="flex items-center gap-2">
-            <LoadingBar className="h-8 w-24 rounded-full" />
-            <LoadingBar className="h-8 w-20 rounded-full" />
-            <LoadingBar className="h-8 w-28 rounded-full" tone="accent" />
-          </div>
-          <div className="relative flex-1 overflow-hidden rounded-[20px] bg-[#071018]/70">
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px)] bg-[size:100%_56px,72px_100%]" />
-            <div className="absolute inset-x-6 top-8">
-              <LoadingBar className="h-3 w-36" tone="accent" />
-              <LoadingBar className="mt-3 h-2 w-52" />
-            </div>
-            <div className="absolute inset-x-6 bottom-8 grid gap-2">
-              <LoadingBar className="h-2 w-full" />
-              <LoadingBar className="h-2 w-5/6" />
-            </div>
-          </div>
-        </div>
-      </LoadingShell>
+      <AppLoadingSpinner className="min-h-[520px] rounded-md bg-[#050b11]/70" label="Loading chart" />
     </div>
   );
 }

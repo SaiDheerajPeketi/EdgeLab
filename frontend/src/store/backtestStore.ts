@@ -531,27 +531,19 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   loadSession: async (sessionId) => {
     set({ isLoading: true, isPlaying: false, error: null });
     try {
-      const [initialState, meta] = await Promise.all([
-        getBacktest(sessionId),
-        getMeta(sessionId),
-      ]);
-      const window = await loadWindow(
-        initialState.session.current_offset,
-        initialState.session.id,
-        initialState.session.start_offset,
-        initialState.session.end_offset,
-      );
+      const initialState = await getBacktest(sessionId);
+      const hydrationVersion = startReplayHydration();
       set((current) => ({
-        meta,
+        meta: null,
         state: initialState,
-        bars: window.bars,
-        barOffset: window.barOffset,
+        bars: [],
+        barOffset: initialState.session.start_offset,
         pendingReplaySyncOffset: null,
         resultSessions: upsertSession(current.resultSessions, initialState.session),
         strategySummaries: current.strategySummaries,
-        isLoading: false,
-        replaySeekVersion: current.replaySeekVersion + 1,
+        isLoading: true,
       }));
+      void hydrateReplaySession(initialState, hydrationVersion);
       if (get().resultTradesLoaded) {
         void get().refreshResults();
       } else {
@@ -566,24 +558,18 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     set({ isLoading: true, isPlaying: false, error: null });
     try {
       const initialState = await createBacktest(payload);
-      const meta = await getMeta(initialState.session.id);
-      const window = await loadWindow(
-        initialState.session.current_offset,
-        initialState.session.id,
-        initialState.session.start_offset,
-        initialState.session.end_offset,
-      );
+      const hydrationVersion = startReplayHydration();
       set((current) => ({
-        meta,
+        meta: null,
         state: initialState,
-        bars: window.bars,
-        barOffset: window.barOffset,
+        bars: [],
+        barOffset: initialState.session.start_offset,
         pendingReplaySyncOffset: null,
         resultSessions: upsertSession(current.resultSessions, initialState.session),
         strategySummaries: current.strategySummaries,
-        isLoading: false,
-        replaySeekVersion: current.replaySeekVersion + 1,
+        isLoading: true,
       }));
+      void hydrateReplaySession(initialState, hydrationVersion);
       if (get().resultTradesLoaded) {
         void get().refreshResults();
       } else {
@@ -1119,6 +1105,7 @@ type TradeSnapshot = {
 };
 
 let resultTradesLoadVersion = 0;
+let replayHydrationVersion = 0;
 
 function emptyTradeSnapshot(): TradeSnapshot {
   return {
@@ -1136,6 +1123,49 @@ function startResultTradesLoad() {
 
 function isCurrentResultTradesLoad(version: number) {
   return resultTradesLoadVersion === version;
+}
+
+function startReplayHydration() {
+  replayHydrationVersion += 1;
+  return replayHydrationVersion;
+}
+
+function isCurrentReplayHydration(version: number) {
+  return replayHydrationVersion === version;
+}
+
+async function hydrateReplaySession(state: BacktestState, version: number) {
+  const session = state.session;
+  const [metaResult, windowResult] = await Promise.allSettled([
+    getMeta(session.id),
+    loadWindow(
+      session.current_offset,
+      session.id,
+      session.start_offset,
+      session.end_offset,
+    ),
+  ]);
+  if (!isCurrentReplayHydration(version)) {
+    return;
+  }
+
+  if (windowResult.status === "rejected") {
+    useBacktestStore.setState({
+      error: toErrorMessage(windowResult.reason),
+      isLoading: false,
+      isPlaying: false,
+    });
+    return;
+  }
+
+  useBacktestStore.setState((current) => ({
+    meta: metaResult.status === "fulfilled" ? metaResult.value : current.meta,
+    bars: windowResult.value.bars,
+    barOffset: windowResult.value.barOffset,
+    error: metaResult.status === "rejected" ? toErrorMessage(metaResult.reason) : null,
+    isLoading: false,
+    replaySeekVersion: current.replaySeekVersion + 1,
+  }));
 }
 
 async function loadTradeSnapshot(targetCount = RESULT_TRADES_PAGE_LIMIT): Promise<TradeSnapshot> {

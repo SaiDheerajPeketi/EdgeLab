@@ -76,13 +76,13 @@ export function AuthCallbackPage() {
   return (
     <AuthTransitionScreen
       activeStep={1}
-      description="Validating Google access, restoring your session, and handing you back into the trading workspace."
+      description="This usually takes a moment."
       eyebrow="Secure callback"
       panelEyebrow="Auth path"
       panelTitle="Session restore in progress"
-      statusLabel="Google OAuth"
+      statusLabel="Signing in"
       steps={[...CALLBACK_STEPS]}
-      title="Restoring your EdgeLab session."
+      title="Signing in"
     />
   );
 }

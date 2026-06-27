@@ -41,11 +41,11 @@ function AppRouteFallback() {
     return (
       <AuthTransitionScreen
         activeStep={0}
-        description="Finishing the Google handoff and restoring your workspace."
+        description="This usually takes a moment."
         eyebrow="Secure callback"
         panelEyebrow="Auth path"
         panelTitle="Google return"
-        statusLabel="Google OAuth"
+        statusLabel="Signing in"
         steps={[
           {
             detail: "Open callback route.",
@@ -60,7 +60,7 @@ function AppRouteFallback() {
             label: "Open workspace",
           },
         ]}
-        title="Finishing sign-in."
+        title="Signing in"
       />
     );
   }
@@ -68,11 +68,11 @@ function AppRouteFallback() {
   return (
     <AuthTransitionScreen
       activeStep={1}
-      description="Opening the next EdgeLab surface and restoring session context."
+      description="This usually takes a moment."
       eyebrow="Routing"
       panelEyebrow="Route path"
       panelTitle="Surface transition"
-      statusLabel="Route transition"
+      statusLabel="Opening EdgeLab"
       steps={[
         {
           detail: "Resolve destination.",
@@ -87,7 +87,7 @@ function AppRouteFallback() {
           label: "Hand off state",
         },
       ]}
-      title="Opening EdgeLab."
+      title="Opening EdgeLab"
     />
   );
 }
