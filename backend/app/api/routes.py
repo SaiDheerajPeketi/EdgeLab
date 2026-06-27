@@ -1405,6 +1405,30 @@ def create_feedback(
     )
 
 
+@router.get("/feedback", response_model=list[FeedbackRead])
+def list_feedback(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[FeedbackRead]:
+    submissions = db.scalars(
+        select(FeedbackSubmission)
+        .where(FeedbackSubmission.user_id == current_user.id)
+        .order_by(FeedbackSubmission.created_at.desc(), FeedbackSubmission.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        FeedbackRead(
+            id=submission.id,
+            category=submission.category,
+            message=submission.message,
+            status=submission.status,
+            created_at=submission.created_at,
+        )
+        for submission in submissions
+    ]
+
+
 @router.get("/market-data/bars", response_model=BarsResponse)
 def market_data_bars(
     offset: int = Query(default=0, ge=0),

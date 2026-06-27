@@ -830,6 +830,11 @@ export function postFeedback(payload: FeedbackPayload) {
   });
 }
 
+export function getFeedbackSubmissions(limit = 50) {
+  const query = new URLSearchParams({ limit: String(limit) });
+  return request<FeedbackSubmission[]>(`/feedback?${query.toString()}`);
+}
+
 export function getMeta(sessionId?: number) {
   const query = sessionId ? `?session_id=${sessionId}` : "";
   return request<DatasetMeta>(`/market-data/meta${query}`);

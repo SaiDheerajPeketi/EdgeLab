@@ -245,3 +245,48 @@ def test_feedback_submission_is_stored_for_authenticated_user():
             select(FeedbackSubmission).where(FeedbackSubmission.user_id == intruder_id)
         ).all()
         assert intruder_rows == []
+
+
+def test_feedback_list_returns_only_authenticated_user_submissions():
+    session_factory = make_session_factory()
+
+    with session_factory() as db:
+        owner_id = seed_user(db, "owner@edgelab.local", "Owner")
+        intruder_id = seed_user(db, "intruder@edgelab.local", "Intruder")
+
+        owner = auth_user(owner_id, "owner@edgelab.local", "Owner")
+        intruder = auth_user(intruder_id, "intruder@edgelab.local", "Intruder")
+        owner_first = routes.create_feedback(
+            payload=FeedbackCreate(
+                category="BUG",
+                message="Replay pause should keep the chart viewport stable.",
+            ),
+            db=db,
+            current_user=owner,
+        )
+        owner_second = routes.create_feedback(
+            payload=FeedbackCreate(
+                category="UX",
+                message="The feedback page should show previous submissions.",
+            ),
+            db=db,
+            current_user=owner,
+        )
+        intruder_submission = routes.create_feedback(
+            payload=FeedbackCreate(
+                category="OTHER",
+                message="This other user feedback should stay private.",
+            ),
+            db=db,
+            current_user=intruder,
+        )
+
+        owner_submissions = routes.list_feedback(limit=50, db=db, current_user=owner)
+        assert {submission.id for submission in owner_submissions} == {
+            owner_first.id,
+            owner_second.id,
+        }
+        assert intruder_submission.id not in {submission.id for submission in owner_submissions}
+
+        intruder_submissions = routes.list_feedback(limit=50, db=db, current_user=intruder)
+        assert [submission.id for submission in intruder_submissions] == [intruder_submission.id]

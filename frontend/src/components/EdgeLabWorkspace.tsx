@@ -107,6 +107,7 @@ import {
   getBinanceInstruments,
   getDukascopyCandles,
   getDukascopyInstruments,
+  getFeedbackSubmissions,
   getForexFactoryCalendar,
   importAppDataBundle,
   importBacktestTrades,
@@ -127,6 +128,7 @@ import type {
   EconomicCalendarEvent,
   EconomicCalendarResponse,
   FeedbackCategory,
+  FeedbackSubmission,
   Playbook,
   PlaybookPayload,
   PlaybookUpdatePayload,
@@ -6322,6 +6324,10 @@ function formatBytes(bytes: number) {
   return `${bytes.toLocaleString()} B`;
 }
 
+function previewFeedbackMessage(message: string) {
+  return message.length > 180 ? `${message.slice(0, 177)}...` : message;
+}
+
 function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null }) {
   const authSession = getStoredAuthSession();
   const [category, setCategory] = useState<FeedbackCategory>("FEATURE");
@@ -6333,6 +6339,9 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastSubmittedAt, setLastSubmittedAt] = useState<string | null>(null);
+  const [submissions, setSubmissions] = useState<FeedbackSubmission[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(true);
+  const [submissionsError, setSubmissionsError] = useState<string | null>(null);
   const trimmedMessage = message.trim();
   const canSubmit = trimmedMessage.length >= 10 && !isSubmitting;
   const activeSessionLabel = activeSession
@@ -6340,6 +6349,22 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
         .filter(Boolean)
         .join(" · ")
     : "No active backtest session";
+
+  const loadSubmittedFeedback = useCallback(async () => {
+    setSubmissionsLoading(true);
+    setSubmissionsError(null);
+    try {
+      setSubmissions(await getFeedbackSubmissions());
+    } catch (loadError) {
+      setSubmissionsError(importErrorMessage(loadError));
+    } finally {
+      setSubmissionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSubmittedFeedback();
+  }, [loadSubmittedFeedback]);
 
   async function handleScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -6421,6 +6446,10 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
         message: trimmedMessage,
       });
       setLastSubmittedAt(submission.created_at);
+      setSubmissions((current) => [
+        submission,
+        ...current.filter((currentSubmission) => currentSubmission.id !== submission.id),
+      ].slice(0, 50));
       setMessage("");
       setScreenshots([]);
       setStatus("Feedback sent. Thanks for helping sharpen EdgeLab.");
@@ -6611,6 +6640,60 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
                 label="Last sent"
                 value={lastSubmittedAt ? formatDateTime(lastSubmittedAt) : "Not yet submitted"}
               />
+            </div>
+          </FeatureCard>
+
+          <FeatureCard>
+            <div className="flex items-center justify-between gap-3">
+              <CardLabel icon={ClipboardList} label="Recent submissions" />
+              <button
+                className="control-button h-8 px-2 text-xs"
+                disabled={submissionsLoading}
+                onClick={() => void loadSubmittedFeedback()}
+                type="button"
+              >
+                <RefreshCw
+                  className={submissionsLoading ? "animate-spin motion-reduce:animate-none" : ""}
+                  size={13}
+                />
+                Refresh
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {submissionsError ? (
+                <div className="rounded-md border border-rose-300/20 bg-rose-300/10 px-3 py-3 text-sm text-rose-100">
+                  {submissionsError}
+                </div>
+              ) : null}
+              {submissionsLoading && submissions.length === 0 ? (
+                <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-400">
+                  Loading submitted feedback...
+                </div>
+              ) : null}
+              {!submissionsLoading && submissions.length === 0 && !submissionsError ? (
+                <div className="rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm text-slate-400">
+                  No submitted feedback yet.
+                </div>
+              ) : null}
+              {submissions.map((submission) => (
+                <div
+                  className="rounded-md border border-white/10 bg-black/20 px-3 py-3"
+                  key={submission.id}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-100/70">
+                      {submission.category}
+                    </div>
+                    <span className="status-pill h-6 px-2 text-[10px]">{submission.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    {previewFeedbackMessage(submission.message)}
+                  </p>
+                  <div className="mt-2 text-xs text-slate-500">
+                    {formatDateTime(submission.created_at)}
+                  </div>
+                </div>
+              ))}
             </div>
           </FeatureCard>
         </div>
