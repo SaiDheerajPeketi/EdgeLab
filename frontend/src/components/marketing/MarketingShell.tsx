@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { Link } from "react-router-dom";
+import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
 import { deploymentMode, isBetaMode } from "../../lib/deploymentMode";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
@@ -63,43 +64,7 @@ function NavAnchor({
 }
 
 export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean }) {
-  return (
-    <div className="flex items-center gap-2 text-slate-50 sm:gap-3">
-      <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-300/15 bg-white/[0.03] shadow-[0_16px_32px_rgba(0,0,0,0.22)] sm:h-11 sm:w-11">
-        <svg aria-hidden="true" className="h-6 w-6" viewBox="0 0 64 64">
-          <defs>
-            <linearGradient id="edgelab-logo-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
-              <stop offset="0%" stopColor="#8bf5ff" />
-              <stop offset="100%" stopColor="#32d3ee" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M18 49h28l-6-13 9-16h-9l-6 11-5-11h-9l9 18-11 11h0Z"
-            fill="none"
-            stroke="url(#edgelab-logo-gradient)"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="4"
-          />
-          <path
-            d="M29 17h7l3 6"
-            fill="none"
-            stroke="#f6c26b"
-            strokeLinecap="round"
-            strokeWidth="3.4"
-          />
-        </svg>
-      </div>
-      <div>
-        <div className="text-base font-semibold tracking-[-0.05em] text-white sm:text-lg">EdgeLab</div>
-        {showTagline ? (
-          <div className="hidden max-w-[15rem] text-[10px] uppercase leading-[1.45] tracking-[0.28em] text-cyan-100/55 sm:block">
-            Your Edge Engineered
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+  return <EdgeLabBrandWordmark showTagline={showTagline} size="md" />;
 }
 
 function BetaBanner() {

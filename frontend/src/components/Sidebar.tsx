@@ -6,7 +6,6 @@ import {
   CalendarDays,
   Calculator,
   MessageSquareQuote,
-  Network,
   PlaySquare,
   LogOut,
   Settings,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 import { deleteAuthSession } from "../lib/api";
+import { EdgeLabMark, EdgeLabWordmark } from "./brand/EdgeLabBrand";
 import {
   clearStoredAuthSession,
   getStoredAuthSession,
@@ -180,15 +180,13 @@ export function Sidebar({
           compact ? "justify-center" : "justify-between"
         }`}
       >
-        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
-          <Network size={SIDEBAR_ICON_SIZE} />
-        </div>
-        {!compact && (
+        {compact ? (
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-cyan-300/30 bg-cyan-300/10 text-cyan-200 shadow-[0_18px_35px_rgba(0,0,0,0.24)]">
+            <EdgeLabMark className="h-8 w-8" />
+          </div>
+        ) : (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-black text-white">EdgeLab</div>
-            <div className="max-w-[10rem] text-[10px] uppercase leading-[1.45] tracking-[0.18em] text-cyan-100/55">
-              Your Edge Engineered
-            </div>
+            <EdgeLabWordmark showTagline size="sm" />
           </div>
         )}
       </div>
