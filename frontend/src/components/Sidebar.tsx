@@ -153,7 +153,7 @@ export function Sidebar({
     }
 
     const token = session.token;
-    clearStoredAuthSession();
+    clearStoredAuthSession({ notify: false });
     await Promise.race([
       deleteAuthSession(token).catch(() => undefined),
       new Promise((resolve) => window.setTimeout(resolve, LOGOUT_REDIRECT_TIMEOUT_MS)),

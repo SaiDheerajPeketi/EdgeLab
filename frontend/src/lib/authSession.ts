@@ -21,6 +21,10 @@ const listeners = new Set<() => void>();
 let cachedRawSession: string | null = null;
 let cachedSession: AuthSession | null = null;
 
+type AuthSessionUpdateOptions = {
+  notify?: boolean;
+};
+
 function isBrowser() {
   return typeof window !== "undefined";
 }
@@ -83,7 +87,10 @@ export function getStoredAuthSession(): AuthSession | null {
   return session;
 }
 
-export function setStoredAuthSession(session: AuthSession | null) {
+export function setStoredAuthSession(
+  session: AuthSession | null,
+  options: AuthSessionUpdateOptions = {},
+) {
   if (!isBrowser()) {
     return;
   }
@@ -96,11 +103,13 @@ export function setStoredAuthSession(session: AuthSession | null) {
     window.localStorage.setItem(AUTH_STORAGE_KEY, rawValue);
     setCachedSession(rawValue, session);
   }
-  notifyListeners();
+  if (options.notify !== false) {
+    notifyListeners();
+  }
 }
 
-export function clearStoredAuthSession() {
-  setStoredAuthSession(null);
+export function clearStoredAuthSession(options: AuthSessionUpdateOptions = {}) {
+  setStoredAuthSession(null, options);
 }
 
 export function toStoredAuthSession(session: BetaAuthSession): AuthSession {
