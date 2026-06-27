@@ -133,6 +133,7 @@ export function SessionGateway({
 }: Props) {
   const instruments = datasets?.instruments ?? [];
   const savedStrategyNames = useBacktestStrategyNames();
+  const resumeSession = session ?? sessions[0] ?? null;
   const [instrumentId, setInstrumentId] = useState("");
   const [instrumentSearch, setInstrumentSearch] = useState("");
   const [instrumentMenuOpen, setInstrumentMenuOpen] = useState(false);
@@ -466,22 +467,22 @@ export function SessionGateway({
                 Resume
               </div>
               <div className="mt-2 text-lg font-semibold text-white">
-                {session ? session.name : "No saved session yet"}
+                {resumeSession ? resumeSession.name : "No saved session yet"}
               </div>
               <div className="mt-1 text-sm text-slate-400">
-                {session
-                  ? `${formatMarketSymbol(session.symbol)} ${session.timeframe ?? ""} / ${session.strategy_name ?? "No strategy"}`
+                {resumeSession
+                  ? `${formatMarketSymbol(resumeSession.symbol)} ${resumeSession.timeframe ?? ""} / ${resumeSession.strategy_name ?? "No strategy"}`
                   : "Create a session to unlock replay."}
               </div>
             </div>
             <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-xs font-black text-ink-950">
-              {session ? symbolBadge(session.symbol) : "NEW"}
+              {resumeSession ? symbolBadge(resumeSession.symbol) : "NEW"}
             </div>
           </div>
           <button
             className="control-button mt-5 w-full border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20"
-            disabled={!session}
-            onClick={() => onResumeSession(session?.id)}
+            disabled={!resumeSession}
+            onClick={() => onResumeSession(resumeSession?.id)}
             type="button"
           >
             <RotateCcw size={16} />
