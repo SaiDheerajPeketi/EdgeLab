@@ -64,7 +64,7 @@ function NavAnchor({
 }
 
 export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean }) {
-  return <EdgeLabBrandWordmark markFrame="panel" showTagline={showTagline} size="md" />;
+  return <EdgeLabBrandWordmark markFrame="bare" showTagline={showTagline} size="md" />;
 }
 
 function BetaBanner() {
