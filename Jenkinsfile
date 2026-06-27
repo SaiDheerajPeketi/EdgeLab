@@ -88,7 +88,14 @@ pipeline {
                         export COMPOSE_DOCKER_CLI_BUILD=0
 
                         ${compose_cmd} down --remove-orphans
-                        ${compose_cmd} build --no-cache \
+                        df -h / /var/lib/docker || true
+                        docker system df || true
+                        docker container prune -f
+                        docker system prune -f
+                        docker builder prune -af || true
+                        docker system df || true
+
+                        ${compose_cmd} build \
                           pgbouncer-postgres \
                           pgbouncer-timescaledb \
                           api \
@@ -97,6 +104,7 @@ pipeline {
                           data-populator \
                           frontend
                         ${compose_cmd} up -d --remove-orphans
+                        docker image prune -f
                     '''
                 }
             }

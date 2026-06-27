@@ -48,6 +48,12 @@ docker compose down
 docker compose down --volumes
 ```
 
+The Jenkins deployment job runs Compose builds serially, prunes stopped containers,
+dangling images, and Docker build cache before rebuilds, and intentionally does
+not prune Docker volumes so PostgreSQL and TimescaleDB data survive deploys. If
+PostgreSQL still reports `No space left on device` after that cleanup, inspect
+host disk usage and the named database volumes before retrying.
+
 Bring up the benchmark profile when you want default stack plus MinIO, Loki, Tempo, Prometheus, Grafana, Postgres exporters, and bundled k6 runner on one VM:
 
 ```bash
