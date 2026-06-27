@@ -1296,20 +1296,29 @@ async function syncPendingReplayOffset() {
     return snapshot.state;
   }
   const state = await jumpBacktest(sessionId, { offset: pendingOffset });
-  const { bars, barOffset } = await loadWindow(
-    state.session.current_offset,
-    state.session.id,
-    state.session.start_offset,
-    state.session.end_offset,
-  );
-  useBacktestStore.setState((current) => ({
+  let bars = snapshot.bars;
+  let barOffset = snapshot.barOffset;
+  const offsetLoaded =
+    bars.length > 0 &&
+    state.session.current_offset >= barOffset &&
+    state.session.current_offset < barOffset + bars.length;
+  if (!offsetLoaded) {
+    const loadedWindow = await loadWindow(
+      state.session.current_offset,
+      state.session.id,
+      state.session.start_offset,
+      state.session.end_offset,
+    );
+    bars = loadedWindow.bars;
+    barOffset = loadedWindow.barOffset;
+  }
+  useBacktestStore.setState({
     state,
     bars,
     barOffset,
     pendingReplaySyncOffset: null,
-    replaySeekVersion: current.replaySeekVersion + 1,
     error: null,
-  }));
+  });
   return state;
 }
 
