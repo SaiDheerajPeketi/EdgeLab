@@ -5,7 +5,6 @@
   <path d="M97 118L116 96V118H97Z" fill="#0F6D81"/>
   <path d="M121 118V82L134 68V118H121Z" fill="#115B6E"/>
   <path d="M140 118V55L153 42V118H140Z" fill="#16758C"/>
-  <path d="M139 36L153 23V31L129 49H126L139 36Z" fill="#F6B637"/>
   <defs>
     <linearGradient id="paint0_linear_10_2" x1="24" y1="28" x2="126" y2="118" gradientUnits="userSpaceOnUse">
       <stop stop-color="#34E2FF"/>

@@ -14,20 +14,20 @@ const WORDMARK_SIZE_STYLES = {
   hero: {
     gap: "gap-4 sm:gap-5",
     mark: "h-14 w-14 sm:h-16 sm:w-16",
-    text: "text-[1.9rem] leading-none tracking-[-0.08em] sm:text-[2.4rem]",
-    tagline: "mt-2 text-[11px] tracking-[0.3em] text-cyan-100/60",
+    text: "text-[1.9rem] leading-none sm:text-[2.4rem]",
+    tagline: "mt-2 text-[11px] tracking-[0.18em] text-cyan-100/60",
   },
   md: {
     gap: "gap-3",
     mark: "h-11 w-11",
-    text: "text-lg leading-none tracking-[-0.06em]",
-    tagline: "mt-1.5 text-[10px] tracking-[0.26em] text-cyan-100/55",
+    text: "text-lg leading-none",
+    tagline: "mt-1.5 text-[10px] tracking-[0.16em] text-cyan-100/55",
   },
   sm: {
     gap: "gap-2.5",
-    mark: "h-10 w-10",
-    text: "text-base leading-none tracking-[-0.05em]",
-    tagline: "mt-1 text-[10px] tracking-[0.22em] text-cyan-100/55",
+    mark: "h-9 w-9",
+    text: "text-base leading-none",
+    tagline: "mt-1 whitespace-nowrap text-[9px] tracking-[0.12em] text-cyan-100/55",
   },
 } as const;
 
@@ -56,7 +56,6 @@ export function EdgeLabMark({ className = "" }: EdgeLabMarkProps) {
       <path d="M97 118L116 96V118H97Z" fill="#0f6d81" />
       <path d="M121 118V82L134 68V118H121Z" fill="#115b6e" />
       <path d="M140 118V55L153 42V118H140Z" fill="#16758c" />
-      <path d="M139 36L153 23V31L129 49H126L139 36Z" fill="#f6b637" />
     </svg>
   );
 }

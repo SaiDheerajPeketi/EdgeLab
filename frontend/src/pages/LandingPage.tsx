@@ -1,6 +1,6 @@
 import { ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { EdgeLabWordmark } from "../components/brand/EdgeLabBrand";
+import { EdgeLabMark } from "../components/brand/EdgeLabBrand";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
   FaqAccordion,
@@ -318,16 +318,10 @@ export function LandingPage() {
           <div className="grid min-w-0 gap-7 lg:gap-8 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
             <div className="max-w-4xl">
               <div
-                className="inline-flex rounded-[28px] border border-white/10 bg-[#061018]/90 px-4 py-4 shadow-panel backdrop-blur"
-                data-marketing-reveal="brand-lockup"
-              >
-                <EdgeLabWordmark size="hero" />
-              </div>
-
-              <div
-                className="mt-5 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-50"
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-50"
                 data-marketing-reveal="badge"
               >
+                <EdgeLabMark className="h-5 w-5" />
                 <ShieldCheck size={14} />
                 EdgeLab beta
               </div>
