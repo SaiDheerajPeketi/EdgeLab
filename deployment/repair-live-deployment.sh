@@ -8,8 +8,8 @@ set -euo pipefail
 
 JENKINS_PORT="${JENKINS_PORT:-9090}"
 FRONTEND_PORT="${FRONTEND_PORT:-8080}"
-EDGELAB_DOMAIN="${EDGELAB_DOMAIN:-edgelab.publicvm.com}"
-JENKINS_DOMAIN="${JENKINS_DOMAIN:-jenkins.edgelab.publicvm.com}"
+EDGELAB_DOMAIN="${EDGELAB_DOMAIN:-edgelab.co.in}"
+JENKINS_DOMAIN="${JENKINS_DOMAIN:-jenkins.edgelab.co.in}"
 ISSUE_CERTS="${ISSUE_CERTS:-0}"
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then

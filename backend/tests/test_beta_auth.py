@@ -119,7 +119,7 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
             beta_manual_access_enabled=False,
             google_client_id="client-id",
             google_client_secret="client-secret",
-            google_redirect_uri="https://edgelab.publicvm.com/auth/callback/google",
+            google_redirect_uri="https://edgelab.co.in/auth/callback/google",
         ),
     )
 
@@ -127,5 +127,5 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
 
     assert response.google_enabled is True
     assert response.google_client_id == "client-id"
-    assert response.google_redirect_uri == "https://edgelab.publicvm.com/auth/callback/google"
+    assert response.google_redirect_uri == "https://edgelab.co.in/auth/callback/google"
     assert response.manual_access_enabled is False

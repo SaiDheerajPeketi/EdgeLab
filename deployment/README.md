@@ -62,7 +62,7 @@ If Jenkins is already bound to `8080`, `docker compose up -d` cannot start the E
 sudo bash deployment/repair-live-deployment.sh
 ```
 
-The repair script moves Jenkins to `127.0.0.1:9090`, keeps EdgeLab on `127.0.0.1:8080`, writes Nginx reverse proxy sites for `edgelab.publicvm.com` and `jenkins.edgelab.publicvm.com`, opens HTTP/HTTPS firewall rules, and recreates the EdgeLab Compose services.
+The repair script moves Jenkins to `127.0.0.1:9090`, keeps EdgeLab on `127.0.0.1:8080`, writes Nginx reverse proxy sites for `edgelab.co.in` and `jenkins.edgelab.co.in`, opens HTTP/HTTPS firewall rules, and recreates the EdgeLab Compose services.
 
 To issue certificates after DNS points at the instance:
 

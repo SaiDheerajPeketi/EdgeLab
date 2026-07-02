@@ -239,13 +239,13 @@ export GOOGLE_CLIENT_SECRETS_FILE=/opt/edgelab/deployment/google-oauth-client.js
 Pin callback URI when Google OAuth must match deployed domain exactly:
 
 ```bash
-export GOOGLE_REDIRECT_URI=https://edgelab.publicvm.com/auth/callback/google
+export GOOGLE_REDIRECT_URI=https://edgelab.co.in/auth/callback/google
 ```
 
 Or set public origin and let backend derive callback URI:
 
 ```bash
-export EDGELAB_PUBLIC_ORIGIN=https://edgelab.publicvm.com
+export EDGELAB_PUBLIC_ORIGIN=https://edgelab.co.in
 ```
 
 For the legacy single-file replay path, set an explicit CSV:
