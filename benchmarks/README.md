@@ -1,50 +1,42 @@
-# Benchmarks
+# EdgeLab Python Benchmarks
 
-## Session Summary Microbenchmark
+## Overview
+The `benchmarks` directory contains isolated, fast local Python scripts used for micro-benchmarking specific code paths and architectures before and after code changes.
 
-Compare the legacy filesystem-filtered summary path against the indexed catalog query on a seeded temporary workload:
+## Responsibilities
+- **Read-Model Validation**: Compares query execution times between legacy filtered queries and the newer indexed query paths (e.g., session summaries).
+- **Payload Sizing**: Compares full bootstrap payloads against lightweight "shell" bootstrap endpoints for first-paint optimization.
+- **Service-Level Load Testing**: Runs concurrent HTTP requests directly against single-VM or split-service setups using `asyncio` and `aiohttp`.
 
+## Architecture / How it fits into the system
+Unlike the robust `benchmark/` harness (which uses k6 and Docker), these scripts are designed to run locally in the Python environment, completely bypassing the network stack for database queries when needed, or firing rapid synthetic HTTP traffic without the overhead of containerized runner deployment.
+
+## Directory Structure
+- These scripts technically reside in `backend/scripts/` but this documentation serves to group their conceptual usage.
+- `benchmark_session_summaries.py` - Seeds temporary SQLite and tests indexed queries.
+- `benchmark_bootstrap_profiles.py` - Compares `/api/bootstrap` vs `/api/bootstrap-shell`.
+- `load_test_services.py` - Exercises the live HTTP API under concurrency.
+
+## Configuration
+Arguments are passed directly to the Python scripts via the CLI.
+
+| CLI Argument | Purpose |
+| --- | --- |
+| `--sessions`, `--assets` | Controls the size of the seeded temporary dataset |
+| `--iterations` | How many times to execute the function being timed |
+| `--requests` | Number of HTTP requests for the load tester |
+| `--concurrency` | Number of concurrent async workers |
+| `--frontend-url`, `--api-url` | Override target URIs |
+
+## Dependencies
+- **Python 3 / backend virtualenv**: These scripts use `SQLAlchemy`, `httpx` (or `aiohttp`), and other backend dependencies.
+
+## Local Development
+Run the session summary microbenchmark without Docker:
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_session_summaries.py --sessions 20000 --iterations 25
 ```
-
-This script does not require Docker. It seeds a temporary SQLite database, injects stale sessions, and reports mean/p95 latency plus the speedup factor for the indexed query path.
-
-## Bootstrap Profile Benchmark
-
-Compare the full bootstrap payload against the new shell bootstrap profile that powers the first paint:
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py --assets 200 --sessions 200 --trades 200 --iterations 20
-```
-
-This script reports mean/p95 latency and payload sizes for `bootstrap` versus `bootstrap-shell`.
-It also reports warm-cache timings for the same endpoints after the in-process read-model cache is populated.
-
-## Single-VM and Split-Service Load Test
-
-Exercise the frontend, `/api/health`, `/api/ready`, and optionally authenticated `/api/bootstrap` and `/api/backtests/summaries` endpoints against either:
-
-- the current single-VM reverse proxy: `http://127.0.0.1:8080`
-- a future split deployment with separate frontend/API load balancers
-
-Run it with defaults for the current single-VM Compose stack:
-
+Run a quick HTTP load test:
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py --requests 200 --concurrency 20
 ```
-
-Include a beta session JWT to cover authenticated latency:
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py \
-  --frontend-url http://127.0.0.1:8080 \
-  --api-url http://127.0.0.1:8080/api \
-  --auth-token "$EDGELAB_BETA_JWT" \
-  --requests 500 \
-  --concurrency 50
-```
-
-With an auth token the load test also hits `/api/bootstrap-shell` and `/api/bootstrap`, so you can compare the lighter first-paint profile against the full payload on the same deployment.
-
-Point it at future multi-service endpoints by overriding `--frontend-url` and `--api-url`.

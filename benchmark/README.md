@@ -1,233 +1,49 @@
-# Benchmark
+# EdgeLab Benchmark Harness
 
-This directory holds the repeatable load and latency harness for the current EdgeLab stack.
+## Overview
+The `benchmark` directory contains a repeatable load and latency testing harness powered by k6. It validates the performance of the full EdgeLab stack (including PostgreSQL, Redis, and FastAPI) under authenticated, synthetic user workloads.
 
-The goal is incremental measurement:
+## Responsibilities
+- **Load Testing**: Executes k6 scripts against various read and write endpoints to ensure the application meets latency (e.g., p95 < 750ms) and throughput requirements.
+- **Capacity Planning**: Provides an End-to-End (E2E) capacity sweep to find the degradation point of a live deployment.
+- **Observability Integration**: Deploys an extensive observability stack (via Docker Compose profile) to collect detailed traces, logs, and query fingerprints during runs.
 
-- keep the existing single-VM Docker Compose flow working
-- stand up the future infra primitives with the `benchmark` profile
-- seed realistic authenticated workloads
-- run the same HTTP benchmarks after each architecture step
+## Architecture / How it fits into the system
+- A dedicated `docker-compose.yml` profile (`benchmark`) provisions MinIO, Loki, Tempo, Prometheus, Grafana, db-exporters, and the `benchmark-k6` runner itself.
+- Tests target the Nginx frontend proxy or directly the FastAPI backend.
+- A Python seeding script initializes a temporary dataset with authenticated users, sessions, and trades to provide a realistic testing surface.
 
-## Services
+## Directory Structure
+- `k6/` - Individual k6 Javascript test scenarios (e.g., `bootstrap.js`, `trades-page.js`).
+- `run-capacity-sweep.sh` - Shell script to execute incremental VU (Virtual User) steps against production URLs.
+- `README.md` - Execution instructions.
 
-The root `docker-compose.yml` now exposes an optional `benchmark` profile with:
+## Configuration
+> ⚠️ Note: Environment variables control test parameters.
 
-- `timescaledb`
-- `redis`
-- `minio`
-- `loki`
-- `tempo`
-- `prometheus`
-- `grafana`
-- `postgres-exporter`
-- `timescaledb-exporter`
-- `benchmark-k6`
+| Environment Variable | Purpose | Default |
+| --- | --- | --- |
+| `EDGELAB_API_BASE_URL` | Target base URL for the API | `http://frontend/api` |
+| `EDGELAB_AUTH_TOKEN` | A valid seeded JWT token | `""` |
+| `EDGELAB_SESSION_ID` | A valid seeded session ID for scoped tests | `""` |
+| `EDGELAB_CAPACITY_VUS_STEPS` | Space separated string of VU steps for capacity sweep | `5 10 25 50 75 100 150 200 300` |
+| `K6_DURATION` | Duration per step | `3m` |
 
-Those services do not replace current request path. They exist so benchmark, migration, and observability work can start before final production topology rollout.
+## Dependencies
+- **k6**: Load testing engine.
+- **Python (Seed Script)**: Requires the main backend dependencies to seed the database directly via SQLAlchemy.
+- **Docker Compose**: Required to spin up the observability harness.
 
-## Seed Benchmark Data
-
-Seed approved users, dataset catalog rows, replay sessions, trades, and beta session JWTs into the configured database:
-
+## Local Development
+Seed benchmark data and extract a token:
 ```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py --reset > /tmp/edgelab-benchmark-seed.json
+PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py --reset
 ```
 
-The command prints auth tokens for the seeded users. Use one of those tokens for authenticated load tests.
-
-Required env:
-
-- `DATABASE_URL`
-- `EDGELAB_JWT_SECRET`
-
-Optional sizing flags:
-
-- `--users`
-- `--assets`
-- `--timeframes`
-- `--sessions-per-user`
-- `--trades-per-session`
-
-## Run The Benchmark Profile
-
-Bring up the current app stack plus benchmark infra:
-
-```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio loki tempo prometheus grafana postgres-exporter timescaledb-exporter
-```
-
-When you want full trace export into bundled Tempo, set:
-
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces
-```
-
-Prometheus scrapes both FastAPI metrics endpoints and both database exporters. PostgreSQL and TimescaleDB both preload `pg_stat_statements`, so Grafana/Prometheus can surface slow statement fingerprints during the same load test run. Loki ingests structured JSON logs from Docker via Promtail, and Tempo receives OTLP HTTP traces from the instrumented services.
-
-Run a k6 benchmark from the bundled `benchmark-k6` service:
-
+Run a specific k6 test against the local benchmark stack:
 ```bash
 docker compose --profile benchmark run --rm \
   -e EDGELAB_API_BASE_URL=http://frontend/api \
   -e EDGELAB_AUTH_TOKEN=your-seeded-token \
   benchmark-k6 run /benchmark/k6/bootstrap.js
 ```
-
-Bootstrap shell benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/bootstrap-shell.js
-```
-
-Session summary pagination benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/backtests-summaries.js
-```
-
-Session summary cursor traversal benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/backtests-summaries-cursor.js
-```
-
-Trade page benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/trades-page.js
-```
-
-Trade page cursor traversal benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/trades-page-cursor.js
-```
-
-Metrics summary benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/metrics-summary.js
-```
-
-Metrics curves benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  benchmark-k6 run /benchmark/k6/metrics-curves.js
-```
-
-Market-data meta benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  -e EDGELAB_SESSION_ID=your-session-id \
-  benchmark-k6 run /benchmark/k6/market-data-meta.js
-```
-
-Market-data bars benchmark:
-
-```bash
-docker compose --profile benchmark run --rm \
-  -e EDGELAB_API_BASE_URL=http://frontend/api \
-  -e EDGELAB_AUTH_TOKEN=your-seeded-token \
-  -e EDGELAB_SESSION_ID=your-session-id \
-  benchmark-k6 run /benchmark/k6/market-data-bars.js
-```
-
-When you want session-scoped curves, trade-page, or market-data runs, use `latest_backtest_session_id` or one of `sample_backtest_session_ids` from seed output and pass it as `EDGELAB_SESSION_ID`. If you imported that session's dataset into DB-backed `market_candles`, the same bars benchmark measures the DB path without changing the URL.
-
-## Production E2E Capacity Sweep
-
-Use the production capacity sweep when you need the practical answer to: "how many concurrent users can this deployment handle before latency or errors degrade?"
-
-The sweep runs the authenticated workspace path through the browser-facing URL:
-
-- frontend root
-- `/api/bootstrap-shell`
-- `/api/bootstrap`
-- `/api/datasets`
-- `/api/backtests/summaries`
-- `/api/trades/page`
-- `/api/metrics/summary`
-- `/api/metrics/curves`
-- `/api/market-data/meta`
-- `/api/market-data/bars`
-
-Default thresholds are production-oriented but configurable:
-
-- HTTP error rate below 1%
-- global p95 below 750 ms
-- global p99 below 1500 ms
-- endpoint checks above 99%
-
-Seed benchmark users on the deployment VM and keep the output somewhere private:
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py \
-  --users 25 \
-  --sessions-per-user 500 \
-  --trades-per-session 10 \
-  > /tmp/edgelab-benchmark-seed.json
-```
-
-Export a token, or preferably a comma-separated list of tokens, from that JSON:
-
-```bash
-export EDGELAB_AUTH_TOKENS="token-1,token-2,token-3"
-export EDGELAB_SESSION_IDS="1,2,3"
-```
-
-Run the sweep against production without starting local app dependencies:
-
-```bash
-npm run bench:e2e-capacity
-```
-
-Useful production overrides:
-
-```bash
-EDGELAB_CAPACITY_VUS_STEPS="5 10 25 50 75 100 150 200 300" \
-K6_DURATION=3m \
-EDGELAB_CAPACITY_P95_MS=750 \
-EDGELAB_CAPACITY_P99_MS=1500 \
-EDGELAB_CAPACITY_MAX_ERROR_RATE=0.01 \
-npm run bench:e2e-capacity
-```
-
-The last passing VU step is the current observed capacity under the configured workload and thresholds. The first failing VU step is the degradation point. Summary JSON files are written under `benchmark/results/`.
-
-By default the production sweep is read-only. To measure replay mutation cost, set `EDGELAB_INCLUDE_REPLAY_ADVANCE=1` and provide `EDGELAB_SESSION_IDS`. To measure session creation cost, set `EDGELAB_INCLUDE_SESSION_CREATE=1`; only do that against seeded benchmark users because it creates backtest rows.
-
-## Existing Python Micro-Benchmarks
-
-The repo still keeps the fast local Python benchmarks for isolated before/after comparisons:
-
-- `backend/scripts/benchmark_session_summaries.py`
-- `backend/scripts/benchmark_bootstrap_profiles.py`
-- `backend/scripts/benchmark_market_data_storage.py`
-- `backend/scripts/load_test_services.py`
-
-Use those for quick iteration and the k6 harness for repeatable HTTP-level measurements through the deployed stack.

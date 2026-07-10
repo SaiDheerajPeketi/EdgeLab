@@ -1,165 +1,60 @@
 # EdgeLab
 
-Find your edge.
+> *Find your edge.*
 
 EdgeLab is a local trading research workspace built with FastAPI, Pandas, PostgreSQL, React, Tailwind, Zustand, Lucide icons, and Lightweight Charts.
 
-The current pass focuses on manual bar replay: long/short orders, market/limit/stop entries, TP/SL brackets, risk-percent sizing, breakeven stops, partial exits, session metrics, strategy breakdowns, a calendar heatmap, and a trade review drawer.
+The platform focuses on manual bar replay, providing tools for long/short orders, market/limit/stop entries, TP/SL brackets, risk-percent sizing, breakeven stops, partial exits, session metrics, strategy breakdowns, a calendar heatmap, and a trade review drawer.
 
-## Run With Docker Compose
+## Documentation Overview
 
-Docker Compose is the fastest end-to-end deployment path. It builds the React app, runs split `api` and `market-api` FastAPI services behind Nginx, runs the scheduled data populator, serves the static frontend through Nginx, and persists the backend PostgreSQL database in a named Docker volume.
+The documentation for EdgeLab has been modularized. Please refer to the specific guides below:
+
+### High-Level Concepts & Architecture
+- [**System Architecture**](docs/architecture.md) - Learn how the frontend, FastAPI services, PostgreSQL, TimescaleDB, and background workers communicate.
+- [**Glossary**](docs/glossary.md) - A cheat-sheet mapping trading domain concepts (Playbooks, Timeframes, Replay Candles) to EdgeLab's business logic.
+
+### Setup & Operations
+- [**Setup and Deployment**](docs/setup-and-deployment.md) - Instructions for running EdgeLab locally via Node/Python, via Docker Compose, and deploying to Jenkins.
+- [**Configuration Reference**](docs/configuration.md) - Exhaustive list of `.env` configurations (OAuth, database URLs, Beta access logic, Populator tuning).
+- [**Deployment Scripts**](deployment/README.md) - Details on capturing remote instance state and injecting secrets securely.
+
+### Development References
+- [**API Reference**](docs/api-reference.md) - REST API routes for authentication, datasets, market data, and backtesting.
+- [**Backend Service**](backend/README.md) - Details on the FastAPI and Node APIs, database schema, and migration workflows.
+- [**Frontend SPA**](frontend/README.md) - Overview of the React/Vite client, Zustand stores, and UI component stack.
+- [**Docker & Infrastructure**](docker/README.md) - Overview of the Nginx proxy, PgBouncer pooling, and observability containers.
+- [**Scripts & Tooling**](scripts/README.md) - Local development orchestrators and dependency auditing.
+
+### Performance & Testing
+- [**Benchmarks**](benchmark/README.md) - The k6 load testing harness and e2e capacity sweep documentation.
+- [**Python Micro-Benchmarks**](benchmarks/README.md) - Local Python load testing and query read-model validation tools.
+
+---
+
+## Quick Start (Docker Compose)
+
+Docker Compose is the fastest end-to-end deployment path. It stands up the React frontend, Nginx, FastAPI services, PostgreSQL, TimescaleDB, and Redis.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
+> The application will be available at [http://localhost:8080](http://localhost:8080).
 
-Use `docker-compose` in place of `docker compose` on hosts that provide only the standalone Compose binary.
+## Verification
 
-Open `http://localhost:8080` by default. The root route now serves the EdgeLab marketing landing page, `/pricing` serves the pricing surface, `/auth/signin` handles Google-only beta sign-in and waitlist entry, `/auth/callback/google` resolves the Google OAuth callback, and the research workspace lives behind protected routing at `/app`. Change `FRONTEND_PORT`, `CORS_ORIGINS`, and the PostgreSQL settings in `.env` when another port or hostname is required. The frontend is compiled with `VITE_API_BASE_URL=/api` for the Nginx proxy, and the FastAPI transactional DB path now defaults to bundled PostgreSQL through `pgbouncer-postgres` using `POSTGRES_*`, `EDGELAB_POSTGRES_HOST`, and `EDGELAB_POSTGRES_CONNECT_PORT`. Set `DATABASE_URL` only when you need a full explicit override such as an external Postgres instance or a deliberate SQLite fallback. Nginx gzip-compresses text responses, gives Vite hashed assets a one-year browser cache, keeps `index.html` revalidated for deploy freshness, and returns 404 for missing `/assets/*` chunks instead of serving the SPA fallback. Nginx and FastAPI both cap request bodies at 25 MB by default, and app-data import/export is capped at 100,000 total rows.
-
-Set `EDGELAB_API_TOKEN` to require a bearer token on non-user API routes. Set `EDGELAB_JWT_SECRET` as well, because beta sign-in and the protected workspace now use signed session JWTs for per-user row isolation. For the bundled frontend, set `VITE_API_BEARER_TOKEN` only when you also want the client to send the deploy token to non-user API routes.
-
-Beta auth and waitlist use `EDGELAB_BETA_SEATS_TOTAL` on backend to decide who gets immediate access and who is queued. Manual beta access is disabled by default with `EDGELAB_BETA_MANUAL_ACCESS_ENABLED=0`, so cohort enrollment runs through Google OAuth only. In Docker/Jenkins, prefer `GOOGLE_CLIENT_SECRETS_FILE=/opt/edgelab/deployment/google-oauth-client.json`; API loads client ID and secret from that runtime-mounted JSON and exposes public client ID plus callback URI through `/api/auth/config` so frontend does not need build-time OAuth vars. If Google returns `redirect_uri_mismatch`, set `GOOGLE_REDIRECT_URI=https://edgelab.publicvm.com/auth/callback/google` in host `.env` and add exact same URI to Google Cloud Console authorized redirect URIs. Keep frontend fallback display vars `VITE_DEPLOYMENT_MODE`, `VITE_BETA_SEATS_TOTAL`, and `VITE_BETA_SEATS_TAKEN` aligned for Docker builds; live seat and waitlist counts are fetched from FastAPI beta auth APIs at runtime. First sign-in also provisions the default playbooks for that specific user only; playbooks, sessions, orders, trades, notes, dataset preferences, and app storage are all row-scoped by `user_id`.
-
-Frontend image dependency installs use `NPM_CONFIG_REGISTRY`, which defaults to `https://registry.npmjs.org/` so Docker builds do not depend on workstation-specific npm mirrors.
-
-The Compose setup stores dataset CSVs in `./datasets` unless `EDGELAB_DATASETS_ROOT` is changed in `.env`. The repository tracks `datasets/.gitkeep` so the default host bind directory exists, while generated CSVs and the local manifest stay ignored by Git. PostgreSQL data persists in the `postgres-data` named volume and keeps direct admin access on `127.0.0.1:${EDGELAB_POSTGRES_PORT:-5432}`, while `pgbouncer-postgres` exposes pooled app traffic on `127.0.0.1:${EDGELAB_PGBOUNCER_POSTGRES_PORT:-6432}` and is now default transactional DB front door for `api`, `market-api`, `analytics-worker`, and `data-populator`. TimescaleDB data persists separately in `timescaledb-data`, keeps direct admin access on `127.0.0.1:${EDGELAB_TIMESCALE_PORT:-5433}`, and is fronted by `pgbouncer-timescaledb` at `127.0.0.1:${EDGELAB_PGBOUNCER_TIMESCALE_PORT:-6433}` for default replay-candle reads and writes. The API mounts the dataset folder read-only at `/datasets`; the `data-populator` service mounts the same folder read-write, updates M1 CSVs for configured forex and crypto majors, derives higher-timeframe CSVs from those M1 candles, and now also writes imported `market_candles` into pooled dedicated market-data DB without waiting for an API-side refresh. The API also mounts `./deployment` read-only at `/opt/edgelab/deployment` so Jenkins-hosted secrets such as `google-oauth-client.json` survive rebuilds without entering the image. The populator defaults to `EDGELAB_DATA_POPULATOR_USER=0:0` so it can create directories in Linux host bind mounts; set that to a specific `UID:GID` when the host dataset folder is owned by another deploy user. `/api/health` validates the API process and database, while `/api/ready` reports the scanned dataset root and discovered asset/timeframe counts. `EDGELAB_CSV_PATH` remains available only for the legacy single-file replay path outside the default Compose deployment.
-
-Dataset refresh now defaults `EDGELAB_MARKET_DATA_IMPORT_ENABLED=1`, so explicit catalog refreshes import changed timeframe CSVs into DB-backed `market_candles` automatically. Leave it enabled for the new default stack; set it to `0` only when you need metadata-only catalog scans during migration debugging.
-Dataset catalog refreshes now also trust `.edgelab-data-populator-manifest.json` first when it exists, so writer-produced rows/timestamps/file signatures can refresh catalog state without reopening each CSV for metadata reads.
-The bundled single-VM and split-service container defaults now also set `EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED=0`, so normal dataset list/bootstrap/runtime reads stay on stored DB catalog metadata instead of rescanning the filesystem on request paths. Use explicit dataset refresh when you need to ingest manually dropped CSV folders immediately.
-
-API startup now runs `alembic upgrade head` before launching Gunicorn with Uvicorn workers, so default single-VM Docker/Jenkins path and later multi-service deployment path share same migration workflow and stateless multi-worker API runtime. That startup path now also retries transient migration/login failures for about one minute, which keeps PgBouncer/PostgreSQL handoff races from killing fresh deploys. Default Compose stack forces only main `api` service to run migrations on boot while `market-api` skips them, which avoids duplicate Alembic runners fighting during deploy. Set `EDGELAB_API_WORKERS` only when you need to override default worker sizing; otherwise each API service auto-sizes itself to at most `2` workers for PostgreSQL and falls back to `1` worker for SQLite compatibility, which keeps the split stack viable on a single VM without forcing multi-worker memory overhead by default. Default Compose stack now also starts pooled `pgbouncer-postgres` and `pgbouncer-timescaledb` front doors plus `analytics-worker` container that refreshes denormalized session-summary rows on fixed cadence controlled by `EDGELAB_ANALYTICS_INTERVAL_SECONDS`. The Python runtime disables psycopg server-side prepared statements for PostgreSQL URLs so transaction-pooled PgBouncer does not reuse stale prepared statement names. For split architecture, keep same application containers and either point `EDGELAB_POSTGRES_HOST` / `EDGELAB_POSTGRES_CONNECT_PORT` at external PgBouncer or PostgreSQL entrypoint and set `EDGELAB_MARKET_DATA_DATABASE_URL` to market-data PgBouncer/Timescale endpoint.
-
-The scheduled populator defaults to every hour (`EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS=3600`). New dataset roots use `EDGELAB_DATA_POPULATOR_BACKFILL_MODE=max` by default, which starts from provider-specific start dates (`EDGELAB_DATA_POPULATOR_FOREX_START_DATE=2003-01-01`, `EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE=2017-08-17`) and pulls until current data is reached. Binance bulk history is read from public monthly/daily archive ZIPs before falling back to REST for archive gaps and the live tail; monthly Binance archive downloads now default to a lower `EDGELAB_DATA_POPULATOR_BINANCE_ARCHIVE_WORKERS=2` fan-out so the bundled single-VM stack does not spike memory during deep backfills, while still allowing an explicit override when you want throughput. Deep backfill batch writes also default to a smaller `EDGELAB_DATA_POPULATOR_BACKFILL_WRITE_BATCH_CANDLES=250000`, which keeps the populator from building multi-gigabyte in-memory batches on a single VM. Dukascopy uses the chart JSONP feed with retrying requests and a small delay between paged calls. Long max backfills batch provider pages into a single large CSV write when possible, then derive higher timeframes once from the final M1 file to avoid repeated full-file reads and resamples. Set `EDGELAB_DATA_POPULATOR_BACKFILL_MODE=lookback` to seed only the last `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS`. The populator maintains the manifest under `EDGELAB_DATASETS_ROOT` and uses it to resume from local CSV ranges instead of repeatedly starting from the provider max date; in max mode it also scans existing M1 CSVs for internal missing minute ranges, ignores normal Forex weekend closures, and backfills unexpected holes before appending latest candles. Provider ranges that return no candles are recorded in the manifest so historical and internal gap backfills do not retry known-empty windows. If `EDGELAB_MARKET_DATA_IMPORT_ENABLED=1`, each successful write also refreshes dataset-catalog rows and imports changed timeframes into DB-backed `market_candles` immediately through the same Postgres settings used by `api` and `market-api`. Configure derived HTFs with `EDGELAB_DATA_POPULATOR_DERIVED_TIMEFRAMES` and symbols with `EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS` / `EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS`.
-
-Useful Docker commands:
+To ensure your local environment is sound, run the following test suites:
 
 ```bash
-docker compose ps
-docker compose logs -f postgres
-docker compose logs -f api
-docker compose logs -f analytics-worker
-docker compose logs -f data-populator
-find datasets -maxdepth 2 -type f
-docker compose down
-docker compose down --volumes
-```
-
-The Jenkins deployment job runs Compose builds serially, prunes stopped containers,
-dangling images, and Docker build cache before rebuilds, and intentionally does
-not prune Docker volumes so PostgreSQL and TimescaleDB data survive deploys. If
-PostgreSQL still reports `No space left on device` after that cleanup, inspect
-host disk usage and the named database volumes before retrying.
-
-Bring up the benchmark profile when you want default stack plus MinIO, Loki, Tempo, Prometheus, Grafana, Postgres exporters, and bundled k6 runner on one VM:
-
-```bash
-docker compose --profile benchmark up -d postgres api frontend redis timescaledb minio loki tempo prometheus grafana postgres-exporter timescaledb-exporter
-```
-
-Benchmark profile now adds MinIO, Loki, Tempo, Prometheus, Grafana, Postgres exporters, and `benchmark-k6` on top of default Postgres + PgBouncer + Redis + TimescaleDB stack. Prometheus scrapes both FastAPI services at `/api/observability/metrics` plus both database exporters with `pg_stat_statements` enabled on PostgreSQL and TimescaleDB. Grafana boots with provisioned Prometheus, Loki, and Tempo datasources plus starter `EdgeLab Overview` dashboard. Seed authenticated benchmark data with `npm run bench:seed`, then run bundled k6 scripts from `benchmark/` for `bootstrap`, `bootstrap-shell`, `backtests-summaries`, `backtests-summaries-cursor`, `trades-page`, `trades-page-cursor`, `metrics-summary`, `metrics-curves`, `market-data-meta`, `market-data-bars`, and `e2e-capacity`. On the production VM, export benchmark auth tokens and run `npm run bench:e2e-capacity` to sweep concurrent synthetic users against `https://edgelab.publicvm.com` until latency/error thresholds fail.
-
-For local storage-path latency comparisons, run `npm run bench:market-data-storage -- --rows 20000 --iterations 25`. It benchmarks cached CSV reads against DB-backed `market_candles` reads on same dataset shape so market-data migration wins stay measurable between commits.
-
-The metrics API is also split now: `GET /api/metrics/summary` serves lightweight card-level aggregates and `GET /api/metrics/curves` serves the heavier equity/report payload. `GET /api/metrics` remains as the backward-compatible combined endpoint while the UI migrates.
-
-Session summary reads now support cursor-first pagination at `GET /api/backtests/summaries?cursor=&limit=&status=` while keeping offset fallback for legacy callers.
-
-Trade reads now also have an explicit page contract at `GET /api/trades/page?cursor=&offset=&limit=`. The legacy `GET /api/trades` list route stays available while the UI moves off full-list assumptions.
-
-Market-data request paths can now prefer DB-backed candle storage when a dataset timeframe has been imported into `market_candles`. Default Compose stack now points that hot path at `pgbouncer-timescaledb`, while bare-metal or external deployments can override `EDGELAB_MARKET_DATA_DATABASE_URL` directly. You can still import one dataset CSV manually into active database with:
-
-```bash
-npm run market-data:import -- \
-  --database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:6433/edgelab \
-  --user-id 1 \
-  --csv-path /absolute/path/to/datasets/EUR_USD/EURUSD_M1.csv
-```
-
-After that import, `/api/market-data/bars` and `/api/market-data/meta` can serve that timeframe from DB even if the original CSV is unavailable, and dataset catalog metadata now keeps that imported timeframe visible for replay instead of pruning it. Non-imported datasets still fall back to CSV.
-
-You can also rebuild the analytics read models on demand with `npm run analytics:refresh-read-models` or the backward-compatible `npm run analytics:refresh-session-summaries`.
-
-Before PostgreSQL cutover, verify a copied SQLite export against the target database with:
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python backend/scripts/migrate_sqlite_to_database.py \
-  --source-sqlite-path /absolute/path/to/trade_journal_v2.db \
-  --target-database-url postgresql+psycopg://edgelab:edgelab@127.0.0.1:6432/edgelab \
-  --reset-target
-```
-
-The optional legacy Node API can be started with:
-
-```bash
-docker compose --profile legacy-node-api up --build
-```
-
-The legacy API profile uses `LEGACY_CORS_ORIGINS` and `LEGACY_API_MAX_BODY_BYTES` for origin allowlisting and request-size limits.
-
-## Run The Backend
-
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-alembic upgrade head
-PYTHONPATH=. python -m uvicorn app.main:app --reload
-```
-
-## Run The Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The backend scans dataset CSV folders from `datasets` by default. Normal catalog reads auto-discover filesystem changes at most every 30 seconds; explicit dataset refreshes and dataset root changes still force an immediate scan. Set `EDGELAB_DATASETS_ROOT` to point at a different dataset root.
-The open frontend subscribes to `/api/datasets/stream` over WebSocket, so CSV range changes from the populator appear without a browser refresh. Replay sessions are created only from the session builder or `POST /api/backtests`; startup does not create a default EURUSD/M1 session.
-The API also keeps short-lived read-model caches for the initial shell bootstrap and dataset catalog responses. In Docker Compose, `api` and `market-api` now default those caches to the bundled Redis service through `EDGELAB_REDIS_URL=redis://redis:6379/0`, so cache hits are shared across workers and containers instead of being process-local only. Bare-metal runs can leave `EDGELAB_REDIS_URL` blank and fall back to in-process memory. Tune cache TTLs with `EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS` and `EDGELAB_DATASET_CATALOG_CACHE_TTL_SECONDS`.
-That same shared Redis tier now also rate-limits expensive authenticated routes. Default container limits are `EDGELAB_DATASET_REFRESH_RATE_LIMIT=6`, `EDGELAB_MARKET_DATA_META_RATE_LIMIT=240`, and `EDGELAB_MARKET_DATA_BARS_RATE_LIMIT=240` inside a `EDGELAB_RATE_LIMIT_WINDOW_SECONDS=60` window.
-Both FastAPI services now also expose Prometheus-scrapeable HTTP metrics at `GET /api/observability/metrics`, emit structured JSON logs with request IDs for Loki ingestion, and can export OpenTelemetry traces by setting `OTEL_EXPORTER_OTLP_ENDPOINT` plus service names. That keeps current single-VM stack and later split-service deployment on same observability contract without changing app routes again.
-
-The default containerized stack uses PostgreSQL plus Alembic migrations. SQLite remains an explicit fallback only when `DATABASE_URL` is overridden to a SQLite path. Local DB files, build output, `node_modules`, virtualenvs, generated Python caches, and the large CSV are ignored by Git.
-SQLite startup no longer drops existing tables on version mismatch; fresh SQLite files are still auto-created for local fallback use, while schema upgrades are expected to come through Alembic in the default containerized path.
-
-Startup and seed commands do not create default user accounts, strategies, or playbooks.
-
-## Deployment Files
-
-- `docker-compose.yml` defines the deployable service graph, including the split `api` and `market-api` containers used in the single-VM default.
-- `backend/alembic.ini` and `backend/alembic/versions/*` define the database migration path.
-- `backend/Dockerfile` builds the primary FastAPI API image.
-- `backend/app/data_populator.py` runs the scheduled dataset writer used by the Compose `data-populator` service.
-- `frontend/Dockerfile` builds the Vite app and serves it with Nginx.
-- `docker/nginx.conf` proxies auth/session/journal APIs to `api`, market-data and dataset routes to `market-api`, and serves the SPA fallback.
-- `backend/Dockerfile.node` supports the optional legacy Node API profile.
-- `.env.example` documents deploy-time settings.
-- `.dockerignore` keeps local data and generated artifacts out of Docker build contexts.
-
-## Verify
-
-```bash
+# Backend Python tests
 PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
+
+# Frontend Vite build & tests
+cd frontend
 npm run build
 npm test
-```
 
-If Docker is available, also run:
-
-```bash
+# Docker configuration check
 docker compose config
-docker compose build
-```
-
-Dependency audit checks require registry access:
-
-```bash
-pip install -r backend/requirements-dev.txt
-sh scripts/audit-dependencies.sh
 ```

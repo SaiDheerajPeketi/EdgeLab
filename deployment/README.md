@@ -1,71 +1,47 @@
-# EdgeLab Deployment Capture
+# EdgeLab Deployment
 
-This folder contains scripts for recreating the deployment shape from the Ubuntu instance at `ubuntu@150.136.235.179`.
+## Overview
+The `deployment` directory contains scripts and configurations for managing the live deployment environment of EdgeLab. This includes capturing the remote server state, pushing OAuth secrets, and repairing live port conflicts.
 
-## Fetch the Instance Snapshot
+## Responsibilities
+- **Instance State Capture**: Pulls configuration dotfiles, cron jobs, and package manifests from the Ubuntu server.
+- **Replay Script Generation**: Converts captured instance state into an executable bash script to rebuild identical instances.
+- **Secrets Injection**: Safely pushes local Google OAuth secrets to the remote Jenkins/Docker host without committing them to source control.
+- **Infrastructure Repair**: Resolves port conflicts (e.g., between Jenkins and EdgeLab Nginx) and manages SSL certificates.
 
+## Architecture / How it fits into the system
+This directory bridges local development and the remote Jenkins/Ubuntu pipeline. 
+- Scripts like `push-google-oauth-secret.sh` send JSON credentials directly to the remote server.
+- The `api` container mounts this directory (via `docker-compose.yml`) read-only at `/opt/edgelab/deployment` to safely read the injected `google-oauth-client.json` at runtime.
+
+## Directory Structure (brief)
+- `fetch-instance-config.sh` - Pulls the remote server state to `instance-snapshots/`.
+- `generate-deployment-script.py` - Parses a snapshot to build `install-from-instance.sh`.
+- `push-google-oauth-secret.sh` - Uploads OAuth JSON and updates `.env` on the server.
+- `repair-live-deployment.sh` - Reconfigures Jenkins/Nginx ports and runs `certbot`.
+- `instance-snapshots/` - Local storage for downloaded server state bundles (git-ignored).
+- `*.json` - Placeholder or downloaded OAuth credentials (git-ignored).
+
+## Configuration
+These scripts use hardcoded defaults that may be overridden by environment variables internally.
+
+| Environment Variable / Target | Purpose | Default |
+| --- | --- | --- |
+| `ISSUE_CERTS` | When set to `1`, triggers certbot during repair | `""` |
+| `GOOGLE_CLIENT_SECRETS_FILE` | (API config) Path to read the injected JSON | `/opt/edgelab/deployment/google-oauth-client.json` |
+
+## Dependencies
+- **Bash & Python 3**: For running the sync and generation scripts.
+- **SSH & Rsync**: Required for communicating with the remote Ubuntu instance.
+
+## Local Development
+To fetch the current state of the remote instance:
 ```bash
 deployment/fetch-instance-config.sh
 ```
 
-Defaults:
-
-- SSH key: `~/.ssh/mykey`
-- SSH target: `ubuntu@150.136.235.179`
-- Output root: `deployment/instance-snapshots`
-
-The fetcher stores the raw remote bundle and extracted files locally. It captures shell history, home deployment dotfiles, package manifests, services, crons, and deployment-oriented `/etc` configuration trees. It intentionally excludes private keys, password databases, TLS private keys, and runtime cache/log directories.
-
-## Generate the Replay Script
-
+To sync a new Google OAuth JSON credential to the server:
 ```bash
-deployment/generate-deployment-script.py deployment/instance-snapshots/<snapshot-dir>
-```
-
-This writes:
-
-```text
-deployment/install-from-instance.sh
-```
-
-The generated script installs discovered packages and includes guarded restore steps for fetched configuration files. Review the generated script before running it on a fresh host, especially if the original instance relied on secrets or provider-specific metadata that should not be committed.
-
-## Sync Google OAuth Secret To Jenkins Host
-
-To copy a local Google OAuth client JSON onto the Docker/Jenkins host and wire the runtime env file:
-
-```bash
+# Ensure client_secret_*.json is in the deployment folder
 bash deployment/push-google-oauth-secret.sh
-```
-
-Defaults:
-
-- SSH key: `~/.ssh/mykey`
-- SSH target: `ubuntu@150.136.235.179`
-- Deploy dir: `/home/peketi_20214004/EdgeLab`
-- Remote secret path: `/home/peketi_20214004/EdgeLab/deployment/google-oauth-client.json`
-
-The script uploads the first `deployment/client_secret_*.json` file it finds, rewrites `${DEPLOY_DIR}/.env` with:
-
-```text
-GOOGLE_CLIENT_SECRETS_FILE=/opt/edgelab/deployment/google-oauth-client.json
-EDGELAB_BETA_MANUAL_ACCESS_ENABLED=0
-```
-
-Jenkins can then rebuild normally; Docker Compose mounts `./deployment` into the API container at `/opt/edgelab/deployment`.
-
-## Repair a Live Instance Port Conflict
-
-If Jenkins is already bound to `8080`, `docker compose up -d` cannot start the EdgeLab frontend because the frontend publishes `${FRONTEND_PORT:-8080}`. Run:
-
-```bash
-sudo bash deployment/repair-live-deployment.sh
-```
-
-The repair script moves Jenkins to `127.0.0.1:9090`, keeps EdgeLab on `127.0.0.1:8080`, writes Nginx reverse proxy sites for `edgelab.co.in` and `jenkins.edgelab.co.in`, opens HTTP/HTTPS firewall rules, and recreates the EdgeLab Compose services.
-
-To issue certificates after DNS points at the instance:
-
-```bash
-sudo ISSUE_CERTS=1 bash deployment/repair-live-deployment.sh
 ```
