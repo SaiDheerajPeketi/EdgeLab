@@ -67,6 +67,7 @@ import {
   aggregateBars,
   atrSeries,
   bucketTime,
+  buildFvgZoneDefinitions,
   buildIndicatorDefinitions,
   DEFAULT_FIB_BACKGROUND_OPACITY,
   DEFAULT_FIB_LEVELS,
@@ -93,6 +94,7 @@ import {
   type DrawingPoint,
   type DrawingTool,
   type FibLevel,
+  type FvgZoneDefinition,
   type MacdData,
   type MagnetMode,
 } from "../lib/charting";
@@ -421,6 +423,10 @@ export function TradingChart({
     () => buildIndicatorDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
   );
+  const fvgZoneDefinitions = useMemo(
+    () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
+    [displayBars, indicatorInstances],
+  );
 
   const visibleIndicatorInstances = useMemo(
     () => indicatorInstances.filter((indicator) => indicator.visible !== false),
@@ -514,6 +520,20 @@ export function TradingChart({
         .filter((indicator) => isOverlayIndicatorKind(indicator.kind))
         .map((indicator) => {
           const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          const zoneDefinitions = fvgZoneDefinitions.filter(
+            (item) => item.sourceId === indicator.id,
+          );
+          if (indicator.kind === "fvg" || indicator.kind === "ifvg") {
+            const activeCount = zoneDefinitions.filter((item) => item.active).length;
+            return {
+              color: settings.color,
+              data: [],
+              id: indicator.id,
+              isVisible: zoneDefinitions.length > 0,
+              label: indicatorDisplayName({ ...indicator, settings }),
+              valueText: `${activeCount}/${zoneDefinitions.length}`,
+            };
+          }
           const definition = activeOverlayIndicators.find(
             (item) => item.sourceId === indicator.id,
           );
@@ -521,11 +541,13 @@ export function TradingChart({
             color: settings.color,
             data: definition?.data ?? [],
             id: indicator.id,
+            isVisible: (definition?.data?.length ?? 0) > 0,
             label: indicatorDisplayName({ ...indicator, settings }),
+            valueText: null,
           };
         })
-        .filter((indicator) => indicator.data.length > 0),
-    [activeOverlayIndicators, visibleIndicatorInstances],
+        .filter((indicator) => indicator.isVisible),
+    [activeOverlayIndicators, fvgZoneDefinitions, visibleIndicatorInstances],
   );
   const isCursorTool = drawingTool === "cursor";
   const isCrosshairTool = drawingTool === "crosshair";
@@ -564,6 +586,14 @@ export function TradingChart({
     selectedDrawingId,
     series: candlesRef.current,
     version: plotVersion,
+  });
+  const fvgZoneElements = buildFvgZoneElements({
+    chart: chartRef.current,
+    definitions: fvgZoneDefinitions,
+    frame: chartFrameRef.current,
+    onOpenSettings: openIndicatorToolbarAtFramePoint,
+    selectedIndicatorId,
+    series: candlesRef.current,
   });
   const drawingPlotWidth =
     chartRef.current && chartFrameRef.current
@@ -1800,13 +1830,22 @@ export function TradingChart({
   }
 
   function hitTestOverlayIndicator(point: { x: number; y: number }) {
-    return findNearestOverlayIndicator({
-      chart: chartRef.current,
-      definitions: activeOverlayIndicators,
-      frame: chartFrameRef.current,
-      point,
-      seriesById: indicatorRefs.current,
-    });
+    return (
+      findNearestFvgZone({
+        chart: chartRef.current,
+        definitions: fvgZoneDefinitions,
+        frame: chartFrameRef.current,
+        point,
+        series: candlesRef.current,
+      }) ??
+      findNearestOverlayIndicator({
+        chart: chartRef.current,
+        definitions: activeOverlayIndicators,
+        frame: chartFrameRef.current,
+        point,
+        seriesById: indicatorRefs.current,
+      })
+    );
   }
 
   useEffect(() => {
@@ -1872,6 +1911,7 @@ export function TradingChart({
     activeOverlayIndicators,
     dragState,
     drawings,
+    fvgZoneDefinitions,
     isDrawingPlacementMode,
     isNeutralTool,
     onSelectDrawing,
@@ -1955,7 +1995,12 @@ export function TradingChart({
                     />
                     {chartSettings.indicatorTitles && <span>{indicator.label}</span>}
                     {chartSettings.indicatorValues && (
-                      <strong>{latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"}</strong>
+                      <strong>
+                        {indicator.valueText ??
+                          (indicator.data.length > 0
+                            ? latestIndicatorValue(indicator.data)?.toFixed(5) ?? "—"
+                            : "—")}
+                      </strong>
                     )}
                   </button>
                 ))}
@@ -2106,6 +2151,7 @@ export function TradingChart({
                       chartSettings.sessionBreakLineStyle,
                       chartSettings.sessionBreakLineWidth,
                     )}
+                  {fvgZoneElements}
                   {drawingElements}
                 </g>
               </svg>
@@ -2978,6 +3024,70 @@ function findNearestOverlayIndicator({
   return nearest;
 }
 
+function findNearestFvgZone({
+  chart,
+  definitions,
+  frame,
+  point,
+  series,
+}: {
+  chart: IChartApi | null;
+  definitions: FvgZoneDefinition[];
+  frame: HTMLDivElement | null;
+  point: { x: number; y: number };
+  series: ISeriesApi<"Candlestick"> | null;
+}) {
+  if (!chart || !frame || !series || definitions.length === 0) {
+    return null;
+  }
+
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  if (point.x < 0 || point.y < 0 || point.x > plotWidth || point.y > plotHeight) {
+    return null;
+  }
+
+  let nearest: { distance: number; indicatorId: string; point: { x: number; y: number } } | null =
+    null;
+  for (const definition of definitions) {
+    const startTop = pixelFromPoint(
+      { logical: definition.startLogical, price: definition.high, time: 0 },
+      chart,
+      series,
+    );
+    const endBottom = pixelFromPoint(
+      { logical: definition.endLogical, price: definition.low, time: 0 },
+      chart,
+      series,
+    );
+    if (!startTop || !endBottom) {
+      continue;
+    }
+    const box = normalizePixelBox(startTop, endBottom);
+    const expanded = expandBox(box, 8);
+    if (!pointInsideBox(point, expanded)) {
+      continue;
+    }
+    const dx =
+      point.x < box.left ? box.left - point.x : point.x > box.right ? point.x - box.right : 0;
+    const dy =
+      point.y < box.top ? box.top - point.y : point.y > box.bottom ? point.y - box.bottom : 0;
+    const distance = Math.hypot(dx, dy);
+    if (!nearest || distance < nearest.distance) {
+      nearest = {
+        distance,
+        indicatorId: definition.sourceId,
+        point: {
+          x: clamp(box.left + 12, 0, plotWidth),
+          y: clamp(box.top + 12, 0, plotHeight),
+        },
+      };
+    }
+  }
+
+  return nearest;
+}
+
 function pointSegmentDistance(
   point: { x: number; y: number },
   start: { x: number; y: number },
@@ -2991,6 +3101,16 @@ function pointSegmentDistance(
   }
   const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
   return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+}
+
+function indicatorDasharray(style: IndicatorDefinition["lineStyle"]) {
+  if (style === 1) {
+    return "2 4";
+  }
+  if (style === 2) {
+    return "6 5";
+  }
+  return undefined;
 }
 
 function RsiPanel({
@@ -3242,6 +3362,7 @@ function FloatingIndicatorToolbar({
   const lineWidth = defaultIndicatorLineWidth(indicator.kind, settings);
   const isMacd = indicator.kind === "macd";
   const isVwap = indicator.kind === "vwap";
+  const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const hasDeviation =
     indicator.kind === "bb" || indicator.kind === "keltner" || indicator.kind === "supertrend";
   const isVisible = indicator.visible !== false;
@@ -3302,6 +3423,16 @@ function FloatingIndicatorToolbar({
         value={settings.color}
       />
 
+      {isGapStudy && (
+        <ThemedColorPicker
+          ariaLabel="Opposite color"
+          className="chart-object-floating-picker"
+          compact
+          onChange={(secondaryColor) => onChange({ secondaryColor, signalColor: secondaryColor })}
+          value={settings.secondaryColor ?? settings.signalColor ?? "#f43f5e"}
+        />
+      )}
+
       {isMacd ? (
         <div className="indicator-floating-grid">
           <IndicatorNumberInput
@@ -3334,6 +3465,26 @@ function FloatingIndicatorToolbar({
             value={settings.histogramColor ?? "#94a3b8"}
           />
         </div>
+      ) : isGapStudy ? (
+        <div className="indicator-floating-grid">
+          <IndicatorNumberInput
+            label="Extend"
+            onChange={(value) => onChange({ extendBars: Math.max(1, Math.round(value)) })}
+            value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
+          />
+          <IndicatorNumberInput
+            label="Zones"
+            onChange={(value) => onChange({ maxZones: Math.max(1, Math.round(value)) })}
+            value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
+          />
+          <IndicatorNumberInput
+            label="Min %"
+            min={0}
+            onChange={(value) => onChange({ minGapPercent: Math.max(0, Number(value.toFixed(3))) })}
+            step={0.01}
+            value={settings.minGapPercent ?? 0}
+          />
+        </div>
       ) : !isVwap ? (
         <IndicatorNumberInput
           label="Period"
@@ -3350,6 +3501,20 @@ function FloatingIndicatorToolbar({
           step={0.1}
           value={settings.stdDev ?? (indicator.kind === "supertrend" ? 3 : 2)}
         />
+      )}
+
+      {isGapStudy && (
+        <label className="chart-object-floating-width" title="Fill opacity">
+          <span>{Math.round((settings.fillOpacity ?? 0.18) * 100)}%</span>
+          <input
+            max={0.45}
+            min={0.04}
+            onChange={(event) => onChange({ fillOpacity: Number(event.target.value) })}
+            step={0.01}
+            type="range"
+            value={settings.fillOpacity ?? 0.18}
+          />
+        </label>
       )}
 
       <div className="chart-object-floating-style" role="group">
@@ -3386,6 +3551,26 @@ function FloatingIndicatorToolbar({
       >
         {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
       </button>
+      {isGapStudy && (
+        <>
+          <button
+            className={`chart-object-floating-button ${settings.showLabels !== false ? "active" : ""}`}
+            onClick={() => onChange({ showLabels: settings.showLabels === false })}
+            title={settings.showLabels === false ? "Show labels" : "Hide labels"}
+            type="button"
+          >
+            Lbl
+          </button>
+          <button
+            className={`chart-object-floating-button ${settings.unmitigatedOnly === true ? "active" : ""}`}
+            onClick={() => onChange({ unmitigatedOnly: settings.unmitigatedOnly !== true })}
+            title="Show only untouched zones"
+            type="button"
+          >
+            UM
+          </button>
+        </>
+      )}
       <button
         className="chart-object-floating-button danger"
         onClick={onRemove}
@@ -4126,6 +4311,40 @@ function nextFibLevelColor(levels: FibLevel[]) {
   );
 }
 
+function buildFvgZoneElements({
+  chart,
+  definitions,
+  frame,
+  onOpenSettings,
+  selectedIndicatorId,
+  series,
+}: {
+  chart: IChartApi | null;
+  definitions: FvgZoneDefinition[];
+  frame: HTMLDivElement | null;
+  onOpenSettings: (indicatorId: string, point: { x: number; y: number }) => void;
+  selectedIndicatorId: string | null;
+  series: ISeriesApi<"Candlestick"> | null;
+}) {
+  if (!chart || !series || !frame || definitions.length === 0) {
+    return null;
+  }
+
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  return definitions.map((definition) =>
+    renderFvgZone({
+      definition,
+      onOpenSettings,
+      plotHeight,
+      plotWidth,
+      selected: definition.sourceId === selectedIndicatorId,
+      toPixel: (logical, price) =>
+        pixelFromPoint({ logical, price, time: 0 }, chart, series),
+    }),
+  );
+}
+
 function formatFibLevelInput(value: number) {
   return Number(value.toFixed(3)).toString();
 }
@@ -4234,6 +4453,93 @@ function chartPlotHeight(chart: IChartApi, frame: HTMLDivElement | null) {
     return frame ? Math.min(frame.clientHeight, paneHeight) : paneHeight;
   }
   return frame?.clientHeight ?? 0;
+}
+
+function renderFvgZone({
+  definition,
+  onOpenSettings,
+  plotHeight,
+  plotWidth,
+  selected,
+  toPixel,
+}: {
+  definition: FvgZoneDefinition;
+  onOpenSettings: (indicatorId: string, point: { x: number; y: number }) => void;
+  plotHeight: number;
+  plotWidth: number;
+  selected: boolean;
+  toPixel: (logical: number, price: number) => { x: number; y: number } | null;
+}) {
+  const startTop = toPixel(definition.startLogical, definition.high);
+  const endBottom = toPixel(definition.endLogical, definition.low);
+  if (!startTop || !endBottom) {
+    return null;
+  }
+
+  const box = normalizePixelBox(startTop, endBottom);
+  if (
+    box.right < -24 ||
+    box.left > plotWidth + 24 ||
+    box.bottom < -24 ||
+    box.top > plotHeight + 24
+  ) {
+    return null;
+  }
+
+  const labelWidth = Math.max(74, Math.ceil(definition.label.length * 6.8 + 18));
+  const labelX = clamp(box.left + 8, 8, Math.max(8, plotWidth - labelWidth - 8));
+  const labelY = clamp(box.top + 8, 8, Math.max(8, plotHeight - 26));
+  const handleMouseDown = (event: MouseEvent<SVGElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenSettings(definition.sourceId, {
+      x: clamp(box.left + 14, 0, plotWidth),
+      y: clamp(box.top + 14, 0, plotHeight),
+    });
+  };
+
+  return (
+    <g
+      key={definition.id}
+      onMouseDown={handleMouseDown}
+      style={{ cursor: "pointer", pointerEvents: "all" }}
+    >
+      <rect
+        fill={colorWithOpacity(definition.color, definition.fillOpacity)}
+        height={Math.max(2, box.bottom - box.top)}
+        rx={4}
+        ry={4}
+        stroke={definition.color}
+        strokeDasharray={indicatorDasharray(definition.lineStyle)}
+        strokeWidth={selected ? Math.min((definition.lineWidth ?? 1) + 1, 4) : definition.lineWidth ?? 1}
+        width={Math.max(2, box.right - box.left)}
+        x={box.left}
+        y={box.top}
+      />
+      {definition.showLabel && (
+        <>
+          <rect
+            fill={colorWithOpacity(definition.color, selected ? 0.28 : 0.16)}
+            height={18}
+            rx={3}
+            ry={3}
+            width={labelWidth}
+            x={labelX}
+            y={labelY}
+          />
+          <text
+            fill="#f8fafc"
+            fontSize={10}
+            fontWeight={700}
+            x={labelX + 9}
+            y={labelY + 12}
+          >
+            {definition.label}
+          </text>
+        </>
+      )}
+    </g>
+  );
 }
 
 function buildOrderEditLines(
@@ -6690,6 +6996,12 @@ function defaultIndicatorLineStyle(
   if (kind === "vwap" || kind === "bb" || kind === "donchian" || kind === "supertrend") {
     return kind === "supertrend" ? "dotted" : "dashed";
   }
+  if (kind === "fvg") {
+    return "solid";
+  }
+  if (kind === "ifvg") {
+    return "dashed";
+  }
   return "solid";
 }
 
@@ -6718,7 +7030,14 @@ function defaultIndicatorLineWidth(
   kind: ChartIndicatorInstance["kind"],
   settings: IndicatorSettings,
 ) {
-  const fallback = kind === "bb" || kind === "donchian" || kind === "keltner" ? 1 : 2;
+  const fallback =
+    kind === "bb" ||
+    kind === "donchian" ||
+    kind === "fvg" ||
+    kind === "ifvg" ||
+    kind === "keltner"
+      ? 1
+      : 2;
   return indicatorPanelLineWidth(settings.lineWidth, fallback);
 }
 
@@ -6735,7 +7054,9 @@ function isOverlayIndicatorKind(kind: ChartIndicatorInstance["kind"]) {
     kind === "dema" ||
     kind === "donchian" ||
     kind === "ema" ||
+    kind === "fvg" ||
     kind === "hma" ||
+    kind === "ifvg" ||
     kind === "keltner" ||
     kind === "sma" ||
     kind === "supertrend" ||

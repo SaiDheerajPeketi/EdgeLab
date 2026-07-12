@@ -806,6 +806,7 @@ export function ChartToolbar({
           {indicatorInstances.map((indicator) => {
             const settings = indicator.settings ?? FALLBACK_SETTING;
             const isMacd = indicator.kind === "macd";
+            const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
             return (
               <div className="study-chip" key={indicator.id}>
                 <span
@@ -831,6 +832,19 @@ export function ChartToolbar({
                       label="Sig"
                       onChange={(value) => onUpdateIndicatorSettings(indicator.id, { signalPeriod: value })}
                       value={settings.signalPeriod ?? 9}
+                    />
+                  </>
+                ) : isGapStudy ? (
+                  <>
+                    <NumberPill
+                      label="Ext"
+                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { extendBars: value })}
+                      value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
+                    />
+                    <NumberPill
+                      label="Max"
+                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { maxZones: value })}
+                      value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
                     />
                   </>
                 ) : indicator.kind !== "vwap" ? (
@@ -1685,6 +1699,7 @@ function IndicatorEditor({
   const definition = INDICATORS.find((item) => item.kind === indicator.kind);
   const settings = indicator.settings ?? FALLBACK_SETTING;
   const isMacd = indicator.kind === "macd";
+  const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const supportsPeriod = indicator.kind !== "vwap" && !isMacd;
   const supportsDeviation =
     indicator.kind === "bb" ||
@@ -1752,7 +1767,7 @@ function IndicatorEditor({
             </label>
           </>
         )}
-        {supportsPeriod && (
+        {supportsPeriod && !isGapStudy && (
           <label className="form-field">
             <span>Period</span>
             <input
@@ -1765,6 +1780,34 @@ function IndicatorEditor({
               value={settings.period}
             />
           </label>
+        )}
+        {isGapStudy && (
+          <>
+            <label className="form-field">
+              <span>Extend</span>
+              <input
+                className="input-control h-9"
+                min={1}
+                onChange={(event) =>
+                  onUpdate({ extendBars: clampInteger(event.target.value, 1, 500) })
+                }
+                type="number"
+                value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
+              />
+            </label>
+            <label className="form-field">
+              <span>Zones</span>
+              <input
+                className="input-control h-9"
+                min={1}
+                onChange={(event) =>
+                  onUpdate({ maxZones: clampInteger(event.target.value, 1, 64) })
+                }
+                type="number"
+                value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
+              />
+            </label>
+          </>
         )}
         {supportsDeviation && (
           <label className="form-field">
@@ -1787,6 +1830,16 @@ function IndicatorEditor({
             value={settings.color}
           />
         </label>
+        {isGapStudy && (
+          <label className="form-field">
+            <span>Opposite</span>
+            <ThemedColorPicker
+              ariaLabel="Opposite indicator color"
+              onChange={(secondaryColor) => onUpdate({ secondaryColor, signalColor: secondaryColor })}
+              value={settings.secondaryColor ?? settings.signalColor ?? "#f43f5e"}
+            />
+          </label>
+        )}
       </div>
     </div>
   );

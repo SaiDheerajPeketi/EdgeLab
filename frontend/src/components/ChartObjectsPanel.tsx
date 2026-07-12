@@ -190,6 +190,8 @@ export function ChartObjectsPanel({
                     <span className="block truncate text-xs text-slate-500">
                       {indicator.kind === "macd"
                         ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
+                        : indicator.kind === "fvg" || indicator.kind === "ifvg"
+                        ? `${settings.unmitigatedOnly === true ? "Unmitigated" : "All"} / ${settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)} zones`
                         : indicator.kind === "vwap"
                         ? "Session fair value"
                         : `Period ${settings.period}${indicator.kind === "bb" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
@@ -462,6 +464,7 @@ function IndicatorHoverControls({
 }) {
   const settings = indicator.settings ?? FALLBACK_SETTING;
   const isMacd = indicator.kind === "macd";
+  const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const isVwap = indicator.kind === "vwap";
   const isVisible = indicator.visible !== false;
 
@@ -493,6 +496,18 @@ function IndicatorHoverControls({
             />
           </label>
 
+          {isGapStudy && (
+            <label className="object-setting-field">
+              <span>Opposite</span>
+              <ThemedColorPicker
+                ariaLabel="Opposite indicator color"
+                compact
+                onChange={(secondaryColor) => onUpdate({ secondaryColor, signalColor: secondaryColor })}
+                value={settings.secondaryColor ?? settings.signalColor ?? "#f43f5e"}
+              />
+            </label>
+          )}
+
           {isMacd ? (
             <div className="grid grid-cols-3 gap-2">
               <NumberSetting
@@ -509,6 +524,19 @@ function IndicatorHoverControls({
                 label="Sig"
                 onChange={(value) => onUpdate({ signalPeriod: value })}
                 value={settings.signalPeriod ?? 9}
+              />
+            </div>
+          ) : isGapStudy ? (
+            <div className="grid grid-cols-2 gap-2">
+              <NumberSetting
+                label="Extend"
+                onChange={(value) => onUpdate({ extendBars: value })}
+                value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
+              />
+              <NumberSetting
+                label="Zones"
+                onChange={(value) => onUpdate({ maxZones: value })}
+                value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
               />
             </div>
           ) : !isVwap ? (

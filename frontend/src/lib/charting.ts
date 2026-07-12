@@ -47,7 +47,9 @@ export type ChartIndicatorKind =
   | "dema"
   | "donchian"
   | "ema"
+  | "fvg"
   | "hma"
+  | "ifvg"
   | "keltner"
   | "macd"
   | "momentum"
@@ -74,11 +76,18 @@ export type MagnetMode = "off" | "weak" | "strong";
 export type IndicatorSettings = {
   color: string;
   period: number;
+  extendBars?: number;
+  fillOpacity?: number;
   stdDev?: number;
   fastPeriod?: number;
   slowPeriod?: number;
   signalPeriod?: number;
+  maxZones?: number;
+  minGapPercent?: number;
+  secondaryColor?: string;
   signalColor?: string;
+  showLabels?: boolean;
+  unmitigatedOnly?: boolean;
   histogramColor?: string;
   lineStyle?: DrawingLineStyle;
   lineWidth?: number;
@@ -141,6 +150,33 @@ export type IndicatorDefinition = {
   lineStyle?: 0 | 1 | 2 | 3 | 4;
 };
 
+export type FvgZoneDefinition = {
+  id: string;
+  sourceId: string;
+  label: string;
+  active: boolean;
+  color: string;
+  fillOpacity: number;
+  high: number;
+  lineStyle?: 0 | 1 | 2;
+  lineWidth?: 1 | 2 | 3 | 4;
+  low: number;
+  mitigated: boolean;
+  showLabel: boolean;
+  startLogical: number;
+  endLogical: number;
+};
+
+type GapSeed = {
+  direction: "bullish" | "bearish";
+  high: number;
+  invalidationIndex: number | null;
+  low: number;
+  mitigationIndex: number | null;
+  sourceIndex: number;
+  time: number;
+};
+
 export type MacdData = {
   histogram: Array<{ time: UTCTimestamp; value: number }>;
   macd: LineData[];
@@ -174,7 +210,9 @@ export const INDICATORS: Array<{
   { id: "wma", kind: "wma", label: "WMA", description: "Weighted moving average", color: CHART_COLOR.sky, pane: "overlay" },
   { id: "dema", kind: "dema", label: "DEMA", description: "Double exponential average", color: CHART_COLOR.teal, pane: "overlay" },
   { id: "tema", kind: "tema", label: "TEMA", description: "Triple exponential average", color: CHART_COLOR.up, pane: "overlay" },
+  { id: "fvg", kind: "fvg", label: "Fair Value Gap", description: "Automatic imbalance zones", color: CHART_COLOR.amber, pane: "overlay" },
   { id: "hma", kind: "hma", label: "HMA", description: "Hull moving average", color: CHART_COLOR.warm, pane: "overlay" },
+  { id: "ifvg", kind: "ifvg", label: "iFVG", description: "Inverted fair value gaps", color: CHART_COLOR.blue, pane: "overlay" },
   { id: "vwap", kind: "vwap", label: "VWAP", description: "Session fair value", color: CHART_COLOR.up, pane: "overlay" },
   { id: "bb", kind: "bb", label: "Bollinger Bands", description: "Volatility envelope", color: CHART_COLOR.muted, pane: "overlay" },
   { id: "donchian", kind: "donchian", label: "Donchian Channel", description: "High-low range channel", color: CHART_COLOR.blue, pane: "overlay" },
@@ -192,7 +230,34 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   dema: { color: CHART_COLOR.teal, period: 20 },
   donchian: { color: CHART_COLOR.blue, period: 20 },
   ema: { color: CHART_COLOR.cyan, period: 20 },
+  fvg: {
+    color: CHART_COLOR.amber,
+    period: 1,
+    extendBars: 80,
+    fillOpacity: 0.18,
+    lineStyle: "solid",
+    lineWidth: 1,
+    maxZones: 12,
+    minGapPercent: 0,
+    secondaryColor: CHART_COLOR.down,
+    signalColor: CHART_COLOR.down,
+    showLabels: true,
+  },
   hma: { color: CHART_COLOR.warm, period: 20 },
+  ifvg: {
+    color: CHART_COLOR.blue,
+    period: 1,
+    extendBars: 120,
+    fillOpacity: 0.16,
+    lineStyle: "dashed",
+    lineWidth: 1,
+    maxZones: 10,
+    minGapPercent: 0,
+    secondaryColor: CHART_COLOR.magenta,
+    signalColor: CHART_COLOR.magenta,
+    showLabels: true,
+    unmitigatedOnly: true,
+  },
   keltner: { color: CHART_COLOR.orange, period: 20, stdDev: 2 },
   macd: {
     color: CHART_COLOR.blue,
@@ -348,8 +413,12 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
       return `Donchian ${period}`;
     case "ema":
       return `EMA ${period}`;
+    case "fvg":
+      return "FVG";
     case "hma":
       return `HMA ${period}`;
+    case "ifvg":
+      return "iFVG";
     case "keltner":
       return `Keltner ${period}`;
     case "macd":
@@ -945,6 +1014,29 @@ export function buildIndicatorDefinitions(
   return definitions;
 }
 
+export function buildFvgZoneDefinitions(
+  bars: Candle[],
+  indicatorInstances: ChartIndicatorInstance[],
+): FvgZoneDefinition[] {
+  const definitions: FvgZoneDefinition[] = [];
+  const seeds = detectGapSeeds(bars);
+  for (const instance of indicatorInstances) {
+    if (
+      instance.visible === false ||
+      (instance.kind !== "fvg" && instance.kind !== "ifvg")
+    ) {
+      continue;
+    }
+    const settings = mergeIndicatorSettings(instance.kind, instance.settings);
+    definitions.push(
+      ...(instance.kind === "ifvg"
+        ? ifvgZonesForInstance(bars, seeds, instance.id, settings)
+        : fvgZonesForInstance(bars, seeds, instance.id, settings)),
+    );
+  }
+  return definitions;
+}
+
 function indicatorLineWidth(width: number | undefined, fallback: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
   if (typeof width !== "number" || !Number.isFinite(width)) {
     return fallback;
@@ -968,6 +1060,246 @@ function indicatorLineStyle(style: DrawingLineStyle | undefined): 0 | 1 | 2 {
     default:
       return 0;
   }
+}
+
+function fvgZonesForInstance(
+  bars: Candle[],
+  seeds: GapSeed[],
+  sourceId: string,
+  settings: IndicatorSettings,
+): FvgZoneDefinition[] {
+  const extendBars = clampInteger(settings.extendBars, 1, 500, 80);
+  const fillOpacity = clampNumber(settings.fillOpacity, 0.04, 0.45, 0.18);
+  const lineStyle = indicatorLineStyle(settings.lineStyle);
+  const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
+  const maxZones = clampInteger(settings.maxZones, 1, 64, 12);
+  const minGapPercent = clampNumber(settings.minGapPercent, 0, 100, 0);
+  const zones: FvgZoneDefinition[] = [];
+  const lastLogical = Math.max(0, bars.length - 1 + 0.9);
+  const bearishColor =
+    settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.down;
+
+  for (const seed of seeds) {
+    if (gapPercent(seed.low, seed.high) < minGapPercent) {
+      continue;
+    }
+    if (settings.unmitigatedOnly === true && seed.mitigationIndex != null) {
+      continue;
+    }
+    zones.push({
+      id: `${sourceId}-${seed.direction}-${seed.time}`,
+      sourceId,
+      label: seed.direction === "bullish" ? "Bull FVG" : "Bear FVG",
+      active: seed.mitigationIndex == null,
+      color: seed.direction === "bullish" ? settings.color : bearishColor,
+      fillOpacity,
+      high: seed.high,
+      lineStyle,
+      lineWidth,
+      low: seed.low,
+      mitigated: seed.mitigationIndex != null,
+      showLabel: settings.showLabels !== false,
+      startLogical: seed.sourceIndex - 1 + 0.15,
+      endLogical:
+        seed.invalidationIndex == null
+          ? Math.min(lastLogical, seed.sourceIndex + extendBars)
+          : Math.min(lastLogical, seed.invalidationIndex + 0.85),
+    });
+  }
+
+  return zones.slice(-maxZones);
+}
+
+function ifvgZonesForInstance(
+  bars: Candle[],
+  seeds: GapSeed[],
+  sourceId: string,
+  settings: IndicatorSettings,
+): FvgZoneDefinition[] {
+  const extendBars = clampInteger(settings.extendBars, 1, 500, 120);
+  const fillOpacity = clampNumber(settings.fillOpacity, 0.04, 0.45, 0.16);
+  const lineStyle = indicatorLineStyle(settings.lineStyle);
+  const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
+  const maxZones = clampInteger(settings.maxZones, 1, 64, 10);
+  const minGapPercent = clampNumber(settings.minGapPercent, 0, 100, 0);
+  const lastLogical = Math.max(0, bars.length - 1 + 0.9);
+  const bearishColor =
+    settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.magenta;
+  const zones: FvgZoneDefinition[] = [];
+
+  for (const seed of seeds) {
+    if (seed.invalidationIndex == null || gapPercent(seed.low, seed.high) < minGapPercent) {
+      continue;
+    }
+
+    const inversionDirection = seed.direction === "bullish" ? "bearish" : "bullish";
+    const mitigationIndex = findInvertedZoneMitigationIndex(
+      bars,
+      seed.invalidationIndex + 1,
+      inversionDirection,
+      seed.low,
+      seed.high,
+    );
+    if (settings.unmitigatedOnly === true && mitigationIndex != null) {
+      continue;
+    }
+
+    zones.push({
+      id: `${sourceId}-${inversionDirection}-${seed.time}`,
+      sourceId,
+      label: inversionDirection === "bullish" ? "Bull iFVG" : "Bear iFVG",
+      active: mitigationIndex == null,
+      color: inversionDirection === "bullish" ? settings.color : bearishColor,
+      fillOpacity,
+      high: seed.high,
+      lineStyle,
+      lineWidth,
+      low: seed.low,
+      mitigated: mitigationIndex != null,
+      showLabel: settings.showLabels !== false,
+      startLogical: seed.invalidationIndex - 0.2,
+      endLogical:
+        mitigationIndex == null
+          ? Math.min(lastLogical, seed.invalidationIndex + extendBars)
+          : Math.min(lastLogical, mitigationIndex + 0.85),
+    });
+  }
+
+  return zones.slice(-maxZones);
+}
+
+function detectGapSeeds(bars: Candle[]): GapSeed[] {
+  if (bars.length < 3) {
+    return [];
+  }
+
+  const seeds: GapSeed[] = [];
+  for (let index = 2; index < bars.length; index += 1) {
+    const first = bars[index - 2];
+    const third = bars[index];
+    if (!first || !third) {
+      continue;
+    }
+    if (third.low > first.high) {
+      seeds.push({
+        direction: "bullish",
+        high: third.low,
+        invalidationIndex: findBullishFvgInvalidationIndex(bars, index + 1, first.high),
+        low: first.high,
+        mitigationIndex: findBullishFvgMitigationIndex(bars, index + 1, third.low),
+        sourceIndex: index,
+        time: third.time,
+      });
+    }
+    if (third.high < first.low) {
+      seeds.push({
+        direction: "bearish",
+        high: first.low,
+        invalidationIndex: findBearishFvgInvalidationIndex(bars, index + 1, first.low),
+        low: third.high,
+        mitigationIndex: findBearishFvgMitigationIndex(bars, index + 1, third.high),
+        sourceIndex: index,
+        time: third.time,
+      });
+    }
+  }
+  return seeds;
+}
+
+function gapPercent(low: number, high: number) {
+  const midpoint = (low + high) / 2;
+  if (!Number.isFinite(midpoint) || midpoint <= 0) {
+    return 0;
+  }
+  return ((high - low) / midpoint) * 100;
+}
+
+function findBullishFvgMitigationIndex(
+  bars: Candle[],
+  startIndex: number,
+  highBoundary: number,
+) {
+  for (let index = startIndex; index < bars.length; index += 1) {
+    if (bars[index] && bars[index].low <= highBoundary) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function findBearishFvgMitigationIndex(
+  bars: Candle[],
+  startIndex: number,
+  lowBoundary: number,
+) {
+  for (let index = startIndex; index < bars.length; index += 1) {
+    if (bars[index] && bars[index].high >= lowBoundary) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function findBullishFvgInvalidationIndex(
+  bars: Candle[],
+  startIndex: number,
+  lowBoundary: number,
+) {
+  for (let index = startIndex; index < bars.length; index += 1) {
+    if (bars[index] && bars[index].close < lowBoundary) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function findBearishFvgInvalidationIndex(
+  bars: Candle[],
+  startIndex: number,
+  highBoundary: number,
+) {
+  for (let index = startIndex; index < bars.length; index += 1) {
+    if (bars[index] && bars[index].close > highBoundary) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function findInvertedZoneMitigationIndex(
+  bars: Candle[],
+  startIndex: number,
+  direction: "bullish" | "bearish",
+  lowBoundary: number,
+  highBoundary: number,
+) {
+  for (let index = startIndex; index < bars.length; index += 1) {
+    const bar = bars[index];
+    if (!bar) {
+      continue;
+    }
+    if (direction === "bullish" && bar.low <= highBoundary) {
+      return index;
+    }
+    if (direction === "bearish" && bar.high >= lowBoundary) {
+      return index;
+    }
+  }
+  return null;
+}
+
+function clampInteger(value: number | undefined, min: number, max: number, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function clampNumber(value: number | undefined, min: number, max: number, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, value));
 }
 
 export function rsiSeries(bars: Candle[], period = 14): LineData[] {
