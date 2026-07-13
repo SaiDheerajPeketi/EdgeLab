@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 
 type Props = {
   ariaLabel?: string;
@@ -52,6 +53,12 @@ export function ThemedColorPicker({
   const [isEditing, setIsEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({
+    left: 0,
+    top: 0,
+    visibility: "hidden",
+  });
 
   useEffect(() => {
     if (!isEditing) {
@@ -73,7 +80,8 @@ export function ThemedColorPicker({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
         setOpen(false);
       }
     };
@@ -88,6 +96,41 @@ export function ThemedColorPicker({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const updatePopoverPosition = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const width = 256;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const nextLeft = Math.min(
+        Math.max(8, rect.left),
+        Math.max(8, viewportWidth - width - 8),
+      );
+      const spaceBelow = viewportHeight - rect.bottom;
+      const nextTop = spaceBelow >= 320 ? rect.bottom + 8 : Math.max(8, rect.top - 320 - 8);
+      setPopoverStyle({
+        left: nextLeft,
+        top: nextTop,
+        visibility: "visible",
+      });
+    };
+
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
     };
   }, [open]);
 
@@ -167,64 +210,68 @@ export function ThemedColorPicker({
         value={draft}
       />
 
-      {open && (
-        <div
-          aria-label={`${ariaLabel} color palette`}
-          className="themed-color-popover"
-          role="dialog"
-        >
-          <div className="themed-color-popover-header">
-            <span>{ariaLabel}</span>
-            <code>{normalizedValue}</code>
-          </div>
+      {open &&
+        createPortal(
           <div
-            className="themed-color-preview"
-            style={{ "--selected-color": normalizedValue } as CSSProperties}
+            aria-label={`${ariaLabel} color palette`}
+            className="themed-color-popover"
+            ref={popoverRef}
+            role="dialog"
+            style={popoverStyle}
           >
-            <span className="themed-color-preview-swatch" />
-            <div>
-              <span>Selected</span>
-              <strong>{normalizedValue}</strong>
+            <div className="themed-color-popover-header">
+              <span>{ariaLabel}</span>
+              <code>{normalizedValue}</code>
             </div>
-          </div>
-          <label className="themed-color-popover-field">
-            <span>Hex</span>
-            <input
-              aria-label={`${ariaLabel} selected color hex code`}
-              onBlur={handleDraftBlur}
-              onChange={(event) => handleDraftChange(event.target.value)}
-              onFocus={() => setIsEditing(true)}
-              onKeyDown={handleDraftKeyDown}
-              spellCheck={false}
-              value={draft}
-            />
-          </label>
-          {COLOR_PALETTES.map((palette) => (
-            <div className="themed-color-group" key={palette.label}>
-              <div className="themed-color-section-title">{palette.label}</div>
-              <div className="themed-color-grid">
-                {palette.swatches.map((color) => (
-                  <button
-                    aria-current={normalizedValue === color ? "true" : undefined}
-                    aria-label={`Use ${color}`}
-                    className={`themed-color-option ${normalizedValue === color ? "themed-color-option-active" : ""}`}
-                    key={color}
-                    onClick={() => {
-                      applyColor(color);
-                      setOpen(false);
-                    }}
-                    style={{ "--swatch-color": color } as CSSProperties}
-                    type="button"
-                  >
-                    <span />
-                    <i aria-hidden="true" className="themed-color-option-check" />
-                  </button>
-                ))}
+            <div
+              className="themed-color-preview"
+              style={{ "--selected-color": normalizedValue } as CSSProperties}
+            >
+              <span className="themed-color-preview-swatch" />
+              <div>
+                <span>Selected</span>
+                <strong>{normalizedValue}</strong>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+            <label className="themed-color-popover-field">
+              <span>Hex</span>
+              <input
+                aria-label={`${ariaLabel} selected color hex code`}
+                onBlur={handleDraftBlur}
+                onChange={(event) => handleDraftChange(event.target.value)}
+                onFocus={() => setIsEditing(true)}
+                onKeyDown={handleDraftKeyDown}
+                spellCheck={false}
+                value={draft}
+              />
+            </label>
+            {COLOR_PALETTES.map((palette) => (
+              <div className="themed-color-group" key={palette.label}>
+                <div className="themed-color-section-title">{palette.label}</div>
+                <div className="themed-color-grid">
+                  {palette.swatches.map((color) => (
+                    <button
+                      aria-current={normalizedValue === color ? "true" : undefined}
+                      aria-label={`Use ${color}`}
+                      className={`themed-color-option ${normalizedValue === color ? "themed-color-option-active" : ""}`}
+                      key={color}
+                      onClick={() => {
+                        applyColor(color);
+                        setOpen(false);
+                      }}
+                      style={{ "--swatch-color": color } as CSSProperties}
+                      type="button"
+                    >
+                      <span />
+                      <i aria-hidden="true" className="themed-color-option-check" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -4540,12 +4540,12 @@ function renderFvgZone({
   }
 
   const labelWidth = Math.max(74, Math.ceil(definition.label.length * 6.8 + 18));
+  const availableLabelWidth = Math.max(0, box.right - box.left - 12);
   const showInlineLabel =
-    definition.showLabel &&
-    box.right - box.left >= labelWidth + 16 &&
-    box.bottom - box.top >= 24;
+    definition.showLabel && availableLabelWidth >= 26 && box.bottom - box.top >= 18;
   const labelX = box.left + 8;
   const labelY = box.top + 6;
+  const labelClipId = `fvg-label-${definition.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const handleMouseDown = (event: MouseEvent<SVGElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -4575,16 +4575,29 @@ function renderFvgZone({
       />
       {showInlineLabel && (
         <>
+          <defs>
+            <clipPath id={labelClipId}>
+              <rect
+                height={Math.max(16, box.bottom - box.top - 6)}
+                rx={3}
+                ry={3}
+                width={availableLabelWidth}
+                x={box.left + 6}
+                y={box.top + 3}
+              />
+            </clipPath>
+          </defs>
           <rect
             fill={colorWithOpacity(definition.color, selected ? 0.28 : 0.16)}
             height={18}
             rx={3}
             ry={3}
-            width={labelWidth}
+            width={Math.min(labelWidth, availableLabelWidth)}
             x={labelX}
             y={labelY}
           />
           <text
+            clipPath={`url(#${labelClipId})`}
             fill="#f8fafc"
             fontSize={10}
             fontWeight={700}

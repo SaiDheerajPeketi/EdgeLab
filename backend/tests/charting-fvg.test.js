@@ -117,6 +117,9 @@ test("buildFvgZoneDefinitions detects bullish FVGs and marks untouched zones act
         zone.high === 104,
     );
     assert.ok(matchingZone);
+    assert.equal(matchingZone.startLogical, -0.5);
+    assert.equal(matchingZone.endLogical, 3.5);
+    assert.equal(matchingZone.anchorLogical, 0);
   } finally {
     cleanup();
   }
@@ -174,6 +177,9 @@ test("buildFvgZoneDefinitions detects bearish iFVGs after bullish gaps are inval
     assert.equal(zones[0].mitigated, false);
     assert.equal(zones[0].low, 100);
     assert.equal(zones[0].high, 104);
+    assert.equal(zones[0].startLogical, 3.5);
+    assert.equal(zones[0].endLogical, 4.5);
+    assert.equal(zones[0].anchorLogical, 4);
   } finally {
     cleanup();
   }

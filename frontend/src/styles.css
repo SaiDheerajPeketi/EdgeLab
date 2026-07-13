@@ -568,7 +568,7 @@ button:disabled {
   }
 
   .themed-color-popover {
-    @apply absolute left-0 top-full z-[200] mt-2 grid w-64 gap-2 rounded-md border border-cyan-300/20 bg-[#05090e]/95 p-2.5 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
+    @apply fixed z-[260] grid w-64 gap-2 rounded-md border border-cyan-300/20 bg-[#05090e]/95 p-2.5 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent),
       linear-gradient(90deg, rgba(50, 211, 238, 0.12), transparent 58%);

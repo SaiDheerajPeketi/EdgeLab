@@ -1065,7 +1065,7 @@ function fvgZonesForInstance(
   const lineStyle = indicatorLineStyle(settings.lineStyle);
   const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
   const zones: FvgZoneDefinition[] = [];
-  const lastLogical = Math.max(0, bars.length - 1 + 0.45);
+  const lastLogical = Math.max(0, bars.length - 1 + 0.5);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.down;
 
@@ -1087,11 +1087,11 @@ function fvgZonesForInstance(
       low: seed.low,
       mitigated: seed.mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.sourceIndex - 2 - 0.45,
+      startLogical: seed.sourceIndex - 2 - 0.5,
       endLogical:
         seed.mitigationIndex == null
           ? lastLogical
-          : Math.min(lastLogical, seed.mitigationIndex + 0.45),
+          : Math.min(lastLogical, seed.mitigationIndex + 0.5),
     });
   }
 
@@ -1107,7 +1107,7 @@ function ifvgZonesForInstance(
   const fillOpacity = clampNumber(settings.fillOpacity, 0.05, 1, 0.22);
   const lineStyle = indicatorLineStyle(settings.lineStyle);
   const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
-  const lastLogical = Math.max(0, bars.length - 1 + 0.45);
+  const lastLogical = Math.max(0, bars.length - 1 + 0.5);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.magenta;
   const zones: FvgZoneDefinition[] = [];
@@ -1143,9 +1143,9 @@ function ifvgZonesForInstance(
       low: seed.low,
       mitigated: mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.invalidationIndex - 0.45,
+      startLogical: seed.invalidationIndex - 0.5,
       endLogical:
-        mitigationIndex == null ? lastLogical : Math.min(lastLogical, mitigationIndex + 0.45),
+        mitigationIndex == null ? lastLogical : Math.min(lastLogical, mitigationIndex + 0.5),
     });
   }
 
