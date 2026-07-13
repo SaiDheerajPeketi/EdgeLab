@@ -3052,6 +3052,13 @@ function findNearestFvgZone({
   let nearest: { distance: number; indicatorId: string; point: { x: number; y: number } } | null =
     null;
   for (const definition of definitions) {
+    if (
+      visibleRange &&
+      (definition.anchorLogical < visibleRange.from - 0.5 ||
+        definition.anchorLogical > visibleRange.to + 0.5)
+    ) {
+      continue;
+    }
     const visibleStart = visibleRange ? visibleRange.from - 0.5 : definition.startLogical;
     const visibleEnd = visibleRange ? visibleRange.to + 0.5 : definition.endLogical;
     const clampedStart = Math.max(definition.startLogical, visibleStart);
@@ -3406,7 +3413,7 @@ function FloatingIndicatorToolbar({
 
   return (
     <div
-      className="chart-object-floating-toolbar indicator-floating-toolbar"
+      className={`chart-object-floating-toolbar indicator-floating-toolbar ${isGapStudy ? "indicator-floating-toolbar-gap" : ""}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={stopToolbarEvent}
       role="group"
@@ -3424,21 +3431,36 @@ function FloatingIndicatorToolbar({
         <span>{indicatorDisplayName({ ...indicator, settings })}</span>
       </div>
 
-      <ThemedColorPicker
-        ariaLabel={indicator.kind === "fvg" || indicator.kind === "ifvg" ? "Bullish zone color" : "Indicator color"}
-        className="chart-object-floating-picker"
-        compact
-        onChange={(color) => onChange({ color })}
-        value={settings.color}
-      />
-
-      {isGapStudy && (
+      {isGapStudy ? (
+        <>
+          <div className="indicator-floating-field">
+            <span className="indicator-floating-field-label">Bullish</span>
+            <ThemedColorPicker
+              ariaLabel="Bullish zone color"
+              className="chart-object-floating-picker"
+              compact
+              onChange={(color) => onChange({ color })}
+              value={settings.color}
+            />
+          </div>
+          <div className="indicator-floating-field">
+            <span className="indicator-floating-field-label">Bearish</span>
+            <ThemedColorPicker
+              ariaLabel="Bearish zone color"
+              className="chart-object-floating-picker"
+              compact
+              onChange={(secondaryColor) => onChange({ secondaryColor, signalColor: secondaryColor })}
+              value={settings.secondaryColor ?? settings.signalColor ?? "#f43f5e"}
+            />
+          </div>
+        </>
+      ) : (
         <ThemedColorPicker
-          ariaLabel="Bearish zone color"
+          ariaLabel="Indicator color"
           className="chart-object-floating-picker"
           compact
-          onChange={(secondaryColor) => onChange({ secondaryColor, signalColor: secondaryColor })}
-          value={settings.secondaryColor ?? settings.signalColor ?? "#f43f5e"}
+          onChange={(color) => onChange({ color })}
+          value={settings.color}
         />
       )}
 
@@ -3493,7 +3515,7 @@ function FloatingIndicatorToolbar({
       )}
 
       {isGapStudy && (
-        <label className="chart-object-floating-width" title="Zone opacity">
+        <label className="chart-object-floating-width indicator-floating-width-wide" title="Zone opacity">
           <span>Opacity {Math.round((settings.fillOpacity ?? 0.22) * 100)}%</span>
           <input
             max={1}
@@ -3532,18 +3554,19 @@ function FloatingIndicatorToolbar({
         />
       </label>
 
-      <button
-        className={`chart-object-floating-button ${isVisible ? "active" : ""}`}
-        onClick={onToggleVisibility}
-        title={isVisible ? "Hide indicator" : "Show indicator"}
-        type="button"
-      >
-        {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-      </button>
       {isGapStudy && (
-        <div className="indicator-floating-grid">
+        <div className="indicator-floating-actions">
           <button
-            className={`chart-object-floating-button ${settings.showLabels !== false ? "active" : ""}`}
+            className={`chart-object-floating-toggle ${isVisible ? "active" : ""}`}
+            onClick={onToggleVisibility}
+            title={isVisible ? "Hide indicator" : "Show indicator"}
+            type="button"
+          >
+            {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+            <span>{isVisible ? "Visible" : "Hidden"}</span>
+          </button>
+          <button
+            className={`chart-object-floating-toggle ${settings.showLabels !== false ? "active" : ""}`}
             onClick={() => onChange({ showLabels: settings.showLabels === false })}
             title={settings.showLabels === false ? "Show labels" : "Hide labels"}
             type="button"
@@ -3551,23 +3574,44 @@ function FloatingIndicatorToolbar({
             {settings.showLabels === false ? "Show labels" : "Hide labels"}
           </button>
           <button
-            className={`chart-object-floating-button ${settings.unmitigatedOnly === true ? "active" : ""}`}
+            className={`chart-object-floating-toggle ${settings.unmitigatedOnly === true ? "active" : ""}`}
             onClick={() => onChange({ unmitigatedOnly: settings.unmitigatedOnly !== true })}
             title="Show only untouched zones"
             type="button"
           >
             Unmitigated only
           </button>
+          <button
+            className="chart-object-floating-toggle danger"
+            onClick={onRemove}
+            title="Remove indicator"
+            type="button"
+          >
+            <Trash2 size={14} />
+            <span>Remove</span>
+          </button>
         </div>
       )}
-      <button
-        className="chart-object-floating-button danger"
-        onClick={onRemove}
-        title="Remove indicator"
-        type="button"
-      >
-        <Trash2 size={14} />
-      </button>
+      {!isGapStudy && (
+        <>
+          <button
+            className={`chart-object-floating-button ${isVisible ? "active" : ""}`}
+            onClick={onToggleVisibility}
+            title={isVisible ? "Hide indicator" : "Show indicator"}
+            type="button"
+          >
+            {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+          <button
+            className="chart-object-floating-button danger"
+            onClick={onRemove}
+            title="Remove indicator"
+            type="button"
+          >
+            <Trash2 size={14} />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -4463,6 +4507,14 @@ function renderFvgZone({
   toPixel: (logical: number, price: number) => { x: number; y: number } | null;
   visibleRange: { from: number; to: number } | null;
 }) {
+  if (
+    visibleRange &&
+    (definition.anchorLogical < visibleRange.from - 0.5 ||
+      definition.anchorLogical > visibleRange.to + 0.5)
+  ) {
+    return null;
+  }
+
   const visibleStart = visibleRange ? visibleRange.from - 0.5 : definition.startLogical;
   const visibleEnd = visibleRange ? visibleRange.to + 0.5 : definition.endLogical;
   const clampedStart = Math.max(definition.startLogical, visibleStart);
@@ -4488,8 +4540,12 @@ function renderFvgZone({
   }
 
   const labelWidth = Math.max(74, Math.ceil(definition.label.length * 6.8 + 18));
-  const labelX = clamp(box.left + 8, 8, Math.max(8, plotWidth - labelWidth - 8));
-  const labelY = clamp(box.top + 8, 8, Math.max(8, plotHeight - 26));
+  const showInlineLabel =
+    definition.showLabel &&
+    box.right - box.left >= labelWidth + 16 &&
+    box.bottom - box.top >= 24;
+  const labelX = box.left + 8;
+  const labelY = box.top + 6;
   const handleMouseDown = (event: MouseEvent<SVGElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -4517,7 +4573,7 @@ function renderFvgZone({
         x={box.left}
         y={box.top}
       />
-      {definition.showLabel && (
+      {showInlineLabel && (
         <>
           <rect
             fill={colorWithOpacity(definition.color, selected ? 0.28 : 0.16)}

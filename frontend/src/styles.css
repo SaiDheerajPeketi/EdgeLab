@@ -1917,6 +1917,10 @@ button:disabled {
     @apply max-w-[min(720px,calc(100%-24px))];
   }
 
+  .indicator-floating-toolbar-gap {
+    @apply max-w-[min(980px,calc(100%-24px))] gap-2;
+  }
+
   .indicator-floating-title {
     @apply flex h-8 max-w-44 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-xs font-semibold text-slate-100;
   }
@@ -1931,6 +1935,14 @@ button:disabled {
 
   .indicator-floating-grid {
     @apply flex items-center gap-1;
+  }
+
+  .indicator-floating-field {
+    @apply flex min-w-[188px] flex-col gap-1 rounded border border-white/10 bg-black/20 px-2 py-1;
+  }
+
+  .indicator-floating-field-label {
+    @apply text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500;
   }
 
   .indicator-floating-number {
@@ -1989,6 +2001,10 @@ button:disabled {
     @apply h-8;
   }
 
+  .indicator-floating-field .chart-object-floating-picker {
+    @apply h-auto;
+  }
+
   .position-color-controls {
     @apply flex h-8 items-center gap-1 rounded border border-white/10 bg-black/20 p-0.5;
   }
@@ -2028,6 +2044,14 @@ button:disabled {
     @apply bg-cyan-300/15 text-cyan-100;
   }
 
+  .chart-object-floating-toggle {
+    @apply flex h-8 items-center gap-2 rounded border border-white/10 bg-black/20 px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .chart-object-floating-toggle.active {
+    @apply border-cyan-300/20 bg-cyan-300/15 text-cyan-100;
+  }
+
   .chart-object-floating-button.active-warn {
     @apply bg-amber-300/15 text-amber-100;
   }
@@ -2036,7 +2060,15 @@ button:disabled {
     @apply text-rose-200 hover:bg-rose-300/15 hover:text-rose-100;
   }
 
+  .chart-object-floating-toggle.danger {
+    @apply text-rose-200 hover:bg-rose-300/15 hover:text-rose-100;
+  }
+
   .chart-object-floating-button:disabled {
+    @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400;
+  }
+
+  .chart-object-floating-toggle:disabled {
     @apply cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400;
   }
 
@@ -2048,8 +2080,16 @@ button:disabled {
     @apply flex h-8 items-center gap-2 rounded border border-white/10 bg-black/20 px-2 text-[10px] font-bold tabular-nums text-slate-400;
   }
 
+  .indicator-floating-width-wide {
+    @apply min-w-[160px];
+  }
+
   .chart-object-floating-width input {
     @apply h-1.5 w-14 cursor-pointer appearance-none rounded-full bg-white/10 accent-cyan-300;
+  }
+
+  .indicator-floating-actions {
+    @apply flex w-full flex-wrap items-center gap-2 border-t border-white/10 pt-2;
   }
 
   .fib-level-editor {

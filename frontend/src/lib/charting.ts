@@ -152,6 +152,7 @@ export type FvgZoneDefinition = {
   sourceId: string;
   label: string;
   active: boolean;
+  anchorLogical: number;
   color: string;
   fillOpacity: number;
   high: number;
@@ -207,9 +208,9 @@ export const INDICATORS: Array<{
   { id: "wma", kind: "wma", label: "WMA", description: "Weighted moving average", color: CHART_COLOR.sky, pane: "overlay" },
   { id: "dema", kind: "dema", label: "DEMA", description: "Double exponential average", color: CHART_COLOR.teal, pane: "overlay" },
   { id: "tema", kind: "tema", label: "TEMA", description: "Triple exponential average", color: CHART_COLOR.up, pane: "overlay" },
-  { id: "fvg", kind: "fvg", label: "Fair Value Gap", description: "Automatic imbalance zones", color: CHART_COLOR.amber, pane: "overlay" },
+  { id: "fvg", kind: "fvg", label: "Fair Value Gaps", description: "Automatic imbalance zones", color: CHART_COLOR.amber, pane: "overlay" },
   { id: "hma", kind: "hma", label: "HMA", description: "Hull moving average", color: CHART_COLOR.warm, pane: "overlay" },
-  { id: "ifvg", kind: "ifvg", label: "Inverse Fair Value Gaps", description: "Flipped fair value gap zones", color: CHART_COLOR.blue, pane: "overlay" },
+  { id: "ifvg", kind: "ifvg", label: "Inverse Fair Value Gaps", description: "Automatic flipped imbalance zones", color: CHART_COLOR.blue, pane: "overlay" },
   { id: "vwap", kind: "vwap", label: "VWAP", description: "Session fair value", color: CHART_COLOR.up, pane: "overlay" },
   { id: "bb", kind: "bb", label: "Bollinger Bands", description: "Volatility envelope", color: CHART_COLOR.muted, pane: "overlay" },
   { id: "donchian", kind: "donchian", label: "Donchian Channel", description: "High-low range channel", color: CHART_COLOR.blue, pane: "overlay" },
@@ -406,11 +407,11 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
     case "ema":
       return `EMA ${period}`;
     case "fvg":
-      return "FVG";
+      return "Fair Value Gaps";
     case "hma":
       return `HMA ${period}`;
     case "ifvg":
-      return "Inverse FVG";
+      return "Inverse Fair Value Gaps";
     case "keltner":
       return `Keltner ${period}`;
     case "macd":
@@ -1077,6 +1078,7 @@ function fvgZonesForInstance(
       sourceId,
       label: seed.direction === "bullish" ? "Bull FVG" : "Bear FVG",
       active: seed.mitigationIndex == null,
+      anchorLogical: seed.sourceIndex - 2,
       color: seed.direction === "bullish" ? settings.color : bearishColor,
       fillOpacity,
       high: seed.high,
@@ -1132,6 +1134,7 @@ function ifvgZonesForInstance(
       sourceId,
       label: inversionDirection === "bullish" ? "Bull iFVG" : "Bear iFVG",
       active: mitigationIndex == null,
+      anchorLogical: seed.invalidationIndex,
       color: inversionDirection === "bullish" ? settings.color : bearishColor,
       fillOpacity,
       high: seed.high,
