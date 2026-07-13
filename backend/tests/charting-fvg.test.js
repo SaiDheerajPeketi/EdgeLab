@@ -117,7 +117,7 @@ test("buildFvgZoneDefinitions detects bullish FVGs and marks untouched zones act
         zone.high === 104,
     );
     assert.ok(matchingZone);
-    assert.equal(matchingZone.startLogical, -0.5);
+    assert.equal(matchingZone.startLogical, 0);
     assert.equal(matchingZone.endLogical, 3.5);
     assert.equal(matchingZone.anchorLogical, 0);
   } finally {
@@ -150,6 +150,8 @@ test("buildFvgZoneDefinitions hides mitigated gaps when unmitigatedOnly is enabl
     assert.equal(allZones.length, 1);
     assert.equal(allZones[0].active, false);
     assert.equal(allZones[0].mitigated, true);
+    assert.equal(allZones[0].startLogical, 0);
+    assert.equal(allZones[0].endLogical, 3.5);
     assert.equal(activeOnlyZones.length, 0);
   } finally {
     cleanup();
@@ -177,7 +179,7 @@ test("buildFvgZoneDefinitions detects bearish iFVGs after bullish gaps are inval
     assert.equal(zones[0].mitigated, false);
     assert.equal(zones[0].low, 100);
     assert.equal(zones[0].high, 104);
-    assert.equal(zones[0].startLogical, 3.5);
+    assert.equal(zones[0].startLogical, 4);
     assert.equal(zones[0].endLogical, 4.5);
     assert.equal(zones[0].anchorLogical, 4);
   } finally {

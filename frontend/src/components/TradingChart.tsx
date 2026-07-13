@@ -4541,10 +4541,9 @@ function renderFvgZone({
 
   const labelWidth = Math.max(74, Math.ceil(definition.label.length * 6.8 + 18));
   const availableLabelWidth = Math.max(0, box.right - box.left - 12);
-  const showInlineLabel =
-    definition.showLabel && availableLabelWidth >= 26 && box.bottom - box.top >= 18;
+  const showInlineLabel = definition.showLabel && availableLabelWidth >= 42;
   const labelX = box.left + 8;
-  const labelY = box.top + 6;
+  const labelY = clamp(box.top - 22, 4, Math.max(4, plotHeight - 22));
   const labelClipId = `fvg-label-${definition.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const handleMouseDown = (event: MouseEvent<SVGElement>) => {
     event.preventDefault();
@@ -4578,12 +4577,12 @@ function renderFvgZone({
           <defs>
             <clipPath id={labelClipId}>
               <rect
-                height={Math.max(16, box.bottom - box.top - 6)}
+                height={18}
                 rx={3}
                 ry={3}
                 width={availableLabelWidth}
-                x={box.left + 6}
-                y={box.top + 3}
+                x={labelX}
+                y={labelY}
               />
             </clipPath>
           </defs>

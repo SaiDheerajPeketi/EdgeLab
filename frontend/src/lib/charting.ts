@@ -1087,11 +1087,8 @@ function fvgZonesForInstance(
       low: seed.low,
       mitigated: seed.mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.sourceIndex - 2 - 0.5,
-      endLogical:
-        seed.mitigationIndex == null
-          ? lastLogical
-          : Math.min(lastLogical, seed.mitigationIndex + 0.5),
+      startLogical: seed.sourceIndex - 2,
+      endLogical: lastLogical,
     });
   }
 
@@ -1143,9 +1140,8 @@ function ifvgZonesForInstance(
       low: seed.low,
       mitigated: mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.invalidationIndex - 0.5,
-      endLogical:
-        mitigationIndex == null ? lastLogical : Math.min(lastLogical, mitigationIndex + 0.5),
+      startLogical: seed.invalidationIndex,
+      endLogical: lastLogical,
     });
   }
 
