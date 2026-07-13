@@ -2975,6 +2975,7 @@ function findNearestOverlayIndicator({
 
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
+  const visibleRange = chart.timeScale().getVisibleLogicalRange();
   if (point.x < 0 || point.y < 0 || point.x > plotWidth || point.y > plotHeight) {
     return null;
   }
@@ -3043,6 +3044,7 @@ function findNearestFvgZone({
 
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
+  const visibleRange = chart.timeScale().getVisibleLogicalRange();
   if (point.x < 0 || point.y < 0 || point.x > plotWidth || point.y > plotHeight) {
     return null;
   }
@@ -3050,13 +3052,20 @@ function findNearestFvgZone({
   let nearest: { distance: number; indicatorId: string; point: { x: number; y: number } } | null =
     null;
   for (const definition of definitions) {
+    const visibleStart = visibleRange ? visibleRange.from - 0.5 : definition.startLogical;
+    const visibleEnd = visibleRange ? visibleRange.to + 0.5 : definition.endLogical;
+    const clampedStart = Math.max(definition.startLogical, visibleStart);
+    const clampedEnd = Math.min(definition.endLogical, visibleEnd);
+    if (clampedEnd <= clampedStart) {
+      continue;
+    }
     const startTop = pixelFromPoint(
-      { logical: definition.startLogical, price: definition.high, time: 0 },
+      { logical: clampedStart, price: definition.high, time: 0 },
       chart,
       series,
     );
     const endBottom = pixelFromPoint(
-      { logical: definition.endLogical, price: definition.low, time: 0 },
+      { logical: clampedEnd, price: definition.low, time: 0 },
       chart,
       series,
     );
@@ -3416,7 +3425,7 @@ function FloatingIndicatorToolbar({
       </div>
 
       <ThemedColorPicker
-        ariaLabel="Indicator color"
+        ariaLabel={indicator.kind === "fvg" || indicator.kind === "ifvg" ? "Bullish zone color" : "Indicator color"}
         className="chart-object-floating-picker"
         compact
         onChange={(color) => onChange({ color })}
@@ -3425,7 +3434,7 @@ function FloatingIndicatorToolbar({
 
       {isGapStudy && (
         <ThemedColorPicker
-          ariaLabel="Opposite color"
+          ariaLabel="Bearish zone color"
           className="chart-object-floating-picker"
           compact
           onChange={(secondaryColor) => onChange({ secondaryColor, signalColor: secondaryColor })}
@@ -3465,27 +3474,7 @@ function FloatingIndicatorToolbar({
             value={settings.histogramColor ?? "#94a3b8"}
           />
         </div>
-      ) : isGapStudy ? (
-        <div className="indicator-floating-grid">
-          <IndicatorNumberInput
-            label="Extend"
-            onChange={(value) => onChange({ extendBars: Math.max(1, Math.round(value)) })}
-            value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
-          />
-          <IndicatorNumberInput
-            label="Zones"
-            onChange={(value) => onChange({ maxZones: Math.max(1, Math.round(value)) })}
-            value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
-          />
-          <IndicatorNumberInput
-            label="Min %"
-            min={0}
-            onChange={(value) => onChange({ minGapPercent: Math.max(0, Number(value.toFixed(3))) })}
-            step={0.01}
-            value={settings.minGapPercent ?? 0}
-          />
-        </div>
-      ) : !isVwap ? (
+      ) : !isGapStudy && !isVwap ? (
         <IndicatorNumberInput
           label="Period"
           onChange={(value) => onChange({ period: Math.max(1, Math.round(value)) })}
@@ -3504,15 +3493,15 @@ function FloatingIndicatorToolbar({
       )}
 
       {isGapStudy && (
-        <label className="chart-object-floating-width" title="Fill opacity">
-          <span>{Math.round((settings.fillOpacity ?? 0.18) * 100)}%</span>
+        <label className="chart-object-floating-width" title="Zone opacity">
+          <span>Opacity {Math.round((settings.fillOpacity ?? 0.22) * 100)}%</span>
           <input
-            max={0.45}
-            min={0.04}
+            max={1}
+            min={0.05}
             onChange={(event) => onChange({ fillOpacity: Number(event.target.value) })}
             step={0.01}
             type="range"
-            value={settings.fillOpacity ?? 0.18}
+            value={settings.fillOpacity ?? 0.22}
           />
         </label>
       )}
@@ -3552,14 +3541,14 @@ function FloatingIndicatorToolbar({
         {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
       </button>
       {isGapStudy && (
-        <>
+        <div className="indicator-floating-grid">
           <button
             className={`chart-object-floating-button ${settings.showLabels !== false ? "active" : ""}`}
             onClick={() => onChange({ showLabels: settings.showLabels === false })}
             title={settings.showLabels === false ? "Show labels" : "Hide labels"}
             type="button"
           >
-            Lbl
+            {settings.showLabels === false ? "Show labels" : "Hide labels"}
           </button>
           <button
             className={`chart-object-floating-button ${settings.unmitigatedOnly === true ? "active" : ""}`}
@@ -3567,9 +3556,9 @@ function FloatingIndicatorToolbar({
             title="Show only untouched zones"
             type="button"
           >
-            UM
+            Unmitigated only
           </button>
-        </>
+        </div>
       )}
       <button
         className="chart-object-floating-button danger"
@@ -4332,6 +4321,7 @@ function buildFvgZoneElements({
 
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
+  const visibleRange = chart.timeScale().getVisibleLogicalRange();
   return definitions.map((definition) =>
     renderFvgZone({
       definition,
@@ -4339,6 +4329,7 @@ function buildFvgZoneElements({
       plotHeight,
       plotWidth,
       selected: definition.sourceId === selectedIndicatorId,
+      visibleRange,
       toPixel: (logical, price) =>
         pixelFromPoint({ logical, price, time: 0 }, chart, series),
     }),
@@ -4462,6 +4453,7 @@ function renderFvgZone({
   plotWidth,
   selected,
   toPixel,
+  visibleRange,
 }: {
   definition: FvgZoneDefinition;
   onOpenSettings: (indicatorId: string, point: { x: number; y: number }) => void;
@@ -4469,9 +4461,18 @@ function renderFvgZone({
   plotWidth: number;
   selected: boolean;
   toPixel: (logical: number, price: number) => { x: number; y: number } | null;
+  visibleRange: { from: number; to: number } | null;
 }) {
-  const startTop = toPixel(definition.startLogical, definition.high);
-  const endBottom = toPixel(definition.endLogical, definition.low);
+  const visibleStart = visibleRange ? visibleRange.from - 0.5 : definition.startLogical;
+  const visibleEnd = visibleRange ? visibleRange.to + 0.5 : definition.endLogical;
+  const clampedStart = Math.max(definition.startLogical, visibleStart);
+  const clampedEnd = Math.min(definition.endLogical, visibleEnd);
+  if (clampedEnd <= clampedStart) {
+    return null;
+  }
+
+  const startTop = toPixel(clampedStart, definition.high);
+  const endBottom = toPixel(clampedEnd, definition.low);
   if (!startTop || !endBottom) {
     return null;
   }

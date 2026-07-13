@@ -191,7 +191,9 @@ export function ChartObjectsPanel({
                       {indicator.kind === "macd"
                         ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
                         : indicator.kind === "fvg" || indicator.kind === "ifvg"
-                        ? `${settings.unmitigatedOnly === true ? "Unmitigated" : "All"} / ${settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)} zones`
+                        ? settings.unmitigatedOnly === true
+                          ? "Unmitigated only"
+                          : "All visible gaps"
                         : indicator.kind === "vwap"
                         ? "Session fair value"
                         : `Period ${settings.period}${indicator.kind === "bb" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
@@ -487,7 +489,7 @@ function IndicatorHoverControls({
       {isVisible && (
         <>
           <label className="object-setting-field">
-            <span>Color</span>
+            <span>{isGapStudy ? "Bullish" : "Color"}</span>
             <ThemedColorPicker
               ariaLabel="Indicator color"
               compact
@@ -498,7 +500,7 @@ function IndicatorHoverControls({
 
           {isGapStudy && (
             <label className="object-setting-field">
-              <span>Opposite</span>
+              <span>Bearish</span>
               <ThemedColorPicker
                 ariaLabel="Opposite indicator color"
                 compact
@@ -526,20 +528,7 @@ function IndicatorHoverControls({
                 value={settings.signalPeriod ?? 9}
               />
             </div>
-          ) : isGapStudy ? (
-            <div className="grid grid-cols-2 gap-2">
-              <NumberSetting
-                label="Extend"
-                onChange={(value) => onUpdate({ extendBars: value })}
-                value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
-              />
-              <NumberSetting
-                label="Zones"
-                onChange={(value) => onUpdate({ maxZones: value })}
-                value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
-              />
-            </div>
-          ) : !isVwap ? (
+          ) : !isGapStudy && !isVwap ? (
             <NumberSetting
               label="Period"
               onChange={(value) => onUpdate({ period: value })}

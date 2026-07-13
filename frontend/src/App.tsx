@@ -1128,12 +1128,20 @@ export function WorkspaceApp() {
   }
 
   function addIndicator(kind: ChartIndicatorKind) {
-    setIndicatorInstances((current) => [
-      ...current,
-      createIndicatorInstance(kind, {
-        color: nextIndicatorInstanceColor(kind, current),
-      }),
-    ]);
+    setIndicatorInstances((current) => {
+      if (
+        (kind === "fvg" || kind === "ifvg") &&
+        current.some((indicator) => indicator.kind === kind && indicator.visible !== false)
+      ) {
+        return current;
+      }
+      return [
+        ...current,
+        createIndicatorInstance(kind, {
+          color: nextIndicatorInstanceColor(kind, current),
+        }),
+      ];
+    });
   }
 
   function removeIndicator(instanceId: string) {

@@ -76,14 +76,11 @@ export type MagnetMode = "off" | "weak" | "strong";
 export type IndicatorSettings = {
   color: string;
   period: number;
-  extendBars?: number;
   fillOpacity?: number;
   stdDev?: number;
   fastPeriod?: number;
   slowPeriod?: number;
   signalPeriod?: number;
-  maxZones?: number;
-  minGapPercent?: number;
   secondaryColor?: string;
   signalColor?: string;
   showLabels?: boolean;
@@ -212,7 +209,7 @@ export const INDICATORS: Array<{
   { id: "tema", kind: "tema", label: "TEMA", description: "Triple exponential average", color: CHART_COLOR.up, pane: "overlay" },
   { id: "fvg", kind: "fvg", label: "Fair Value Gap", description: "Automatic imbalance zones", color: CHART_COLOR.amber, pane: "overlay" },
   { id: "hma", kind: "hma", label: "HMA", description: "Hull moving average", color: CHART_COLOR.warm, pane: "overlay" },
-  { id: "ifvg", kind: "ifvg", label: "iFVG", description: "Inverted fair value gaps", color: CHART_COLOR.blue, pane: "overlay" },
+  { id: "ifvg", kind: "ifvg", label: "Inverse Fair Value Gaps", description: "Flipped fair value gap zones", color: CHART_COLOR.blue, pane: "overlay" },
   { id: "vwap", kind: "vwap", label: "VWAP", description: "Session fair value", color: CHART_COLOR.up, pane: "overlay" },
   { id: "bb", kind: "bb", label: "Bollinger Bands", description: "Volatility envelope", color: CHART_COLOR.muted, pane: "overlay" },
   { id: "donchian", kind: "donchian", label: "Donchian Channel", description: "High-low range channel", color: CHART_COLOR.blue, pane: "overlay" },
@@ -233,30 +230,25 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   fvg: {
     color: CHART_COLOR.amber,
     period: 1,
-    extendBars: 80,
-    fillOpacity: 0.18,
+    fillOpacity: 0.22,
     lineStyle: "solid",
     lineWidth: 1,
-    maxZones: 12,
-    minGapPercent: 0,
     secondaryColor: CHART_COLOR.down,
     signalColor: CHART_COLOR.down,
     showLabels: true,
+    unmitigatedOnly: false,
   },
   hma: { color: CHART_COLOR.warm, period: 20 },
   ifvg: {
     color: CHART_COLOR.blue,
     period: 1,
-    extendBars: 120,
-    fillOpacity: 0.16,
+    fillOpacity: 0.22,
     lineStyle: "dashed",
     lineWidth: 1,
-    maxZones: 10,
-    minGapPercent: 0,
     secondaryColor: CHART_COLOR.magenta,
     signalColor: CHART_COLOR.magenta,
     showLabels: true,
-    unmitigatedOnly: true,
+    unmitigatedOnly: false,
   },
   keltner: { color: CHART_COLOR.orange, period: 20, stdDev: 2 },
   macd: {
@@ -418,7 +410,7 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
     case "hma":
       return `HMA ${period}`;
     case "ifvg":
-      return "iFVG";
+      return "Inverse FVG";
     case "keltner":
       return `Keltner ${period}`;
     case "macd":
@@ -1068,21 +1060,15 @@ function fvgZonesForInstance(
   sourceId: string,
   settings: IndicatorSettings,
 ): FvgZoneDefinition[] {
-  const extendBars = clampInteger(settings.extendBars, 1, 500, 80);
-  const fillOpacity = clampNumber(settings.fillOpacity, 0.04, 0.45, 0.18);
+  const fillOpacity = clampNumber(settings.fillOpacity, 0.05, 1, 0.22);
   const lineStyle = indicatorLineStyle(settings.lineStyle);
   const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
-  const maxZones = clampInteger(settings.maxZones, 1, 64, 12);
-  const minGapPercent = clampNumber(settings.minGapPercent, 0, 100, 0);
   const zones: FvgZoneDefinition[] = [];
-  const lastLogical = Math.max(0, bars.length - 1 + 0.9);
+  const lastLogical = Math.max(0, bars.length - 1 + 0.45);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.down;
 
   for (const seed of seeds) {
-    if (gapPercent(seed.low, seed.high) < minGapPercent) {
-      continue;
-    }
     if (settings.unmitigatedOnly === true && seed.mitigationIndex != null) {
       continue;
     }
@@ -1099,15 +1085,15 @@ function fvgZonesForInstance(
       low: seed.low,
       mitigated: seed.mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.sourceIndex - 1 + 0.15,
+      startLogical: seed.sourceIndex - 2 - 0.45,
       endLogical:
-        seed.invalidationIndex == null
-          ? Math.min(lastLogical, seed.sourceIndex + extendBars)
-          : Math.min(lastLogical, seed.invalidationIndex + 0.85),
+        seed.mitigationIndex == null
+          ? lastLogical
+          : Math.min(lastLogical, seed.mitigationIndex + 0.45),
     });
   }
 
-  return zones.slice(-maxZones);
+  return zones;
 }
 
 function ifvgZonesForInstance(
@@ -1116,19 +1102,16 @@ function ifvgZonesForInstance(
   sourceId: string,
   settings: IndicatorSettings,
 ): FvgZoneDefinition[] {
-  const extendBars = clampInteger(settings.extendBars, 1, 500, 120);
-  const fillOpacity = clampNumber(settings.fillOpacity, 0.04, 0.45, 0.16);
+  const fillOpacity = clampNumber(settings.fillOpacity, 0.05, 1, 0.22);
   const lineStyle = indicatorLineStyle(settings.lineStyle);
   const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
-  const maxZones = clampInteger(settings.maxZones, 1, 64, 10);
-  const minGapPercent = clampNumber(settings.minGapPercent, 0, 100, 0);
-  const lastLogical = Math.max(0, bars.length - 1 + 0.9);
+  const lastLogical = Math.max(0, bars.length - 1 + 0.45);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.magenta;
   const zones: FvgZoneDefinition[] = [];
 
   for (const seed of seeds) {
-    if (seed.invalidationIndex == null || gapPercent(seed.low, seed.high) < minGapPercent) {
+    if (seed.invalidationIndex == null) {
       continue;
     }
 
@@ -1157,15 +1140,13 @@ function ifvgZonesForInstance(
       low: seed.low,
       mitigated: mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.invalidationIndex - 0.2,
+      startLogical: seed.invalidationIndex - 0.45,
       endLogical:
-        mitigationIndex == null
-          ? Math.min(lastLogical, seed.invalidationIndex + extendBars)
-          : Math.min(lastLogical, mitigationIndex + 0.85),
+        mitigationIndex == null ? lastLogical : Math.min(lastLogical, mitigationIndex + 0.45),
     });
   }
 
-  return zones.slice(-maxZones);
+  return zones;
 }
 
 function detectGapSeeds(bars: Candle[]): GapSeed[] {
@@ -1186,7 +1167,7 @@ function detectGapSeeds(bars: Candle[]): GapSeed[] {
         high: third.low,
         invalidationIndex: findBullishFvgInvalidationIndex(bars, index + 1, first.high),
         low: first.high,
-        mitigationIndex: findBullishFvgMitigationIndex(bars, index + 1, third.low),
+        mitigationIndex: findZoneTouchIndex(bars, index + 1, first.high, third.low),
         sourceIndex: index,
         time: third.time,
       });
@@ -1197,7 +1178,7 @@ function detectGapSeeds(bars: Candle[]): GapSeed[] {
         high: first.low,
         invalidationIndex: findBearishFvgInvalidationIndex(bars, index + 1, first.low),
         low: third.high,
-        mitigationIndex: findBearishFvgMitigationIndex(bars, index + 1, third.high),
+        mitigationIndex: findZoneTouchIndex(bars, index + 1, third.high, first.low),
         sourceIndex: index,
         time: third.time,
       });
@@ -1206,34 +1187,14 @@ function detectGapSeeds(bars: Candle[]): GapSeed[] {
   return seeds;
 }
 
-function gapPercent(low: number, high: number) {
-  const midpoint = (low + high) / 2;
-  if (!Number.isFinite(midpoint) || midpoint <= 0) {
-    return 0;
-  }
-  return ((high - low) / midpoint) * 100;
-}
-
-function findBullishFvgMitigationIndex(
-  bars: Candle[],
-  startIndex: number,
-  highBoundary: number,
-) {
-  for (let index = startIndex; index < bars.length; index += 1) {
-    if (bars[index] && bars[index].low <= highBoundary) {
-      return index;
-    }
-  }
-  return null;
-}
-
-function findBearishFvgMitigationIndex(
+function findZoneTouchIndex(
   bars: Candle[],
   startIndex: number,
   lowBoundary: number,
+  highBoundary: number,
 ) {
   for (let index = startIndex; index < bars.length; index += 1) {
-    if (bars[index] && bars[index].high >= lowBoundary) {
+    if (bars[index] && bars[index].high >= lowBoundary && bars[index].low <= highBoundary) {
       return index;
     }
   }
@@ -1278,10 +1239,11 @@ function findInvertedZoneMitigationIndex(
     if (!bar) {
       continue;
     }
-    if (direction === "bullish" && bar.low <= highBoundary) {
-      return index;
-    }
-    if (direction === "bearish" && bar.high >= lowBoundary) {
+    if (
+      (direction === "bullish" || direction === "bearish") &&
+      bar.high >= lowBoundary &&
+      bar.low <= highBoundary
+    ) {
       return index;
     }
   }

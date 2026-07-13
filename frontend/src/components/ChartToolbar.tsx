@@ -734,9 +734,13 @@ export function ChartToolbar({
                 const count = indicatorInstances.filter(
                   (instance) => instance.kind === indicator.kind,
                 ).length;
+                const isSingleInstanceGapStudy =
+                  indicator.kind === "fvg" || indicator.kind === "ifvg";
+                const disabled = isSingleInstanceGapStudy && count > 0;
                 return (
                   <button
-                    className={`chart-dropdown-row ${count > 0 ? "chart-dropdown-row-active" : ""}`}
+                    className={`chart-dropdown-row ${count > 0 ? "chart-dropdown-row-active" : ""} ${disabled ? "opacity-60" : ""}`}
+                    disabled={disabled}
                     key={indicator.id}
                     onClick={() => onAddIndicator(indicator.kind)}
                     type="button"
@@ -754,7 +758,7 @@ export function ChartToolbar({
                       </span>
                     </span>
                     <span className={count > 0 ? "text-cyan-100" : "text-slate-500"}>
-                      {count > 0 ? `Add ${count + 1}` : "Add"}
+                      {disabled ? "Active" : count > 0 ? `Add ${count + 1}` : "Add"}
                     </span>
                   </button>
                 );
@@ -836,16 +840,9 @@ export function ChartToolbar({
                   </>
                 ) : isGapStudy ? (
                   <>
-                    <NumberPill
-                      label="Ext"
-                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { extendBars: value })}
-                      value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
-                    />
-                    <NumberPill
-                      label="Max"
-                      onChange={(value) => onUpdateIndicatorSettings(indicator.id, { maxZones: value })}
-                      value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
-                    />
+                    <span className="rounded bg-white/5 px-2 py-1 text-[10px] text-slate-500">
+                      {settings.unmitigatedOnly === true ? "Unmitigated only" : "All zones"}
+                    </span>
                   </>
                 ) : indicator.kind !== "vwap" ? (
                   <NumberPill
@@ -1577,9 +1574,15 @@ function CommandMenu({
   }> = [
     ...INDICATORS.map((indicator) => ({
       description:
+        (indicator.kind === "fvg" || indicator.kind === "ifvg") &&
         indicatorInstances.some((instance) => instance.kind === indicator.kind)
+          ? "Already active in this chart"
+          : indicatorInstances.some((instance) => instance.kind === indicator.kind)
           ? "Add another configurable instance"
           : indicator.description,
+      disabled:
+        (indicator.kind === "fvg" || indicator.kind === "ifvg") &&
+        indicatorInstances.some((instance) => instance.kind === indicator.kind),
       icon: Layers,
       id: `indicator-${indicator.id}`,
       label: indicator.label,
@@ -1781,34 +1784,6 @@ function IndicatorEditor({
             />
           </label>
         )}
-        {isGapStudy && (
-          <>
-            <label className="form-field">
-              <span>Extend</span>
-              <input
-                className="input-control h-9"
-                min={1}
-                onChange={(event) =>
-                  onUpdate({ extendBars: clampInteger(event.target.value, 1, 500) })
-                }
-                type="number"
-                value={settings.extendBars ?? (indicator.kind === "ifvg" ? 120 : 80)}
-              />
-            </label>
-            <label className="form-field">
-              <span>Zones</span>
-              <input
-                className="input-control h-9"
-                min={1}
-                onChange={(event) =>
-                  onUpdate({ maxZones: clampInteger(event.target.value, 1, 64) })
-                }
-                type="number"
-                value={settings.maxZones ?? (indicator.kind === "ifvg" ? 10 : 12)}
-              />
-            </label>
-          </>
-        )}
         {supportsDeviation && (
           <label className="form-field">
             <span>{indicator.kind === "bb" ? "Std Dev" : "Multiplier"}</span>
@@ -1823,7 +1798,7 @@ function IndicatorEditor({
           </label>
         )}
         <label className="form-field">
-          <span>Color</span>
+          <span>{isGapStudy ? "Bullish" : "Color"}</span>
           <ThemedColorPicker
             ariaLabel="Indicator color"
             onChange={(color) => onUpdate({ color })}
@@ -1832,7 +1807,7 @@ function IndicatorEditor({
         </label>
         {isGapStudy && (
           <label className="form-field">
-            <span>Opposite</span>
+            <span>Bearish</span>
             <ThemedColorPicker
               ariaLabel="Opposite indicator color"
               onChange={(secondaryColor) => onUpdate({ secondaryColor, signalColor: secondaryColor })}
