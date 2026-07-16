@@ -232,8 +232,6 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
     color: CHART_COLOR.amber,
     period: 1,
     fillOpacity: 0.22,
-    lineStyle: "solid",
-    lineWidth: 1,
     secondaryColor: CHART_COLOR.down,
     signalColor: CHART_COLOR.down,
     showLabels: true,
@@ -244,8 +242,6 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
     color: CHART_COLOR.blue,
     period: 1,
     fillOpacity: 0.22,
-    lineStyle: "dashed",
-    lineWidth: 1,
     secondaryColor: CHART_COLOR.magenta,
     signalColor: CHART_COLOR.magenta,
     showLabels: true,
@@ -1062,10 +1058,10 @@ function fvgZonesForInstance(
   settings: IndicatorSettings,
 ): FvgZoneDefinition[] {
   const fillOpacity = clampNumber(settings.fillOpacity, 0.05, 1, 0.22);
-  const lineStyle = indicatorLineStyle(settings.lineStyle);
-  const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
+  const lineStyle = 0;
+  const lineWidth = 1;
   const zones: FvgZoneDefinition[] = [];
-  const lastLogical = Math.max(0, bars.length - 1 + 0.5);
+  const lastCandleIndex = Math.max(0, bars.length - 1);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.down;
 
@@ -1076,7 +1072,7 @@ function fvgZonesForInstance(
     zones.push({
       id: `${sourceId}-${seed.direction}-${seed.time}`,
       sourceId,
-      label: seed.direction === "bullish" ? "Bull FVG" : "Bear FVG",
+      label: seed.direction === "bullish" ? "Bullish FVG" : "Bearish FVG",
       active: seed.mitigationIndex == null,
       anchorLogical: seed.sourceIndex - 2,
       color: seed.direction === "bullish" ? settings.color : bearishColor,
@@ -1087,8 +1083,8 @@ function fvgZonesForInstance(
       low: seed.low,
       mitigated: seed.mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.sourceIndex - 2,
-      endLogical: lastLogical,
+      startLogical: seed.sourceIndex - 2 - 0.5,
+      endLogical: (seed.mitigationIndex ?? lastCandleIndex) + 0.5,
     });
   }
 
@@ -1102,9 +1098,9 @@ function ifvgZonesForInstance(
   settings: IndicatorSettings,
 ): FvgZoneDefinition[] {
   const fillOpacity = clampNumber(settings.fillOpacity, 0.05, 1, 0.22);
-  const lineStyle = indicatorLineStyle(settings.lineStyle);
-  const lineWidth = indicatorLineWidth(settings.lineWidth, 1);
-  const lastLogical = Math.max(0, bars.length - 1 + 0.5);
+  const lineStyle = 2;
+  const lineWidth = 1;
+  const lastCandleIndex = Math.max(0, bars.length - 1);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.magenta;
   const zones: FvgZoneDefinition[] = [];
@@ -1115,10 +1111,9 @@ function ifvgZonesForInstance(
     }
 
     const inversionDirection = seed.direction === "bullish" ? "bearish" : "bullish";
-    const mitigationIndex = findInvertedZoneMitigationIndex(
+    const mitigationIndex = findZoneTouchIndex(
       bars,
       seed.invalidationIndex + 1,
-      inversionDirection,
       seed.low,
       seed.high,
     );
@@ -1129,7 +1124,7 @@ function ifvgZonesForInstance(
     zones.push({
       id: `${sourceId}-${inversionDirection}-${seed.time}`,
       sourceId,
-      label: inversionDirection === "bullish" ? "Bull iFVG" : "Bear iFVG",
+      label: inversionDirection === "bullish" ? "Bullish iFVG" : "Bearish iFVG",
       active: mitigationIndex == null,
       anchorLogical: seed.invalidationIndex,
       color: inversionDirection === "bullish" ? settings.color : bearishColor,
@@ -1140,8 +1135,8 @@ function ifvgZonesForInstance(
       low: seed.low,
       mitigated: mitigationIndex != null,
       showLabel: settings.showLabels !== false,
-      startLogical: seed.invalidationIndex,
-      endLogical: lastLogical,
+      startLogical: seed.invalidationIndex - 0.5,
+      endLogical: (mitigationIndex ?? lastCandleIndex) + 0.5,
     });
   }
 
@@ -1220,29 +1215,6 @@ function findBearishFvgInvalidationIndex(
 ) {
   for (let index = startIndex; index < bars.length; index += 1) {
     if (bars[index] && bars[index].close > highBoundary) {
-      return index;
-    }
-  }
-  return null;
-}
-
-function findInvertedZoneMitigationIndex(
-  bars: Candle[],
-  startIndex: number,
-  direction: "bullish" | "bearish",
-  lowBoundary: number,
-  highBoundary: number,
-) {
-  for (let index = startIndex; index < bars.length; index += 1) {
-    const bar = bars[index];
-    if (!bar) {
-      continue;
-    }
-    if (
-      (direction === "bullish" || direction === "bearish") &&
-      bar.high >= lowBoundary &&
-      bar.low <= highBoundary
-    ) {
       return index;
     }
   }

@@ -3528,31 +3528,35 @@ function FloatingIndicatorToolbar({
         </label>
       )}
 
-      <div className="chart-object-floating-style" role="group">
-        {lineStyles.map((style) => (
-          <button
-            className={lineStyle === style ? "active" : ""}
-            key={style}
-            onClick={() => onChange({ lineStyle: style })}
-            title={`${style} line`}
-            type="button"
-          >
-            <LineStylePreview style={style} />
-          </button>
-        ))}
-      </div>
+      {!isGapStudy && (
+        <>
+          <div className="chart-object-floating-style" role="group">
+            {lineStyles.map((style) => (
+              <button
+                className={lineStyle === style ? "active" : ""}
+                key={style}
+                onClick={() => onChange({ lineStyle: style })}
+                title={`${style} line`}
+                type="button"
+              >
+                <LineStylePreview style={style} />
+              </button>
+            ))}
+          </div>
 
-      <label className="chart-object-floating-width" title="Line width">
-        <span>{lineWidth}px</span>
-        <input
-          max={4}
-          min={1}
-          onChange={(event) => onChange({ lineWidth: Number(event.target.value) })}
-          step={1}
-          type="range"
-          value={lineWidth}
-        />
-      </label>
+          <label className="chart-object-floating-width" title="Line width">
+            <span>{lineWidth}px</span>
+            <input
+              max={4}
+              min={1}
+              onChange={(event) => onChange({ lineWidth: Number(event.target.value) })}
+              step={1}
+              type="range"
+              value={lineWidth}
+            />
+          </label>
+        </>
+      )}
 
       {isGapStudy && (
         <div className="indicator-floating-actions">
@@ -3571,15 +3575,15 @@ function FloatingIndicatorToolbar({
             title={settings.showLabels === false ? "Show labels" : "Hide labels"}
             type="button"
           >
-            {settings.showLabels === false ? "Show labels" : "Hide labels"}
+            {settings.showLabels === false ? "Labels hidden" : "Labels shown"}
           </button>
           <button
             className={`chart-object-floating-toggle ${settings.unmitigatedOnly === true ? "active" : ""}`}
             onClick={() => onChange({ unmitigatedOnly: settings.unmitigatedOnly !== true })}
-            title="Show only untouched zones"
+            title="Show only zones that no later candle has touched"
             type="button"
           >
-            Unmitigated only
+            Only unmitigated
           </button>
           <button
             className="chart-object-floating-toggle danger"
@@ -4539,12 +4543,13 @@ function renderFvgZone({
     return null;
   }
 
-  const labelWidth = Math.max(74, Math.ceil(definition.label.length * 6.8 + 18));
-  const availableLabelWidth = Math.max(0, box.right - box.left - 12);
-  const showInlineLabel = definition.showLabel && availableLabelWidth >= 42;
-  const labelX = box.left + 8;
-  const labelY = clamp(box.top - 22, 4, Math.max(4, plotHeight - 22));
-  const labelClipId = `fvg-label-${definition.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const labelWidth = Math.max(84, Math.ceil(definition.label.length * 6.6 + 18));
+  const showZoneLabel = definition.showLabel && plotWidth >= labelWidth + 8;
+  const labelX = clamp(box.left + 6, 4, Math.max(4, plotWidth - labelWidth - 4));
+  const labelY =
+    box.top >= 24
+      ? box.top - 21
+      : clamp(box.bottom + 3, 3, Math.max(3, plotHeight - 21));
   const handleMouseDown = (event: MouseEvent<SVGElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -4561,42 +4566,33 @@ function renderFvgZone({
       style={{ cursor: "pointer", pointerEvents: "all" }}
     >
       <rect
-        fill={colorWithOpacity(definition.color, definition.fillOpacity)}
+        fill={colorWithOpacity(
+          definition.color,
+          definition.mitigated ? definition.fillOpacity * 0.55 : definition.fillOpacity,
+        )}
         height={Math.max(2, box.bottom - box.top)}
-        rx={4}
-        ry={4}
+        rx={2}
+        ry={2}
         stroke={definition.color}
         strokeDasharray={indicatorDasharray(definition.lineStyle)}
+        strokeOpacity={definition.mitigated ? 0.6 : 1}
         strokeWidth={selected ? Math.min((definition.lineWidth ?? 1) + 1, 4) : definition.lineWidth ?? 1}
         width={Math.max(2, box.right - box.left)}
         x={box.left}
         y={box.top}
       />
-      {showInlineLabel && (
+      {showZoneLabel && (
         <>
-          <defs>
-            <clipPath id={labelClipId}>
-              <rect
-                height={18}
-                rx={3}
-                ry={3}
-                width={availableLabelWidth}
-                x={labelX}
-                y={labelY}
-              />
-            </clipPath>
-          </defs>
           <rect
             fill={colorWithOpacity(definition.color, selected ? 0.28 : 0.16)}
             height={18}
             rx={3}
             ry={3}
-            width={Math.min(labelWidth, availableLabelWidth)}
+            width={labelWidth}
             x={labelX}
             y={labelY}
           />
           <text
-            clipPath={`url(#${labelClipId})`}
             fill="#f8fafc"
             fontSize={10}
             fontWeight={700}

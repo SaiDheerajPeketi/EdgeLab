@@ -4176,15 +4176,23 @@ function LiveChartStudio({
   }
 
   function addIndicator(kind: ChartIndicatorKind) {
-    updateActiveChartPane((pane) => ({
-      ...pane,
-      indicatorInstances: [
-        ...pane.indicatorInstances,
-        createIndicatorInstance(kind, {
-          color: nextIndicatorInstanceColor(kind, pane.indicatorInstances),
-        }),
-      ],
-    }));
+    updateActiveChartPane((pane) => {
+      if (
+        (kind === "fvg" || kind === "ifvg") &&
+        pane.indicatorInstances.some((indicator) => indicator.kind === kind)
+      ) {
+        return pane;
+      }
+      return {
+        ...pane,
+        indicatorInstances: [
+          ...pane.indicatorInstances,
+          createIndicatorInstance(kind, {
+            color: nextIndicatorInstanceColor(kind, pane.indicatorInstances),
+          }),
+        ],
+      };
+    });
   }
 
   function removeIndicator(instanceId: string) {

@@ -1918,7 +1918,25 @@ button:disabled {
   }
 
   .indicator-floating-toolbar-gap {
-    @apply max-w-[min(980px,calc(100%-24px))] gap-2;
+    @apply grid w-[min(620px,calc(100%-24px))] max-w-none grid-cols-1 items-stretch gap-2 p-2 sm:grid-cols-2;
+  }
+
+  .indicator-floating-toolbar-gap .indicator-floating-title,
+  .indicator-floating-toolbar-gap .indicator-floating-actions {
+    @apply col-span-1 sm:col-span-2;
+  }
+
+  .indicator-floating-toolbar-gap .indicator-floating-title {
+    @apply max-w-none;
+  }
+
+  .indicator-floating-toolbar-gap .indicator-floating-field,
+  .indicator-floating-toolbar-gap .indicator-floating-width-wide {
+    @apply min-w-0;
+  }
+
+  .indicator-floating-toolbar-gap .indicator-floating-width-wide input {
+    @apply min-w-0 flex-1;
   }
 
   .indicator-floating-title {
