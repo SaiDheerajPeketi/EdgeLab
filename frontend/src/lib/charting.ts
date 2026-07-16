@@ -165,6 +165,11 @@ export type FvgZoneDefinition = {
   endLogical: number;
 };
 
+export type FvgZoneVisibleSpan = {
+  startLogical: number;
+  endLogical: number;
+};
+
 type GapSeed = {
   direction: "bullish" | "bearish";
   high: number;
@@ -1024,6 +1029,30 @@ export function buildFvgZoneDefinitions(
     );
   }
   return definitions;
+}
+
+export function fvgZoneVisibleSpan(
+  definition: Pick<FvgZoneDefinition, "startLogical" | "endLogical">,
+  visibleRange: { from: number; to: number } | null,
+): FvgZoneVisibleSpan | null {
+  if (!visibleRange) {
+    return definition.endLogical > definition.startLogical
+      ? { startLogical: definition.startLogical, endLogical: definition.endLogical }
+      : null;
+  }
+
+  if (
+    definition.startLogical < visibleRange.from ||
+    definition.startLogical > visibleRange.to
+  ) {
+    return null;
+  }
+
+  const endLogical = Math.min(definition.endLogical, visibleRange.to + 0.5);
+  if (endLogical <= definition.startLogical) {
+    return null;
+  }
+  return { startLogical: definition.startLogical, endLogical };
 }
 
 function indicatorLineWidth(width: number | undefined, fallback: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {

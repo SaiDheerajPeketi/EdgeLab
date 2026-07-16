@@ -279,3 +279,47 @@ test("label visibility and bullish and bearish colors are applied independently"
     cleanup();
   }
 });
+
+test("FVG visible spans are not clamped to the viewport left edge", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    const zone = {
+      startLogical: 8.5,
+      endLogical: 14.5,
+    };
+
+    assert.equal(charting.fvgZoneVisibleSpan(zone, { from: 9, to: 16 }), null);
+    assert.deepEqual(charting.fvgZoneVisibleSpan(zone, { from: 8, to: 16 }), {
+      startLogical: 8.5,
+      endLogical: 14.5,
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test("unmitigated FVG visible spans extend to the latest printed candle", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    const bars = [
+      makeBar(1, 96, 100, 95, 99),
+      makeBar(2, 99, 103, 98, 102),
+      makeBar(3, 103, 106, 104, 105),
+      makeBar(4, 105, 108, 105, 107),
+      makeBar(5, 107, 109, 105, 108),
+      makeBar(6, 108, 110, 105, 109),
+    ];
+
+    const [zone] = charting.buildFvgZoneDefinitions(bars, [
+      { id: "fvg-1", kind: "fvg", settings: { color: "#f59e0b", period: 1 }, visible: true },
+    ]);
+
+    assert.equal(zone.endLogical, 5.5);
+    assert.deepEqual(charting.fvgZoneVisibleSpan(zone, { from: -1, to: 4 }), {
+      startLogical: -0.5,
+      endLogical: 4.5,
+    });
+  } finally {
+    cleanup();
+  }
+});

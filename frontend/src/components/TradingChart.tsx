@@ -73,6 +73,7 @@ import {
   DEFAULT_FIB_LEVELS,
   defaultRiskRewardStopPoint,
   formatChartTimeframeLabel,
+  fvgZoneVisibleSpan,
   indicatorDisplayName,
   isRiskRewardTool,
   latestIndicatorValue,
@@ -3052,27 +3053,17 @@ function findNearestFvgZone({
   let nearest: { distance: number; indicatorId: string; point: { x: number; y: number } } | null =
     null;
   for (const definition of definitions) {
-    if (
-      visibleRange &&
-      (definition.anchorLogical < visibleRange.from - 0.5 ||
-        definition.anchorLogical > visibleRange.to + 0.5)
-    ) {
-      continue;
-    }
-    const visibleStart = visibleRange ? visibleRange.from - 0.5 : definition.startLogical;
-    const visibleEnd = visibleRange ? visibleRange.to + 0.5 : definition.endLogical;
-    const clampedStart = Math.max(definition.startLogical, visibleStart);
-    const clampedEnd = Math.min(definition.endLogical, visibleEnd);
-    if (clampedEnd <= clampedStart) {
+    const visibleSpan = fvgZoneVisibleSpan(definition, visibleRange);
+    if (!visibleSpan) {
       continue;
     }
     const startTop = pixelFromPoint(
-      { logical: clampedStart, price: definition.high, time: 0 },
+      { logical: visibleSpan.startLogical, price: definition.high, time: 0 },
       chart,
       series,
     );
     const endBottom = pixelFromPoint(
-      { logical: clampedEnd, price: definition.low, time: 0 },
+      { logical: visibleSpan.endLogical, price: definition.low, time: 0 },
       chart,
       series,
     );
@@ -4511,24 +4502,13 @@ function renderFvgZone({
   toPixel: (logical: number, price: number) => { x: number; y: number } | null;
   visibleRange: { from: number; to: number } | null;
 }) {
-  if (
-    visibleRange &&
-    (definition.anchorLogical < visibleRange.from - 0.5 ||
-      definition.anchorLogical > visibleRange.to + 0.5)
-  ) {
+  const visibleSpan = fvgZoneVisibleSpan(definition, visibleRange);
+  if (!visibleSpan) {
     return null;
   }
 
-  const visibleStart = visibleRange ? visibleRange.from - 0.5 : definition.startLogical;
-  const visibleEnd = visibleRange ? visibleRange.to + 0.5 : definition.endLogical;
-  const clampedStart = Math.max(definition.startLogical, visibleStart);
-  const clampedEnd = Math.min(definition.endLogical, visibleEnd);
-  if (clampedEnd <= clampedStart) {
-    return null;
-  }
-
-  const startTop = toPixel(clampedStart, definition.high);
-  const endBottom = toPixel(clampedEnd, definition.low);
+  const startTop = toPixel(visibleSpan.startLogical, definition.high);
+  const endBottom = toPixel(visibleSpan.endLogical, definition.low);
   if (!startTop || !endBottom) {
     return null;
   }
