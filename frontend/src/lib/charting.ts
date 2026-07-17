@@ -240,7 +240,7 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
     secondaryColor: CHART_COLOR.down,
     signalColor: CHART_COLOR.down,
     showLabels: true,
-    unmitigatedOnly: false,
+    unmitigatedOnly: true,
   },
   hma: { color: CHART_COLOR.warm, period: 20 },
   ifvg: {
@@ -250,7 +250,7 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
     secondaryColor: CHART_COLOR.magenta,
     signalColor: CHART_COLOR.magenta,
     showLabels: true,
-    unmitigatedOnly: false,
+    unmitigatedOnly: true,
   },
   keltner: { color: CHART_COLOR.orange, period: 20, stdDev: 2 },
   macd: {
@@ -1090,7 +1090,6 @@ function fvgZonesForInstance(
   const lineStyle = 0;
   const lineWidth = 1;
   const zones: FvgZoneDefinition[] = [];
-  const lastCandleIndex = Math.max(0, bars.length - 1);
   const bearishColor =
     settings.secondaryColor ?? settings.signalColor ?? CHART_COLOR.down;
 
@@ -1113,7 +1112,7 @@ function fvgZonesForInstance(
       mitigated: seed.mitigationIndex != null,
       showLabel: settings.showLabels !== false,
       startLogical: seed.sourceIndex - 2 - 0.5,
-      endLogical: (seed.mitigationIndex ?? lastCandleIndex) + 0.5,
+      endLogical: seed.sourceIndex + 0.5,
     });
   }
 

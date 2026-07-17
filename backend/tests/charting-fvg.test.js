@@ -94,7 +94,7 @@ function makeBar(time, open, high, low, close, volume = 100) {
   return { close, high, low, open, time, volume };
 }
 
-test("FVGs start at pattern candle one and untouched zones end at the latest candle", async () => {
+test("FVGs render as the three-candle pattern box with a label", async () => {
   const { charting, cleanup } = await loadChartingModule();
   try {
     const bars = [
@@ -118,7 +118,7 @@ test("FVGs start at pattern candle one and untouched zones end at the latest can
     );
     assert.ok(matchingZone);
     assert.equal(matchingZone.startLogical, -0.5);
-    assert.equal(matchingZone.endLogical, 3.5);
+    assert.equal(matchingZone.endLogical, 2.5);
     assert.equal(matchingZone.anchorLogical, 0);
     assert.equal(matchingZone.showLabel, true);
   } finally {
@@ -126,7 +126,7 @@ test("FVGs start at pattern candle one and untouched zones end at the latest can
   }
 });
 
-test("FVG mitigation occurs on the first later touch and ends the zone there", async () => {
+test("FVG mitigation is tracked and touched zones are filtered when requested", async () => {
   const { charting, cleanup } = await loadChartingModule();
   try {
     const bars = [
@@ -138,7 +138,12 @@ test("FVG mitigation occurs on the first later touch and ends the zone there", a
     ];
 
     const allZones = charting.buildFvgZoneDefinitions(bars, [
-      { id: "fvg-1", kind: "fvg", settings: { color: "#f59e0b", period: 1 }, visible: true },
+      {
+        id: "fvg-1",
+        kind: "fvg",
+        settings: { color: "#f59e0b", period: 1, unmitigatedOnly: false },
+        visible: true,
+      },
     ]);
     const activeOnlyZones = charting.buildFvgZoneDefinitions(bars, [
       {
@@ -153,7 +158,7 @@ test("FVG mitigation occurs on the first later touch and ends the zone there", a
     assert.equal(allZones[0].active, false);
     assert.equal(allZones[0].mitigated, true);
     assert.equal(allZones[0].startLogical, -0.5);
-    assert.equal(allZones[0].endLogical, 3.5);
+    assert.equal(allZones[0].endLogical, 2.5);
     assert.equal(activeOnlyZones.length, 0);
   } finally {
     cleanup();
@@ -224,7 +229,12 @@ test("iFVG mitigation occurs on its first later touch", async () => {
     ];
 
     const allZones = charting.buildFvgZoneDefinitions(bars, [
-      { id: "ifvg-1", kind: "ifvg", settings: { color: "#2563eb", period: 1 }, visible: true },
+      {
+        id: "ifvg-1",
+        kind: "ifvg",
+        settings: { color: "#2563eb", period: 1, unmitigatedOnly: false },
+        visible: true,
+      },
     ]);
     const untouchedZones = charting.buildFvgZoneDefinitions(bars, [
       {
@@ -241,6 +251,32 @@ test("iFVG mitigation occurs on its first later touch", async () => {
     assert.equal(allZones[0].startLogical, 2.5);
     assert.equal(allZones[0].endLogical, 5.5);
     assert.equal(untouchedZones.length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("FVG and iFVG default to unmitigated-only filtering", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    const bars = [
+      makeBar(1, 96, 100, 95, 99),
+      makeBar(2, 99, 103, 98, 102),
+      makeBar(3, 103, 106, 104, 105),
+      makeBar(4, 105, 106, 97, 99),
+      makeBar(5, 99, 99, 95, 96),
+      makeBar(6, 96, 101, 95, 100),
+    ];
+
+    const fvgZones = charting.buildFvgZoneDefinitions(bars, [
+      { id: "fvg-1", kind: "fvg", settings: { color: "#f59e0b", period: 1 }, visible: true },
+    ]);
+    const ifvgZones = charting.buildFvgZoneDefinitions(bars, [
+      { id: "ifvg-1", kind: "ifvg", settings: { color: "#2563eb", period: 1 }, visible: true },
+    ]);
+
+    assert.equal(fvgZones.length, 0);
+    assert.equal(ifvgZones.length, 0);
   } finally {
     cleanup();
   }
@@ -267,6 +303,7 @@ test("label visibility and bullish and bearish colors are applied independently"
           period: 1,
           secondaryColor: "#ef4444",
           showLabels: false,
+          unmitigatedOnly: false,
         },
         visible: true,
       },
@@ -298,7 +335,7 @@ test("FVG visible spans are not clamped to the viewport left edge", async () => 
   }
 });
 
-test("unmitigated FVG visible spans extend to the latest printed candle", async () => {
+test("FVG visible spans preserve the three-candle pattern width", async () => {
   const { charting, cleanup } = await loadChartingModule();
   try {
     const bars = [
@@ -314,10 +351,10 @@ test("unmitigated FVG visible spans extend to the latest printed candle", async 
       { id: "fvg-1", kind: "fvg", settings: { color: "#f59e0b", period: 1 }, visible: true },
     ]);
 
-    assert.equal(zone.endLogical, 5.5);
+    assert.equal(zone.endLogical, 2.5);
     assert.deepEqual(charting.fvgZoneVisibleSpan(zone, { from: -1, to: 4 }), {
       startLogical: -0.5,
-      endLogical: 4.5,
+      endLogical: 2.5,
     });
   } finally {
     cleanup();
