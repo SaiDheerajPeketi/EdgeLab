@@ -85,6 +85,7 @@ export type IndicatorSettings = {
   signalColor?: string;
   showLabels?: boolean;
   unmitigatedOnly?: boolean;
+  unmitigatedOnlyUserSet?: boolean;
   histogramColor?: string;
   lineStyle?: DrawingLineStyle;
   lineWidth?: number;
@@ -334,10 +335,21 @@ export function mergeIndicatorSettings(
   kind: ChartIndicatorKind,
   settings?: Partial<IndicatorSettings> | null,
 ): IndicatorSettings {
-  return {
+  const merged = {
     ...DEFAULT_INDICATOR_SETTINGS[kind],
     ...(settings ?? {}),
   };
+  if (
+    (kind === "fvg" || kind === "ifvg") &&
+    settings?.unmitigatedOnly === false &&
+    settings.unmitigatedOnlyUserSet !== true
+  ) {
+    return {
+      ...merged,
+      unmitigatedOnly: true,
+    };
+  }
+  return merged;
 }
 
 export function createIndicatorInstance(

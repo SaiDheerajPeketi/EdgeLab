@@ -3570,7 +3570,12 @@ function FloatingIndicatorToolbar({
           </button>
           <button
             className={`chart-object-floating-toggle ${settings.unmitigatedOnly === true ? "active" : ""}`}
-            onClick={() => onChange({ unmitigatedOnly: settings.unmitigatedOnly !== true })}
+            onClick={() =>
+              onChange({
+                unmitigatedOnly: settings.unmitigatedOnly !== true,
+                unmitigatedOnlyUserSet: true,
+              })
+            }
             title="Show only zones that no later candle has touched"
             type="button"
           >
@@ -4523,13 +4528,19 @@ function renderFvgZone({
     return null;
   }
 
-  const labelWidth = Math.max(84, Math.ceil(definition.label.length * 6.6 + 18));
+  const boxWidth = Math.max(2, box.right - box.left);
+  const compactLabel = definition.label
+    .replace("Bullish", "Bull")
+    .replace("Bearish", "Bear")
+    .replace("Inverse ", "Inv ");
+  const labelText = boxWidth >= 76 ? definition.label : compactLabel;
+  const labelWidth = Math.max(50, Math.ceil(labelText.length * 6.2 + 14));
   const showZoneLabel = definition.showLabel && plotWidth >= labelWidth + 8;
-  const labelX = clamp(box.left + 6, 4, Math.max(4, plotWidth - labelWidth - 4));
-  const labelY =
-    box.top >= 24
-      ? box.top - 21
-      : clamp(box.bottom + 3, 3, Math.max(3, plotHeight - 21));
+  const labelX = Math.min(
+    Math.max(box.left + 3, 0),
+    Math.max(0, plotWidth - labelWidth - 3),
+  );
+  const labelY = clamp(box.top + 3, 3, Math.max(3, plotHeight - 18));
   const handleMouseDown = (event: MouseEvent<SVGElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -4557,7 +4568,7 @@ function renderFvgZone({
         strokeDasharray={indicatorDasharray(definition.lineStyle)}
         strokeOpacity={definition.mitigated ? 0.6 : 1}
         strokeWidth={selected ? Math.min((definition.lineWidth ?? 1) + 1, 4) : definition.lineWidth ?? 1}
-        width={Math.max(2, box.right - box.left)}
+        width={boxWidth}
         x={box.left}
         y={box.top}
       />
@@ -4579,7 +4590,7 @@ function renderFvgZone({
             x={labelX + 9}
             y={labelY + 12}
           >
-            {definition.label}
+            {labelText}
           </text>
         </>
       )}

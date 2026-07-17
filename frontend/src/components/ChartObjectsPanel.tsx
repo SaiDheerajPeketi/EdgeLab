@@ -30,6 +30,7 @@ import {
   type ChartStyle,
   type DrawingLineStyle,
   type IndicatorSettings,
+  mergeIndicatorSettings,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
 import { ThemedColorPicker } from "./ThemedColorPicker";
@@ -160,7 +161,10 @@ export function ChartObjectsPanel({
               </div>
             )}
             {indicatorInstances.map((indicator) => {
-              const settings = indicator.settings ?? FALLBACK_SETTING;
+              const settings = mergeIndicatorSettings(
+                indicator.kind,
+                indicator.settings ?? FALLBACK_SETTING,
+              );
               return (
                 <div
                   className={`chart-object-row object-row-with-hover text-left ${indicator.visible === false ? "opacity-55" : "chart-object-row-active"}`}

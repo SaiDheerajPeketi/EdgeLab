@@ -235,6 +235,7 @@ class BetaAuthConfig(BaseModel):
     google_client_id: str | None = None
     google_redirect_uri: str | None = None
     manual_access_enabled: bool = False
+    dev_auth_bypass_enabled: bool = False
 
 
 class BetaAccessRequest(BaseModel):

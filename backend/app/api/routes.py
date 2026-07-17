@@ -8,10 +8,12 @@ from secrets import token_urlsafe
 import struct
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.params import Param
 from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -539,7 +541,7 @@ def decode_page_cursor(cursor: str) -> tuple[datetime, int]:
 
 
 def fetch_json_url(url: str, headers: dict[str, str] | None = None) -> object:
-    request = Request(url, headers=headers or {"User-Agent": "edgelab-local-datafeed"})
+    request = UrlRequest(url, headers=headers or {"User-Agent": "edgelab-local-datafeed"})
     try:
         with urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -557,6 +559,37 @@ def beta_manual_access_enabled() -> bool:
     return bool(getattr(settings, "beta_manual_access_enabled", False))
 
 
+LOCAL_DEV_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def is_local_dev_host(host: str | None) -> bool:
+    if not host:
+        return False
+    return host.strip().strip("[]").lower() in LOCAL_DEV_HOSTS
+
+
+def is_local_dev_origin(origin: str) -> bool:
+    parsed = urlparse(origin)
+    host = parsed.hostname or origin.split(":", 1)[0]
+    return is_local_dev_host(host)
+
+
+def dev_auth_bypass_enabled() -> bool:
+    if not bool(getattr(settings, "dev_auth_bypass_enabled", False)):
+        return False
+    if settings.public_origin and not is_local_dev_origin(settings.public_origin):
+        return False
+    return bool(settings.cors_origins) and all(
+        is_local_dev_origin(origin) for origin in settings.cors_origins
+    )
+
+
+def local_dev_request_allowed(request: Request) -> bool:
+    host = request.url.hostname
+    client_host = request.client.host if request.client else None
+    return is_local_dev_host(host) and is_local_dev_host(client_host)
+
+
 def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object]:
     if not google_oauth_enabled():
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
@@ -570,7 +603,7 @@ def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object
             "redirect_uri": redirect_uri,
         }
     ).encode("utf-8")
-    request = Request(
+    request = UrlRequest(
         "https://oauth2.googleapis.com/token",
         data=payload,
         headers={
@@ -978,7 +1011,30 @@ def beta_auth_config() -> BetaAuthConfig:
         google_client_id=settings.google_client_id or None,
         google_redirect_uri=settings.google_redirect_uri or None,
         manual_access_enabled=beta_manual_access_enabled(),
+        dev_auth_bypass_enabled=dev_auth_bypass_enabled(),
     )
+
+
+@router.post("/auth/dev/bypass", response_model=BetaAccessResponse)
+def dev_auth_bypass(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> BetaAccessResponse:
+    if not dev_auth_bypass_enabled() or not local_dev_request_allowed(request):
+        raise HTTPException(status_code=404, detail="Local development auth bypass unavailable")
+
+    try:
+        response = grant_beta_access_response(
+            db,
+            email="developer@localhost.edgelab",
+            name="Local Developer",
+            provider="email",
+        )
+        db.commit()
+        return response
+    except OperationalError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Local development sign-in failed") from exc
 
 
 @router.post("/auth/beta/access", response_model=BetaAccessResponse)

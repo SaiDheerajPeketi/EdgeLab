@@ -263,6 +263,10 @@ class Settings:
         "EDGELAB_BETA_MANUAL_ACCESS_ENABLED",
         False,
     )
+    dev_auth_bypass_enabled: bool = bool_env(
+        "EDGELAB_DEV_AUTH_BYPASS",
+        False,
+    )
 
 
 settings = Settings()
@@ -313,4 +317,5 @@ if not settings.google_redirect_uri and settings.public_origin:
         otel_trace_sample_ratio=settings.otel_trace_sample_ratio,
         beta_seats_total=settings.beta_seats_total,
         beta_manual_access_enabled=settings.beta_manual_access_enabled,
+        dev_auth_bypass_enabled=settings.dev_auth_bypass_enabled,
     )

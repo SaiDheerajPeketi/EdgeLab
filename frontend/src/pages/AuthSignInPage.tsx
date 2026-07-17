@@ -1,11 +1,13 @@
 import { ArrowRight, Chrome, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   EdgeLabWordmark,
 } from "../components/marketing/MarketingShell";
 import { isBetaMode, deploymentMode } from "../lib/deploymentMode";
 import { buildGoogleAuthorizeUrl, isGoogleAuthConfigured } from "../lib/googleAuth";
+import { requestDevAuthBypass } from "../lib/api";
+import { setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import { useBetaAuthConfig } from "../lib/useBetaAuthConfig";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
@@ -49,6 +51,7 @@ function useFromPath() {
 export function AuthSignInPage() {
   const fromPath = useFromPath();
   const location = useLocation();
+  const navigate = useNavigate();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const [errorMessage, setErrorMessage] = useState<string | null>(
     friendlyAuthError(searchParams.get("error")),
@@ -81,6 +84,23 @@ export function AuthSignInPage() {
         config.google_redirect_uri,
       ),
     );
+  };
+
+  const handleDevSignIn = async () => {
+    if (!authConfigLoading && !config?.dev_auth_bypass_enabled) {
+      setErrorMessage("Local development sign-in is unavailable.");
+      return;
+    }
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const response = await requestDevAuthBypass();
+      setStoredAuthSession(toStoredAuthSession(response.session));
+      navigate(fromPath, { replace: true });
+    } catch {
+      setErrorMessage("Local development sign-in is unavailable for this origin.");
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -156,6 +176,17 @@ export function AuthSignInPage() {
                     : "Continue with Google"}
                 <ArrowRight size={14} />
               </button>
+              {config?.dev_auth_bypass_enabled ? (
+                <button
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-amber-300/25 bg-amber-300/10 px-5 py-3 text-sm font-semibold text-amber-50 transition duration-200 ease-out hover:border-amber-200/40 hover:bg-amber-300/15 disabled:opacity-60 motion-reduce:transition-none sm:w-auto sm:min-w-[18rem]"
+                  disabled={isSubmitting || authConfigLoading}
+                  onClick={handleDevSignIn}
+                  type="button"
+                >
+                  Local development sign-in
+                  <ArrowRight size={14} />
+                </button>
+              ) : null}
             </div>
 
             {waitlistMode ? (

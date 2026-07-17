@@ -141,7 +141,12 @@ test("FVG mitigation is tracked and touched zones are filtered when requested", 
       {
         id: "fvg-1",
         kind: "fvg",
-        settings: { color: "#f59e0b", period: 1, unmitigatedOnly: false },
+        settings: {
+          color: "#f59e0b",
+          period: 1,
+          unmitigatedOnly: false,
+          unmitigatedOnlyUserSet: true,
+        },
         visible: true,
       },
     ]);
@@ -232,7 +237,12 @@ test("iFVG mitigation occurs on its first later touch", async () => {
       {
         id: "ifvg-1",
         kind: "ifvg",
-        settings: { color: "#2563eb", period: 1, unmitigatedOnly: false },
+        settings: {
+          color: "#2563eb",
+          period: 1,
+          unmitigatedOnly: false,
+          unmitigatedOnlyUserSet: true,
+        },
         visible: true,
       },
     ]);
@@ -282,6 +292,28 @@ test("FVG and iFVG default to unmitigated-only filtering", async () => {
   }
 });
 
+test("old saved FVG all-zone defaults migrate to unmitigated-only", async () => {
+  const { charting, cleanup } = await loadChartingModule();
+  try {
+    const legacyDefault = charting.mergeIndicatorSettings("fvg", {
+      color: "#f59e0b",
+      period: 1,
+      unmitigatedOnly: false,
+    });
+    const explicitChoice = charting.mergeIndicatorSettings("fvg", {
+      color: "#f59e0b",
+      period: 1,
+      unmitigatedOnly: false,
+      unmitigatedOnlyUserSet: true,
+    });
+
+    assert.equal(legacyDefault.unmitigatedOnly, true);
+    assert.equal(explicitChoice.unmitigatedOnly, false);
+  } finally {
+    cleanup();
+  }
+});
+
 test("label visibility and bullish and bearish colors are applied independently", async () => {
   const { charting, cleanup } = await loadChartingModule();
   try {
@@ -304,6 +336,7 @@ test("label visibility and bullish and bearish colors are applied independently"
           secondaryColor: "#ef4444",
           showLabels: false,
           unmitigatedOnly: false,
+          unmitigatedOnlyUserSet: true,
         },
         visible: true,
       },

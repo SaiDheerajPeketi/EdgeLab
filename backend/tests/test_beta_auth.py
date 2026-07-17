@@ -117,6 +117,7 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
         "settings",
         SimpleNamespace(
             beta_manual_access_enabled=False,
+            dev_auth_bypass_enabled=False,
             google_client_id="client-id",
             google_client_secret="client-secret",
             google_redirect_uri="https://edgelab.co.in/auth/callback/google",
@@ -129,3 +130,72 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
     assert response.google_client_id == "client-id"
     assert response.google_redirect_uri == "https://edgelab.co.in/auth/callback/google"
     assert response.manual_access_enabled is False
+    assert response.dev_auth_bypass_enabled is False
+
+
+def test_dev_auth_bypass_is_only_advertised_for_local_origins(monkeypatch):
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(
+            beta_manual_access_enabled=False,
+            dev_auth_bypass_enabled=True,
+            google_client_id="",
+            google_client_secret="",
+            google_redirect_uri="",
+            public_origin="https://edgelab.co.in",
+            cors_origins=("http://localhost:5173",),
+        ),
+    )
+
+    assert routes.beta_auth_config().dev_auth_bypass_enabled is False
+
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(
+            beta_manual_access_enabled=False,
+            dev_auth_bypass_enabled=True,
+            google_client_id="",
+            google_client_secret="",
+            google_redirect_uri="",
+            public_origin="http://localhost:5173",
+            cors_origins=("http://localhost:5173", "http://127.0.0.1:5173"),
+        ),
+    )
+
+    assert routes.beta_auth_config().dev_auth_bypass_enabled is True
+
+
+def test_dev_auth_bypass_issues_session_only_for_loopback_request(monkeypatch):
+    settings = SimpleNamespace(
+        beta_seats_total=2,
+        beta_manual_access_enabled=False,
+        dev_auth_bypass_enabled=True,
+        jwt_secret="test-jwt-secret",
+        public_origin="http://localhost:5173",
+        cors_origins=("http://localhost:5173",),
+    )
+    monkeypatch.setattr(routes, "settings", settings)
+    monkeypatch.setattr(auth, "settings", settings)
+    db = make_model_session()
+
+    try:
+        blocked_request = SimpleNamespace(
+            url=SimpleNamespace(hostname="edgelab.co.in"),
+            client=SimpleNamespace(host="203.0.113.10"),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            routes.dev_auth_bypass(blocked_request, db)
+
+        local_request = SimpleNamespace(
+            url=SimpleNamespace(hostname="localhost"),
+            client=SimpleNamespace(host="127.0.0.1"),
+        )
+        response = routes.dev_auth_bypass(local_request, db)
+    finally:
+        db.close()
+
+    assert exc_info.value.status_code == 404
+    assert response.session.user.email == "developer@localhost.edgelab"
+    assert response.session.user.approved is True

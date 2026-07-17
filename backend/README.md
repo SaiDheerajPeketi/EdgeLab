@@ -47,6 +47,7 @@ The backend is the core engine of EdgeLab.
 | `GOOGLE_CLIENT_SECRET` | OAuth2 Client Secret for beta sign-in | `""` |
 | `EDGELAB_BETA_SEATS_TOTAL` | Total number of beta seats allowed | `500` |
 | `EDGELAB_BETA_MANUAL_ACCESS_ENABLED`| Enable manual beta access without OAuth | `0` (False) |
+| `EDGELAB_DEV_AUTH_BYPASS` | Enable loopback-only local development sign-in | `0` (False) |
 | `EDGELAB_CACHE_MARKET_DATA` | Enable in-memory market data caching | `1` (True) |
 | `EDGELAB_MARKET_DATA_IMPORT_ENABLED`| Auto-import timeframes to DB | `1` (True) |
 | `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS` | How often the populator runs | `3600` |

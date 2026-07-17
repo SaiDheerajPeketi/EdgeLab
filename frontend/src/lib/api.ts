@@ -587,6 +587,7 @@ export type BetaAuthConfig = {
   google_client_id: string | null;
   google_redirect_uri: string | null;
   manual_access_enabled: boolean;
+  dev_auth_bypass_enabled: boolean;
 };
 
 export type BetaAccessPayload = {
@@ -742,6 +743,12 @@ export function exchangeGoogleAuthCode(payload: GoogleAuthExchangePayload) {
   return request<BetaAccessResponse>("/auth/google/exchange", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function requestDevAuthBypass() {
+  return request<BetaAccessResponse>("/auth/dev/bypass", {
+    method: "POST",
   });
 }
 

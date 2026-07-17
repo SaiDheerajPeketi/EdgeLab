@@ -7,6 +7,7 @@ const FALLBACK_AUTH_CONFIG: BetaAuthConfig = {
   google_client_id: null,
   google_redirect_uri: null,
   manual_access_enabled: false,
+  dev_auth_bypass_enabled: false,
 };
 
 export function useBetaAuthConfig() {
