@@ -625,7 +625,7 @@ def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object
 
 
 def fetch_google_userinfo(access_token: str) -> dict[str, object]:
-    request = Request(
+    request = UrlRequest(
         "https://openidconnect.googleapis.com/v1/userinfo",
         headers={
             "Accept": "application/json",

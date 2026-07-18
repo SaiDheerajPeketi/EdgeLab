@@ -133,6 +133,34 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
     assert response.dev_auth_bypass_enabled is False
 
 
+def test_fetch_google_userinfo_builds_urllib_request(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b'{"email":"alpha@desk.com","name":"Alpha Trader"}'
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(routes, "urlopen", fake_urlopen)
+
+    response = routes.fetch_google_userinfo("access-token")
+
+    assert response["email"] == "alpha@desk.com"
+    assert captured["request"].get_full_url() == "https://openidconnect.googleapis.com/v1/userinfo"
+    assert captured["request"].get_header("Authorization") == "Bearer access-token"
+    assert captured["timeout"] == 20
+
+
 def test_dev_auth_bypass_is_only_advertised_for_local_origins(monkeypatch):
     monkeypatch.setattr(
         routes,
