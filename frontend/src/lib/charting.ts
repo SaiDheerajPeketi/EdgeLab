@@ -1048,9 +1048,7 @@ export function fvgZoneVisibleSpan(
   visibleRange: { from: number; to: number } | null,
 ): FvgZoneVisibleSpan | null {
   if (!visibleRange) {
-    return definition.endLogical > definition.startLogical
-      ? { startLogical: definition.startLogical, endLogical: definition.endLogical }
-      : null;
+    return null;
   }
 
   if (

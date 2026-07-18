@@ -2976,7 +2976,7 @@ function findNearestOverlayIndicator({
 
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
-  const visibleRange = chart.timeScale().getVisibleLogicalRange();
+  const visibleRange = chartVisibleLogicalRange(chart, plotWidth);
   if (point.x < 0 || point.y < 0 || point.x > plotWidth || point.y > plotHeight) {
     return null;
   }
@@ -4365,7 +4365,7 @@ function buildFvgZoneElements({
 
   const plotWidth = chartPlotWidth(chart, frame);
   const plotHeight = chartPlotHeight(chart, frame);
-  const visibleRange = chart.timeScale().getVisibleLogicalRange();
+  const visibleRange = chartVisibleLogicalRange(chart, plotWidth);
   return definitions.map((definition) =>
     renderFvgZone({
       definition,
@@ -4488,6 +4488,23 @@ function chartPlotHeight(chart: IChartApi, frame: HTMLDivElement | null) {
     return frame ? Math.min(frame.clientHeight, paneHeight) : paneHeight;
   }
   return frame?.clientHeight ?? 0;
+}
+
+function chartVisibleLogicalRange(chart: IChartApi, plotWidth: number) {
+  const visibleRange = chart.timeScale().getVisibleLogicalRange();
+  if (visibleRange) {
+    return visibleRange;
+  }
+
+  const from = chart.timeScale().coordinateToLogical(0);
+  const to = chart.timeScale().coordinateToLogical(plotWidth);
+  if (from == null || to == null) {
+    return null;
+  }
+  return {
+    from: Math.min(from, to),
+    to: Math.max(from, to),
+  };
 }
 
 function renderFvgZone({

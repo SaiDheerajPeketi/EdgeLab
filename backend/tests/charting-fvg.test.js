@@ -358,6 +358,7 @@ test("FVG visible spans are not clamped to the viewport left edge", async () => 
       endLogical: 14.5,
     };
 
+    assert.equal(charting.fvgZoneVisibleSpan(zone, null), null);
     assert.equal(charting.fvgZoneVisibleSpan(zone, { from: 9, to: 16 }), null);
     assert.deepEqual(charting.fvgZoneVisibleSpan(zone, { from: 8, to: 16 }), {
       startLogical: 8.5,
