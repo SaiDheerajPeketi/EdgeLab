@@ -1,13 +1,15 @@
-import React, { useMemo, useState } from "react";
-import { SCENE_HEIGHT, SCENE_WIDTH, buildScenes, renderSceneSvg } from "./scene-data.mjs";
+import React, { useState } from "react";
+import { SCENE_HEIGHT, SCENE_WIDTH } from "./scene-data.mjs";
+import { ACTUAL_COMPONENT_SCENES, ActualAppSceneFrame } from "./ActualAppScenes.jsx";
 
-const scenes = buildScenes();
+const scenes = ACTUAL_COMPONENT_SCENES;
 
 export function PreviewApp() {
-  const [sceneId, setSceneId] = useState(scenes[0].id);
+  const [sceneId, setSceneId] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get("scene");
+    return scenes.some((item) => item.id === requested) ? requested : scenes[0].id;
+  });
   const scene = scenes.find((item) => item.id === sceneId) ?? scenes[0];
-  const svg = useMemo(() => renderSceneSvg(scene), [scene]);
-
   return (
     <main style={styles.page}>
       <aside style={styles.sidebar}>
@@ -31,7 +33,9 @@ export function PreviewApp() {
         </div>
       </aside>
       <section style={styles.stage}>
-        <div style={styles.frame} dangerouslySetInnerHTML={{ __html: svg }} />
+        <div style={styles.frame}>
+          <ActualAppSceneFrame scene={scene} />
+        </div>
       </section>
     </main>
   );
@@ -98,5 +102,7 @@ const styles = {
     aspectRatio: "16 / 9",
     boxShadow: "0 24px 90px rgba(0, 0, 0, 0.45)",
     maxWidth: "100%",
+    overflow: "hidden",
+    transformOrigin: "top left",
   },
 };

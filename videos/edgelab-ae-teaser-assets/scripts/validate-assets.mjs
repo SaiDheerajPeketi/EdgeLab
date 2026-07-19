@@ -20,8 +20,10 @@ if (manifest.dimensions.width !== SCENE_WIDTH || manifest.dimensions.height !== 
 
 for (const scene of scenes) {
   const svgPath = join(ROOT, "svg", `${scene.id}.svg`);
+  const htmlPath = join(ROOT, "html", `${scene.id}.html`);
   const pngPath = join(ROOT, "preview", `${scene.id}.png`);
   assertFile(svgPath);
+  assertFile(htmlPath);
   assertFile(pngPath);
   const pngDimensions = readPngDimensions(pngPath);
   if (pngDimensions.width !== SCENE_WIDTH || pngDimensions.height !== SCENE_HEIGHT) {
@@ -33,6 +35,10 @@ for (const scene of scenes) {
   }
   if (svg.includes("Marketing hero") || svg.includes("Sign-in") || svg.includes("beta access")) {
     throw new Error(`${scene.id} includes an excluded surface`);
+  }
+  const html = readFileSync(htmlPath, "utf8");
+  if (!html.includes("actual-scene-frame") || !html.includes("data-actual-component-scene")) {
+    throw new Error(`${scene.id} HTML is not an actual component composition`);
   }
 }
 
