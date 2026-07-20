@@ -1,7 +1,7 @@
 {
-  "name": "EdgeLab AE Teaser Assets",
-  "version": "0.2.0",
-  "source": "actual EdgeLab React components rendered through Vite SSR",
+  "name": "EdgeLab AE Teaser Editable Components",
+  "version": "0.3.0",
+  "source": "AE-editable SVG primitives and native shape/text layer definitions based on EdgeLab app surfaces",
   "dimensions": {
     "width": 3840,
     "height": 2160,
@@ -12,125 +12,485 @@
   "excluded": [
     "Marketing hero / product overview",
     "Sign-in / beta access screens",
-    "videos/edgelab-beta-launch"
+    "videos/edgelab-beta-launch",
+    "HTML foreignObject captures"
   ],
   "outputs": {
-    "svg": "svg/{scene-id}.svg",
-    "html": "html/{scene-id}.html",
-    "preview": "preview/{scene-id}.png",
+    "svg": "svg/{component-scene-id}.svg",
+    "preview": "preview/{component-scene-id}.png",
     "after_effects_script": "ae/edgelab-teaser-assets.jsx"
   },
-  "capture": {
-    "method": "Vite SSR actual component render with compiled EdgeLab CSS inlined into SVG foreignObject",
-    "frame_component": "ActualAppSceneFrame"
+  "colors": {
+    "bg": "#05070a",
+    "bg2": "#071018",
+    "panel": "#08111b",
+    "panel2": "#0b1622",
+    "panel3": "#0d1f2a",
+    "stroke": "#1f3343",
+    "stroke2": "#294353",
+    "text": "#f8fbff",
+    "muted": "#8b9bb0",
+    "subtext": "#b8c7d9",
+    "cyan": "#67e8f9",
+    "cyan2": "#22d3ee",
+    "green": "#34d399",
+    "red": "#fb7185",
+    "amber": "#fbbf24",
+    "blue": "#60a5fa",
+    "violet": "#a78bfa"
   },
+  "fonts": [
+    "Inter",
+    "Syne",
+    "JetBrains Mono"
+  ],
+  "editing_notes": [
+    "SVG files contain primitive rect, text, circle, line, and path elements only.",
+    "The JSX creates native After Effects shape and text layers for the same logical layer list.",
+    "Chart candles, tables, badges, metric cards, panels, and labels are separate logical layers where practical."
+  ],
   "scenes": [
     {
       "id": "session-gateway",
       "title": "Session gateway",
-      "sourceComponents": [
-        "SessionGateway"
-      ],
+      "short_title": "Setup surface",
       "width": 3840,
       "height": 2160,
       "import_order": 1,
       "svg": "svg/session-gateway.svg",
-      "html": "html/session-gateway.html",
-      "preview": "preview/session-gateway.png"
+      "preview": "preview/session-gateway.png",
+      "layer_count": 78,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "badge",
+        "badge-text",
+        "chart-background",
+        "chart-grid",
+        "chart-line",
+        "chart-marker",
+        "label",
+        "metadata",
+        "metric-label",
+        "metric-value",
+        "panel",
+        "panel-title",
+        "primary-value",
+        "subtitle",
+        "table-row",
+        "table-text",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "chart-line/candle-body",
+          "timing": "0:18-0:45",
+          "motion": "draw chart paths or cascade candle bodies left to right"
+        },
+        {
+          "role": "metric-value",
+          "timing": "0:32-0:55",
+          "motion": "count values up with short opacity pop"
+        },
+        {
+          "role": "table-row",
+          "timing": "0:24-0:50",
+          "motion": "stagger rows by 2 frames"
+        }
+      ]
     },
     {
       "id": "replay-engine-workspace",
       "title": "Replay engine workspace",
-      "sourceComponents": [
-        "TradingChart",
-        "ReplayController"
-      ],
+      "short_title": "Replay surface",
       "width": 3840,
       "height": 2160,
       "import_order": 2,
       "svg": "svg/replay-engine-workspace.svg",
-      "html": "html/replay-engine-workspace.html",
-      "preview": "preview/replay-engine-workspace.png"
+      "preview": "preview/replay-engine-workspace.png",
+      "layer_count": 196,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "badge",
+        "badge-text",
+        "candle-body",
+        "candle-wick",
+        "chart-background",
+        "chart-grid",
+        "label",
+        "order-line",
+        "panel",
+        "panel-title",
+        "risk-line",
+        "subtitle",
+        "table-row",
+        "table-text",
+        "target-line",
+        "timecode",
+        "timeline",
+        "timeline-head",
+        "timeline-progress",
+        "title",
+        "tool-button",
+        "tool-label"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "chart-line/candle-body",
+          "timing": "0:18-0:45",
+          "motion": "draw chart paths or cascade candle bodies left to right"
+        },
+        {
+          "role": "table-row",
+          "timing": "0:24-0:50",
+          "motion": "stagger rows by 2 frames"
+        }
+      ]
     },
     {
       "id": "trade-journal-notes",
       "title": "Trade journal / notes",
-      "sourceComponents": [
-        "JournalWorkspacePage"
-      ],
+      "short_title": "Journal surface",
       "width": 3840,
       "height": 2160,
       "import_order": 3,
       "svg": "svg/trade-journal-notes.svg",
-      "html": "html/trade-journal-notes.html",
-      "preview": "preview/trade-journal-notes.png"
+      "preview": "preview/trade-journal-notes.png",
+      "layer_count": 129,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "badge",
+        "badge-text",
+        "candle-body",
+        "candle-wick",
+        "chart-background",
+        "chart-grid",
+        "chart-line",
+        "chart-marker",
+        "headline",
+        "label",
+        "metric-label",
+        "metric-value",
+        "note-text",
+        "order-line",
+        "panel",
+        "panel-title",
+        "risk-line",
+        "subtitle",
+        "table-row",
+        "table-text",
+        "target-line",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "chart-line/candle-body",
+          "timing": "0:18-0:45",
+          "motion": "draw chart paths or cascade candle bodies left to right"
+        },
+        {
+          "role": "metric-value",
+          "timing": "0:32-0:55",
+          "motion": "count values up with short opacity pop"
+        },
+        {
+          "role": "table-row",
+          "timing": "0:24-0:50",
+          "motion": "stagger rows by 2 frames"
+        }
+      ]
     },
     {
       "id": "playbooks",
       "title": "Playbooks",
-      "sourceComponents": [
-        "PlaybookBoard"
-      ],
+      "short_title": "Playbook board",
       "width": 3840,
       "height": 2160,
       "import_order": 4,
       "svg": "svg/playbooks.svg",
-      "html": "html/playbooks.html",
-      "preview": "preview/playbooks.png"
+      "preview": "preview/playbooks.png",
+      "layer_count": 56,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "badge",
+        "badge-text",
+        "label",
+        "panel",
+        "panel-title",
+        "playbook-rule-card",
+        "rule-copy",
+        "rule-label",
+        "subtitle",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        }
+      ]
     },
     {
       "id": "analytics-reports-dashboard",
       "title": "Analytics / reports dashboard",
-      "sourceComponents": [
-        "ResultsPanel"
-      ],
+      "short_title": "Reports surface",
       "width": 3840,
       "height": 2160,
       "import_order": 5,
       "svg": "svg/analytics-reports-dashboard.svg",
-      "html": "html/analytics-reports-dashboard.html",
-      "preview": "preview/analytics-reports-dashboard.png"
+      "preview": "preview/analytics-reports-dashboard.png",
+      "layer_count": 118,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "bar-fill",
+        "bar-label",
+        "bar-track",
+        "chart-background",
+        "chart-grid",
+        "chart-line",
+        "chart-marker",
+        "heatmap-cell",
+        "label",
+        "metric-label",
+        "metric-value",
+        "panel",
+        "panel-title",
+        "subtitle",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "chart-line/candle-body",
+          "timing": "0:18-0:45",
+          "motion": "draw chart paths or cascade candle bodies left to right"
+        },
+        {
+          "role": "metric-value",
+          "timing": "0:32-0:55",
+          "motion": "count values up with short opacity pop"
+        }
+      ]
     },
     {
       "id": "position-order-tools",
       "title": "Position / order tools",
-      "sourceComponents": [
-        "OrderTicket",
-        "PositionPanel",
-        "TradeLog"
-      ],
+      "short_title": "Execution tools",
       "width": 3840,
       "height": 2160,
       "import_order": 6,
       "svg": "svg/position-order-tools.svg",
-      "html": "html/position-order-tools.html",
-      "preview": "preview/position-order-tools.png"
+      "preview": "preview/position-order-tools.png",
+      "layer_count": 153,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "badge",
+        "badge-text",
+        "candle-body",
+        "candle-wick",
+        "chart-background",
+        "chart-grid",
+        "label",
+        "metric-label",
+        "metric-value",
+        "order-line",
+        "panel",
+        "panel-title",
+        "risk-line",
+        "subtitle",
+        "table-row",
+        "table-text",
+        "target-line",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "chart-line/candle-body",
+          "timing": "0:18-0:45",
+          "motion": "draw chart paths or cascade candle bodies left to right"
+        },
+        {
+          "role": "metric-value",
+          "timing": "0:32-0:55",
+          "motion": "count values up with short opacity pop"
+        },
+        {
+          "role": "table-row",
+          "timing": "0:24-0:50",
+          "motion": "stagger rows by 2 frames"
+        }
+      ]
     },
     {
       "id": "position-sizing-calculator",
       "title": "Position sizing calculator",
-      "sourceComponents": [
-        "PositionSizeCalculatorPage"
-      ],
+      "short_title": "Risk calculator",
       "width": 3840,
       "height": 2160,
       "import_order": 7,
       "svg": "svg/position-sizing-calculator.svg",
-      "html": "html/position-sizing-calculator.html",
-      "preview": "preview/position-sizing-calculator.png"
+      "preview": "preview/position-sizing-calculator.png",
+      "layer_count": 69,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "bar-fill",
+        "bar-label",
+        "bar-track",
+        "chart-background",
+        "chart-grid",
+        "chart-line",
+        "chart-marker",
+        "hero-label",
+        "hero-number",
+        "label",
+        "metric-label",
+        "metric-value",
+        "panel",
+        "panel-title",
+        "subtitle",
+        "table-row",
+        "table-text",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "chart-line/candle-body",
+          "timing": "0:18-0:45",
+          "motion": "draw chart paths or cascade candle bodies left to right"
+        },
+        {
+          "role": "metric-value",
+          "timing": "0:32-0:55",
+          "motion": "count values up with short opacity pop"
+        },
+        {
+          "role": "table-row",
+          "timing": "0:24-0:50",
+          "motion": "stagger rows by 2 frames"
+        }
+      ]
     },
     {
       "id": "economic-calendar",
       "title": "Economic calendar",
-      "sourceComponents": [
-        "EconomicCalendarPage"
-      ],
+      "short_title": "Macro calendar",
       "width": 3840,
       "height": 2160,
       "import_order": 8,
       "svg": "svg/economic-calendar.svg",
-      "html": "html/economic-calendar.html",
-      "preview": "preview/economic-calendar.png"
+      "preview": "preview/economic-calendar.png",
+      "layer_count": 115,
+      "layer_roles": [
+        "background",
+        "background-accent",
+        "countdown-progress",
+        "countdown-ring",
+        "heatmap-cell",
+        "hero-label",
+        "hero-number",
+        "label",
+        "metric-label",
+        "metric-value",
+        "panel",
+        "panel-title",
+        "subtitle",
+        "table-row",
+        "table-text",
+        "title"
+      ],
+      "suggested_animation_handles": [
+        {
+          "role": "panel",
+          "timing": "0:00-0:18",
+          "motion": "fade/scale panels on as grouped blocks"
+        },
+        {
+          "role": "panel-title",
+          "timing": "0:10-0:24",
+          "motion": "text reveal after parent panel"
+        },
+        {
+          "role": "metric-value",
+          "timing": "0:32-0:55",
+          "motion": "count values up with short opacity pop"
+        },
+        {
+          "role": "table-row",
+          "timing": "0:24-0:50",
+          "motion": "stagger rows by 2 frames"
+        }
+      ]
     }
   ]
 }

@@ -1,8 +1,7 @@
 import React, { useState } from "react";
-import { SCENE_HEIGHT, SCENE_WIDTH } from "./scene-data.mjs";
-import { ACTUAL_COMPONENT_SCENES, ActualAppSceneFrame } from "./ActualAppScenes.jsx";
+import { SCENE_HEIGHT, SCENE_WIDTH, buildScenes, renderSceneSvg } from "./scene-data.mjs";
 
-const scenes = ACTUAL_COMPONENT_SCENES;
+const scenes = buildScenes();
 
 export function PreviewApp() {
   const [sceneId, setSceneId] = useState(() => {
@@ -15,7 +14,7 @@ export function PreviewApp() {
       <aside style={styles.sidebar}>
         <div style={styles.kicker}>EdgeLab</div>
         <h1 style={styles.title}>AE Teaser Assets</h1>
-        <p style={styles.copy}>{SCENE_WIDTH} x {SCENE_HEIGHT} vector scenes</p>
+        <p style={styles.copy}>{SCENE_WIDTH} x {SCENE_HEIGHT} editable vector components</p>
         <div style={styles.nav}>
           {scenes.map((item) => (
             <button
@@ -33,9 +32,10 @@ export function PreviewApp() {
         </div>
       </aside>
       <section style={styles.stage}>
-        <div style={styles.frame}>
-          <ActualAppSceneFrame scene={scene} />
-        </div>
+        <div
+          dangerouslySetInnerHTML={{ __html: renderSceneSvg(scene) }}
+          style={styles.frame}
+        />
       </section>
     </main>
   );
@@ -104,5 +104,6 @@ const styles = {
     maxWidth: "100%",
     overflow: "hidden",
     transformOrigin: "top left",
+    width: "min(100%, 1280px)",
   },
 };
