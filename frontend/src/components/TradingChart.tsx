@@ -1248,10 +1248,8 @@ export function TradingChart({
   }, [activePosition, currency, orders, replayFocusTrade, showOrderOverlays]);
 
   useEffect(() => {
-    if (drawingTool === "cursor" || drawingTool === "crosshair") {
-      setDraftDrawing(null);
-      setHoverPoint(null);
-    }
+    setDraftDrawing(null);
+    setHoverPoint(null);
   }, [drawingTool]);
 
   useEffect(() => {
