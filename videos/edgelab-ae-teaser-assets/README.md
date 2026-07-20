@@ -1,13 +1,13 @@
-# EdgeLab AE Teaser Editable Components
+# EdgeLab AE Teaser Actual App Components
 
-This folder generates 4K After Effects import assets for EdgeLab teaser editing. It is intentionally separate from `videos/edgelab-beta-launch`.
+This folder exports 4K After Effects assets from the actual EdgeLab frontend components. It is intentionally separate from `videos/edgelab-beta-launch`.
 
 ## Outputs
 
-- `svg/*.svg`: 3840x2160 primitive vector component scenes. These use SVG shapes/text only, no HTML and no `foreignObject`.
-- `preview/*.png`: 3840x2160 raster references.
-- `ae/edgelab-teaser-assets.jsx`: plain ExtendScript that creates native AE comps with editable shape and text layers.
-- `manifest.json`: component-scene metadata, dimensions, colors, fonts, layer roles, and animation handles.
+- `preview/*.png`: exact 3840x2160 screenshots from headless Chrome.
+- `svg/*.svg`: vector captures generated from the live rendered DOM: computed rectangles, text, inline SVG fragments, and canvas image surfaces.
+- `ae/edgelab-teaser-assets.jsx`: plain ExtendScript that creates exact SVG import comps plus editable native DOM layer comps.
+- `manifest.json`: dimensions, source components, layer counts, layer types, and suggested animation handles.
 
 ## Commands
 
@@ -17,17 +17,17 @@ npm run validate
 npm run dev
 ```
 
-The exporter uses structured vector layer definitions that match the EdgeLab app surfaces and visual language closely enough for teaser edits. Panels, tables, badges, candles, charts, calculator fields, calendar events, and metric cards are split into logical layers where practical.
+The exporter starts Vite, renders the real React components at `3840x2160`, captures exact PNG references through headless Chrome, walks the computed browser DOM, and converts that captured structure into SVG and AE layer data. It does not use hand-drawn mock scenes, HTML exports, or `foreignObject`.
 
-## Component Scene Set
+## Actual Component Scene Set
 
-- Session gateway
-- Replay engine workspace
-- Trade journal / notes
-- Playbooks
-- Analytics / reports dashboard
-- Position/order tools
-- Position sizing calculator
-- Economic calendar
+- `SessionGateway`
+- `TradingChart`, `ReplayController`, `OrderTicket`, `PositionPanel`
+- `JournalWorkspacePage`
+- `PlaybookBoard`
+- `ResultsPanel`
+- `OrderTicket`, `PositionPanel`, `TradeLog`
+- `PositionSizeCalculatorPage`
+- `EconomicCalendarPage`
 
-Marketing/product and sign-in/beta screens are excluded. The exporter removes any old `html/` capture output so the pack stays AE-editable.
+Marketing/product and sign-in/beta screens are excluded.

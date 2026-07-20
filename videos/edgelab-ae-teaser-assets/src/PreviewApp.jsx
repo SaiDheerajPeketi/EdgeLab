@@ -1,20 +1,25 @@
 import React, { useState } from "react";
-import { SCENE_HEIGHT, SCENE_WIDTH, buildScenes, renderSceneSvg } from "./scene-data.mjs";
+import { ACTUAL_COMPONENT_SCENES, ActualAppSceneFrame } from "./ActualAppScenes.jsx";
+import { SCENE_HEIGHT, SCENE_WIDTH } from "./scene-data.mjs";
 
-const scenes = buildScenes();
+const scenes = ACTUAL_COMPONENT_SCENES;
 
 export function PreviewApp() {
+  const params = new URLSearchParams(window.location.search);
   const [sceneId, setSceneId] = useState(() => {
-    const requested = new URLSearchParams(window.location.search).get("scene");
+    const requested = params.get("scene");
     return scenes.some((item) => item.id === requested) ? requested : scenes[0].id;
   });
   const scene = scenes.find((item) => item.id === sceneId) ?? scenes[0];
+  if (params.get("capture") === "1") {
+    return <ActualAppSceneFrame scene={scene} />;
+  }
   return (
     <main style={styles.page}>
       <aside style={styles.sidebar}>
         <div style={styles.kicker}>EdgeLab</div>
         <h1 style={styles.title}>AE Teaser Assets</h1>
-        <p style={styles.copy}>{SCENE_WIDTH} x {SCENE_HEIGHT} editable vector components</p>
+        <p style={styles.copy}>{SCENE_WIDTH} x {SCENE_HEIGHT} actual app components</p>
         <div style={styles.nav}>
           {scenes.map((item) => (
             <button
@@ -32,10 +37,9 @@ export function PreviewApp() {
         </div>
       </aside>
       <section style={styles.stage}>
-        <div
-          dangerouslySetInnerHTML={{ __html: renderSceneSvg(scene) }}
-          style={styles.frame}
-        />
+        <div style={styles.frame}>
+          <ActualAppSceneFrame scene={scene} />
+        </div>
       </section>
     </main>
   );

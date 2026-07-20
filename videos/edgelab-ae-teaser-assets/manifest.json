@@ -1,7 +1,7 @@
 {
-  "name": "EdgeLab AE Teaser Editable Components",
-  "version": "0.3.0",
-  "source": "AE-editable SVG primitives and native shape/text layer definitions based on EdgeLab app surfaces",
+  "name": "EdgeLab AE Teaser Actual App Components",
+  "version": "0.4.0",
+  "source": "actual EdgeLab React components rendered in headless Chrome and extracted from computed DOM",
   "dimensions": {
     "width": 3840,
     "height": 2160,
@@ -12,483 +12,390 @@
   "excluded": [
     "Marketing hero / product overview",
     "Sign-in / beta access screens",
-    "videos/edgelab-beta-launch",
-    "HTML foreignObject captures"
+    "videos/edgelab-beta-launch"
   ],
   "outputs": {
-    "svg": "svg/{component-scene-id}.svg",
-    "preview": "preview/{component-scene-id}.png",
+    "svg": "svg/{scene-id}.svg",
+    "preview": "preview/{scene-id}.png",
     "after_effects_script": "ae/edgelab-teaser-assets.jsx"
   },
-  "colors": {
-    "bg": "#05070a",
-    "bg2": "#071018",
-    "panel": "#08111b",
-    "panel2": "#0b1622",
-    "panel3": "#0d1f2a",
-    "stroke": "#1f3343",
-    "stroke2": "#294353",
-    "text": "#f8fbff",
-    "muted": "#8b9bb0",
-    "subtext": "#b8c7d9",
-    "cyan": "#67e8f9",
-    "cyan2": "#22d3ee",
-    "green": "#34d399",
-    "red": "#fb7185",
-    "amber": "#fbbf24",
-    "blue": "#60a5fa",
-    "violet": "#a78bfa"
+  "capture": {
+    "method": "Vite render of actual frontend components plus headless Chrome DOM/CSS extraction",
+    "viewport": {
+      "width": 3840,
+      "height": 2160,
+      "deviceScaleFactor": 1
+    }
   },
-  "fonts": [
-    "Inter",
-    "Syne",
-    "JetBrains Mono"
-  ],
-  "editing_notes": [
-    "SVG files contain primitive rect, text, circle, line, and path elements only.",
-    "The JSX creates native After Effects shape and text layers for the same logical layer list.",
-    "Chart candles, tables, badges, metric cards, panels, and labels are separate logical layers where practical."
-  ],
   "scenes": [
     {
       "id": "session-gateway",
       "title": "Session gateway",
-      "short_title": "Setup surface",
+      "sourceComponents": [
+        "SessionGateway"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 1,
       "svg": "svg/session-gateway.svg",
       "preview": "preview/session-gateway.png",
-      "layer_count": 78,
+      "layer_count": 193,
+      "native_ae_layer_count": 193,
+      "layer_types": {
+        "rect": 69,
+        "text": 124
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "badge",
-        "badge-text",
-        "chart-background",
-        "chart-grid",
-        "chart-line",
-        "chart-marker",
-        "label",
-        "metadata",
-        "metric-label",
-        "metric-value",
+        "button",
+        "div",
+        "field",
+        "form",
+        "heading",
+        "p",
         "panel",
-        "panel-title",
-        "primary-value",
-        "subtitle",
-        "table-row",
-        "table-text",
-        "title"
+        "span"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "chart-line/candle-body",
-          "timing": "0:18-0:45",
-          "motion": "draw chart paths or cascade candle bodies left to right"
-        },
-        {
-          "role": "metric-value",
-          "timing": "0:32-0:55",
-          "motion": "count values up with short opacity pop"
-        },
-        {
-          "role": "table-row",
-          "timing": "0:24-0:50",
-          "motion": "stagger rows by 2 frames"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "replay-engine-workspace",
       "title": "Replay engine workspace",
-      "short_title": "Replay surface",
+      "sourceComponents": [
+        "TradingChart",
+        "ReplayController",
+        "OrderTicket",
+        "PositionPanel"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 2,
       "svg": "svg/replay-engine-workspace.svg",
       "preview": "preview/replay-engine-workspace.png",
-      "layer_count": 196,
+      "layer_count": 182,
+      "native_ae_layer_count": 175,
+      "layer_types": {
+        "rect": 81,
+        "text": 94,
+        "image": 7
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "badge",
-        "badge-text",
-        "candle-body",
-        "candle-wick",
-        "chart-background",
-        "chart-grid",
+        "aside",
+        "button",
+        "canvas",
+        "div",
+        "field",
+        "heading",
         "label",
-        "order-line",
+        "p",
         "panel",
-        "panel-title",
-        "risk-line",
-        "subtitle",
-        "table-row",
-        "table-text",
-        "target-line",
-        "timecode",
-        "timeline",
-        "timeline-head",
-        "timeline-progress",
-        "title",
-        "tool-button",
-        "tool-label"
+        "section",
+        "span",
+        "strong"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "chart-line/candle-body",
-          "timing": "0:18-0:45",
-          "motion": "draw chart paths or cascade candle bodies left to right"
-        },
-        {
-          "role": "table-row",
-          "timing": "0:24-0:50",
-          "motion": "stagger rows by 2 frames"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "trade-journal-notes",
       "title": "Trade journal / notes",
-      "short_title": "Journal surface",
+      "sourceComponents": [
+        "JournalWorkspacePage"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 3,
       "svg": "svg/trade-journal-notes.svg",
       "preview": "preview/trade-journal-notes.png",
-      "layer_count": 129,
+      "layer_count": 151,
+      "native_ae_layer_count": 151,
+      "layer_types": {
+        "rect": 50,
+        "text": 101
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "badge",
-        "badge-text",
-        "candle-body",
-        "candle-wick",
-        "chart-background",
-        "chart-grid",
-        "chart-line",
-        "chart-marker",
-        "headline",
-        "label",
-        "metric-label",
-        "metric-value",
-        "note-text",
-        "order-line",
+        "button",
+        "div",
+        "heading",
+        "p",
         "panel",
-        "panel-title",
-        "risk-line",
-        "subtitle",
-        "table-row",
-        "table-text",
-        "target-line",
-        "title"
+        "section",
+        "span"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "chart-line/candle-body",
-          "timing": "0:18-0:45",
-          "motion": "draw chart paths or cascade candle bodies left to right"
-        },
-        {
-          "role": "metric-value",
-          "timing": "0:32-0:55",
-          "motion": "count values up with short opacity pop"
-        },
-        {
-          "role": "table-row",
-          "timing": "0:24-0:50",
-          "motion": "stagger rows by 2 frames"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "playbooks",
       "title": "Playbooks",
-      "short_title": "Playbook board",
+      "sourceComponents": [
+        "PlaybookBoard"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 4,
       "svg": "svg/playbooks.svg",
       "preview": "preview/playbooks.png",
-      "layer_count": 56,
+      "layer_count": 30,
+      "native_ae_layer_count": 30,
+      "layer_types": {
+        "rect": 7,
+        "text": 23
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "badge",
-        "badge-text",
-        "label",
+        "div",
+        "heading",
+        "p",
         "panel",
-        "panel-title",
-        "playbook-rule-card",
-        "rule-copy",
-        "rule-label",
-        "subtitle",
-        "title"
+        "span"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
+        },
+        {
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "analytics-reports-dashboard",
       "title": "Analytics / reports dashboard",
-      "short_title": "Reports surface",
+      "sourceComponents": [
+        "ResultsPanel"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 5,
       "svg": "svg/analytics-reports-dashboard.svg",
       "preview": "preview/analytics-reports-dashboard.png",
-      "layer_count": 118,
+      "layer_count": 121,
+      "native_ae_layer_count": 121,
+      "layer_types": {
+        "rect": 36,
+        "text": 85
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "bar-fill",
-        "bar-label",
-        "bar-track",
-        "chart-background",
-        "chart-grid",
-        "chart-line",
-        "chart-marker",
-        "heatmap-cell",
-        "label",
-        "metric-label",
-        "metric-value",
+        "button",
+        "div",
+        "heading",
+        "p",
         "panel",
-        "panel-title",
-        "subtitle",
-        "title"
+        "span"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "chart-line/candle-body",
-          "timing": "0:18-0:45",
-          "motion": "draw chart paths or cascade candle bodies left to right"
-        },
-        {
-          "role": "metric-value",
-          "timing": "0:32-0:55",
-          "motion": "count values up with short opacity pop"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "position-order-tools",
       "title": "Position / order tools",
-      "short_title": "Execution tools",
+      "sourceComponents": [
+        "OrderTicket",
+        "PositionPanel",
+        "TradeLog"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 6,
       "svg": "svg/position-order-tools.svg",
       "preview": "preview/position-order-tools.png",
-      "layer_count": 153,
+      "layer_count": 185,
+      "native_ae_layer_count": 185,
+      "layer_types": {
+        "rect": 56,
+        "text": 129
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "badge",
-        "badge-text",
-        "candle-body",
-        "candle-wick",
-        "chart-background",
-        "chart-grid",
+        "button",
+        "div",
+        "field",
+        "heading",
         "label",
-        "metric-label",
-        "metric-value",
-        "order-line",
+        "p",
         "panel",
-        "panel-title",
-        "risk-line",
-        "subtitle",
-        "table-row",
-        "table-text",
-        "target-line",
-        "title"
+        "span",
+        "td",
+        "th",
+        "thead",
+        "tr"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "chart-line/candle-body",
-          "timing": "0:18-0:45",
-          "motion": "draw chart paths or cascade candle bodies left to right"
-        },
-        {
-          "role": "metric-value",
-          "timing": "0:32-0:55",
-          "motion": "count values up with short opacity pop"
-        },
-        {
-          "role": "table-row",
-          "timing": "0:24-0:50",
-          "motion": "stagger rows by 2 frames"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "position-sizing-calculator",
       "title": "Position sizing calculator",
-      "short_title": "Risk calculator",
+      "sourceComponents": [
+        "PositionSizeCalculatorPage"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 7,
       "svg": "svg/position-sizing-calculator.svg",
       "preview": "preview/position-sizing-calculator.png",
-      "layer_count": 69,
+      "layer_count": 153,
+      "native_ae_layer_count": 153,
+      "layer_types": {
+        "rect": 51,
+        "text": 102
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "bar-fill",
-        "bar-label",
-        "bar-track",
-        "chart-background",
-        "chart-grid",
-        "chart-line",
-        "chart-marker",
-        "hero-label",
-        "hero-number",
-        "label",
-        "metric-label",
-        "metric-value",
+        "button",
+        "div",
+        "field",
+        "heading",
+        "p",
         "panel",
-        "panel-title",
-        "subtitle",
-        "table-row",
-        "table-text",
-        "title"
+        "section",
+        "span",
+        "td",
+        "th",
+        "tr"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "chart-line/candle-body",
-          "timing": "0:18-0:45",
-          "motion": "draw chart paths or cascade candle bodies left to right"
-        },
-        {
-          "role": "metric-value",
-          "timing": "0:32-0:55",
-          "motion": "count values up with short opacity pop"
-        },
-        {
-          "role": "table-row",
-          "timing": "0:24-0:50",
-          "motion": "stagger rows by 2 frames"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     },
     {
       "id": "economic-calendar",
       "title": "Economic calendar",
-      "short_title": "Macro calendar",
+      "sourceComponents": [
+        "EconomicCalendarPage"
+      ],
       "width": 3840,
       "height": 2160,
       "import_order": 8,
       "svg": "svg/economic-calendar.svg",
       "preview": "preview/economic-calendar.png",
-      "layer_count": 115,
+      "layer_count": 221,
+      "native_ae_layer_count": 221,
+      "layer_types": {
+        "rect": 91,
+        "text": 130
+      },
       "layer_roles": [
-        "background",
-        "background-accent",
-        "countdown-progress",
-        "countdown-ring",
-        "heatmap-cell",
-        "hero-label",
-        "hero-number",
-        "label",
-        "metric-label",
-        "metric-value",
+        "button",
+        "div",
+        "field",
+        "heading",
+        "p",
         "panel",
-        "panel-title",
-        "subtitle",
-        "table-row",
-        "table-text",
-        "title"
+        "section",
+        "span"
       ],
       "suggested_animation_handles": [
         {
-          "role": "panel",
+          "layer_type": "rect",
           "timing": "0:00-0:18",
-          "motion": "fade/scale panels on as grouped blocks"
+          "motion": "panel/card fade and slight scale"
         },
         {
-          "role": "panel-title",
-          "timing": "0:10-0:24",
-          "motion": "text reveal after parent panel"
+          "layer_type": "text",
+          "timing": "0:08-0:24",
+          "motion": "text opacity reveal or trim-by-line"
         },
         {
-          "role": "metric-value",
-          "timing": "0:32-0:55",
-          "motion": "count values up with short opacity pop"
-        },
-        {
-          "role": "table-row",
-          "timing": "0:24-0:50",
-          "motion": "stagger rows by 2 frames"
+          "layer_type": "svg",
+          "timing": "0:16-0:40",
+          "motion": "convert imported SVG to shapes in AE for chart/path reveals"
         }
       ]
     }
