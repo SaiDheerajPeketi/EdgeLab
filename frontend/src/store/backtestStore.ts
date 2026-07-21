@@ -647,8 +647,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     try {
       if (
         steps > 0 &&
-        previousState.session.end_offset != null &&
-        canAdvanceLocally(previousState)
+        previousState.session.end_offset != null
       ) {
         const targetOffset = Math.min(
           previousState.session.current_offset + steps,
@@ -662,6 +661,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           previousState.session.start_offset,
           previousState.session.end_offset,
         );
+        if (!canAdvanceLocally(previousState, bars.bars, bars.barOffset, targetOffset)) {
+          throw new Error("server advance required");
+        }
         const currentCandle = bars.bars[targetOffset - bars.barOffset] ?? previousState.current_candle;
         const state: BacktestState = {
           ...previousState,
@@ -674,6 +676,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
                 : "ACTIVE",
           },
           current_candle: currentCandle,
+          position: advancePositionLocally(previousState, currentCandle),
         };
         set({
           state,
@@ -686,8 +689,19 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         });
         return;
       }
-      const replay = await advanceBacktestCompact(sessionId, steps);
-      const state = mergeReplayUpdate(previousState, replay);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "server advance required") {
+        set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
+        return;
+      }
+    }
+    try {
+      const replayBaseState = get().pendingReplaySyncOffset == null
+        ? previousState
+        : await syncPendingReplayOffset();
+      const replaySessionId = replayBaseState?.session.id ?? sessionId;
+      const replay = await advanceBacktestCompact(replaySessionId, steps);
+      const state = mergeReplayUpdate(replayBaseState ?? previousState, replay);
       const bars = await ensureBarsForOffset(
         get().bars,
         get().barOffset,
@@ -1365,10 +1379,106 @@ function didTradeHistoryChange(previous: BacktestState, next: BacktestState) {
   );
 }
 
-function canAdvanceLocally(state: BacktestState) {
+function canAdvanceLocally(
+  state: BacktestState,
+  bars: Candle[],
+  barOffset: number,
+  targetOffset: number,
+) {
   const quantity = state.position?.quantity ?? 0;
   const side = state.position?.side ?? "FLAT";
-  return side === "FLAT" && quantity <= 0 && !state.orders.some((order) => order.status === "PENDING");
+  if (state.orders.some((order) => order.status === "PENDING")) {
+    return false;
+  }
+  if (side === "FLAT" || quantity <= 0 || !state.position) {
+    return true;
+  }
+  for (let offset = state.session.current_offset + 1; offset <= targetOffset; offset += 1) {
+    const candle = bars[offset - barOffset];
+    if (!candle || positionManagementTriggerHit(state.position, candle)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function positionManagementTriggerHit(
+  position: NonNullable<BacktestState["position"]>,
+  candle: Candle,
+) {
+  return (
+    positionStopHit(position, candle) ||
+    positionTargetHit(position, candle) ||
+    positionBreakevenTriggerHit(position, candle)
+  );
+}
+
+function positionStopHit(position: NonNullable<BacktestState["position"]>, candle: Candle) {
+  if (position.stop_loss == null) {
+    return false;
+  }
+  if (position.side === "LONG") {
+    return candle.low <= position.stop_loss;
+  }
+  if (position.side === "SHORT") {
+    return candle.high >= position.stop_loss;
+  }
+  return false;
+}
+
+function positionTargetHit(position: NonNullable<BacktestState["position"]>, candle: Candle) {
+  if (position.take_profit == null) {
+    return false;
+  }
+  if (position.side === "LONG") {
+    return candle.high >= position.take_profit;
+  }
+  if (position.side === "SHORT") {
+    return candle.low <= position.take_profit;
+  }
+  return false;
+}
+
+function positionBreakevenTriggerHit(
+  position: NonNullable<BacktestState["position"]>,
+  candle: Candle,
+) {
+  if (
+    position.breakeven_moved ||
+    position.breakeven_trigger_r == null ||
+    position.stop_loss == null ||
+    position.quantity <= 0
+  ) {
+    return false;
+  }
+  const risk =
+    position.side === "LONG"
+      ? position.avg_price - position.stop_loss
+      : position.stop_loss - position.avg_price;
+  if (risk <= 0) {
+    return false;
+  }
+  const trigger =
+    position.side === "LONG"
+      ? position.avg_price + risk * position.breakeven_trigger_r
+      : position.avg_price - risk * position.breakeven_trigger_r;
+  return position.side === "LONG" ? candle.high >= trigger : candle.low <= trigger;
+}
+
+function advancePositionLocally(state: BacktestState, candle: Candle | null) {
+  const position = state.position;
+  if (!position || position.quantity <= 0 || position.side === "FLAT" || !candle) {
+    return position;
+  }
+  const multiplier = state.session.pnl_multiplier > 0 ? state.session.pnl_multiplier : 1;
+  const rawPnl =
+    position.side === "LONG"
+      ? (candle.close - position.avg_price) * position.quantity
+      : (position.avg_price - candle.close) * position.quantity;
+  return {
+    ...position,
+    unrealized_pnl: rawPnl * multiplier,
+  };
 }
 
 function initialDatasetSessionPayload(datasets: DatasetCatalog | null): BacktestCreatePayload {
