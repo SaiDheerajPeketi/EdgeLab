@@ -113,6 +113,7 @@ type BacktestStore = {
   updateSession: (sessionId: number, payload: BacktestSessionUpdatePayload) => Promise<BacktestSession>;
   deleteSession: (sessionId: number) => Promise<void>;
   stepForward: (steps?: number) => Promise<void>;
+  stepBackward: (steps?: number) => Promise<void>;
   resetReplay: () => Promise<void>;
   jumpToOffset: (offset: number) => Promise<void>;
   jumpToTimestamp: (timestamp: string) => Promise<void>;
@@ -639,7 +640,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   stepForward: async (steps = 1) => {
     const previousState = get().state;
     const sessionId = previousState?.session.id;
-    if (!sessionId || get().isStepping || !previousState) {
+    if (!sessionId || get().isStepping || get().isLoading || !previousState) {
       return;
     }
 
@@ -731,6 +732,55 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     }
   },
 
+  stepBackward: async (steps = 1) => {
+    const previousState = get().state;
+    const sessionId = previousState?.session.id;
+    if (!sessionId || get().isStepping || get().isLoading || !previousState) {
+      return;
+    }
+
+    const targetOffset = Math.max(
+      previousState.session.start_offset,
+      previousState.session.current_offset - Math.max(1, steps),
+    );
+    if (targetOffset === previousState.session.current_offset) {
+      return;
+    }
+
+    set({ isStepping: true, isPlaying: false, error: null });
+    try {
+      const bars = await ensureBarsForOffset(
+        get().bars,
+        get().barOffset,
+        targetOffset,
+        previousState.session.id,
+        previousState.session.start_offset,
+        previousState.session.end_offset,
+      );
+      const currentCandle = bars.bars[targetOffset - bars.barOffset] ?? previousState.current_candle;
+      set({
+        state: {
+          ...previousState,
+          session: {
+            ...previousState.session,
+            current_offset: targetOffset,
+            status: "ACTIVE",
+          },
+          current_candle: currentCandle,
+          position: advancePositionLocally(previousState, currentCandle),
+        },
+        bars: bars.bars,
+        barOffset: bars.barOffset,
+        pendingReplaySyncOffset: targetOffset,
+        error: null,
+        isStepping: false,
+        isPlaying: false,
+      });
+    } catch (error) {
+      set({ error: toErrorMessage(error), isPlaying: false, isStepping: false });
+    }
+  },
+
   resetReplay: async () => {
     const session = get().state?.session;
     await get().newSession(
@@ -756,6 +806,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     if (!sessionId) {
       return;
     }
+    const requestVersion = ++replaySeekRequestVersion;
     set({ isLoading: true, isPlaying: false, error: null });
     try {
       const state = await jumpBacktest(sessionId, { offset });
@@ -765,6 +816,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.start_offset,
         state.session.end_offset,
       );
+      if (requestVersion !== replaySeekRequestVersion) {
+        return;
+      }
       set((current) => ({
         state,
         bars,
@@ -774,6 +828,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
     } catch (error) {
+      if (requestVersion !== replaySeekRequestVersion) {
+        return;
+      }
       set({ error: toErrorMessage(error), isLoading: false });
     }
   },
@@ -783,6 +840,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     if (!sessionId) {
       return;
     }
+    const requestVersion = ++replaySeekRequestVersion;
     set({ isLoading: true, isPlaying: false, error: null });
     try {
       const state = await jumpBacktest(sessionId, { timestamp });
@@ -792,6 +850,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         state.session.start_offset,
         state.session.end_offset,
       );
+      if (requestVersion !== replaySeekRequestVersion) {
+        return;
+      }
       set((current) => ({
         state,
         bars,
@@ -801,6 +862,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
     } catch (error) {
+      if (requestVersion !== replaySeekRequestVersion) {
+        return;
+      }
       set({ error: toErrorMessage(error), isLoading: false });
     }
   },
@@ -1120,6 +1184,7 @@ type TradeSnapshot = {
 
 let resultTradesLoadVersion = 0;
 let replayHydrationVersion = 0;
+let replaySeekRequestVersion = 0;
 
 function emptyTradeSnapshot(): TradeSnapshot {
   return {

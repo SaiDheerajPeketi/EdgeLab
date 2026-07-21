@@ -276,6 +276,7 @@ export function WorkspaceApp() {
     amendOrder,
     placeOrder,
     setPlaying,
+    stepBackward,
     stepForward,
     updatePosition,
   } = useBacktestStore(
@@ -316,6 +317,7 @@ export function WorkspaceApp() {
       amendOrder: store.amendOrder,
       placeOrder: store.placeOrder,
       setPlaying: store.setPlaying,
+      stepBackward: store.stepBackward,
       stepForward: store.stepForward,
       updatePosition: store.updatePosition,
     }),
@@ -896,14 +898,7 @@ export function WorkspaceApp() {
           break;
         case "ArrowLeft":
           event.preventDefault();
-          if (state) {
-            void jumpToOffset(
-              Math.max(
-                state.session.start_offset,
-                state.session.current_offset - playbackStepBars,
-              ),
-            );
-          }
+          void stepBackward(playbackStepBars);
           break;
         case " ":
           event.preventDefault();
@@ -982,7 +977,7 @@ export function WorkspaceApp() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drawingTool, isChartFullscreen, isPlaying, jumpToOffset, playbackStepBars, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, state, stepForward, undoLastDrawingChange]);
+  }, [drawingTool, isChartFullscreen, isPlaying, playbackStepBars, removeLastUnlockedDrawing, selectedDrawingId, setPlaying, sourceTimeframe, stepBackward, stepForward, undoLastDrawingChange]);
 
   useEffect(() => {
     function syncNativeFullscreen() {
