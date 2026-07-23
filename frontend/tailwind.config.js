@@ -45,7 +45,15 @@ export default {
         },
       },
       fontFamily: {
-        display: ['Syne Variable', "Syne", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: [
+          "-apple-system",
+          "BlinkMacSystemFont",
+          '"SF Pro Display"',
+          '"SF Pro Text"',
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
         body: ['Inter Variable', "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
         data: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
         mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
