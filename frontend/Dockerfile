@@ -22,7 +22,7 @@ COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
 RUN npm ci --no-audit --no-fund \
     && ROLLUP_LINUX_X64_GNU_VERSION="$(node -p 'require("./frontend/node_modules/rollup/package.json").optionalDependencies["@rollup/rollup-linux-x64-gnu"]')" \
-    && ESBUILD_LINUX_X64_VERSION="$(node -p 'require("./frontend/node_modules/esbuild/package.json").optionalDependencies["@esbuild/linux-x64"]')" \
+    && ESBUILD_LINUX_X64_VERSION="$(node -p 'require("./node_modules/esbuild/package.json").optionalDependencies["@esbuild/linux-x64"]')" \
     && npm install --no-save --ignore-scripts \
         "@rollup/rollup-linux-x64-gnu@${ROLLUP_LINUX_X64_GNU_VERSION}" \
         "@esbuild/linux-x64@${ESBUILD_LINUX_X64_VERSION}"
