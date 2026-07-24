@@ -11,6 +11,7 @@
     "dev:backend": "node backend/index.js",
     "dev:python": "PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
     "dev:frontend": "npm --prefix frontend run dev -- --port 5173",
+    "export:screens": "node scripts/export-app-screens.mjs",
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
     "test": "node --test \"backend/tests/*.test.js\"",
@@ -24,5 +25,10 @@
     "market-data:import": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/import_market_data_to_db.py",
     "analytics:refresh-session-summaries": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py",
     "analytics:refresh-read-models": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py"
+  },
+  "devDependencies": {
+    "dom-to-svg": "^0.12.2",
+    "esbuild": "^0.21.5",
+    "playwright-core": "^1.55.0"
   }
 }

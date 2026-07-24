@@ -1,0 +1,546 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "captures": [
+    {
+      "file": "01-landing-hero.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "01-landing-hero.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/",
+      "width": 1440
+    },
+    {
+      "file": "02-landing-full-page.svg",
+      "fullPage": true,
+      "height": 4604,
+      "notes": "Full public landing page at desktop width.",
+      "pngReference": "02-landing-full-page.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/",
+      "width": 1440
+    },
+    {
+      "file": "03-landing-demo-review.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "03-landing-demo-review.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/",
+      "width": 1440
+    },
+    {
+      "file": "04-landing-demo-results.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "04-landing-demo-results.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/",
+      "width": 1440
+    },
+    {
+      "file": "05-landing-demo-replay.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "05-landing-demo-replay.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/",
+      "width": 1440
+    },
+    {
+      "file": "06-landing-pricing-section.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "06-landing-pricing-section.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/",
+      "width": 1440
+    },
+    {
+      "file": "07-privacy.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "07-privacy.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/privacy",
+      "width": 1440
+    },
+    {
+      "file": "08-privacy-full-page.svg",
+      "fullPage": true,
+      "height": 1363,
+      "notes": "",
+      "pngReference": "08-privacy-full-page.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/privacy",
+      "width": 1440
+    },
+    {
+      "file": "09-terms.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "09-terms.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/terms",
+      "width": 1440
+    },
+    {
+      "file": "10-terms-full-page.svg",
+      "fullPage": true,
+      "height": 1275,
+      "notes": "",
+      "pngReference": "10-terms-full-page.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/terms",
+      "width": 1440
+    },
+    {
+      "file": "11-auth-sign-in.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "11-auth-sign-in.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/auth/signin",
+      "width": 1440
+    },
+    {
+      "file": "12-auth-callback.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "Callback screen without an OAuth code, showing the local error/return state.",
+      "pngReference": "12-auth-callback.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/auth/signin?error=google-oauth-state",
+      "width": 1440
+    },
+    {
+      "file": "13-not-found.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "13-not-found.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/this-route-does-not-exist",
+      "width": 1440
+    },
+    {
+      "file": "14-workspace-sessions-gateway.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "Session gateway with repository fixture dataset available.",
+      "pngReference": "14-workspace-sessions-gateway.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "15-workspace-navigation-expanded.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "Expanded desktop navigation state.",
+      "pngReference": "15-workspace-navigation-expanded.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "16-workspace-global-settings.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "16-workspace-global-settings.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "17-workspace-feedback.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "17-workspace-feedback.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "18-workspace-live-markets.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "18-workspace-live-markets.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "19-workspace-position-size.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "19-workspace-position-size.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "20-workspace-economic-calendar.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "20-workspace-economic-calendar.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "21-workspace-backtest-strategies.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "21-workspace-backtest-strategies.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "22-workspace-backtest-playbooks.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "22-workspace-backtest-playbooks.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "23-workspace-backtest-accounts.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "23-workspace-backtest-accounts.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "24-workspace-backtest-settings.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "24-workspace-backtest-settings.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "25-workspace-journal-sessions.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "25-workspace-journal-sessions.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "26-workspace-journal-strategies.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "26-workspace-journal-strategies.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "27-workspace-journal-playbooks.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "27-workspace-journal-playbooks.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "28-workspace-journal-accounts.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "28-workspace-journal-accounts.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "29-workspace-finance-tracker.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "29-workspace-finance-tracker.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "30-workspace-journal-settings.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "30-workspace-journal-settings.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "31-workspace-backtest-results-menu.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "31-workspace-backtest-results-menu.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "32-workspace-backtest-results-overview.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "32-workspace-backtest-results-overview.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "33-workspace-backtest-results-metrics.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "33-workspace-backtest-results-metrics.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "34-workspace-backtest-results-day-view.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "34-workspace-backtest-results-day-view.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "35-workspace-backtest-results-trades.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "35-workspace-backtest-results-trades.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "36-workspace-backtest-results-notes.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "36-workspace-backtest-results-notes.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "37-workspace-journal-results-menu.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "37-workspace-journal-results-menu.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "38-workspace-journal-results-overview.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "38-workspace-journal-results-overview.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "39-workspace-journal-results-metrics.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "39-workspace-journal-results-metrics.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "40-workspace-journal-results-day-view.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "40-workspace-journal-results-day-view.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "41-workspace-journal-results-trades.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "41-workspace-journal-results-trades.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "42-workspace-journal-results-notes.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "42-workspace-journal-results-notes.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "43-workspace-sessions-gateway-return.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "43-workspace-sessions-gateway-return.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "44-replay-workspace-chart.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "Canvas chart is retained as an embedded image; surrounding UI and icons remain vectors.",
+      "pngReference": "44-replay-workspace-chart.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "45-replay-order-ticket.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "45-replay-order-ticket.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "46-replay-chart-objects.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "46-replay-chart-objects.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "47-replay-tools.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "47-replay-tools.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "48-replay-chart-settings.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "48-replay-chart-settings.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "49-replay-orders-tape.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "49-replay-orders-tape.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "50-replay-trade-review.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "50-replay-trade-review.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "51-replay-results.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "51-replay-results.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "52-replay-speed-menu.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "",
+      "pngReference": "52-replay-speed-menu.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    },
+    {
+      "file": "53-replay-full-screen.svg",
+      "fullPage": false,
+      "height": 900,
+      "notes": "Headless Chromium uses the app's fullscreen layout fallback.",
+      "pngReference": "53-replay-full-screen.png",
+      "title": "EdgeLab | Your Edge Engineered",
+      "url": "http://127.0.0.1:5173/app",
+      "width": 1440
+    }
+  ],
+  "generatedAt": "2026-07-24T15:05:18.533Z",
+  "notes": [
+    "SVG files use native SVG elements generated from the live Chromium DOM; no foreignObject is used.",
+    "PNG files are visual references for frame-by-frame comparison in After Effects.",
+    "Canvas-rendered chart pixels are embedded raster images inside otherwise editable SVGs.",
+    "Desktop viewport is 1440x900 at device scale factor 1."
+  ],
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  }
+}
