@@ -352,6 +352,8 @@ export function ReplayDateTimePicker({
   const selected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
   const [viewYear, setViewYear] = useState(() => selected?.year ?? new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => selected?.month ?? new Date().getMonth() + 1);
+  const [viewMode, setViewMode] = useState<"calendar" | "years">("calendar");
+  const [yearPageStart, setYearPageStart] = useState(() => yearRangeStart(selected?.year ?? new Date().getFullYear()));
   const [draftDay, setDraftDay] = useState(() => selected?.day ?? 1);
   const [draftHour, setDraftHour] = useState(() => selected?.hour ?? 0);
   const [draftMinute, setDraftMinute] = useState(() => selected?.minute ?? 0);
@@ -372,6 +374,7 @@ export function ReplayDateTimePicker({
     }
     setViewYear(nextSelected.year);
     setViewMonth(nextSelected.month);
+    setYearPageStart(yearRangeStart(nextSelected.year));
     setDraftDay(nextSelected.day);
     setDraftHour(nextSelected.hour);
     setDraftMinute(nextSelected.minute);
@@ -451,17 +454,37 @@ export function ReplayDateTimePicker({
     if (nextSelected) {
       setViewYear(nextSelected.year);
       setViewMonth(nextSelected.month);
+      setYearPageStart(yearRangeStart(nextSelected.year));
       setDraftDay(nextSelected.day);
       setDraftHour(nextSelected.hour);
       setDraftMinute(nextSelected.minute);
     }
+    setViewMode("calendar");
     setOpen((isOpen) => !isOpen);
   }
 
-  function moveMonth(delta: number) {
+  function moveView(delta: number) {
+    if (viewMode === "years") {
+      setYearPageStart((current) => current + delta * 12);
+      return;
+    }
     const date = new Date(viewYear, viewMonth - 1 + delta, 1);
     setViewYear(date.getFullYear());
     setViewMonth(date.getMonth() + 1);
+  }
+
+  function toggleYearPicker() {
+    if (viewMode === "calendar") {
+      setYearPageStart(yearRangeStart(viewYear));
+      setViewMode("years");
+      return;
+    }
+    setViewMode("calendar");
+  }
+
+  function selectYear(year: number) {
+    setViewYear(year);
+    setViewMode("calendar");
   }
 
   function selectDay(day: number) {
@@ -502,6 +525,7 @@ export function ReplayDateTimePicker({
   }
 
   const cells = calendarCells(viewYear, viewMonth);
+  const visibleYears = Array.from({ length: 12 }, (_, index) => yearPageStart + index);
   const displayValue = selected
     ? formatPickerDisplay(selected, {
         dateFormat,
@@ -540,53 +564,81 @@ export function ReplayDateTimePicker({
         >
           <div className="replay-date-popover-header">
             <button
+              aria-label={viewMode === "years" ? "Previous 12 years" : "Previous month"}
               className="replay-date-icon-button"
-              onClick={() => moveMonth(-1)}
+              onClick={() => moveView(-1)}
               type="button"
             >
               <ChevronLeft size={15} />
             </button>
-            <div className="min-w-0 text-center">
-              <div className="text-sm font-semibold text-white">
-                {MONTH_NAMES[viewMonth - 1]} {viewYear}
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                {dialogLabel}
-              </div>
-            </div>
             <button
+              aria-expanded={viewMode === "years"}
+              aria-label={viewMode === "years" ? "Return to calendar" : "Choose a year"}
+              className="replay-date-title-button"
+              onClick={toggleYearPicker}
+              type="button"
+            >
+              <span className="replay-date-title-label">
+                {viewMode === "years"
+                  ? `${yearPageStart}\u2013${yearPageStart + 11}`
+                  : `${MONTH_NAMES[viewMonth - 1]} ${viewYear}`}
+              </span>
+              <span className="replay-date-title-hint">
+                {viewMode === "years" ? "Choose year" : `${dialogLabel} \u00b7 Change year`}
+              </span>
+            </button>
+            <button
+              aria-label={viewMode === "years" ? "Next 12 years" : "Next month"}
               className="replay-date-icon-button"
-              onClick={() => moveMonth(1)}
+              onClick={() => moveView(1)}
               type="button"
             >
               <ChevronRight size={15} />
             </button>
           </div>
 
-          <div className="replay-date-weekdays">
-            {WEEKDAY_NAMES.map((day) => (
-              <span key={day}>{day}</span>
-            ))}
-          </div>
-
-          <div className="replay-date-grid">
-            {cells.map((cell) => {
-              const isSelected =
-                cell.day != null &&
-                activeDraftDay === cell.day;
-              return (
+          {viewMode === "years" ? (
+            <div className="replay-date-year-grid">
+              {visibleYears.map((year) => (
                 <button
-                  className={`replay-date-cell ${cell.day == null ? "replay-date-cell-empty" : ""} ${isSelected ? "replay-date-cell-active" : ""}`}
-                  disabled={cell.day == null}
-                  key={cell.key}
-                  onClick={() => cell.day != null && selectDay(cell.day)}
+                  aria-label={`Choose ${year}`}
+                  className={`replay-date-year-cell ${year === viewYear ? "replay-date-year-cell-active" : ""}`}
+                  key={year}
+                  onClick={() => selectYear(year)}
                   type="button"
                 >
-                  {cell.day ?? ""}
+                  {year}
                 </button>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="replay-date-weekdays">
+                {WEEKDAY_NAMES.map((day) => (
+                  <span key={day}>{day}</span>
+                ))}
+              </div>
+
+              <div className="replay-date-grid">
+                {cells.map((cell) => {
+                  const isSelected =
+                    cell.day != null &&
+                    activeDraftDay === cell.day;
+                  return (
+                    <button
+                      className={`replay-date-cell ${cell.day == null ? "replay-date-cell-empty" : ""} ${isSelected ? "replay-date-cell-active" : ""}`}
+                      disabled={cell.day == null}
+                      key={cell.key}
+                      onClick={() => cell.day != null && selectDay(cell.day)}
+                      type="button"
+                    >
+                      {cell.day ?? ""}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           <div className={`replay-time-row ${is12Hour ? "replay-time-row-12" : ""}`}>
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -758,6 +810,10 @@ function calendarCells(year: number, month: number) {
 
 function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
+}
+
+function yearRangeStart(year: number) {
+  return Math.floor(year / 10) * 10;
 }
 
 function formatReplayDateTime(
