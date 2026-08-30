@@ -245,13 +245,13 @@ export function OrderTicket({
 
   return (
     <form
-      className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel"
+      className="min-w-0 rounded-xl bg-[#080c11] p-4 shadow-panel ring-1 ring-inset ring-white/10"
       onSubmit={handleSubmit}
     >
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-white">Order Ticket</h2>
-          <p className="text-xs text-slate-500">
+          <h2 className="text-sm font-semibold tracking-[-0.01em] text-white">Order ticket</h2>
+          <p className="text-xs text-slate-400">
             {currentPrice ? `Last ${formatPrice(currentPrice)}` : "No candle"}
           </p>
         </div>
@@ -347,7 +347,7 @@ export function OrderTicket({
 
         {sizingMode === "risk" && (
           <div className="rounded-md border border-white/10 bg-black/20 p-2">
-            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
               Risk % based on
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -525,7 +525,7 @@ function OrderCostControls({
 }) {
   return (
     <section className="rounded-md border border-white/10 bg-black/20 p-2">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
         {title}
       </div>
       <div className="grid grid-cols-3 gap-2">

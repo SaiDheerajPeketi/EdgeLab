@@ -5,8 +5,8 @@
 :root {
   color-scheme: dark;
   font-family:
-    Inter Variable, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+    "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #07090d;
   --scrollbar-track: rgba(5, 7, 10, 0.48);
   --scrollbar-track-hover: rgba(15, 23, 42, 0.72);
@@ -66,9 +66,9 @@
   --chart-indicator-secondary-color: var(--chart-2);
 
   --font-display:
-    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", ui-sans-serif,
-    system-ui, sans-serif;
-  --font-body: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+    "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body:
+    "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --space-1: 4px;
@@ -87,7 +87,7 @@
   --radius-xl: 24px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-fast: 150ms;
   --dur-base: 250ms;
   --dur-slow: 400ms;
@@ -218,7 +218,7 @@
 
 .edgelab-word-reveal {
   opacity: 0;
-  animation: edgelab-word-rise 720ms var(--ease-spring) forwards;
+  animation: edgelab-word-rise 720ms var(--ease-emphasized) forwards;
 }
 
 .edgelab-typeword {
@@ -279,19 +279,6 @@
   animation-delay: var(--metric-delay, 0s);
 }
 
-.edgelab-pointer-glow {
-  width: 480px;
-  height: 480px;
-  border-radius: 999px;
-  opacity: 0.24;
-  background:
-    radial-gradient(circle, rgba(50, 211, 238, 0.28) 0%, rgba(50, 211, 238, 0.12) 28%, transparent 68%);
-  filter: blur(24px);
-  mix-blend-mode: screen;
-  transform: translate3d(0, 0, 0);
-  will-change: transform, opacity;
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto !important;
@@ -306,8 +293,11 @@
     transform: none !important;
   }
 
-  .edgelab-pointer-glow {
-    display: none;
+  .edgelab-marquee-active,
+  .edgelab-marquee-paused {
+    animation: none !important;
+    transform: translate3d(0, 0, 0) !important;
+    will-change: auto;
   }
 }
 
@@ -356,6 +346,19 @@ body {
   margin: 0;
   min-width: 320px;
   background: #05070a;
+  font-family: var(--font-body);
+  font-feature-settings: "ss01" 1, "ss02" 1, "cv10" 1;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(50, 211, 238, 0.26);
+  color: #ecfeff;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(103, 232, 249, 0.82);
+  outline-offset: 3px;
 }
 
 html,

@@ -101,7 +101,6 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
   const shellRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
-  const pointerGlowRef = useRef<HTMLDivElement | null>(null);
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const primaryCtaLabel =
@@ -125,8 +124,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
   useEffect(() => {
     const shell = shellRef.current;
     const header = headerRef.current;
-    const pointerGlow = pointerGlowRef.current;
-    if (!shell || !header || !pointerGlow) {
+    if (!shell || !header) {
       return;
     }
 
@@ -134,11 +132,9 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
     let context: { revert(): void } | null = null;
     const splitInstances: Array<{ revert(): void }> = [];
     const scrollTriggers: Array<{ kill(): void }> = [];
-    let removePointerListeners = () => undefined;
-
     const restoreRevealNodes = () => {
       const revealNodes = Array.from(
-        shell.querySelectorAll<HTMLElement>("[data-marketing-reveal]"),
+        shell.querySelectorAll<HTMLElement>("[data-marketing-reveal][data-motion='reveal']"),
       );
       const headerNodes = Array.from(header.querySelectorAll<HTMLElement>("[data-shell-motion]"));
       [...headerNodes, ...revealNodes].forEach((node) => {
@@ -151,7 +147,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
     void loadGsap({ plugins: ["CustomEase", "ScrollTrigger", "SplitText"] })
       .then(({ gsap, plugins }) => {
-        if (cancelled || !shell || !header || !pointerGlow) {
+        if (cancelled || !shell || !header) {
           return;
         }
 
@@ -164,7 +160,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               header.querySelectorAll<HTMLElement>("[data-shell-motion]"),
             );
             const revealNodes = Array.from(
-              shell.querySelectorAll<HTMLElement>("[data-marketing-reveal]"),
+              shell.querySelectorAll<HTMLElement>("[data-marketing-reveal][data-motion='reveal']"),
             );
 
             if (headerNodes.length > 0) {
@@ -240,43 +236,6 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               }
             }
 
-            if (!reduceMotion) {
-              gsap.set(pointerGlow, {
-                opacity: 0.28,
-                x: window.innerWidth * 0.5 - 240,
-                y: 120,
-              });
-              const xTo = gsap.quickTo(pointerGlow, "x", {
-                duration: 0.42,
-                ease: "power3.out",
-              });
-              const yTo = gsap.quickTo(pointerGlow, "y", {
-                duration: 0.42,
-                ease: "power3.out",
-              });
-              const opacityTo = gsap.quickTo(pointerGlow, "opacity", {
-                duration: 0.22,
-                ease: "power2.out",
-              });
-
-              const handlePointerMove = (event: PointerEvent) => {
-                xTo(event.clientX - 240);
-                yTo(event.clientY - 240);
-                opacityTo(0.76);
-              };
-              const handlePointerLeave = () => opacityTo(0.22);
-
-              window.addEventListener("pointermove", handlePointerMove, { passive: true });
-              window.addEventListener("pointerdown", handlePointerMove, { passive: true });
-              window.addEventListener("blur", handlePointerLeave);
-              document.addEventListener("pointerleave", handlePointerLeave);
-              removePointerListeners = () => {
-                window.removeEventListener("pointermove", handlePointerMove);
-                window.removeEventListener("pointerdown", handlePointerMove);
-                window.removeEventListener("blur", handlePointerLeave);
-                document.removeEventListener("pointerleave", handlePointerLeave);
-              };
-            }
           }, shell);
 
           plugins.ScrollTrigger?.refresh();
@@ -295,7 +254,6 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
       cancelled = true;
       scrollTriggers.forEach((trigger) => trigger.kill());
       splitInstances.forEach((instance) => instance.revert());
-      removePointerListeners();
       context?.revert();
     };
   }, [pageTitle]);
@@ -414,11 +372,9 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
       ref={shellRef}
     >
       <div className="pointer-events-none absolute inset-0">
-        <div className="edgelab-mesh absolute inset-x-[-10%] top-[-22rem] h-[44rem] opacity-50" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(50,211,238,0.10),transparent_32%),radial-gradient(circle_at_82%_18%,rgba(245,158,11,0.06),transparent_20%),linear-gradient(180deg,#07090d_0%,#090b0f_42%,#05070a_100%)]" />
-        <div className="edgelab-grid absolute inset-0 opacity-25" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,#07090d_0%,#090b0f_46%,#05070a_100%)]" />
+        <div className="absolute left-1/2 top-0 h-px w-[min(80vw,980px)] -translate-x-1/2 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
       </div>
-      <div className="edgelab-pointer-glow pointer-events-none fixed left-0 top-0" ref={pointerGlowRef} />
 
       <div className="relative z-10 max-w-[100vw] overflow-x-clip">
         <BetaBanner />
@@ -442,7 +398,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
             <div className="hidden items-center gap-3 md:flex" data-shell-motion="cta">
               <Link
-                className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-glow transition duration-200 ease-out hover:-translate-y-0.5 motion-reduce:transition-none"
+                className="inline-flex items-center gap-2 rounded-lg bg-cyan-300 px-4 py-2 text-sm font-semibold text-[#031114] transition-colors duration-200 hover:bg-cyan-200"
                 to={primaryCtaHref}
               >
                 {primaryCtaLabel}
@@ -478,7 +434,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                   />
                 ))}
                 <Link
-                  className="rounded-2xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950"
+                  className="rounded-lg bg-cyan-300 px-4 py-3 text-sm font-semibold text-[#031114]"
                   to={primaryCtaHref}
                 >
                   {primaryCtaLabel} →
@@ -492,7 +448,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
         <footer className="px-3 pb-10 pt-6 sm:px-6 lg:px-8">
           <div
-            className="mx-auto max-w-7xl rounded-[30px] border border-white/10 bg-[#060c12]/92 p-6 shadow-card backdrop-blur-xl sm:p-8"
+            className="mx-auto max-w-7xl border-t border-white/10 px-1 py-8"
             data-marketing-reveal="footer"
           >
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">

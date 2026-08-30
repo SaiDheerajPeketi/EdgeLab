@@ -33,51 +33,58 @@ export function PendingOrders({ orders }: Props) {
   }
 
   return (
-    <section className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Pending Orders</h2>
-        <span className="text-xs text-slate-500">{pending.length}</span>
+    <section className="min-w-0 overflow-hidden rounded-xl bg-[#080c11] shadow-panel ring-1 ring-inset ring-white/10">
+      <div className="flex min-h-14 items-center justify-between border-b border-white/[0.08] px-4">
+        <div>
+          <h2 className="text-sm font-semibold tracking-[-0.01em] text-white">Pending orders</h2>
+          <p className="text-[11px] text-slate-400">Working instructions</p>
+        </div>
+        <span className="text-[11px] font-medium text-slate-400">{pending.length} active</span>
       </div>
-      <div className="space-y-2">
-        {pending.map((order) => (
-          <div key={order.id} className="rounded-md bg-ink-950 px-3 py-2 text-sm">
+      <div>
+        {pending.map((order, index) => (
+          <div key={order.id} className={`px-4 py-3 text-sm ${index > 0 ? "border-t border-white/[0.06]" : ""}`}>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="font-semibold text-slate-100">
+                <div className={`font-semibold ${order.side === "BUY" ? "text-emerald-300" : "text-rose-300"}`}>
                   {order.side} {order.order_type}
                 </div>
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-slate-400">
                   Qty {order.quantity?.toLocaleString() ?? `${order.risk_percent ?? "risk"}% risk`} · Entry{" "}
                   {formatPrice(entryPrice(order))}
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="icon-button h-8 w-8" onClick={() => beginEdit(order)} type="button">
+                <button aria-label={`Edit ${order.side} ${order.order_type} order`} className="icon-button h-8 w-8" onClick={() => beginEdit(order)} type="button">
                   <Pencil size={14} />
                 </button>
-                <button className="icon-button h-8 w-8" onClick={() => void cancelOrder(order.id)} type="button">
+                <button aria-label={`Cancel ${order.side} ${order.order_type} order`} className="icon-button h-8 w-8" onClick={() => void cancelOrder(order.id)} type="button">
                   <X size={14} />
                 </button>
               </div>
             </div>
-            <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
-              <OrderMetric label="SL" value={formatPrice(order.stop_loss)} tone="text-rose-200" />
-              <OrderMetric label="TP" value={formatPrice(order.take_profit)} tone="text-emerald-200" />
-              <OrderMetric label="R:R" value={formatRatio(order)} tone={rrTone(order)} />
+            <div className="mt-3 grid grid-cols-4 border-t border-white/[0.06] pt-3 text-xs">
+              <OrderMetric data label="SL" value={formatPrice(order.stop_loss)} tone="text-rose-200" />
+              <OrderMetric data label="TP" value={formatPrice(order.take_profit)} tone="text-emerald-200" />
+              <OrderMetric data={riskReward(order) != null} label="R:R" value={formatRatio(order)} tone={rrTone(order)} />
               <OrderMetric label="Kind" value={order.reduce_only ? "Reduce" : "Entry"} />
             </div>
           </div>
         ))}
         {pending.length === 0 && (
-          <div className="grid h-24 place-items-center rounded-md bg-ink-950 text-sm text-slate-500">
-            No pending orders
+          <div className="grid h-32 place-items-center text-center">
+            <div>
+              <p className="text-sm font-medium text-slate-300">No pending orders</p>
+              <p className="mt-1 text-xs text-slate-400">Working instructions will appear here.</p>
+            </div>
           </div>
         )}
       </div>
 
       {editing && (
-        <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 border-t border-white/[0.08] p-3">
           <input
+            aria-label={`Amended price for ${editing.side} ${editing.order_type} order`}
             className="input-control h-10"
             onChange={(event) => setPrice(event.target.value)}
             step="0.00001"
@@ -125,11 +132,21 @@ function rrTone(order: Order) {
   return riskReward(order) == null ? "text-amber-200" : "text-cyan-100";
 }
 
-function OrderMetric({ label, value, tone = "text-slate-200" }: { label: string; value: string; tone?: string }) {
+function OrderMetric({
+  data = false,
+  label,
+  value,
+  tone = "text-slate-200",
+}: {
+  data?: boolean;
+  label: string;
+  value: string;
+  tone?: string;
+}) {
   return (
-    <div className="min-w-0 rounded-md border border-white/5 bg-black/20 px-2 py-1.5">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{label}</div>
-      <div className={`mt-0.5 truncate font-semibold ${tone}`}>{value}</div>
+    <div className="min-w-0 border-r border-white/[0.06] px-2 last:border-r-0">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{label}</div>
+      <div className={`mt-0.5 truncate text-[11px] font-medium ${data ? "font-data" : ""} ${tone}`}>{value}</div>
     </div>
   );
 }

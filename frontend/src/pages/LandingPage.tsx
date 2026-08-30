@@ -1,4 +1,6 @@
+import { ArrowRight, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import {
   FaqAccordion,
@@ -11,7 +13,7 @@ import {
   MarketingShell,
 } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
-import { prefersReducedMotion } from "../lib/gsap";
+import { loadGsap, prefersReducedMotion } from "../lib/gsap";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type WorkflowStep = {
@@ -27,47 +29,39 @@ type MarketPulse = {
   value: string;
 };
 
-const HERO_TYPEWORD = "Engineered.";
-const SECTION_EYEBROW_CLASS = "text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60";
-const SECTION_TITLE_CLASS =
-  "mt-4 text-[clamp(2.5rem,5.2vw,4.4rem)] font-semibold leading-[0.92] tracking-[-0.065em] text-white";
-const SECTION_COPY_CLASS = "mt-4 text-base leading-8 text-slate-400";
-const FEATURE_CARD_TITLE_CLASS = "text-[1.5rem] font-semibold tracking-[-0.04em] text-white";
-const FEATURE_CARD_COPY_CLASS = "mt-3 text-sm leading-7 text-slate-400";
-
 const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     step: "01",
-    title: "Replay with context",
-    body: "Walk price action first. Entries, exits, and tempo stay visible while the session unfolds.",
+    title: "Replay the decision, not just the candle.",
+    body: "Walk price forward while entries, exits, sizing, and tempo remain visible in the same market context.",
   },
   {
     step: "02",
-    title: "Review in place",
-    body: "Journal notes, mistake tags, and session outcomes stay attached to exact market behavior.",
+    title: "Capture what you saw while it is still useful.",
+    body: "Journal notes, mistake tags, and playbooks stay attached to the exact session behavior that produced them.",
   },
   {
     step: "03",
-    title: "Refine from proof",
-    body: "Metrics and playbooks pressure-test process only after replay and review already agree.",
+    title: "Turn the session into evidence.",
+    body: "Metrics and strategy breakdowns pressure-test the process after replay and review already agree.",
   },
 ];
 
-const PROOF_STEPS: WorkflowStep[] = [
+const PROOF_STEPS = [
   {
-    step: "01",
-    title: "Replay stack",
-    body: "Candle replay, order flow, and chart context stay in the same surface.",
+    label: "Replay",
+    title: "Market context stays intact",
+    body: "Candle replay, order flow, risk controls, and chart context share one working surface.",
   },
   {
-    step: "02",
-    title: "Journal memory",
-    body: "Notes, mistake tags, and playbooks stay attached to session truth.",
+    label: "Review",
+    title: "Memory stays attached",
+    body: "Notes, mistake tags, screenshots, and playbooks remain tied to the session truth.",
   },
   {
-    step: "03",
-    title: "Private beta",
-    body: "Approved users get full product access while feedback shapes replay, journaling, analytics, and review flow.",
+    label: "Refine",
+    title: "Patterns become actionable",
+    body: "Session metrics and strategy analytics expose repeatable behavior without breaking the workflow.",
   },
 ];
 
@@ -99,67 +93,10 @@ function formatMarketChange(value: number) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
-function SectionIntro({
-  className = "",
-  description,
-  eyebrow,
-  revealKey,
-  title,
-}: {
-  className?: string;
-  description: string;
-  eyebrow: string;
-  revealKey?: string;
-  title: string;
-}) {
-  const keyBase = revealKey ?? title;
-
-  return (
-    <div className={className || "max-w-3xl"}>
-      <div className={SECTION_EYEBROW_CLASS}>
-        {eyebrow}
-      </div>
-      <h2
-        className={SECTION_TITLE_CLASS}
-        data-marketing-reveal={`${keyBase}-title`}
-        data-split-text="lines"
-      >
-        {title}
-      </h2>
-      <p className={SECTION_COPY_CLASS} data-marketing-reveal={`${keyBase}-body`}>
-        {description}
-      </p>
-    </div>
-  );
-}
-
-function StatusCard({
-  hint,
-  label,
-  value,
-}: {
-  hint: string;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-[24px] border border-white/10 bg-[#071018] px-5 py-5 shadow-panel">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </div>
-      <div className="mt-3 text-[1.65rem] font-semibold tracking-[-0.04em] text-white">
-        {value}
-      </div>
-      <div className="mt-2 text-sm leading-7 text-slate-400">{hint}</div>
-    </div>
-  );
-}
-
 function MarketTape() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState(MARKET_PULSE);
   const [isActive, setIsActive] = useState(true);
-  const trackRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isActive) {
@@ -170,10 +107,9 @@ function MarketTape() {
       setItems((current) =>
         current.map((item, index) => {
           const baseValue = parseMarketValue(MARKET_PULSE[index]?.value ?? item.value);
-          const nextValue = baseValue * (1 + (Math.sin(Date.now() / 1400 + index * 1.7) * 0.0009));
+          const nextValue = baseValue * (1 + Math.sin(Date.now() / 1400 + index * 1.7) * 0.0009);
           const baseChange = Number((MARKET_PULSE[index]?.change ?? item.change).replace("%", ""));
-          const drift = Math.sin(Date.now() / 1900 + index * 1.3) * 0.18;
-          const nextChange = baseChange + drift;
+          const nextChange = baseChange + Math.sin(Date.now() / 1900 + index * 1.3) * 0.18;
 
           return {
             ...item,
@@ -190,12 +126,7 @@ function MarketTape() {
 
   useEffect(() => {
     const root = rootRef.current;
-    if (!root) {
-      return;
-    }
-
-    if (!("IntersectionObserver" in window)) {
-      setIsActive(true);
+    if (!root || !("IntersectionObserver" in window)) {
       return;
     }
 
@@ -204,101 +135,75 @@ function MarketTape() {
       { rootMargin: "120px 0px" },
     );
     observer.observe(root);
-
-    return () => {
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, []);
 
   const loopItems = [...items, ...items];
 
   return (
     <div
-      className="relative h-[64px] w-full max-w-full overflow-hidden rounded-full border border-white/10 bg-[#071018] shadow-panel"
+      aria-label="Illustrative market feed"
+      className="relative grid h-[58px] w-full max-w-full grid-cols-[auto_minmax(0,1fr)] overflow-hidden rounded-xl bg-[#080d12] shadow-panel ring-1 ring-inset ring-white/10"
       ref={rootRef}
+      role="region"
     >
-      <div
-        className={`edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center gap-3 px-4 ${
-          isActive ? "edgelab-marquee-active" : "edgelab-marquee-paused"
-        }`}
-        ref={trackRef}
-      >
-        {loopItems.map((item, index) => (
-          <div
-            key={`${item.symbol}-${index}`}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-2 text-sm sm:gap-3 sm:px-4"
-          >
-            <span className="font-data text-slate-100">{item.symbol}</span>
-            <span className="font-data text-white">{item.value}</span>
-            <span className={item.tone === "up" ? "text-emerald-300" : "text-rose-300"}>
-              {item.change}
-            </span>
-          </div>
-        ))}
+      <div className="relative z-10 hidden items-center border-r border-white/10 bg-[#080d12] px-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 sm:flex">
+        Demo feed
+      </div>
+      <div className="relative min-w-0 overflow-hidden">
+        <div
+          className={`edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center ${
+            isActive ? "edgelab-marquee-active" : "edgelab-marquee-paused"
+          }`}
+        >
+          {loopItems.map((item, index) => (
+            <div
+              aria-hidden={index >= items.length ? "true" : undefined}
+              className="inline-grid h-full grid-cols-[auto_auto_auto] items-center gap-3 border-r border-white/[0.07] px-5 text-xs"
+              key={`${item.symbol}-${index}`}
+            >
+              <span className="font-semibold text-slate-200">{item.symbol}</span>
+              <span className="font-data text-slate-100">{item.value}</span>
+              <span className={item.tone === "up" ? "text-emerald-300" : "text-rose-300"}>
+                {item.change}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function AnimatedTypeWord() {
-  const [visibleLength, setVisibleLength] = useState(0);
-  const [isWordComplete, setIsWordComplete] = useState(false);
-
-  useEffect(() => {
-    let phase: "typing" | "hold" | "deleting" = "typing";
-    let holdTicks = 0;
-    let nextLength = 0;
-
-    const timer = window.setInterval(() => {
-      if (phase === "typing") {
-        nextLength += 1;
-        setVisibleLength(nextLength);
-        setIsWordComplete(nextLength >= HERO_TYPEWORD.length);
-        if (nextLength >= HERO_TYPEWORD.length) {
-          phase = "hold";
-        }
-        return;
-      }
-
-      if (phase === "hold") {
-        holdTicks += 1;
-        if (holdTicks >= 9) {
-          holdTicks = 0;
-          phase = "deleting";
-        }
-        return;
-      }
-
-      nextLength -= 1;
-      setVisibleLength(Math.max(0, nextLength));
-      setIsWordComplete(false);
-      if (nextLength <= 0) {
-        phase = "typing";
-      }
-    }, 115);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
-
+function SectionHeading({
+  description,
+  title,
+}: {
+  description: string;
+  title: string;
+}) {
   return (
-    <span
-      aria-label={HERO_TYPEWORD}
-      className={`edgelab-typeword mt-1 block min-w-0 sm:mt-0 sm:inline-flex sm:min-w-[11.2ch] ${
-        isWordComplete ? "text-cyan-300" : "text-cyan-300/55"
-      }`}
-    >
-      <span aria-hidden="true" className="edgelab-typeword-inner">
-        {HERO_TYPEWORD.slice(0, visibleLength) || "\u00a0"}
-      </span>
-      <span aria-hidden="true" className="edgelab-typeword-caret" />
-    </span>
+    <div className="max-w-4xl">
+      <h2
+        className="text-balance text-[clamp(2.6rem,6vw,5.6rem)] font-medium leading-[0.92] tracking-[-0.04em] text-white"
+        data-marketing-reveal={`${title}-title`}
+        data-split-text="lines"
+      >
+        {title}
+      </h2>
+      <p
+        className="mt-6 max-w-2xl text-base leading-7 text-slate-400 sm:text-lg sm:leading-8"
+        data-marketing-reveal={`${title}-body`}
+      >
+        {description}
+      </p>
+    </div>
   );
 }
 
 export function LandingPage() {
   const [frequency, setFrequency] = useState<PricingFrequency>("monthly");
+  const pageRef = useRef<HTMLDivElement | null>(null);
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
@@ -308,216 +213,261 @@ export function LandingPage() {
       : seatsRemaining > 0
         ? `${seatsRemaining} seats open`
         : "Waitlist open";
+  const primaryCtaLabel = seatsRemaining != null && seatsRemaining <= 0 ? "Join waitlist" : "Join beta";
+  const primaryCtaHref = seatsRemaining != null && seatsRemaining <= 0
+    ? "/auth/signin?waitlist=1"
+    : "/auth/signin";
+
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page || prefersReducedMotion()) {
+      return;
+    }
+
+    let cancelled = false;
+    let context: { revert(): void } | null = null;
+
+    void loadGsap({ plugins: ["ScrollTrigger"] })
+      .then(({ gsap, plugins }) => {
+        if (cancelled || !page || !plugins.ScrollTrigger) {
+          return;
+        }
+
+        context = gsap.context(() => {
+          gsap.to("[data-landing-orbit]", {
+            ease: "none",
+            rotation: 10,
+            scrollTrigger: {
+              end: "bottom top",
+              scrub: 0.8,
+              start: "top top",
+              trigger: "[data-landing-hero]",
+            },
+            yPercent: 38,
+          });
+          gsap.to("[data-landing-stage]", {
+            ease: "none",
+            scrollTrigger: {
+              end: "bottom top",
+              scrub: 0.65,
+              start: "top 78%",
+              trigger: "[data-landing-stage]",
+            },
+            yPercent: -4,
+          });
+
+          const rows = Array.from(page.querySelectorAll<HTMLElement>("[data-flow-row]"));
+          rows.forEach((row, index) => {
+            gsap.fromTo(
+              row,
+              { x: index % 2 === 0 ? 18 : -18 },
+              {
+                clearProps: "transform",
+                duration: 0.9,
+                ease: "power3.out",
+                scrollTrigger: {
+                  once: true,
+                  start: "top 82%",
+                  trigger: row,
+                },
+                x: 0,
+              },
+            );
+          });
+        }, page);
+
+        plugins.ScrollTrigger.refresh();
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      context?.revert();
+    };
+  }, []);
 
   return (
     <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
-      <section className="px-3 pb-18 pt-6 sm:px-6 sm:pb-20 sm:pt-7 lg:px-8 lg:pb-24 lg:pt-9">
-        <div className="mx-auto max-w-7xl min-w-0">
-          <div className="grid min-w-0 gap-7 lg:gap-8 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-10">
-            <div className="max-w-4xl">
-              <h1
-                className="max-w-4xl text-[clamp(2.15rem,12.2vw,4.4rem)] font-semibold leading-[0.94] tracking-[-0.08em] text-white sm:text-[clamp(2.75rem,8vw,6.3rem)] sm:leading-[0.88]"
-                data-marketing-reveal="title"
-                data-reveal-delay="0.04"
-              >
-                Your Edge <AnimatedTypeWord />
-              </h1>
-
-              <p
-                className="mt-5 max-w-2xl text-[1.05rem] leading-8 text-slate-300"
-                data-marketing-reveal="lede"
-                data-reveal-delay="0.08"
-              >
-                Replay price action, capture decisions, and review outcomes from one trading
-                surface built to tighten process instead of adding more tabs.
-              </p>
-
-              <div
-                className="mt-6 text-sm leading-7 text-slate-400"
-                data-marketing-reveal="meta"
-                data-reveal-delay="0.12"
-              >
-                Seat count updates live. Beta workspaces stay temporary during the test track.
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <div data-marketing-reveal="card-access" data-reveal-delay="0.1">
-                <StatusCard
-                  hint="Current private beta access"
-                  label="Access"
-                  value={loading ? "..." : accessLabel}
-                />
-              </div>
-              <div data-marketing-reveal="card-waitlist" data-reveal-delay="0.14">
-                <StatusCard
-                  hint="Queue opens automatically once seats fill"
-                  label="Waitlist"
-                  value={waitlistCount == null ? "..." : String(waitlistCount)}
-                />
-              </div>
-              <div data-marketing-reveal="card-entry" data-reveal-delay="0.18">
-                <StatusCard
-                  hint="Approved users enter workspace. Full seats roll into queue."
-                  label="Entry"
-                  value="Google"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 sm:mt-7" data-marketing-reveal="tape" data-reveal-delay="0.16">
-            <MarketTape />
-          </div>
-
+      <div ref={pageRef}>
+        <section
+          className="relative px-3 pb-24 pt-10 sm:px-6 sm:pb-28 sm:pt-16 lg:px-8 lg:pb-32 lg:pt-20"
+          data-landing-hero
+        >
           <div
-            className="mt-8 lg:mt-10"
-            data-marketing-reveal="demo"
-            data-reveal-delay="0.2"
-            id="product"
+            aria-hidden="true"
+            className="pointer-events-none absolute right-[-8rem] top-6 h-[28rem] w-[28rem] rounded-full border border-white/[0.07] opacity-70 sm:right-[-3rem] lg:h-[38rem] lg:w-[38rem]"
+            data-landing-orbit
           >
-            <HeroDemo />
+            <div className="absolute inset-[18%] rounded-full border border-white/[0.06]" />
+            <div className="absolute left-[12%] top-1/2 h-px w-[76%] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           </div>
-        </div>
-      </section>
 
-      <section id="how-it-works" className="px-3 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <SectionIntro
-            description="EdgeLab is meant to shorten distance between what price did, what you did, and what that means for next session."
-            eyebrow="Workflow"
-            title="One loop. No drift."
-          />
-
-          <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {WORKFLOW_STEPS.map((step, index) => (
-              <div
-                key={step.step}
-                data-marketing-reveal={`workflow-${step.step}`}
-                data-reveal-delay={String(index * 0.06)}
-                className={`rounded-[28px] border px-6 py-6 shadow-panel transition duration-200 ease-out hover:-translate-y-1 motion-reduce:transition-none ${
-                  index === 1
-                    ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.12),rgba(255,255,255,0.03))]"
-                    : "border-white/10 bg-[#071018]"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 font-mono text-sm text-cyan-100">
-                    {step.step}
-                  </div>
-                  <div>
-                    <div className={FEATURE_CARD_TITLE_CLASS}>
-                      {step.title}
-                    </div>
-                    <p className={FEATURE_CARD_COPY_CLASS}>{step.body}</p>
-                  </div>
+          <div className="relative mx-auto max-w-7xl">
+            <div className="grid gap-12 lg:grid-cols-[minmax(0,1.45fr)_minmax(260px,0.55fr)] lg:items-end lg:gap-16">
+              <div>
+                <h1
+                  className="max-w-5xl text-balance text-[clamp(3.25rem,9.2vw,6rem)] font-medium leading-[0.84] tracking-[-0.04em] text-white"
+                  data-marketing-reveal="title"
+                  data-motion="reveal"
+                  data-reveal-delay="0.03"
+                  data-split-text="lines"
+                >
+                  See the trade. Keep the proof.
+                </h1>
+                <p
+                  className="mt-8 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl sm:leading-9"
+                  data-marketing-reveal="lede"
+                  data-motion="reveal"
+                  data-reveal-delay="0.08"
+                >
+                  Replay price action, capture the decision, and review the outcome in one uninterrupted trading surface.
+                </p>
+                <div
+                  className="mt-8 flex flex-wrap items-center gap-3"
+                  data-marketing-reveal="hero-actions"
+                  data-motion="reveal"
+                  data-reveal-delay="0.12"
+                >
+                  <Link
+                    className="inline-flex h-12 items-center gap-2 rounded-lg bg-cyan-300 px-5 text-sm font-semibold text-[#031114] transition-colors hover:bg-cyan-200"
+                    to={primaryCtaHref}
+                  >
+                    {primaryCtaLabel}
+                    <ArrowRight aria-hidden="true" size={16} />
+                  </Link>
+                  <a
+                    className="inline-flex h-12 items-center rounded-lg border border-white/10 bg-white/[0.035] px-5 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/[0.065]"
+                    href="#how-it-works"
+                  >
+                    Follow the workflow
+                  </a>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-      <section id="pricing" className="px-4 pb-14 pt-14 sm:px-6 lg:px-8 lg:pb-20 lg:pt-20">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
-            <SectionIntro
-              className="max-w-4xl"
-              description={
-                isBetaMode(deploymentMode)
-                  ? "Current phase stays simple: free access for approved beta users, waitlist once seats fill."
-                  : "Choose cadence, compare plans, and see what scales from solo validation to desk-grade review."
-              }
-              eyebrow="Pricing"
-              revealKey="pricing"
-              title={
-                isBetaMode(deploymentMode)
-                  ? "Private beta access, limited seats."
-                  : "Clear plans for replay, review, and growth."
-              }
-            />
 
-            <div
-              className="rounded-[28px] border border-white/10 bg-[#061018] p-5 shadow-panel"
-              data-marketing-reveal="pricing-mode"
-              data-reveal-delay="0.06"
-            >
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Current mode
-              </div>
-              <div className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-white">
-                {isBetaMode(deploymentMode) ? "Private beta" : "Production pricing"}
-              </div>
-              <p className="mt-3 text-sm leading-7 text-slate-400">
-                {isBetaMode(deploymentMode)
-                  ? "Billing stays off during the private beta track."
-                  : "Annual billing discounts and full plan gating are ready here."}
-              </p>
+              <aside className="border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-1">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Access</div>
+                    <div className="mt-2 text-xl font-medium text-white">{loading ? "Syncing…" : accessLabel}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Waitlist</div>
+                    <div className="mt-2 text-xl font-medium text-white">{waitlistCount == null ? "—" : waitlistCount}</div>
+                  </div>
+                  <div className="col-span-2 flex items-start gap-2 border-t border-white/[0.07] pt-5 text-xs leading-5 text-slate-400 lg:col-span-1">
+                    <Check aria-hidden="true" className="mt-0.5 shrink-0 text-cyan-300" size={14} />
+                    Private beta access. Temporary workspaces during the test track.
+                  </div>
+                </div>
+              </aside>
+            </div>
+
+            <div className="mt-12" data-marketing-reveal="market-tape" data-motion="reveal" data-reveal-delay="0.16">
+              <MarketTape />
+            </div>
+
+            <div className="mt-7 origin-top lg:mt-10" data-landing-stage id="product">
+              <HeroDemo />
             </div>
           </div>
+        </section>
 
-          <div className="mt-10" data-marketing-reveal="pricing-cards" data-reveal-delay="0.1">
-            <PricingSection
-              frequency={frequency}
-              mode={deploymentMode}
-              onFrequencyChange={setFrequency}
-              showComparison
-            />
-          </div>
-        </div>
-      </section>
+        <section className="border-y border-white/[0.07] bg-[#06090d]/70 px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="how-it-works">
+          <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1.38fr)] lg:gap-20">
+            <div className="lg:sticky lg:top-32 lg:self-start">
+              <SectionHeading
+                description="Price action, decisions, and review move as one system instead of three disconnected tools."
+                title="One continuous loop."
+              />
+            </div>
 
-      <section className="px-4 pb-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <SectionIntro
-            className="max-w-5xl"
-            description="EdgeLab already ships replay, journal review, analytics, and strategy memory inside the same workspace."
-            eyebrow="Included now"
-            revealKey="proof"
-            title="Product first. Pricing second."
-          />
-
-          <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {PROOF_STEPS.map((item, index) => (
-              <div
-                key={item.title}
-                data-marketing-reveal={`proof-${item.title}`}
-                data-reveal-delay={String(index * 0.06)}
-                className={`rounded-[28px] border px-6 py-6 shadow-panel transition duration-200 ease-out hover:-translate-y-1 motion-reduce:transition-none ${
-                  index === 1
-                    ? "border-cyan-300/20 bg-[linear-gradient(160deg,rgba(50,211,238,0.12),rgba(255,255,255,0.03))]"
-                    : "border-white/10 bg-[#071018]"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 font-mono text-sm text-cyan-100">
-                    {item.step}
-                  </div>
+            <div className="border-t border-white/10">
+              {WORKFLOW_STEPS.map((step) => (
+                <article
+                  className="grid gap-5 border-b border-white/10 py-10 sm:grid-cols-[70px_minmax(0,1fr)] sm:gap-8 sm:py-14"
+                  data-flow-row
+                  key={step.step}
+                >
+                  <div className="font-data text-xs text-slate-400">{step.step}</div>
                   <div>
-                    <div className={FEATURE_CARD_TITLE_CLASS}>
-                      {item.title}
-                    </div>
-                    <p className={FEATURE_CARD_COPY_CLASS}>{item.body}</p>
+                    <h3 className="max-w-2xl text-2xl font-medium leading-tight tracking-[-0.025em] text-white sm:text-3xl">
+                      {step.title}
+                    </h3>
+                    <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400 sm:text-base sm:leading-8">
+                      {step.body}
+                    </p>
                   </div>
-                </div>
-              </div>
-            ))}
+                </article>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="px-4 pb-24 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
-          <SectionIntro
-            description="Short answers on beta access, imports, billing timing, and data lifecycle."
-            eyebrow="FAQ"
-            revealKey="faq"
-            title="What beta users should expect."
-          />
-          <div data-marketing-reveal="faq-list" data-reveal-delay="0.08">
-            <FaqAccordion items={pricingFaqItems} />
+        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8">
+          <div className="mx-auto max-w-7xl">
+            <SectionHeading
+              description="EdgeLab keeps the full practice loop inside one workspace, so the result can still be traced back to the decision."
+              title="The product stays in motion."
+            />
+            <div className="mt-16 grid border-y border-white/10 md:grid-cols-3 md:divide-x md:divide-white/10">
+              {PROOF_STEPS.map((item) => (
+                <article className="border-b border-white/10 py-8 last:border-b-0 md:border-b-0 md:px-7 md:first:pl-0 md:last:pr-0" key={item.label}>
+                  <div className="text-xs font-semibold text-slate-400">{item.label}</div>
+                  <h3 className="mt-5 text-xl font-medium tracking-[-0.02em] text-white">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-slate-400">{item.body}</p>
+                </article>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <section className="border-y border-white/[0.07] bg-[#06090d]/70 px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="pricing">
+          <div className="mx-auto max-w-7xl">
+            <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+              <SectionHeading
+                description={
+                  isBetaMode(deploymentMode)
+                    ? "Approved users get the complete workspace free during private beta. The queue opens automatically when seats fill."
+                    : "Choose a cadence that fits your review cycle, from solo validation to a growing desk."
+                }
+                title={isBetaMode(deploymentMode) ? "Full product. Limited beta." : "Plans that scale with the process."}
+              />
+              <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Current mode</div>
+                <div className="mt-3 text-xl font-medium text-white">
+                  {isBetaMode(deploymentMode) ? "Private beta" : "Production pricing"}
+                </div>
+                <p className="mt-3 text-sm leading-7 text-slate-400">
+                  {isBetaMode(deploymentMode)
+                    ? "Billing stays off during the private beta track."
+                    : "Annual billing discounts and plan gating are available below."}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-14" data-marketing-reveal="pricing-cards" data-reveal-delay="0.08">
+              <PricingSection
+                frequency={frequency}
+                mode={deploymentMode}
+                onFrequencyChange={setFrequency}
+                showComparison
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8">
+          <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(0,0.76fr)_minmax(0,1.24fr)] lg:gap-20">
+            <SectionHeading
+              description="Straight answers on access, imports, billing timing, and the beta data lifecycle."
+              title="Before you enter."
+            />
+            <div data-marketing-reveal="faq-list" data-reveal-delay="0.06">
+              <FaqAccordion items={pricingFaqItems} />
+            </div>
+          </div>
+        </section>
+      </div>
     </MarketingShell>
   );
 }
