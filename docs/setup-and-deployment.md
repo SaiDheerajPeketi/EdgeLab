@@ -45,7 +45,34 @@ This script will boot up the Python API, the Legacy Node API, and the Vite front
 
 ---
 
-## Local Development (With Docker Compose)
+## Lightweight Single-User Deployment
+
+For a persistent local installation without PostgreSQL, TimescaleDB, PgBouncer, Redis, or background workers, use the dedicated two-container Compose file:
+
+```bash
+docker compose -f docker-compose.local.yml up --build -d
+```
+
+Open [http://localhost:8080](http://localhost:8080). The deployment binds the web UI to loopback only and enables the loopback-only developer sign-in, so Google OAuth is not required. To use another port, set `FRONTEND_PORT` before starting Compose.
+
+The FastAPI container uses one worker and two SQLite files in the `edgelab-local_local-api-data` named volume. Transactional application data and optional imported market data therefore persist through container replacement, restarts, and ordinary `docker compose down` operations. Dataset CSVs are read directly from the host `./datasets` folder (or `EDGELAB_DATASETS_ROOT`) and are not copied into the container.
+
+```bash
+# Stop without deleting data
+docker compose -f docker-compose.local.yml down
+
+# Back up both SQLite databases to the current directory
+docker compose -f docker-compose.local.yml cp api:/var/lib/edgelab ./edgelab-local-backup
+
+# Permanently remove containers and the named database volume
+docker compose -f docker-compose.local.yml down --volumes
+```
+
+The local file intentionally omits scheduled data population and analytics workers. Add CSV datasets under `./datasets` and refresh the dataset catalog in the app when needed.
+
+---
+
+## Production-Shaped Local Development (With Docker Compose)
 
 The easiest way to get an environment identical to production is to run the Docker Compose stack.
 

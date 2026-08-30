@@ -73,3 +73,5 @@ Preview production build:
 ```bash
 npm run preview
 ```
+
+For the lightweight single-user deployment, run `docker compose -f docker-compose.local.yml up --build -d` from the repository root. The production frontend image is served on `http://localhost:8080` and proxies all API traffic to the single local FastAPI container.

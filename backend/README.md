@@ -102,6 +102,8 @@ Run tests:
 PYTHONPATH=. python -m pytest tests
 ```
 
+For a persistent single-user Docker deployment, run `docker compose -f docker-compose.local.yml up --build -d` from the repository root. This uses one FastAPI worker with SQLite files in a named Docker volume and leaves Redis, PostgreSQL, TimescaleDB, PgBouncer, and background workers out of the deployment.
+
 To run the legacy Node.js API manually:
 ```bash
 node index.js

@@ -34,7 +34,15 @@ The documentation for EdgeLab has been modularized. Please refer to the specific
 
 ## Quick Start (Docker Compose)
 
-Docker Compose is the fastest end-to-end deployment path. It stands up the React frontend, Nginx, FastAPI services, PostgreSQL, TimescaleDB, and Redis.
+For a lightweight single-user installation, run the local Compose file. It starts only the frontend and one FastAPI container, uses SQLite instead of PostgreSQL, and does not require Redis:
+
+```bash
+docker compose -f docker-compose.local.yml up --build -d
+```
+
+Open [http://localhost:8080](http://localhost:8080). Application state is stored in the `edgelab-local_local-api-data` Docker volume and datasets remain in `./datasets`, so both survive restarts and `docker compose down`. See [Setup and Deployment](docs/setup-and-deployment.md#lightweight-single-user-deployment) for backup and removal commands.
+
+The full Docker Compose stack is the production-shaped option. It stands up the React frontend, Nginx, FastAPI services, PostgreSQL, TimescaleDB, and Redis.
 
 ```bash
 cp .env.example .env

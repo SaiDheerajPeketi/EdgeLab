@@ -1,0 +1,62 @@
+name: edgelab-local
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: sqlite:////var/lib/edgelab/edgelab.db
+      EDGELAB_MARKET_DATA_DATABASE_URL: sqlite:////var/lib/edgelab/market_data.db
+      EDGELAB_API_WORKERS: 1
+      EDGELAB_RUN_MIGRATIONS: 1
+      EDGELAB_JWT_SECRET: ${EDGELAB_JWT_SECRET:-local-single-user-secret}
+      EDGELAB_DEV_AUTH_BYPASS: 1
+      EDGELAB_PUBLIC_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-8080},http://127.0.0.1:${FRONTEND_PORT:-8080}
+      EDGELAB_DATASETS_ROOT: /datasets
+      EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED: 1
+      EDGELAB_MARKET_DATA_IMPORT_ENABLED: 0
+      EDGELAB_REDIS_URL: ""
+      EDGELAB_OBSERVABILITY_JSON_LOGS: 0
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""
+      GOOGLE_CLIENT_SECRETS_FILE: ""
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    volumes:
+      - local-api-data:/var/lib/edgelab
+      - type: bind
+        source: ${EDGELAB_DATASETS_ROOT:-./datasets}
+        target: /datasets
+        read_only: true
+    networks:
+      default:
+        aliases:
+          - market-api
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_DEPLOYMENT_MODE: beta
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  local-api-data:
