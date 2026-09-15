@@ -101,8 +101,10 @@ test("low-power chart budget drives and proves representative pane work", () => 
   const source = fs.readFileSync(path.join(ROOT, "e2e/chart-performance.spec.ts"), "utf8");
   assert.match(source, /page\.mouse\.move\(/);
   assert.match(source, /allFrames\.push\(observation\.current - previous\)/);
-  assert.match(source, /panesWithChangingOhlc\)\.toBe\(16\)/);
-  assert.match(source, /low-power-performance\.partial\.json/);
+  assert.match(source, /calc\(100% - 16px\)/);
+  assert.match(source, /tv-lightweight-charts canvas/);
+  assert.match(source, /const failures = \[/);
+  assert.match(source, /report\.phase = "complete"/);
   assert.match(source, /finally \{/);
   assert.match(source, /setCPUThrottlingRate", \{ rate: 1 \}/);
   assert.match(source, /resizeStressP95Ms/);
