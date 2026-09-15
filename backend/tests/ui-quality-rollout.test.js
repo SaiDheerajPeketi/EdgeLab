@@ -21,12 +21,49 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     assert.equal(module.routeGroup("/app/journal/trades?trade=42"), "journal");
     assert.equal(module.routeGroup("/app/settings/chart"), "settings");
     assert.equal(module.routeGroup("/app/live"), "chart");
+    assert.equal(module.routeGroup("/shared#snapshot-token"), "chart");
+    assert.equal(module.routeGroup("/application"), "public");
+    assert.equal(module.routeGroup("/app/journalist"), "shell");
     assert.equal(module.routeGroup("/pricing"), "public");
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));
     assert.equal(module.resolveUiRollout({ overrides: { chart: false } }).chart, false);
-    assert.ok(Object.values(module.resolveServerUiRollout({ revision: "incident", kill_switch: true, flags: {} })).every((value) => !value));
+    assert.deepEqual(module.resolveUiRollout({ overrides: { shell: false, journal: true, settings: true, chart: true, public: true } }), {
+      shell: false,
+      journal: false,
+      settings: false,
+      chart: false,
+      public: true,
+    });
+
+    const response = {
+      revision: "release-42",
+      kill_switch: false,
+      flags: { shell: true, journal: true, settings: true, chart: false, public: true },
+    };
+    assert.deepEqual(module.normalizeServerUiRollout(response), response);
+    assert.equal(module.normalizeServerUiRollout({ ...response, flags: { ...response.flags, chart: "true" } }), null);
+    assert.ok(Object.values(module.resolveServerUiRollout({ revision: "incident", kill_switch: true, flags: response.flags })).every((value) => !value));
+    assert.ok(Object.values(module.resolveServerUiRollout({ revision: "broken", kill_switch: false, flags: {} })).every((value) => !value));
+
+    const snapshot = module.serializeUiRolloutSnapshot(response, 1_000);
+    assert.deepEqual(module.parseUiRolloutSnapshot(snapshot, 1_100, 200), response);
+    assert.equal(module.parseUiRolloutSnapshot(snapshot, 1_201, 200), null);
+    assert.equal(module.parseUiRolloutSnapshot("not-json", 1_100, 200), null);
   } finally { cleanup(); }
+});
+
+test("container deployment exposes every server-owned rollout control", () => {
+  const compose = fs.readFileSync(path.join(ROOT, "docker-compose.yml"), "utf8");
+  for (const name of [
+    "EDGELAB_UI_REVISION",
+    "EDGELAB_UI_KILL_SWITCH",
+    "EDGELAB_UI_SHELL_V2",
+    "EDGELAB_UI_JOURNAL_V2",
+    "EDGELAB_UI_SETTINGS_V2",
+    "EDGELAB_UI_CHART_V2",
+    "EDGELAB_UI_PUBLIC_V2",
+  ]) assert.match(compose, new RegExp(`\\b${name}:`));
 });
 
 test("quality manifests inventory routes, critical states, and measurable budgets", () => {

@@ -1,4 +1,6 @@
-export type UiRouteGroup = "shell" | "journal" | "settings" | "chart" | "public";
+export const UI_ROUTE_GROUPS = ["shell", "journal", "settings", "chart", "public"] as const;
+
+export type UiRouteGroup = (typeof UI_ROUTE_GROUPS)[number];
 
 export const UI_ROLLOUT_FLAGS: Record<UiRouteGroup, string> = {
   shell: "ui.shell.v2",
@@ -17,30 +19,110 @@ export type UiRolloutConfig = {
 export type UiRolloutServerResponse = {
   revision: string;
   kill_switch: boolean;
-  flags: Partial<Record<UiRouteGroup, boolean>>;
+  flags: Record<UiRouteGroup, boolean>;
 };
+
+type UiRolloutSnapshot = {
+  response: UiRolloutServerResponse;
+  savedAt: number;
+  version: 1;
+};
+
+export const UI_ROLLOUT_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+const SHELL_DEPENDENTS: readonly UiRouteGroup[] = ["journal", "settings", "chart"];
 
 /** Server overrides win; the kill switch provides a reversible fallback without changing routes or data. */
 export function resolveUiRollout(config: UiRolloutConfig = {}): Readonly<Record<UiRouteGroup, boolean>> {
-  const groups = Object.keys(UI_ROLLOUT_FLAGS) as UiRouteGroup[];
-  return Object.freeze(Object.fromEntries(groups.map((group) => [
-    group,
-    config.killSwitch ? false : config.overrides?.[group] ?? config.defaults?.[group] ?? true,
-  ])) as Record<UiRouteGroup, boolean>);
+  const killSwitch = config.killSwitch === true;
+  const resolved = Object.fromEntries(UI_ROUTE_GROUPS.map((group) => {
+    const override = config.overrides?.[group];
+    const fallback = config.defaults?.[group];
+    const enabled = typeof override === "boolean"
+      ? override
+      : typeof fallback === "boolean"
+        ? fallback
+        : true;
+    return [group, killSwitch ? false : enabled];
+  })) as Record<UiRouteGroup, boolean>;
+
+  // Authenticated surfaces use the shared shell. Keeping this dependency in
+  // one resolver prevents a child route from rendering a mixed v1/v2 tree.
+  if (!resolved.shell) {
+    SHELL_DEPENDENTS.forEach((group) => { resolved[group] = false; });
+  }
+
+  return Object.freeze(resolved);
 }
 
 export function routeGroup(pathname: string): UiRouteGroup {
-  if (!pathname.startsWith("/app")) return "public";
-  if (pathname.includes("/journal") || pathname.includes("/reports")) return "journal";
-  if (pathname.includes("/settings")) return "settings";
-  if (/\/(live|replay|chart|quant|order-flow)(\/|$)/.test(pathname)) return "chart";
+  const path = normalizedPathname(pathname);
+  if (path === "/shared") return "chart";
+  if (path !== "/app" && !path.startsWith("/app/")) return "public";
+  const section = path.split("/")[2] ?? "";
+  if (section === "journal" || section === "reports") return "journal";
+  if (section === "settings") return "settings";
+  if (["live", "replay", "chart", "quant", "order-flow"].includes(section)) return "chart";
   return "shell";
 }
 
-export function rolloutStorageKey(workspaceId: string) {
-  return `edgelab.ui-rollout.v2.${encodeURIComponent(workspaceId)}`;
+export function rolloutStorageKey(scope = "deployment") {
+  return `edgelab.ui-rollout.v2.${encodeURIComponent(scope)}`;
 }
 
-export function resolveServerUiRollout(response: UiRolloutServerResponse) {
-  return resolveUiRollout({ killSwitch: response.kill_switch, overrides: response.flags });
+export function normalizeServerUiRollout(value: unknown): UiRolloutServerResponse | null {
+  if (!isRecord(value) || typeof value.kill_switch !== "boolean") return null;
+  const revision = typeof value.revision === "string" ? value.revision.trim() : "";
+  if (!revision || revision.length > 128 || !isRecord(value.flags)) return null;
+  const flags = {} as Record<UiRouteGroup, boolean>;
+  for (const group of UI_ROUTE_GROUPS) {
+    if (typeof value.flags[group] !== "boolean") return null;
+    flags[group] = value.flags[group];
+  }
+  return { flags, kill_switch: value.kill_switch, revision };
+}
+
+export function resolveServerUiRollout(response: unknown) {
+  const normalized = normalizeServerUiRollout(response);
+  if (!normalized) return resolveUiRollout({ killSwitch: true });
+  return resolveUiRollout({ killSwitch: normalized.kill_switch, overrides: normalized.flags });
+}
+
+export function serializeUiRolloutSnapshot(response: unknown, savedAt = Date.now()) {
+  const normalized = normalizeServerUiRollout(response);
+  if (!normalized || !Number.isFinite(savedAt)) return null;
+  return JSON.stringify({ response: normalized, savedAt, version: 1 } satisfies UiRolloutSnapshot);
+}
+
+export function parseUiRolloutSnapshot(
+  rawValue: string | null,
+  now = Date.now(),
+  maxAgeMs = UI_ROLLOUT_CACHE_MAX_AGE_MS,
+): UiRolloutServerResponse | null {
+  if (!rawValue || !Number.isFinite(now) || !Number.isFinite(maxAgeMs) || maxAgeMs < 0) return null;
+  try {
+    const snapshot = JSON.parse(rawValue) as Partial<UiRolloutSnapshot>;
+    if (
+      snapshot.version !== 1 ||
+      typeof snapshot.savedAt !== "number" ||
+      !Number.isFinite(snapshot.savedAt) ||
+      snapshot.savedAt > now + 5 * 60 * 1_000 ||
+      now - snapshot.savedAt > maxAgeMs
+    ) return null;
+    return normalizeServerUiRollout(snapshot.response);
+  } catch {
+    return null;
+  }
+}
+
+function normalizedPathname(value: string) {
+  const rawPath = value.split(/[?#]/, 1)[0] || "/";
+  try {
+    return new URL(rawPath, "https://edgelab.invalid").pathname.replace(/\/+$/, "") || "/";
+  } catch {
+    return "/";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

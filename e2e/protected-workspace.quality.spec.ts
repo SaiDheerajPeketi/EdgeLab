@@ -211,11 +211,12 @@ test.describe("critical states and rollout fallback", () => {
     });
   }
 
-  test("unavailable rollout service keeps the verified default", async ({ page }, testInfo) => {
+  test("unavailable rollout service fails closed without losing the route", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Failure fallback is viewport-independent.");
     await installDeterminism(page, { rollout: "unavailable" });
     await gotoStable(page, "/app/journal/dashboard");
-    await expect(page.locator('[data-route-group="journal"]')).toHaveAttribute("data-ui-version", "v2");
+    await expect(page).toHaveURL(/\/app\/journal\/dashboard$/);
+    await expect(page.locator('[data-route-group="journal"]')).toHaveAttribute("data-ui-version", "fallback");
     await expect(page.getByRole("main")).toBeVisible();
   });
 });

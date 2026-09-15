@@ -48,6 +48,13 @@ The backend is the core engine of EdgeLab.
 | `EDGELAB_BETA_SEATS_TOTAL` | Total number of beta seats allowed | `500` |
 | `EDGELAB_BETA_MANUAL_ACCESS_ENABLED`| Enable manual beta access without OAuth | `0` (False) |
 | `EDGELAB_DEV_AUTH_BYPASS` | Enable loopback-only local development sign-in | `0` (False) |
+| `EDGELAB_UI_REVISION` | Operator label exposed with the active UI rollout | `v2` |
+| `EDGELAB_UI_KILL_SWITCH` | Put every route group in compatibility mode | `0` (False) |
+| `EDGELAB_UI_SHELL_V2` | Enable the shared v2 application shell | `1` (True) |
+| `EDGELAB_UI_JOURNAL_V2` | Enable v2 Journal and report routes after the shell | `1` (True) |
+| `EDGELAB_UI_SETTINGS_V2` | Enable v2 settings routes after the shell | `1` (True) |
+| `EDGELAB_UI_CHART_V2` | Enable v2 chart, live, replay, and shared-workspace routes after the shell | `1` (True) |
+| `EDGELAB_UI_PUBLIC_V2` | Enable v2 public and authentication routes | `1` (True) |
 | `EDGELAB_CACHE_MARKET_DATA` | Enable in-memory market data caching | `1` (True) |
 | `EDGELAB_MARKET_DATA_IMPORT_ENABLED`| Auto-import timeframes to DB | `1` (True) |
 | `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS` | How often the populator runs | `3600` |

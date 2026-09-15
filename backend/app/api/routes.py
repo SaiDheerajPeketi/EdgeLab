@@ -1190,26 +1190,55 @@ def beta_auth_config() -> BetaAuthConfig:
     )
 
 
+_UI_ROLLOUT_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_UI_ROLLOUT_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+_UI_ROLLOUT_FLAG_ENV = {
+    "shell": "EDGELAB_UI_SHELL_V2",
+    "journal": "EDGELAB_UI_JOURNAL_V2",
+    "settings": "EDGELAB_UI_SETTINGS_V2",
+    "chart": "EDGELAB_UI_CHART_V2",
+    "public": "EDGELAB_UI_PUBLIC_V2",
+}
+_UI_ROLLOUT_SHELL_DEPENDENTS = ("journal", "settings", "chart")
+
+
+def _ui_rollout_env_enabled(name: str, *, default: bool, invalid: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in _UI_ROLLOUT_TRUE_VALUES:
+        return True
+    if normalized in _UI_ROLLOUT_FALSE_VALUES:
+        return False
+    return invalid
+
+
 @router.get("/ui/rollout", response_model=UiRolloutConfig)
-def ui_rollout_config() -> UiRolloutConfig:
+def ui_rollout_config(response: Response) -> UiRolloutConfig:
     """Return deploy-time UI migration flags without exposing operator secrets."""
 
-    def enabled(name: str, default: bool = True) -> bool:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        return raw.strip().lower() not in {"", "0", "false", "no", "off"}
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    kill_switch = _ui_rollout_env_enabled(
+        "EDGELAB_UI_KILL_SWITCH",
+        default=False,
+        invalid=True,
+    )
+    flags = {
+        group: _ui_rollout_env_enabled(name, default=True, invalid=False)
+        for group, name in _UI_ROLLOUT_FLAG_ENV.items()
+    }
+    if kill_switch:
+        flags = {group: False for group in flags}
+    elif not flags["shell"]:
+        for group in _UI_ROLLOUT_SHELL_DEPENDENTS:
+            flags[group] = False
 
     return UiRolloutConfig(
-        revision=os.getenv("EDGELAB_UI_REVISION", "v2").strip() or "v2",
-        kill_switch=enabled("EDGELAB_UI_KILL_SWITCH", False),
-        flags={
-            "shell": enabled("EDGELAB_UI_SHELL_V2"),
-            "journal": enabled("EDGELAB_UI_JOURNAL_V2"),
-            "settings": enabled("EDGELAB_UI_SETTINGS_V2"),
-            "chart": enabled("EDGELAB_UI_CHART_V2"),
-            "public": enabled("EDGELAB_UI_PUBLIC_V2"),
-        },
+        revision=(os.getenv("EDGELAB_UI_REVISION", "v2").strip() or "v2")[:128],
+        kill_switch=kill_switch,
+        flags=flags,
     )
 
 

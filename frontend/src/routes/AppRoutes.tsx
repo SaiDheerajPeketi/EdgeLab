@@ -16,7 +16,15 @@ import {
   buildAuthSignInHref,
 } from "../lib/authJourney";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
-import { resolveServerUiRollout, resolveUiRollout, routeGroup } from "../lib/uiRollout";
+import {
+  normalizeServerUiRollout,
+  parseUiRolloutSnapshot,
+  resolveServerUiRollout,
+  resolveUiRollout,
+  rolloutStorageKey,
+  routeGroup,
+  serializeUiRolloutSnapshot,
+} from "../lib/uiRollout";
 
 const LandingPage = lazy(() =>
   import("../pages/LandingPage").then((module) => ({ default: module.LandingPage })),
@@ -283,23 +291,93 @@ export function AppRoutes() {
   );
 }
 
+type UiRolloutRuntimeState = {
+  flags: ReturnType<typeof resolveUiRollout>;
+  revision: string;
+  source: "cache" | "fallback" | "server";
+};
+
+const UI_ROLLOUT_REFRESH_MS = 60_000;
+const UI_ROLLOUT_STORAGE_KEY = rolloutStorageKey();
+
+function rolloutRuntimeState(
+  response: unknown,
+  source: UiRolloutRuntimeState["source"],
+): UiRolloutRuntimeState | null {
+  const normalized = normalizeServerUiRollout(response);
+  return normalized ? {
+    flags: resolveServerUiRollout(normalized),
+    revision: normalized.revision,
+    source,
+  } : null;
+}
+
+function initialUiRolloutState(): UiRolloutRuntimeState {
+  const fallback: UiRolloutRuntimeState = {
+    flags: resolveUiRollout({ killSwitch: true }),
+    revision: "awaiting-server",
+    source: "fallback",
+  };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const cached = parseUiRolloutSnapshot(window.localStorage.getItem(UI_ROLLOUT_STORAGE_KEY));
+    return rolloutRuntimeState(cached, "cache") ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
   const location = useLocation();
   const boundaryRef = useRef<HTMLDivElement>(null);
-  const [rollout, setRollout] = useState(() => resolveUiRollout());
+  const [rollout, setRollout] = useState(initialUiRolloutState);
   const group = routeGroup(location.pathname);
 
   useEffect(() => {
     let active = true;
-    void getUiRolloutConfig()
-      .then((response) => {
-        if (active) setRollout(resolveServerUiRollout(response));
-      })
-      .catch(() => {
-        // Network/config failures retain the fully verified default rather than
-        // leaving a route in a mixed or partially migrated state.
-      });
-    return () => { active = false; };
+    let requestInFlight = false;
+
+    const refresh = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const response = await getUiRolloutConfig();
+        if (!active) return;
+        const next = rolloutRuntimeState(response, "server");
+        if (!next) {
+          setRollout({
+            flags: resolveUiRollout({ killSwitch: true }),
+            revision: "invalid-server-config",
+            source: "fallback",
+          });
+          return;
+        }
+        const snapshot = serializeUiRolloutSnapshot(response);
+        if (snapshot) {
+          try { window.localStorage.setItem(UI_ROLLOUT_STORAGE_KEY, snapshot); } catch {
+            // Runtime enforcement remains authoritative when storage is blocked.
+          }
+        }
+        setRollout(next);
+      } catch {
+        // Keep the last valid response (or the fail-closed bootstrap state) so
+        // a transient outage cannot undo an operator fallback.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), UI_ROLLOUT_REFRESH_MS);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -310,12 +388,14 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [location.pathname]);
 
-  const modernUiEnabled = rollout[group];
+  const modernUiEnabled = rollout.flags[group];
 
   return (
     <div
       className={`ui-route-transition ${modernUiEnabled ? "" : "ui-route-fallback"}`}
       data-route-group={group}
+      data-ui-rollout-revision={rollout.revision}
+      data-ui-rollout-source={rollout.source}
       data-ui-version={modernUiEnabled ? "v2" : "fallback"}
       ref={boundaryRef}
     >
