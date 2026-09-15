@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Candle } from "../lib/api";
+import { FloatingWorkspacePanel } from "./ui/WorkspacePanelManager";
+import { IconButton } from "./ui/Primitives";
 import type { EdgeIndicatorInputValue } from "../lib/indicatorDsl";
 import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
 import type { CustomIndicatorScript } from "../lib/customIndicators";
@@ -332,18 +334,14 @@ export function QuantPanel({
     }
   }
 
-  const dockClass = preferences.dock === "bottom"
-    ? "bottom-3 left-3 right-3 h-[min(520px,calc(100vh-24px))]"
-    : "bottom-3 right-3 top-16 w-[min(430px,calc(100vw-24px))]";
-
   return (
-    <aside aria-label="Quant assistant" className={`fixed z-[235] flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#070b10] shadow-[0_24px_72px_rgba(0,0,0,0.68)] ${dockClass}`}>
+    <FloatingWorkspacePanel label="Quant assistant" dock={preferences.dock} size={preferences.dock === "right" ? preferences.panelWidth : preferences.panelHeight} onSizeChange={(size) => updatePreferences(preferences.dock === "right" ? { panelWidth: size } : { panelHeight: size })}>
       <header className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2.5">
         <div className="min-w-0"><h2 className="flex items-center gap-2 text-sm font-semibold text-white"><Bot size={16} /> Quant</h2><p className="truncate text-[11px] text-slate-500">Chart-aware analysis and indicator building</p></div>
         <div className="flex items-center gap-1">
-          <button aria-label="Dock Quant on the right" aria-pressed={preferences.dock === "right"} className={`icon-button h-8 w-8 ${preferences.dock === "right" ? "text-cyan-100" : ""}`} onClick={() => updatePreferences({ dock: "right" })} type="button"><PanelRight size={14} /></button>
-          <button aria-label="Dock Quant at the bottom" aria-pressed={preferences.dock === "bottom"} className={`icon-button h-8 w-8 ${preferences.dock === "bottom" ? "text-cyan-100" : ""}`} onClick={() => updatePreferences({ dock: "bottom" })} type="button"><PanelBottom size={14} /></button>
-          <button aria-label="Close Quant" className="icon-button h-8 w-8" onClick={onClose} type="button"><X size={14} /></button>
+          <IconButton icon={PanelRight} label="Dock Quant on the right" pressed={preferences.dock === "right"} onClick={() => updatePreferences({ dock: "right" })} />
+          <IconButton icon={PanelBottom} label="Dock Quant at the bottom" pressed={preferences.dock === "bottom"} onClick={() => updatePreferences({ dock: "bottom" })} />
+          <IconButton icon={X} label="Close Quant" onClick={onClose} />
         </div>
       </header>
 
@@ -393,16 +391,21 @@ export function QuantPanel({
         </div>
       </div>
       <style>{`@media (max-width: 640px) { aside[aria-label="Quant assistant"] { inset: 8px !important; height: auto !important; width: auto !important; } }`}</style>
-    </aside>
+    </FloatingWorkspacePanel>
   );
 }
 
 function Message({ message, onAddGeneratedIndicator, onOpenIndicatorEditor, onTurnAnalysisIntoIndicator }: { message: QuantConversation["messages"][number]; onAddGeneratedIndicator: (artifact: QuantGeneratedIndicator) => void; onOpenIndicatorEditor: (artifact: QuantGeneratedIndicator) => void; onTurnAnalysisIntoIndicator: (message: QuantConversation["messages"][number]) => void }) {
-  return <article className={`rounded-lg p-3 text-xs leading-5 ${message.role === "user" ? "ml-8 bg-cyan-300/10 text-cyan-50" : "mr-5 bg-white/[0.04] text-slate-300"}`}><div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{message.role === "user" ? "You" : "Quant"}</div><p className="whitespace-pre-wrap">{message.content}</p>{message.analysis ? <><AnalysisPresentation analysis={message.analysis} /><button className="studio-tool-button mt-3" onClick={() => onTurnAnalysisIntoIndicator(message)} type="button"><Code2 size={12} /> Turn analysis into indicator</button></> : null}{message.generatedIndicator ? <div className="mt-3 flex flex-wrap gap-2"><button className="studio-tool-button" onClick={() => onOpenIndicatorEditor(message.generatedIndicator!)} type="button"><Code2 size={12} /> Open source</button><button className="studio-tool-button studio-tool-button-active" onClick={() => onAddGeneratedIndicator(message.generatedIndicator!)} type="button"><Plus size={12} /> Add to chart</button></div> : null}{message.backtest ? <p className="mt-3 rounded-md border border-white/10 p-2 text-slate-400">Automatic {DEFAULT_QUANT_BACKTEST_CONFIG.windowDays}-day test · {message.backtest.trades} trades · {message.backtest.netReturnPercent.toFixed(2)}% net · sample {message.backtest.sample.hash}</p> : null}{message.usage ? <p className="mt-2 text-[10px] text-slate-500">Usage: {formatUsage(message.usage)}</p> : null}</article>;
+  return <article className={`rounded-lg p-3 text-xs leading-5 ${message.role === "user" ? "ml-8 bg-cyan-300/10 text-cyan-50" : "mr-5 bg-white/[0.04] text-slate-300"}`}><div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{message.role === "user" ? "You" : "Quant"}</div><p className="whitespace-pre-wrap">{message.content}</p>{message.analysis ? <><AnalysisPresentation analysis={message.analysis} /><button className="studio-tool-button mt-3" onClick={() => onTurnAnalysisIntoIndicator(message)} type="button"><Code2 size={12} /> Turn analysis into indicator</button></> : null}{message.generatedIndicator ? <><IndicatorSemantics artifact={message.generatedIndicator} /><div className="mt-3 flex flex-wrap gap-2"><button className="studio-tool-button" onClick={() => onOpenIndicatorEditor(message.generatedIndicator!)} type="button"><Code2 size={12} /> Open source</button><button className="studio-tool-button studio-tool-button-active" onClick={() => onAddGeneratedIndicator(message.generatedIndicator!)} type="button"><Plus size={12} /> Add to chart</button></div></> : null}{message.backtest ? <p className="mt-3 rounded-md border border-white/10 p-2 text-slate-400">Automatic {DEFAULT_QUANT_BACKTEST_CONFIG.windowDays}-day test · {message.backtest.trades} trades · {message.backtest.netReturnPercent.toFixed(2)}% net · sample {message.backtest.sample.hash}</p> : null}{message.usage ? <p className="mt-2 text-[10px] text-slate-500">Usage: {formatUsage(message.usage)}</p> : null}</article>;
 }
 
 function AnalysisPresentation({ analysis }: { analysis: NonNullable<QuantConversation["messages"][number]["analysis"]> }) {
-  return <div className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><strong className="text-slate-100">Daily bias</strong><span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${analysis.bias === "bullish" ? "bg-emerald-400/10 text-emerald-200" : analysis.bias === "bearish" ? "bg-rose-400/10 text-rose-200" : "bg-white/5 text-slate-300"}`}>{analysis.bias}</span></div><p className="mt-2">{analysis.summary}</p>{analysis.levels.length ? <dl className="mt-3 grid gap-2">{analysis.levels.map((level, index) => <div className="grid grid-cols-[auto_1fr] gap-3" key={`${level.price}-${index}`}><dt className="font-mono text-cyan-100">{level.price}</dt><dd><strong className="text-slate-200">{level.label}</strong><span className="block text-slate-500">{level.rationale}</span></dd></div>)}</dl> : null}<dl className="mt-3 grid gap-2 text-slate-400"><div><dt className="font-semibold text-slate-200">Invalidation</dt><dd>{analysis.invalidation}</dd></div><div><dt className="font-semibold text-slate-200">Uncertainty</dt><dd>{analysis.uncertainty}</dd></div><div className="rounded-md bg-amber-300/[0.06] p-2 text-amber-100"><dt className="font-semibold">Risk warning</dt><dd>{analysis.riskWarning}</dd></div></dl></div>;
+  return <div className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><strong className="text-slate-100">Daily bias</strong><span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${analysis.bias === "bullish" ? "bg-emerald-400/10 text-emerald-200" : analysis.bias === "bearish" ? "bg-rose-400/10 text-rose-200" : "bg-white/5 text-slate-300"}`}>{analysis.bias}</span></div><div className="mt-2 grid grid-cols-2 gap-2 rounded-md bg-black/20 p-2"><Metric label="Model confidence" value={`${analysis.confidenceScore.toFixed(0)}/100`} /><Metric label="Outcome probability" value={analysis.probability == null ? "Not calibrated" : `${analysis.probability.toFixed(0)}%`} /><p className="col-span-2 text-[10px] leading-4 text-slate-500">{analysis.probabilityBasis} Scores are decision support, never a guarantee.</p></div><p className="mt-2">{analysis.summary}</p>{analysis.levels.length ? <dl className="mt-3 grid gap-2">{analysis.levels.map((level, index) => <div className="grid grid-cols-[auto_1fr] gap-3" key={`${level.price}-${index}`}><dt className="font-mono text-cyan-100">{level.price}</dt><dd><strong className="text-slate-200">{level.label}</strong><span className="block text-slate-500">{level.rationale}</span></dd></div>)}</dl> : null}<dl className="mt-3 grid gap-2 text-slate-400"><div><dt className="font-semibold text-slate-200">Invalidation</dt><dd>{analysis.invalidation}</dd></div><div><dt className="font-semibold text-slate-200">Uncertainty</dt><dd>{analysis.uncertainty}</dd></div><div className="rounded-md bg-amber-300/[0.06] p-2 text-amber-100"><dt className="font-semibold">Risk warning</dt><dd>{analysis.riskWarning}</dd></div></dl></div>;
+}
+
+function IndicatorSemantics({ artifact }: { artifact: QuantGeneratedIndicator }) {
+  if (!artifact.scoreLabel && !artifact.probabilityLabel) return null;
+  return <dl className="mt-3 grid gap-2 rounded-md border border-white/10 p-2 text-[11px]"><div><dt className="font-semibold text-slate-200">{artifact.scoreLabel ?? "Signal score"}</dt><dd className="text-slate-500">{artifact.scoreSemantics ?? "Indicator output; not model confidence."}</dd></div><div><dt className="font-semibold text-slate-200">{artifact.probabilityLabel ?? "Probability unavailable"}</dt><dd className="text-slate-500">{artifact.probabilitySemantics ?? "No calibrated outcome probability is available."}</dd></div></dl>;
 }
 
 function BacktestControls({ config, error, onChange, onRun, result, scripts, selectedScriptId, setSelectedScriptId, status }: { config: QuantBacktestConfig; error: string | null; onChange: (value: QuantBacktestConfig) => void; onRun: () => void; result: QuantBacktestResult | null; scripts: readonly CustomIndicatorScript[]; selectedScriptId: string; setSelectedScriptId: (id: string) => void; status: "idle" | "running" | "error" }) {

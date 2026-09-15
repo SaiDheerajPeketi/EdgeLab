@@ -9,7 +9,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { flushSync } from "react-dom";
+import { PointOverlaySurface } from "./overlays/OverlaySurface";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -3564,13 +3565,7 @@ function RadialDrawingToolbox({
   const highlightedTool = highlightedIndex == null ? null : favorites[highlightedIndex];
   const highlightedDefinition = DRAWING_RAIL_TOOLS.find((item) => item.tool === highlightedTool);
 
-  return createPortal(
-    <div
-      aria-label="Circular drawing toolbox"
-      className="chart-radial-toolbox"
-      role="menu"
-      style={{ left: anchor.x, top: anchor.y }}
-    >
+  return <PointOverlaySurface label="Circular drawing toolbox" className="chart-radial-toolbox" x={anchor.x} y={anchor.y}>
       <div aria-hidden="true" className="chart-radial-toolbox-ring" />
       {favorites.map((tool, index) => {
         const definition = DRAWING_RAIL_TOOLS.find((item) => item.tool === tool);
@@ -3606,9 +3601,7 @@ function RadialDrawingToolbox({
       <span className="sr-only">
         Use arrow keys and Enter, number keys 1 through 8, or move to a tool and release Alt or Option.
       </span>
-    </div>,
-    document.body,
-  );
+    </PointOverlaySurface>;
 }
 
 function DrawingRail({
@@ -5765,7 +5758,7 @@ function FibLevelEditor({
           >
             <RotateCcw size={12} />
           </button>
-          <button className="fib-icon-button" onClick={addLevel} title="Add level" type="button">
+          <button aria-label="Add Fibonacci level" className="fib-icon-button" onClick={addLevel} title="Add level" type="button">
             <Plus size={13} />
           </button>
         </div>

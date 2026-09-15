@@ -87,3 +87,53 @@ test("Journal report and settings URLs resolve directly", async () => {
     assert.equal(module.workspaceViewFromPath("/app/journal/settings/import"), "journalSettings");
   } finally { cleanup(); }
 });
+
+test("operating navigation and Journal chrome use semantic surface tokens", () => {
+  for (const file of [
+    "frontend/src/components/Sidebar.tsx",
+    "frontend/src/components/WorkspaceMobileNav.tsx",
+    "frontend/src/components/journal/JournalControls.tsx",
+    "frontend/src/components/journal/RelationalJournalWorkspace.tsx",
+    "frontend/src/components/QuantPanel.tsx",
+  ]) assert.doesNotMatch(read(file), /(?:bg|border|text|shadow)-\[?#(?:[0-9a-f]{3,8})/i, `${file} contains a structural one-off color`);
+  const journal = read("frontend/src/components/journal/RelationalJournalWorkspace.tsx");
+  for (const token of ["--ui-surface", "--ui-divider", "--ui-selection", "--ui-hover", "--ui-focus", "--control-height", "--icon-md"]) assert.ok(journal.includes(token), `Journal chrome missing ${token}`);
+});
+
+test("icon-only legacy controls have programmatic names", () => {
+  const files = fs.readdirSync(path.join(root, "frontend/src/components"), { recursive: true }).filter((file) => String(file).endsWith(".tsx"));
+  for (const relative of files) {
+    const file = `frontend/src/components/${relative}`;
+    const tags = [...read(file).replaceAll("=>", "⇒").matchAll(/<button\b[^>]*className=(?:"[^"]*icon-button[^"]*"|\{`[^`]*icon-button[^`]*`\})[^>]*>/gs)];
+    for (const [tag] of tags) assert.match(tag, /(?:aria-label|title)=/, `${file} has an unnamed icon-only button: ${tag.slice(0, 120)}`);
+  }
+});
+
+test("floating and docked product tools share sizing and collision contracts", () => {
+  const manager = read("frontend/src/components/ui/WorkspacePanelManager.tsx");
+  for (const contract of ["FloatingWorkspacePanel", 'role="separator"', "aria-valuemin", "aria-valuemax", "clampFloatingSize", "--layer-docked-tool"]) assert.ok(manager.includes(contract), `panel manager missing ${contract}`);
+  const quant = read("frontend/src/components/QuantPanel.tsx");
+  assert.match(quant, /<FloatingWorkspacePanel/);
+  assert.doesNotMatch(quant, /<aside|fixed z-\[/);
+  const preferences = read("frontend/src/lib/quantAssistant.ts");
+  assert.match(preferences, /panelHeight/);
+  assert.match(preferences, /panelWidth/);
+});
+
+test("interactive overlays delegate portal, focus, dismissal, and layer behavior", () => {
+  const palette = read("frontend/src/components/GlobalCommandPalette.tsx");
+  assert.match(palette, /<Dialog/);
+  assert.doesNotMatch(palette, /createPortal|document\.body\.style\.overflow|event\.key === "Tab"/);
+  const chart = read("frontend/src/components/TradingChart.tsx");
+  assert.match(chart, /<PointOverlaySurface/);
+  assert.doesNotMatch(chart, /createPortal/);
+  const overlay = read("frontend/src/components/overlays/OverlaySurface.tsx");
+  for (const contract of ["currentPortalHost", "computeOverlayGeometry", "useOverlayDismiss", "useFocusReturn", "PointOverlaySurface"]) assert.ok(overlay.includes(contract), `overlay system missing ${contract}`);
+});
+
+test("provider and account statuses use the product language normalizer", () => {
+  const language = read("frontend/src/lib/productLanguage.ts");
+  assert.match(language, /humanizeProductStatus/);
+  for (const status of ["Disconnected", "Needs attention", "Loading…", "Delayed", "Not supported"]) assert.ok(language.includes(status), `missing direct status copy ${status}`);
+  assert.match(read("frontend/src/components/journal/JournalAccountsSurface.tsx"), /humanizeProductStatus\(connection\.status\)/);
+});

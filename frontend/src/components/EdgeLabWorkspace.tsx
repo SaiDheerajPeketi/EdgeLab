@@ -1894,7 +1894,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
                     options={watchlists.map((watchlist) => ({ label: watchlist.name, value: watchlist.id }))}
                     value={selectedWatchlist?.id ?? ""}
                   />
-                  <button className="icon-button h-10 w-10" onClick={createWatchlist} title="Create watchlist" type="button">
+                  <button aria-label="Create watchlist" className="icon-button h-10 w-10" onClick={createWatchlist} title="Create watchlist" type="button">
                     <Plus size={16} />
                   </button>
                   <button
@@ -3317,10 +3317,10 @@ function EconomicEventRow({
             {event.title}
           </button>
           <div className="flex shrink-0 items-center gap-1">
-            <button className="icon-button h-8 w-8" onClick={() => onOpenDetail(event)} title="Open event detail" type="button">
+            <button aria-label="Open event detail" className="icon-button h-8 w-8" onClick={() => onOpenDetail(event)} title="Open event detail" type="button">
               <FolderPlus size={14} />
             </button>
-            <button className="icon-button h-8 w-8" onClick={() => onOpenGraph(event)} title="Open event graph" type="button">
+            <button aria-label="Open event graph" className="icon-button h-8 w-8" onClick={() => onOpenGraph(event)} title="Open event graph" type="button">
               <BarChart3 size={14} />
             </button>
           </div>
@@ -8070,7 +8070,7 @@ function DashboardPage({
         <FeatureCard>
           <div className="flex items-center justify-between gap-3">
             <CardLabel icon={WalletCards} label="Simulated account balance" />
-            <button className="icon-button h-8 w-8" onClick={() => void copyBalance()} title="Copy balance" type="button">
+            <button aria-label="Copy account balance" className="icon-button h-8 w-8" onClick={() => void copyBalance()} title="Copy balance" type="button">
               <Copy size={14} />
             </button>
           </div>
@@ -8092,10 +8092,10 @@ function DashboardPage({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <CardLabel icon={CalendarDays} label="Backtest calendar" />
             <div className="flex items-center gap-2 text-xs text-slate-500">
-              <button className="icon-button h-8 w-8" onClick={() => void copyDashboardSummary()} title="Copy overview summary" type="button">
+              <button aria-label="Copy overview summary" className="icon-button h-8 w-8" onClick={() => void copyDashboardSummary()} title="Copy overview summary" type="button">
                 <Share2 size={14} />
               </button>
-              <button className={`icon-button h-8 w-8 ${calendarInfoOpen ? "workspace-tab-active" : ""}`} onClick={() => setCalendarInfoOpen((value) => !value)} title="Calendar details" type="button">
+              <button aria-label="Toggle calendar details" aria-expanded={calendarInfoOpen} className={`icon-button h-8 w-8 ${calendarInfoOpen ? "workspace-tab-active" : ""}`} onClick={() => setCalendarInfoOpen((value) => !value)} title="Calendar details" type="button">
                 <Info size={14} />
               </button>
               <button className="control-button h-8 px-2 text-xs" disabled={filteredClosedTrades.length === 0} onClick={exportOverviewCsv} type="button">
@@ -13286,7 +13286,7 @@ function JournalRichNoteEditor({
               </label>
             </div>
             <div className="mt-3 flex justify-end gap-2">
-              <button className="icon-button h-8 w-8" onClick={closeEditorPopovers} title="Cancel" type="button">
+              <button aria-label="Cancel editing" className="icon-button h-8 w-8" onClick={closeEditorPopovers} title="Cancel" type="button">
                 <X size={14} />
               </button>
               <button className="control-button h-8 border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:bg-cyan-300/20" disabled={!normalizeLinkUrl(linkUrl)} type="submit">
@@ -15023,7 +15023,7 @@ function NotebookTradeDetail({
           >
             <Star fill={favorite ? "currentColor" : "none"} size={15} />
           </button>
-          <button className="icon-button h-9 w-9" onClick={copySummary} title="Copy note summary" type="button">
+          <button aria-label="Copy note summary" className="icon-button h-9 w-9" onClick={copySummary} title="Copy note summary" type="button">
             <Copy size={15} />
           </button>
           <div className="relative" ref={moreMenuRef}>
@@ -18935,11 +18935,11 @@ function CalendarHeatmap({
   return (
     <div className="min-w-0">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <button className="icon-button h-8 w-8" onClick={() => changeMonth(-1)} title="Previous month" type="button">
+        <button aria-label="Previous month" className="icon-button h-8 w-8" onClick={() => changeMonth(-1)} title="Previous month" type="button">
           <ChevronLeft size={14} />
         </button>
         <div className="text-sm font-semibold text-white">{calendarTitle(activeMonth)}</div>
-        <button className="icon-button h-8 w-8" onClick={() => changeMonth(1)} title="Next month" type="button">
+        <button aria-label="Next month" className="icon-button h-8 w-8" onClick={() => changeMonth(1)} title="Next month" type="button">
           <ChevronRight size={14} />
         </button>
       </div>

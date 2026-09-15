@@ -40,16 +40,23 @@ export type QuantModel = {
 
 export type QuantAnalysis = {
   bias: "bullish" | "bearish" | "neutral";
+  confidenceScore: number;
   invalidation: string;
   levels: Array<{ label: string; price: number; rationale: string }>;
   riskWarning: string;
   summary: string;
   uncertainty: string;
+  probability: number | null;
+  probabilityBasis: string;
 };
 
 export type QuantGeneratedIndicator = {
   name: string;
   source: string;
+  scoreLabel?: string;
+  scoreSemantics?: string;
+  probabilityLabel?: string;
+  probabilitySemantics?: string;
 };
 
 export type QuantMessage = {
@@ -84,6 +91,8 @@ export type QuantPreferences = {
   allowScreenshots: boolean;
   allowStructuredContext: boolean;
   dock: "bottom" | "right";
+  panelHeight: number;
+  panelWidth: number;
   retention: "30-days" | "off" | "session";
 };
 
@@ -169,6 +178,8 @@ export const DEFAULT_QUANT_PREFERENCES: QuantPreferences = {
   allowScreenshots: false,
   allowStructuredContext: true,
   dock: "right",
+  panelHeight: 520,
+  panelWidth: 430,
   retention: "30-days",
 };
 
@@ -477,7 +488,10 @@ export function sanitizeQuantAnalysis(value: unknown): QuantAnalysis | undefined
   const candidate = value as Partial<QuantAnalysis>;
   if (!["bullish", "bearish", "neutral"].includes(candidate.bias ?? "") || typeof candidate.summary !== "string" || typeof candidate.invalidation !== "string" || typeof candidate.uncertainty !== "string" || typeof candidate.riskWarning !== "string") return undefined;
   const levels = Array.isArray(candidate.levels) ? candidate.levels.flatMap((item) => typeof item === "object" && item != null && typeof (item as { price?: unknown }).price === "number" && Number.isFinite((item as { price: number }).price) ? [{ label: String((item as { label?: unknown }).label ?? "Level").slice(0, 64), price: (item as { price: number }).price, rationale: String((item as { rationale?: unknown }).rationale ?? "").slice(0, 240) }] : []).slice(0, 12) : [];
-  return { bias: candidate.bias as QuantAnalysis["bias"], invalidation: candidate.invalidation.slice(0, 500), levels, riskWarning: candidate.riskWarning.slice(0, 500), summary: candidate.summary.slice(0, 2_000), uncertainty: candidate.uncertainty.slice(0, 500) };
+  const confidenceScore = Math.max(0, Math.min(100, finiteNumber(candidate.confidenceScore)));
+  const rawProbability = nullableFiniteNumber(candidate.probability);
+  const probability = rawProbability == null ? null : Math.max(0, Math.min(100, rawProbability));
+  return { bias: candidate.bias as QuantAnalysis["bias"], confidenceScore, invalidation: candidate.invalidation.slice(0, 500), levels, probability, probabilityBasis: String(candidate.probabilityBasis ?? "Uncalibrated model estimate; not an outcome probability.").slice(0, 300), riskWarning: candidate.riskWarning.slice(0, 500), summary: candidate.summary.slice(0, 2_000), uncertainty: candidate.uncertainty.slice(0, 500) };
 }
 
 function sanitizeQuantWorkspace(value: unknown): QuantWorkspace {
@@ -510,7 +524,7 @@ function sanitizeBacktestResult(value: unknown): QuantBacktestResult | undefined
 
 function sanitizeQuantPreferences(value: unknown): QuantPreferences {
   const candidate = typeof value === "object" && value != null ? value as Partial<QuantPreferences> : {};
-  return { allowGeneratedCode: candidate.allowGeneratedCode !== false, allowScreenshots: candidate.allowScreenshots === true, allowStructuredContext: candidate.allowStructuredContext !== false, dock: candidate.dock === "bottom" ? "bottom" : "right", retention: candidate.retention === "off" || candidate.retention === "session" ? candidate.retention : "30-days" };
+  return { allowGeneratedCode: candidate.allowGeneratedCode !== false, allowScreenshots: candidate.allowScreenshots === true, allowStructuredContext: candidate.allowStructuredContext !== false, dock: candidate.dock === "bottom" ? "bottom" : "right", panelHeight: Math.min(760, Math.max(280, Number(candidate.panelHeight) || 520)), panelWidth: Math.min(720, Math.max(320, Number(candidate.panelWidth) || 430)), retention: candidate.retention === "off" || candidate.retention === "session" ? candidate.retention : "30-days" };
 }
 
 function pruneQuantWorkspace(workspace: QuantWorkspace) {
@@ -572,9 +586,12 @@ function backendArtifactUpdate(job: unknown, artifact: unknown, id: string): Qua
   if (artifact.artifact_type === "CHART_ANALYSIS") {
     const analysis = sanitizeQuantAnalysis({
       bias: String(artifact.content.daily_bias ?? "neutral").toLowerCase(),
+      confidenceScore: artifact.content.confidence_score,
       invalidation: artifact.content.invalidation,
       levels: artifact.content.levels,
       riskWarning: artifact.content.risk_warning,
+      probability: artifact.content.probability_percent,
+      probabilityBasis: artifact.content.probability_basis,
       summary: artifact.content.summary ?? "The provider returned a structured chart assessment.",
       uncertainty: artifact.content.uncertainty,
     });
@@ -587,7 +604,14 @@ function backendArtifactUpdate(job: unknown, artifact: unknown, id: string): Qua
     }
     return {
       content: String(artifact.content.summary ?? "Converted the validated server artifact to canonical EdgeLab DSL."),
-      generatedIndicator: { name: generatedName(adapted.source), source: adapted.source },
+      generatedIndicator: {
+        name: generatedName(adapted.source),
+        probabilityLabel: typeof artifact.content.probability_label === "string" ? artifact.content.probability_label.slice(0, 80) : undefined,
+        probabilitySemantics: typeof artifact.content.probability_semantics === "string" ? artifact.content.probability_semantics.slice(0, 300) : undefined,
+        scoreLabel: typeof artifact.content.score_label === "string" ? artifact.content.score_label.slice(0, 80) : undefined,
+        scoreSemantics: typeof artifact.content.score_semantics === "string" ? artifact.content.score_semantics.slice(0, 300) : undefined,
+        source: adapted.source,
+      },
       id,
       status: "completed",
       usage,
@@ -640,7 +664,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function sanitizeGeneratedIndicator(value: unknown): QuantGeneratedIndicator | undefined {
   if (typeof value !== "object" || value == null || typeof (value as { source?: unknown }).source !== "string") return undefined;
-  return { name: String((value as { name?: unknown }).name ?? "Generated indicator").slice(0, 80), source: (value as { source: string }).source.slice(0, 20_000) };
+  const candidate = value as Record<string, unknown> & { source: string };
+  const optionalText = (key: string, limit: number) => typeof candidate[key] === "string" ? candidate[key].slice(0, limit) : undefined;
+  return {
+    name: String(candidate.name ?? "Generated indicator").slice(0, 80),
+    probabilityLabel: optionalText("probabilityLabel", 80),
+    probabilitySemantics: optionalText("probabilitySemantics", 300),
+    scoreLabel: optionalText("scoreLabel", 80),
+    scoreSemantics: optionalText("scoreSemantics", 300),
+    source: candidate.source.slice(0, 20_000),
+  };
 }
 
 function sanitizeUsage(value: unknown): QuantUsage | undefined {

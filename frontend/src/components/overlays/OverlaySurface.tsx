@@ -195,6 +195,13 @@ export function OverlaySurface({
   return portalHost ? createPortal(surface, portalHost) : null;
 }
 
+/** Central portal/layer contract for coordinate-anchored transient tools such as the chart wheel. */
+export function PointOverlaySurface({ children, className, label, role = "menu", x, y }: { children: ReactNode; className: string; label: string; role?: HTMLAttributes<HTMLDivElement>["role"]; x: number; y: number }) {
+  if (typeof document === "undefined") return null;
+  const host = currentPortalHost(document);
+  return host ? createPortal(<div aria-label={label} className={className} data-overlay-surface="point" role={role} style={{ left: x, top: y }}>{children}</div>, host) : null;
+}
+
 export function computeOverlayGeometry({
   align,
   anchor,

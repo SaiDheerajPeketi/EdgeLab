@@ -5,7 +5,7 @@ import { inferMarket, tagOptions, type JournalFilters } from "../../lib/journalA
 import type { JournalAccountScope } from "../../lib/journalWorkspaceState";
 import { CriticalStateSurface } from "../ui/CriticalStateSurface";
 
-export const journalFieldClass = "min-h-10 w-full rounded-md border border-white/10 bg-[#0a0d11] px-3 text-sm text-slate-100 outline-none focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50";
+export const journalFieldClass = "min-h-[var(--control-height)] w-full rounded-[var(--radius-sm)] border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--interaction)] focus:ring-2 focus:ring-[var(--ui-selection)] disabled:cursor-not-allowed disabled:opacity-50";
 
 export function JournalScopeControl({ accounts, scope, onChange }: { accounts: JournalAccount[]; scope: JournalAccountScope; onChange: (scope: JournalAccountScope) => void }) {
   const selectionValue = scope.mode === "all" ? "all" : scope.accountIds.length === 1 ? String(scope.accountIds[0]) : "selected";

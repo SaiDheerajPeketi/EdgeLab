@@ -114,3 +114,21 @@ test("Quant SSE frames expose incremental deltas and terminal status", () => {
   assert.deepEqual(end, { event: "end", payload: { status: "completed" } });
   assert.equal(modules.parseQuantEventFrame(": keep-alive"), null);
 });
+
+test("Quant chart analysis keeps confidence distinct from calibrated probability", () => {
+  const analysis = modules.sanitizeQuantAnalysis({
+    bias: "bullish",
+    confidenceScore: 78,
+    invalidation: "Acceptance below 5000",
+    levels: [{ label: "Prior high", price: 5100, rationale: "Visible resistance" }],
+    probability: null,
+    probabilityBasis: "No calibrated outcome model was run.",
+    riskWarning: "Decision support only.",
+    summary: "Constructive while above support.",
+    uncertainty: "Event risk can invalidate the setup.",
+  });
+  assert.equal(analysis.confidenceScore, 78);
+  assert.equal(analysis.probability, null);
+  assert.match(analysis.probabilityBasis, /No calibrated/);
+  assert.equal(modules.sanitizeQuantAnalysis({ ...analysis, confidenceScore: 180 }).confidenceScore, 100);
+});

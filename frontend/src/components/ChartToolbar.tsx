@@ -158,6 +158,7 @@ type Props = {
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onAddCustomIndicator?: (script: CustomIndicatorScript) => void;
   onCaptureChart?: () => void;
+  onCaptureRegionForQuant?: () => void;
   onChartSettingsChange: (settings: ChartVisualSettings) => void;
   onChartSettingsReset: () => void;
   onClearDrawings: () => void;
@@ -359,6 +360,7 @@ export function ChartToolbar({
   onAddIndicator,
   onAddCustomIndicator,
   onCaptureChart,
+  onCaptureRegionForQuant,
   onChartSettingsChange,
   onChartSettingsReset,
   onChartStyleChange,
@@ -1054,6 +1056,18 @@ export function ChartToolbar({
                 {captureMessage}
               </span>
             </>
+          ) : null}
+          {onCaptureRegionForQuant ? (
+            <button
+              className="chart-mode-button"
+              disabled={captureStatus === "capturing"}
+              onClick={onCaptureRegionForQuant}
+              title="Drag-select a chart region, then add a typed or dictated prompt in Quant"
+              type="button"
+            >
+              <Star size={15} />
+              Ask Quant
+            </button>
           ) : null}
           {onShowDrawingRailChange ? (
             <button
@@ -1780,7 +1794,7 @@ function ChartSettingsPanel({
             Chart display, scales, labels, and canvas styling
           </div>
         </div>
-        <button className="icon-button h-8 w-8" onClick={onClose} type="button">
+        <button aria-label="Close chart settings" className="icon-button h-8 w-8" onClick={onClose} type="button">
           <X size={14} />
         </button>
       </div>
@@ -2876,6 +2890,7 @@ function IndicatorEditor({
           </div>
         </div>
         <button
+          aria-label="Remove indicator"
           className="icon-button h-8 w-8"
           onClick={onRemove}
           title="Remove indicator"

@@ -140,6 +140,7 @@ export function ChartObjectsPanel({
           <div className="flex items-center gap-2">
             <Layers size={18} className="text-cyan-200" />
             <button
+              aria-label="Collapse chart objects"
               className="icon-button h-8 w-8"
               onClick={onCollapse}
               title="Collapse layers"
@@ -158,6 +159,7 @@ export function ChartObjectsPanel({
               Layers
             </span>
             <button
+              aria-label={orderOverlaysVisible ? "Hide order overlays" : "Show order overlays"}
               className="icon-button h-8 w-8"
               onClick={onToggleOrderOverlays}
               title={orderOverlaysVisible ? "Hide order overlays" : "Show order overlays"}
@@ -258,6 +260,7 @@ export function ChartObjectsPanel({
               Drawings
             </span>
             <button
+              aria-label={unlockedDrawingsCount === 0 && drawings.length > 0 ? "Unlock drawings before clearing" : "Clear unlocked drawings"}
               className="icon-button h-8 w-8"
               disabled={unlockedDrawingsCount === 0}
               onClick={onClearDrawings}

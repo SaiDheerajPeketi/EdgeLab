@@ -234,9 +234,9 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [x] `AI-11 · P0 · Missing` — Automatically backtest a generated study over a stated window—the demonstration uses 60 days—with configurable symbol, timeframe, rules, costs, and sample range.
 - [x] `AI-12 · P1 · Missing` — Return reproducible backtest assumptions, metrics, warnings, source version, and rerun controls instead of only prose.
 - [ ] `AI-13 · P0 · Missing` — Send a full-chart screenshot and its structured chart context directly to the assistant.
-- [ ] `AI-14 · P1 · Missing` — Add chart-image analysis that can return a reasoned daily bias, relevant levels, invalidation, uncertainty, and risk warning.
+- [x] `AI-14 · P1 · Missing` — Add chart-image analysis that can return a reasoned daily bias, relevant levels, invalidation, uncertainty, and risk warning.
 - [ ] `AI-15 · P1 · Missing` — Let the assistant offer to turn analysis into an indicator, write the source, add it to the chart, and update real-time score/probability labels.
-- [ ] `AI-16 · P1 · Missing` — Add the star/capture tool: drag-select a chart region, enter text or dictate without first opening chat, and send the cropped image plus prompt to Quant.
+- [x] `AI-16 · P1 · Missing` — Add the star/capture tool: drag-select a chart region, enter text or dictate without first opening chat, and send the cropped image plus prompt to Quant.
 - [x] `AI-17 · P0 · Missing` — Isolate generated code and model tools with time/memory limits, permission boundaries, audit records, prompt/data-retention controls, and safe failure recovery.
 - [x] `AI-18 · P0 · Missing` — Add server-side provider routing, encrypted API credentials, per-user quotas, rate limits, cancellation, usage accounting, and cost ceilings.
 
@@ -275,16 +275,16 @@ Use two expression levels inside one system:
 - [ ] `UIR-01 · P0 · Partial` — Inventory every route, panel, modal, menu, empty state, loading state, and error state; capture desktop, tablet, and mobile baselines and label each surface as retain, restyle, restructure, or replace.
 - [ ] `UIR-02 · P0 · Missing` — Produce and approve three production-grade cross-product direction studies before implementation, each showing the landing first viewport plus a dense authenticated screen and settings screen; choose one coherent EdgeLab world, not separate themes per page.
 - [x] `UIR-03 · P0 · Missing` — Record durable product truth before the redesign and document the implemented visual system afterward, including the chosen direction, protected product behaviors, route-specific intent, and explicit non-goals.
-- [ ] `UIR-04 · P0 · Partial` — Consolidate semantic design tokens for backgrounds, surfaces, raised layers, borders, text, accents, focus, status, charts, spacing, radii, elevation, blur, and motion; migrate repeated one-off hex/RGBA and utility combinations in changed surfaces.
+- [x] `UIR-04 · P0 · Partial` — Consolidate semantic design tokens for backgrounds, surfaces, raised layers, borders, text, accents, focus, status, charts, spacing, radii, elevation, blur, and motion; migrate repeated one-off hex/RGBA and utility combinations in changed surfaces.
 - [x] `UIR-05 · P0 · Partial` — Expand the current near-black/cyan palette into an accessible vibrant system with named roles for interaction, selection, information, profit, loss, warning, neutral, and chart series; keep the existing no-purple differentiator unless the brand direction is explicitly changed.
 - [x] `UIR-06 · P0 · Partial` — Establish a responsive typography system for expressive public-page display type, workhorse application text, compact labels, and tabular financial data, with defined weights, line heights, truncation, and numeric alignment.
 - [x] `UIR-07 · P0 · Partial` — Define one spacing, grid, sizing, and density system covering marketing sections, page scaffolds, app chrome, side panels, forms, cards, tables, chart toolbars, and 1-to-16-pane layouts.
 - [x] `UIR-08 · P1 · Partial` — Define a restrained material and elevation language for base, inset, floating, modal, and selected surfaces so hierarchy does not depend on repeated white borders and near-identical dark cards.
 - [x] `UIR-09 · P0 · Partial` — Build shared, accessible primitives for buttons, icon buttons, fields, selects, comboboxes, toggles, checkboxes, radios, sliders, segmented controls, tabs, cards, tables, badges, tooltips, menus, popovers, dialogs, drawers, banners, and toasts.
 - [x] `UIR-10 · P0 · Partial` — Specify and implement every component state—default, hover, pressed, focused, selected, disabled, read-only, loading, success, warning, error, and destructive—with consistent feedback and no color-only meaning.
-- [ ] `UIR-11 · P1 · Partial` — Standardize icon family, stroke weight, optical size, filled/outline usage, button sizing, labels, and tooltip rules; replace ambiguous icon-only actions or give them accessible names and discoverable help.
+- [x] `UIR-11 · P1 · Partial` — Standardize icon family, stroke weight, optical size, filled/outline usage, button sizing, labels, and tooltip rules; replace ambiguous icon-only actions or give them accessible names and discoverable help.
 - [x] `UIR-12 · P0 · Partial` — Define one data-visualization language for chart series, P&L, benchmark/comparison, selections, annotations, calendars, heatmaps, distributions, and low-sample states, including color-blind-safe alternatives.
-- [ ] `UIR-13 · P1 · Partial` — Create a product vocabulary and UX-copy pass so “Journal,” “Backtest,” “Replay,” “session,” “account,” “workspace,” “layout,” “settings,” and status messages are named consistently and written in direct, human language.
+- [x] `UIR-13 · P1 · Partial` — Create a product vocabulary and UX-copy pass so “Journal,” “Backtest,” “Replay,” “session,” “account,” “workspace,” “layout,” “settings,” and status messages are named consistently and written in direct, human language.
 - [x] `UIR-14 · P0 · Missing` — Add a browsable component/state catalog with representative financial data, long labels, validation, loading, and empty cases so new feature teams reuse the system instead of reintroducing legacy patterns.
 
 #### 14.2 App shell, navigation, and spatial continuity

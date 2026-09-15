@@ -29,3 +29,26 @@ export function WorkspacePanelManager<PanelId extends string>({ children, defini
 }
 
 function clampWidth(width: number) { return Math.min(720, Math.max(280, width)); }
+
+export function FloatingWorkspacePanel({ children, dock, label, onSizeChange, size }: { children: ReactNode; dock: "bottom" | "right"; label: string; onSizeChange: (size: number) => void; size: number }) {
+  const dragRef = useRef<{ pointer: number; size: number } | null>(null);
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const start = dragRef.current;
+      if (!start) return;
+      const pointer = dock === "right" ? event.clientX : event.clientY;
+      onSizeChange(clampFloatingSize(start.size + start.pointer - pointer, dock));
+    };
+    const end = () => { dragRef.current = null; };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
+  }, [dock, onSizeChange]);
+  const vertical = dock === "right";
+  return <aside aria-label={label} data-workspace-panel-manager="floating" data-dock={dock} data-motion="workspace-panel" className={`ui-workspace-panel fixed z-[var(--layer-docked-tool)] flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] shadow-[var(--elevation-modal)] ${vertical ? "bottom-3 right-3 top-16" : "bottom-3 left-3 right-3"}`} style={vertical ? { width: `min(${size}px, calc(100vw - 24px))` } : { height: `min(${size}px, calc(100dvh - 24px))` }}>
+    <div role="separator" aria-label={`Resize ${label}`} aria-orientation={vertical ? "vertical" : "horizontal"} aria-valuemin={vertical ? 320 : 280} aria-valuemax={vertical ? 720 : 760} aria-valuenow={size} tabIndex={0} onPointerDown={(event) => { dragRef.current = { pointer: vertical ? event.clientX : event.clientY, size }; event.currentTarget.setPointerCapture(event.pointerId); }} onKeyDown={(event) => { const decrease = event.key === "ArrowRight" || event.key === "ArrowDown"; const increase = event.key === "ArrowLeft" || event.key === "ArrowUp"; if (!decrease && !increase) return; event.preventDefault(); onSizeChange(clampFloatingSize(size + (increase ? 24 : -24), dock)); }} className={`absolute z-10 outline-none hover:bg-[var(--ui-selection)] focus-visible:bg-[var(--ui-selection)] ${vertical ? "inset-y-0 left-0 w-2 -translate-x-1/2 cursor-col-resize" : "inset-x-0 top-0 h-2 -translate-y-1/2 cursor-row-resize"}`} />
+    {children}
+  </aside>;
+}
+
+function clampFloatingSize(size: number, dock: "bottom" | "right") { return Math.min(dock === "right" ? 720 : 760, Math.max(dock === "right" ? 320 : 280, size)); }

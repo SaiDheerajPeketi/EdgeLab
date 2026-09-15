@@ -9,9 +9,20 @@ import {
 } from "./support/app";
 
 const protectedRoutes = [
-  { name: "settings", path: "/app/settings/global" },
-  { name: "journal", path: "/app/journal/dashboard" },
-  { name: "chart-compact", path: "/app/live" },
+  { name: "gateway", path: "/app", waitForNetworkIdle: false },
+  { name: "chart-compact", path: "/app/live", waitForNetworkIdle: false },
+  { name: "replay", path: "/app/replay", waitForNetworkIdle: false },
+  { name: "journal-dashboard", path: "/app/journal/dashboard", waitForNetworkIdle: false },
+  { name: "journal-accounts", path: "/app/journal/accounts", waitForNetworkIdle: false },
+  { name: "journal-trades", path: "/app/journal/trades", waitForNetworkIdle: false },
+  { name: "journal-analytics", path: "/app/journal/analytics", waitForNetworkIdle: false },
+  { name: "journal-notes", path: "/app/journal/notes", waitForNetworkIdle: false },
+  { name: "journal-calendar", path: "/app/journal/calendar", waitForNetworkIdle: false },
+  { name: "journal-reports", path: "/app/journal/reports", waitForNetworkIdle: false },
+  { name: "journal-settings", path: "/app/journal/settings", waitForNetworkIdle: false },
+  { name: "reports", path: "/app/reports", waitForNetworkIdle: false },
+  { name: "quant", path: "/app/quant", waitForNetworkIdle: false },
+  { name: "settings", path: "/app/settings/global", waitForNetworkIdle: false },
 ] as const;
 
 test.describe("authenticated route visual baselines", () => {
@@ -23,7 +34,7 @@ test.describe("authenticated route visual baselines", () => {
 
   for (const route of protectedRoutes) {
     test(`${route.name} renders its real seeded route`, async ({ page }) => {
-      await gotoStable(page, route.path);
+      await gotoStable(page, route.path, { waitForNetworkIdle: route.waitForNetworkIdle });
       await expect(page.locator("#workspace-content")).toBeVisible();
       await expect(page.locator('[data-ui-version="v2"]')).toBeVisible();
       await expectStableScreenshot(page, route.name, { fullPage: false });
@@ -32,7 +43,7 @@ test.describe("authenticated route visual baselines", () => {
 
   test("chart fullscreen baseline", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Fullscreen is captured once at trading density.");
-    await gotoStable(page, "/app/live");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     await page.getByRole("button", { exact: true, name: "Full Screen" }).click();
     await expect(page.getByRole("button", { exact: true, name: "Exit" })).toBeVisible();
     await expectStableScreenshot(page, "chart-fullscreen", { fullPage: false });
@@ -69,7 +80,7 @@ test.describe("accessibility and adaptive operation", () => {
 
   test("axe, landmarks, keyboard and chart text alternative pass", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Semantic contract is viewport-independent.");
-    await gotoStable(page, "/app/live");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     await page.addScriptTag({ content: axe.source });
     const violations = await page.evaluate(async () => {
       const result = await window.axe.run(document, {
@@ -125,7 +136,7 @@ test.describe("accessibility and adaptive operation", () => {
 
   test("account overlay and circular toolbox restore keyboard focus", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Keyboard overlay behavior is checked once.");
-    await gotoStable(page, "/app/live");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     const accountTrigger = page.getByRole("button", { name: /Visual Reviewer/ });
     await accountTrigger.click();
     await expect(page.getByRole("dialog", { name: "Visual Reviewer" })).toBeVisible();
@@ -192,7 +203,7 @@ test("runtime interaction and layout stability stay inside release budgets", asy
   test.skip(testInfo.project.name !== "desktop", "Runtime budgets use one stable desktop profile.");
   await installDeterminism(page);
   await seedApprovedSession(page);
-  await gotoStable(page, "/app/live");
+  await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
   const interactionMs = await page.evaluate(async () => {
     const start = performance.now();
     document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "KeyK", ctrlKey: true, key: "k" }));

@@ -205,13 +205,22 @@ class DeterministicFixtureAIAdapter:
             content: Mapping[str, Any] = {
                 "source": SAFE_FIXTURE_SOURCE,
                 "summary": "Created a deterministic restricted-DSL fixture indicator.",
+                **({
+                    "score_label": "Fixture signal score",
+                    "score_semantics": "Deterministic study output; not model confidence.",
+                    "probability_label": "Probability unavailable",
+                    "probability_semantics": "No calibrated outcome model was run.",
+                } if operation == "ANALYSIS_TO_INDICATOR" else {}),
             }
         elif operation == "CHART_ANALYSIS":
             content = {
                 "daily_bias": "NEUTRAL",
+                "confidence_score": 0,
                 "levels": [],
                 "invalidation": "No market inference is made by the offline fixture.",
                 "uncertainty": "External analysis is unavailable without a configured provider.",
+                "probability_percent": None,
+                "probability_basis": "No calibrated outcome model was run.",
                 "risk_warning": "This fixture output is not trading or investment advice.",
             }
         else:
@@ -1699,6 +1708,12 @@ def _persist_provider_result(
         if not isinstance(source, str):
             raise AISecurityError("Indicator generation did not return restricted DSL source")
         report = validate_dsl(source)
+        if job.operation == "ANALYSIS_TO_INDICATOR":
+            required_semantics = {
+                "score_label", "score_semantics", "probability_label", "probability_semantics"
+            }
+            if not required_semantics <= set(content):
+                raise AISecurityError("Analysis indicator omitted score/probability semantics")
         context = dict(message.chart_context or {})
         requested_script_id = context.get("script_id")
         base_version_id = context.get("base_version_id")
@@ -1746,9 +1761,25 @@ def _persist_provider_result(
         artifact_type = "INDICATOR_SOURCE"
         assistant_content = str(content.get("summary") or "Generated restricted EdgeLab DSL source.")
     elif job.operation == "CHART_ANALYSIS":
-        required = {"daily_bias", "levels", "invalidation", "uncertainty", "risk_warning"}
+        required = {
+            "daily_bias", "confidence_score", "levels", "invalidation", "uncertainty",
+            "probability_percent", "probability_basis", "risk_warning",
+        }
         if not required <= set(content):
             raise AISecurityError("Chart analysis response omitted required risk and uncertainty fields")
+        bias = str(content["daily_bias"]).upper()
+        confidence = content["confidence_score"]
+        probability = content["probability_percent"]
+        if bias not in {"BULLISH", "BEARISH", "NEUTRAL"}:
+            raise AISecurityError("Chart analysis returned an unsupported bias")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 100:
+            raise AISecurityError("Chart analysis confidence score must be between 0 and 100")
+        if probability is not None and (
+            isinstance(probability, bool) or not isinstance(probability, (int, float)) or not 0 <= probability <= 100
+        ):
+            raise AISecurityError("Chart analysis probability must be null or between 0 and 100")
+        if not isinstance(content["probability_basis"], str) or not content["probability_basis"].strip():
+            raise AISecurityError("Chart analysis must explain probability calibration or its absence")
         artifact_type = "CHART_ANALYSIS"
         assistant_content = json.dumps(content, sort_keys=True)
     else:

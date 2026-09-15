@@ -2548,6 +2548,7 @@ export function WorkspaceApp() {
         kind: region ? "region" : "chart",
         region,
       });
+      setQuantOpen(true);
       setChartCapture({
         message: `${region ? "Selected region" : "Visible chart"} attached to Quant · ${capture.width} × ${capture.height}`,
         status: "success",
@@ -3165,6 +3166,7 @@ export function WorkspaceApp() {
                       onEditCustomIndicator={(script) => openIndicatorEditor(script.id)}
                       onOpenIndicatorEditor={() => openIndicatorEditor()}
                       onOpenQuant={() => setQuantOpen(true)}
+                      onCaptureRegionForQuant={beginQuantRegionCapture}
                       onChartSettingsChange={(settings) =>
                         applyChartSettingsToCurrentScope(settings)
                       }

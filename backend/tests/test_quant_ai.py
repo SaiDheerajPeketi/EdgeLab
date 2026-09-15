@@ -318,6 +318,34 @@ def test_capture_storage_and_followup_egress_consent(db, tmp_path):
     assert any(event.event_type == "DELTA" for event in quant.list_job_events(db, owner.id, followup.id))
 
 
+def test_offline_analysis_and_indicator_semantics_are_explicit(db):
+    owner = seed_user(db, "analysis-contract@example.com")
+    conversation = quant.create_conversation(
+        db, owner.id, AIConversationCreate(kind="CHART_ANALYSIS", title="Contract")
+    )
+    analysis_job = quant.create_generation_job(db, owner.id, AIGenerationRequest(
+        conversation_id=conversation.id, operation="CHART_ANALYSIS",
+        model_id="offline-deterministic", prompt="Assess visible structure",
+        chart_context=AIChartContext(
+            symbol="MES", provider="offline-fixture", timeframe="5m", timezone="UTC"
+        ),
+    ))
+    quant.run_generation_job(db, owner.id, analysis_job.id)
+    analysis = quant.list_artifacts(db, owner.id, conversation_id=conversation.id)[0].content
+    assert analysis["confidence_score"] == 0
+    assert analysis["probability_percent"] is None
+    assert "calibrated" in analysis["probability_basis"]
+
+    indicator_job = quant.create_generation_job(db, owner.id, AIGenerationRequest(
+        conversation_id=conversation.id, operation="ANALYSIS_TO_INDICATOR",
+        model_id="offline-deterministic", prompt="Create a decision-support study",
+    ))
+    quant.run_generation_job(db, owner.id, indicator_job.id)
+    indicator = quant.list_artifacts(db, owner.id, conversation_id=conversation.id)[0].content
+    assert indicator["score_semantics"] == "Deterministic study output; not model confidence."
+    assert indicator["probability_label"] == "Probability unavailable"
+
+
 class CancellingAdapter:
     provider_id = "offline-ai-fixture"
 
