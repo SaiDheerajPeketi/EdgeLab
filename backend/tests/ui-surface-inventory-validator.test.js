@@ -11,63 +11,123 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const inputs = loadUiSurfaceInventoryInputs(root);
 
-function validateWithInventory(inventory) {
-  return validateUiSurfaceInventory({ ...inputs, inventory });
+function fixtureInputs() {
+  return {
+    ...inputs,
+    foundationContracts: structuredClone(inputs.foundationContracts),
+    inventory: structuredClone(inputs.inventory),
+    releaseMatrix: structuredClone(inputs.releaseMatrix),
+    visualEvidence: structuredClone(inputs.visualEvidence),
+  };
 }
 
 test("surface inventory matches routes, decisions, responsive widths, sources, and stored baselines", () => {
-  const result = validateWithInventory(structuredClone(inputs.inventory));
+  const result = validateUiSurfaceInventory(fixtureInputs());
   assert.deepEqual(result.errors, []);
-  assert.ok(result.stats.inventoriedRoutes >= result.stats.discoveredRoutes);
+  assert.equal(result.stats.inventoriedRoutes, result.stats.discoveredRoutes);
   assert.ok(result.gaps.some((gap) => gap.startsWith("viewport:tradingDesktop:")));
   assert.ok(result.gaps.some((gap) => gap.startsWith("route:/app/order-flow:")));
+  assert.ok(result.gaps.some((gap) => gap.startsWith("assertion:safe-area:")));
 });
 
 test("surface inventory validator rejects omitted evidence contracts", async (t) => {
   const cases = [
     {
-      name: "route",
-      mutate(inventory) {
-        inventory.routes = inventory.routes.filter((route) => route.path !== "/app/order-flow");
+      name: "missing route",
+      mutate(fixture) {
+        fixture.inventory.routes = fixture.inventory.routes.filter((route) => route.path !== "/app/order-flow");
       },
       expected: /Route definition is missing from the surface inventory: \/app\/order-flow/,
     },
     {
-      name: "surface decision",
-      mutate(inventory) {
-        delete inventory.overlayDispositions["command palette"];
+      name: "fabricated route",
+      mutate(fixture) {
+        fixture.inventory.routes.push({
+          path: "/fabricated",
+          surface: "Fabricated",
+          auth: false,
+          disposition: "retain",
+          responsiveWidths: ["mobile", "tablet", "desktop"],
+          states: ["default"],
+          criticalStates: ["default"],
+        });
       },
-      expected: /Overlay disposition keys must exactly match/,
+      expected: /Inventory route has no authoritative route definition: \/fabricated/,
+    },
+    {
+      name: "authoritative panel omission",
+      mutate(fixture) {
+        fixture.inventory.panels = fixture.inventory.panels.filter((name) => name !== "Order Book");
+        delete fixture.inventory.panelDispositions["Order Book"];
+      },
+      expected: /Panel source-evidence keys must exactly match/,
+    },
+    {
+      name: "authoritative overlay omission",
+      mutate(fixture) {
+        fixture.inventory.overlays = fixture.inventory.overlays.filter((name) => name !== "command palette");
+        delete fixture.inventory.overlayDispositions["command palette"];
+      },
+      expected: /Overlay source-evidence keys must exactly match/,
+    },
+    {
+      name: "foundation route parity",
+      mutate(fixture) {
+        delete fixture.foundationContracts.routes["/pricing"];
+      },
+      expected: /Foundation route keys must exactly match/,
+    },
+    {
+      name: "foundation route source",
+      mutate(fixture) {
+        fixture.foundationContracts.routes["/pricing"].source = "frontend/src/pages/DoesNotExist.tsx";
+      },
+      expected: /Foundation route "\/pricing" has a missing source/,
     },
     {
       name: "responsive width",
-      mutate(inventory) {
-        inventory.routes.find((route) => route.path === "/app/live").responsiveWidths =
+      mutate(fixture) {
+        fixture.inventory.routes.find((route) => route.path === "/app/live").responsiveWidths =
           ["tablet", "desktop", "tradingDesktop"];
       },
       expected: /Route "\/app\/live" is missing the mobile responsive width/,
     },
     {
+      name: "viewport dimensions and zoom",
+      mutate(fixture) {
+        fixture.inventory.viewportBaselines.mobile.height = 800;
+        fixture.inventory.viewportBaselines.mobile.zoom = 2;
+      },
+      expected: /Playwright "mobile" uses 844[\s\S]*Playwright "mobile" uses 1/,
+    },
+    {
       name: "critical states",
-      mutate(inventory) {
-        inventory.routes.find((route) => route.path === "/shared").criticalStates = [];
+      mutate(fixture) {
+        fixture.inventory.routes.find((route) => route.path === "/shared").criticalStates = [];
       },
       expected: /Route "\/shared" has no critical-state decision/,
     },
     {
-      name: "claimed screenshot",
-      mutate(inventory) {
-        inventory.visualCoverage.baselines["/pricing"].push("pricing-does-not-exist");
+      name: "exact project snapshot",
+      mutate(fixture) {
+        fixture.visualEvidence.routes["/pricing"].default.mobile.snapshot = "pricing-does-not-exist.png";
       },
-      expected: /claims missing snapshot "pricing-does-not-exist\.png"/,
+      expected: /missing exact mobile snapshot "pricing-does-not-exist\.png"/,
+    },
+    {
+      name: "assertion evidence",
+      mutate(fixture) {
+        delete fixture.visualEvidence.assertions["zoom-200"];
+      },
+      expected: /Required assertion "zoom-200" has no executable evidence/,
     },
   ];
 
   for (const fixture of cases) {
     await t.test(fixture.name, () => {
-      const inventory = structuredClone(inputs.inventory);
-      fixture.mutate(inventory);
-      assert.match(validateWithInventory(inventory).errors.join("\n"), fixture.expected);
+      const candidate = fixtureInputs();
+      fixture.mutate(candidate);
+      assert.match(validateUiSurfaceInventory(candidate).errors.join("\n"), fixture.expected);
     });
   }
 });

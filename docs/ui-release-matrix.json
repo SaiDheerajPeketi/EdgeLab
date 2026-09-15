@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "viewports": {
-    "mobile": { "width": 390, "height": 844, "pointer": "coarse", "zoom": 2 },
+    "mobile": { "width": 390, "height": 844, "pointer": "coarse", "zoom": 1 },
     "tablet": { "width": 834, "height": 1112, "pointer": "coarse", "zoom": 1 },
-    "desktop": { "width": 1440, "height": 900, "pointer": "fine", "zoom": 1 },
+    "desktop": { "width": 1440, "height": 1000, "pointer": "fine", "zoom": 1 },
     "tradingDesktop": { "width": 1920, "height": 1080, "pointer": "fine", "zoom": 1 }
   },
   "routes": {

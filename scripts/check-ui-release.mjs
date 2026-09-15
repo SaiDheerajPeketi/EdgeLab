@@ -18,7 +18,7 @@ for (const route of ["landing", "settings", "journal", "chart"]) {
   assert.ok(matrix.routes[route].viewports.length >= 3);
   assert.ok(matrix.routes[route].states.length >= 4);
 }
-assert.equal(matrix.viewports.mobile.zoom, 2);
+assert.equal(matrix.viewports.mobile.zoom, 1);
 assert.equal(matrix.viewports.mobile.pointer, "coarse");
 assert.ok(matrix.locales.includes("ar-SA"));
 assert.ok(matrix.requiredAssertions.includes("color-redundancy"));

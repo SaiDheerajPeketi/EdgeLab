@@ -34,10 +34,10 @@ Overlays: command palette, account/system menu, symbol and indicator search, set
 
 ## Baseline matrix
 
-Desktop/tablet/mobile captures are required for every rendered route above. The maintained Playwright baselines are 1440px, 834px, and 390px; the planned 1920px trading baseline is still an explicit gap. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. Stored files live under `e2e/__snapshots__`; an absent file must be recorded as a gap, never treated as implicit approval.
+Desktop/tablet/mobile captures are required for every rendered route above. The maintained Playwright baselines are 1440×1000, 834×1112, and 390×844 at browser zoom 1; the planned 1920×1080 trading baseline is still an explicit gap. The separate 200% zoom assertion uses CDP page-scale emulation and is not misrepresented as the mobile project's baseline zoom. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. Stored files live under `e2e/__snapshots__`; an absent file must be recorded as a gap, never treated as implicit approval.
 
 ## Executable audit
 
-Run `npm run check:ui-inventory` to compare router and workspace route definitions with the inventory, verify every route/panel/overlay decision and source record, confirm responsive widths against the Playwright projects, and resolve every claimed snapshot to a stored baseline. `npm run check:ui-inventory -- --require-complete` additionally fails while any recorded viewport or state-coverage gap remains.
+Run `npm run check:ui-inventory` to require exact bidirectional parity between router/workspace definitions, the inventory, and `docs/ui-foundation-contracts.json`; verify authoritative panel/overlay sources; confirm width, height, pointer, and baseline zoom against Playwright; and resolve the route → state → project records in `docs/ui-surface-evidence.json` to their exact spec and stored snapshot. `npm run check:ui-inventory -- --require-complete` additionally fails while any recorded viewport, assertion, or state-coverage gap remains.
 
 UIR-01 remains partial: the inventory is structurally enforced, but the recorded 1920px trading viewport and route-state gaps must be captured before the item can be closed.

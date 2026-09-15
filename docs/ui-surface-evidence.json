@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "routes": {
+    "/": {
+      "default": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" }
+      }
+    },
+    "/pricing": {
+      "default": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" }
+      }
+    },
+    "/privacy": {
+      "default": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png" }
+      }
+    },
+    "/terms": {
+      "default": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png" }
+      }
+    },
+    "/auth/signin": {
+      "signin": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png" }
+      },
+      "waitlist": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" }
+      },
+      "expired": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" }
+      },
+      "denied": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png" }
+      },
+      "cancelled": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png" }
+      },
+      "retryable": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png" }
+      }
+    },
+    "/auth/callback/google": {
+      "exchanging": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" }
+      }
+    },
+    "/shared": {
+      "available": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png" }
+      },
+      "loading": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png" }
+      },
+      "expired": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png" }
+      },
+      "revoked": {
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png" }
+      },
+      "permission-denied": {
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png" }
+      },
+      "open-as-copy": {
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png" }
+      }
+    },
+    "*": {
+      "not-found": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png" }
+      }
+    },
+    "/app": {
+      "recent": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" }
+      }
+    },
+    "/app/live": {
+      "one-pane": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" }
+      },
+      "fullscreen": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png" }
+      },
+      "two-pane": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png" }
+      },
+      "four-pane": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png" }
+      },
+      "sixteen-pane": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png" }
+      }
+    },
+    "/app/replay": {
+      "paused": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png" }
+      }
+    },
+    "/app/journal/dashboard": {
+      "populated": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png" }
+      },
+      "empty": {
+        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png" },
+        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png" },
+        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png" }
+      }
+    },
+    "/app/journal/accounts": {
+      "connected": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png" }
+      }
+    },
+    "/app/journal/trades": {
+      "populated": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png" }
+      },
+      "filtered": {
+        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png" },
+        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png" },
+        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png" }
+      },
+      "review-drawer": {
+        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png" },
+        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png" },
+        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png" }
+      }
+    },
+    "/app/journal/analytics": {
+      "populated": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png" }
+      }
+    },
+    "/app/journal/notes": {
+      "daily-note": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png" }
+      }
+    },
+    "/app/journal/calendar": {
+      "dashboard": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png" }
+      }
+    },
+    "/app/journal/reports": {
+      "populated": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png" }
+      }
+    },
+    "/app/journal/settings": {
+      "default": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" }
+      }
+    },
+    "/app/reports": {
+      "populated": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png" }
+      }
+    },
+    "/app/quant": {
+      "empty": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png" }
+      }
+    },
+    "/app/settings/:category": {
+      "default": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png" }
+      },
+      "validation-error": {
+        "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png" },
+        "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png" },
+        "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png" }
+      },
+      "conflict": {
+        "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png" },
+        "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png" },
+        "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png" }
+      }
+    }
+  },
+  "assertions": {
+    "landmarks": { "source": "e2e/protected-workspace.quality.spec.ts", "patterns": ["axe.run", "landmarks"] },
+    "heading-order": { "source": "e2e/public-auth.visual.spec.ts", "patterns": ["getByRole(\"heading\"", "level: surface.level"] },
+    "accessible-names": { "source": "e2e/accessibility-release.spec.ts", "patterns": ["axe.run", "serious axe or contrast violations"] },
+    "keyboard-complete": { "source": "e2e/shared-controls.accessibility.spec.ts", "patterns": ["page.keyboard.press", "stable accessible name"] },
+    "focus-return": { "source": "e2e/protected-workspace.quality.spec.ts", "patterns": ["restore keyboard focus", "toBeFocused"] },
+    "escape-dismissal": { "source": "e2e/navigation.interaction.spec.ts", "patterns": ["page.keyboard.press(\"Escape\")", "restores the trigger"] },
+    "textual-chart-summary": { "source": "e2e/accessibility-release.spec.ts", "patterns": ["Latest bar|No bars are currently available"] },
+    "contrast-aa": { "source": "e2e/accessibility-release.spec.ts", "patterns": ["color-contrast", "axe.run"] },
+    "color-redundancy": { "source": "e2e/protected-workspace.quality.spec.ts", "patterns": ["financial meaning survives", "LONG|SHORT|Winner|Loser"] },
+    "color-vision-simulation": { "source": "e2e/protected-workspace.quality.spec.ts", "patterns": ["protanopia", "deuteranopia", "tritanopia"] },
+    "reduced-motion": { "source": "e2e/motion-preference.interaction.spec.ts", "patterns": ["reduced-motion preference", "reducedMotion: \"reduce\""] },
+    "compositor-only-repeated-motion": { "source": "e2e/motion-preference.interaction.spec.ts", "patterns": ["Performance.getMetrics", "LayoutCount"] },
+    "no-horizontal-overflow": { "source": "e2e/protected-workspace.quality.spec.ts", "patterns": ["scrollWidth", "innerWidth"] },
+    "zoom-200": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["Emulation.setPageScaleFactor", "pageScaleFactor: 2"] },
+    "coarse-pointer": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["(pointer: coarse)", "toBe(true)"] },
+    "safe-area": { "source": "frontend/src/components/WorkspaceMobileNav.tsx", "patterns": ["env(safe-area-inset-bottom)"] },
+    "rtl": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["document.documentElement.dir = \"rtl\""] },
+    "long-content": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["edgelab.ui-test.long-label"] },
+    "touch-targets": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["target.width < 44", "target.height < 44"] },
+    "raw-route-chunk-budget": { "source": "scripts/check-ui-performance.mjs", "patterns": ["budget.rawBytes.routeChunk", "UI performance budget exceeded"] },
+    "sixteen-pane-interaction-budget": { "source": "e2e/chart-performance.spec.ts", "project": "low-power", "patterns": ["sixteenPaneFrameP95Ms", "sixteenPaneResizeStressP95Ms"] },
+    "performance-budget": { "source": "scripts/check-ui-performance.mjs", "patterns": ["ui-performance-budgets.json", "failures.length"] },
+    "server-rollout-fallback": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "desktop", "patterns": ["server kill switch", "data-ui-version"] }
+  },
+  "assertionGaps": {
+    "safe-area": "CSS safe-area consumption is present, but no browser test currently emulates a non-zero safe-area inset."
+  }
+}

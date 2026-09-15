@@ -30,6 +30,36 @@
     "/app/settings": { "source": "frontend/src/components/settings/SettingsCenter.tsx", "restoration": "settings-preferences" },
     "/app/settings/:category": { "source": "frontend/src/components/settings/SettingsCenter.tsx", "restoration": "settings-preferences" }
   },
+  "panels": {
+    "Journal": ["frontend/src/components/journal/JournalPanelManager.tsx"],
+    "Watchlist": ["frontend/src/components/EdgeLabWorkspace.tsx"],
+    "Quant assistant": ["frontend/src/components/QuantPanel.tsx"],
+    "Data Window": ["frontend/src/components/journal/JournalPanelManager.tsx", "frontend/src/components/TradingChart.tsx"],
+    "Objects": ["frontend/src/components/ChartObjectsPanel.tsx"],
+    "Indicator editor": ["frontend/src/components/IndicatorEditorPanel.tsx"],
+    "Order Book": ["frontend/src/components/chart/MarketToolsPanels.tsx"],
+    "Alerts": ["frontend/src/components/chart/MarketToolsPanels.tsx"],
+    "Order ticket": ["frontend/src/components/OrderTicket.tsx"],
+    "Replay transport": ["frontend/src/components/ReplayController.tsx"]
+  },
+  "overlays": {
+    "command palette": ["frontend/src/components/GlobalCommandPalette.tsx"],
+    "shortcut catalog": ["frontend/src/components/GlobalCommandPalette.tsx", "frontend/src/components/AccountSystemMenu.tsx"],
+    "account menu": ["frontend/src/components/AccountSystemMenu.tsx"],
+    "mobile navigation": ["frontend/src/components/WorkspaceMobileNav.tsx"],
+    "trade review drawer": ["frontend/src/components/journal/JournalReviewDrawer.tsx"],
+    "add trade flow": ["frontend/src/components/JournalEntryModal.tsx"],
+    "journal import flow": ["frontend/src/components/EdgeLabWorkspace.tsx"],
+    "broker connection flow": ["frontend/src/components/settings/SettingsIntegrations.tsx"],
+    "workspace sharing": ["frontend/src/components/WorkspaceShareDialog.tsx"],
+    "chart settings": ["frontend/src/components/ChartToolbar.tsx"],
+    "indicator settings": ["frontend/src/components/IndicatorEditorPanel.tsx", "frontend/src/components/ChartObjectsPanel.tsx"],
+    "drawing settings": ["frontend/src/components/TradingChart.tsx"],
+    "symbol search": ["frontend/src/components/ChartToolbar.tsx"],
+    "radial drawing toolbox": ["frontend/src/components/TradingChart.tsx"],
+    "confirmation dialog": ["frontend/src/components/ui/Primitives.tsx"],
+    "toast": ["frontend/src/components/ui/Primitives.tsx"]
+  },
   "sharedContracts": {
     "icons": "frontend/src/components/ui/Primitives.tsx",
     "language": "frontend/src/lib/productLanguage.ts",

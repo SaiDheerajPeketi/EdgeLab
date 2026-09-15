@@ -14,17 +14,6 @@ function read(root, relativePath) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
-function listFiles(directory) {
-  if (!fs.existsSync(directory)) return [];
-  const files = [];
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...listFiles(target));
-    else files.push(target);
-  }
-  return files;
-}
-
 function unique(values) {
   return [...new Set(values)];
 }
@@ -33,29 +22,23 @@ function sameKeys(left, right) {
   return left.length === right.length && left.every((key, index) => key === right[index]);
 }
 
-export function routePatternCovers(pattern, route) {
-  if (pattern === route) return true;
-  if (!pattern.includes(":")) return false;
-  const patternParts = pattern.split("/");
-  const routeParts = route.split("/");
-  return patternParts.length === routeParts.length
-    && patternParts.every((part, index) => part.startsWith(":") || part === routeParts[index]);
-}
-
 export function discoverRouteDefinitions(appRoutesSource, workspaceRouteSource) {
-  const appRoutes = [...appRoutesSource.matchAll(/<Route\b[^>]*\bpath="([^"]+)"/g)]
+  const appRoutes = [...appRoutesSource.matchAll(/^\s*<Route\b.*\bpath="([^"]+)"/gm)]
     .map((match) => match[1]);
-  const workspacePrefixes = [...workspaceRouteSource.matchAll(/\[\s*"(\/app[^"]*)"\s*,/g)]
+  const workspaceRoutes = [...workspaceRouteSource.matchAll(/\{\s*path:\s*"(\/app[^"]*)"/g)]
     .map((match) => match[1]);
-  const canonicalWorkspaceRoutes = [...workspaceRouteSource.matchAll(/return\s+"(\/app[^"]*)"/g)]
-    .map((match) => match[1]);
-  return unique([...appRoutes, ...workspacePrefixes, ...canonicalWorkspaceRoutes]).sort();
+  return unique([...appRoutes, ...workspaceRoutes]).sort();
 }
 
 export function discoverPlaywrightProjects(playwrightSource) {
   const projects = new Map();
   for (const match of playwrightSource.matchAll(/name:\s*"([^"]+)"[\s\S]{0,600}?viewport:\s*\{\s*height:\s*(\d+),\s*width:\s*(\d+)/g)) {
-    projects.set(match[1], { height: Number(match[2]), width: Number(match[3]) });
+    projects.set(match[1], {
+      height: Number(match[2]),
+      pointer: /hasTouch:\s*true/.test(match[0]) ? "coarse" : "fine",
+      width: Number(match[3]),
+      zoom: 1,
+    });
   }
   return projects;
 }
@@ -96,10 +79,12 @@ function validateNamedSurfaceFamily({
 
 export function validateUiSurfaceInventory({
   inventory,
+  foundationContracts,
+  releaseMatrix,
+  visualEvidence,
   appRoutesSource,
   workspaceRouteSource,
   playwrightSource,
-  snapshotFiles,
   root = DEFAULT_ROOT,
 }) {
   const errors = [];
@@ -114,9 +99,24 @@ export function validateUiSurfaceInventory({
   if (routePaths.length !== uniqueRoutePaths.length) errors.push("Inventory route paths must be unique.");
 
   const discoveredRoutes = discoverRouteDefinitions(appRoutesSource, workspaceRouteSource);
-  for (const route of discoveredRoutes) {
-    if (!routePaths.some((pattern) => routePatternCovers(pattern, route))) {
+  const sortedDiscoveredRoutes = [...discoveredRoutes].sort();
+  const sortedInventoryRoutes = [...uniqueRoutePaths].sort();
+  if (!sameKeys(sortedDiscoveredRoutes, sortedInventoryRoutes)) {
+    for (const route of sortedDiscoveredRoutes.filter((route) => !uniqueRoutePaths.includes(route))) {
       errors.push(`Route definition is missing from the surface inventory: ${route}.`);
+    }
+    for (const route of sortedInventoryRoutes.filter((route) => !discoveredRoutes.includes(route))) {
+      errors.push(`Inventory route has no authoritative route definition: ${route}.`);
+    }
+  }
+
+  const contractRoutePaths = Object.keys(foundationContracts.routes ?? {}).sort();
+  if (!sameKeys(sortedInventoryRoutes, contractRoutePaths)) {
+    errors.push("Foundation route keys must exactly match the inventoried route paths.");
+  }
+  for (const [route, contract] of Object.entries(foundationContracts.routes ?? {})) {
+    if (!contract?.source || !fs.existsSync(path.join(root, contract.source))) {
+      errors.push(`Foundation route "${route}" has a missing source: ${contract?.source ?? "(none)"}.`);
     }
   }
 
@@ -132,13 +132,26 @@ export function validateUiSurfaceInventory({
     if (baseline.project) {
       const project = projects.get(baseline.project);
       if (!project) errors.push(`Viewport "${name}" references missing Playwright project "${baseline.project}".`);
-      else if (project.width !== baseline.width) {
-        errors.push(`Viewport "${name}" declares ${baseline.width}px but Playwright "${baseline.project}" uses ${project.width}px.`);
+      else {
+        for (const field of ["width", "height", "pointer", "zoom"]) {
+          if (project[field] !== baseline[field]) {
+            errors.push(`Viewport "${name}" declares ${field}=${baseline[field]} but Playwright "${baseline.project}" uses ${project[field]}.`);
+          }
+        }
       }
     } else if (baseline.status !== "gap" || !baseline.reason) {
       errors.push(`Viewport "${name}" without a Playwright project must record a gap reason.`);
     }
     if (baseline.status === "gap") gaps.push(`viewport:${name}: ${baseline.reason}`);
+    const matrixViewport = releaseMatrix.viewports?.[name];
+    if (!matrixViewport) errors.push(`Viewport "${name}" is absent from the release matrix.`);
+    else {
+      for (const field of ["width", "height", "pointer", "zoom"]) {
+        if (matrixViewport[field] !== baseline[field]) {
+          errors.push(`Viewport "${name}" disagrees with the release matrix for ${field}.`);
+        }
+      }
+    }
   }
 
   for (const route of routes) {
@@ -179,7 +192,7 @@ export function validateUiSurfaceInventory({
     family: "Panel",
     names: inventory.panels ?? [],
     root,
-    sources: inventory.panelSources,
+    sources: foundationContracts.panels,
     validDispositions,
   });
   validateNamedSurfaceFamily({
@@ -188,46 +201,106 @@ export function validateUiSurfaceInventory({
     family: "Overlay",
     names: inventory.overlays ?? [],
     root,
-    sources: inventory.overlaySources,
+    sources: foundationContracts.overlays,
     validDispositions,
   });
 
   const visualCoverage = inventory.visualCoverage ?? {};
-  const baselines = visualCoverage.baselines ?? {};
-  if (!sameKeys([...uniqueRoutePaths].sort(), Object.keys(baselines).sort())) {
-    errors.push("Visual baseline keys must exactly match the inventoried route paths.");
-  }
+  const evidenceRoutes = visualEvidence.routes ?? {};
   for (const key of [...Object.keys(visualCoverage.exemptions ?? {}), ...Object.keys(visualCoverage.gaps ?? {})]) {
     if (!uniqueRoutePaths.includes(key)) errors.push(`Visual coverage decision references unknown route: ${key}.`);
   }
-  const normalizedSnapshots = snapshotFiles.map((file) => file.split(path.sep).join("/"));
+  for (const key of Object.keys(evidenceRoutes)) {
+    if (!uniqueRoutePaths.includes(key)) errors.push(`Visual evidence references unknown route: ${key}.`);
+  }
+  let storedSnapshots = 0;
   for (const route of routes) {
-    const snapshots = baselines[route.path];
+    const stateEvidence = evidenceRoutes[route.path] ?? {};
     const exemption = visualCoverage.exemptions?.[route.path];
     const gap = visualCoverage.gaps?.[route.path];
-    if (!Array.isArray(snapshots)) {
-      errors.push(`Route "${route.path}" has no visual baseline record.`);
-      continue;
-    }
-    if (snapshots.length === 0 && !exemption && !gap) {
+    if (Object.keys(stateEvidence).length === 0 && !exemption && !gap) {
       errors.push(`Route "${route.path}" has neither a stored baseline nor an explicit exemption/gap.`);
     }
-    for (const snapshot of snapshots) {
-      if (!normalizedSnapshots.some((file) => file.endsWith(`/${snapshot}.png`))) {
-        errors.push(`Route "${route.path}" claims missing snapshot "${snapshot}.png".`);
+    for (const [state, projectEvidence] of Object.entries(stateEvidence)) {
+      if (!route.states?.includes(state)) {
+        errors.push(`Route "${route.path}" evidence uses undeclared state "${state}".`);
+      }
+      for (const viewportName of route.responsiveWidths ?? []) {
+        const project = viewports[viewportName]?.project;
+        if (project && !projectEvidence?.[project]) {
+          errors.push(`Route "${route.path}" state "${state}" has no ${viewportName} project evidence.`);
+        }
+      }
+      for (const [project, evidence] of Object.entries(projectEvidence ?? {})) {
+        storedSnapshots += 1;
+        if (!viewports[project]?.project || viewports[project].project !== project) {
+          errors.push(`Route "${route.path}" state "${state}" references unknown project "${project}".`);
+          continue;
+        }
+        if (!route.responsiveWidths?.includes(project)) {
+          errors.push(`Route "${route.path}" state "${state}" uses project "${project}" outside its responsive contract.`);
+        }
+        const specPath = path.join(root, evidence.spec ?? "");
+        if (!evidence.spec || !fs.existsSync(specPath)) {
+          errors.push(`Route "${route.path}" state "${state}" references missing spec "${evidence.spec ?? "(none)"}".`);
+          continue;
+        }
+        const expectedSnapshot = path.join(
+          root,
+          "e2e/__snapshots__",
+          path.basename(evidence.spec),
+          visualEvidence.platform,
+          project,
+          evidence.snapshot ?? "",
+        );
+        if (!evidence.snapshot || !fs.existsSync(expectedSnapshot)) {
+          errors.push(`Route "${route.path}" state "${state}" is missing exact ${project} snapshot "${evidence.snapshot ?? "(none)"}".`);
+        }
+        const snapshotStem = path.basename(evidence.snapshot ?? "", ".png");
+        const specSource = fs.readFileSync(specPath, "utf8");
+        const dynamicPrefix = snapshotStem.includes("-")
+          ? `${snapshotStem.slice(0, snapshotStem.lastIndexOf("-"))}-\${`
+          : "";
+        if (snapshotStem && !specSource.includes(snapshotStem) && (!dynamicPrefix || !specSource.includes(dynamicPrefix))) {
+          errors.push(`Route "${route.path}" state "${state}" snapshot is not referenced by ${evidence.spec}.`);
+        }
       }
     }
-    for (const viewportName of route.responsiveWidths ?? []) {
-      const project = viewports[viewportName]?.project;
-      if (!project || snapshots.length === 0) continue;
-      const hasViewportEvidence = snapshots.some((snapshot) =>
-        normalizedSnapshots.some((file) => file.includes(`/darwin/${project}/`) && file.endsWith(`/${snapshot}.png`)),
-      );
-      if (!hasViewportEvidence) {
-        errors.push(`Route "${route.path}" has no ${viewportName} stored baseline evidence.`);
-      }
+    const missingCriticalEvidence = (route.criticalStates ?? []).filter((state) => !stateEvidence[state]);
+    if (missingCriticalEvidence.length > 0 && !gap && !exemption) {
+      errors.push(`Route "${route.path}" lacks evidence or a gap for critical states: ${missingCriticalEvidence.join(", ")}.`);
     }
     if (gap) gaps.push(`route:${route.path}: ${gap}`);
+  }
+
+  const assertionEvidence = visualEvidence.assertions ?? {};
+  const assertionGaps = visualEvidence.assertionGaps ?? {};
+  for (const assertion of releaseMatrix.requiredAssertions ?? []) {
+    const evidence = assertionEvidence[assertion];
+    if (!evidence && !assertionGaps[assertion]) {
+      errors.push(`Required assertion "${assertion}" has no executable evidence or explicit gap.`);
+      continue;
+    }
+    if (evidence) {
+      const sourcePath = path.join(root, evidence.source ?? "");
+      if (!evidence.source || !fs.existsSync(sourcePath)) {
+        errors.push(`Assertion "${assertion}" references missing source "${evidence.source ?? "(none)"}".`);
+      } else {
+        const source = fs.readFileSync(sourcePath, "utf8");
+        for (const pattern of evidence.patterns ?? []) {
+          if (!source.includes(pattern)) errors.push(`Assertion "${assertion}" evidence pattern is missing: ${pattern}.`);
+        }
+      }
+      if (evidence.project && !projects.has(evidence.project)) {
+        errors.push(`Assertion "${assertion}" references unknown Playwright project "${evidence.project}".`);
+      }
+    }
+    if (assertionGaps[assertion]) gaps.push(`assertion:${assertion}: ${assertionGaps[assertion]}`);
+  }
+  for (const assertion of [...Object.keys(assertionEvidence), ...Object.keys(assertionGaps)]) {
+    if (!releaseMatrix.requiredAssertions?.includes(assertion)) {
+      errors.push(`Assertion evidence references an assertion absent from the release matrix: ${assertion}.`);
+    }
   }
 
   return {
@@ -238,7 +311,7 @@ export function validateUiSurfaceInventory({
       inventoriedRoutes: routes.length,
       overlays: inventory.overlays?.length ?? 0,
       panels: inventory.panels?.length ?? 0,
-      storedSnapshots: snapshotFiles.length,
+      storedSnapshots,
     },
   };
 }
@@ -247,10 +320,12 @@ export function loadUiSurfaceInventoryInputs(root = DEFAULT_ROOT) {
   return {
     root,
     inventory: readJson(root, "docs/ui-surface-inventory.json"),
+    foundationContracts: readJson(root, "docs/ui-foundation-contracts.json"),
+    releaseMatrix: readJson(root, "docs/ui-release-matrix.json"),
+    visualEvidence: readJson(root, "docs/ui-surface-evidence.json"),
     appRoutesSource: read(root, "frontend/src/routes/AppRoutes.tsx"),
     workspaceRouteSource: read(root, "frontend/src/lib/workspaceRoute.ts"),
     playwrightSource: read(root, "playwright.config.ts"),
-    snapshotFiles: listFiles(path.join(root, "e2e/__snapshots__")),
   };
 }
 

@@ -1,23 +1,38 @@
 import type { WorkspaceView } from "./workspace";
 
-const ROUTE_TO_WORKSPACE: ReadonlyArray<readonly [string, WorkspaceView]> = [
-  ["/app/settings", "globalSettings"],
-  ["/app/journal/accounts", "journalAccounts"],
-  ["/app/journal/trades", "journalTrades"],
-  ["/app/journal/reports", "journalReports"],
-  ["/app/journal/settings", "journalSettings"],
-  ["/app/journal/analytics", "journalReports"],
-  ["/app/journal/notes", "journalNotes"],
-  ["/app/journal", "journalDashboard"],
-  ["/app/reports", "reports"],
-  ["/app/replay", "backtest"],
-  ["/app/live", "live"],
-  ["/app/quant", "live"],
-  ["/app/order-flow", "live"],
+export const WORKSPACE_ROUTE_DEFINITIONS: ReadonlyArray<{
+  path: string;
+  view: WorkspaceView;
+}> = [
+  { path: "/app/settings/:category", view: "globalSettings" },
+  { path: "/app/settings", view: "globalSettings" },
+  { path: "/app/journal/accounts", view: "journalAccounts" },
+  { path: "/app/journal/trades", view: "journalTrades" },
+  { path: "/app/journal/reports", view: "journalReports" },
+  { path: "/app/journal/settings", view: "journalSettings" },
+  { path: "/app/journal/analytics", view: "journalReports" },
+  { path: "/app/journal/notes", view: "journalNotes" },
+  { path: "/app/journal/calendar", view: "journalDashboard" },
+  { path: "/app/journal/dashboard", view: "journalDashboard" },
+  { path: "/app/journal", view: "journalDashboard" },
+  { path: "/app/reports", view: "reports" },
+  { path: "/app/replay", view: "backtest" },
+  { path: "/app/live", view: "live" },
+  { path: "/app/quant", view: "live" },
+  { path: "/app/order-flow", view: "live" },
+  { path: "/app", view: "sessions" },
 ];
 
+function routePrefix(path: string) {
+  const parameterIndex = path.indexOf("/:");
+  return parameterIndex < 0 ? path : path.slice(0, parameterIndex);
+}
+
 export function workspaceViewFromPath(pathname: string): WorkspaceView {
-  return ROUTE_TO_WORKSPACE.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1]
+  return WORKSPACE_ROUTE_DEFINITIONS.find(({ path }) => {
+    const prefix = routePrefix(path);
+    return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  })?.view
     ?? "sessions";
 }
 

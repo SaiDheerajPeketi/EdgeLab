@@ -123,7 +123,7 @@ test("financial states expose a non-color sign and accessible label", async () =
 test("release matrix covers authenticated responsive, locale, state, and interaction baselines", () => {
   const matrix = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/ui-release-matrix.json"), "utf8"));
   assert.equal(matrix.viewports.mobile.width, 390);
-  assert.equal(matrix.viewports.mobile.zoom, 2);
+  assert.equal(matrix.viewports.mobile.zoom, 1);
   assert.equal(matrix.routes.settings.auth, true);
   assert.equal(matrix.routes.journal.auth, true);
   assert.equal(matrix.routes.chart.states.includes("sixteen-pane"), true);
