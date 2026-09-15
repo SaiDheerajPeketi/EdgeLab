@@ -434,7 +434,6 @@ test("live 16-pane crosshair shares candle context and honors its toggle", async
   const syncControls = page.getByLabel("Chart synchronization controls");
   const crosshairToggle = syncControls.getByRole("button", { name: "Crosshair" });
   await expect(crosshairToggle).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { exact: true, name: "Tools" }).click();
   await expect(page.locator('[data-chart-engines-ready="true"]')).toHaveCount(1);
 
   const panes = page.locator(".chart-pane-shell");
@@ -444,6 +443,7 @@ test("live 16-pane crosshair shares candle context and honors its toggle", async
   await expect(candleTimes.filter({ hasText: "No candle" })).toHaveCount(0);
 
   const sourceSurface = panes.first().locator(".tv-lightweight-charts").first();
+  await sourceSurface.scrollIntoViewIfNeeded();
   const sourceBounds = await sourceSurface.boundingBox();
   if (!sourceBounds) throw new Error("Live chart interaction surface is unavailable");
   const initialTimes = await candleTimes.allTextContents();
@@ -456,10 +456,13 @@ test("live 16-pane crosshair shares candle context and honors its toggle", async
     return currentTimes.filter((value, index) => value !== initialTimes[index]).length;
   }).toBe(16);
 
-  await page.getByRole("button", { exact: true, name: "Tools" }).click();
-  await crosshairToggle.click();
+  const linkedTimes = await candleTimes.allTextContents();
+  await crosshairToggle.evaluate((button: HTMLButtonElement) => button.click());
   await expect(crosshairToggle).toHaveAttribute("aria-pressed", "false");
-  await page.getByRole("button", { exact: true, name: "Tools" }).click();
+  await expect.poll(async () => {
+    const currentTimes = await candleTimes.allTextContents();
+    return currentTimes.slice(1).filter((value, index) => value !== linkedTimes[index + 1]).length;
+  }).toBe(15);
 
   const resizedSourceBounds = await sourceSurface.boundingBox();
   if (!resizedSourceBounds) throw new Error("Live chart interaction surface is unavailable");

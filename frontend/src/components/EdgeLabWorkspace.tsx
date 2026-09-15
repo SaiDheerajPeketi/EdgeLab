@@ -179,8 +179,11 @@ import {
 import {
   sanitizeChartSyncSettings,
   type ChartSyncSettings,
-  type SyncedChartCrosshair,
 } from "../lib/chartWorkspace";
+import {
+  createChartCrosshairSyncBus,
+  type ChartCrosshairSyncBus,
+} from "../lib/chartCrosshairSync";
 import {
   MIXED_CURRENCY,
   currencyForSession,
@@ -4041,7 +4044,11 @@ const LiveChartStudio = memo(function LiveChartStudio({
   const [chartSyncSettings, setChartSyncSettings] = useState<ChartSyncSettings>(() =>
     sanitizeChartSyncSettings(loadLiveChartLayout()?.syncSettings),
   );
-  const [syncedCrosshair, setSyncedCrosshair] = useState<SyncedChartCrosshair | null>(null);
+  const crosshairSyncBusRef = useRef<ChartCrosshairSyncBus | null>(null);
+  if (!crosshairSyncBusRef.current) {
+    crosshairSyncBusRef.current = createChartCrosshairSyncBus();
+  }
+  const crosshairSyncBus = crosshairSyncBusRef.current;
   const [activeChartPaneId, setActiveChartPaneId] = useState(() => chartPanes[0]?.id ?? "live-chart-pane-1");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
@@ -4088,6 +4095,12 @@ const LiveChartStudio = memo(function LiveChartStudio({
     };
   }));
   const journalFocusRange = useMemo(() => journalChartFocus ? journalFocusVisibleRange(journalChartFocus, journalChartFocus.tradeId) : null, [journalChartFocus]);
+
+  useEffect(() => {
+    crosshairSyncBus.setEnabled(chartSyncSettings.crosshair);
+  }, [chartSyncSettings.crosshair, crosshairSyncBus]);
+
+  useEffect(() => () => crosshairSyncBus.dispose(), [crosshairSyncBus]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -4744,6 +4757,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     chartSettings={pane.chartSettings}
                     chartStyle={pane.chartStyle}
                     confirmOrderLineModifications={false}
+                    crosshairSyncBus={crosshairSyncBus}
                     drawingTool={pane.drawingTool}
                     drawings={pane.drawings}
                     executions={[]}
@@ -4757,8 +4771,6 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     onDeleteDrawing={(drawingId) => deleteDrawingForPane(pane.id, drawingId)}
                     onDrawingToolChange={(tool) => changeDrawingToolForPane(pane.id, tool)}
                     onMagnetModeChange={(magnetMode) => changeMagnetModeForPane(pane.id, magnetMode)}
-                    onCrosshairSync={chartSyncSettings.crosshair ? (value) =>
-                      setSyncedCrosshair((current) => ({ ...value, revision: (current?.revision ?? 0) + 1 })) : undefined}
                     onRemoveIndicator={(instanceId) => removeIndicatorForPane(pane.id, instanceId)}
                     onSelectDrawing={(drawingId) => {
                       selectChartPane(pane.id);
@@ -4781,7 +4793,6 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}
                     symbol={pane.symbol || symbolCode || symbol}
-                    syncedCrosshair={chartSyncSettings.crosshair ? syncedCrosshair : null}
                     syncedVisibleRange={journalFocusRange ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length } : null}
                     currency="USD"
                     datasetTimeframe={LIVE_SOURCE_TIMEFRAME}

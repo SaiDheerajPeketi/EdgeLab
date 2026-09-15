@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -117,6 +118,11 @@ import {
   type PriceScaleSettleScheduler,
 } from "../lib/chartScaleSync";
 import {
+  createChartCandleSnapshotStore,
+  type ChartCandleSnapshotStore,
+  type ChartCrosshairSyncBus,
+} from "../lib/chartCrosshairSync";
+import {
   planSeriesDataUpdate,
   type SeriesDataUpdatePlan,
 } from "../lib/chartSeriesUpdates";
@@ -220,6 +226,7 @@ type Props = {
   captureMode?: boolean;
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
+  crosshairSyncBus?: ChartCrosshairSyncBus;
   confirmOrderLineModifications: boolean;
   drawingTool: DrawingTool;
   drawings: ChartDrawing[];
@@ -266,10 +273,6 @@ type Props = {
   datasetTimeframe?: string | null;
   timeframe: ChartTimeframe;
   undoShortcutLabel: string;
-};
-
-type TooltipData = {
-  candle: Candle;
 };
 
 type CustomRuntimeStudy = {
@@ -459,6 +462,7 @@ export function TradingChart({
   captureMode = false,
   chartSettings,
   chartStyle,
+  crosshairSyncBus,
   confirmOrderLineModifications,
   drawingTool,
   drawings,
@@ -523,7 +527,12 @@ export function TradingChart({
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const settingPriceLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Candle[]>([]);
-  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const barsByTimeRef = useRef<Map<number, Candle>>(new Map());
+  const candleSnapshotStoreRef = useRef<ChartCandleSnapshotStore | null>(null);
+  if (!candleSnapshotStoreRef.current) {
+    candleSnapshotStoreRef.current = createChartCandleSnapshotStore();
+  }
+  const candleSnapshotStore = candleSnapshotStoreRef.current;
   const [customRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -559,14 +568,17 @@ export function TradingChart({
   const previousReplaySeekVersionRef = useRef(replaySeekVersion);
   const previousChartStyleRef = useRef(chartStyle);
   const syncApplyingRef = useRef(false);
+  const linkedCrosshairAppliedRef = useRef(false);
   const crosshairSyncRevisionRef = useRef(-1);
   const rangeSyncRevisionRef = useRef(-1);
   const onCrosshairSyncRef = useRef(onCrosshairSync);
+  const crosshairSyncBusRef = useRef(crosshairSyncBus);
   const onVisibleRangeSyncRef = useRef(onVisibleRangeSync);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
   );
   onCrosshairSyncRef.current = onCrosshairSync;
+  crosshairSyncBusRef.current = crosshairSyncBus;
   onVisibleRangeSyncRef.current = onVisibleRangeSync;
 
   const sessionTemplate = useMemo(
@@ -1066,15 +1078,6 @@ export function TradingChart({
     [indicatorInstances, selectedIndicatorId],
   );
   const activePosition = isOpenPosition(position) ? position : null;
-  const activeHeaderCandle =
-    (captureMode ? null : tooltip?.candle) ?? displayBars.at(-1) ?? null;
-  const headerPriceTone = candleChangeTone(activeHeaderCandle);
-  const activeHeaderSessionPhase = activeHeaderCandle
-    ? sessionPhaseAt(activeHeaderCandle.time, sessionTemplate)
-    : null;
-  const activeHeaderOrderFlow = activeHeaderCandle
-    ? orderFlowByTime.get(activeHeaderCandle.time) ?? null
-    : null;
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
     chartSettings,
@@ -1199,7 +1202,12 @@ export function TradingChart({
 
   useEffect(() => {
     barsRef.current = displayBars;
-  }, [displayBars]);
+    barsByTimeRef.current = new Map(displayBars.map((bar) => [bar.time, bar]));
+    const activeTime = candleSnapshotStore.getSnapshot()?.time;
+    if (activeTime != null) {
+      candleSnapshotStore.setSnapshot(barsByTimeRef.current.get(activeTime) ?? null);
+    }
+  }, [candleSnapshotStore, displayBars]);
 
   useEffect(() => {
     if (!shouldWatchPriceScale) {
@@ -1388,18 +1396,26 @@ export function TradingChart({
     chartRef.current = chart;
 
     chart.subscribeCrosshairMove((param) => {
-      setTooltip(resolveTooltip(param, barsRef.current));
-      if (syncApplyingRef.current || !onCrosshairSyncRef.current) return;
+      candleSnapshotStore.setSnapshot(resolveCandleAtTime(param.time, barsByTimeRef.current));
+      if (
+        syncApplyingRef.current ||
+        (!crosshairSyncBusRef.current && !onCrosshairSyncRef.current)
+      ) return;
       const time = typeof param.time === "number" ? Number(param.time) : null;
       const price = param.point
         ? primarySeriesRef.current?.coordinateToPrice(param.point.y) ?? null
         : null;
-      onCrosshairSyncRef.current({
+      const value = {
         price: typeof price === "number" && Number.isFinite(price) ? price : null,
         revision: Date.now(),
         sourcePaneId: paneId,
         time,
-      });
+      };
+      if (crosshairSyncBusRef.current) {
+        crosshairSyncBusRef.current.publish(value);
+      } else {
+        onCrosshairSyncRef.current?.(value);
+      }
     });
     const handleVisibleRangeChange = () => {
       refreshDrawingLayer();
@@ -1435,7 +1451,7 @@ export function TradingChart({
       volumeSeriesDataRef.current = [];
       indicatorRefs.current = {};
     };
-  }, [paneId]);
+  }, [candleSnapshotStore, paneId]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -1551,6 +1567,45 @@ export function TradingChart({
   }, [chartSettings.volume, hasVolumeData, paneId]);
 
   useEffect(() => {
+    if (!crosshairSyncBus) return;
+    return crosshairSyncBus.subscribe((event) => {
+      const chart = chartRef.current;
+      if (!chart) return;
+      if (event.type === "disabled") {
+        if (!linkedCrosshairAppliedRef.current) return;
+        linkedCrosshairAppliedRef.current = false;
+        syncApplyingRef.current = true;
+        chart.clearCrosshairPosition();
+        candleSnapshotStore.setSnapshot(null);
+        window.requestAnimationFrame(() => {
+          syncApplyingRef.current = false;
+        });
+        return;
+      }
+
+      const value = event.value;
+      if (
+        value.sourcePaneId === paneId ||
+        value.revision <= crosshairSyncRevisionRef.current
+      ) return;
+      const series = primarySeriesRef.current;
+      if (!series || barsByTimeRef.current.size === 0) return;
+      crosshairSyncRevisionRef.current = value.revision;
+      syncApplyingRef.current = true;
+      linkedCrosshairAppliedRef.current = value.time != null && value.price != null;
+      candleSnapshotStore.setSnapshot(resolveCandleAtTime(value.time, barsByTimeRef.current));
+      if (!linkedCrosshairAppliedRef.current) {
+        chart.clearCrosshairPosition();
+      } else {
+        chart.setCrosshairPosition(value.price!, value.time as UTCTimestamp, series);
+      }
+      window.requestAnimationFrame(() => {
+        syncApplyingRef.current = false;
+      });
+    });
+  }, [candleSnapshotStore, crosshairSyncBus, paneId]);
+
+  useEffect(() => {
     if (
       !syncedCrosshair ||
       syncedCrosshair.sourcePaneId === paneId ||
@@ -1563,7 +1618,8 @@ export function TradingChart({
     if (!chart || !series || barsRef.current.length === 0) return;
     crosshairSyncRevisionRef.current = syncedCrosshair.revision;
     syncApplyingRef.current = true;
-    setTooltip(resolveTooltipAtTime(syncedCrosshair.time, barsRef.current));
+    linkedCrosshairAppliedRef.current = syncedCrosshair.time != null && syncedCrosshair.price != null;
+    candleSnapshotStore.setSnapshot(resolveCandleAtTime(syncedCrosshair.time, barsByTimeRef.current));
     if (syncedCrosshair.time == null || syncedCrosshair.price == null) {
       chart.clearCrosshairPosition();
     } else {
@@ -1576,7 +1632,7 @@ export function TradingChart({
     window.requestAnimationFrame(() => {
       syncApplyingRef.current = false;
     });
-  }, [paneId, syncedCrosshair]);
+  }, [candleSnapshotStore, paneId, syncedCrosshair]);
 
   useEffect(() => {
     if (
@@ -2841,11 +2897,12 @@ export function TradingChart({
                     >
                       {sessionTemplate.exchange} · {sessionTemplate.timeZone}
                     </span>
-                    {activeHeaderSessionPhase ? (
-                      <span aria-label={`Current bar session: ${chartSessionPhaseLabel(activeHeaderSessionPhase)}`}>
-                        · {chartSessionPhaseLabel(activeHeaderSessionPhase)}
-                      </span>
-                    ) : null}
+                    <SubscribedSessionPhase
+                      captureMode={captureMode}
+                      fallbackCandle={displayBars.at(-1) ?? null}
+                      sessionTemplate={sessionTemplate}
+                      store={candleSnapshotStore}
+                    />
                     {chartSettings.tradingHoursMode === "regular" && sessionFilteredBarCount > 0 ? (
                       <span aria-label={`${sessionFilteredBarCount} extended-hours bars hidden`}>
                         · {sessionFilteredBarCount} hidden
@@ -2858,14 +2915,15 @@ export function TradingChart({
             {(chartSettings.chartValues ||
               chartSettings.barChangeValues ||
               (chartSettings.volume && hasVolumeData)) && (
-              <OhlcvStrip
-                candle={activeHeaderCandle}
+              <SubscribedOhlcvStrip
+                captureMode={captureMode}
                 chartSettings={chartSettings}
+                fallbackCandle={displayBars.at(-1) ?? null}
                 pricePrecision={chartSettings.pricePrecision}
                 showChange={chartSettings.barChangeValues}
                 showOhlc={chartSettings.chartValues}
                 showVolume={chartSettings.volume && hasVolumeData}
-                tone={headerPriceTone}
+                store={candleSnapshotStore}
               />
             )}
             {(chartSettings.indicatorTitles || chartSettings.indicatorValues) && (
@@ -3130,11 +3188,13 @@ export function TradingChart({
               </div>
             ) : null}
             {(chartStyle === "footprint" || chartStyle === "tpo") &&
-            chartSettings.footprintShowStats &&
-            activeHeaderOrderFlow ? (
-              <OrderFlowStatsTable
-                bar={activeHeaderOrderFlow}
+            chartSettings.footprintShowStats ? (
+              <SubscribedOrderFlowStats
+                captureMode={captureMode}
+                fallbackCandle={displayBars.at(-1) ?? null}
                 metric={chartSettings.footprintStatsMetric}
+                orderFlowByTime={orderFlowByTime}
+                store={candleSnapshotStore}
               />
             ) : null}
             {bars.length === 0 && dataState && dataState.status !== "available" ? (
@@ -3495,6 +3555,88 @@ export function TradingChart({
 
     </section>
   );
+}
+
+function useHeaderCandle(
+  store: ChartCandleSnapshotStore,
+  fallbackCandle: Candle | null,
+  captureMode: boolean,
+) {
+  const hoveredCandle = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
+  return (captureMode ? null : hoveredCandle) ?? fallbackCandle;
+}
+
+function SubscribedSessionPhase({
+  captureMode,
+  fallbackCandle,
+  sessionTemplate,
+  store,
+}: {
+  captureMode: boolean;
+  fallbackCandle: Candle | null;
+  sessionTemplate: ChartSessionTemplate;
+  store: ChartCandleSnapshotStore;
+}) {
+  const candle = useHeaderCandle(store, fallbackCandle, captureMode);
+  const phase = candle ? sessionPhaseAt(candle.time, sessionTemplate) : null;
+  if (!phase) return null;
+  const label = chartSessionPhaseLabel(phase);
+  return <span aria-label={`Current bar session: ${label}`}>· {label}</span>;
+}
+
+function SubscribedOhlcvStrip({
+  captureMode,
+  chartSettings,
+  fallbackCandle,
+  pricePrecision,
+  showChange,
+  showOhlc,
+  showVolume,
+  store,
+}: {
+  captureMode: boolean;
+  chartSettings: ChartVisualSettings;
+  fallbackCandle: Candle | null;
+  pricePrecision: number;
+  showChange: boolean;
+  showOhlc: boolean;
+  showVolume: boolean;
+  store: ChartCandleSnapshotStore;
+}) {
+  const candle = useHeaderCandle(store, fallbackCandle, captureMode);
+  return (
+    <OhlcvStrip
+      candle={candle}
+      chartSettings={chartSettings}
+      pricePrecision={pricePrecision}
+      showChange={showChange}
+      showOhlc={showOhlc}
+      showVolume={showVolume}
+      tone={candleChangeTone(candle)}
+    />
+  );
+}
+
+function SubscribedOrderFlowStats({
+  captureMode,
+  fallbackCandle,
+  metric,
+  orderFlowByTime,
+  store,
+}: {
+  captureMode: boolean;
+  fallbackCandle: Candle | null;
+  metric: OrderFlowStatsMetric;
+  orderFlowByTime: ReadonlyMap<number, OrderFlowBarAggregate>;
+  store: ChartCandleSnapshotStore;
+}) {
+  const candle = useHeaderCandle(store, fallbackCandle, captureMode);
+  const bar = candle ? orderFlowByTime.get(candle.time) ?? null : null;
+  return bar ? <OrderFlowStatsTable bar={bar} metric={metric} /> : null;
 }
 
 function OhlcvStrip({
@@ -9442,28 +9584,15 @@ function screenAngleDegrees(
   return delta > 180 ? 360 - delta : delta;
 }
 
-function resolveTooltip(
-  param: MouseEventParams<Time>,
-  bars: Candle[],
-): TooltipData | null {
-  return resolveTooltipAtTime(param.time, bars);
-}
-
-function resolveTooltipAtTime(
+function resolveCandleAtTime(
   value: Time | number | null | undefined,
-  bars: Candle[],
-): TooltipData | null {
+  barsByTime: ReadonlyMap<number, Candle>,
+): Candle | null {
   if (value == null) {
     return null;
   }
   const time = Number(value);
-  const candle = bars.find((bar) => bar.time === time);
-  if (!candle) {
-    return null;
-  }
-  return {
-    candle,
-  };
+  return barsByTime.get(time) ?? null;
 }
 
 function toUnixTime(timestamp: string) {
