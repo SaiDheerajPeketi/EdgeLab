@@ -116,6 +116,10 @@ import {
   createPriceScaleSettleScheduler,
   type PriceScaleSettleScheduler,
 } from "../lib/chartScaleSync";
+import {
+  planSeriesDataUpdate,
+  type SeriesDataUpdatePlan,
+} from "../lib/chartSeriesUpdates";
 import type { ChartVisualSettings } from "../lib/chartSettings";
 import {
   chartSessionPhaseLabel,
@@ -202,6 +206,13 @@ const DRAWING_RAIL_TOOLS: Array<{
   { icon: TvTextIcon, label: "Text label", tool: "text" },
 ];
 
+type PrimaryChartSeries =
+  | ISeriesApi<"Candlestick">
+  | ISeriesApi<"Line">
+  | ISeriesApi<"Area">;
+
+type PrimarySeriesKind = "candlestick" | "line" | "area";
+
 type Props = {
   bars: Candle[];
   canUndoDrawingChange: boolean;
@@ -243,6 +254,7 @@ type Props = {
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   showDrawingRail?: boolean;
+  drawingControlsActive?: boolean;
   paneId?: string;
   dataState?: { detail: string; status: "available" | "empty" | "unavailable" | "stale" | "gapped" };
   drawingMarker?: string;
@@ -481,6 +493,7 @@ export function TradingChart({
   selectedDrawingId,
   showOrderOverlays,
   showDrawingRail = true,
+  drawingControlsActive = true,
   paneId = "chart-pane-1",
   dataState,
   drawingMarker = "★",
@@ -496,10 +509,15 @@ export function TradingChart({
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const primarySeriesRef = useRef<PrimaryChartSeries | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
   const lineRef = useRef<ISeriesApi<"Line"> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const candleSeriesDataRef = useRef<CandlestickData[]>([]);
+  const lineSeriesDataRef = useRef<LineData[]>([]);
+  const areaSeriesDataRef = useRef<LineData[]>([]);
+  const volumeSeriesDataRef = useRef<HistogramData[]>([]);
   const indicatorRefs = useRef<Record<string, ISeriesApi<"Line">>>({});
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const settingPriceLinesRef = useRef<IPriceLine[]>([]);
@@ -522,7 +540,7 @@ export function TradingChart({
   const renderedSelectedIndicatorId = captureMode ? null : selectedIndicatorId;
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
   const [favoriteDrawingTools, setFavoriteDrawingTools] = useState<FavoriteDrawingTool[]>(() =>
-    loadCachedDrawingToolFavorites(),
+    drawingControlsActive ? loadCachedDrawingToolFavorites() : [],
   );
   const [radialToolbox, setRadialToolbox] = useState<RadialToolboxState | null>(null);
   const [positionActionsOpen, setPositionActionsOpen] = useState(false);
@@ -538,6 +556,7 @@ export function TradingChart({
   const suppressNextDrawingClickRef = useRef(false);
   const previousTimeframeRef = useRef(timeframe);
   const previousReplaySeekVersionRef = useRef(replaySeekVersion);
+  const previousChartStyleRef = useRef(chartStyle);
   const syncApplyingRef = useRef(false);
   const crosshairSyncRevisionRef = useRef(-1);
   const rangeSyncRevisionRef = useRef(-1);
@@ -607,25 +626,30 @@ export function TradingChart({
     orderFlowBars,
     sessionTemplate,
   ]);
+  const primarySeriesKind = primarySeriesKindForStyle(chartStyle);
 
   const candleData = useMemo(
     () =>
-      applyCandleVisualSettings(
-        toCandles(displayBars, chartStyle === "heikinAshi"),
-        displayBars,
-        chartSettings,
-      ),
-    [chartSettings, chartStyle, displayBars],
+      primarySeriesKind === "candlestick"
+        ? applyCandleVisualSettings(
+            toCandles(displayBars, chartStyle === "heikinAshi"),
+            displayBars,
+            chartSettings,
+          )
+        : [],
+    [chartSettings, chartStyle, displayBars, primarySeriesKind],
   );
   const closeLineData = useMemo(
     () =>
-      displayBars.map(
-        (bar): LineData => ({
-          time: bar.time as UTCTimestamp,
-          value: bar.close,
-        }),
-      ),
-    [displayBars],
+      primarySeriesKind === "line" || primarySeriesKind === "area"
+        ? displayBars.map(
+            (bar): LineData => ({
+              time: bar.time as UTCTimestamp,
+              value: bar.close,
+            }),
+          )
+        : [],
+    [displayBars, primarySeriesKind],
   );
   const hasVolumeData = useMemo(
     () => displayBars.some(hasRenderableVolume),
@@ -633,7 +657,7 @@ export function TradingChart({
   );
   const volumeData = useMemo(
     () =>
-      hasVolumeData
+      chartSettings.volume && hasVolumeData
         ? displayBars.map(
             (bar): HistogramData => ({
               time: bar.time as UTCTimestamp,
@@ -645,7 +669,13 @@ export function TradingChart({
             }),
           )
         : [],
-    [chartSettings.bodyDownColor, chartSettings.bodyUpColor, displayBars, hasVolumeData],
+    [
+      chartSettings.bodyDownColor,
+      chartSettings.bodyUpColor,
+      chartSettings.volume,
+      displayBars,
+      hasVolumeData,
+    ],
   );
 
   const nativeIndicatorDefinitions = useMemo(
@@ -721,7 +751,12 @@ export function TradingChart({
   }, [displayBars, indicatorInstances]);
 
   useEffect(() => {
+    if (!drawingControlsActive) {
+      return;
+    }
+
     let active = true;
+    setFavoriteDrawingTools(loadCachedDrawingToolFavorites());
     void hydrateDrawingToolFavorites().then((value) => {
       if (active) {
         setFavoriteDrawingTools(value);
@@ -736,9 +771,14 @@ export function TradingChart({
       active = false;
       unsubscribe();
     };
-  }, []);
+  }, [drawingControlsActive]);
 
   useEffect(() => {
+    if (!drawingControlsActive) {
+      setRadialToolbox(null);
+      return;
+    }
+
     function closeRadialToolbox() {
       setRadialToolbox(null);
     }
@@ -843,7 +883,7 @@ export function TradingChart({
       window.removeEventListener("keydown", handleRadialKeyDown);
       window.removeEventListener("keyup", handleRadialKeyUp);
     };
-  }, [favoriteDrawingTools, onDrawingToolChange, radialToolbox]);
+  }, [drawingControlsActive, favoriteDrawingTools, onDrawingToolChange, radialToolbox]);
 
   const visibleIndicatorInstances = useMemo(
     () => indicatorInstances.filter((indicator) => indicator.visible !== false),
@@ -1046,7 +1086,7 @@ export function TradingChart({
     onSelectDrawing: selectDrawingFromChart,
     interactive: captureMode ? false : drawingObjectsInteractive,
     selectedDrawingId: captureMode ? null : selectedDrawingId,
-    series: candlesRef.current,
+    series: primarySeriesRef.current,
     version: plotVersion,
   });
   const fvgZoneElements = buildFvgZoneElements({
@@ -1055,7 +1095,7 @@ export function TradingChart({
     frame: chartFrameRef.current,
     onOpenSettings: openIndicatorToolbarAtFramePoint,
     selectedIndicatorId: renderedSelectedIndicatorId,
-    series: candlesRef.current,
+    series: primarySeriesRef.current,
   });
   const drawingPlotWidth =
     chartRef.current && chartFrameRef.current
@@ -1083,7 +1123,7 @@ export function TradingChart({
     imbalanceRatio: chartSettings.footprintImbalanceRatio,
     alignment: chartSettings.footprintAlignment,
     neutralColor: chartSettings.footprintNeutralColor,
-    series: candlesRef.current,
+    series: primarySeriesRef.current,
     showAverageTradeSize: chartSettings.footprintShowAverageTradeSize,
     showImbalances: chartSettings.footprintShowImbalances,
     showUnfinishedAuctions: chartSettings.footprintShowUnfinishedAuctions,
@@ -1095,7 +1135,7 @@ export function TradingChart({
     chart: chartRef.current,
     frame: chartFrameRef.current,
     profile: chartStyle === "tpo" ? marketProfile : EMPTY_MARKET_PROFILE,
-    series: candlesRef.current,
+    series: primarySeriesRef.current,
     showPointOfControl: chartSettings.tpoShowPointOfControl,
     showValueArea: chartSettings.tpoShowValueArea,
   });
@@ -1114,7 +1154,7 @@ export function TradingChart({
           selectedDrawing,
           chartFrameRef.current,
           chartRef.current,
-          candlesRef.current,
+          primarySeriesRef.current,
         )
       : null;
   const positionOverlayPosition =
@@ -1123,7 +1163,7 @@ export function TradingChart({
           activePosition.avg_price,
           chartFrameRef.current,
           chartRef.current,
-          candlesRef.current,
+          primarySeriesRef.current,
         )
       : null;
   const orderEditLines = useMemo(
@@ -1303,9 +1343,6 @@ export function TradingChart({
     if (!chartContainerRef.current) {
       return;
     }
-    const initialPrimaryPriceScaleId = primaryPriceScaleIdForPlacement(
-      chartSettings.scalePlacement,
-    );
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -1340,88 +1377,19 @@ export function TradingChart({
       autoSize: true,
     });
 
-    const candles = chart.addCandlestickSeries({
-      upColor: chartSettings.bodyVisible
-        ? chartSettings.bodyUpColor
-        : TRANSPARENT_COLOR,
-      downColor: chartSettings.bodyVisible
-        ? chartSettings.bodyDownColor
-        : TRANSPARENT_COLOR,
-      borderUpColor: chartSettings.borderUpColor,
-      borderDownColor: chartSettings.borderDownColor,
-      borderVisible: chartSettings.borderVisible,
-      wickUpColor: chartSettings.wickUpColor,
-      wickDownColor: chartSettings.wickDownColor,
-      priceFormat: {
-        type: "price",
-        precision: 5,
-        minMove: 0.00001,
-      },
-      priceScaleId: initialPrimaryPriceScaleId,
-    });
-    let line: ISeriesApi<"Line"> | null = null;
-    let area: ISeriesApi<"Area"> | null = null;
-    try {
-      line = chart.addLineSeries({
-        color: "#32d3ee",
-        lineWidth: 2,
-        priceLineVisible: false,
-        visible: false,
-        priceFormat: {
-          type: "price",
-          precision: 5,
-          minMove: 0.00001,
-        },
-        priceScaleId: initialPrimaryPriceScaleId,
-      });
-      area = chart.addAreaSeries({
-        bottomColor: "rgba(50, 211, 238, 0.02)",
-        lineColor: "#32d3ee",
-        lineWidth: 2,
-        priceLineVisible: false,
-        topColor: "rgba(50, 211, 238, 0.28)",
-        visible: false,
-        priceFormat: {
-          type: "price",
-          precision: 5,
-          minMove: 0.00001,
-        },
-        priceScaleId: initialPrimaryPriceScaleId,
-      });
-    } catch {
-      line = null;
-      area = null;
-    }
-    const volume = chart.addHistogramSeries({
-      color: "rgba(148, 163, 184, 0.24)",
-      priceFormat: {
-        type: "volume",
-      },
-      priceLineVisible: false,
-      priceScaleId: "",
-    });
-    volume.priceScale().applyOptions({
-      scaleMargins: {
-        top: 0.82,
-        bottom: 0,
-      },
-    });
-
     const refreshDrawingLayer = () => {
       setPlotVersion((value) => value + 1);
     };
 
     chartRef.current = chart;
-    candlesRef.current = candles;
-    areaRef.current = area;
-    lineRef.current = line;
-    volumeRef.current = volume;
 
     chart.subscribeCrosshairMove((param) => {
       setTooltip(resolveTooltip(param, barsRef.current));
       if (syncApplyingRef.current || !onCrosshairSyncRef.current) return;
       const time = typeof param.time === "number" ? Number(param.time) : null;
-      const price = param.point ? candles.coordinateToPrice(param.point.y) : null;
+      const price = param.point
+        ? primarySeriesRef.current?.coordinateToPrice(param.point.y) ?? null
+        : null;
       onCrosshairSyncRef.current({
         price: typeof price === "number" && Number.isFinite(price) ? price : null,
         revision: Date.now(),
@@ -1449,13 +1417,131 @@ export function TradingChart({
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
+      primarySeriesRef.current = null;
       candlesRef.current = null;
       areaRef.current = null;
       lineRef.current = null;
       volumeRef.current = null;
+      candleSeriesDataRef.current = [];
+      lineSeriesDataRef.current = [];
+      areaSeriesDataRef.current = [];
+      volumeSeriesDataRef.current = [];
       indicatorRefs.current = {};
     };
   }, [paneId]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    const priceFormat = priceFormatFromPrecision(chartSettings.pricePrecision);
+    const priceScaleId = primaryPriceScaleIdForPlacement(chartSettings.scalePlacement);
+    let primarySeries: PrimaryChartSeries;
+
+    if (primarySeriesKind === "line") {
+      const line = chart.addLineSeries({
+        color: "#32d3ee",
+        lastValueVisible: chartSettings.symbolLine !== "hidden",
+        lineWidth: 2,
+        priceFormat,
+        priceLineVisible: chartSettings.symbolLine === "valueLine",
+        priceScaleId,
+      });
+      lineRef.current = line;
+      primarySeries = line;
+    } else if (primarySeriesKind === "area") {
+      const area = chart.addAreaSeries({
+        bottomColor: "rgba(50, 211, 238, 0.02)",
+        lastValueVisible: chartSettings.symbolLine !== "hidden",
+        lineColor: "#32d3ee",
+        lineWidth: 2,
+        priceFormat,
+        priceLineVisible: chartSettings.symbolLine === "valueLine",
+        priceScaleId,
+        topColor: "rgba(50, 211, 238, 0.28)",
+      });
+      areaRef.current = area;
+      primarySeries = area;
+    } else {
+      const candles = chart.addCandlestickSeries({
+        borderDownColor: chartSettings.borderDownColor,
+        borderUpColor: chartSettings.borderUpColor,
+        borderVisible: chartSettings.borderVisible,
+        downColor: chartSettings.bodyVisible
+          ? chartSettings.bodyDownColor
+          : TRANSPARENT_COLOR,
+        lastValueVisible: chartSettings.symbolLine !== "hidden",
+        priceFormat,
+        priceLineVisible: chartSettings.symbolLine === "valueLine",
+        priceScaleId,
+        upColor: chartSettings.bodyVisible
+          ? chartSettings.bodyUpColor
+          : TRANSPARENT_COLOR,
+        wickDownColor: chartSettings.wickDownColor,
+        wickUpColor: chartSettings.wickUpColor,
+        wickVisible: chartSettings.wickVisible,
+      });
+      candlesRef.current = candles;
+      primarySeries = candles;
+    }
+
+    primarySeriesRef.current = primarySeries;
+    priceScaleFingerprintRef.current = null;
+    setPlotVersion((value) => value + 1);
+
+    return () => {
+      priceLinesRef.current.forEach((line) => removePriceLineSafely(primarySeries, line));
+      settingPriceLinesRef.current.forEach((line) =>
+        removePriceLineSafely(primarySeries, line),
+      );
+      priceLinesRef.current = [];
+      settingPriceLinesRef.current = [];
+      if (primarySeriesRef.current === primarySeries) {
+        primarySeriesRef.current = null;
+      }
+      candlesRef.current = null;
+      lineRef.current = null;
+      areaRef.current = null;
+      candleSeriesDataRef.current = [];
+      lineSeriesDataRef.current = [];
+      areaSeriesDataRef.current = [];
+      try {
+        chart.removeSeries(primarySeries);
+      } catch {
+        // The chart can already be detached during pane teardown.
+      }
+    };
+  }, [paneId, primarySeriesKind]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !chartSettings.volume || !hasVolumeData) {
+      return;
+    }
+    const volume = chart.addHistogramSeries({
+      color: "rgba(148, 163, 184, 0.24)",
+      priceFormat: { type: "volume" },
+      priceLineVisible: false,
+      priceScaleId: "",
+    });
+    volume.priceScale().applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+    });
+    volumeRef.current = volume;
+
+    return () => {
+      if (volumeRef.current === volume) {
+        volumeRef.current = null;
+      }
+      volumeSeriesDataRef.current = [];
+      try {
+        chart.removeSeries(volume);
+      } catch {
+        // The chart can already be detached during pane teardown.
+      }
+    };
+  }, [chartSettings.volume, hasVolumeData, paneId]);
 
   useEffect(() => {
     if (
@@ -1466,7 +1552,7 @@ export function TradingChart({
       return;
     }
     const chart = chartRef.current;
-    const series = candlesRef.current;
+    const series = primarySeriesRef.current;
     if (!chart || !series || barsRef.current.length === 0) return;
     crosshairSyncRevisionRef.current = syncedCrosshair.revision;
     syncApplyingRef.current = true;
@@ -1506,16 +1592,46 @@ export function TradingChart({
   }, [paneId, syncedVisibleRange]);
 
   useEffect(() => {
-    candlesRef.current?.setData(toAscendingSeriesData(candleData));
-    lineRef.current?.setData(toAscendingSeriesData(closeLineData));
-    areaRef.current?.setData(toAscendingSeriesData(closeLineData));
-    volumeRef.current?.setData(toAscendingHistogramData(volumeData));
     const timeframeChanged = previousTimeframeRef.current !== timeframe;
     const replaySeekChanged = previousReplaySeekVersionRef.current !== replaySeekVersion;
+    const styleChanged = previousChartStyleRef.current !== chartStyle;
     previousTimeframeRef.current = timeframe;
     previousReplaySeekVersionRef.current = replaySeekVersion;
+    previousChartStyleRef.current = chartStyle;
+    const forceSetData = timeframeChanged || replaySeekChanged || styleChanged;
+    let dataChanged = false;
+
+    if (candlesRef.current) {
+      const next = toAscendingSeriesData(candleData);
+      const plan = planSeriesDataUpdate(candleSeriesDataRef.current, next, forceSetData);
+      applyCandlestickDataPlan(candlesRef.current, plan);
+      candleSeriesDataRef.current = next;
+      dataChanged ||= plan.mode !== "none";
+    }
+    if (lineRef.current) {
+      const next = toAscendingSeriesData(closeLineData);
+      const plan = planSeriesDataUpdate(lineSeriesDataRef.current, next, forceSetData);
+      applyLineDataPlan(lineRef.current, plan);
+      lineSeriesDataRef.current = next;
+      dataChanged ||= plan.mode !== "none";
+    }
+    if (areaRef.current) {
+      const next = toAscendingSeriesData(closeLineData);
+      const plan = planSeriesDataUpdate(areaSeriesDataRef.current, next, forceSetData);
+      applyAreaDataPlan(areaRef.current, plan);
+      areaSeriesDataRef.current = next;
+      dataChanged ||= plan.mode !== "none";
+    }
+    if (volumeRef.current) {
+      const next = toAscendingHistogramData(volumeData);
+      const plan = planSeriesDataUpdate(volumeSeriesDataRef.current, next, forceSetData);
+      applyHistogramDataPlan(volumeRef.current, plan);
+      volumeSeriesDataRef.current = next;
+      dataChanged ||= plan.mode !== "none";
+    }
+
     const resetFrames: number[] = [];
-    if (displayBars.length > 0) {
+    if (displayBars.length > 0 && dataChanged) {
       if (timeframeChanged || replaySeekChanged) {
         const firstFrame = window.requestAnimationFrame(() => {
           const secondFrame = window.requestAnimationFrame(() => resetChartView());
@@ -1526,27 +1642,24 @@ export function TradingChart({
         chartRef.current?.timeScale().scrollToRealTime();
       }
     }
-    setPlotVersion((value) => value + 1);
+    if (dataChanged) {
+      setPlotVersion((value) => value + 1);
+    }
     return () => {
       resetFrames.forEach((frame) => window.cancelAnimationFrame(frame));
     };
-  }, [candleData, closeLineData, displayBars.length, replaySeekVersion, timeframe, volumeData]);
-
-  useEffect(() => {
-    const canShowLine = chartStyle === "line" && lineRef.current != null;
-    const canShowArea = chartStyle === "area" && areaRef.current != null;
-    candlesRef.current?.applyOptions({
-      visible:
-        chartStyle === "candles" ||
-        chartStyle === "footprint" ||
-        chartStyle === "heikinAshi" ||
-        chartStyle === "tpo" ||
-        (chartStyle === "line" && !canShowLine) ||
-        (chartStyle === "area" && !canShowArea),
-    });
-    lineRef.current?.applyOptions({ visible: canShowLine });
-    areaRef.current?.applyOptions({ visible: canShowArea });
-  }, [chartStyle]);
+  }, [
+    candleData,
+    chartSettings.volume,
+    chartStyle,
+    closeLineData,
+    displayBars.length,
+    hasVolumeData,
+    paneId,
+    replaySeekVersion,
+    timeframe,
+    volumeData,
+  ]);
 
   useEffect(() => {
     const priceFormat = priceFormatFromPrecision(chartSettings.pricePrecision);
@@ -1704,11 +1817,11 @@ export function TradingChart({
   ]);
 
   useEffect(() => {
-    const series = candlesRef.current;
+    const series = primarySeriesRef.current;
     if (!series) {
       return;
     }
-    settingPriceLinesRef.current.forEach((line) => series.removePriceLine(line));
+    settingPriceLinesRef.current.forEach((line) => removePriceLineSafely(series, line));
     settingPriceLinesRef.current = [];
 
     const addSettingLine = (
@@ -1744,7 +1857,7 @@ export function TradingChart({
     addSettingLine(extremes.low, "Low", chartSettings.highLowLabels, chartSettings.bodyDownColor);
 
     return () => {
-      settingPriceLinesRef.current.forEach((line) => series.removePriceLine(line));
+      settingPriceLinesRef.current.forEach((line) => removePriceLineSafely(series, line));
       settingPriceLinesRef.current = [];
     };
   }, [
@@ -1753,11 +1866,13 @@ export function TradingChart({
     chartSettings.highLowLabels,
     chartSettings.previousDayClose,
     displayBars,
+    paneId,
+    primarySeriesKind,
     sessionTemplate,
   ]);
 
   useEffect(() => {
-    candlesRef.current?.setMarkers(
+    primarySeriesRef.current?.setMarkers(
       showOrderOverlays
         ? [
             ...executions.map((execution) => ({
@@ -1781,10 +1896,10 @@ export function TradingChart({
           ].sort((left, right) => Number(left.time) - Number(right.time))
         : [],
     );
-  }, [executions, replayFocusTrade, showOrderOverlays, timeframe]);
+  }, [executions, paneId, primarySeriesKind, replayFocusTrade, showOrderOverlays, timeframe]);
 
   useEffect(() => {
-    const series = candlesRef.current;
+    const series = primarySeriesRef.current;
     if (!series) {
       return;
     }
@@ -1851,7 +1966,15 @@ export function TradingChart({
       addLine(replayFocusTrade.exit_price, "#c084fc", `Trade #${replayFocusTrade.id} Exit`, 2);
     }
     return () => clearOrderPriceLines(series);
-  }, [activePosition, currency, orders, replayFocusTrade, showOrderOverlays]);
+  }, [
+    activePosition,
+    currency,
+    orders,
+    paneId,
+    primarySeriesKind,
+    replayFocusTrade,
+    showOrderOverlays,
+  ]);
 
   useEffect(() => {
     setDraftDrawing(null);
@@ -1891,7 +2014,7 @@ export function TradingChart({
             frame: chartFrameRef.current,
             point: indicatorPoint,
             selectedDrawingId,
-            series: candlesRef.current,
+            series: primarySeriesRef.current,
           })
         : null;
       if (drawingTool === "eraser") {
@@ -1930,7 +2053,7 @@ export function TradingChart({
       event.clientY,
       chartFrameRef.current,
       chartRef.current,
-      candlesRef.current,
+      primarySeriesRef.current,
       barsRef.current,
       magnetMode,
     );
@@ -1981,7 +2104,7 @@ export function TradingChart({
         event.clientY,
         chartFrameRef.current,
         chartRef.current,
-        candlesRef.current,
+        primarySeriesRef.current,
         barsRef.current,
         dragMagnetMode,
       );
@@ -1999,7 +2122,7 @@ export function TradingChart({
         pixel,
         chartFrameRef.current,
         chartRef.current,
-        candlesRef.current,
+        primarySeriesRef.current,
         barsRef.current,
       );
       if (!nextDrawing) {
@@ -2017,7 +2140,7 @@ export function TradingChart({
         event.clientY,
         chartFrameRef.current,
         chartRef.current,
-        candlesRef.current,
+        primarySeriesRef.current,
         barsRef.current,
         magnetMode,
       );
@@ -2060,7 +2183,7 @@ export function TradingChart({
       pixel.y,
       chartFrameRef.current,
       chartRef.current,
-      candlesRef.current,
+      primarySeriesRef.current,
       barsRef.current,
     );
     if (!point) {
@@ -2072,7 +2195,7 @@ export function TradingChart({
       point,
       pixel,
       chartRef.current,
-      candlesRef.current,
+      primarySeriesRef.current,
       barsRef.current,
       magnetMode,
     );
@@ -2148,9 +2271,7 @@ export function TradingChart({
 
   function resetChartView() {
     resetReplayChartViewport();
-    candlesRef.current?.priceScale().applyOptions({ autoScale: true });
-    areaRef.current?.priceScale().applyOptions({ autoScale: true });
-    lineRef.current?.priceScale().applyOptions({ autoScale: true });
+    primarySeriesRef.current?.priceScale().applyOptions({ autoScale: true });
     setPlotVersion((value) => value + 1);
   }
 
@@ -2183,7 +2304,7 @@ export function TradingChart({
     indicatorInstances.forEach((indicator) => onRemoveIndicator(indicator.id));
   }
 
-  function clearOrderPriceLines(series: ISeriesApi<"Candlestick">) {
+  function clearOrderPriceLines(series: PrimaryChartSeries) {
     priceLinesRef.current.forEach((line) => {
       try {
         series.removePriceLine(line);
@@ -2226,7 +2347,7 @@ export function TradingChart({
 
   function syncDrawingLayerToPriceScale() {
     const fingerprint = priceScaleCoordinateFingerprint(
-      candlesRef.current,
+      primarySeriesRef.current,
       barsRef.current,
     );
     if (fingerprint == null || fingerprint === priceScaleFingerprintRef.current) {
@@ -2258,7 +2379,7 @@ export function TradingChart({
   function priceFromClientY(clientY: number) {
     const frame = chartFrameRef.current;
     const chart = chartRef.current;
-    const series = candlesRef.current;
+    const series = primarySeriesRef.current;
     if (!frame || !series) {
       return null;
     }
@@ -2333,14 +2454,14 @@ export function TradingChart({
     crosshairFrameRef.current = window.requestAnimationFrame(() => {
       crosshairFrameRef.current = null;
       const target = pendingCrosshairPointRef.current;
-      if (!target || !chartRef.current || !candlesRef.current) {
+      if (!target || !chartRef.current || !primarySeriesRef.current) {
         return;
       }
       const signature = `${target.time}:${target.price}`;
       chartRef.current.setCrosshairPosition(
         target.price,
         target.time as UTCTimestamp,
-        candlesRef.current,
+        primarySeriesRef.current,
       );
       snappedCrosshairRef.current = signature;
     });
@@ -2392,7 +2513,7 @@ export function TradingChart({
       clientY,
       chartFrameRef.current,
       chartRef.current,
-      candlesRef.current,
+      primarySeriesRef.current,
       barsRef.current,
     );
     if (!point) {
@@ -2408,7 +2529,7 @@ export function TradingChart({
       return;
     }
     const originalPixels = drawing.points.map((item) =>
-      pixelFromPoint(item, chartRef.current, candlesRef.current),
+      pixelFromPoint(item, chartRef.current, primarySeriesRef.current),
     );
     onSelectDrawing(drawing.id);
     setDragState({
@@ -2524,7 +2645,7 @@ export function TradingChart({
         definitions: fvgZoneDefinitions,
         frame: chartFrameRef.current,
         point,
-        series: candlesRef.current,
+        series: primarySeriesRef.current,
       }) ??
       findNearestOverlayIndicator({
         chart: chartRef.current,
@@ -2563,7 +2684,7 @@ export function TradingChart({
           frame: chartFrameRef.current,
           point: param.point,
           selectedDrawingId,
-          series: candlesRef.current,
+          series: primarySeriesRef.current,
         });
         if (drawingHit) {
           onSelectDrawing(drawingHit.drawing.id);
@@ -2668,7 +2789,7 @@ export function TradingChart({
           <tbody>{displayBars.slice(-5).map((bar) => <tr key={bar.time}><th scope="row">{new Date(Number(bar.time) * 1_000).toISOString()}</th><td>{bar.open}</td><td>{bar.high}</td><td>{bar.low}</td><td>{bar.close}</td><td>{bar.volume}</td></tr>)}</tbody>
         </table>
       ) : null}
-      {radialToolbox && (
+      {drawingControlsActive && radialToolbox && (
         <RadialDrawingToolbox
           anchor={radialToolbox.anchor}
           favorites={favoriteDrawingTools}
@@ -2891,9 +3012,9 @@ export function TradingChart({
       <div
         className={`chart-canvas-grid ${
           chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""
-        } ${showDrawingRail ? "" : "chart-canvas-grid-no-rail"}`}
+        } ${showDrawingRail && drawingControlsActive ? "" : "chart-canvas-grid-no-rail"}`}
       >
-        {showDrawingRail ? (
+        {showDrawingRail && drawingControlsActive ? (
           <DrawingRail
             activeTool={drawingTool}
             canUndoDrawingChange={canUndoDrawingChange}
@@ -3080,7 +3201,7 @@ export function TradingChart({
                 }}
               >
                 {orderEditLines.map((line) => {
-                  const y = candlesRef.current?.priceToCoordinate(line.price);
+                  const y = primarySeriesRef.current?.priceToCoordinate(line.price);
                   if (
                     y == null ||
                     y < -12 ||
@@ -3795,6 +3916,64 @@ function toAscendingSeriesData<T extends CandlestickData | LineData>(data: T[]):
   );
 }
 
+function primarySeriesKindForStyle(chartStyle: ChartStyle): PrimarySeriesKind {
+  if (chartStyle === "line") return "line";
+  if (chartStyle === "area") return "area";
+  return "candlestick";
+}
+
+function applyCandlestickDataPlan(
+  series: ISeriesApi<"Candlestick">,
+  plan: SeriesDataUpdatePlan<CandlestickData>,
+) {
+  if (plan.mode === "setData") {
+    series.setData(plan.points);
+  } else if (plan.mode === "update") {
+    plan.points.forEach((point) => series.update(point));
+  }
+}
+
+function applyLineDataPlan(
+  series: ISeriesApi<"Line">,
+  plan: SeriesDataUpdatePlan<LineData>,
+) {
+  if (plan.mode === "setData") {
+    series.setData(plan.points);
+  } else if (plan.mode === "update") {
+    plan.points.forEach((point) => series.update(point));
+  }
+}
+
+function applyAreaDataPlan(
+  series: ISeriesApi<"Area">,
+  plan: SeriesDataUpdatePlan<LineData>,
+) {
+  if (plan.mode === "setData") {
+    series.setData(plan.points);
+  } else if (plan.mode === "update") {
+    plan.points.forEach((point) => series.update(point));
+  }
+}
+
+function applyHistogramDataPlan(
+  series: ISeriesApi<"Histogram">,
+  plan: SeriesDataUpdatePlan<HistogramData>,
+) {
+  if (plan.mode === "setData") {
+    series.setData(plan.points);
+  } else if (plan.mode === "update") {
+    plan.points.forEach((point) => series.update(point));
+  }
+}
+
+function removePriceLineSafely(series: PrimaryChartSeries, line: IPriceLine) {
+  try {
+    series.removePriceLine(line);
+  } catch {
+    // Price lines can already be detached during series or chart teardown.
+  }
+}
+
 function toAscendingHistogramData(data: HistogramData[]): HistogramData[] {
   const byTime = new Map<number, HistogramData>();
   for (const item of data) {
@@ -3974,7 +4153,7 @@ function buildFootprintElements({
   frame: HTMLDivElement | null;
   imbalanceRatio: number;
   neutralColor: string;
-  series: ISeriesApi<"Candlestick"> | null;
+  series: PrimaryChartSeries | null;
   showAverageTradeSize: boolean;
   showImbalances: boolean;
   showUnfinishedAuctions: boolean;
@@ -4229,7 +4408,7 @@ function buildMarketProfileElements({
   chart: IChartApi | null;
   frame: HTMLDivElement | null;
   profile: MarketProfile;
-  series: ISeriesApi<"Candlestick"> | null;
+  series: PrimaryChartSeries | null;
   showPointOfControl: boolean;
   showValueArea: boolean;
 }) {
@@ -4611,7 +4790,7 @@ function findNearestFvgZone({
   definitions: FvgZoneDefinition[];
   frame: HTMLDivElement | null;
   point: { x: number; y: number };
-  series: ISeriesApi<"Candlestick"> | null;
+  series: PrimaryChartSeries | null;
 }) {
   if (!chart || !frame || !series || definitions.length === 0) {
     return null;
@@ -5978,7 +6157,7 @@ function buildFvgZoneElements({
   frame: HTMLDivElement | null;
   onOpenSettings: (indicatorId: string, point: { x: number; y: number }) => void;
   selectedIndicatorId: string | null;
-  series: ISeriesApi<"Candlestick"> | null;
+  series: PrimaryChartSeries | null;
 }) {
   if (!chart || !series || !frame || definitions.length === 0) {
     return null;
@@ -6035,7 +6214,7 @@ function buildDrawingElements({
   onSelectDrawing: (drawingId: string, event: MouseEvent<SVGElement>) => void;
   interactive: boolean;
   selectedDrawingId: string | null;
-  series: ISeriesApi<"Candlestick"> | null;
+  series: PrimaryChartSeries | null;
   version: number;
 }) {
   if (!chart || !series || !frame) {
@@ -6501,7 +6680,7 @@ function positionOverlayFromPrice(
   price: number,
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
 ) {
   if (!frame || !chart || !series) {
     return null;
@@ -6535,7 +6714,7 @@ function hitTestDrawingAtPoint({
   frame: HTMLDivElement | null;
   point: { x: number; y: number };
   selectedDrawingId: string | null;
-  series: ISeriesApi<"Candlestick"> | null;
+  series: PrimaryChartSeries | null;
 }): DrawingHit | null {
   if (!chart || !series || !frame) {
     return null;
@@ -8207,7 +8386,7 @@ function toolbarPositionFromDrawing(
   drawing: ChartDrawing,
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
 ): { x: number; y: number } | null {
   if (!frame || !chart || !series) {
     return null;
@@ -8575,7 +8754,7 @@ function pointFromClient(
   clientY: number,
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
   bars: Candle[] = [],
   magnetMode: MagnetMode = "off",
 ): DrawingPoint | null {
@@ -8610,7 +8789,7 @@ function pointFromPixel(
   y: number,
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
   bars: Candle[] = [],
 ): DrawingPoint | null {
   if (!chart || !series || !frame) {
@@ -8643,7 +8822,7 @@ function pointFromPixel(
 function pixelFromPoint(
   point: DrawingPoint,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
 ): { x: number; y: number } | null {
   if (!chart || !series) {
     return null;
@@ -8660,7 +8839,7 @@ function pixelFromPoint(
 }
 
 function priceScaleCoordinateFingerprint(
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
   bars: Candle[],
 ) {
   const latest = bars.at(-1);
@@ -8691,7 +8870,7 @@ function resolveOhlcSnapPoint(
   point: DrawingPoint,
   cursorPixel: { x: number; y: number },
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
   bars: Candle[],
   magnetMode: MagnetMode,
 ): DrawingPoint | null {
@@ -8802,7 +8981,7 @@ function moveDrawing(
   pixel: { x: number; y: number },
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
   bars: Candle[] = [],
 ): ChartDrawing | null {
   if (dragState.mode === "anchor" && dragState.pointIndex != null) {
@@ -8865,7 +9044,7 @@ function resizePositionFromHandle(
   pixel: { x: number; y: number },
   frame: HTMLDivElement | null,
   chart: IChartApi | null,
-  series: ISeriesApi<"Candlestick"> | null,
+  series: PrimaryChartSeries | null,
   bars: Candle[] = [],
 ): ChartDrawing {
   const originalPixels = dragState.originalPixels;

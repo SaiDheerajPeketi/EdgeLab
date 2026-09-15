@@ -396,8 +396,36 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
   await seedApprovedSession(page);
   await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
   await page.getByRole("button", { name: "Tools" }).click();
+  await page.evaluate(() => {
+    (window as typeof window & { __maxPendingChartEngines?: number }).__maxPendingChartEngines = 0;
+    const observer = new MutationObserver(() => {
+      const pending = document.querySelectorAll('[data-chart-engine-state="pending"]').length;
+      const target = window as typeof window & { __maxPendingChartEngines?: number };
+      target.__maxPendingChartEngines = Math.max(target.__maxPendingChartEngines ?? 0, pending);
+      if (document.querySelector('[data-chart-engines-ready="true"]')) observer.disconnect();
+    });
+    observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+  });
   await page.getByRole("radio", { name: "4 × 4 grid · 16 charts" }).click();
+  await expect(page.locator(".chart-pane-shell")).toHaveCount(16);
+  await expect(page.locator(".chart-pane-shell-active")).toHaveAttribute("data-chart-engine-state", "mounted");
+  await expect(page.locator('[data-chart-engines-ready="true"]')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as typeof window & { __maxPendingChartEngines?: number }).__maxPendingChartEngines ?? 0)).toBeGreaterThan(0);
   await expect(page.locator(".chart-stage")).toHaveCount(16);
+  const paneShells = page.locator(".chart-pane-shell");
+  await expect(page.locator(".drawing-rail")).toHaveCount(1);
+  const secondChart = paneShells.nth(1).getByRole("region", { name: /chart/i });
+  await secondChart.focus();
+  await expect(paneShells.nth(1)).toHaveClass(/chart-pane-shell-active/);
+  await expect(paneShells.nth(1).locator(".drawing-rail")).toHaveCount(1);
+  await page.keyboard.down("Alt");
+  await expect(page.getByRole("menu", { name: "Circular drawing toolbox" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.keyboard.up("Alt");
+  await expect(secondChart).toBeFocused();
+  await paneShells.first().hover();
+  await expect(paneShells.first()).toHaveClass(/chart-pane-shell-active/);
+  await expect(paneShells.first().locator(".drawing-rail")).toHaveCount(1);
   await page.getByRole("button", { name: "Tools" }).click();
   await expect(page.getByRole("radio", { name: "4 × 4 grid · 16 charts" })).toBeHidden();
   await page.waitForTimeout(1_500);

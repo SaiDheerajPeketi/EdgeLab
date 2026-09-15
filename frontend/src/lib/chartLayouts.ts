@@ -90,6 +90,13 @@ export function chartPaneLayoutById(value: string | null | undefined) {
   return CHART_PANE_LAYOUTS.find((layout) => layout.id === value) ?? CHART_PANE_LAYOUTS[0];
 }
 
+export function shouldMountPaneDrawingControls(
+  paneCount: number,
+  paneActive: boolean,
+) {
+  return paneCount < 9 || paneActive;
+}
+
 export function sanitizeChartPaneLayout(value: unknown): ChartPaneLayoutId {
   return chartPaneLayoutById(typeof value === "string" ? value : null).id;
 }

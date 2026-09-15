@@ -168,6 +168,7 @@ import {
   chartPaneLayoutById,
   DEFAULT_CHART_PANE_LAYOUT,
   sanitizeChartPaneLayout,
+  shouldMountPaneDrawingControls,
   type ChartPaneLayoutId,
 } from "../lib/chartLayouts";
 import {
@@ -3968,6 +3969,44 @@ function formatEconomicEventDateTime(value: string) {
   });
 }
 
+function useProgressiveChartEngines(paneIds: string[], activePaneId: string) {
+  const paneKey = paneIds.join("|");
+  const [mountedPaneIds, setMountedPaneIds] = useState<Set<string>>(() => new Set([activePaneId]));
+
+  useEffect(() => {
+    let cancelled = false;
+    let frameId: number | null = null;
+    const prioritized = [activePaneId, ...paneIds.filter((id) => id !== activePaneId)];
+    let cursor = 1;
+    setMountedPaneIds(new Set(prioritized.slice(0, 1)));
+
+    const mountNextBatch = () => {
+      if (cancelled) return;
+      const batch = prioritized.slice(cursor, cursor + 2);
+      cursor += batch.length;
+      if (batch.length) {
+        setMountedPaneIds((current) => new Set([...current, ...batch]));
+      }
+      if (cursor < prioritized.length) frameId = window.requestAnimationFrame(mountNextBatch);
+    };
+    frameId = window.requestAnimationFrame(mountNextBatch);
+    return () => {
+      cancelled = true;
+      if (frameId != null) window.cancelAnimationFrame(frameId);
+    };
+  }, [paneKey]);
+
+  useEffect(() => {
+    if (!paneIds.includes(activePaneId)) return;
+    setMountedPaneIds((current) => current.has(activePaneId) ? current : new Set([...current, activePaneId]));
+  }, [activePaneId, paneKey]);
+
+  return {
+    enginesReady: paneIds.every((id) => mountedPaneIds.has(id)),
+    mountedPaneIds,
+  };
+}
+
 const LiveChartStudio = memo(function LiveChartStudio({
   bars,
   connectionStatus,
@@ -4011,6 +4050,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   const chartStudioRef = useRef<HTMLDivElement | null>(null);
   const chartPaneLayoutDefinition = chartPaneLayoutById(chartPaneLayout);
   const visibleChartPanes = chartPanes.slice(0, chartPaneLayoutDefinition.panes);
+  const { enginesReady, mountedPaneIds } = useProgressiveChartEngines(visibleChartPanes.map((pane) => pane.id), activeChartPaneId);
   const activeChartPane =
     chartPanes.find((pane) => pane.id === activeChartPaneId) ?? visibleChartPanes[0] ?? createDefaultLiveChartPane(0);
   const activeChartPaneIndex = visibleChartPanes.findIndex((pane) => pane.id === activeChartPane.id);
@@ -4646,11 +4686,15 @@ const LiveChartStudio = memo(function LiveChartStudio({
         />
       )}
 
-      <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"} p-3`}>
+      <div aria-busy={!enginesReady} className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"} p-3`} data-chart-engines-ready={enginesReady ? "true" : "false"}>
         <div className="min-w-0">
           <div className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}>
             {visibleChartPanes.map((pane, index) => {
               const paneActive = pane.id === activeChartPane.id;
+              const paneDrawingControlsActive = shouldMountPaneDrawingControls(
+                chartPaneLayoutDefinition.panes,
+                paneActive,
+              );
               const paneHasHistoricalFocus = Boolean(journalChartFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, journalChartFocus.symbol));
               const paneUsesPrimaryFeed = !paneHasHistoricalFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, symbolCode || symbol);
               const normalizedPane = paneMarketData[pane.id];
@@ -4658,7 +4702,11 @@ const LiveChartStudio = memo(function LiveChartStudio({
               return (
                 <div
                   className={`chart-pane-shell ${paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""} ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
+                  data-chart-engine-state={mountedPaneIds.has(pane.id) ? "mounted" : "pending"}
+                  data-chart-pane-id={pane.id}
                   key={pane.id}
+                  onFocusCapture={paneDrawingControlsActive ? undefined : () => selectChartPane(pane.id)}
+                  onPointerEnter={paneDrawingControlsActive ? undefined : () => selectChartPane(pane.id)}
                   onPointerDownCapture={() => selectChartPane(pane.id)}
                 >
                   {isMultiChartLayout && (
@@ -4673,7 +4721,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                       <span>{pane.symbol || symbolCode || symbol} · {formatChartTimeframeLabel(pane.timeframe)}</span>
                     </div>
                   )}
-                  <TradingChart
+                  {mountedPaneIds.has(pane.id) ? <TradingChart
                     bars={paneBars}
                     canUndoDrawingChange={paneActive && drawingUndoStack.length > 0}
                     chartSettings={pane.chartSettings}
@@ -4710,6 +4758,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     replayFocusTrade={null}
                     dataState={paneUsesPrimaryFeed ? { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "Waiting for live candles." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
                     selectedDrawingId={paneActive ? selectedDrawingId : null}
+                    drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}
                     symbol={pane.symbol || symbolCode || symbol}
                     syncedVisibleRange={journalFocusRange ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length } : null}
@@ -4717,7 +4766,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     datasetTimeframe={LIVE_SOURCE_TIMEFRAME}
                     timeframe={pane.timeframe}
                     undoShortcutLabel="⌘Z"
-                  />
+                  /> : <div aria-label={`Pane ${index + 1} chart engine loading`} className="chart-engine-placeholder grid h-full min-h-0 place-items-center bg-black/20 text-xs text-slate-500" role="status">Loading chart engine…</div>}
                 </div>
               );
             })}

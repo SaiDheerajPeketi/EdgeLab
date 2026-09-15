@@ -101,6 +101,7 @@ import {
   DEFAULT_CHART_PANE_LAYOUT,
   chartPaneLayoutById,
   sanitizeChartPaneLayout,
+  shouldMountPaneDrawingControls,
   type ChartPaneLayoutId,
 } from "./lib/chartLayouts";
 import {
@@ -3274,6 +3275,10 @@ export function WorkspaceApp() {
                     >
                       {visibleChartPanes.map((pane, index) => {
                         const paneActive = pane.id === activeChartPane.id;
+                        const paneDrawingControlsActive = shouldMountPaneDrawingControls(
+                          chartPaneLayoutDefinition.panes,
+                          paneActive,
+                        );
                         const paneHasSessionData = chartSymbolsEqual(pane.symbol, state?.session.symbol);
                         const normalizedPane = replayPaneMarketData[pane.id];
                         const paneBars = paneHasSessionData ? visibleBars : normalizedPane?.bars ?? [];
@@ -3305,6 +3310,8 @@ export function WorkspaceApp() {
                               paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""
                             } ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
                             key={pane.id}
+                            onFocusCapture={paneDrawingControlsActive ? undefined : () => selectChartPane(pane.id)}
+                            onPointerEnter={paneDrawingControlsActive ? undefined : () => selectChartPane(pane.id)}
                             onPointerDownCapture={() => selectChartPane(pane.id)}
                           >
                             {isMultiChartLayout && (
@@ -3393,6 +3400,7 @@ export function WorkspaceApp() {
                               replaySeekVersion={replaySeekVersion}
                               selectedDrawingId={paneActive ? selectedDrawingId : null}
                               showDrawingRail={chartInteractionPreferences.showDrawingRail}
+                              drawingControlsActive={paneDrawingControlsActive}
                               showOrderOverlays={pane.showOrderOverlays}
                               paneId={pane.id}
                               dataState={paneDataState}
