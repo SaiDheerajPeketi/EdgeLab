@@ -229,11 +229,11 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [x] `AI-06 · P1 · Missing` — Show the per-model token/credit/cost policy before use and display actual usage afterward.
 - [x] `AI-07 · P1 · Missing` — Add microphone dictation with recording/transcription state, edit-before-send, cancellation, and permission/error handling.
 - [x] `AI-08 · P0 · Missing` — Generate a custom indicator from natural language or dictation and write the source into the indicator editor.
-- [ ] `AI-09 · P1 · Missing` — Allow iterative follow-up edits in the same conversation while retaining the prior source, chart context, and test result.
+- [x] `AI-09 · P1 · Missing` — Allow iterative follow-up edits in the same conversation while retaining the prior source, chart context, and test result.
 - [x] `AI-10 · P1 · Missing` — Let the assistant add the generated indicator to the active chart and expose its settings immediately.
 - [x] `AI-11 · P0 · Missing` — Automatically backtest a generated study over a stated window—the demonstration uses 60 days—with configurable symbol, timeframe, rules, costs, and sample range.
 - [x] `AI-12 · P1 · Missing` — Return reproducible backtest assumptions, metrics, warnings, source version, and rerun controls instead of only prose.
-- [ ] `AI-13 · P0 · Missing` — Send a full-chart screenshot and its structured chart context directly to the assistant.
+- [x] `AI-13 · P0 · Missing` — Send a full-chart screenshot and its structured chart context directly to the assistant.
 - [x] `AI-14 · P1 · Missing` — Add chart-image analysis that can return a reasoned daily bias, relevant levels, invalidation, uncertainty, and risk warning.
 - [x] `AI-15 · P1 · Missing` — Let the assistant offer to turn analysis into an indicator, write the source, add it to the chart, and update real-time score/probability labels.
 - [x] `AI-16 · P1 · Missing` — Add the star/capture tool: drag-select a chart region, enter text or dictate without first opening chat, and send the cropped image plus prompt to Quant.

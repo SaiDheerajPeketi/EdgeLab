@@ -2248,6 +2248,7 @@ class AIGenerationRequest(BaseModel):
     egress_consent: list[Literal["chart_context", "conversation_history", "chart_image"]] = Field(default_factory=list)
     script_id: int | None = Field(default=None, gt=0)
     base_version_id: int | None = Field(default=None, gt=0)
+    prior_test_result: dict[str, Any] | None = None
     auto_backtest: AIAutoBacktestConfig | None = None
     max_output_tokens: int = Field(default=2048, ge=1, le=16384)
     hard_cost_ceiling_micros: int = Field(default=1_000_000, ge=0, le=10_000_000)
@@ -2257,6 +2258,8 @@ class AIGenerationRequest(BaseModel):
     def validate_generation_context(self) -> "AIGenerationRequest":
         if self.operation == "EDIT_INDICATOR" and (self.script_id is None or self.base_version_id is None):
             raise ValueError("EDIT_INDICATOR requires script_id and base_version_id")
+        if self.prior_test_result is not None and self.operation != "EDIT_INDICATOR":
+            raise ValueError("prior_test_result is only valid for EDIT_INDICATOR")
         if self.operation == "CHART_ANALYSIS" and self.chart_context is None:
             raise ValueError("CHART_ANALYSIS requires structured chart_context")
         if self.image is not None and self.chart_context is None:

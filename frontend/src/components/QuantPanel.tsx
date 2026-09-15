@@ -35,6 +35,7 @@ import {
   persistQuantPreferences,
   persistQuantWorkspace,
   runReproducibleIndicatorBacktest,
+  resolveQuantIndicatorFollowup,
   transcribeQuantAudio,
   upsertQuantConversation,
   type QuantBacktestConfig,
@@ -167,7 +168,7 @@ export function QuantPanel({
     commitWorkspace({ activeConversationByKind: { ...workspace.activeConversationByKind, [kind]: fallback?.id }, conversations: remaining, revision: workspace.revision + 1 });
   }
 
-  async function sendPrompt(options: { operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "ANALYSIS_TO_INDICATOR"; text?: string } = {}) {
+  async function sendPrompt(options: { operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "EDIT_INDICATOR" | "ANALYSIS_TO_INDICATOR"; text?: string } = {}) {
     const text = (options.text ?? prompt).trim();
     if (!text || busy) return;
     if (!provider.available || !selectedModel) {
@@ -201,8 +202,10 @@ export function QuantPanel({
     setJob({ content: "", id: "local", status: "queued" });
     const sharedContext = preferences.allowStructuredContext ? context : null;
     const sharedAttachment = preferences.allowScreenshots ? attachment : null;
+    const followup = kind === "build" ? resolveQuantIndicatorFollowup(conversation, backtestResult) : { baseIndicator: null, operation: undefined, priorTestResult: null };
+    const operation = options.operation ?? followup.operation;
     appendQuantAudit({ action: "generate", contextFields: sharedContext ? Object.keys(sharedContext) : [], modelId: selectedModel.id, status: "allowed" });
-    const generation = createQuantGenerationJob({ attachment: sharedAttachment, context: sharedContext, conversation: pendingConversation, egressConsent: externalEgressConsent, kind, modelId: selectedModel.id, operation: options.operation, prompt: text }, (update) => setJob({ content: update.content, id: update.id, status: update.status, usage: update.usage }));
+    const generation = createQuantGenerationJob({ attachment: sharedAttachment, baseIndicator: followup.baseIndicator, context: sharedContext, conversation: pendingConversation, egressConsent: externalEgressConsent, kind, modelId: selectedModel.id, operation, priorTestResult: followup.priorTestResult, prompt: text }, (update) => setJob({ content: update.content, id: update.id, status: update.status, usage: update.usage }));
     setExternalEgressConsent(false);
     jobCancelRef.current = generation.cancel;
     void generation.promise.then(async (result) => {

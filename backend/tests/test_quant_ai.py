@@ -270,7 +270,12 @@ class CredentialAdapter:
         self.seen.update(credentials)
         self.requests.append(request)
         emit("DELTA", {"delta": "safe provider output"})
-        content = {"text": credentials["api_key"] if self.echo_secret else "credential-backed response"}
+        if request["operation"] == "CHART_ANALYSIS":
+            content = {"daily_bias": "NEUTRAL", "confidence_score": 50, "levels": [], "invalidation": "No setup", "uncertainty": "Limited sample", "probability_percent": None, "probability_basis": "Not calibrated", "risk_warning": "Research only", "summary": "No directional edge."}
+        elif request["operation"] == "EDIT_INDICATOR":
+            content = {"source": json.dumps({"dsl_version": 1, "name": "Edited", "inputs": {}, "series": [{"name": "average", "op": "sma", "source": "close", "length": 9}], "plots": [{"series": "average"}], "signals": []}), "summary": "Edited against the retained base and test."}
+        else:
+            content = {"text": credentials["api_key"] if self.echo_secret else "credential-backed response"}
         return quant.AIProviderResult(content=content, input_tokens=12, output_tokens=4, provider_request_id="req-private")
 
 
@@ -316,6 +321,45 @@ def test_capture_storage_and_followup_egress_consent(db, tmp_path):
     quant.run_generation_job(db, owner.id, followup.id, router=router)
     assert adapter.requests[-1]["conversation_history"][0]["content"] == "first context"
     assert any(event.event_type == "DELTA" for event in quant.list_job_events(db, owner.id, followup.id))
+
+    chart_job = quant.create_generation_job(db, owner.id, AIGenerationRequest(
+        conversation_id=conversation.id, operation="CHART_ANALYSIS", model_id="external-standard",
+        prompt="Analyze this full chart", chart_context=AIChartContext(
+            symbol="MES", provider="cme", timeframe="5m", timezone="UTC", history_bars=320
+        ), image=capture,
+        egress_consent=["chart_context", "chart_image", "conversation_history"],
+        max_output_tokens=20, hard_cost_ceiling_micros=1000,
+    ), router=router)
+    quant.run_generation_job(db, owner.id, chart_job.id, router=router)
+    assert adapter.requests[-1]["chart_context"]["symbol"] == "MES"
+    assert adapter.requests[-1]["image_metadata"]["storage_ref"] == capture.storage_ref
+    assert adapter.requests[-1]["image_metadata"]["width"] == 320
+
+
+def test_indicator_followup_retains_base_source_chart_context_and_prior_test(db):
+    owner = seed_user(db, "iterative-ai-owner@example.com")
+    base_source = json.dumps({"dsl_version": 1, "name": "Base", "inputs": {}, "series": [{"name": "average", "op": "sma", "source": "close", "length": 5}], "plots": [{"series": "average"}], "signals": []})
+    script = quant.create_script(db, owner.id, QuantScriptCreate(name="Iterative base", source=base_source))
+    version = script.versions[0]
+    conversation = quant.create_conversation(db, owner.id, AIConversationCreate(kind="INDICATOR_BUILD", title="Iterate"))
+    adapter = CredentialAdapter()
+    router = external_router(adapter)
+    integration_secrets.create_integration_secret(db, owner.id, IntegrationSecretCreate(provider="external-ai", purpose="ai-provider", credentials={"api_key": "edit-key"}))
+    prior_test = {"sourceVersion": 1, "trades": 12, "winRatePercent": 58.3, "sample": {"hash": "fnv1a-12345678"}}
+    job = quant.create_generation_job(db, owner.id, AIGenerationRequest(
+        conversation_id=conversation.id, operation="EDIT_INDICATOR", model_id="external-standard",
+        prompt="Reduce noise", chart_context=AIChartContext(symbol="MES", provider="cme", timeframe="5m", timezone="UTC"),
+        script_id=script.id, base_version_id=version.id, prior_test_result=prior_test,
+        egress_consent=["chart_context"], max_output_tokens=20, hard_cost_ceiling_micros=1000,
+    ), router=router)
+    quant.run_generation_job(db, owner.id, job.id, router=router)
+    request = adapter.requests[-1]
+    assert request["base_source"] == base_source
+    assert request["chart_context"]["symbol"] == "MES"
+    assert request["prior_test_result"] == prior_test
+    artifact = quant.list_artifacts(db, owner.id, conversation_id=conversation.id)[0]
+    assert artifact.script_id == script.id
+    assert artifact.script_version_id != version.id
 
 
 def test_offline_analysis_and_indicator_semantics_are_explicit(db):
@@ -487,7 +531,7 @@ def external_router(adapter: CredentialAdapter) -> quant.AIProviderRouter:
                 model_id="external-standard",
                 display_name="Test external",
                 provider="external-ai",
-                operations=("CHAT",),
+                operations=("CHAT", "CHART_ANALYSIS", "EDIT_INDICATOR"),
                 input_token_cost_micros=2,
                 output_token_cost_micros=8,
                 max_output_tokens=100,

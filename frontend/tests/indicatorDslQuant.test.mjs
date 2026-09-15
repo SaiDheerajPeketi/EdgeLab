@@ -133,6 +133,30 @@ test("Quant chart analysis keeps confidence distinct from calibrated probability
   assert.equal(modules.sanitizeQuantAnalysis({ ...analysis, confidenceScore: 180 }).confidenceScore, 100);
 });
 
+test("Quant indicator follow-ups retain the server base version and prior test result", () => {
+  const priorTestResult = modules.runReproducibleIndicatorBacktest(bars, [], modules.DEFAULT_QUANT_BACKTEST_CONFIG, 4);
+  const generatedIndicator = {
+    name: "Iterative signal",
+    remoteScriptId: 17,
+    remoteVersionId: 23,
+    source: 'indicator "Iterative signal" pane\nplot "Signal" = close color "#22d3ee"',
+  };
+  const conversation = modules.createQuantConversation("build");
+  conversation.messages.push({
+    backtest: priorTestResult,
+    content: "Created and tested the indicator.",
+    createdAt: new Date().toISOString(),
+    generatedIndicator,
+    id: "assistant-1",
+    role: "assistant",
+  });
+  const followup = modules.resolveQuantIndicatorFollowup(conversation, null);
+  assert.equal(followup.operation, "EDIT_INDICATOR");
+  assert.equal(followup.baseIndicator.remoteScriptId, 17);
+  assert.equal(followup.baseIndicator.remoteVersionId, 23);
+  assert.deepEqual(followup.priorTestResult, priorTestResult);
+});
+
 test("analysis indicator semantics survive save and reach the live chart instance", () => {
   const source = [
     'indicator "Quant score" pane',

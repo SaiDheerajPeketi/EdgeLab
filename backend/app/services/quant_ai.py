@@ -1334,6 +1334,7 @@ def create_generation_job(
          payload.chart_context.model_dump(mode="json") if payload.chart_context else None,
          payload.image.model_dump(mode="json") if payload.image else None,
          payload.script_id, payload.base_version_id,
+         payload.prior_test_result,
          payload.auto_backtest.model_dump(mode="json") if payload.auto_backtest else None]
     )[:64]
     existing = db.scalar(
@@ -1365,6 +1366,8 @@ def create_generation_job(
         message_context["script_id"] = payload.script_id
     if payload.base_version_id is not None:
         message_context["base_version_id"] = payload.base_version_id
+    if payload.prior_test_result is not None:
+        message_context["prior_test_result"] = _safe_json(payload.prior_test_result)
     if payload.auto_backtest is not None:
         message_context["auto_backtest"] = payload.auto_backtest.model_dump(mode="json")
     message = _append_message(
@@ -1557,6 +1560,7 @@ def run_generation_job(
             "chart_context": dict(message.chart_context or {}),
             "image_metadata": dict(message.image_metadata or {}),
             "base_source": base_source,
+            "prior_test_result": dict(message.chart_context or {}).get("prior_test_result"),
             "max_output_tokens": job.max_output_tokens,
         }
         consent = set(dict(message.chart_context or {}).get("_egress_consent") or [])

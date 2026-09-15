@@ -53,6 +53,8 @@ export type QuantAnalysis = {
 export type QuantGeneratedIndicator = {
   name: string;
   source: string;
+  remoteScriptId?: number;
+  remoteVersionId?: number;
   modelProvenance?: string;
   scorePlotName?: string;
   scoreLabel?: string;
@@ -279,6 +281,19 @@ export function upsertQuantConversation(workspace: QuantWorkspace, conversation:
   return pruneQuantWorkspace(next);
 }
 
+export function resolveQuantIndicatorFollowup(
+  conversation: QuantConversation,
+  fallbackTestResult: QuantBacktestResult | null,
+) {
+  const priorAssistant = [...conversation.messages].reverse().find((message) => message.role === "assistant");
+  const baseIndicator = priorAssistant?.generatedIndicator ?? null;
+  return {
+    baseIndicator,
+    operation: baseIndicator?.remoteScriptId && baseIndicator.remoteVersionId ? "EDIT_INDICATOR" as const : undefined,
+    priorTestResult: priorAssistant?.backtest ?? fallbackTestResult,
+  };
+}
+
 export function createQuantGenerationJob(
   payload: {
     attachment?: QuantCaptureAttachment | null;
@@ -288,7 +303,9 @@ export function createQuantGenerationJob(
     modelId: string;
     prompt: string;
     backtest?: QuantBacktestConfig;
-    operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "ANALYSIS_TO_INDICATOR";
+    baseIndicator?: QuantGeneratedIndicator | null;
+    priorTestResult?: QuantBacktestResult | null;
+    operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "EDIT_INDICATOR" | "ANALYSIS_TO_INDICATOR";
     egressConsent?: boolean;
   },
   onUpdate: (update: QuantJobUpdate) => void,
@@ -307,7 +324,7 @@ export function createQuantGenerationJob(
     payload.conversation.remoteId = conversationId;
     const image = payload.attachment ? await uploadQuantCapture(payload.attachment) : null;
     const created = await apiRequest<unknown>("/quant/jobs", {
-      body: JSON.stringify({
+      body: JSON.stringify(buildQuantGenerationRequestPayload({
         chart_context: payload.context ? toBackendChartContext(payload.context) : null,
         conversation_id: conversationId,
         hard_cost_ceiling_micros: 1_000_000,
@@ -317,8 +334,11 @@ export function createQuantGenerationJob(
         operation: payload.operation ?? (payload.kind === "analysis" ? "CHART_ANALYSIS" : "GENERATE_INDICATOR"),
         prompt: payload.prompt,
         image,
+        script_id: payload.baseIndicator?.remoteScriptId ?? null,
+        base_version_id: payload.baseIndicator?.remoteVersionId ?? null,
+        prior_test_result: payload.priorTestResult ?? null,
         egress_consent: payload.egressConsent ? ["chart_context", "conversation_history", ...(image ? ["chart_image"] : [])] : [],
-      }),
+      })),
       method: "POST",
     });
     const jobId = numericField(created, "id");
@@ -350,6 +370,18 @@ export function createQuantGenerationJob(
       onUpdate({ content: "", id: remoteId ?? localId, status: "cancelled" });
     },
   };
+}
+
+export function buildQuantGenerationRequestPayload<T extends {
+  base_version_id?: number | null;
+  chart_context?: unknown;
+  egress_consent?: string[];
+  image?: QuantCaptureReference | null;
+  operation: string;
+  prior_test_result?: QuantBacktestResult | null;
+  script_id?: number | null;
+}>(payload: T): T {
+  return payload;
 }
 
 export async function uploadQuantCapture(attachment: QuantCaptureAttachment): Promise<QuantCaptureReference> {
@@ -610,6 +642,8 @@ function backendArtifactUpdate(job: unknown, artifact: unknown, id: string): Qua
       content: String(artifact.content.summary ?? "Converted the validated server artifact to canonical EdgeLab DSL."),
       generatedIndicator: {
         name: generatedName(adapted.source),
+        remoteScriptId: positive(artifact.script_id) || undefined,
+        remoteVersionId: positive(artifact.script_version_id) || undefined,
         modelProvenance: isRecord(job) ? `${String(job.provider ?? "unknown provider")} · ${String(job.model_id ?? "unknown model")}`.slice(0, 160) : "Unknown provider",
         probabilityLabel: typeof artifact.content.probability_label === "string" ? artifact.content.probability_label.slice(0, 80) : undefined,
         probabilityCalibrated: artifact.content.probability_calibrated === true,
@@ -682,6 +716,8 @@ function sanitizeGeneratedIndicator(value: unknown): QuantGeneratedIndicator | u
     probabilityCalibrated,
     probabilityPlotName: probabilityCalibrated ? optionalText("probabilityPlotName", 80) ?? null : null,
     probabilitySemantics: optionalText("probabilitySemantics", 300),
+    remoteScriptId: positive(candidate.remoteScriptId) || undefined,
+    remoteVersionId: positive(candidate.remoteVersionId) || undefined,
     scoreLabel: optionalText("scoreLabel", 80),
     scorePlotName: optionalText("scorePlotName", 80),
     scoreSemantics: optionalText("scoreSemantics", 300),
