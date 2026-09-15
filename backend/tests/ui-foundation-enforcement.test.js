@@ -138,6 +138,10 @@ test("interactive overlays delegate portal, focus, dismissal, and layer behavior
   assert.doesNotMatch(catalog, /document\.addEventListener|absolute right-0 top-full|z-\[210\]/);
   const toolbar = read("frontend/src/components/ChartToolbar.tsx");
   assert.match(toolbar, /anchorRef=\{indicatorMenuTriggerRef\}/);
+  assert.match(toolbar, /anchorRef=\{commandRef\}/);
+  assert.match(toolbar, /anchorRef=\{drawingFavoritesRef\}/);
+  assert.match(toolbar, /anchorRef=\{settingsAnchorRef\}/);
+  assert.doesNotMatch(toolbar, /document\.addEventListener\((?:"|')pointerdown|closeOnOutsideClick/);
 });
 
 test("provider and account statuses use the product language normalizer", () => {

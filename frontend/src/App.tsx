@@ -537,7 +537,9 @@ export function WorkspaceApp() {
     scriptId?: string;
     source?: string;
   } | null>(null);
-  const [quantOpen, setQuantOpen] = useState(false);
+  const [quantOpen, setQuantOpen] = useState(
+    () => typeof window !== "undefined" && window.location.pathname === "/app/quant",
+  );
   const [quantAttachment, setQuantAttachment] = useState<QuantCaptureAttachment | null>(null);
   const [quantRegionSelecting, setQuantRegionSelecting] = useState(false);
   const [quantRegionDraft, setQuantRegionDraft] = useState<{

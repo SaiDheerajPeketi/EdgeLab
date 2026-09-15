@@ -71,6 +71,7 @@ export function IndicatorEditorPanel({
   const [completionIndex, setCompletionIndex] = useState(0);
   const [runState, setRunState] = useState<{ detail: string; status: "idle" | "running" | "success" | "error" }>({ detail: "", status: "idle" });
   const [revisionSource, setRevisionSource] = useState("");
+  const [quantSemanticsWarning, setQuantSemanticsWarning] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const runtimeCancelRef = useRef<(() => void) | null>(null);
   const userScripts = scripts.filter((script) => script.origin === "user");
@@ -85,6 +86,7 @@ export function IndicatorEditorPanel({
     setSource(request.source ?? requested?.source ?? DEFAULT_EDGE_INDICATOR_SOURCE);
     setInputs(requested?.inputs ?? {});
     setRunState({ detail: "", status: "idle" });
+    setQuantSemanticsWarning(null);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }, [request.nonce]);
 
@@ -98,9 +100,10 @@ export function IndicatorEditorPanel({
     setInputs(script.inputs);
     setRevisionSource("");
     setRunState({ detail: "", status: "idle" });
+    setQuantSemanticsWarning(null);
   }
 
-  function save() {
+  function save(clearIncompatibleQuantSemantics = false) {
     const result = saveCustomIndicator(userScripts, {
       category: selectedScript?.category ?? "custom",
       color: selectedScript?.color ?? parsed.program?.plots[0]?.color ?? "#32d3ee",
@@ -111,13 +114,20 @@ export function IndicatorEditorPanel({
       preview: selectedScript?.preview ?? (parsed.program?.overlay ? "trend" : "oscillator"),
       source,
       synonyms: selectedScript?.synonyms ?? [],
-    });
+      quantSemantics: selectedScript?.quantSemantics,
+    }, { clearIncompatibleQuantSemantics });
+    if (result.quantSemanticsWarning) {
+      setQuantSemanticsWarning(result.quantSemanticsWarning);
+      setRunState({ detail: "Review the Quant label warning before saving.", status: "error" });
+      return null;
+    }
     if (!result.script) {
       setRunState({ detail: "Resolve compile diagnostics before saving.", status: "error" });
       return null;
     }
     onScriptsChange(result.scripts);
     setSelectedId(result.script.id);
+    setQuantSemanticsWarning(null);
     setRunState({ detail: `Saved revision ${result.script.revision}.`, status: "success" });
     return result.script;
   }
@@ -226,7 +236,7 @@ export function IndicatorEditorPanel({
             <button className="studio-tool-button" onClick={() => { setSelectedId(""); setSource(DEFAULT_EDGE_INDICATOR_SOURCE); setInputs({}); }} type="button"><Plus size={13} /> New</button>
             <button className="studio-tool-button" onClick={duplicate} type="button"><Copy size={13} /> Duplicate</button>
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
-            <button className="studio-tool-button" onClick={save} type="button"><Save size={13} /> Save</button>
+            <button className="studio-tool-button" onClick={() => save()} type="button"><Save size={13} /> Save</button>
             <button className="studio-tool-button studio-tool-button-active" disabled={!parsed.program} onClick={addToChart} type="button"><Plus size={13} /> Add to chart</button>
             <IconButton icon={X} label="Close indicator editor" onClick={onClose} />
           </div>
@@ -282,6 +292,7 @@ export function IndicatorEditorPanel({
             </div>
             <div className="mt-3 grid gap-2" id="edge-editor-diagnostics">
               {parsed.diagnostics.length === 0 ? <p className="flex items-center gap-2 rounded-md bg-emerald-400/10 px-3 py-2 text-xs text-emerald-200"><CheckCircle2 size={14} /> Ready to execute in the isolated worker.</p> : parsed.diagnostics.map((item, index) => <button className="flex gap-2 rounded-md bg-rose-400/10 px-3 py-2 text-left text-xs leading-5 text-rose-200" key={`${item.code}-${item.line}-${index}`} onClick={() => { const lineStart = source.split("\n").slice(0, item.line - 1).join("\n").length + (item.line > 1 ? 1 : 0); textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(lineStart + item.column - 1, lineStart + item.column - 1); }} type="button"><AlertTriangle className="mt-0.5 shrink-0" size={13} /><span>Line {item.line}: {item.message}</span></button>)}
+              {quantSemanticsWarning ? <div className="rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100" role="alert"><p>{quantSemanticsWarning}</p><button className="studio-tool-button mt-2" onClick={() => save(true)} type="button">Clear Quant labels and save</button></div> : null}
               {runState.detail ? <p aria-live="polite" className={`rounded-md px-3 py-2 text-xs leading-5 ${runState.status === "error" ? "bg-rose-400/10 text-rose-200" : runState.status === "success" ? "bg-emerald-400/10 text-emerald-200" : "bg-white/5 text-slate-300"}`}>{runState.detail}</p> : null}
             </div>
             <h3 className="mt-5 text-sm font-semibold text-white">Generated settings</h3>

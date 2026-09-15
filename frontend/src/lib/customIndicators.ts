@@ -164,11 +164,20 @@ export function persistCustomIndicators(scripts: CustomIndicatorScript[]) {
 export function saveCustomIndicator(
   scripts: CustomIndicatorScript[],
   draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms"> & { quantSemantics?: QuantIndicatorSemantics },
+  options: { clearIncompatibleQuantSemantics?: boolean } = {},
 ) {
   const parsed = parseEdgeIndicator(draft.source);
   if (!parsed.program) return { diagnostics: parsed.diagnostics, scripts };
   const now = new Date().toISOString();
   const existing = scripts.find((script) => script.id === draft.id && script.origin === "user");
+  const requestedQuantSemantics = draft.quantSemantics ?? existing?.quantSemantics;
+  const quantSemanticsWarning = quantIndicatorSemanticsWarning(
+    parsed.program.plots.map((plot) => plot.name),
+    requestedQuantSemantics,
+  );
+  if (quantSemanticsWarning && !options.clearIncompatibleQuantSemantics) {
+    return { diagnostics: parsed.diagnostics, quantSemanticsWarning, scripts };
+  }
   const revision = (existing?.revision ?? 0) + 1;
   const next: CustomIndicatorScript = {
     ...draft,
@@ -187,13 +196,27 @@ export function saveCustomIndicator(
       ...(existing?.versions ?? []),
       ...(existing ? [{ createdAt: existing.updatedAt, revision: existing.revision, source: existing.source }] : []),
     ].slice(-MAX_SCRIPT_VERSIONS),
-    quantSemantics: sanitizeQuantSemantics(draft.quantSemantics),
+    quantSemantics: quantSemanticsWarning ? undefined : sanitizeQuantSemantics(requestedQuantSemantics),
   };
   return {
     diagnostics: parsed.diagnostics,
     script: next,
     scripts: [next, ...scripts.filter((script) => script.id !== next.id && script.origin === "user")].slice(0, MAX_CUSTOM_INDICATORS),
   };
+}
+
+export function quantIndicatorSemanticsWarning(
+  plotNames: readonly string[],
+  semantics: QuantIndicatorSemantics | undefined,
+) {
+  if (!semantics) return null;
+  if (!plotNames.includes(semantics.scorePlotName)) {
+    return `Quant score mapping “${semantics.scorePlotName}” no longer matches a plot. Saving would remove Quant provenance and score/probability labels.`;
+  }
+  if (semantics.probabilityPlotName && !plotNames.includes(semantics.probabilityPlotName)) {
+    return `Calibrated probability mapping “${semantics.probabilityPlotName}” no longer matches a plot. Saving would remove Quant provenance and score/probability labels.`;
+  }
+  return null;
 }
 
 export function duplicateCustomIndicator(script: CustomIndicatorScript): CustomIndicatorScript {

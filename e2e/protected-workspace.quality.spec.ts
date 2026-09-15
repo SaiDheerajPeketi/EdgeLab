@@ -50,6 +50,19 @@ test.describe("authenticated route visual baselines", () => {
       await gotoStable(page, route.path, { waitForNetworkIdle: route.waitForNetworkIdle });
       await expect(page.locator("#workspace-content")).toBeVisible();
       await expect(page.locator('[data-ui-version="v2"]')).toBeVisible();
+      await expect(page.getByText("Opening workspace", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Opening EdgeLab" })).toHaveCount(0);
+      if (route.name === "chart-compact") {
+        await expect(page.getByRole("region", { name: /BTC.*chart/i }).first()).toBeVisible();
+        await expect(page.locator(".chart-stage")).toHaveCount(1);
+        await expect(page.getByRole("button", { exact: true, name: "Full Screen" })).toBeVisible();
+      } else if (route.name === "quant") {
+        await expect(page.getByRole("complementary", { name: "Quant assistant" })).toBeVisible();
+        await expect(page.getByLabel("Message Quant")).toBeVisible();
+        await expect(page.locator(".chart-stage")).toHaveCount(1);
+      } else {
+        await expect(page.getByRole("heading").first()).toBeVisible();
+      }
       await expectStableScreenshot(page, route.name, { fullPage: false });
     });
   }

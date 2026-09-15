@@ -136,6 +136,7 @@ import { IndicatorCatalogPanel } from "./IndicatorCatalogPanel";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import type { CustomIndicatorScript } from "../lib/customIndicators";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
   activePaneLabel: string;
@@ -436,10 +437,13 @@ export function ChartToolbar({
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
   const indicatorCatalogId = useId();
   const commandRef = useRef<HTMLDivElement | null>(null);
+  const commandSurfaceRef = useRef<HTMLDivElement | null>(null);
   const drawingFavoritesRef = useRef<HTMLDivElement | null>(null);
+  const drawingFavoritesSurfaceRef = useRef<HTMLDivElement | null>(null);
   const drawingFavoritesTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const indicatorMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const settingsAnchorRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const settingsWasOpenRef = useRef(false);
   const normalizedCustomTimeframe = normalizeChartTimeframe(customTimeframe);
@@ -633,35 +637,6 @@ export function ChartToolbar({
   }, []);
 
   useEffect(() => {
-    function closeOnOutsideClick(event: globalThis.PointerEvent) {
-      const target = event.target as Node;
-      const targetElement = target instanceof Element ? target : null;
-      if (targetElement?.closest("[data-chart-header-control]")) {
-        return;
-      }
-      if (settingsOpen && settingsRef.current && !settingsRef.current.contains(target)) {
-        setSettingsOpen(false);
-      }
-      if (menuRef.current && !menuRef.current.contains(target)) {
-        setIndicatorMenuOpen(false);
-      }
-      if (commandRef.current && !commandRef.current.contains(target)) {
-        setCommandOpen(false);
-      }
-      if (
-        drawingFavoritesOpen &&
-        drawingFavoritesRef.current &&
-        !drawingFavoritesRef.current.contains(target)
-      ) {
-        setDrawingFavoritesOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, [drawingFavoritesOpen, settingsOpen]);
-
-  useEffect(() => {
     if (settingsOpenSignal <= 0 || toolsOpen) {
       return;
     }
@@ -793,6 +768,7 @@ export function ChartToolbar({
   }
 
   const settingsPanel = settingsOpen ? (
+    <OverlaySurface anchorRef={settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsAnchorRef} open onDismiss={() => setSettingsOpen(false)} align="right" preferredWidth={860} minWidth={320} estimatedHeight={680} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
     <ChartSettingsPanel
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
@@ -831,11 +807,12 @@ export function ChartToolbar({
       presets={settingsPresets}
       settings={chartSettings}
     />
+    </OverlaySurface>
   ) : null;
 
   if (!toolsOpen) {
     return (
-      <div ref={settingsRef} className="chart-settings-host">
+      <div ref={settingsAnchorRef} className="chart-settings-host">
         {settingsPanel}
       </div>
     );
@@ -945,6 +922,7 @@ export function ChartToolbar({
           />
           <Search size={14} className="text-slate-500" />
           {commandOpen && (
+            <OverlaySurface anchorRef={commandRef} surfaceRef={commandSurfaceRef} triggerRef={commandRef} open onDismiss={() => { setCommandOpen(false); setCommandQuery(""); }} preferredWidth={520} estimatedHeight={440} role="listbox" ariaLabel="Chart command search" className="chart-command-menu z-[var(--layer-popover)]">
             <CommandMenu
               indicatorInstances={indicatorInstances}
               onChartStyleChange={selectChartStyle}
@@ -959,6 +937,7 @@ export function ChartToolbar({
               query={commandQuery}
               sourceTimeframe={sourceTimeframe}
             />
+            </OverlaySurface>
           )}
         </div>
 
@@ -1357,13 +1336,6 @@ export function ChartToolbar({
           </button>
           <div
             className="relative"
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && drawingFavoritesOpen) {
-                event.preventDefault();
-                setDrawingFavoritesOpen(false);
-                window.requestAnimationFrame(() => drawingFavoritesTriggerRef.current?.focus());
-              }
-            }}
             ref={drawingFavoritesRef}
           >
             <button
@@ -1386,11 +1358,19 @@ export function ChartToolbar({
               <span className="drawing-favorites-count">{drawingFavorites.length}</span>
             </button>
             {drawingFavoritesOpen && (
-              <div
-                aria-label="Circular toolbox favorites"
+              <OverlaySurface
+                align="right"
+                anchorRef={drawingFavoritesRef}
+                ariaLabel="Circular toolbox favorites"
                 className="drawing-favorites-panel"
+                estimatedHeight={520}
                 id="chart-drawing-favorites"
+                onDismiss={() => setDrawingFavoritesOpen(false)}
+                open
+                preferredWidth={340}
                 role="dialog"
+                surfaceRef={drawingFavoritesSurfaceRef}
+                triggerRef={drawingFavoritesTriggerRef}
               >
                 <div className="drawing-favorites-header">
                   <div>
@@ -1458,7 +1438,7 @@ export function ChartToolbar({
                 <p className="drawing-favorites-hint">
                   Hover and release Alt/Option, click a tool, or use arrows and Enter. Number keys 1–8 select directly.
                 </p>
-              </div>
+              </OverlaySurface>
             )}
           </div>
         </div>
@@ -1601,7 +1581,7 @@ export function ChartToolbar({
           </div>
         )}
 
-        <div ref={settingsRef} className="relative">
+        <div ref={settingsAnchorRef} className="relative">
           <button
             className="chart-dropdown-trigger"
             onClick={() => {
@@ -2808,7 +2788,7 @@ function CommandMenu({
     .slice(0, 12);
 
   return (
-    <div className="chart-command-menu">
+    <div className="grid">
       <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
         Command Search
       </div>

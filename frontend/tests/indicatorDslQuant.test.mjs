@@ -160,4 +160,29 @@ test("analysis indicator semantics survive save and reach the live chart instanc
   assert.equal(execution.plots[0].name, quantSemantics.scorePlotName);
   assert.notEqual(execution.plots[0].points.at(-1).value, execution.plots[0].points.at(-2).value);
   assert.equal(instance.customQuantSemantics.probabilityPlotName, null);
+
+  const compatible = modules.saveCustomIndicator(saved.scripts, {
+    ...saved.script,
+    description: "Edited without changing the mapped plot",
+    source: source.replace("roc(close, 5)", "roc(close, 8)"),
+  });
+  assert.equal(compatible.script.revision, 2);
+  assert.deepEqual(compatible.script.quantSemantics, quantSemantics);
+
+  const incompatibleDraft = {
+    ...compatible.script,
+    source: compatible.script.source.replace('"Signal score"', '"Renamed score"'),
+  };
+  const blocked = modules.saveCustomIndicator(compatible.scripts, incompatibleDraft);
+  assert.equal(blocked.script, undefined);
+  assert.match(blocked.quantSemanticsWarning, /no longer matches a plot/);
+  assert.deepEqual(blocked.scripts, compatible.scripts);
+
+  const explicitlyCleared = modules.saveCustomIndicator(
+    compatible.scripts,
+    incompatibleDraft,
+    { clearIncompatibleQuantSemantics: true },
+  );
+  assert.equal(explicitlyCleared.script.revision, 3);
+  assert.equal(explicitlyCleared.script.quantSemantics, undefined);
 });

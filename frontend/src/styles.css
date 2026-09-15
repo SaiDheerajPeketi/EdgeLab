@@ -1217,7 +1217,7 @@ button:disabled {
   }
 
   .chart-command-menu {
-    @apply absolute left-0 top-full z-[190] mt-2 grid max-h-[440px] w-[min(520px,calc(100vw-48px))] overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
+    @apply grid max-h-[440px] overflow-auto rounded-md border border-cyan-300/15 p-2 shadow-panel backdrop-blur-sm;
     background-color: rgb(7 11 16 / 0.98);
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
@@ -1293,7 +1293,7 @@ button:disabled {
   }
 
   .drawing-favorites-panel {
-    @apply absolute bottom-full right-0 z-[210] mb-2 grid w-[min(340px,calc(100vw-48px))] overflow-hidden rounded-xl border border-cyan-300/20 bg-[#070b10] shadow-[0_24px_64px_rgba(0,0,0,0.58)];
+    @apply z-[var(--layer-popover)] grid overflow-hidden rounded-[var(--radius-lg)] border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] shadow-[var(--elevation-modal)];
   }
 
   .drawing-favorites-header {
@@ -1354,13 +1354,8 @@ button:disabled {
 
   @media (max-width: 520px) {
     .drawing-favorites-panel {
-      bottom: 12px;
-      left: 12px;
       margin: 0;
       max-height: calc(100vh - 24px);
-      position: fixed;
-      right: 12px;
-      width: auto;
     }
 
     .drawing-favorites-list {
@@ -1413,12 +1408,7 @@ button:disabled {
   }
 
   .chart-settings-popover {
-    @apply fixed z-[190] grid grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
-    --chart-settings-popover-top: clamp(132px, 12vh, 156px);
-    left: max(16px, calc(50vw - 430px));
-    top: var(--chart-settings-popover-top);
-    width: min(860px, calc(100vw - 32px));
-    max-height: calc(100vh - var(--chart-settings-popover-top) - 16px);
+    @apply grid w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 shadow-panel ring-1 ring-cyan-300/10 backdrop-blur;
     background-color: rgb(7 11 16 / 0.98);
     background-image:
       linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent),
@@ -1427,9 +1417,7 @@ button:disabled {
 
   @media (max-width: 720px) {
     .chart-settings-popover {
-      --chart-settings-popover-top: 112px;
-      left: 12px;
-      width: calc(100vw - 24px);
+      width: 100%;
     }
 
     .chart-settings-body {
