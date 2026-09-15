@@ -152,8 +152,8 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `CHT-03 · P0 · Partial` — Create one normalized symbol universe across crypto, equities, ETFs, forex, indices, commodities, futures, options/derivatives, and provider-specific identifiers.
 - [ ] `CHT-04 · P0 · Missing` — Add real-time and historical CME futures data, including the nano-futures coverage called out in the video.
 - [ ] `CHT-05 · P0 · Missing` — Add exchange calendars, futures contract metadata, tick size/value, session templates, expiration, and continuous-contract roll logic.
-- [ ] `CHT-06 · P1 · Missing` — Add a Regular Trading Hours versus Extended Trading Hours toggle and use it consistently for rendering and indicator calculations.
-- [ ] `CHT-07 · P1 · Missing` — Add per-symbol pre-market/post-market background highlighting controls.
+- [x] `CHT-06 · P1 · Missing` — Add a Regular Trading Hours versus Extended Trading Hours toggle and use it consistently for rendering and indicator calculations.
+- [x] `CHT-07 · P1 · Missing` — Add per-symbol pre-market/post-market background highlighting controls.
 - [x] `CHT-08 · P1 · Missing` — Add a chart timezone selector, default it to UTC, format chart/data-window times in it, and persist it in the workspace.
 - [x] `CHT-09 · P1 · Partial` — Add “Chart settings” to the right-click menu. EdgeLab has a settings button and a minimal context menu, but not this shortcut.
 - [ ] `CHT-10 · P0 · Partial` — Harden live-feed continuity with normalized timestamps, sequence/gap detection, reconnect/backfill, stale-data state, and provider health. EdgeLab currently has provider-specific polling/socket behavior and a limited cache.
@@ -162,19 +162,19 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 - [ ] `OFL-01 · P0 · Missing` — Build or license a tick/trade feed with aggressor side, price, size, exchange timestamp, and historical retrieval; OHLCV candles alone cannot produce the demonstrated footprint.
 - [x] `OFL-02 · P0 · Missing` — Build the price-by-bar aggregation service for bid volume, ask volume, total volume, delta, trade count, and average trade size.
-- [ ] `OFL-03 · P0 · Missing` — Add Footprint as a first-class chart style and load it directly from the chart-style menu.
-- [ ] `OFL-04 · P1 · Missing` — Implement zoom-aware footprint detail so cells appear at usable zoom levels and degrade cleanly when zoomed out.
-- [ ] `OFL-05 · P1 · Missing` — Add bid/ask ladder display mode.
-- [ ] `OFL-06 · P1 · Missing` — Add per-bar volume profile display mode.
-- [ ] `OFL-07 · P1 · Missing` — Add per-bar delta profile display mode.
-- [ ] `OFL-08 · P1 · Missing` — Add absolute-delta display mode.
-- [ ] `OFL-09 · P1 · Missing` — Add footprint positioning/alignment controls and average-trade-size display.
-- [ ] `OFL-10 · P1 · Missing` — Add footprint color controls and reusable footprint templates.
-- [ ] `OFL-11 · P1 · Missing` — Detect and highlight configurable bid/ask imbalances, including thresholds and stacked imbalances.
-- [ ] `OFL-12 · P1 · Missing` — Detect and mark unfinished auctions.
-- [ ] `OFL-13 · P1 · Missing` — Add the optional footprint statistics table and allow its displayed metric to switch, including average trade size.
-- [ ] `OFL-14 · P1 · Missing` — Add TPO/Market Profile as a first-class chart style with session, bracket, profile, value-area, and point-of-control settings.
-- [ ] `OFL-15 · P1 · Missing` — Add order-flow-based indicators to the indicator catalog and make their values available to tooltips, object management, saved layouts, and AI context.
+- [x] `OFL-03 · P0 · Missing` — Add Footprint as a first-class chart style and load it directly from the chart-style menu.
+- [x] `OFL-04 · P1 · Missing` — Implement zoom-aware footprint detail so cells appear at usable zoom levels and degrade cleanly when zoomed out.
+- [x] `OFL-05 · P1 · Missing` — Add bid/ask ladder display mode.
+- [x] `OFL-06 · P1 · Missing` — Add per-bar volume profile display mode.
+- [x] `OFL-07 · P1 · Missing` — Add per-bar delta profile display mode.
+- [x] `OFL-08 · P1 · Missing` — Add absolute-delta display mode.
+- [x] `OFL-09 · P1 · Missing` — Add footprint positioning/alignment controls and average-trade-size display.
+- [x] `OFL-10 · P1 · Missing` — Add footprint color controls and reusable footprint templates.
+- [x] `OFL-11 · P1 · Missing` — Detect and highlight configurable bid/ask imbalances, including thresholds and stacked imbalances.
+- [x] `OFL-12 · P1 · Missing` — Detect and mark unfinished auctions.
+- [x] `OFL-13 · P1 · Missing` — Add the optional footprint statistics table and allow its displayed metric to switch, including average trade size.
+- [x] `OFL-14 · P1 · Missing` — Add TPO/Market Profile as a first-class chart style with session, bracket, profile, value-area, and point-of-control settings.
+- [x] `OFL-15 · P1 · Missing` — Add order-flow-based indicators to the indicator catalog and make their values available to tooltips, object management, saved layouts, and AI context.
 
 ### 8. Multi-chart layouts, synchronization, workspaces, screenshots, and sharing
 

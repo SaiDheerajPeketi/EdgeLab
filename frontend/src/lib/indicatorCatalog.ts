@@ -66,11 +66,23 @@ const INDICATOR_METADATA = {
     preview: "range",
     synonyms: ["average true range", "range", "volatility"],
   },
+  "bar-delta": {
+    category: "order-flow",
+    description: "Plots buyer-aggressor minus seller-aggressor volume for each bar.",
+    preview: "histogram",
+    synonyms: ["delta", "footprint delta", "bid ask", "aggressor volume"],
+  },
   bb: {
     category: "volatility",
     description: "Wraps price in standard-deviation bands around an average.",
     preview: "bands",
     synonyms: ["bollinger", "bollinger bands", "standard deviation", "envelope"],
+  },
+  "cumulative-delta": {
+    category: "order-flow",
+    description: "Accumulates trade-side volume delta without inferring it from candles.",
+    preview: "oscillator",
+    synonyms: ["cvd", "cumulative volume delta", "order flow", "aggressor"],
   },
   dema: {
     category: "basic",
@@ -125,6 +137,12 @@ const INDICATOR_METADATA = {
     description: "Compares the latest close with a prior close to show velocity.",
     preview: "oscillator",
     synonyms: ["price momentum", "rate of change", "roc", "velocity"],
+  },
+  "order-flow-imbalance": {
+    category: "order-flow",
+    description: "Counts diagonal bid/ask imbalances from trade-level aggregates.",
+    preview: "histogram",
+    synonyms: ["stacked imbalance", "bid ask ratio", "footprint", "aggressor"],
   },
   rsi: {
     category: "momentum",

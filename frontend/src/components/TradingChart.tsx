@@ -6,6 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -105,11 +106,33 @@ import {
 } from "../lib/charting";
 import type { ChartVisualSettings } from "../lib/chartSettings";
 import {
+  chartSessionPhaseLabel,
+  filterBarsForTradingSession,
+  resolveChartSessionTemplate,
+  sessionPhaseAt,
+  sessionTradingDayKey,
+  type ChartSessionPhase,
+  type ChartSessionTemplate,
+} from "../lib/chartSessions";
+import {
   formatChartAxisTick,
   formatChartDateTime,
   getChartTimeZoneLabel,
   type ChartTickGranularity,
 } from "../lib/chartTimezones";
+import {
+  aggregateOrderFlowBars,
+  analyzeOrderFlowBar,
+  buildMarketProfile,
+  buildOrderFlowIndicatorSeries,
+  formatOrderFlowMetric,
+  readOrderFlowSeries,
+  resolveOrderFlowAvailability,
+  type MarketProfile,
+  type OrderFlowBarAggregate,
+  type OrderFlowDisplayMode,
+  type OrderFlowStatsMetric,
+} from "../lib/orderFlowPresentation";
 import {
   hydrateDrawingToolFavorites,
   loadCachedDrawingToolFavorites,
@@ -138,6 +161,12 @@ const DEFAULT_REPLAY_BAR_SPACING = 6;
 const DEFAULT_REPLAY_RIGHT_OFFSET = 8;
 const MIN_RESET_REPLAY_BARS = 96;
 const MAX_RESET_REPLAY_BARS = 320;
+const EMPTY_MARKET_PROFILE: MarketProfile = {
+  pointOfControl: null,
+  rows: [],
+  valueAreaHigh: null,
+  valueAreaLow: null,
+};
 
 const DRAWING_RAIL_TOOLS: Array<{
   icon: ChartToolIcon;
@@ -433,10 +462,64 @@ export function TradingChart({
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
   );
 
-  const displayBars = useMemo(
-    () => aggregateBars(bars, timeframe),
-    [bars, timeframe],
+  const sessionTemplate = useMemo(
+    () => resolveChartSessionTemplate(symbol, chartSettings.sessionTemplate),
+    [chartSettings.sessionTemplate, symbol],
   );
+  const sessionBars = useMemo(
+    () =>
+      filterBarsForTradingSession(
+        bars,
+        chartSettings.tradingHoursMode,
+        sessionTemplate,
+      ),
+    [bars, chartSettings.tradingHoursMode, sessionTemplate],
+  );
+  const displayBars = useMemo(
+    () => aggregateBars(sessionBars, timeframe),
+    [sessionBars, timeframe],
+  );
+  const sessionFilteredBarCount = bars.length - sessionBars.length;
+  const sourceOrderFlowBars = useMemo(
+    () => readOrderFlowSeries(sessionBars),
+    [sessionBars],
+  );
+  const orderFlowAvailability = useMemo(
+    () => resolveOrderFlowAvailability(sessionBars.length, sourceOrderFlowBars),
+    [sessionBars.length, sourceOrderFlowBars],
+  );
+  const orderFlowBars = useMemo(
+    () =>
+      aggregateOrderFlowBars(sourceOrderFlowBars, (time) =>
+        bucketTime(time, timeframe),
+      ),
+    [sourceOrderFlowBars, timeframe],
+  );
+  const orderFlowByTime = useMemo(
+    () => new Map(orderFlowBars.map((bar) => [bar.time, bar])),
+    [orderFlowBars],
+  );
+  const marketProfile = useMemo(() => {
+    const latest = orderFlowBars.at(-1);
+    const latestSessionKey = latest
+      ? sessionTradingDayKey(latest.time, sessionTemplate)
+      : null;
+    const profileBars = latestSessionKey
+      ? orderFlowBars.filter(
+          (bar) => sessionTradingDayKey(bar.time, sessionTemplate) === latestSessionKey,
+        )
+      : orderFlowBars;
+    return buildMarketProfile(
+      profileBars,
+      chartSettings.tpoBracketMinutes,
+      chartSettings.tpoValueAreaPercent,
+    );
+  }, [
+    chartSettings.tpoBracketMinutes,
+    chartSettings.tpoValueAreaPercent,
+    orderFlowBars,
+    sessionTemplate,
+  ]);
 
   const candleData = useMemo(
     () =>
@@ -695,6 +778,44 @@ export function TradingChart({
         }),
     [displayBars, visibleIndicatorInstances],
   );
+  const orderFlowStudies = useMemo(
+    () =>
+      visibleIndicatorInstances
+        .filter(isOrderFlowIndicatorInstance)
+        .map((indicator) => {
+          const settings = mergeIndicatorSettings(indicator.kind, indicator.settings);
+          const data =
+            orderFlowAvailability.status === "insufficient" ||
+            orderFlowAvailability.status === "unavailable"
+              ? []
+              : buildOrderFlowIndicatorSeries(
+                  orderFlowBars,
+                  indicator.kind,
+                  indicator.kind === "order-flow-imbalance"
+                    ? settings.period
+                    : chartSettings.footprintImbalanceRatio,
+                );
+          return {
+            color: settings.color,
+            data: data.map(
+              (point): LineData => ({
+                time: point.time as UTCTimestamp,
+                value: point.value,
+              }),
+            ),
+            id: indicator.id,
+            label: indicatorDisplayName({ ...indicator, settings }),
+            lineStyle: defaultIndicatorLineStyle(indicator.kind, settings),
+            lineWidth: indicatorPanelLineWidth(settings.lineWidth, 2),
+          };
+        }),
+    [
+      chartSettings.footprintImbalanceRatio,
+      orderFlowBars,
+      orderFlowAvailability.status,
+      visibleIndicatorInstances,
+    ],
+  );
   const activeOverlayIndicators = indicatorDefinitions.filter(
     (indicator) => indicator.data.length > 0,
   );
@@ -757,6 +878,12 @@ export function TradingChart({
   const activeHeaderCandle =
     (captureMode ? null : tooltip?.candle) ?? displayBars.at(-1) ?? null;
   const headerPriceTone = candleChangeTone(activeHeaderCandle);
+  const activeHeaderSessionPhase = activeHeaderCandle
+    ? sessionPhaseAt(activeHeaderCandle.time, sessionTemplate)
+    : null;
+  const activeHeaderOrderFlow = activeHeaderCandle
+    ? orderFlowByTime.get(activeHeaderCandle.time) ?? null
+    : null;
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
     chartSettings,
@@ -787,6 +914,50 @@ export function TradingChart({
   const drawingPlotHeight = chartRef.current
     ? chartPlotHeight(chartRef.current, chartFrameRef.current)
     : 0;
+  const sessionShadeElements = buildSessionShadeElements({
+    bars: displayBars,
+    chart: chartRef.current,
+    closedVisible: chartSettings.closedSessionShading,
+    frame: chartFrameRef.current,
+    postMarketVisible: chartSettings.postMarketShading,
+    preMarketVisible: chartSettings.preMarketShading,
+    template: sessionTemplate,
+  });
+  const footprintPresentation = buildFootprintElements({
+    askColor: chartSettings.footprintAskColor,
+    bars: chartStyle === "footprint" ? orderFlowBars : [],
+    bidColor: chartSettings.footprintBidColor,
+    chart: chartRef.current,
+    displayMode: chartSettings.footprintDisplayMode,
+    frame: chartFrameRef.current,
+    imbalanceRatio: chartSettings.footprintImbalanceRatio,
+    alignment: chartSettings.footprintAlignment,
+    neutralColor: chartSettings.footprintNeutralColor,
+    series: candlesRef.current,
+    showAverageTradeSize: chartSettings.footprintShowAverageTradeSize,
+    showImbalances: chartSettings.footprintShowImbalances,
+    showUnfinishedAuctions: chartSettings.footprintShowUnfinishedAuctions,
+    stackedImbalanceCount: chartSettings.footprintStackedImbalanceCount,
+  });
+  const marketProfileElements = buildMarketProfileElements({
+    askColor: chartSettings.footprintAskColor,
+    bidColor: chartSettings.footprintBidColor,
+    chart: chartRef.current,
+    frame: chartFrameRef.current,
+    profile: chartStyle === "tpo" ? marketProfile : EMPTY_MARKET_PROFILE,
+    series: candlesRef.current,
+    showPointOfControl: chartSettings.tpoShowPointOfControl,
+    showValueArea: chartSettings.tpoShowValueArea,
+  });
+  const footprintDataReady =
+    orderFlowBars.length > 0 &&
+    (chartSettings.footprintDisplayMode === "volume-profile" ||
+      orderFlowAvailability.status === "available" ||
+      orderFlowAvailability.status === "partial");
+  const marketProfileDataReady = marketProfile.rows.length > 0;
+  const orderFlowCanvasReady =
+    (chartStyle === "footprint" && footprintDataReady) ||
+    (chartStyle === "tpo" && marketProfileDataReady);
   const floatingToolbarPosition =
     !captureMode && selectedDrawing && drawingToolbarOpen && !isDrawingPlacementMode && dragState == null
       ? toolbarPositionFromDrawing(
@@ -1127,7 +1298,9 @@ export function TradingChart({
     candlesRef.current?.applyOptions({
       visible:
         chartStyle === "candles" ||
+        chartStyle === "footprint" ||
         chartStyle === "heikinAshi" ||
+        chartStyle === "tpo" ||
         (chartStyle === "line" && !canShowLine) ||
         (chartStyle === "area" && !canShowArea),
     });
@@ -1321,7 +1494,7 @@ export function TradingChart({
     };
 
     addSettingLine(
-      previousDayClose(displayBars),
+      previousDayClose(displayBars, sessionTemplate),
       "Prev close",
       chartSettings.previousDayClose,
       "#94a3b8",
@@ -1340,6 +1513,7 @@ export function TradingChart({
     chartSettings.highLowLabels,
     chartSettings.previousDayClose,
     displayBars,
+    sessionTemplate,
   ]);
 
   useEffect(() => {
@@ -2215,12 +2389,37 @@ export function TradingChart({
                 <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-sm font-black text-ink-950">
                   {symbolBadge(symbol)}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center gap-2 text-base font-semibold text-white">
                     {formatMarketSymbol(symbol)}
                   </div>
                   <div className="truncate text-xs text-slate-400">
                     {datasetTimeframe ?? formatChartTimeframeLabel(timeframe)} source / {formatChartTimeframeLabel(timeframe)} view / {chartStyleLabel(chartStyle)} / {getChartTimeZoneLabel(chartSettings.timeZone)} time
+                  </div>
+                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                    <span
+                      aria-label={`Trading hours mode: ${chartSettings.tradingHoursMode === "regular" ? "Regular Trading Hours" : "Extended Trading Hours"}`}
+                      className="rounded border border-cyan-300/20 bg-cyan-300/[0.07] px-1.5 py-0.5 font-semibold text-cyan-100"
+                    >
+                      {chartSettings.tradingHoursMode === "regular" ? "RTH" : "ETH"}
+                    </span>
+                    <span
+                      aria-label={`Session template: ${sessionTemplate.label}, ${sessionTemplate.scheduleLabel}, ${sessionTemplate.timeZone}`}
+                      className="max-w-72 truncate"
+                      title={`${sessionTemplate.exchange} · ${sessionTemplate.scheduleLabel} · ${sessionTemplate.timeZone}`}
+                    >
+                      {sessionTemplate.exchange} · {sessionTemplate.timeZone}
+                    </span>
+                    {activeHeaderSessionPhase ? (
+                      <span aria-label={`Current bar session: ${chartSessionPhaseLabel(activeHeaderSessionPhase)}`}>
+                        · {chartSessionPhaseLabel(activeHeaderSessionPhase)}
+                      </span>
+                    ) : null}
+                    {chartSettings.tradingHoursMode === "regular" && sessionFilteredBarCount > 0 ? (
+                      <span aria-label={`${sessionFilteredBarCount} extended-hours bars hidden`}>
+                        · {sessionFilteredBarCount} hidden
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -2336,6 +2535,26 @@ export function TradingChart({
                     </button>
                   ) : null,
                 )}
+                {orderFlowStudies.map((study) => (
+                  <button
+                    className={`chart-study-pill ${renderedSelectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                    key={`header-${study.id}`}
+                    onClick={(event) => openIndicatorToolbar(study.id, event)}
+                    title={study.data.length > 0 ? study.label : orderFlowAvailability.detail}
+                    type="button"
+                  >
+                    <span
+                      className="h-2 w-2 rounded-sm"
+                      style={{ backgroundColor: study.color }}
+                    />
+                    {chartSettings.indicatorTitles && <span>{study.label}</span>}
+                    {chartSettings.indicatorValues && (
+                      <strong>
+                        {latestIndicatorValue(study.data)?.toFixed(2) ?? "No feed"}
+                      </strong>
+                    )}
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -2380,6 +2599,95 @@ export function TradingChart({
               className="chart-container-surface"
               style={{ backgroundColor: chartSettings.backgroundColor }}
             />
+            {chartSettings.tradingHoursMode === "extended" && sessionShadeElements.length > 0 ? (
+              <svg
+                aria-label={`${sessionTemplate.label} background sessions. Pre-market, post-market, and closed periods use distinct labeled shading.`}
+                className="pointer-events-none absolute left-0 top-0 z-[1] overflow-hidden"
+                height={Math.max(0, drawingPlotHeight)}
+                role="img"
+                width={Math.max(0, drawingPlotWidth)}
+              >
+                <title>{`${sessionTemplate.exchange} session backgrounds in ${sessionTemplate.timeZone}`}</title>
+                {sessionShadeElements}
+              </svg>
+            ) : null}
+            {orderFlowCanvasReady ? (
+              <svg
+                aria-label={
+                  chartStyle === "footprint"
+                    ? `Footprint chart using ${chartSettings.footprintDisplayMode} cells from aggressor-side trade aggregates.`
+                    : `TPO Market Profile with ${chartSettings.tpoBracketMinutes}-minute brackets and ${chartSettings.tpoValueAreaPercent} percent value area.`
+                }
+                className="pointer-events-none absolute left-0 top-0 z-[2] overflow-hidden"
+                height={Math.max(0, drawingPlotHeight)}
+                role="img"
+                width={Math.max(0, drawingPlotWidth)}
+              >
+                <title>
+                  {chartStyle === "footprint"
+                    ? "Trade-level footprint"
+                    : "TPO Market Profile"}
+                </title>
+                {chartStyle === "footprint"
+                  ? footprintPresentation.elements
+                  : marketProfileElements}
+              </svg>
+            ) : null}
+            {(chartStyle === "footprint" || chartStyle === "tpo") &&
+            displayBars.length > 0 &&
+            !orderFlowCanvasReady ? (
+              <div
+                className="pointer-events-none absolute inset-0 z-20 grid place-items-center px-6 text-center"
+                role="status"
+              >
+                <div className="max-w-md rounded-md border border-amber-300/20 bg-slate-950/95 px-4 py-3 text-sm text-slate-200 shadow-lg">
+                  <strong className="block text-amber-100">
+                    {orderFlowAvailability.status === "insufficient"
+                      ? "Aggressor side unavailable"
+                      : "Trade-level data unavailable"}
+                  </strong>
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">
+                    {orderFlowAvailability.detail}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            {chartStyle === "footprint" &&
+            orderFlowCanvasReady &&
+            !footprintPresentation.detailVisible ? (
+              <div className="pointer-events-none absolute bottom-2 left-2 z-[3] rounded bg-slate-950/85 px-2 py-1 text-xs text-slate-300">
+                Summary profile · zoom in for price-level cells
+              </div>
+            ) : null}
+            {(chartStyle === "footprint" || chartStyle === "tpo") &&
+            orderFlowCanvasReady &&
+            orderFlowAvailability.status === "partial" ? (
+              <div
+                className="pointer-events-none absolute bottom-2 right-2 z-[3] max-w-72 rounded bg-amber-950/90 px-2 py-1 text-xs text-amber-100"
+                role="status"
+              >
+                Partial order-flow coverage · missing bars remain blank
+              </div>
+            ) : null}
+            {(chartStyle === "footprint" || chartStyle === "tpo") &&
+            chartSettings.footprintShowStats &&
+            activeHeaderOrderFlow ? (
+              <OrderFlowStatsTable
+                bar={activeHeaderOrderFlow}
+                metric={chartSettings.footprintStatsMetric}
+              />
+            ) : null}
+            {bars.length > 0 && displayBars.length === 0 ? (
+              <div
+                className="pointer-events-none absolute inset-0 z-20 grid place-items-center px-6 text-center"
+                role="status"
+              >
+                <div className="max-w-sm rounded-md border border-white/10 bg-slate-950/90 px-4 py-3 text-sm text-slate-200 shadow-lg">
+                  No regular-session bars in this range. Switch this pane to ETH to view
+                  every published bar.
+                </div>
+              </div>
+            ) : null}
             <div
               className={`absolute left-0 top-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode || isCrosshairTool ? "cursor-crosshair" : "cursor-default"}`}
               onMouseLeave={stopDrawingDrag}
@@ -2410,6 +2718,7 @@ export function TradingChart({
                       colorWithOpacity(chartSettings.sessionBreakColor, 0.72),
                       chartSettings.sessionBreakLineStyle,
                       chartSettings.sessionBreakLineWidth,
+                      sessionTemplate,
                     )}
                   {fvgZoneElements}
                   {drawingElements}
@@ -2644,6 +2953,21 @@ export function TradingChart({
               onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
               selected={renderedSelectedIndicatorId === study.id}
               valueDigits={5}
+              zeroLine
+            />
+          ))}
+          {orderFlowStudies.map((study) => (
+            <StudyLinePanel
+              color={study.color}
+              data={study.data}
+              emptyMessage={orderFlowAvailability.detail}
+              key={study.id}
+              label={study.label}
+              lineStyle={study.lineStyle}
+              lineWidth={study.lineWidth}
+              onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
+              selected={renderedSelectedIndicatorId === study.id}
+              valueDigits={2}
               zeroLine
             />
           ))}
@@ -3227,14 +3551,17 @@ function timeToDate(time: Time) {
   return null;
 }
 
-function previousDayClose(bars: Candle[]) {
+function previousDayClose(bars: Candle[], template: ChartSessionTemplate) {
   const latest = bars.at(-1);
   if (!latest) {
     return null;
   }
-  const latestDay = dayKey(latest.timestamp);
+  const latestDay = sessionTradingDayKey(latest.time, template);
+  if (!latestDay) {
+    return null;
+  }
   for (let index = bars.length - 2; index >= 0; index -= 1) {
-    if (dayKey(bars[index].timestamp) !== latestDay) {
+    if (sessionTradingDayKey(bars[index].time, template) !== latestDay) {
       return bars[index].close;
     }
   }
@@ -3254,8 +3581,537 @@ function highLowRange(bars: Candle[]) {
   );
 }
 
-function dayKey(timestamp: string) {
-  return new Date(timestamp).toISOString().slice(0, 10);
+const SESSION_SHADE_STYLES: Record<
+  Exclude<ChartSessionPhase, "regular">,
+  { fill: string; text: string }
+> = {
+  closed: { fill: "rgba(71, 85, 105, 0.16)", text: "#CBD5E1" },
+  postmarket: { fill: "rgba(168, 85, 247, 0.09)", text: "#D8B4FE" },
+  premarket: { fill: "rgba(14, 165, 233, 0.09)", text: "#7DD3FC" },
+};
+
+function buildFootprintElements({
+  alignment,
+  askColor,
+  bars,
+  bidColor,
+  chart,
+  displayMode,
+  frame,
+  imbalanceRatio,
+  neutralColor,
+  series,
+  showAverageTradeSize,
+  showImbalances,
+  showUnfinishedAuctions,
+  stackedImbalanceCount,
+}: {
+  alignment: ChartVisualSettings["footprintAlignment"];
+  askColor: string;
+  bars: OrderFlowBarAggregate[];
+  bidColor: string;
+  chart: IChartApi | null;
+  displayMode: OrderFlowDisplayMode;
+  frame: HTMLDivElement | null;
+  imbalanceRatio: number;
+  neutralColor: string;
+  series: ISeriesApi<"Candlestick"> | null;
+  showAverageTradeSize: boolean;
+  showImbalances: boolean;
+  showUnfinishedAuctions: boolean;
+  stackedImbalanceCount: number;
+}) {
+  if (!chart || !frame || !series || bars.length === 0) {
+    return { detailVisible: false, elements: [] };
+  }
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  const coordinates = bars.map((bar) =>
+    chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp),
+  );
+  const spacings = coordinates.flatMap((coordinate, index) => {
+    const next = coordinates[index + 1];
+    return coordinate != null && next != null ? [Math.abs(next - coordinate)] : [];
+  });
+  const typicalSpacing =
+    spacings.length > 0
+      ? [...spacings].sort((left, right) => left - right)[
+          Math.floor(spacings.length / 2)
+        ]
+      : 80;
+  const detailVisible = typicalSpacing >= 48;
+  const maxTotal = Math.max(
+    1,
+    ...bars.flatMap((bar) => bar.levels.map((level) => level.totalVolume)),
+  );
+  const maxDelta = Math.max(
+    1,
+    ...bars.flatMap((bar) => bar.levels.map((level) => Math.abs(level.delta))),
+  );
+  const maxBarMetric = Math.max(
+    1,
+    ...bars.map((bar) =>
+      displayMode === "volume-profile" ? bar.totalVolume : Math.abs(bar.delta),
+    ),
+  );
+  const elements: ReactNode[] = [];
+
+  bars.forEach((bar, barIndex) => {
+    const centerX = coordinates[barIndex];
+    if (centerX == null || centerX < -120 || centerX > plotWidth + 120) {
+      return;
+    }
+    const barWidth = Math.min(120, Math.max(10, typicalSpacing * 0.86));
+    if (!detailVisible) {
+      const top = series.priceToCoordinate(Math.max(...bar.levels.map((level) => level.price)));
+      const bottom = series.priceToCoordinate(Math.min(...bar.levels.map((level) => level.price)));
+      if (top == null || bottom == null) {
+        return;
+      }
+      const y = clamp((top + bottom) / 2, 3, Math.max(3, plotHeight - 3));
+      const metric =
+        displayMode === "volume-profile" ? bar.totalVolume : Math.abs(bar.delta);
+      const width = Math.max(2, barWidth * (metric / maxBarMetric));
+      const x = alignedProfileX(centerX, barWidth, width, alignment);
+      const color =
+        displayMode === "volume-profile"
+          ? neutralColor
+          : bar.delta >= 0
+            ? askColor
+            : bidColor;
+      elements.push(
+        <rect
+          fill={colorWithOpacity(color, 0.7)}
+          height={4}
+          key={`footprint-summary-${bar.time}`}
+          rx={2}
+          width={width}
+          x={x}
+          y={y - 2}
+        />,
+      );
+      return;
+    }
+
+    const analysis = analyzeOrderFlowBar(
+      bar,
+      imbalanceRatio,
+      stackedImbalanceCount,
+    );
+    const buyPrices = new Set(analysis.buyPrices);
+    const sellPrices = new Set(analysis.sellPrices);
+    const stackedBuyPrices = new Set(analysis.stackedBuyPrices);
+    const stackedSellPrices = new Set(analysis.stackedSellPrices);
+
+    bar.levels.forEach((level) => {
+      const y = series.priceToCoordinate(level.price);
+      if (y == null || y < -30 || y > plotHeight + 30) {
+        return;
+      }
+      const adjacentY = series.priceToCoordinate(level.price + bar.tickSize);
+      const rowHeight = Math.min(
+        24,
+        Math.max(8, adjacentY == null ? 12 : Math.abs(adjacentY - y)),
+      );
+      const top = y - rowHeight / 2;
+      const key = `${bar.time}-${level.price}`;
+
+      if (displayMode === "bid-ask") {
+        const halfWidth = barWidth / 2;
+        elements.push(
+          <g key={`cell-${key}`}>
+            <rect
+              fill={colorWithOpacity(
+                bidColor,
+                0.12 + 0.58 * (level.bidVolume / maxTotal),
+              )}
+              height={rowHeight - 1}
+              width={halfWidth - 0.5}
+              x={centerX - halfWidth}
+              y={top}
+            />
+            <rect
+              fill={colorWithOpacity(
+                askColor,
+                0.12 + 0.58 * (level.askVolume / maxTotal),
+              )}
+              height={rowHeight - 1}
+              width={halfWidth - 0.5}
+              x={centerX + 0.5}
+              y={top}
+            />
+            {level.unknownVolume > 0 ? (
+              <rect
+                fill={colorWithOpacity(neutralColor, 0.75)}
+                height={2}
+                width={Math.max(2, barWidth * (level.unknownVolume / maxTotal))}
+                x={centerX - barWidth / 2}
+                y={top + rowHeight - 3}
+              />
+            ) : null}
+            {barWidth >= 72 && rowHeight >= 10 ? (
+              <text
+                fill="#F8FAFC"
+                fontSize={Math.min(10, rowHeight - 2)}
+                textAnchor="middle"
+                x={centerX}
+                y={top + rowHeight - 2.5}
+              >
+                {`${formatOrderFlowMetric(level.bidVolume)} × ${formatOrderFlowMetric(level.askVolume)}`}
+              </text>
+            ) : null}
+          </g>,
+        );
+      } else {
+        const maximum = displayMode === "volume-profile" ? maxTotal : maxDelta;
+        const magnitude =
+          displayMode === "volume-profile"
+            ? level.totalVolume
+            : Math.abs(level.delta);
+        const width = Math.max(1, barWidth * (magnitude / maximum));
+        const x = alignedProfileX(centerX, barWidth, width, alignment);
+        const color =
+          displayMode === "volume-profile"
+            ? neutralColor
+            : level.delta >= 0
+              ? askColor
+              : bidColor;
+        elements.push(
+          <rect
+            fill={colorWithOpacity(color, displayMode === "absolute-delta" ? 0.72 : 0.56)}
+            height={rowHeight - 1}
+            key={`profile-${key}`}
+            width={width}
+            x={x}
+            y={top}
+          />,
+        );
+      }
+
+      if (showAverageTradeSize && barWidth >= 84 && rowHeight >= 18) {
+        elements.push(
+          <text
+            fill={colorWithOpacity(neutralColor, 0.95)}
+            fontSize={8}
+            key={`average-${key}`}
+            textAnchor="middle"
+            x={centerX}
+            y={top + 8}
+          >
+            {`AVG ${formatOrderFlowMetric(level.averageTradeSize)}`}
+          </text>,
+        );
+      }
+
+      if (showImbalances && (buyPrices.has(level.price) || sellPrices.has(level.price))) {
+        const stacked =
+          stackedBuyPrices.has(level.price) || stackedSellPrices.has(level.price);
+        const color = buyPrices.has(level.price) ? askColor : bidColor;
+        elements.push(
+          <rect
+            fill="none"
+            height={Math.max(1, rowHeight - 1)}
+            key={`imbalance-${key}`}
+            stroke={color}
+            strokeWidth={stacked ? 2.5 : 1}
+            width={barWidth}
+            x={centerX - barWidth / 2}
+            y={top}
+          />,
+        );
+      }
+    });
+
+    if (showUnfinishedAuctions) {
+      const highY = series.priceToCoordinate(bar.levels.at(-1)?.price ?? 0);
+      const lowY = series.priceToCoordinate(bar.levels[0]?.price ?? 0);
+      if (analysis.unfinishedHigh && highY != null) {
+        elements.push(
+          <circle
+            cx={centerX}
+            cy={highY}
+            fill={chartSettingsColor(neutralColor)}
+            key={`unfinished-high-${bar.time}`}
+            r={3}
+            stroke="#0F172A"
+          />,
+        );
+      }
+      if (analysis.unfinishedLow && lowY != null) {
+        elements.push(
+          <circle
+            cx={centerX}
+            cy={lowY}
+            fill={chartSettingsColor(neutralColor)}
+            key={`unfinished-low-${bar.time}`}
+            r={3}
+            stroke="#0F172A"
+          />,
+        );
+      }
+    }
+  });
+
+  return { detailVisible, elements };
+}
+
+function buildMarketProfileElements({
+  askColor,
+  bidColor,
+  chart,
+  frame,
+  profile,
+  series,
+  showPointOfControl,
+  showValueArea,
+}: {
+  askColor: string;
+  bidColor: string;
+  chart: IChartApi | null;
+  frame: HTMLDivElement | null;
+  profile: MarketProfile;
+  series: ISeriesApi<"Candlestick"> | null;
+  showPointOfControl: boolean;
+  showValueArea: boolean;
+}) {
+  if (!chart || !frame || !series || profile.rows.length === 0) {
+    return [];
+  }
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  const profileWidth = Math.min(340, Math.max(110, plotWidth * 0.42));
+  const right = Math.max(0, plotWidth - 6);
+  const left = Math.max(0, right - profileWidth);
+  const maxCount = Math.max(1, ...profile.rows.map((row) => row.tpoCount));
+  const elements: ReactNode[] = [];
+
+  profile.rows.forEach((row, index) => {
+    const y = series.priceToCoordinate(row.price);
+    if (y == null || y < -24 || y > plotHeight + 24) {
+      return;
+    }
+    const adjacentPrice = profile.rows[index + 1]?.price ?? profile.rows[index - 1]?.price;
+    const adjacentY = adjacentPrice == null ? null : series.priceToCoordinate(adjacentPrice);
+    const rowHeight = Math.min(
+      22,
+      Math.max(6, adjacentY == null ? 12 : Math.abs(adjacentY - y)),
+    );
+    const top = y - rowHeight / 2;
+    if (showValueArea && row.inValueArea) {
+      elements.push(
+        <rect
+          fill={colorWithOpacity(askColor, 0.08)}
+          height={rowHeight - 0.5}
+          key={`tpo-value-area-${row.price}`}
+          width={profileWidth}
+          x={left}
+          y={top}
+        />,
+      );
+    }
+    if (rowHeight >= 9 && profileWidth >= 150) {
+      const maximumCharacters = Math.max(1, Math.floor((profileWidth - 12) / 7));
+      const letters = row.letters.slice(-maximumCharacters);
+      elements.push(
+        <text
+          fill={row.delta >= 0 ? askColor : bidColor}
+          fontFamily="JetBrains Mono, ui-monospace, monospace"
+          fontSize={Math.min(10, rowHeight - 1)}
+          key={`tpo-letters-${row.price}`}
+          textAnchor="end"
+          x={right - 4}
+          y={top + rowHeight - 2}
+        >
+          {letters}
+        </text>,
+      );
+    } else {
+      const width = profileWidth * (row.tpoCount / maxCount);
+      elements.push(
+        <rect
+          fill={colorWithOpacity(row.delta >= 0 ? askColor : bidColor, 0.52)}
+          height={Math.max(2, rowHeight - 1)}
+          key={`tpo-profile-${row.price}`}
+          width={width}
+          x={right - width}
+          y={top}
+        />,
+      );
+    }
+    if (showPointOfControl && row.isPointOfControl) {
+      elements.push(
+        <line
+          key={`tpo-poc-${row.price}`}
+          stroke="#F59E0B"
+          strokeDasharray="4 3"
+          strokeWidth={1.5}
+          x1={left}
+          x2={right}
+          y1={y}
+          y2={y}
+        />,
+      );
+    }
+  });
+
+  return elements;
+}
+
+function OrderFlowStatsTable({
+  bar,
+  metric,
+}: {
+  bar: OrderFlowBarAggregate;
+  metric: OrderFlowStatsMetric;
+}) {
+  const rows: Array<{ id: OrderFlowStatsMetric | "bid" | "ask" | "unknown"; label: string; value: number }> = [
+    { id: "bid", label: "Bid", value: bar.bidVolume },
+    { id: "ask", label: "Ask", value: bar.askVolume },
+    { id: "volume", label: "Volume", value: bar.totalVolume },
+    { id: "delta", label: "Delta", value: bar.delta },
+    { id: "trades", label: "Trades", value: bar.tradeCount },
+    { id: "average-size", label: "Average", value: bar.averageTradeSize },
+    ...(bar.unknownVolume > 0
+      ? [{ id: "unknown" as const, label: "Unknown", value: bar.unknownVolume }]
+      : []),
+  ];
+  return (
+    <div
+      aria-label="Order-flow statistics for selected bar"
+      className="pointer-events-none absolute right-2 top-2 z-[3] min-w-36 rounded-md border border-white/10 bg-slate-950/90 p-2 text-xs text-slate-300 shadow-lg"
+      role="table"
+    >
+      <div className="mb-1 font-semibold text-white" role="row">
+        Order flow
+      </div>
+      {rows.map((row) => (
+        <div
+          className={`flex items-center justify-between gap-4 py-0.5 ${row.id === metric ? "font-semibold text-cyan-100" : ""}`}
+          key={row.id}
+          role="row"
+        >
+          <span role="rowheader">{row.label}</span>
+          <span className="tabular-nums" role="cell">
+            {formatOrderFlowMetric(row.value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function alignedProfileX(
+  center: number,
+  availableWidth: number,
+  width: number,
+  alignment: ChartVisualSettings["footprintAlignment"],
+) {
+  if (alignment === "left") {
+    return center - availableWidth / 2;
+  }
+  if (alignment === "right") {
+    return center + availableWidth / 2 - width;
+  }
+  return center - width / 2;
+}
+
+function chartSettingsColor(value: string) {
+  return value || "#94A3B8";
+}
+
+function buildSessionShadeElements({
+  bars,
+  chart,
+  closedVisible,
+  frame,
+  postMarketVisible,
+  preMarketVisible,
+  template,
+}: {
+  bars: Candle[];
+  chart: IChartApi | null;
+  closedVisible: boolean;
+  frame: HTMLDivElement | null;
+  postMarketVisible: boolean;
+  preMarketVisible: boolean;
+  template: ChartSessionTemplate;
+}) {
+  if (!frame || !chart || bars.length === 0) {
+    return [];
+  }
+  const plotWidth = chartPlotWidth(chart, frame);
+  const plotHeight = chartPlotHeight(chart, frame);
+  if (plotWidth <= 0 || plotHeight <= 0) {
+    return [];
+  }
+  const coordinates = bars.map((bar) =>
+    chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp),
+  );
+  const phases = bars.map((bar) => sessionPhaseAt(bar.time, template));
+  const elements = [];
+
+  for (let startIndex = 0; startIndex < bars.length; ) {
+    const phase = phases[startIndex];
+    let endIndex = startIndex;
+    while (endIndex + 1 < bars.length && phases[endIndex + 1] === phase) {
+      endIndex += 1;
+    }
+    const visible =
+      (phase === "premarket" && preMarketVisible) ||
+      (phase === "postmarket" && postMarketVisible) ||
+      (phase === "closed" && closedVisible);
+    if (phase !== "regular" && visible) {
+      const startCoordinate = sessionBarEdge(coordinates, startIndex, "start");
+      const endCoordinate = sessionBarEdge(coordinates, endIndex, "end");
+      if (startCoordinate != null && endCoordinate != null) {
+        const left = Math.max(0, Math.min(plotWidth, startCoordinate));
+        const right = Math.max(0, Math.min(plotWidth, endCoordinate));
+        const width = right - left;
+        if (width > 0) {
+          const style = SESSION_SHADE_STYLES[phase];
+          const label = chartSessionPhaseLabel(phase);
+          elements.push(
+            <g key={`${phase}-${bars[startIndex].time}`}>
+              <rect fill={style.fill} height={plotHeight} width={width} x={left} y={0} />
+              {width >= 58 && plotHeight >= 28 ? (
+                <text
+                  fill={style.text}
+                  fontSize={10}
+                  fontWeight={700}
+                  letterSpacing="0.08em"
+                  x={left + 6}
+                  y={16}
+                >
+                  {label.toUpperCase()}
+                </text>
+              ) : null}
+            </g>,
+          );
+        }
+      }
+    }
+    startIndex = endIndex + 1;
+  }
+
+  return elements;
+}
+
+function sessionBarEdge(
+  coordinates: Array<number | null>,
+  index: number,
+  edge: "end" | "start",
+) {
+  const coordinate = coordinates[index];
+  if (coordinate == null) {
+    return null;
+  }
+  const neighbor =
+    edge === "start"
+      ? coordinates[index - 1] ?? coordinates[index + 1]
+      : coordinates[index + 1] ?? coordinates[index - 1];
+  const spacing = neighbor == null ? 6 : Math.abs(coordinate - neighbor);
+  const halfSpacing = Math.min(40, Math.max(2, spacing / 2));
+  return coordinate + (edge === "start" ? -halfSpacing : halfSpacing);
 }
 
 function buildSessionBreakElements(
@@ -3265,13 +4121,18 @@ function buildSessionBreakElements(
   color: string,
   lineStyle: DrawingLineStyle,
   lineWidth: number,
+  template: ChartSessionTemplate,
 ) {
   if (!frame || !chart || bars.length < 2) {
     return null;
   }
   const height = chartPlotHeight(chart, frame);
   return bars.flatMap((bar, index) => {
-    if (index === 0 || dayKey(bar.timestamp) === dayKey(bars[index - 1].timestamp)) {
+    if (
+      index === 0 ||
+      sessionTradingDayKey(bar.time, template) ===
+        sessionTradingDayKey(bars[index - 1].time, template)
+    ) {
       return [];
     }
     const x = chart.timeScale().timeToCoordinate(bar.time as UTCTimestamp);
@@ -3634,6 +4495,7 @@ function MacdPanel({
 function StudyLinePanel({
   color,
   data,
+  emptyMessage = "Waiting for enough candles",
   label,
   lineStyle,
   lineWidth,
@@ -3644,6 +4506,7 @@ function StudyLinePanel({
 }: {
   color: string;
   data: LineData[];
+  emptyMessage?: string;
   label: string;
   lineStyle: DrawingLineStyle;
   lineWidth: number;
@@ -3694,8 +4557,8 @@ function StudyLinePanel({
             />
           </svg>
         ) : (
-          <div className="grid h-full place-items-center text-xs text-slate-500">
-            Waiting for enough candles
+          <div className="grid h-full place-items-center px-4 text-center text-xs leading-5 text-slate-500">
+            {emptyMessage}
           </div>
         )}
       </div>
@@ -7493,6 +8356,18 @@ function isOverlayIndicatorKind(kind: ChartIndicatorInstance["kind"]) {
   );
 }
 
+function isOrderFlowIndicatorInstance(
+  indicator: ChartIndicatorInstance,
+): indicator is ChartIndicatorInstance & {
+  kind: "bar-delta" | "cumulative-delta" | "order-flow-imbalance";
+} {
+  return (
+    indicator.kind === "bar-delta" ||
+    indicator.kind === "cumulative-delta" ||
+    indicator.kind === "order-flow-imbalance"
+  );
+}
+
 function lineStyleDasharray(style: DrawingLineStyle | undefined) {
   switch (style) {
     case "dotted":
@@ -7606,8 +8481,12 @@ function chartStyleLabel(style: ChartStyle) {
       return "Area";
     case "heikinAshi":
       return "Heikin Ashi";
+    case "footprint":
+      return "Footprint";
     case "line":
       return "Line";
+    case "tpo":
+      return "TPO Profile";
     default:
       return "Candles";
   }

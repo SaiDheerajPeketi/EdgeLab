@@ -149,7 +149,14 @@ const PANE_LAYOUTS = new Set<ChartPaneLayoutId>([
   "grid-12",
   "grid-16",
 ]);
-const CHART_STYLES = new Set<ChartStyle>(["area", "candles", "heikinAshi", "line"]);
+const CHART_STYLES = new Set<ChartStyle>([
+  "area",
+  "candles",
+  "footprint",
+  "heikinAshi",
+  "line",
+  "tpo",
+]);
 const MAGNET_MODES = new Set<MagnetMode>(["off", "weak", "strong"]);
 const DRAWING_TOOLS = new Set<ChartDrawing["tool"]>([
   "trendline",

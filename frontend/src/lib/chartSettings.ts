@@ -4,6 +4,22 @@ import {
   sanitizeChartTimeZone,
   type ChartTimeZone,
 } from "./chartTimezones";
+import {
+  sanitizeSessionTemplatePreference,
+  sanitizeTradingHoursMode,
+  type ChartSessionTemplatePreference,
+  type ChartTradingHoursMode,
+} from "./chartSessions";
+import {
+  sanitizeOrderFlowAlignment,
+  sanitizeOrderFlowDisplayMode,
+  sanitizeOrderFlowStatsMetric,
+  sanitizeOrderFlowTemplateId,
+  type OrderFlowAlignment,
+  type OrderFlowDisplayMode,
+  type OrderFlowStatsMetric,
+  type OrderFlowTemplateId,
+} from "./orderFlowPresentation";
 
 export type ChartGridMode = "both" | "horizontal" | "none" | "vertical";
 export type ChartLineStyle = "solid" | "dashed" | "dotted";
@@ -23,6 +39,7 @@ export type ChartVisualSettings = {
   candleUpColor: string;
   chartValues: boolean;
   colorBarsByPreviousClose: boolean;
+  closedSessionShading: boolean;
   crosshairColor: string;
   crosshairVisible: boolean;
   dateFormat: "dd MMM yy" | "MMM dd yyyy" | "yyyy-MM-dd";
@@ -33,7 +50,22 @@ export type ChartVisualSettings = {
   indicatorTitles: boolean;
   indicatorValues: boolean;
   noOverlappingLabels: boolean;
+  orderFlowTemplate: OrderFlowTemplateId;
+  footprintAlignment: OrderFlowAlignment;
+  footprintAskColor: string;
+  footprintBidColor: string;
+  footprintDisplayMode: OrderFlowDisplayMode;
+  footprintImbalanceRatio: number;
+  footprintNeutralColor: string;
+  footprintShowAverageTradeSize: boolean;
+  footprintShowImbalances: boolean;
+  footprintShowStats: boolean;
+  footprintShowUnfinishedAuctions: boolean;
+  footprintStackedImbalanceCount: number;
+  footprintStatsMetric: OrderFlowStatsMetric;
   previousDayClose: ChartVisibilityMode;
+  postMarketShading: boolean;
+  preMarketShading: boolean;
   pricePrecision: number;
   priceScaleBorderVisible: boolean;
   scalePlacement: ChartScalePlacement;
@@ -41,6 +73,7 @@ export type ChartVisualSettings = {
   sessionBreakLineStyle: ChartLineStyle;
   sessionBreakLineWidth: number;
   sessionBreaks: boolean;
+  sessionTemplate: ChartSessionTemplatePreference;
   symbolLine: ChartVisibilityMode;
   textColor: string;
   textSize: number;
@@ -48,6 +81,11 @@ export type ChartVisualSettings = {
   timeHoursFormat: "12-hour" | "24-hour";
   timeZone: ChartTimeZone;
   title: boolean;
+  tpoBracketMinutes: number;
+  tpoShowPointOfControl: boolean;
+  tpoShowValueArea: boolean;
+  tpoValueAreaPercent: number;
+  tradingHoursMode: ChartTradingHoursMode;
   volume: boolean;
   watermark: "hidden" | "symbol" | "text";
   watermarkText: string;
@@ -75,6 +113,7 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   candleUpColor: CHART_COLOR.up,
   chartValues: true,
   colorBarsByPreviousClose: false,
+  closedSessionShading: true,
   crosshairColor: CHART_COLOR.muted,
   crosshairVisible: true,
   dateFormat: "dd MMM yy",
@@ -85,7 +124,22 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   indicatorTitles: true,
   indicatorValues: true,
   noOverlappingLabels: true,
+  orderFlowTemplate: "classic",
+  footprintAlignment: "center",
+  footprintAskColor: CHART_COLOR.up,
+  footprintBidColor: CHART_COLOR.down,
+  footprintDisplayMode: "bid-ask",
+  footprintImbalanceRatio: 3,
+  footprintNeutralColor: CHART_COLOR.muted,
+  footprintShowAverageTradeSize: false,
+  footprintShowImbalances: true,
+  footprintShowStats: true,
+  footprintShowUnfinishedAuctions: true,
+  footprintStackedImbalanceCount: 3,
+  footprintStatsMetric: "delta",
   previousDayClose: "hidden",
+  postMarketShading: true,
+  preMarketShading: true,
   pricePrecision: 5,
   priceScaleBorderVisible: true,
   scalePlacement: "right",
@@ -93,6 +147,7 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   sessionBreakLineStyle: "dashed",
   sessionBreakLineWidth: 1,
   sessionBreaks: false,
+  sessionTemplate: "auto",
   symbolLine: "valueLine",
   textColor: CHART_COLOR.text,
   textSize: 12,
@@ -100,6 +155,11 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   timeHoursFormat: "24-hour",
   timeZone: DEFAULT_CHART_TIME_ZONE,
   title: true,
+  tpoBracketMinutes: 30,
+  tpoShowPointOfControl: true,
+  tpoShowValueArea: true,
+  tpoValueAreaPercent: 70,
+  tradingHoursMode: "extended",
   volume: true,
   watermark: "hidden",
   watermarkText: "EdgeLab",
@@ -137,9 +197,65 @@ export function sanitizeChartVisualSettings(
     borderUpColor,
     candleDownColor: bodyDownColor,
     candleUpColor: bodyUpColor,
+    closedSessionShading: sanitizeBoolean(
+      candidate.closedSessionShading,
+      DEFAULT_CHART_VISUAL_SETTINGS.closedSessionShading,
+    ),
     crosshairColor: sanitizeHex(candidate.crosshairColor, DEFAULT_CHART_VISUAL_SETTINGS.crosshairColor),
     gridColor: sanitizeHex(candidate.gridColor, DEFAULT_CHART_VISUAL_SETTINGS.gridColor),
+    footprintAlignment: sanitizeOrderFlowAlignment(candidate.footprintAlignment),
+    footprintAskColor: sanitizeHex(
+      candidate.footprintAskColor,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintAskColor,
+    ),
+    footprintBidColor: sanitizeHex(
+      candidate.footprintBidColor,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintBidColor,
+    ),
+    footprintDisplayMode: sanitizeOrderFlowDisplayMode(candidate.footprintDisplayMode),
+    footprintImbalanceRatio: clampInteger(
+      candidate.footprintImbalanceRatio,
+      2,
+      10,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintImbalanceRatio,
+    ),
+    footprintNeutralColor: sanitizeHex(
+      candidate.footprintNeutralColor,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintNeutralColor,
+    ),
+    footprintShowAverageTradeSize: sanitizeBoolean(
+      candidate.footprintShowAverageTradeSize,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintShowAverageTradeSize,
+    ),
+    footprintShowImbalances: sanitizeBoolean(
+      candidate.footprintShowImbalances,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintShowImbalances,
+    ),
+    footprintShowStats: sanitizeBoolean(
+      candidate.footprintShowStats,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintShowStats,
+    ),
+    footprintShowUnfinishedAuctions: sanitizeBoolean(
+      candidate.footprintShowUnfinishedAuctions,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintShowUnfinishedAuctions,
+    ),
+    footprintStackedImbalanceCount: clampInteger(
+      candidate.footprintStackedImbalanceCount,
+      2,
+      6,
+      DEFAULT_CHART_VISUAL_SETTINGS.footprintStackedImbalanceCount,
+    ),
+    footprintStatsMetric: sanitizeOrderFlowStatsMetric(candidate.footprintStatsMetric),
+    orderFlowTemplate: sanitizeOrderFlowTemplateId(candidate.orderFlowTemplate),
     pricePrecision: clampInteger(candidate.pricePrecision, 0, 8, DEFAULT_CHART_VISUAL_SETTINGS.pricePrecision),
+    postMarketShading: sanitizeBoolean(
+      candidate.postMarketShading,
+      DEFAULT_CHART_VISUAL_SETTINGS.postMarketShading,
+    ),
+    preMarketShading: sanitizeBoolean(
+      candidate.preMarketShading,
+      DEFAULT_CHART_VISUAL_SETTINGS.preMarketShading,
+    ),
     sessionBreakColor: sanitizeHex(candidate.sessionBreakColor, DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakColor),
     sessionBreakLineStyle: sanitizeLineStyle(candidate.sessionBreakLineStyle),
     sessionBreakLineWidth: clampInteger(
@@ -148,6 +264,7 @@ export function sanitizeChartVisualSettings(
       8,
       DEFAULT_CHART_VISUAL_SETTINGS.sessionBreakLineWidth,
     ),
+    sessionTemplate: sanitizeSessionTemplatePreference(candidate.sessionTemplate),
     textColor: sanitizeHex(candidate.textColor, DEFAULT_CHART_VISUAL_SETTINGS.textColor),
     textSize: clampInteger(candidate.textSize, 10, 18, DEFAULT_CHART_VISUAL_SETTINGS.textSize),
     timeZone: sanitizeChartTimeZone(candidate.timeZone),
@@ -157,9 +274,34 @@ export function sanitizeChartVisualSettings(
         : typeof candidate.priceScaleBorderVisible === "boolean"
           ? candidate.priceScaleBorderVisible
           : DEFAULT_CHART_VISUAL_SETTINGS.timeScaleBorderVisible,
+    tpoBracketMinutes: clampInteger(
+      candidate.tpoBracketMinutes,
+      5,
+      240,
+      DEFAULT_CHART_VISUAL_SETTINGS.tpoBracketMinutes,
+    ),
+    tpoShowPointOfControl: sanitizeBoolean(
+      candidate.tpoShowPointOfControl,
+      DEFAULT_CHART_VISUAL_SETTINGS.tpoShowPointOfControl,
+    ),
+    tpoShowValueArea: sanitizeBoolean(
+      candidate.tpoShowValueArea,
+      DEFAULT_CHART_VISUAL_SETTINGS.tpoShowValueArea,
+    ),
+    tpoValueAreaPercent: clampInteger(
+      candidate.tpoValueAreaPercent,
+      50,
+      95,
+      DEFAULT_CHART_VISUAL_SETTINGS.tpoValueAreaPercent,
+    ),
+    tradingHoursMode: sanitizeTradingHoursMode(candidate.tradingHoursMode),
     wickDownColor,
     wickUpColor,
   };
+}
+
+function sanitizeBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function sanitizeLineStyle(value: unknown): ChartLineStyle {

@@ -583,8 +583,12 @@ function chartStyleLabel(style: ChartStyle, smoothCandles: boolean) {
       return "Area Chart";
     case "heikinAshi":
       return "Heikin Ashi";
+    case "footprint":
+      return "Footprint";
     case "line":
       return "Line Chart";
+    case "tpo":
+      return "TPO Profile";
     default:
       return smoothCandles ? "Smooth Candles" : "Candles";
   }

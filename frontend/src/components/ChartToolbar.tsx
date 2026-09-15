@@ -110,6 +110,19 @@ import {
   searchChartTimeZones,
   type ChartTimeZone,
 } from "../lib/chartTimezones";
+import {
+  CHART_SESSION_TEMPLATES,
+  type ChartSessionTemplatePreference,
+  type ChartTradingHoursMode,
+} from "../lib/chartSessions";
+import {
+  ORDER_FLOW_COLOR_TEMPLATES,
+  orderFlowColorTemplate,
+  type OrderFlowAlignment,
+  type OrderFlowDisplayMode,
+  type OrderFlowStatsMetric,
+  type OrderFlowTemplateId,
+} from "../lib/orderFlowPresentation";
 import { IndicatorCatalogPanel } from "./IndicatorCatalogPanel";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
@@ -225,6 +238,25 @@ const CHART_STYLES: Array<{
   { icon: Activity, id: "heikinAshi", label: "Heikin Ashi" },
   { icon: LineChart, id: "line", label: "Line" },
   { icon: AreaChart, id: "area", label: "Area" },
+  { icon: Layers, id: "footprint", label: "Footprint" },
+  { icon: AreaChart, id: "tpo", label: "TPO Profile" },
+];
+
+const TRADING_HOURS_MODES: Array<{
+  description: string;
+  id: ChartTradingHoursMode;
+  label: string;
+}> = [
+  {
+    description: "Regular Trading Hours only; indicators use the filtered bars",
+    id: "regular",
+    label: "RTH",
+  },
+  {
+    description: "Extended Trading Hours; retain every published source bar",
+    id: "extended",
+    label: "ETH",
+  },
 ];
 
 function ChartPaneLayoutGlyph({ layout }: { layout: ChartPaneLayoutDefinition }) {
@@ -573,6 +605,36 @@ export function ChartToolbar({
     window.requestAnimationFrame(() => buttons?.[nextIndex]?.focus());
   }
 
+  function handleTradingHoursKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % TRADING_HOURS_MODES.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex =
+        (currentIndex - 1 + TRADING_HOURS_MODES.length) %
+        TRADING_HOURS_MODES.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = TRADING_HOURS_MODES.length - 1;
+    }
+    if (nextIndex == null) {
+      return;
+    }
+    event.preventDefault();
+    const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      '[role="radio"]',
+    );
+    onChartSettingsChange({
+      ...chartSettings,
+      tradingHoursMode: TRADING_HOURS_MODES[nextIndex].id,
+    });
+    window.requestAnimationFrame(() => buttons?.[nextIndex]?.focus());
+  }
+
   const settingsPanel = settingsOpen ? (
     <ChartSettingsPanel
       indicatorInstances={indicatorInstances}
@@ -633,7 +695,7 @@ export function ChartToolbar({
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white">Chart Workbench</div>
               <div className="truncate text-xs text-slate-500">
-                {formatChartTimeframeLabel(timeframe)} / {chartStyleLabel(chartStyle)} / {getChartTimeZoneLabel(chartSettings.timeZone)} / {indicatorInstances.length} studies / {drawingsCount} drawings
+                {formatChartTimeframeLabel(timeframe)} / {chartStyleLabel(chartStyle)} / {chartSettings.tradingHoursMode === "regular" ? "RTH" : "ETH"} / {getChartTimeZoneLabel(chartSettings.timeZone)} / {indicatorInstances.length} studies / {drawingsCount} drawings
               </div>
             </div>
           </div>
@@ -724,6 +786,33 @@ export function ChartToolbar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <div
+            aria-label="Trading hours for active chart pane"
+            className="flex min-h-9 items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1"
+            role="radiogroup"
+          >
+            <span className="px-1 text-xs font-semibold text-slate-400">Hours</span>
+            {TRADING_HOURS_MODES.map((mode, index) => (
+              <button
+                aria-checked={chartSettings.tradingHoursMode === mode.id}
+                aria-label={mode.description}
+                className={`chart-mode-button h-7 px-2 ${
+                  chartSettings.tradingHoursMode === mode.id ? "chart-mode-active" : ""
+                }`}
+                key={mode.id}
+                onClick={() =>
+                  onChartSettingsChange({ ...chartSettings, tradingHoursMode: mode.id })
+                }
+                onKeyDown={(event) => handleTradingHoursKeyDown(event, index)}
+                role="radio"
+                tabIndex={chartSettings.tradingHoursMode === mode.id ? 0 : -1}
+                title={mode.description}
+                type="button"
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
           {onCaptureChart ? (
             <>
               <button
@@ -1281,12 +1370,13 @@ function NumberPill({
   );
 }
 
-type ChartSettingsTab = "canvas" | "scales" | "status" | "symbol";
+type ChartSettingsTab = "canvas" | "orderFlow" | "scales" | "status" | "symbol";
 
 const CHART_SETTINGS_TABS: Array<{ id: ChartSettingsTab; label: string }> = [
   { id: "symbol", label: "Symbol" },
   { id: "status", label: "Status line" },
   { id: "scales", label: "Scales and lines" },
+  { id: "orderFlow", label: "Order flow" },
   { id: "canvas", label: "Canvas" },
 ];
 
@@ -1594,6 +1684,57 @@ function ChartSettingsPanel({
                   ]}
                   value={settings.sessionBreakLineStyle}
                 />
+                <SelectSetting
+                  label="Trading hours"
+                  onChange={(tradingHoursMode) =>
+                    updateSettings({
+                      tradingHoursMode: tradingHoursMode as ChartTradingHoursMode,
+                    })
+                  }
+                  options={TRADING_HOURS_MODES.map((mode) => ({
+                    label: `${mode.label} · ${mode.id === "regular" ? "Regular only" : "All source bars"}`,
+                    value: mode.id,
+                  }))}
+                  value={settings.tradingHoursMode}
+                />
+                <SelectSetting
+                  label="Session template"
+                  onChange={(sessionTemplate) =>
+                    updateSettings({
+                      sessionTemplate:
+                        sessionTemplate as ChartSessionTemplatePreference,
+                    })
+                  }
+                  options={[
+                    { label: "Automatic from symbol", value: "auto" },
+                    ...CHART_SESSION_TEMPLATES.map((template) => ({
+                      label: `${template.label} · ${template.timeZone}`,
+                      value: template.id,
+                    })),
+                  ]}
+                  value={settings.sessionTemplate}
+                />
+                <SettingToggle
+                  checked={settings.preMarketShading}
+                  label="Pre-market shading"
+                  onChange={(preMarketShading) => updateSettings({ preMarketShading })}
+                />
+                <SettingToggle
+                  checked={settings.postMarketShading}
+                  label="Post-market shading"
+                  onChange={(postMarketShading) => updateSettings({ postMarketShading })}
+                />
+                <SettingToggle
+                  checked={settings.closedSessionShading}
+                  label="Closed-session shading"
+                  onChange={(closedSessionShading) =>
+                    updateSettings({ closedSessionShading })
+                  }
+                />
+                <p className="col-span-full text-xs leading-5 text-slate-500">
+                  Automatic templates follow recognized exchange and instrument symbols.
+                  Unknown symbols keep every bar so incomplete metadata never hides data.
+                </p>
               </SettingsSection>
 
               <SettingsSection title="Time scale">
@@ -1640,6 +1781,180 @@ function ChartSettingsPanel({
                   value={settings.timeHoursFormat}
                 />
               </SettingsSection>
+            </>
+          )}
+
+          {activeTab === "orderFlow" && (
+            <>
+              <SettingsSection title="Footprint">
+                <SelectSetting
+                  label="Color template"
+                  onChange={(orderFlowTemplate) => {
+                    const template = orderFlowColorTemplate(
+                      orderFlowTemplate as OrderFlowTemplateId,
+                    );
+                    updateSettings({
+                      footprintAskColor: template.askColor,
+                      footprintBidColor: template.bidColor,
+                      footprintDisplayMode: template.mode,
+                      footprintNeutralColor: template.neutralColor,
+                      orderFlowTemplate: template.id,
+                    });
+                  }}
+                  options={ORDER_FLOW_COLOR_TEMPLATES.map((template) => ({
+                    label: template.label,
+                    value: template.id,
+                  }))}
+                  value={settings.orderFlowTemplate}
+                />
+                <SelectSetting
+                  label="Cell display"
+                  onChange={(footprintDisplayMode) =>
+                    updateSettings({
+                      footprintDisplayMode: footprintDisplayMode as OrderFlowDisplayMode,
+                    })
+                  }
+                  options={[
+                    { label: "Bid × Ask", value: "bid-ask" },
+                    { label: "Volume profile", value: "volume-profile" },
+                    { label: "Delta profile", value: "delta-profile" },
+                    { label: "Absolute delta", value: "absolute-delta" },
+                  ]}
+                  value={settings.footprintDisplayMode}
+                />
+                <SelectSetting
+                  label="Cell alignment"
+                  onChange={(footprintAlignment) =>
+                    updateSettings({
+                      footprintAlignment: footprintAlignment as OrderFlowAlignment,
+                    })
+                  }
+                  options={[
+                    { label: "Left", value: "left" },
+                    { label: "Center", value: "center" },
+                    { label: "Right", value: "right" },
+                  ]}
+                  value={settings.footprintAlignment}
+                />
+                <SettingToggle
+                  checked={settings.footprintShowAverageTradeSize}
+                  label="Average trade size"
+                  onChange={(footprintShowAverageTradeSize) =>
+                    updateSettings({ footprintShowAverageTradeSize })
+                  }
+                />
+                <SettingToggle
+                  checked={settings.footprintShowImbalances}
+                  label="Bid/ask imbalances"
+                  onChange={(footprintShowImbalances) =>
+                    updateSettings({ footprintShowImbalances })
+                  }
+                />
+                <NumberSetting
+                  label="Imbalance ratio"
+                  max={10}
+                  min={2}
+                  onChange={(footprintImbalanceRatio) =>
+                    updateSettings({ footprintImbalanceRatio })
+                  }
+                  value={settings.footprintImbalanceRatio}
+                />
+                <NumberSetting
+                  label="Stacked levels"
+                  max={6}
+                  min={2}
+                  onChange={(footprintStackedImbalanceCount) =>
+                    updateSettings({ footprintStackedImbalanceCount })
+                  }
+                  value={settings.footprintStackedImbalanceCount}
+                />
+                <SettingToggle
+                  checked={settings.footprintShowUnfinishedAuctions}
+                  label="Unfinished auctions"
+                  onChange={(footprintShowUnfinishedAuctions) =>
+                    updateSettings({ footprintShowUnfinishedAuctions })
+                  }
+                />
+                <ColorSetting
+                  label="Ask / buy color"
+                  onChange={(footprintAskColor) => updateSettings({ footprintAskColor })}
+                  value={settings.footprintAskColor}
+                />
+                <ColorSetting
+                  label="Bid / sell color"
+                  onChange={(footprintBidColor) => updateSettings({ footprintBidColor })}
+                  value={settings.footprintBidColor}
+                />
+                <ColorSetting
+                  label="Neutral / unknown"
+                  onChange={(footprintNeutralColor) =>
+                    updateSettings({ footprintNeutralColor })
+                  }
+                  value={settings.footprintNeutralColor}
+                />
+              </SettingsSection>
+
+              <SettingsSection title="Statistics">
+                <SettingToggle
+                  checked={settings.footprintShowStats}
+                  label="Bar statistics table"
+                  onChange={(footprintShowStats) => updateSettings({ footprintShowStats })}
+                />
+                <SelectSetting
+                  label="Primary statistic"
+                  onChange={(footprintStatsMetric) =>
+                    updateSettings({
+                      footprintStatsMetric: footprintStatsMetric as OrderFlowStatsMetric,
+                    })
+                  }
+                  options={[
+                    { label: "Total volume", value: "volume" },
+                    { label: "Delta", value: "delta" },
+                    { label: "Trade count", value: "trades" },
+                    { label: "Average trade size", value: "average-size" },
+                  ]}
+                  value={settings.footprintStatsMetric}
+                />
+              </SettingsSection>
+
+              <SettingsSection title="TPO / Market Profile">
+                <SelectSetting
+                  label="TPO bracket"
+                  onChange={(tpoBracketMinutes) =>
+                    updateSettings({ tpoBracketMinutes: Number(tpoBracketMinutes) })
+                  }
+                  options={[15, 30, 60, 120].map((minutes) => ({
+                    label: `${minutes} minutes`,
+                    value: String(minutes),
+                  }))}
+                  value={String(settings.tpoBracketMinutes)}
+                />
+                <NumberSetting
+                  label="Value area percent"
+                  max={95}
+                  min={50}
+                  onChange={(tpoValueAreaPercent) => updateSettings({ tpoValueAreaPercent })}
+                  value={settings.tpoValueAreaPercent}
+                />
+                <SettingToggle
+                  checked={settings.tpoShowValueArea}
+                  label="Value area"
+                  onChange={(tpoShowValueArea) => updateSettings({ tpoShowValueArea })}
+                />
+                <SettingToggle
+                  checked={settings.tpoShowPointOfControl}
+                  label="Point of control"
+                  onChange={(tpoShowPointOfControl) =>
+                    updateSettings({ tpoShowPointOfControl })
+                  }
+                />
+              </SettingsSection>
+
+              <p className="rounded-md border border-amber-300/15 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5 text-amber-100/80">
+                Footprint, delta, imbalance, auction, and TPO views require real
+                trade-level aggregates with aggressor side. OHLCV candles are never used
+                to fabricate bid or ask volume.
+              </p>
             </>
           )}
 
@@ -2321,8 +2636,12 @@ function chartStyleLabel(style: ChartStyle) {
       return "Area";
     case "heikinAshi":
       return "Heikin";
+    case "footprint":
+      return "Footprint";
     case "line":
       return "Line";
+    case "tpo":
+      return "TPO";
     default:
       return "Candles";
   }

@@ -23,7 +23,13 @@ type ParsedChartTimeframe = {
   unit: ChartTimeframeUnit;
   value: number;
 };
-export type ChartStyle = "area" | "candles" | "heikinAshi" | "line";
+export type ChartStyle =
+  | "area"
+  | "candles"
+  | "footprint"
+  | "heikinAshi"
+  | "line"
+  | "tpo";
 export type ChartIndicatorId =
   | "atr14"
   | "ema20"
@@ -43,7 +49,9 @@ export type ChartIndicatorId =
   | "macd";
 export type ChartIndicatorKind =
   | "atr"
+  | "bar-delta"
   | "bb"
+  | "cumulative-delta"
   | "dema"
   | "donchian"
   | "ema"
@@ -53,6 +61,7 @@ export type ChartIndicatorKind =
   | "keltner"
   | "macd"
   | "momentum"
+  | "order-flow-imbalance"
   | "rsi"
   | "sma"
   | "supertrend"
@@ -226,11 +235,16 @@ export const INDICATORS: Array<{
   { id: "macd", kind: "macd", label: "MACD", description: "Trend momentum pane", color: CHART_COLOR.blue, pane: "pane" },
   { id: "atr", kind: "atr", label: "ATR", description: "Average true range pane", color: CHART_COLOR.orangeStrong, pane: "pane" },
   { id: "momentum", kind: "momentum", label: "Momentum", description: "Close-to-close momentum pane", color: CHART_COLOR.violetSoft, pane: "pane" },
+  { id: "bar-delta", kind: "bar-delta", label: "Bar Delta", description: "Aggressor ask volume minus bid volume", color: CHART_COLOR.sky, pane: "pane" },
+  { id: "cumulative-delta", kind: "cumulative-delta", label: "Cumulative Delta", description: "Running aggressor-side volume delta", color: CHART_COLOR.cyan, pane: "pane" },
+  { id: "order-flow-imbalance", kind: "order-flow-imbalance", label: "Order-flow Imbalance", description: "Net count of diagonal buy and sell imbalances", color: CHART_COLOR.amber, pane: "pane" },
 ];
 
 export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   atr: { color: CHART_COLOR.orangeStrong, period: 14 },
+  "bar-delta": { color: CHART_COLOR.sky, period: 1 },
   bb: { color: CHART_COLOR.muted, period: 20, stdDev: 2 },
+  "cumulative-delta": { color: CHART_COLOR.cyan, period: 1 },
   dema: { color: CHART_COLOR.teal, period: 20 },
   donchian: { color: CHART_COLOR.blue, period: 20 },
   ema: { color: CHART_COLOR.cyan, period: 20 },
@@ -264,6 +278,7 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
     histogramColor: CHART_COLOR.muted,
   },
   momentum: { color: CHART_COLOR.violetSoft, period: 10 },
+  "order-flow-imbalance": { color: CHART_COLOR.amber, period: 3 },
   rsi: { color: CHART_COLOR.magenta, period: 14 },
   sma: { color: CHART_COLOR.violet, period: 20 },
   supertrend: { color: CHART_COLOR.lime, period: 10, stdDev: 3 },
@@ -411,8 +426,12 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
   switch (indicator.kind) {
     case "atr":
       return `ATR ${period}`;
+    case "bar-delta":
+      return "Bar Delta";
     case "bb":
       return `Bollinger ${period}`;
+    case "cumulative-delta":
+      return "Cumulative Delta";
     case "dema":
       return `DEMA ${period}`;
     case "donchian":
@@ -431,6 +450,8 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
       return `MACD ${settings.fastPeriod ?? 12} ${settings.slowPeriod ?? 26} ${settings.signalPeriod ?? 9}`;
     case "momentum":
       return `Momentum ${period}`;
+    case "order-flow-imbalance":
+      return `Order-flow Imbalance ${period}×`;
     case "rsi":
       return `RSI ${period}`;
     case "sma":
