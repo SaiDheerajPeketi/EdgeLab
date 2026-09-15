@@ -100,8 +100,11 @@ test("quality manifests inventory routes, critical states, and measurable budget
 test("low-power chart budget drives and proves representative pane work", () => {
   const source = fs.readFileSync(path.join(ROOT, "e2e/chart-performance.spec.ts"), "utf8");
   assert.match(source, /page\.mouse\.move\(/);
-  assert.match(source, /Promise\.all\(\[sampling, driving\]\)/);
+  assert.match(source, /allFrames\.push\(observation\.current - previous\)/);
   assert.match(source, /panesWithChangingOhlc\)\.toBe\(16\)/);
+  assert.match(source, /low-power-performance\.partial\.json/);
+  assert.match(source, /finally \{/);
+  assert.match(source, /setCPUThrottlingRate", \{ rate: 1 \}/);
   assert.match(source, /resizeStressP95Ms/);
 });
 

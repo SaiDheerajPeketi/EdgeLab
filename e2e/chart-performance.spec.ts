@@ -29,48 +29,49 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   await page.waitForTimeout(1_500);
 
   const client = await page.context().newCDPSession(page);
-  await client.send("Performance.enable");
-  const before = await client.send("Performance.getMetrics");
-  await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-  const interactionSurface = page.locator(".chart-pane-shell").nth(1).locator(".tv-lightweight-charts").first();
-  const interactionBounds = await interactionSurface.boundingBox();
-  if (!interactionBounds) throw new Error("Trading chart interaction surface is unavailable");
-  const sampling = page.evaluate(async () => {
-    const stages = [...document.querySelectorAll<HTMLElement>(".chart-stage")];
-    if (stages.length !== 16) throw new Error(`Expected 16 chart stages, received ${stages.length}`);
-    const observedTimes = stages.map((stage) => new Set([
-      stage.querySelector<HTMLElement>(".chart-ohlcv-time")?.textContent ?? "",
-    ]));
-    const values: number[] = [];
-    let previous = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
-    for (let index = 0; index < 120; index += 1) {
-      const current = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
-      values.push(current - previous);
-      stages.forEach((stage, paneIndex) => {
-        observedTimes[paneIndex].add(stage.querySelector<HTMLElement>(".chart-ohlcv-time")?.textContent ?? "");
-      });
-      previous = current;
-    }
-    return {
-      panesWithChangingOhlc: observedTimes.filter((times) => times.size >= 2).length,
-      values,
+  let throttled = false;
+  try {
+    await client.send("Performance.enable");
+    const before = await client.send("Performance.getMetrics");
+    await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+    throttled = true;
+    const metricsPath = testInfo.outputPath("low-power-performance.json");
+    const persist = (result: unknown) => {
+      writeFileSync(metricsPath, `${JSON.stringify(result, null, 2)}\n`);
+      console.log(`[low-power-performance] ${JSON.stringify(result)}`);
     };
-  });
-  const driving = (async () => {
+    const interactionSurface = page.locator(".chart-pane-shell").nth(1).locator(".tv-lightweight-charts").first();
+    const interactionBounds = await interactionSurface.boundingBox();
+    if (!interactionBounds) throw new Error("Trading chart interaction surface is unavailable");
+    const initialTimes = await page.locator(".chart-ohlcv-time").allTextContents();
+    const observedTimes = initialTimes.map((value) => new Set([value]));
+    const allFrames: number[] = [];
+    let previous = await page.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(resolve)));
     for (let index = 0; index < 120; index += 1) {
       await page.mouse.move(
         interactionBounds.x + interactionBounds.width * ([0.2, 0.5, 0.8][index % 3] ?? 0.5),
         interactionBounds.y + interactionBounds.height * 0.45,
       );
-      await page.waitForTimeout(60);
+      const observation = await page.evaluate(() => new Promise<{ current: number; times: string[] }>((resolve) => {
+        requestAnimationFrame((current) => resolve({
+          current,
+          times: [...document.querySelectorAll<HTMLElement>(".chart-ohlcv-time")].map((node) => node.textContent ?? ""),
+        }));
+      }));
+      allFrames.push(observation.current - previous);
+      observation.times.forEach((value, paneIndex) => observedTimes[paneIndex]?.add(value));
+      previous = observation.current;
     }
-    return 120;
-  })();
-  const [representativeWorkload, dispatchedCrosshairUpdates] = await Promise.all([sampling, driving]);
-  expect(dispatchedCrosshairUpdates).toBe(120);
-  expect(representativeWorkload.panesWithChangingOhlc).toBe(16);
-  const frames = representativeWorkload.values.slice(20);
-  const resizeStress = await page.evaluate(async () => {
+    const representativeWorkload = {
+      dispatchedCrosshairUpdates: allFrames.length,
+      panesWithChangingOhlc: observedTimes.filter((times) => times.size >= 2).length,
+    };
+    const frames = allFrames.slice(20);
+    persist({ frameP95Ms: p95(frames), frames, phase: "representative-workload", representativeWorkload });
+    await testInfo.attach("low-power-performance.partial.json", { contentType: "application/json", path: metricsPath });
+    expect(representativeWorkload.dispatchedCrosshairUpdates).toBe(120);
+    expect(representativeWorkload.panesWithChangingOhlc).toBe(16);
+    const resizeStress = await page.evaluate(async () => {
     const grid = document.querySelector<HTMLElement>(".chart-pane-grid");
     if (!grid) throw new Error("Dense chart grid is unavailable");
     const stages = [...document.querySelectorAll<HTMLElement>(".chart-stage")];
@@ -101,49 +102,50 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
       restoredCanvases: restored.filter((size, index) => size.canvasWidth === initial[index].canvasWidth).length,
       restoredContainers: restored.filter((size, index) => Math.abs(size.containerWidth - initial[index].containerWidth) < 0.5).length,
     };
-  });
-  expect(resizeStress.iterations).toBe(20);
-  expect(resizeStress.changedContainers).toBe(16);
-  expect(resizeStress.changedCanvases).toBe(16);
-  expect(resizeStress.restoredContainers).toBe(16);
-  expect(resizeStress.restoredCanvases).toBe(16);
-  await expect(page.locator(".chart-stage")).toHaveCount(16);
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  const interactions: number[] = [];
-  for (let index = 0; index < 5; index += 1) {
-    interactions.push(await page.evaluate(async () => {
+    });
+    persist({
+      frameP95Ms: p95(frames), frames, phase: "resize-stress", representativeWorkload,
+      resizeStressP95Ms: p95(resizeStress.durations), resizeStress,
+    });
+    expect(resizeStress.iterations).toBe(20);
+    expect(resizeStress.changedContainers).toBe(16);
+    expect(resizeStress.changedCanvases).toBe(16);
+    expect(resizeStress.restoredContainers).toBe(16);
+    expect(resizeStress.restoredCanvases).toBe(16);
+    await expect(page.locator(".chart-stage")).toHaveCount(16);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const interactions: number[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      interactions.push(await page.evaluate(async () => {
       const start = performance.now();
       document.querySelector<HTMLButtonElement>('[aria-label="Open command palette"]')?.click();
       while (!document.querySelector('[role="dialog"][aria-label="EdgeLab command palette"]')) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
       return performance.now() - start;
-    }));
-    await expect(page.getByRole("dialog", { name: "EdgeLab command palette" })).toBeVisible();
-    await page.keyboard.press("Escape");
+      }));
+      await expect(page.getByRole("dialog", { name: "EdgeLab command palette" })).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
+    const after = await client.send("Performance.getMetrics");
+    const value = (result: typeof before, name: string) => result.metrics.find((item) => item.name === name)?.value ?? 0;
+    const result = {
+      frameP95Ms: p95(frames), frames,
+      interactionP95Ms: p95(interactions), interactions,
+      representativeWorkload,
+      resizeStressP95Ms: p95(resizeStress.durations),
+      resizeStress,
+      layoutCountDelta: value(after, "LayoutCount") - value(before, "LayoutCount"),
+      recalcStyleCountDelta: value(after, "RecalcStyleCount") - value(before, "RecalcStyleCount"),
+      taskDurationDelta: value(after, "TaskDuration") - value(before, "TaskDuration"),
+    };
+    persist(result);
+    await testInfo.attach("low-power-performance.json", { contentType: "application/json", path: metricsPath });
+    expect(result.frameP95Ms).toBeLessThanOrEqual(budgets.runtime.sixteenPaneFrameP95Ms);
+    expect(result.resizeStressP95Ms).toBeLessThanOrEqual(budgets.runtime.sixteenPaneResizeStressP95Ms);
+    expect(result.interactionP95Ms).toBeLessThanOrEqual(budgets.runtime.interactionP95Ms);
+  } finally {
+    if (throttled) await client.send("Emulation.setCPUThrottlingRate", { rate: 1 }).catch(() => undefined);
+    await client.detach().catch(() => undefined);
   }
-  const after = await client.send("Performance.getMetrics");
-  await client.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-  await client.detach();
-  const value = (result: typeof before, name: string) => result.metrics.find((item) => item.name === name)?.value ?? 0;
-  const result = {
-    frameP95Ms: p95(frames), frames,
-    interactionP95Ms: p95(interactions), interactions,
-    representativeWorkload: {
-      dispatchedCrosshairUpdates,
-      panesWithChangingOhlc: representativeWorkload.panesWithChangingOhlc,
-    },
-    resizeStressP95Ms: p95(resizeStress.durations),
-    resizeStress,
-    layoutCountDelta: value(after, "LayoutCount") - value(before, "LayoutCount"),
-    recalcStyleCountDelta: value(after, "RecalcStyleCount") - value(before, "RecalcStyleCount"),
-    taskDurationDelta: value(after, "TaskDuration") - value(before, "TaskDuration"),
-  };
-  const metricsPath = testInfo.outputPath("low-power-performance.json");
-  writeFileSync(metricsPath, `${JSON.stringify(result, null, 2)}\n`);
-  console.log(`[low-power-performance] ${JSON.stringify(result)}`);
-  await testInfo.attach("low-power-performance.json", { contentType: "application/json", path: metricsPath });
-  expect(result.frameP95Ms).toBeLessThanOrEqual(budgets.runtime.sixteenPaneFrameP95Ms);
-  expect(result.resizeStressP95Ms).toBeLessThanOrEqual(budgets.runtime.sixteenPaneResizeStressP95Ms);
-  expect(result.interactionP95Ms).toBeLessThanOrEqual(budgets.runtime.interactionP95Ms);
 });
