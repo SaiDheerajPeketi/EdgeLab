@@ -25,6 +25,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { OverlaySurface } from "../overlays/OverlaySurface";
+import { hasActiveOverlay } from "../overlays/useOverlayDismiss";
 
 type Tone = "neutral" | "info" | "success" | "warning" | "error";
 type ActionTone = "primary" | "secondary" | "quiet" | "destructive";
@@ -194,7 +195,7 @@ export function Table({ children, label, className = "" }: { children: ReactNode
 
 export function Tooltip({ children, content }: { children: ReactNode; content: string }) {
   const [open, setOpen] = useState(false); const anchorRef = useRef<HTMLSpanElement>(null); const surfaceRef = useRef<HTMLDivElement>(null); const id = useId();
-  return <><span ref={anchorRef} aria-describedby={open ? id : undefined} className="inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)} onFocusCapture={() => setOpen(true)} onBlurCapture={() => setOpen(false)}>{children}</span><OverlaySurface anchorRef={anchorRef} surfaceRef={surfaceRef} open={open} onDismiss={() => setOpen(false)} portal preferredWidth={180} estimatedHeight={48} gap={6} id={id} role="tooltip" className="z-[190] rounded-[var(--radius-sm)] bg-[var(--ui-floating)] px-2.5 py-1.5 text-xs leading-5 text-[var(--text-primary)] shadow-[var(--elevation-floating)] ring-1 ring-[var(--ui-border-strong)]">{content}</OverlaySurface></>;
+  return <><span ref={anchorRef} aria-describedby={open ? id : undefined} className="inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)} onFocusCapture={() => setOpen(true)} onBlurCapture={() => setOpen(false)}>{children}</span><OverlaySurface anchorRef={anchorRef} blocksModalEscape={false} surfaceRef={surfaceRef} open={open} onDismiss={() => setOpen(false)} portal preferredWidth={180} estimatedHeight={48} gap={6} id={id} role="tooltip" className="z-[190] rounded-[var(--radius-sm)] bg-[var(--ui-floating)] px-2.5 py-1.5 text-xs leading-5 text-[var(--text-primary)] shadow-[var(--elevation-floating)] ring-1 ring-[var(--ui-border-strong)]">{content}</OverlaySurface></>;
 }
 
 export function Popover({ anchor, children, label, open, onOpenChange, align = "left" }: { anchor: (props: { ref: React.RefObject<HTMLButtonElement>; onClick: () => void; expanded: boolean }) => ReactNode; children: ReactNode; label: string; open: boolean; onOpenChange: (open: boolean) => void; align?: "left" | "right" }) {
@@ -221,7 +222,33 @@ type ModalSurfaceProps = {
 
 function ModalFrame({ ariaDescribedBy, ariaLabelledBy, children, className = "", dismissBlocked = false, initialFocusRef, label, onClose, placement = "right", kind }: Omit<ModalSurfaceProps, "open"> & { kind: "dialog" | "drawer" }) {
   const frameRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null; const overflow = document.body.style.overflow; document.body.style.overflow = "hidden"; window.requestAnimationFrame(() => (initialFocusRef?.current ?? frameRef.current?.querySelector<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])'))?.focus()); const key = (event: KeyboardEvent) => { if (shouldDismissModalOnEscape(event, document) && !dismissBlocked) { event.preventDefault(); onClose(); } if (event.key === "Tab" && frameRef.current) trapFocus(event, frameRef.current); }; document.addEventListener("keydown", key); return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", key); previous?.focus({ preventScroll: true }); }; }, [dismissBlocked, initialFocusRef, onClose]);
+  const dismissBlockedRef = useRef(dismissBlocked);
+  const onCloseRef = useRef(onClose);
+  dismissBlockedRef.current = dismissBlocked;
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusFrame = window.requestAnimationFrame(() => (
+      initialFocusRef?.current
+      ?? frameRef.current?.querySelector<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')
+    )?.focus());
+    const key = (event: KeyboardEvent) => {
+      if (shouldDismissModalOnEscape(event, document) && !dismissBlockedRef.current) {
+        event.preventDefault();
+        onCloseRef.current();
+      }
+      if (event.key === "Tab" && frameRef.current) trapFocus(event, frameRef.current);
+    };
+    document.addEventListener("keydown", key);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = overflow;
+      document.removeEventListener("keydown", key);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [initialFocusRef]);
   const bottomDrawer = kind === "drawer" && placement === "bottom";
   const base = kind === "drawer" ? bottomDrawer ? "ui-drawer-surface ui-drawer-surface-bottom max-h-[90dvh] w-full overflow-auto rounded-t-[var(--radius-lg)] bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]" : "ui-drawer-surface h-full w-[min(30rem,100vw)] overflow-auto bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]" : "ui-dialog-surface max-h-[min(90dvh,52rem)] w-full max-w-lg overflow-auto rounded-[var(--radius-lg)] bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]";
   return createPortal(<div data-modal-backdrop="true" className={`ui-modal-backdrop fixed inset-0 z-[200] flex bg-[var(--ui-overlay-backdrop)] ${kind === "drawer" ? bottomDrawer ? "items-end justify-center" : "justify-end" : "items-center justify-center p-3"}`} onMouseDown={(event) => { if (event.target === event.currentTarget && !dismissBlocked) onClose(); }}><div data-motion={kind} data-drawer-placement={kind === "drawer" ? placement : undefined} data-modal-surface={kind} ref={frameRef} role="dialog" aria-modal="true" aria-label={ariaLabelledBy ? undefined : label} aria-labelledby={ariaLabelledBy} aria-describedby={ariaDescribedBy} className={`${base} ${className}`}>{children}</div></div>, document.body);
@@ -237,9 +264,8 @@ const ToastContext = createContext<(toast: Omit<ToastRecord, "id">) => void>(() 
 export function ToastProvider({ children }: { children: ReactNode }) { const [toasts, setToasts] = useState<ToastRecord[]>([]); const push = useMemo(() => (toast: Omit<ToastRecord, "id">) => { const id = crypto.randomUUID(); setToasts((current) => [...current, { ...toast, id }]); window.setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), toast.duration ?? 6000); }, []); return <ToastContext.Provider value={push}>{children}{typeof document === "undefined" ? null : createPortal(<div className="pointer-events-none fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] end-4 z-[220] grid w-[min(24rem,calc(100vw-2rem))] gap-2" role="region" aria-label="Notifications" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className="pointer-events-auto rounded-[var(--radius-md)] bg-[var(--ui-floating)] p-3 shadow-[var(--elevation-floating)] ring-1 ring-[var(--ui-border-strong)]"><div className="flex gap-3"><div className="min-w-0 flex-1"><strong className="text-sm text-[var(--text-primary)]">{toast.title}</strong><p className="mt-0.5 text-xs leading-5 text-[var(--text-secondary)]">{toast.message}</p></div><IconButton icon={X} label="Dismiss notification" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} /></div></div>)}</div>, document.body)}</ToastContext.Provider>; }
 export function useToast() { return useContext(ToastContext); }
 
-export function shouldDismissModalOnEscape(event: Pick<KeyboardEvent, "defaultPrevented" | "key">, ownerDocument: Pick<Document, "documentElement">) {
-  void ownerDocument;
-  return event.key === "Escape" && !event.defaultPrevented;
+export function shouldDismissModalOnEscape(event: Pick<KeyboardEvent, "defaultPrevented" | "key">, ownerDocument: Document) {
+  return event.key === "Escape" && !event.defaultPrevented && !hasActiveOverlay(ownerDocument);
 }
 
 function trapFocus(event: KeyboardEvent, container: HTMLElement) { const elements = [...container.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]; const first = elements[0]; const last = elements.at(-1); if (!first || !last) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }

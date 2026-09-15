@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, CircleHelp, Command, CornerDownLeft, LoaderCircle, Search, X } from "lucide-react";
 import type { WorkspaceView } from "../lib/workspace";
 import { WORKSPACE_NAVIGATION_SECTIONS, isWorkspaceNavigationItem } from "../lib/workspaceNavigation";
@@ -7,6 +7,13 @@ import { pushWorkspaceRoute } from "../lib/workspaceRoute";
 import { Dialog, IconButton } from "./ui/Primitives";
 
 type CommandItem = { id: string; label: string; detail: string; keywords: string; group: string; run: () => void };
+
+function isCommandPaletteShortcut(event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "repeat">) {
+  return !event.altKey
+    && !event.repeat
+    && (event.metaKey || event.ctrlKey)
+    && (event.code === "KeyK" || event.key.toLowerCase() === "k");
+}
 
 export function GlobalCommandPalette({ commandEntities = [], onNavigate, onSelectSymbol, symbols = [] }: { commandEntities?: SearchableCommandEntity[]; onNavigate: (view: WorkspaceView) => void; onSelectSymbol?: (symbol: string) => void; symbols?: string[] }) {
   const [open, setOpen] = useState(false);
@@ -34,15 +41,15 @@ export function GlobalCommandPalette({ commandEntities = [], onNavigate, onSelec
   const matchingCommands = (value: string) => commands.map((item) => ({ item, score: commandSearchScore(item, value) })).filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label)).slice(0, 80).map(({ item }) => item);
   const filtered = useMemo(() => matchingCommands(query), [commands, query]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const editing = target?.matches("input, textarea, select, [contenteditable=true]");
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette("commands"); }
+      if (isCommandPaletteShortcut(event)) { event.preventDefault(); openPalette("commands"); }
       else if (!editing && !open && event.key === "?") { event.preventDefault(); openPalette("shortcuts"); }
     };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
+    document.addEventListener("keydown", keydown, true);
+    return () => document.removeEventListener("keydown", keydown, true);
   }, [open]);
   useEffect(() => setActiveIndex(0), [query, mode]);
 

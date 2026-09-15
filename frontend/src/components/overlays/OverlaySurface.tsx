@@ -39,6 +39,7 @@ type OverlaySurfaceProps = {
   ariaDescribedBy?: string;
   ariaLabel?: string;
   ariaLabelledBy?: string;
+  blocksModalEscape?: boolean;
   children: ReactNode;
   className: string;
   estimatedHeight?: number;
@@ -63,6 +64,7 @@ export function OverlaySurface({
   ariaDescribedBy,
   ariaLabel,
   ariaLabelledBy,
+  blocksModalEscape = true,
   children,
   className,
   estimatedHeight = 320,
@@ -80,7 +82,7 @@ export function OverlaySurface({
 }: OverlaySurfaceProps) {
   const [geometry, setGeometry] = useState<OverlayGeometry | null>(null);
 
-  useOverlayDismiss({ anchorRef, onDismiss, open, surfaceRef });
+  useOverlayDismiss({ anchorRef, blocksModalEscape, onDismiss, open, surfaceRef });
   useFocusReturn({ open, surfaceRef, triggerRef: triggerRef ?? anchorRef });
 
   useLayoutEffect(() => {

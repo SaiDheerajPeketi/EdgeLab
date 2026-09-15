@@ -126,11 +126,26 @@ test("nested overlays own Escape before their parent modal", () => {
   const primitives = readComponent("ui/Primitives.tsx");
   assert.match(primitives, /shouldDismissModalOnEscape\(event, document\)/);
   assert.match(primitives, /!event\.defaultPrevented/);
-  assert.match(primitives, /dataset\.overlayActive !== "true"/);
+  assert.match(primitives, /!hasActiveOverlay\(ownerDocument\)/);
+  assert.doesNotMatch(primitives, /dataset\.overlayActive !== "true"/);
+  assert.match(primitives, /blocksModalEscape=\{false\}[\s\S]*?role="tooltip"/);
 
   const dismiss = readComponent("overlays/useOverlayDismiss.ts");
-  assert.match(dismiss, /if \(!isTopOverlay\(id\)\)/);
+  assert.match(dismiss, /export function hasActiveOverlay/);
+  assert.match(dismiss, /entry\.ownerDocument === ownerDocument/);
+  assert.match(dismiss, /entry\.blocksModalEscape/);
+  assert.match(dismiss, /if \(!isTopOverlay\(id, ownerDocument\)\)/);
   assert.match(dismiss, /event\.preventDefault\(\);\s*onDismissRef\.current\("escape"\)/);
+});
+
+test("modal focus restoration survives callback-only rerenders", () => {
+  const primitives = readComponent("ui/Primitives.tsx");
+  assert.match(primitives, /const onCloseRef = useRef\(onClose\)/);
+  assert.match(primitives, /onCloseRef\.current = onClose/);
+  assert.match(primitives, /onCloseRef\.current\(\)/);
+  assert.match(primitives, /window\.cancelAnimationFrame\(focusFrame\)/);
+  assert.match(primitives, /previous\?\.isConnected\) previous\.focus\(\{ preventScroll: true \}\)/);
+  assert.doesNotMatch(primitives, /\[dismissBlocked, initialFocusRef, onClose\]/);
 });
 
 test("replay date picker enters and restores the keyboard focus path", () => {

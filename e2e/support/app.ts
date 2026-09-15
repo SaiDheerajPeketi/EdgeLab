@@ -52,7 +52,7 @@ export async function installDeterminism(
     // real socket to reject it creates an endless reconnect cycle that makes
     // visual settling depend on machine timing.
     const NativeWebSocket = globalThis.WebSocket;
-    class DatasetFixtureWebSocket extends EventTarget {
+    class DeterministicFixtureWebSocket extends EventTarget {
       static readonly CONNECTING = NativeWebSocket.CONNECTING;
       static readonly OPEN = NativeWebSocket.OPEN;
       static readonly CLOSING = NativeWebSocket.CLOSING;
@@ -75,8 +75,11 @@ export async function installDeterminism(
 
       constructor(url: string | URL, protocols?: string | string[]) {
         const resolved = String(url);
-        if (!new URL(resolved, window.location.href).pathname.endsWith("/api/datasets/stream")) {
-          return new NativeWebSocket(resolved, protocols) as unknown as DatasetFixtureWebSocket;
+        const parsed = new URL(resolved, window.location.href);
+        const isDatasetStream = parsed.pathname.endsWith("/api/datasets/stream");
+        const isBinanceStream = parsed.hostname.endsWith("binance.com");
+        if (!isDatasetStream && !isBinanceStream) {
+          return new NativeWebSocket(resolved, protocols) as unknown as DeterministicFixtureWebSocket;
         }
         super();
         this.url = resolved;
@@ -86,11 +89,13 @@ export async function installDeterminism(
           const opened = new Event("open");
           this.dispatchEvent(opened);
           this.onopen?.call(this as unknown as WebSocket, opened);
-          const message = new MessageEvent("message", {
-            data: JSON.stringify({ catalog: datasetCatalog, type: "catalog" }),
-          });
-          this.dispatchEvent(message);
-          this.onmessage?.call(this as unknown as WebSocket, message);
+          if (isDatasetStream) {
+            const message = new MessageEvent("message", {
+              data: JSON.stringify({ catalog: datasetCatalog, type: "catalog" }),
+            });
+            this.dispatchEvent(message);
+            this.onmessage?.call(this as unknown as WebSocket, message);
+          }
         });
       }
 
@@ -106,7 +111,7 @@ export async function installDeterminism(
     }
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,
-      value: DatasetFixtureWebSocket as unknown as typeof WebSocket,
+      value: DeterministicFixtureWebSocket as unknown as typeof WebSocket,
     });
 
     (globalThis as typeof globalThis & { __edgeLayoutShifts?: number[] }).__edgeLayoutShifts = [];

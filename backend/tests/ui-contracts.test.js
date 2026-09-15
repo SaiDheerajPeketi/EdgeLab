@@ -42,6 +42,9 @@ test("command palette integrates real Journal entities and exact deep links", ()
   assert.match(palette, /symbols\.slice\(0, 200\)/);
   assert.match(palette, /Keyboard shortcut reference/);
   assert.match(palette, /aria-activedescendant/);
+  assert.match(palette, /useLayoutEffect/);
+  assert.match(palette, /document\.addEventListener\("keydown", keydown, true\)/);
+  assert.match(palette, /event\.code === "KeyK"/);
 });
 
 test("density, navigation memory, and spatial motion are global contracts", () => {

@@ -4,21 +4,45 @@ export type OverlayDismissReason = "escape" | "outside";
 
 type OverlayElement = HTMLElement | null;
 
-const overlayStack: symbol[] = [];
+type OverlayStackEntry = {
+  blocksModalEscape: boolean;
+  id: symbol;
+  ownerDocument: Document;
+};
+
+const overlayStack: OverlayStackEntry[] = [];
 
 function removeFromStack(id: symbol) {
-  const index = overlayStack.lastIndexOf(id);
+  let index = -1;
+  for (let candidate = overlayStack.length - 1; candidate >= 0; candidate -= 1) {
+    if (overlayStack[candidate]?.id === id) {
+      index = candidate;
+      break;
+    }
+  }
   if (index >= 0) {
     overlayStack.splice(index, 1);
   }
 }
 
-function isTopOverlay(id: symbol) {
-  return overlayStack.at(-1) === id;
+function isTopOverlay(id: symbol, ownerDocument: Document) {
+  for (let index = overlayStack.length - 1; index >= 0; index -= 1) {
+    const entry = overlayStack[index];
+    if (entry?.ownerDocument === ownerDocument) {
+      return entry.id === id;
+    }
+  }
+  return false;
+}
+
+export function hasActiveOverlay(ownerDocument: Document) {
+  return overlayStack.some((entry) => (
+    entry.ownerDocument === ownerDocument && entry.blocksModalEscape
+  ));
 }
 
 function syncOverlayState(ownerDocument: Document) {
-  const active = overlayStack.length > 0;
+  const active = hasActiveOverlay(ownerDocument);
   if (active) {
     ownerDocument.documentElement.dataset.overlayActive = "true";
   } else {
@@ -41,11 +65,13 @@ function eventPathContains(event: Event, element: OverlayElement) {
 
 export function useOverlayDismiss({
   anchorRef,
+  blocksModalEscape = true,
   onDismiss,
   open,
   surfaceRef,
 }: {
   anchorRef: RefObject<HTMLElement>;
+  blocksModalEscape?: boolean;
   onDismiss: (reason: OverlayDismissReason) => void;
   open: boolean;
   surfaceRef: RefObject<HTMLElement>;
@@ -67,12 +93,12 @@ export function useOverlayDismiss({
       anchorRef.current?.ownerDocument ??
       surfaceRef.current?.ownerDocument ??
       document;
-    overlayStack.push(id);
+    overlayStack.push({ blocksModalEscape, id, ownerDocument });
     syncOverlayState(ownerDocument);
 
     const handlePointerDown = (event: PointerEvent) => {
       if (
-        !isTopOverlay(id) ||
+        !isTopOverlay(id, ownerDocument) ||
         eventPathContains(event, anchorRef.current) ||
         eventPathContains(event, surfaceRef.current)
       ) {
@@ -83,7 +109,7 @@ export function useOverlayDismiss({
 
     const handleFocusIn = (event: FocusEvent) => {
       if (
-        !isTopOverlay(id) ||
+        !isTopOverlay(id, ownerDocument) ||
         eventPathContains(event, anchorRef.current) ||
         eventPathContains(event, surfaceRef.current)
       ) {
@@ -93,7 +119,7 @@ export function useOverlayDismiss({
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isTopOverlay(id)) {
+      if (!isTopOverlay(id, ownerDocument)) {
         return;
       }
 
@@ -116,5 +142,5 @@ export function useOverlayDismiss({
       removeFromStack(id);
       syncOverlayState(ownerDocument);
     };
-  }, [anchorRef, open, surfaceRef]);
+  }, [anchorRef, blocksModalEscape, open, surfaceRef]);
 }

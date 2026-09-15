@@ -37,7 +37,7 @@ test("dense data, overlays, and microfeedback use shared production contracts", 
   assert.ok(primitives.includes("[&_th]:sticky"));
   assert.ok(primitives.includes("[&_.numeric]:text-end"));
   assert.match(primitives, /trapFocus/);
-  assert.match(primitives, /previous\?\.focus/);
+  assert.match(primitives, /previous\?\.isConnected\) previous\.focus/);
   assert.match(journalControls, /data-motion="microfeedback"/);
   assert.match(styles, /\[data-motion="microfeedback"\]:active/);
   assert.match(styles, /\[data-motion="route-surface"\]/);

@@ -78,6 +78,15 @@ async function expectChartPaneGeometry(page: Page, panes: number, columns: numbe
   expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.innerWidth + 1);
 }
 
+async function expectChartPanesPopulated(page: Page, panes: number) {
+  const timestamps = page.locator(".chart-pane-grid > .chart-pane-shell .chart-ohlcv-time");
+  await expect(timestamps).toHaveCount(panes);
+  await expect(timestamps.filter({ hasText: "No candle" })).toHaveCount(0);
+  await page.evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  ));
+}
+
 test.describe("authenticated route visual baselines", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
@@ -114,6 +123,7 @@ test.describe("authenticated route visual baselines", () => {
     await page.getByRole("button", { exact: true, name: "Tools" }).click();
     await page.getByRole("button", { exact: true, name: "Full Screen" }).click();
     await expect(page.getByRole("button", { exact: true, name: "Exit" })).toBeVisible();
+    await expectChartPanesPopulated(page, 16);
     await expectChartPaneGeometry(page, 16, testInfo.project.name === "mobile" ? 1 : 4);
     await expect(page.locator(".chart-pane-grid")).toHaveScreenshot("chart-fullscreen.png", {
       mask: [page.locator(".chart-plot-column")],
@@ -137,6 +147,7 @@ test.describe("authenticated route visual baselines", () => {
         : layout.id === "grid-16"
           ? testInfo.project.name === "tablet" ? 2 : 4
           : 2;
+      await expectChartPanesPopulated(page, layout.panes);
       await expectChartPaneGeometry(page, layout.panes, columns);
       await expect(page.locator(".chart-pane-grid")).toHaveScreenshot(`${layout.name}.png`, {
         mask: [page.locator(".chart-plot-column")],
@@ -340,6 +351,7 @@ test.describe("accessibility and adaptive operation", () => {
   test("command menu navigates into the Journal and preserves a usable filter workflow", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Command navigation is checked once.");
     await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+    await expect(page.getByRole("button", { name: "Open command palette" })).toBeVisible();
     await page.keyboard.press("Control+K");
     const palette = page.getByRole("dialog", { name: "EdgeLab command palette" });
     await expect(palette).toBeVisible();
