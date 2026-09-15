@@ -1,0 +1,65 @@
+import { AlertCircle, Check, ChevronDown, Filter, RefreshCw, X } from "lucide-react";
+import type { ReactNode } from "react";
+import type { JournalAccount, JournalTag } from "../../lib/journalApi";
+import { inferMarket, tagOptions, type JournalFilters } from "../../lib/journalAnalytics";
+import type { JournalAccountScope } from "../../lib/journalWorkspaceState";
+
+export const journalFieldClass = "min-h-10 w-full rounded-md border border-white/10 bg-[#0a0d11] px-3 text-sm text-slate-100 outline-none focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50";
+
+export function JournalScopeControl({ accounts, scope, onChange }: { accounts: JournalAccount[]; scope: JournalAccountScope; onChange: (scope: JournalAccountScope) => void }) {
+  const selectionValue = scope.mode === "all" ? "all" : scope.accountIds.length === 1 ? String(scope.accountIds[0]) : "selected";
+  return <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+    <label className="min-w-0 flex-1 text-xs font-medium text-slate-400">Account scope
+      <select className={`${journalFieldClass} mt-1`} value={selectionValue} onChange={(event) => {
+        const value = event.target.value;
+        if (value === "all") onChange({ mode: "all", accountIds: [] });
+        else if (value === "selected") onChange({ mode: "selected", accountIds: scope.accountIds.length ? scope.accountIds : accounts.slice(0, 2).map((account) => account.id) });
+        else onChange({ mode: "selected", accountIds: [Number(value)] });
+      }}><option value="all">All accounts</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}{accounts.length > 1 ? <option value="selected">Selected accounts…</option> : null}</select>
+    </label>
+    {selectionValue === "selected" ? <fieldset className="min-w-0 flex-[1.2] rounded-md border border-white/10 p-2"><legend className="px-1 text-[11px] text-slate-500">Include accounts</legend><div className="flex max-h-24 flex-wrap gap-1.5 overflow-auto">{accounts.map((account) => { const checked = scope.accountIds.includes(account.id); return <label key={account.id} className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded px-2 text-xs ${checked ? "bg-cyan-300/10 text-cyan-100" : "bg-white/[0.03] text-slate-400"}`}><input type="checkbox" className="sr-only" checked={checked} onChange={() => { const accountIds = checked ? scope.accountIds.filter((id) => id !== account.id) : [...scope.accountIds, account.id]; onChange(accountIds.length ? { mode: "selected", accountIds } : { mode: "all", accountIds: [] }); }} />{checked ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : null}<span className="h-2 w-2 rounded-full" style={{ backgroundColor: account.color ?? "#71717a" }} />{account.name}</label>; })}</div></fieldset> : null}
+  </div>;
+}
+
+export function JournalFilterBar({ accounts, filters, tags, trades, onChange }: { accounts: JournalAccount[]; filters: JournalFilters; tags: JournalTag[]; trades: Array<{ symbol: string; strategy_name: string | null }>; onChange: (filters: JournalFilters) => void }) {
+  const symbols = [...new Set(trades.map((trade) => trade.symbol))].sort();
+  const strategies = [...new Set(trades.map((trade) => trade.strategy_name ?? "Unassigned"))].sort();
+  const markets = [...new Set(trades.map((trade) => inferMarket(trade.symbol)))].sort();
+  const activeCount = Number(Boolean(filters.dateFrom)) + Number(Boolean(filters.dateTo)) + filters.accountIds.length + Number(filters.symbol !== "ALL") + Number(filters.market !== "ALL") + Number(filters.strategy !== "ALL") + Number(filters.direction !== "ALL") + Number(filters.rating !== "ALL") + filters.tagIds.length;
+  return <details className="group border-y border-white/10 bg-white/[0.015]">
+    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm text-slate-300 outline-none hover:bg-white/[0.025] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300"><Filter aria-hidden="true" className="h-4 w-4" /><span className="font-medium">Analytics filters</span><span className="text-xs text-slate-600">{activeCount ? `${activeCount} active` : "All available data"}</span><ChevronDown aria-hidden="true" className="ml-auto h-4 w-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary>
+    <div className="grid gap-3 border-t border-white/10 p-3 sm:grid-cols-2 xl:grid-cols-4">
+      <FilterSelect label="Account" value={filters.accountIds.length === 1 ? String(filters.accountIds[0]) : "ALL"} onChange={(value) => onChange({ ...filters, accountIds: value === "ALL" ? [] : [Number(value)] })}><option value="ALL">Scope accounts</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</FilterSelect>
+      <FilterSelect label="Market" value={filters.market} onChange={(value) => onChange({ ...filters, market: value })}><option value="ALL">All markets</option>{markets.map((market) => <option key={market}>{market}</option>)}</FilterSelect>
+      <FilterSelect label="Symbol" value={filters.symbol} onChange={(value) => onChange({ ...filters, symbol: value })}><option value="ALL">All symbols</option>{symbols.map((symbol) => <option key={symbol}>{symbol}</option>)}</FilterSelect>
+      <FilterSelect label="Strategy" value={filters.strategy} onChange={(value) => onChange({ ...filters, strategy: value })}><option value="ALL">All strategies</option>{strategies.map((strategy) => <option key={strategy}>{strategy}</option>)}</FilterSelect>
+      <FilterSelect label="Direction" value={filters.direction} onChange={(value) => onChange({ ...filters, direction: value as JournalFilters["direction"] })}><option value="ALL">All directions</option><option value="LONG">Long</option><option value="SHORT">Short</option></FilterSelect>
+      <FilterSelect label="Rating" value={filters.rating} onChange={(value) => onChange({ ...filters, rating: value as JournalFilters["rating"] })}><option value="ALL">All ratings</option><option value="UNRATED">Unrated</option>{[1,2,3,4,5].map((rating) => <option key={rating} value={rating}>{rating} star{rating === 1 ? "" : "s"}</option>)}</FilterSelect>
+      <label className="text-xs text-slate-500">From<input type="date" value={filters.dateFrom} onChange={(event) => onChange({ ...filters, dateFrom: event.target.value })} className={`${journalFieldClass} mt-1`} /></label>
+      <label className="text-xs text-slate-500">To<input type="date" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(event) => onChange({ ...filters, dateTo: event.target.value })} className={`${journalFieldClass} mt-1`} /></label>
+      <fieldset className="sm:col-span-2 xl:col-span-3"><legend className="text-xs text-slate-500">Tags · all selected must match</legend><div className="mt-1 flex max-h-24 flex-wrap gap-1.5 overflow-auto rounded-md border border-white/10 p-2">{tagOptions(tags).map((tag) => { const checked = filters.tagIds.includes(tag.id); return <label key={tag.id} className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded px-2 text-xs ${checked ? "bg-cyan-300/10 text-cyan-100" : "bg-white/[0.03] text-slate-400 hover:bg-white/[0.06]"}`}><input type="checkbox" className="sr-only" checked={checked} onChange={() => onChange({ ...filters, tagIds: checked ? filters.tagIds.filter((id) => id !== tag.id) : [...filters.tagIds, tag.id] })} /><span className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color ?? "#71717a" }} />{tag.name}</label>; })}{!tags.length ? <span className="text-xs text-slate-600">No reusable tags yet.</span> : null}</div></fieldset>
+      <button type="button" disabled={!activeCount} onClick={() => onChange({ accountIds: [], dateFrom: "", dateTo: "", direction: "ALL", market: "ALL", rating: "ALL", strategy: "ALL", symbol: "ALL", tagIds: [] })} className="mt-auto inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm text-slate-300 hover:bg-white/5 disabled:opacity-40"><X aria-hidden="true" className="h-4 w-4" />Clear filters</button>
+    </div>
+  </details>;
+}
+
+function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) {
+  return <label className="text-xs text-slate-500">{label}<select className={`${journalFieldClass} mt-1`} value={value} onChange={(event) => onChange(event.target.value)}>{children}</select></label>;
+}
+
+export function JournalError({ message, onRetry, onDismiss }: { message: string; onRetry?: () => void; onDismiss?: () => void }) {
+  return <div role="alert" className="flex flex-col gap-3 border-y border-rose-400/25 bg-rose-400/[0.06] px-4 py-3 text-sm text-rose-100 sm:flex-row sm:items-center"><AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1">{message}</span><div className="flex gap-2">{onRetry ? <button type="button" onClick={onRetry} className="inline-flex min-h-9 items-center gap-1.5 rounded px-2 font-semibold text-white hover:bg-rose-400/10"><RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />Retry</button> : null}{onDismiss ? <button type="button" onClick={onDismiss} className="min-h-9 rounded px-2 text-rose-200 hover:bg-rose-400/10">Dismiss</button> : null}</div></div>;
+}
+
+export function JournalSkeleton({ rows = 6 }: { rows?: number }) {
+  return <div className="animate-pulse space-y-3 p-4 motion-reduce:animate-none" aria-label="Loading Journal" role="status"><div className="h-7 w-48 rounded bg-white/8" />{Array.from({ length: rows }, (_, index) => <div key={index} className="grid grid-cols-[4rem_1fr_7rem] gap-3 border-b border-white/5 py-3"><span className="h-4 rounded bg-white/6" /><span className="h-4 rounded bg-white/6" /><span className="h-4 rounded bg-white/6" /></div>)}</div>;
+}
+
+export function JournalEmpty({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
+  return <div className="mx-auto max-w-lg px-5 py-14 text-center"><h2 className="text-lg font-semibold text-white">{title}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">{detail}</p>{action ? <div className="mt-5 flex justify-center">{action}</div> : null}</div>;
+}
+
+export function JournalButton({ children, onClick, disabled, tone = "secondary", type = "button" }: { children: ReactNode; onClick?: () => void; disabled?: boolean; tone?: "primary" | "secondary" | "danger"; type?: "button" | "submit" }) {
+  const toneClass = tone === "primary" ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200" : tone === "danger" ? "border border-rose-400/30 text-rose-200 hover:bg-rose-400/10" : "border border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.07]";
+  return <button type={type} onClick={onClick} disabled={disabled} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45 ${toneClass}`}>{children}</button>;
+}

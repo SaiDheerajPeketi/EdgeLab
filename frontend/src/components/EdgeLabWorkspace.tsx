@@ -273,6 +273,7 @@ import { ThemedSelect } from "./ThemedSelect";
 import { TradingChart } from "./TradingChart";
 import { TradeLog } from "./TradeLog";
 import { SettingsCenter } from "./settings/SettingsCenter";
+import { RelationalJournalWorkspace } from "./journal/RelationalJournalWorkspace";
 
 type WorkspacePageView = Exclude<WorkspaceView, "backtest" | "sessions">;
 
@@ -890,7 +891,7 @@ export function EdgeLabWorkspace({
       return <FinanceTrackerPage journalAccounts={liveJournal.data.accounts} />;
     case "journal":
     case "journalTrades":
-      return <JournalWorkspacePage journal={liveJournal} view="journalTrades" />;
+      return <RelationalJournalWorkspace view={view} />;
     case "live":
       return <LiveMarketsPage />;
     case "positionSizeCalculator":
@@ -903,7 +904,7 @@ export function EdgeLabWorkspace({
     case "journalReports":
     case "journalSessions":
     case "journalStrategies":
-      return <JournalWorkspacePage journal={liveJournal} view={view} />;
+      return <RelationalJournalWorkspace view={view} />;
     case "journalSettings":
       return settingsCenter("journal");
     case "notebook":

@@ -78,40 +78,40 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 ### 1. Integrated chart and journal experience
 
 - [ ] `JRN-01 · P0 · Partial` — Add a dockable, collapsible, resizable Journal panel directly beside both Live and Replay charts; the current Journal is a separate workspace.
-- [ ] `JRN-02 · P1 · Missing` — Add compact and expanded Journal modes, preserving the current chart, selected symbol, time range, account scope, and open trade when switching modes.
-- [ ] `JRN-03 · P0 · Missing` — Create a common right-panel manager for Journal, Watchlist, Quant chat, Data Window, Objects, and code editor panels, including open/close and width persistence.
-- [ ] `JRN-04 · P0 · Partial` — Add one persistent account-scope control—All Accounts, one account, or selected accounts—and apply it consistently to dashboard, trades, calendar, notes, and analytics. Current filters are page-specific.
-- [ ] `JRN-05 · P1 · Missing` — Preserve deep links between chart, trade, calendar day, daily note, analytics segment, and account so every drill-down can return to its originating context.
-- [ ] `JRN-06 · P1 · Missing` — Add first-run Journal onboarding with the add-account prompt shown in the reference.
-- [ ] `JRN-07 · P2 · Missing` — Add an optional sample-trades import/reset flow for evaluating the Journal before connecting or importing a real account.
+- [x] `JRN-02 · P1 · Missing` — Add compact and expanded Journal modes, preserving the current chart, selected symbol, time range, account scope, and open trade when switching modes.
+- [x] `JRN-03 · P0 · Missing` — Create a common right-panel manager for Journal, Watchlist, Quant chat, Data Window, Objects, and code editor panels, including open/close and width persistence.
+- [x] `JRN-04 · P0 · Partial` — Add one persistent account-scope control—All Accounts, one account, or selected accounts—and apply it consistently to dashboard, trades, calendar, notes, and analytics. Current filters are page-specific.
+- [x] `JRN-05 · P1 · Missing` — Preserve deep links between chart, trade, calendar day, daily note, analytics segment, and account so every drill-down can return to its originating context.
+- [x] `JRN-06 · P1 · Missing` — Add first-run Journal onboarding with the add-account prompt shown in the reference.
+- [x] `JRN-07 · P2 · Missing` — Add an optional sample-trades import/reset flow for evaluating the Journal before connecting or importing a real account.
 
 ### 2. Broker accounts, synchronization, CSV ingestion, and manual entry
 
-- [ ] `ACC-01 · P0 · Missing` — Build a broker/integration catalog grouped by crypto, stocks/options, futures, and other supported markets instead of a free-text broker field.
-- [ ] `ACC-02 · P0 · Missing` — Build the broker-account connection flow: provider selection, authorization/API credentials, account discovery, account selection, initial synchronization, and disconnect/reconnect.
-- [ ] `ACC-03 · P0 · Missing` — Synchronize connected accounts and closed trades automatically in near real time.
-- [ ] `ACC-04 · P1 · Missing` — Add an explicit Refresh action plus last-synced time, connection state, pending state, and provider error/recovery messages.
+- [x] `ACC-01 · P0 · Missing` — Build a broker/integration catalog grouped by crypto, stocks/options, futures, and other supported markets instead of a free-text broker field.
+- [x] `ACC-02 · P0 · Missing` — Build the broker-account connection flow: provider selection, authorization/API credentials, account discovery, account selection, initial synchronization, and disconnect/reconnect.
+- [x] `ACC-03 · P0 · Missing` — Synchronize connected accounts and closed trades automatically in near real time.
+- [x] `ACC-04 · P1 · Missing` — Add an explicit Refresh action plus last-synced time, connection state, pending state, and provider error/recovery messages.
 - [x] `ACC-05 · P0 · Missing` — Implement incremental synchronization using provider trade/order IDs and cursors so repeated refreshes are idempotent.
 - [x] `ACC-06 · P0 · Missing` — Reconcile fills and partial fills into closed trades, including scaling in/out, commissions, fees, corrections, cancelled orders, and provider-side edits.
-- [ ] `ACC-07 · P0 · Partial` — Reuse the existing Backtest CSV parser as a true Journal/account import path; imported trades must populate Journal accounts, dashboard, calendar, notes, comparison, and analytics.
-- [ ] `ACC-08 · P1 · Partial` — Add Journal import presets and instructions for broker exports, including the Tradovate “export Orders, not Performance” workflow demonstrated in the video.
-- [ ] `ACC-09 · P1 · Partial` — Extend import review with destination account create/select, source timezone, currency, symbol normalization, previewed trade grouping, duplicate detection, and editable mapping.
-- [ ] `ACC-10 · P1 · Missing` — Add a durable import history with imported/skipped/duplicate/error counts, row-level diagnostics, and safe rollback of one import.
-- [ ] `ACC-11 · P1 · Partial` — Add a global quick “Add trade” action that does not require pre-creating or entering a Journal session.
-- [ ] `ACC-12 · P1 · Partial` — Complete manual-entry parity: account, symbol/contract, buy/sell or long/short, quantity, entry and exit fills/times, prices, costs, stop, target, tags, rating, grade, and notes.
+- [x] `ACC-07 · P0 · Partial` — Reuse the existing Backtest CSV parser as a true Journal/account import path; imported trades must populate Journal accounts, dashboard, calendar, notes, comparison, and analytics.
+- [x] `ACC-08 · P1 · Partial` — Add Journal import presets and instructions for broker exports, including the Tradovate “export Orders, not Performance” workflow demonstrated in the video.
+- [x] `ACC-09 · P1 · Partial` — Extend import review with destination account create/select, source timezone, currency, symbol normalization, previewed trade grouping, duplicate detection, and editable mapping.
+- [x] `ACC-10 · P1 · Missing` — Add a durable import history with imported/skipped/duplicate/error counts, row-level diagnostics, and safe rollback of one import.
+- [x] `ACC-11 · P1 · Partial` — Add a global quick “Add trade” action that does not require pre-creating or entering a Journal session.
+- [x] `ACC-12 · P1 · Partial` — Complete manual-entry parity: account, symbol/contract, buy/sell or long/short, quantity, entry and exit fills/times, prices, costs, stop, target, tags, rating, grade, and notes.
 
 ### 3. Trade model, review workflow, and chart linkage
 
-- [ ] `TRD-01 · P0 · Partial` — Normalize imported broker orders/fills and manually entered executions into a single canonical trade record while retaining the raw execution trail.
-- [ ] `TRD-02 · P1 · Missing` — Add a persistent reviewed/unreviewed state and review queue.
-- [ ] `TRD-03 · P1 · Missing` — Add a 1–5 star trade rating.
-- [ ] `TRD-04 · P1 · Missing` — Add a formal setup/quality grade such as A+, A, B, and C; do not overload mistake tags for this.
-- [ ] `TRD-05 · P1 · Partial` — Generalize current mistake tags into reusable positive/setup tags and mistake/process tags, with custom tag management.
-- [ ] `TRD-06 · P1 · Partial` — Add a dedicated multi-select tag filter. Current free-text search can match tags but cannot compose precise tag filters.
-- [ ] `TRD-07 · P1 · Partial` — Extend the trade-review editor to save reviewed state, rating, setup grade, generalized tags, entry, exit, stop, target, notes, and screenshots together.
+- [x] `TRD-01 · P0 · Partial` — Normalize imported broker orders/fills and manually entered executions into a single canonical trade record while retaining the raw execution trail.
+- [x] `TRD-02 · P1 · Missing` — Add a persistent reviewed/unreviewed state and review queue.
+- [x] `TRD-03 · P1 · Missing` — Add a 1–5 star trade rating.
+- [x] `TRD-04 · P1 · Missing` — Add a formal setup/quality grade such as A+, A, B, and C; do not overload mistake tags for this.
+- [x] `TRD-05 · P1 · Partial` — Generalize current mistake tags into reusable positive/setup tags and mistake/process tags, with custom tag management.
+- [x] `TRD-06 · P1 · Partial` — Add a dedicated multi-select tag filter. Current free-text search can match tags but cannot compose precise tag filters.
+- [x] `TRD-07 · P1 · Partial` — Extend the trade-review editor to save reviewed state, rating, setup grade, generalized tags, entry, exit, stop, target, notes, and screenshots together.
 - [ ] `TRD-08 · P0 · Partial` — Add “show on chart” for live/imported Journal trades. EdgeLab has replay-trade focusing, but Journal trades cannot currently drive the Live chart.
 - [ ] `TRD-09 · P0 · Missing` — On chart navigation, load the correct symbol and historical interval, center the exact entry/exit period, and draw entry, exit, stop, target, direction, and fill markers.
-- [ ] `TRD-10 · P1 · Partial` — Use the same review drawer from trade list, recent trades, calendar day, account view, comparison, analytics drill-down, and chart marker.
+- [x] `TRD-10 · P1 · Partial` — Use the same review drawer from trade list, recent trades, calendar day, account view, comparison, analytics drill-down, and chart marker.
 
 ### 4. Journal dashboard, calendar, daily notes, and account comparison
 

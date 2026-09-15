@@ -775,6 +775,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function apiRequest<T>(path: string, init?: RequestInit) {
+  return request<T>(path, init);
+}
+
 async function requestWithAuthorization<T>(
   path: string,
   token: string,
