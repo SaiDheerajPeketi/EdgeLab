@@ -1,0 +1,59 @@
+name: UI regression
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "1"
+      EDGELAB_E2E_PYTHON: python
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+          python-version: "3.12"
+
+      - name: Install application dependencies
+        run: |
+          npm ci
+          python -m pip install -r backend/requirements.txt
+
+      - name: Install pinned Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run deterministic UI gate
+        run: npm run test:ui
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: ignore
+          name: ui-regression-artifacts
+          path: .artifacts/
+          retention-days: 14

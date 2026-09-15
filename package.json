@@ -15,6 +15,9 @@
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
     "test": "node --test \"backend/tests/*.test.js\"",
+    "test:ui": "playwright test",
+    "test:ui:update": "playwright test --update-snapshots",
+    "test:ui:report": "playwright show-report .artifacts/ui-report",
     "bench:seed": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/seed_benchmark_data.py",
     "bench:load": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/load_test_services.py",
     "bench:bootstrap-profiles": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/benchmark_bootstrap_profiles.py",
@@ -27,6 +30,7 @@
     "analytics:refresh-read-models": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.0",
     "dom-to-svg": "^0.12.2",
     "esbuild": "^0.21.5",
     "playwright-core": "^1.55.0"

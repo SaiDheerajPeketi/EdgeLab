@@ -1,0 +1,73 @@
+import { expect, test } from "@playwright/test";
+import {
+  expectStableScreenshot,
+  gotoStable,
+  installDeterminism,
+  settlePage,
+  seedGoogleCallback,
+} from "./support/app";
+
+const publicSurfaces = [
+  { fullPage: true, heading: "Replay the market. Preserve the decision.", level: 1, name: "landing", path: "/" },
+  { fullPage: false, heading: "Core workflow. Limited beta.", level: 2, name: "pricing", path: "/pricing" },
+  { fullPage: true, heading: "Privacy Policy", level: 1, name: "privacy", path: "/privacy" },
+  { fullPage: true, heading: "Terms of Use", level: 1, name: "terms", path: "/terms" },
+  { fullPage: true, heading: "Continue to EdgeLab.", level: 1, name: "signin", path: "/auth/signin" },
+  { fullPage: true, heading: "Reserve your beta place.", level: 1, name: "waitlist", path: "/auth/signin?waitlist=1" },
+  { fullPage: true, heading: "Page not found", level: 1, name: "not-found", path: "/missing-ui-regression-route" },
+] as const;
+
+const authErrors = [
+  { name: "expired", query: "reason=oauth-state-expired", title: "Your sign-in expired." },
+  { name: "cancelled", query: "error=access_denied", title: "Sign-in was cancelled." },
+  { name: "denied", query: "reason=access-denied", title: "Beta access is not available for this account." },
+  { name: "retryable", query: "error=exchange_failed", title: "We could not finish signing in." },
+] as const;
+
+test.describe("public and authentication visual baselines", () => {
+  test.beforeEach(async ({ page }) => {
+    await installDeterminism(page);
+  });
+
+  for (const surface of publicSurfaces) {
+    test(`${surface.name} surface`, async ({ page }) => {
+      await gotoStable(page, surface.path);
+      await expect(page.getByRole("heading", { level: surface.level, name: surface.heading })).toBeVisible();
+      if (surface.name === "pricing") {
+        await page.locator("#pricing").evaluate(async (element) => {
+          const top = window.scrollY + element.getBoundingClientRect().top;
+          window.scrollTo(0, Math.round(top));
+          await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+      }
+      await expectStableScreenshot(page, surface.name, { fullPage: surface.fullPage });
+    });
+  }
+
+  for (const error of authErrors) {
+    test(`authentication error: ${error.name}`, async ({ page }) => {
+      await gotoStable(page, `/auth/signin?${error.query}&from=%2Fapp%2Freports`);
+      await expect(page.getByRole("heading", { level: 1, name: error.title })).toBeVisible();
+      await expectStableScreenshot(page, `auth-error-${error.name}`);
+    });
+  }
+
+  test("callback transition", async ({ page }) => {
+    await seedGoogleCallback(page, "/app/reports");
+    let exchangeStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { exchangeStarted = resolve; });
+    await page.route("**/api/auth/google/exchange", async () => {
+      exchangeStarted?.();
+      await new Promise(() => undefined);
+    });
+
+    const navigation = page.goto(
+      "/auth/callback/google?code=visual-code&state=visual-oauth-state",
+      { waitUntil: "domcontentloaded" },
+    );
+    await Promise.all([navigation, started]);
+    await expect(page.getByRole("heading", { level: 1, name: "Restoring your EdgeLab session." })).toBeVisible();
+    await settlePage(page, { waitForNetworkIdle: false });
+    await expectStableScreenshot(page, "auth-callback", { fullPage: false });
+  });
+});
