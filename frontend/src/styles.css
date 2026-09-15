@@ -33,7 +33,7 @@
 
   --text-primary: #f0f2f5;
   --text-secondary: #8b95a5;
-  --text-muted: #4a5360;
+  --text-muted: #8b95a5;
   --text-accent: var(--accent-primary);
 
   /* Backlit chart theme mapped onto EdgeLab palette. */
@@ -143,6 +143,15 @@
   --motion-public-base: 420ms;
 }
 
+/* Touch sizing must follow generated utility rules so fixed h-8/h-10 controls
+   cannot override the coarse-pointer accessibility contract. */
+@media (pointer: coarse) {
+  :where(a, button, [role="button"], [role="menuitem"], [role="option"], input, select, textarea) {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+}
+
 [data-icon-button="true"] > svg { width: var(--icon-md); height: var(--icon-md); stroke-width: 1.75; }
 
 :root[data-density="compact"] { --control-height: var(--density-compact); }
@@ -157,6 +166,11 @@ html { background: var(--ui-canvas); scrollbar-color: var(--scrollbar-thumb) var
 body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary); }
 ::selection { background: var(--accent-primary-dim); color: var(--text-primary); }
 :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* Compact operating labels still carry meaning and must remain AA-readable. */
+[data-ui-version="v2"] :where(.text-slate-500, .text-slate-600) {
+  color: var(--text-secondary);
+}
 
 @media (pointer: coarse) {
   :where(button, [role="button"], input, select, textarea) { min-height: var(--density-touch); }

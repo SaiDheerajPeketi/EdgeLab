@@ -61,6 +61,11 @@ export function ThemedSelect({
   const optionIdPrefix = `${listboxId}-option`;
   const selectedValue = value ?? internalValue;
   const selectedOption = options.find((option) => option.value === selectedValue);
+  const accessibleLabel = ariaLabel ?? (
+    optionText(selectedOption?.label) ||
+    optionText(placeholder) ||
+    "Select option"
+  );
 
   useEffect(() => {
     if (value == null) {
@@ -233,7 +238,7 @@ export function ThemedSelect({
         aria-controls={listboxId}
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label={ariaLabel}
+        aria-label={accessibleLabel}
         className="themed-select-trigger touch-manipulation motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11"
         disabled={disabled}
         onBlur={handleTriggerBlur}
@@ -256,7 +261,7 @@ export function ThemedSelect({
       <OverlaySurface
         align={align}
         anchorRef={triggerRef}
-        ariaLabel={ariaLabel}
+        ariaLabel={accessibleLabel}
         className={`themed-select-menu ${portal ? "themed-select-menu-floating" : align === "right" ? "right-0" : "left-0"} ${menuClassName}`}
         estimatedHeight={288}
         id={listboxId}

@@ -53,7 +53,9 @@ import {
   LineChart,
   List,
   ListOrdered,
+  Maximize2,
   MessageSquareQuote,
+  Minimize2,
   MoreHorizontal,
   NotebookPen,
   Palette,
@@ -3975,6 +3977,7 @@ function LiveChartStudio({
   symbolCode: string;
   ticker: LiveTicker | null;
 }) {
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [chartPaneLayout, setChartPaneLayout] = useState<ChartPaneLayoutId>(() =>
     sanitizeChartPaneLayout(loadLiveChartLayout()?.paneLayout),
   );
@@ -3997,6 +4000,7 @@ function LiveChartStudio({
   const lastNeutralDrawingToolRef = useRef<Extract<DrawingTool, "cursor" | "crosshair">>("crosshair");
   const timeframeShortcutBufferRef = useRef("");
   const timeframeShortcutTimerRef = useRef<number | null>(null);
+  const chartStudioRef = useRef<HTMLDivElement | null>(null);
   const chartPaneLayoutDefinition = chartPaneLayoutById(chartPaneLayout);
   const visibleChartPanes = chartPanes.slice(0, chartPaneLayoutDefinition.panes);
   const activeChartPane =
@@ -4021,6 +4025,35 @@ function LiveChartStudio({
     };
   }));
   const journalFocusRange = useMemo(() => journalChartFocus ? journalFocusVisibleRange(journalChartFocus, journalChartFocus.tradeId) : null, [journalChartFocus]);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      if (document.fullscreenElement === chartStudioRef.current) {
+        setIsFullscreen(true);
+      } else if (!document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  function toggleFullscreen() {
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+      }
+      return;
+    }
+    setIsFullscreen(true);
+    const element = chartStudioRef.current;
+    if (element && document.fullscreenElement !== element && element.requestFullscreen) {
+      void element.requestFullscreen().catch(() => {
+        // The fixed in-app layout remains available when native fullscreen is denied.
+      });
+    }
+  }
 
   useEffect(() => {
     const nextSymbol = symbolCode || symbol;
@@ -4505,7 +4538,10 @@ function LiveChartStudio({
   }
 
   return (
-    <div className="relative">
+    <div
+      className={`relative ${isFullscreen ? "chart-fullscreen-shell fixed inset-0 z-[90] overflow-auto bg-[#05070a]" : ""}`}
+      ref={chartStudioRef}
+    >
       {timeframeShortcutFeedback && <TimeframeShortcutOverlay feedback={timeframeShortcutFeedback} />}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="flex flex-wrap gap-2">
@@ -4538,6 +4574,10 @@ function LiveChartStudio({
           <button className={`control-button h-9 px-3 text-xs ${layersPanelOpen ? "workspace-tab-active" : ""}`} onClick={() => setLayersPanelOpen((value) => !value)} type="button">
             <LayersIcon />
             Layers
+          </button>
+          <button className="control-button h-9 px-3 text-xs" onClick={toggleFullscreen} type="button">
+            {isFullscreen ? <Minimize2 aria-hidden="true" size={14} /> : <Maximize2 aria-hidden="true" size={14} />}
+            {isFullscreen ? "Exit" : "Full Screen"}
           </button>
         </div>
       </div>
@@ -5875,7 +5915,7 @@ function findAngelOneSymbolForTick(symbols: LiveWatchlistSymbol[], payload: Ange
 }
 
 function liveSymbolColor(symbol: string) {
-  const palette = ["#0891b2", "#0f766e", "#2563eb", "#7c3aed", "#be123c", "#c2410c", "#4d7c0f", "#0369a1"];
+  const palette = ["#0e7490", "#0f766e", "#1d4ed8", "#6d28d9", "#be123c", "#9a3412", "#3f6212", "#0369a1"];
   const hash = Array.from(symbol).reduce((sum, character) => sum + character.charCodeAt(0), 0);
   return palette[hash % palette.length];
 }
