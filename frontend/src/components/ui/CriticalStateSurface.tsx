@@ -47,7 +47,11 @@ export function CriticalStateSurface({ state, title, detail, actionLabel, onActi
         <p className="ui-critical-state__detail">{detail ?? descriptor.detail}</p>
         {timestamp ? <p className="ui-critical-state__timestamp">Last verified {timestamp}</p> : null}
       </div>
-      {action ?? (label && onAction ? <button className="ui-critical-state__action" onClick={onAction} type="button">{label}</button> : null)}
+      {action || (label && onAction) ? (
+        <div className="ui-critical-state__actions">
+          {action ?? <button className="ui-critical-state__action" onClick={onAction} type="button">{label}</button>}
+        </div>
+      ) : null}
     </section>
   );
 }

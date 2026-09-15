@@ -25,8 +25,16 @@ test.describe("Journal critical-state visual baselines", () => {
     }));
 
     await gotoStable(page, "/app/journal/dashboard", { waitForNetworkIdle: false });
-    await expect(page.getByText("Build your relational Journal", { exact: true }).first()).toBeAttached();
-    await expect(page.getByRole("button", { name: "Create or connect account" }).first()).toBeAttached();
+    const onboarding = page.locator(".ui-critical-state:visible").filter({ hasText: "Build your relational Journal" });
+    await expect(onboarding).toBeVisible();
+    await expect(onboarding.getByRole("button", { name: "Create or connect account" })).toBeVisible();
+    const geometry = await onboarding.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return { left: box.left, right: box.right, viewport: window.innerWidth, scrollWidth: document.documentElement.scrollWidth };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.viewport + 1);
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport + 1);
     await expectStableScreenshot(page, "journal-empty-onboarding", { fullPage: false });
   });
 
