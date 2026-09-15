@@ -77,7 +77,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 ### 1. Integrated chart and journal experience
 
-- [ ] `JRN-01 · P0 · Partial` — Add a dockable, collapsible, resizable Journal panel directly beside both Live and Replay charts; the current Journal is a separate workspace.
+- [x] `JRN-01 · P0 · Partial` — Add a dockable, collapsible, resizable Journal panel directly beside both Live and Replay charts; the current Journal is a separate workspace.
 - [x] `JRN-02 · P1 · Missing` — Add compact and expanded Journal modes, preserving the current chart, selected symbol, time range, account scope, and open trade when switching modes.
 - [x] `JRN-03 · P0 · Missing` — Create a common right-panel manager for Journal, Watchlist, Quant chat, Data Window, Objects, and code editor panels, including open/close and width persistence.
 - [x] `JRN-04 · P0 · Partial` — Add one persistent account-scope control—All Accounts, one account, or selected accounts—and apply it consistently to dashboard, trades, calendar, notes, and analytics. Current filters are page-specific.
@@ -109,41 +109,41 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [x] `TRD-05 · P1 · Partial` — Generalize current mistake tags into reusable positive/setup tags and mistake/process tags, with custom tag management.
 - [x] `TRD-06 · P1 · Partial` — Add a dedicated multi-select tag filter. Current free-text search can match tags but cannot compose precise tag filters.
 - [x] `TRD-07 · P1 · Partial` — Extend the trade-review editor to save reviewed state, rating, setup grade, generalized tags, entry, exit, stop, target, notes, and screenshots together.
-- [ ] `TRD-08 · P0 · Partial` — Add “show on chart” for live/imported Journal trades. EdgeLab has replay-trade focusing, but Journal trades cannot currently drive the Live chart.
-- [ ] `TRD-09 · P0 · Missing` — On chart navigation, load the correct symbol and historical interval, center the exact entry/exit period, and draw entry, exit, stop, target, direction, and fill markers.
+- [x] `TRD-08 · P0 · Partial` — Add “show on chart” for live/imported Journal trades. EdgeLab has replay-trade focusing, but Journal trades cannot currently drive the Live chart.
+- [x] `TRD-09 · P0 · Missing` — On chart navigation, load the correct symbol and historical interval, center the exact entry/exit period, and draw entry, exit, stop, target, direction, and fill markers.
 - [x] `TRD-10 · P1 · Partial` — Use the same review drawer from trade list, recent trades, calendar day, account view, comparison, analytics drill-down, and chart marker.
 
 ### 4. Journal dashboard, calendar, daily notes, and account comparison
 
-- [ ] `DSH-01 · P1 · Partial` — Make the main dashboard account-scope aware and show aggregate net/gross P&L, win rate, profit factor, trade count, costs, balance, and drawdown for that scope. It currently emphasizes the latest day and all active accounts.
-- [ ] `DSH-02 · P1 · Partial` — Add the main dashboard equity curve; equity exists elsewhere but not in the Journal command-center layout shown in the video.
-- [ ] `DSH-03 · P1 · Missing` — Implement Edge Score comparing a recent period with the immediately preceding equivalent period.
-- [ ] `DSH-04 · P1 · Missing` — Define and expose the Edge Score components, comparison window, change direction, confidence/sample size, and explanation instead of presenting an opaque score.
-- [ ] `DSH-05 · P1 · Missing` — Add a risk-behavior panel using measurable behavior such as planned-versus-actual risk, stop adherence, oversizing, loss escalation, and rule/tag violations.
-- [ ] `DSH-06 · P1 · Partial` — Make dashboard calendar cells clickable and open the selected day’s trades and note; the separate Day View already supports day selection.
-- [ ] `DSH-07 · P1 · Partial` — Make dashboard recent trades clickable and open the shared review flow.
+- [x] `DSH-01 · P1 · Partial` — Make the main dashboard account-scope aware and show aggregate net/gross P&L, win rate, profit factor, trade count, costs, balance, and drawdown for that scope. It currently emphasizes the latest day and all active accounts.
+- [x] `DSH-02 · P1 · Partial` — Add the main dashboard equity curve; equity exists elsewhere but not in the Journal command-center layout shown in the video.
+- [x] `DSH-03 · P1 · Missing` — Implement Edge Score comparing a recent period with the immediately preceding equivalent period.
+- [x] `DSH-04 · P1 · Missing` — Define and expose the Edge Score components, comparison window, change direction, confidence/sample size, and explanation instead of presenting an opaque score.
+- [x] `DSH-05 · P1 · Missing` — Add a risk-behavior panel using measurable behavior such as planned-versus-actual risk, stop adherence, oversizing, loss escalation, and rule/tag violations.
+- [x] `DSH-06 · P1 · Partial` — Make dashboard calendar cells clickable and open the selected day’s trades and note; the separate Day View already supports day selection.
+- [x] `DSH-07 · P1 · Partial` — Make dashboard recent trades clickable and open the shared review flow.
 - [x] `DSH-08 · P0 · Missing` — Add a Daily Note entity independent of a trade, keyed by date and optional account scope, so no-trade days can also be journaled.
-- [ ] `DSH-09 · P1 · Missing` — Create/edit a daily note from the dashboard calendar and Day View.
-- [ ] `DSH-10 · P1 · Missing` — Automatically display every trade for that date inside its Daily Note and link each one to review/chart.
-- [ ] `DSH-11 · P1 · Partial` — Expand Notes into a searchable daily-notes library while retaining the current trade-note library; include account/date filters and empty/no-trade days.
-- [ ] `DSH-12 · P1 · Missing` — Add two independent account selectors for side-by-side comparison.
-- [ ] `DSH-13 · P1 · Missing` — Compare the two accounts across KPI cards, equity curves, calendar, drawdown, costs, directions, symbols/markets, times, hold durations, sizes, tags, ratings, and strategies.
-- [ ] `DSH-14 · P0 · Missing` — Define mixed-currency behavior for aggregate and comparison views: explicit non-combinable mode or dated FX normalization with the rate/source shown.
+- [x] `DSH-09 · P1 · Missing` — Create/edit a daily note from the dashboard calendar and Day View.
+- [x] `DSH-10 · P1 · Missing` — Automatically display every trade for that date inside its Daily Note and link each one to review/chart.
+- [x] `DSH-11 · P1 · Partial` — Expand Notes into a searchable daily-notes library while retaining the current trade-note library; include account/date filters and empty/no-trade days.
+- [x] `DSH-12 · P1 · Missing` — Add two independent account selectors for side-by-side comparison.
+- [x] `DSH-13 · P1 · Missing` — Compare the two accounts across KPI cards, equity curves, calendar, drawdown, costs, directions, symbols/markets, times, hold durations, sizes, tags, ratings, and strategies.
+- [x] `DSH-14 · P0 · Missing` — Define mixed-currency behavior for aggregate and comparison views: explicit non-combinable mode or dated FX normalization with the rate/source shown.
 
 ### 5. Journal analytics and weak-spot discovery
 
-- [ ] `ANL-01 · P1 · Partial` — Add shared date-range, account, symbol/market, strategy, and tag filters across every Journal analytics view.
-- [ ] `ANL-02 · P1 · Missing` — Add performance breakdown by market/asset class.
-- [ ] `ANL-03 · P1 · Missing` — Add performance breakdown by symbol/contract.
-- [ ] `ANL-04 · P1 · Missing` — Add long-versus-short direction analysis.
-- [ ] `ANL-05 · P1 · Missing` — Add holding-duration buckets and best/worst duration analysis.
-- [ ] `ANL-06 · P1 · Missing` — Add position-size or risk-size buckets and best/worst size analysis.
-- [ ] `ANL-07 · P1 · Missing` — Add tag-level performance, frequency, win rate, expectancy, P&L, and sample size.
-- [ ] `ANL-08 · P1 · Missing` — Add rating-level performance and correlation between rating/grade and results.
-- [ ] `ANL-09 · P1 · Missing` — Add “positions by market” and “positions by symbol” asset-mix pie/donut charts.
-- [ ] `ANL-10 · P1 · Partial` — Add a consolidated weak-spots summary ranking best/worst weekday, hour, market, symbol, direction, hold duration, position size, tag, rating, and account. EdgeLab currently has only some of these dimensions.
-- [ ] `ANL-11 · P1 · Missing` — Show gross result, transaction costs, and net result within every relevant breakdown so the user can identify what costs the most.
-- [ ] `ANL-12 · P2 · Missing` — Make each analytics row/bar/segment drill into the exact matching trades and shared review flow.
+- [x] `ANL-01 · P1 · Partial` — Add shared date-range, account, symbol/market, strategy, and tag filters across every Journal analytics view.
+- [x] `ANL-02 · P1 · Missing` — Add performance breakdown by market/asset class.
+- [x] `ANL-03 · P1 · Missing` — Add performance breakdown by symbol/contract.
+- [x] `ANL-04 · P1 · Missing` — Add long-versus-short direction analysis.
+- [x] `ANL-05 · P1 · Missing` — Add holding-duration buckets and best/worst duration analysis.
+- [x] `ANL-06 · P1 · Missing` — Add position-size or risk-size buckets and best/worst size analysis.
+- [x] `ANL-07 · P1 · Missing` — Add tag-level performance, frequency, win rate, expectancy, P&L, and sample size.
+- [x] `ANL-08 · P1 · Missing` — Add rating-level performance and correlation between rating/grade and results.
+- [x] `ANL-09 · P1 · Missing` — Add “positions by market” and “positions by symbol” asset-mix pie/donut charts.
+- [x] `ANL-10 · P1 · Partial` — Add a consolidated weak-spots summary ranking best/worst weekday, hour, market, symbol, direction, hold duration, position size, tag, rating, and account. EdgeLab currently has only some of these dimensions.
+- [x] `ANL-11 · P1 · Missing` — Show gross result, transaction costs, and net result within every relevant breakdown so the user can identify what costs the most.
+- [x] `ANL-12 · P2 · Missing` — Make each analytics row/bar/segment drill into the exact matching trades and shared review flow.
 
 ### 6. Core chart shell, instruments, sessions, and live data
 
@@ -223,7 +223,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 - [ ] `AI-01 · P0 · Missing` — Add a docked Quant assistant on the chart rather than a separate generic help surface.
 - [ ] `AI-02 · P0 · Missing` — Persist and list both chart-analysis conversations and backtest/indicator-building conversations.
-- [ ] `AI-03 · P0 · Missing` — Stream assistant responses and expose queued/running/completed/failed/cancelled generation states.
+- [x] `AI-03 · P0 · Missing` — Stream assistant responses and expose queued/running/completed/failed/cancelled generation states.
 - [ ] `AI-04 · P0 · Missing` — Supply structured chart context: symbol, provider, timeframe, timezone, visible/history bars, session mode, active indicators, settings, drawings, selected objects, and selected region.
 - [ ] `AI-05 · P1 · Missing` — Add a model selector for supported AI models.
 - [ ] `AI-06 · P1 · Missing` — Show the per-model token/credit/cost policy before use and display actual usage afterward.
@@ -231,7 +231,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `AI-08 · P0 · Missing` — Generate a custom indicator from natural language or dictation and write the source into the indicator editor.
 - [ ] `AI-09 · P1 · Missing` — Allow iterative follow-up edits in the same conversation while retaining the prior source, chart context, and test result.
 - [ ] `AI-10 · P1 · Missing` — Let the assistant add the generated indicator to the active chart and expose its settings immediately.
-- [ ] `AI-11 · P0 · Missing` — Automatically backtest a generated study over a stated window—the demonstration uses 60 days—with configurable symbol, timeframe, rules, costs, and sample range.
+- [x] `AI-11 · P0 · Missing` — Automatically backtest a generated study over a stated window—the demonstration uses 60 days—with configurable symbol, timeframe, rules, costs, and sample range.
 - [ ] `AI-12 · P1 · Missing` — Return reproducible backtest assumptions, metrics, warnings, source version, and rerun controls instead of only prose.
 - [ ] `AI-13 · P0 · Missing` — Send a full-chart screenshot and its structured chart context directly to the assistant.
 - [ ] `AI-14 · P1 · Missing` — Add chart-image analysis that can return a reasoned daily bias, relevant levels, invalidation, uncertainty, and risk warning.
@@ -258,7 +258,7 @@ These belong in the product roadmap but should not be treated as prerequisites f
 - [x] `PLT-05 · P0 · Missing` — Build normalized market-data storage/streaming for candles, trades, depth, footprint aggregates, historical backfill, and multi-pane fan-out.
 - [x] `PLT-06 · P0 · Missing` — Add data/provider entitlements and billing gates for free crypto/equity/ETF order flow versus paid futures access, matching the commercial behavior described in the video.
 - [ ] `PLT-07 · P0 · Missing` — Add durable storage for custom scripts, AI conversations, generated artifacts, full workspaces, and share snapshots with explicit ownership.
-- [ ] `PLT-08 · P0 · Missing` — Add focused automated coverage for import reconciliation, broker sync idempotency, rating/notes analytics, market session/timezone behavior, footprint aggregation, 16-pane synchronization, share permissions, AI usage accounting, and generated-code isolation.
+- [x] `PLT-08 · P0 · Missing` — Add focused automated coverage for import reconciliation, broker sync idempotency, rating/notes analytics, market session/timezone behavior, footprint aggregation, 16-pane synchronization, share permissions, AI usage accounting, and generated-code isolation.
 - [ ] `PLT-09 · P1 · Partial` — Add user-visible diagnostics and recovery for stale feeds, incomplete history, unsupported symbols, sync/import conflicts, indicator runtime errors, AI failures, and expired/revoked shares.
 
 ### 14. Product-wide UI/UX revamp
@@ -274,18 +274,18 @@ Use two expression levels inside one system:
 
 - [ ] `UIR-01 · P0 · Partial` — Inventory every route, panel, modal, menu, empty state, loading state, and error state; capture desktop, tablet, and mobile baselines and label each surface as retain, restyle, restructure, or replace.
 - [ ] `UIR-02 · P0 · Missing` — Produce and approve three production-grade cross-product direction studies before implementation, each showing the landing first viewport plus a dense authenticated screen and settings screen; choose one coherent EdgeLab world, not separate themes per page.
-- [ ] `UIR-03 · P0 · Missing` — Record durable product truth before the redesign and document the implemented visual system afterward, including the chosen direction, protected product behaviors, route-specific intent, and explicit non-goals.
+- [x] `UIR-03 · P0 · Missing` — Record durable product truth before the redesign and document the implemented visual system afterward, including the chosen direction, protected product behaviors, route-specific intent, and explicit non-goals.
 - [ ] `UIR-04 · P0 · Partial` — Consolidate semantic design tokens for backgrounds, surfaces, raised layers, borders, text, accents, focus, status, charts, spacing, radii, elevation, blur, and motion; migrate repeated one-off hex/RGBA and utility combinations in changed surfaces.
 - [ ] `UIR-05 · P0 · Partial` — Expand the current near-black/cyan palette into an accessible vibrant system with named roles for interaction, selection, information, profit, loss, warning, neutral, and chart series; keep the existing no-purple differentiator unless the brand direction is explicitly changed.
 - [ ] `UIR-06 · P0 · Partial` — Establish a responsive typography system for expressive public-page display type, workhorse application text, compact labels, and tabular financial data, with defined weights, line heights, truncation, and numeric alignment.
-- [ ] `UIR-07 · P0 · Partial` — Define one spacing, grid, sizing, and density system covering marketing sections, page scaffolds, app chrome, side panels, forms, cards, tables, chart toolbars, and 1-to-16-pane layouts.
-- [ ] `UIR-08 · P1 · Partial` — Define a restrained material and elevation language for base, inset, floating, modal, and selected surfaces so hierarchy does not depend on repeated white borders and near-identical dark cards.
+- [x] `UIR-07 · P0 · Partial` — Define one spacing, grid, sizing, and density system covering marketing sections, page scaffolds, app chrome, side panels, forms, cards, tables, chart toolbars, and 1-to-16-pane layouts.
+- [x] `UIR-08 · P1 · Partial` — Define a restrained material and elevation language for base, inset, floating, modal, and selected surfaces so hierarchy does not depend on repeated white borders and near-identical dark cards.
 - [ ] `UIR-09 · P0 · Partial` — Build shared, accessible primitives for buttons, icon buttons, fields, selects, comboboxes, toggles, checkboxes, radios, sliders, segmented controls, tabs, cards, tables, badges, tooltips, menus, popovers, dialogs, drawers, banners, and toasts.
 - [ ] `UIR-10 · P0 · Partial` — Specify and implement every component state—default, hover, pressed, focused, selected, disabled, read-only, loading, success, warning, error, and destructive—with consistent feedback and no color-only meaning.
 - [ ] `UIR-11 · P1 · Partial` — Standardize icon family, stroke weight, optical size, filled/outline usage, button sizing, labels, and tooltip rules; replace ambiguous icon-only actions or give them accessible names and discoverable help.
-- [ ] `UIR-12 · P0 · Partial` — Define one data-visualization language for chart series, P&L, benchmark/comparison, selections, annotations, calendars, heatmaps, distributions, and low-sample states, including color-blind-safe alternatives.
+- [x] `UIR-12 · P0 · Partial` — Define one data-visualization language for chart series, P&L, benchmark/comparison, selections, annotations, calendars, heatmaps, distributions, and low-sample states, including color-blind-safe alternatives.
 - [ ] `UIR-13 · P1 · Partial` — Create a product vocabulary and UX-copy pass so “Journal,” “Backtest,” “Replay,” “session,” “account,” “workspace,” “layout,” “settings,” and status messages are named consistently and written in direct, human language.
-- [ ] `UIR-14 · P0 · Missing` — Add a browsable component/state catalog with representative financial data, long labels, validation, loading, and empty cases so new feature teams reuse the system instead of reintroducing legacy patterns.
+- [x] `UIR-14 · P0 · Missing` — Add a browsable component/state catalog with representative financial data, long labels, validation, loading, and empty cases so new feature teams reuse the system instead of reintroducing legacy patterns.
 
 #### 14.2 App shell, navigation, and spatial continuity
 
@@ -300,7 +300,7 @@ Use two expression levels inside one system:
 - [ ] `UIR-23 · P0 · Partial` — Centralize layering, focus trapping, outside-click, Escape, scroll locking, portal placement, and viewport collision handling for menus, select lists, tooltips, color pickers, popovers, dialogs, and radial tools.
 - [ ] `UIR-24 · P1 · Partial` — Provide coherent compact, comfortable, full-screen, and multi-pane density behavior so controls remain usable from laptop to ultrawide without wasting space or shrinking hit targets.
 - [ ] `UIR-25 · P1 · Partial` — Consolidate profile, plan/entitlement, data-provider status, help, feedback, release information, and sign-out into a polished account/system menu rather than isolated footer controls.
-- [ ] `UIR-26 · P2 · Missing` — Add an always-current shortcut reference and contextual shortcut hints for charting, replay, Journal, navigation, layouts, drawings, and the Alt/Option circular toolbox.
+- [x] `UIR-26 · P2 · Missing` — Add an always-current shortcut reference and contextual shortcut hints for charting, replay, Journal, navigation, layouts, drawings, and the Alt/Option circular toolbox.
 
 #### 14.3 Landing and public experience — Persuade mode
 
@@ -352,7 +352,7 @@ Use two expression levels inside one system:
 
 #### 14.6 Motion, feedback, and “flowy” behavior
 
-- [ ] `UIR-66 · P0 · Partial` — Define one motion grammar with named durations, easings, distances, staggering limits, interruption rules, and allowed uses for public storytelling versus repeated application tasks.
+- [x] `UIR-66 · P0 · Partial` — Define one motion grammar with named durations, easings, distances, staggering limits, interruption rules, and allowed uses for public storytelling versus repeated application tasks.
 - [ ] `UIR-67 · P1 · Partial` — Use restrained route and section transitions that preserve spatial context and perceived continuity without blanking content, replaying on every back navigation, or delaying input.
 - [ ] `UIR-68 · P1 · Partial` — Animate panels, drawers, inspectors, dialogs, menus, layout changes, and responsive navigation from their spatial origin with reversible, interruption-safe transitions and stable focus.
 - [ ] `UIR-69 · P1 · Partial` — Add purposeful microfeedback for save, copy, import, sync, favorite, reorder, pin, connection, filter, and destructive actions; use optimistic feedback only where rollback and failure are clear.
@@ -373,7 +373,7 @@ Use two expression levels inside one system:
 - [ ] `UIR-81 · P0 · Missing` — Add interaction and accessibility tests for navigation, settings save/undo/errors, dialogs, menus, focus return, responsive navigation, reduced motion, imports, authentication, and the most important chart/Journaling flows.
 - [ ] `UIR-82 · P1 · Missing` — Validate the redesign with representative traders on first-visit comprehension, time-to-start/resume, settings discovery, chart-space efficiency, Journal review speed, error recovery, and keyboard/touch use; turn findings into measured acceptance criteria.
 - [ ] `UIR-83 · P0 · Missing` — Roll out by shared primitives and route groups behind controlled flags, migrate the shell before dependent screens, prevent old/new component mixing within a completed route, preserve deep links and data, and provide a reversible fallback until parity is verified.
-- [ ] `UIR-84 · P0 · Missing` — Define redesign completion per route: approved direction honored, behavior preserved, no legacy islands, responsive screenshots reviewed, critical states exercised, keyboard and screen-reader checks passed, performance budget met, and the resulting system documented.
+- [x] `UIR-84 · P0 · Missing` — Define redesign completion per route: approved direction honored, behavior preserved, no legacy islands, responsive screenshots reviewed, critical states exercised, keyboard and screen-reader checks passed, performance budget met, and the resulting system documented.
 
 ## Recommended implementation sequence
 
