@@ -145,6 +145,7 @@ export function subscribeAuthSession(listener: () => void) {
   const handleStorage = (event: StorageEvent) => {
     if (event.key === AUTH_STORAGE_KEY) {
       notifyListeners();
+      notifyAuthIdentityChange();
     }
   };
 

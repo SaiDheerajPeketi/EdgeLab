@@ -48,3 +48,11 @@ test("navigation state reloads per authenticated identity and clears on logout",
     assert.equal(JSON.parse(harness.session.get("edgelab.navigation-surfaces.v3.user-2"))["journal:trades"].selectedId, 22);
   } finally { harness.cleanup(); }
 });
+
+test("cross-tab authentication changes reload identity-scoped navigation state", () => {
+  const source = fs.readFileSync(path.join(root, "frontend/src/lib/authSession.ts"), "utf8");
+  assert.match(
+    source,
+    /if \(event\.key === AUTH_STORAGE_KEY\) \{\s*notifyListeners\(\);\s*notifyAuthIdentityChange\(\);/,
+  );
+});
