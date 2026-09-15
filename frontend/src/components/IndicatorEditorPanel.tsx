@@ -31,6 +31,7 @@ import {
   type EdgeIndicatorInputValue,
 } from "../lib/indicatorDsl";
 import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
+import { Dialog, IconButton } from "./ui/Primitives";
 
 type EditorRequest = {
   nonce: number;
@@ -88,21 +89,6 @@ export function IndicatorEditorPanel({
   }, [request.nonce]);
 
   useEffect(() => () => runtimeCancelRef.current?.(), []);
-
-  useEffect(() => {
-    function escape(event: globalThis.KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (completionOpen) {
-        event.preventDefault();
-        setCompletionOpen(false);
-      } else {
-        event.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", escape, true);
-    return () => document.removeEventListener("keydown", escape, true);
-  }, [completionOpen, onClose]);
 
   function selectScript(id: string) {
     const script = scripts.find((item) => item.id === id);
@@ -230,8 +216,7 @@ export function IndicatorEditorPanel({
     : [];
 
   return (
-    <div className="fixed inset-0 z-[245] grid bg-black/70 p-2 sm:p-5" role="presentation">
-      <section aria-label="EdgeLab indicator editor" aria-modal="true" className="m-auto flex h-[min(860px,calc(100vh-20px))] w-[min(1180px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#070b10] shadow-[0_28px_90px_rgba(0,0,0,0.7)]" role="dialog">
+    <Dialog open label="EdgeLab indicator editor" onClose={onClose} className="flex h-[min(860px,calc(100vh-20px))] max-w-[1180px] flex-col overflow-hidden bg-[var(--ui-modal)]">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-base font-semibold text-white"><Code2 size={17} /> EdgeLab indicator editor</h2>
@@ -243,7 +228,7 @@ export function IndicatorEditorPanel({
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
             <button className="studio-tool-button" onClick={save} type="button"><Save size={13} /> Save</button>
             <button className="studio-tool-button studio-tool-button-active" disabled={!parsed.program} onClick={addToChart} type="button"><Plus size={13} /> Add to chart</button>
-            <button aria-label="Close indicator editor" className="icon-button h-8 w-8" onClick={onClose} type="button"><X size={15} /></button>
+            <IconButton icon={X} label="Close indicator editor" onClick={onClose} />
           </div>
         </header>
 
@@ -306,8 +291,7 @@ export function IndicatorEditorPanel({
             <p className="mt-5 text-[11px] leading-5 text-slate-500">Ctrl+Space opens completion. Tab inserts two spaces. Runtime permits no network, storage, DOM, imports, or arbitrary JavaScript.</p>
           </aside>
         </div>
-      </section>
-    </div>
+    </Dialog>
   );
 }
 

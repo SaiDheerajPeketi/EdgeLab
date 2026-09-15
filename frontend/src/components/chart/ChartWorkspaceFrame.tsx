@@ -18,10 +18,10 @@ export function ChartWorkspaceFrame({ children, symbol, onChartFocus, slots = {}
     alerts: <AlertsPanel symbol={symbol} />,
     ...slots,
   };
-  return <>
+  return <div className="ui-operating-surface" data-ui-surface="chart-live" data-active-symbol={symbol || undefined}>
     <JournalPanelManager label="Chart tools" slots={panelSlots}>{children}</JournalPanelManager>
     <JournalReviewDrawer trade={selectedTrade} tags={journal.tags} returnLabel={`${symbol || "Chart"} workspace`} onClose={() => setSelectedTradeId(null)} onSave={journal.updateReview} onCreateTag={journal.addTag} onShowOnChart={onChartFocus} />
-  </>;
+  </div>;
 }
 
 function DockedJournalPanel({ journal, symbol, onOpenTrade }: { journal: ReturnType<typeof useJournalData>; symbol: string; onOpenTrade: (trade: CanonicalTrade) => void }) {

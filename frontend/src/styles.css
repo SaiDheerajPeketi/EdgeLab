@@ -130,6 +130,9 @@
   --density-comfortable: 40px;
   --density-touch: 44px;
   --control-height: var(--density-comfortable);
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
   --pane-gap: 2px;
   --motion-distance-xs: 4px;
   --motion-distance-sm: 8px;
@@ -139,6 +142,8 @@
   --motion-app-base: 180ms;
   --motion-public-base: 420ms;
 }
+
+[data-icon-button="true"] > svg { width: var(--icon-md); height: var(--icon-md); stroke-width: 1.75; }
 
 :root[data-density="compact"] { --control-height: var(--density-compact); }
 :root[data-density="comfortable"] { --control-height: var(--density-comfortable); }
@@ -180,6 +185,14 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 .ui-modal-backdrop { animation: ui-backdrop-enter var(--motion-app-fast) linear both; }
 .ui-dialog-surface { animation: ui-dialog-enter var(--motion-app-base) var(--ease-out) both; }
 .ui-drawer-surface { animation: ui-drawer-enter var(--motion-app-base) var(--ease-out) both; }
+.ui-workspace-panel { animation: ui-panel-from-right var(--motion-app-base) var(--ease-out) both; contain: paint; }
+.ui-workspace-panel[data-dock="left"] { animation-name: ui-panel-from-left; }
+.ui-workspace-panel-trigger { animation: ui-control-feedback var(--motion-app-fast) var(--ease-out) both; }
+.ui-action-feedback { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--ui-inset); color: var(--text-secondary); }
+.ui-action-feedback[data-state="saved"] { background: color-mix(in srgb, var(--profit) 9%, var(--ui-inset)); color: var(--profit-text); animation: ui-control-feedback var(--motion-app-base) var(--ease-out) both; }
+.ui-action-feedback[data-state="error"] { background: color-mix(in srgb, var(--loss) 9%, var(--ui-inset)); color: var(--loss-text); }
+.ui-report-comparison { min-width: 0; padding: var(--space-4); border-radius: var(--radius-lg); background: var(--ui-inset); box-shadow: var(--elevation-inset); }
+.ui-operating-surface { min-width: 0; }
 
 @keyframes ui-route-enter {
   from { opacity: 0.92; transform: translate3d(0, var(--motion-distance-xs), 0); }
@@ -190,6 +203,9 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 @keyframes ui-backdrop-enter { from { opacity: 0; } }
 @keyframes ui-dialog-enter { from { opacity: .9; transform: translate3d(0, var(--motion-distance-sm), 0) scale(.985); } }
 @keyframes ui-drawer-enter { from { transform: translate3d(var(--motion-distance-md), 0, 0); } }
+@keyframes ui-panel-from-right { from { opacity: .96; transform: translate3d(var(--motion-distance-md), 0, 0); } }
+@keyframes ui-panel-from-left { from { opacity: .96; transform: translate3d(calc(-1 * var(--motion-distance-md)), 0, 0); } }
+@keyframes ui-control-feedback { 40% { transform: scale(.985); } }
 
 .ui-critical-state {
   display: grid;

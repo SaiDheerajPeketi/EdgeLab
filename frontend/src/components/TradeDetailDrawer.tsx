@@ -18,6 +18,7 @@ import {
   shouldRegenerateTradeSnapshotForCurrency,
 } from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
+import { Drawer, IconButton } from "./ui/Primitives";
 
 type Props = {
   trade: Trade;
@@ -192,15 +193,14 @@ export function TradeDetailDrawer({
   }
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-xl overflow-auto border-l border-white/10 bg-ink-900 shadow-panel">
+    <Drawer open label={`Trade ${trade.id} details`} onClose={onClose} className="max-w-xl">
+    <div className="min-h-full bg-[var(--ui-modal)]">
       <div className="sticky top-0 flex h-14 items-center justify-between border-b border-white/10 bg-ink-900 px-5">
         <div>
           <h2 className="text-base font-semibold text-white">Trade #{trade.id}</h2>
           <p className="text-xs text-slate-500">{trade.side} · {trade.status}</p>
         </div>
-        <button className="icon-button" onClick={onClose} type="button">
-          <X size={18} />
-        </button>
+        <IconButton icon={X} label="Close trade details" onClick={onClose} />
       </div>
 
       <div className="space-y-4 p-5">
@@ -386,7 +386,8 @@ export function TradeDetailDrawer({
           </div>
         </div>
       </div>
-    </aside>
+    </div>
+    </Drawer>
   );
 }
 

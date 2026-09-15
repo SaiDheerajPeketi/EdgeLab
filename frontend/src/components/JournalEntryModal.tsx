@@ -18,6 +18,7 @@ import {
   shouldRegenerateTradeSnapshotForCurrency,
 } from "../lib/tradeSnapshot";
 import { useBacktestStore } from "../store/backtestStore";
+import { Dialog, IconButton } from "./ui/Primitives";
 
 type Props = {
   currency?: string;
@@ -147,9 +148,9 @@ export function JournalEntryModal({ currency = "USD", strategyScope, trade, onCl
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4 backdrop-blur-sm">
+    <Dialog open label="Backtest review entry" onClose={onClose} className="max-w-2xl">
       <form
-        className="w-full max-w-2xl rounded-md border border-white/10 bg-ink-900 shadow-panel"
+        className="w-full bg-[var(--ui-modal)]"
         onSubmit={(event) => void handleSubmit(event)}
       >
         <div className="flex h-14 items-center justify-between border-b border-white/10 px-5">
@@ -159,9 +160,7 @@ export function JournalEntryModal({ currency = "USD", strategyScope, trade, onCl
               #{trade.id} · {formatDateTime(trade.entry_time)} → {formatDateTime(trade.exit_time)}
             </p>
           </div>
-          <button className="icon-button" onClick={onClose} type="button">
-            <X size={18} />
-          </button>
+          <IconButton icon={X} label="Close review entry" onClick={onClose} />
         </div>
 
         <div className="grid gap-4 p-5 sm:grid-cols-2">
@@ -319,7 +318,7 @@ export function JournalEntryModal({ currency = "USD", strategyScope, trade, onCl
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }
 

@@ -1,101 +1,24 @@
+import { ArrowDownRight, ArrowUpRight, CalendarDays, Scale } from "lucide-react";
 import type { Metrics } from "../lib/api";
 import { EquityCurve } from "./EquityCurve";
+import { CriticalStateSurface } from "./ui/CriticalStateSurface";
+import { Table } from "./ui/Primitives";
 
-type Props = {
-  currency?: string;
-  metrics: Metrics | null;
-};
+type Props = { currency?: string; metrics: Metrics | null };
 
 export function ReportsPanel({ currency = "USD", metrics }: Props) {
-  return (
-    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
-      <EquityCurve currency={currency} metrics={metrics} />
-      <div className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel">
-        <h2 className="mb-3 text-sm font-semibold text-white">Backtest Report</h2>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <Metric label="Best" value={money(metrics?.best_trade ?? 0, currency)} tone="text-emerald-300" />
-          <Metric label="Worst" value={money(metrics?.worst_trade ?? 0, currency)} tone="text-rose-300" />
-          <Metric label="Win Streak" value={String(metrics?.longest_win_streak ?? 0)} />
-          <Metric label="Loss Streak" value={String(metrics?.longest_loss_streak ?? 0)} />
-        </div>
-        <div className="mt-4 grid gap-2">
-          {metrics?.side_breakdown.map((row) => (
-            <div key={row.side} className="rounded-md bg-ink-950 px-3 py-2 text-sm">
-              <div className="flex justify-between">
-                <span className={row.side === "LONG" ? "text-emerald-300" : "text-rose-300"}>
-                  {row.side}
-                </span>
-                <span>{money(row.net_pnl, currency)}</span>
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {row.trades} trades · {(row.win_rate * 100).toFixed(1)}% win
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel xl:col-span-2">
-        <h2 className="mb-3 text-sm font-semibold text-white">Strategy Performance</h2>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {(metrics?.strategy_performance ?? []).map((row) => (
-            <div key={row.strategy_name} className="rounded-md bg-ink-950 px-3 py-2 text-sm">
-              <div className="flex justify-between gap-3">
-                <span className="font-semibold text-slate-100">{row.strategy_name}</span>
-                <span className={row.net_pnl >= 0 ? "text-emerald-300" : "text-rose-300"}>
-                  {money(row.net_pnl, currency)}
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {row.trades} trades · {(row.win_rate * 100).toFixed(1)}% · R{" "}
-                {row.average_r?.toFixed(2) ?? "—"}
-              </div>
-            </div>
-          ))}
-          {(metrics?.strategy_performance.length ?? 0) === 0 && (
-            <div className="rounded-md bg-ink-950 px-3 py-6 text-center text-sm text-slate-500">
-              No closed trades yet
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="min-w-0 rounded-md border border-white/10 bg-ink-850 p-4 shadow-panel xl:col-span-2">
-        <h2 className="mb-3 text-sm font-semibold text-white">Calendar Heatmap</h2>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-          {(metrics?.calendar ?? []).slice(-32).map((day) => (
-            <div
-              key={day.date}
-              className={`rounded-md px-3 py-2 text-xs ${
-                day.pnl >= 0 ? "bg-emerald-300/10 text-emerald-100" : "bg-rose-300/10 text-rose-100"
-              }`}
-            >
-              <div>{day.date}</div>
-              <div className="mt-1 font-semibold">{money(day.pnl, currency)}</div>
-            </div>
-          ))}
-          {(metrics?.calendar.length ?? 0) === 0 && (
-            <div className="col-span-full rounded-md bg-ink-950 px-3 py-6 text-center text-sm text-slate-500">
-              Close trades to populate the calendar
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
+  if (!metrics) return <CriticalStateSurface state="empty" title="No report is available" detail="Run a backtest or choose a completed session to compare outcomes, strategies, and trading days." actionLabel={null} />;
+  const strategies = metrics.strategy_performance ?? [];
+  const sides = metrics.side_breakdown ?? [];
+  const calendar = (metrics.calendar ?? []).slice(-32);
+  return <section aria-labelledby="backtest-report-heading" className="ui-operating-surface grid min-w-0 gap-6" data-ui-surface="reports">
+    <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--ui-border-subtle)] pb-4"><div><h1 id="backtest-report-heading" className="text-xl font-semibold text-[var(--text-primary)]">Backtest report</h1><p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">Compare the equity path, directional performance, strategy quality, and recent daily outcomes from one shared result set.</p></div><p className="font-data text-xs tabular-nums text-[var(--text-secondary)]">{strategies.reduce((sum, row) => sum + row.trades, 0).toLocaleString()} strategy observations · {currency}</p></header>
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(19rem,.75fr)]"><div className="min-w-0"><EquityCurve currency={currency} metrics={metrics} /></div><section aria-labelledby="range-heading" className="ui-report-comparison"><div className="flex items-center gap-2"><Scale aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="range-heading" className="text-sm font-semibold text-[var(--text-primary)]">Outcome range</h2></div><dl className="mt-4 divide-y divide-[var(--ui-border-subtle)] border-y border-[var(--ui-border-subtle)]"><Metric label="Best trade" value={signedMoney(metrics.best_trade ?? 0, currency)} valueNumber={metrics.best_trade ?? 0} /><Metric label="Worst trade" value={signedMoney(metrics.worst_trade ?? 0, currency)} valueNumber={metrics.worst_trade ?? 0} /><Metric label="Longest win streak" value={String(metrics.longest_win_streak ?? 0)} /><Metric label="Longest loss streak" value={String(metrics.longest_loss_streak ?? 0)} /></dl><div className="mt-5"><h3 className="text-xs font-semibold text-[var(--text-secondary)]">Direction comparison</h3><div className="mt-2 divide-y divide-[var(--ui-border-subtle)]">{sides.map((row) => <div className="grid grid-cols-[1fr_auto] gap-x-3 py-3" key={row.side}><span className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">{row.side === "LONG" ? <ArrowUpRight aria-hidden="true" className="h-4 w-4 text-emerald-300" /> : <ArrowDownRight aria-hidden="true" className="h-4 w-4 text-rose-300" />}{row.side}</span><span className={`font-data text-sm tabular-nums ${row.net_pnl >= 0 ? "text-emerald-200" : "text-rose-200"}`}><span className="sr-only">{row.net_pnl >= 0 ? "Profit" : "Loss"} </span>{signedMoney(row.net_pnl, currency)}</span><span className="col-span-2 mt-1 text-xs text-[var(--text-secondary)]">{row.trades} trades · {(row.win_rate * 100).toFixed(1)}% win rate</span></div>)}{!sides.length ? <p className="py-5 text-sm text-[var(--text-secondary)]">No directional results in this run.</p> : null}</div></div></section></div>
+    <section aria-labelledby="strategy-heading"><div className="mb-3 flex items-center justify-between gap-3"><h2 id="strategy-heading" className="text-base font-semibold text-[var(--text-primary)]">Strategy comparison</h2><span className="text-xs text-[var(--text-secondary)]">Use the session filters to drill into one strategy</span></div>{strategies.length ? <Table label="Strategy performance" className="min-w-[42rem]"><thead><tr><th>Strategy</th><th className="numeric">Trades</th><th className="numeric">Win rate</th><th className="numeric">Average R</th><th className="numeric">Net P&amp;L</th></tr></thead><tbody>{strategies.map((row) => <tr key={row.strategy_name}><th scope="row" className="font-medium text-[var(--text-primary)]">{row.strategy_name}</th><td className="numeric">{row.trades}</td><td className="numeric">{(row.win_rate * 100).toFixed(1)}%</td><td className="numeric">{row.average_r == null ? "—" : `${row.average_r.toFixed(2)}R`}</td><td className={`numeric font-semibold ${row.net_pnl >= 0 ? "text-emerald-200" : "text-rose-200"}`}><span className="sr-only">{row.net_pnl >= 0 ? "Profit" : "Loss"} </span>{signedMoney(row.net_pnl, currency)}</td></tr>)}</tbody></Table> : <CriticalStateSurface state="empty" title="No strategy breakdown yet" detail="Assign a strategy to closed trades, then rerun the session to compare performance." actionLabel={null} />}</section>
+    <section aria-labelledby="calendar-heading"><div className="mb-3 flex items-center gap-2"><CalendarDays aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="calendar-heading" className="text-base font-semibold text-[var(--text-primary)]">Recent trading days</h2><span className="ms-auto text-xs text-[var(--text-secondary)]">Date and signed net outcome</span></div>{calendar.length ? <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-md)] bg-[var(--ui-border-subtle)] sm:grid-cols-4 xl:grid-cols-8">{calendar.map((day) => <div key={day.date} className="min-h-20 bg-[var(--ui-inset)] p-3"><time className="font-data text-[11px] text-[var(--text-secondary)]">{day.date}</time><p className={`mt-2 font-data text-sm font-semibold tabular-nums ${day.pnl >= 0 ? "text-emerald-200" : "text-rose-200"}`}><span className="sr-only">{day.pnl >= 0 ? "Profit" : "Loss"} </span>{signedMoney(day.pnl, currency)}</p></div>)}</div> : <CriticalStateSurface state="empty" title="No closed trading days" detail="Close at least one trade to populate the calendar comparison." actionLabel={null} />}</section>
+  </section>;
 }
 
-function Metric({ label, value, tone = "text-slate-100" }: { label: string; value: string; tone?: string }) {
-  return (
-    <div className="rounded-md bg-ink-950 px-3 py-2">
-      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">{label}</div>
-      <div className={`mt-1 text-sm font-semibold ${tone}`}>{value}</div>
-    </div>
-  );
-}
-
-function money(value: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+function Metric({ label, value, valueNumber }: { label: string; value: string; valueNumber?: number }) { return <div className="flex items-baseline justify-between gap-4 py-3"><dt className="text-xs text-[var(--text-secondary)]">{label}</dt><dd className={`font-data text-sm font-semibold tabular-nums ${valueNumber == null ? "text-[var(--text-primary)]" : valueNumber >= 0 ? "text-emerald-200" : "text-rose-200"}`}>{valueNumber == null ? null : <span className="sr-only">{valueNumber >= 0 ? "Profit" : "Loss"} </span>}{value}</dd></div>; }
+function money(value: number, currency: string) { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(value); }
+function signedMoney(value: number, currency: string) { return `${value >= 0 ? "+" : "−"}${money(Math.abs(value), currency)}`; }

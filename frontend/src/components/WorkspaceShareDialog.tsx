@@ -13,7 +13,6 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   ApiError,
   createWorkspaceShare,
@@ -29,6 +28,7 @@ import {
   type WorkspaceSharePayload,
   type WorkspaceShareScope,
 } from "../lib/workspaceShare";
+import { Dialog, IconButton } from "./ui/Primitives";
 
 type WorkspaceShareDialogProps = {
   buildPayload: (scope: WorkspaceShareScope) => WorkspaceSharePayload;
@@ -37,8 +37,6 @@ type WorkspaceShareDialogProps = {
   workspaceKey: string;
 };
 
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const OWNER_SHARE_PAGE_SIZE = 100;
 
 const SCOPE_OPTIONS: Array<{
@@ -79,10 +77,6 @@ export function WorkspaceShareDialog({
   const [revokingShareId, setRevokingShareId] = useState<number | null>(null);
   const [deletingPayloadId, setDeletingPayloadId] = useState<number | null>(null);
   const shareListRequestRef = useRef(0);
-  const confirmRevokeRef = useRef(confirmRevokeId);
-  const confirmDeletePayloadRef = useRef(confirmDeletePayloadId);
-  confirmRevokeRef.current = confirmRevokeId;
-  confirmDeletePayloadRef.current = confirmDeletePayloadId;
   const [status, setStatus] = useState<"idle" | "creating" | "created" | "revoking" | "revoked">("idle");
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -91,11 +85,8 @@ export function WorkspaceShareDialog({
     status === "revoking" ||
     revokingShareId != null ||
     deletingPayloadId != null;
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const shareLinkRef = useRef<HTMLInputElement | null>(null);
-  const busyRef = useRef(busy);
-  busyRef.current = busy;
   const titleId = useId();
   const descriptionId = useId();
   const errorId = useId();
@@ -152,57 +143,6 @@ export function WorkspaceShareDialog({
       shareListRequestRef.current += 1;
     };
   }, [workspaceKey]);
-
-  useEffect(() => {
-    const previousFocus = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const focusFrame = window.requestAnimationFrame(() => titleInputRef.current?.focus());
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !busyRef.current) {
-        event.preventDefault();
-        if (confirmDeletePayloadRef.current != null) {
-          setConfirmDeletePayloadId(null);
-          return;
-        }
-        if (confirmRevokeRef.current != null) {
-          setConfirmRevokeId(null);
-          return;
-        }
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab" || !dialogRef.current) {
-        return;
-      }
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      );
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialogRef.current.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
-      previousFocus?.focus({ preventScroll: true });
-    };
-  }, [onClose]);
 
   useEffect(() => {
     if (!createdShare) {
@@ -344,22 +284,13 @@ export function WorkspaceShareDialog({
 
   const shareUrl = createdShare ? workspaceShareUrl(createdShare.public_token) : "";
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[140] flex items-end justify-center bg-black/70 px-0 backdrop-blur-sm sm:items-center sm:px-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) {
-          onClose();
-        }
-      }}
-    >
+  return (
+    <Dialog open label="Share a workspace copy" onClose={onClose} dismissBlocked={busy} initialFocusRef={titleInputRef} className="max-w-2xl">
       <div
         aria-describedby={descriptionId}
         aria-labelledby={titleId}
         aria-modal="true"
         className="max-h-[94dvh] w-full overflow-y-auto rounded-t-2xl bg-[#0b1017] text-slate-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)] sm:max-w-2xl sm:rounded-2xl"
-        ref={dialogRef}
-        role="dialog"
         tabIndex={-1}
       >
         <div className="flex items-start justify-between gap-5 border-b border-white/10 px-5 py-5 sm:px-6">
@@ -369,15 +300,12 @@ export function WorkspaceShareDialog({
               Create an immutable snapshot. Only you and the named EdgeLab account can open it.
             </p>
           </div>
-          <button
-            aria-label="Close share dialog"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 outline-none transition hover:bg-white/[0.06] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/50 disabled:opacity-50"
+          <IconButton
+            label="Close share dialog"
+            icon={X}
             disabled={busy}
             onClick={onClose}
-            type="button"
-          >
-            <X aria-hidden="true" size={19} />
-          </button>
+          />
         </div>
 
         <div aria-label="Share workspace sections" className="grid grid-cols-2 border-b border-white/10 px-5 sm:px-6" role="tablist">
@@ -610,8 +538,7 @@ export function WorkspaceShareDialog({
           </form>
         )}
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   );
 }
 

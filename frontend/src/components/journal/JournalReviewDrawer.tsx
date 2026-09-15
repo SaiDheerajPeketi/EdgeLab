@@ -1,8 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { ArrowUpRight, Check, ImagePlus, LoaderCircle, Plus, Star, X } from "lucide-react";
 import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalTag, JournalTagCategory } from "../../lib/journalApi";
 import { JournalButton, journalFieldClass } from "./JournalControls";
+import { Drawer } from "../ui/Primitives";
 
 export type JournalChartFocusRequest = {
   tradeId: number;
@@ -32,7 +32,6 @@ export function JournalReviewDrawer({
 }) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
   const [draft, setDraft] = useState(() => reviewDraft(trade));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,19 +39,6 @@ export function JournalReviewDrawer({
   const [tagCategory, setTagCategory] = useState<JournalTagCategory>("SETUP");
 
   useEffect(() => { setDraft(reviewDraft(trade)); setError(null); }, [trade]);
-  useEffect(() => {
-    if (!trade) return;
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeRef.current?.focus();
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-      if (event.key === "Tab") trapFocus(event);
-    };
-    document.addEventListener("keydown", keydown);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", keydown); document.body.style.overflow = overflow; returnFocusRef.current?.focus(); };
-  }, [onClose, trade]);
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(reviewDraft(trade)), [draft, trade]);
   if (!trade || typeof document === "undefined") return null;
@@ -100,8 +86,8 @@ export function JournalReviewDrawer({
     onClose();
   }
 
-  return createPortal(<div className="fixed inset-0 z-[120] flex justify-end bg-black/65" onMouseDown={(event) => { if (event.target === event.currentTarget && !dirty) onClose(); }}>
-    <aside role="dialog" aria-modal="true" aria-labelledby={titleId} data-journal-review-drawer className="flex h-full w-full max-w-2xl flex-col border-l border-white/10 bg-[#0a0d11] shadow-[-18px_0_48px_rgba(0,0,0,0.45)]">
+  return <Drawer open ariaLabelledBy={titleId} dismissBlocked={dirty} initialFocusRef={closeRef} onClose={onClose} className="max-w-2xl">
+    <div data-journal-review-drawer className="flex min-h-full flex-col bg-[var(--ui-modal)]">
       <header className="flex min-h-16 items-center gap-3 border-b border-white/10 px-4 sm:px-5"><button ref={closeRef} type="button" onClick={onClose} aria-label={`Close review and return to ${returnLabel}`} className="grid h-10 w-10 place-items-center rounded-md text-slate-400 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X aria-hidden="true" className="h-5 w-5" /></button><div className="min-w-0 flex-1"><h2 id={titleId} className="truncate text-base font-semibold text-white">Review {trade.symbol}</h2><p className="truncate text-xs text-slate-500">{returnLabel} · {new Date(trade.entry_time).toLocaleString()} · {trade.source_type.replaceAll("_", " ").toLowerCase()}</p></div><JournalButton onClick={showOnChart}><ArrowUpRight aria-hidden="true" className="h-4 w-4" />Show on chart</JournalButton></header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
         {error ? <p role="alert" className="mb-4 rounded-md bg-rose-400/10 px-3 py-2 text-sm text-rose-100">{error}</p> : null}
@@ -112,8 +98,8 @@ export function JournalReviewDrawer({
         <Section title="Execution trail"><div className="overflow-x-auto"><table className="w-full min-w-[34rem] text-left text-xs"><thead className="sticky top-0 bg-[#0a0d11] text-slate-500"><tr><th className="py-2 pr-3 font-medium">Type</th><th className="py-2 pr-3 font-medium">Time</th><th className="py-2 pr-3 font-medium">Side</th><th className="py-2 pr-3 text-right font-medium">Price</th><th className="py-2 text-right font-medium">Quantity</th></tr></thead><tbody className="divide-y divide-white/8">{trade.executions.map((execution) => <tr key={execution.id}><td className="py-2 pr-3">{execution.execution_type}</td><td className="py-2 pr-3 text-slate-400">{new Date(execution.occurred_at).toLocaleString()}</td><td className="py-2 pr-3">{execution.side}</td><td className="py-2 pr-3 text-right tabular-nums">{Number(execution.price).toLocaleString()}</td><td className="py-2 text-right tabular-nums">{Number(execution.quantity).toLocaleString()}</td></tr>)}</tbody></table>{!trade.executions.length ? <p className="py-4 text-sm text-slate-500">No execution rows were retained for this record.</p> : null}</div></Section>
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-[#0d1117] px-4 py-3 sm:px-5"><p className="text-xs text-slate-500">{dirty ? "Unsaved review changes" : "No review changes"}</p><div className="flex gap-2"><JournalButton onClick={onClose}>Cancel</JournalButton><JournalButton tone="primary" onClick={() => void save()} disabled={!dirty || saving}>{saving ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Check aria-hidden="true" className="h-4 w-4" />}Save review</JournalButton></div></footer>
-    </aside>
-  </div>, document.body);
+    </div>
+  </Drawer>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="mt-7 border-t border-white/10 pt-5 first:mt-0 first:border-t-0 first:pt-0"><h3 className="mb-3 text-sm font-semibold text-white">{title}</h3>{children}</section>; }
@@ -160,14 +146,4 @@ export function chartFocusRequest(trade: CanonicalTrade): JournalChartFocusReque
   if (trade.take_profit != null) markers.push({ kind: "target", price: Number(trade.take_profit), time: trade.entry_time, label: "Target" });
   trade.executions.forEach((execution) => markers.push({ kind: "fill", price: Number(execution.price), time: execution.occurred_at, label: `${execution.execution_type} fill` }));
   return { tradeId: trade.id, symbol: trade.symbol, sourceTimezone: trade.source_timezone, startAt: start, endAt: end, markers };
-}
-
-function trapFocus(event: KeyboardEvent) {
-  const drawer = document.querySelector<HTMLElement>("[data-journal-review-drawer]");
-  if (!drawer) return;
-  const focusable = [...drawer.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')];
-  if (!focusable.length) return;
-  const first = focusable[0]; const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }

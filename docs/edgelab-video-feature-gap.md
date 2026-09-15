@@ -340,7 +340,7 @@ Use two expression levels inside one system:
 
 - [x] `UIR-55 · P1 · Partial` — Redesign sign-in, callback, beta-capacity, waitlist, expired-session, and access-denied screens as one trustworthy authentication journey with consistent branding, progress, recovery, and return-to-origin behavior.
 - [x] `UIR-56 · P1 · Partial` — Redesign first-run onboarding and the session gateway around one obvious next step, progressive disclosure, recent/resumable work, sample-data choices, and clear provider/data prerequisites.
-- [ ] `UIR-57 · P1 · Partial` — Refresh dashboards and reports with stronger hierarchy, fewer interchangeable cards, aligned financial numbers, purposeful comparison, legible chart annotation, shared filters, and drill-down affordances.
+- [x] `UIR-57 · P1 · Partial` — Refresh dashboards and reports with stronger hierarchy, fewer interchangeable cards, aligned financial numbers, purposeful comparison, legible chart annotation, shared filters, and drill-down affordances.
 - [ ] `UIR-58 · P1 · Partial` — Refresh Journal accounts, trades, calendar, notes, day/week review, reports, and settings as one coherent system while preserving the higher-density workflow needed for frequent review.
 - [ ] `UIR-59 · P1 · Partial` — Refresh chart and replay chrome—top toolbar, drawing rail, watchlist, data window, objects, order ticket, replay transport, pane headers, context menu, and inspectors—without shrinking the plot or hiding expert controls.
 - [ ] `UIR-60 · P1 · Partial` — Refresh Live Markets, watchlists, symbol/provider search, connection state, instrument metadata, and feed errors so scanning is fast and stale, delayed, unsupported, or disconnected data is unmistakable.
