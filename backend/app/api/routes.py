@@ -25,6 +25,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.params import Param
+from fastapi.responses import StreamingResponse
 from sqlalchemy import Date as SQLDate, DateTime, func, select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -77,6 +78,17 @@ from app.schemas import (
     AppStorageRead,
     AngelOneInstrument,
     AngelOneInstrumentsResponse,
+    AIBacktestRead,
+    AIBacktestRequest,
+    AIConversationCreate,
+    AIConversationRead,
+    AIGeneratedArtifactRead,
+    AIGenerationJobRead,
+    AIGenerationRequest,
+    AIJobEventRead,
+    AIModelRead,
+    AIRetentionResult,
+    AIUsageSummaryRead,
     BetaAccessRequest,
     BetaAccessResponse,
     BetaAuthConfig,
@@ -172,6 +184,12 @@ from app.schemas import (
     PlaybookRead,
     PlaybookUpdate,
     PositionUpdate,
+    QuantScriptCreate,
+    QuantScriptPermissionCreate,
+    QuantScriptPermissionRead,
+    QuantScriptRead,
+    QuantScriptVersionCreate,
+    QuantScriptVersionRead,
     NormalizedCandleRead,
     StrategySummary,
     TradeRead,
@@ -182,7 +200,14 @@ from app.schemas import (
     WorkspaceShareOwnerRead,
     WorkspaceSharePublicRead,
 )
-from app.services import broker_sync, integration_secrets, journal, market_infrastructure, share_snapshots
+from app.services import (
+    broker_sync,
+    integration_secrets,
+    journal,
+    market_infrastructure,
+    quant_ai,
+    share_snapshots,
+)
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -236,6 +261,9 @@ BROKER_SYNC_RATE_LIMIT = 30
 NORMALIZED_MARKET_READ_RATE_LIMIT = 240
 NORMALIZED_MARKET_WRITE_RATE_LIMIT = 60
 NORMALIZED_MARKET_BACKFILL_RATE_LIMIT = 20
+AI_READ_RATE_LIMIT = 240
+AI_WRITE_RATE_LIMIT = 120
+AI_GENERATION_RATE_LIMIT = 30
 
 
 def bootstrap_shell_cache_scope(user_id: int) -> str:
@@ -544,6 +572,10 @@ def integration_secret_error(exc: integration_secrets.IntegrationSecretError) ->
 def normalized_market_error(
     exc: market_infrastructure.MarketInfrastructureError,
 ) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.public_message)
+
+
+def quant_ai_error(exc: quant_ai.AIServiceError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.public_message)
 
 
@@ -3727,3 +3759,346 @@ def remove_market_subscription(
     if not market_infrastructure.fanout_hub.unsubscribe(current_user.id, subscription_id):
         raise HTTPException(status_code=404, detail="Market-data subscription not found")
     return {"ok": True}
+
+
+@router.get("/quant/models", response_model=list[AIModelRead])
+def list_quant_models(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[AIModelRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    return quant_ai.ai_provider_router.catalog(db, current_user.id)
+
+
+@router.post("/quant/scripts", response_model=QuantScriptRead, status_code=201)
+def create_quant_script(
+    payload: QuantScriptCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> QuantScriptRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.create_script(db, current_user.id, payload)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.get("/quant/scripts", response_model=list[QuantScriptRead])
+def list_quant_scripts(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[QuantScriptRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    return quant_ai.list_scripts(db, current_user.id)
+
+
+@router.get("/quant/scripts/{script_id}", response_model=QuantScriptRead)
+def read_quant_script(
+    script_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> QuantScriptRead:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        return quant_ai.get_script(db, current_user.id, script_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post(
+    "/quant/scripts/{script_id}/versions",
+    response_model=QuantScriptVersionRead,
+    status_code=201,
+)
+def create_quant_script_version(
+    script_id: int,
+    payload: QuantScriptVersionCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> QuantScriptVersionRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.create_script_version(db, current_user.id, script_id, payload)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/scripts/{script_id}/versions/{version_id}/activate", response_model=QuantScriptRead)
+def activate_quant_script_version(
+    script_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> QuantScriptRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.activate_script_version(db, current_user.id, script_id, version_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post(
+    "/quant/scripts/{script_id}/permissions",
+    response_model=QuantScriptPermissionRead,
+    status_code=201,
+)
+def grant_quant_script_permission(
+    script_id: int,
+    payload: QuantScriptPermissionCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> QuantScriptPermissionRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.grant_script_permission(db, current_user.id, script_id, payload)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.get(
+    "/quant/scripts/{script_id}/permissions",
+    response_model=list[QuantScriptPermissionRead],
+)
+def list_quant_script_permissions(
+    script_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[QuantScriptPermissionRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        return quant_ai.list_script_permissions(db, current_user.id, script_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.delete(
+    "/quant/scripts/{script_id}/permissions/{permission_id}",
+    response_model=QuantScriptPermissionRead,
+)
+def revoke_quant_script_permission(
+    script_id: int,
+    permission_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> QuantScriptPermissionRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.revoke_script_permission(
+            db, current_user.id, script_id, permission_id
+        )
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/conversations", response_model=AIConversationRead, status_code=201)
+def create_quant_conversation(
+    payload: AIConversationCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIConversationRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    return quant_ai.create_conversation(db, current_user.id, payload)
+
+
+@router.get("/quant/conversations", response_model=list[AIConversationRead])
+def list_quant_conversations(
+    kind: str | None = Query(default=None, max_length=32),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[AIConversationRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    return quant_ai.list_conversations(db, current_user.id, kind=kind)
+
+
+@router.get("/quant/conversations/{conversation_id}", response_model=AIConversationRead)
+def read_quant_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIConversationRead:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        return quant_ai.get_conversation(db, current_user.id, conversation_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/jobs", response_model=AIGenerationJobRead, status_code=202)
+def enqueue_quant_job(
+    payload: AIGenerationRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIGenerationJobRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("ai-generation", current_user.id, AI_GENERATION_RATE_LIMIT)
+    try:
+        return quant_ai.create_generation_job(db, current_user.id, payload)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.get("/quant/jobs", response_model=list[AIGenerationJobRead])
+def list_quant_jobs(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[AIGenerationJobRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    return quant_ai.list_generation_jobs(db, current_user.id, limit=limit)
+
+
+@router.get("/quant/jobs/{job_id}", response_model=AIGenerationJobRead)
+def read_quant_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIGenerationJobRead:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        return quant_ai.get_generation_job(db, current_user.id, job_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/jobs/{job_id}/run", response_model=AIGenerationJobRead)
+def run_quant_job(
+    job_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIGenerationJobRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("ai-generation", current_user.id, AI_GENERATION_RATE_LIMIT)
+    try:
+        return quant_ai.run_generation_job(db, current_user.id, job_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/jobs/{job_id}/cancel", response_model=AIGenerationJobRead)
+def cancel_quant_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIGenerationJobRead:
+    enforce_rate_limit("ai-generation", current_user.id, AI_GENERATION_RATE_LIMIT)
+    try:
+        return quant_ai.cancel_generation_job(db, current_user.id, job_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.get("/quant/jobs/{job_id}/events", response_model=list[AIJobEventRead])
+def read_quant_job_events(
+    job_id: int,
+    after_sequence: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[AIJobEventRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        return quant_ai.list_job_events(
+            db, current_user.id, job_id, after_sequence=after_sequence
+        )
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.get("/quant/jobs/{job_id}/events/stream")
+def stream_quant_job_events(
+    job_id: int,
+    after_sequence: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> StreamingResponse:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        events = quant_ai.list_job_events(
+            db, current_user.id, job_id, after_sequence=after_sequence
+        )
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+    def payloads():
+        for event in events:
+            data = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
+            yield f"id: {event.sequence}\nevent: {event.event_type.lower()}\ndata: {data}\n\n"
+        yield "event: end\ndata: {}\n\n"
+
+    return StreamingResponse(
+        payloads(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/quant/artifacts", response_model=list[AIGeneratedArtifactRead])
+def list_quant_artifacts(
+    conversation_id: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[AIGeneratedArtifactRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    try:
+        return quant_ai.list_artifacts(db, current_user.id, conversation_id=conversation_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/artifacts/{artifact_id}/activate", response_model=AIGeneratedArtifactRead)
+def activate_quant_artifact(
+    artifact_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIGeneratedArtifactRead:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.activate_artifact(db, current_user.id, artifact_id)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.post("/quant/backtests", response_model=AIBacktestRead, status_code=201)
+def create_quant_backtest(
+    payload: AIBacktestRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIBacktestRead:
+    enforce_rate_limit("ai-generation", current_user.id, AI_GENERATION_RATE_LIMIT)
+    try:
+        return quant_ai.run_indicator_backtest(db, current_user.id, payload)
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
+@router.get("/quant/backtests", response_model=list[AIBacktestRead])
+def list_quant_backtests(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[AIBacktestRead]:
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    return quant_ai.list_backtests(db, current_user.id, limit=limit)
+
+
+@router.get("/quant/usage", response_model=AIUsageSummaryRead)
+def read_quant_usage(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIUsageSummaryRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
+    return quant_ai.usage_summary(db, current_user.id)
+
+
+@router.post("/quant/retention/purge", response_model=AIRetentionResult)
+def purge_quant_retention(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIRetentionResult:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    return quant_ai.purge_expired_ai_data(db, current_user.id)

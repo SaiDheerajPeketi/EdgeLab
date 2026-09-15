@@ -2027,6 +2027,337 @@ class MarketStreamEventRead(BaseModel):
     payload: dict[str, Any]
 
 
+class QuantScriptCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    source: str = Field(min_length=2, max_length=65536)
+
+
+class QuantScriptVersionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=2, max_length=65536)
+    parent_version_id: int | None = Field(default=None, gt=0)
+
+
+class QuantScriptVersionRead(BaseModel):
+    id: int
+    script_id: int
+    parent_version_id: int | None
+    generation_job_id: int | None
+    version: int
+    dsl_version: int
+    source: str
+    source_hash: str
+    created_by: str
+    status: str
+    validation_report: dict[str, Any]
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
+    created_at: datetime
+    activated_at: datetime | None
+
+
+class QuantScriptRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+    description: str | None
+    language: str
+    visibility: str
+    active_version_number: int | None
+    status: str
+    versions: list[QuantScriptVersionRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None
+
+
+class QuantScriptPermissionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grantee_user_id: int = Field(gt=0)
+    permission: Literal["VIEW", "RUN", "EDIT"] = "VIEW"
+
+
+class QuantScriptPermissionRead(BaseModel):
+    id: int
+    script_id: int
+    grantee_user_id: int
+    permission: str
+    created_at: datetime
+    revoked_at: datetime | None
+
+
+class AIChartSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+
+class AIChartContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = Field(min_length=1, max_length=96)
+    provider: str = Field(min_length=1, max_length=64)
+    timeframe: str = Field(min_length=1, max_length=24)
+    timezone: str = Field(default="UTC", min_length=1, max_length=80)
+    visible_from: datetime | None = None
+    visible_to: datetime | None = None
+    history_bars: int = Field(default=0, ge=0, le=100000)
+    session_mode: str = Field(default="ALL", max_length=32)
+    active_indicators: list[dict[str, Any]] = Field(default_factory=list, max_length=64)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    drawings: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
+    selected_objects: list[str] = Field(default_factory=list, max_length=100)
+    selected_region: AIChartSelection | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timezone '{value}'") from exc
+        return value
+
+
+class AIChartImageMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    storage_ref: str = Field(min_length=1, max_length=500)
+    sha256: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"]
+    width: int = Field(gt=0, le=16384)
+    height: int = Field(gt=0, le=16384)
+    byte_size: int = Field(gt=0, le=25 * 1024 * 1024)
+    selected_region: AIChartSelection | None = None
+
+    @field_validator("storage_ref")
+    @classmethod
+    def prevent_inline_image_data(cls, value: str) -> str:
+        if value.lower().startswith(("data:", "http://", "https://")):
+            raise ValueError("storage_ref must be an opaque server-managed reference, not image data or a URL")
+        return value
+
+
+class AIConversationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["CHART_ANALYSIS", "INDICATOR_BUILD", "BACKTEST"]
+    title: str = Field(min_length=1, max_length=160)
+    retention_days: int = Field(default=30, ge=1, le=365)
+
+
+class AIMessageRead(BaseModel):
+    id: int
+    conversation_id: int
+    parent_message_id: int | None
+    sequence: int
+    role: str
+    content: str
+    content_digest: str
+    chart_context: dict[str, Any]
+    image_metadata: dict[str, Any]
+    model_id: str | None
+    created_at: datetime
+    purged_at: datetime | None
+
+
+class AIConversationRead(BaseModel):
+    id: int
+    kind: str
+    title: str
+    status: str
+    retention_days: int
+    retention_until: datetime
+    messages: list[AIMessageRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None
+
+
+class AIModelRead(BaseModel):
+    model_id: str
+    display_name: str
+    provider: str
+    operations: list[str]
+    input_token_cost_micros: int
+    output_token_cost_micros: int
+    max_output_tokens: int
+    credential_required: bool
+    adapter_configured: bool
+    available: bool
+    availability_reason: str
+
+
+class AIAutoBacktestConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_id: int = Field(gt=0)
+    interval_seconds: int = Field(ge=1, le=86400)
+    from_at: datetime
+    to_at: datetime
+    entry_signal: str = Field(min_length=1, max_length=64)
+    exit_signal: str | None = Field(default=None, max_length=64)
+    position_size: Decimal = Field(default=Decimal("1"), gt=0, le=1_000_000)
+    cost_per_trade: Decimal = Field(default=Decimal("0"), ge=0, le=1_000_000)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "AIAutoBacktestConfig":
+        start = self.from_at if self.from_at.tzinfo else self.from_at.replace(tzinfo=timezone.utc)
+        end = self.to_at if self.to_at.tzinfo else self.to_at.replace(tzinfo=timezone.utc)
+        if end.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            raise ValueError("to_at must be after from_at")
+        return self
+
+
+class AIGenerationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: int = Field(gt=0)
+    operation: Literal[
+        "CHAT", "CHART_ANALYSIS", "GENERATE_INDICATOR", "EDIT_INDICATOR", "ANALYSIS_TO_INDICATOR"
+    ]
+    model_id: str = Field(min_length=1, max_length=96)
+    prompt: str = Field(min_length=1, max_length=32000)
+    chart_context: AIChartContext | None = None
+    image: AIChartImageMetadata | None = None
+    script_id: int | None = Field(default=None, gt=0)
+    base_version_id: int | None = Field(default=None, gt=0)
+    auto_backtest: AIAutoBacktestConfig | None = None
+    max_output_tokens: int = Field(default=2048, ge=1, le=16384)
+    hard_cost_ceiling_micros: int = Field(default=1_000_000, ge=0, le=10_000_000)
+    idempotency_key: str | None = Field(default=None, max_length=96)
+
+    @model_validator(mode="after")
+    def validate_generation_context(self) -> "AIGenerationRequest":
+        if self.operation == "EDIT_INDICATOR" and (self.script_id is None or self.base_version_id is None):
+            raise ValueError("EDIT_INDICATOR requires script_id and base_version_id")
+        if self.operation == "CHART_ANALYSIS" and self.chart_context is None:
+            raise ValueError("CHART_ANALYSIS requires structured chart_context")
+        if self.image is not None and self.chart_context is None:
+            raise ValueError("Image analysis requires structured chart_context")
+        if self.auto_backtest is not None and self.operation not in {
+            "GENERATE_INDICATOR", "EDIT_INDICATOR", "ANALYSIS_TO_INDICATOR"
+        }:
+            raise ValueError("auto_backtest is only valid for indicator-generation operations")
+        return self
+
+
+class AIGenerationJobRead(BaseModel):
+    id: int
+    conversation_id: int
+    request_message_id: int
+    operation: str
+    model_id: str
+    provider: str
+    status: str
+    estimated_input_tokens: int
+    max_output_tokens: int
+    estimated_cost_micros: int
+    hard_cost_ceiling_micros: int
+    actual_input_tokens: int | None
+    actual_output_tokens: int | None
+    actual_cost_micros: int | None
+    cancel_requested_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    error_code: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AIJobEventRead(BaseModel):
+    id: int
+    job_id: int
+    sequence: int
+    event_type: str
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class AIGeneratedArtifactRead(BaseModel):
+    id: int
+    job_id: int
+    conversation_id: int
+    script_id: int | None
+    script_version_id: int | None
+    artifact_type: str
+    content: dict[str, Any]
+    content_digest: str
+    provenance: dict[str, Any]
+    created_at: datetime
+    retention_until: datetime
+    activated_at: datetime | None
+    purged_at: datetime | None
+
+
+class AIBacktestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script_version_id: int = Field(gt=0)
+    instrument_id: int = Field(gt=0)
+    interval_seconds: int = Field(ge=1, le=86400)
+    from_at: datetime
+    to_at: datetime
+    entry_signal: str = Field(min_length=1, max_length=64)
+    exit_signal: str | None = Field(default=None, max_length=64)
+    position_size: Decimal = Field(default=Decimal("1"), gt=0, le=1_000_000)
+    cost_per_trade: Decimal = Field(default=Decimal("0"), ge=0, le=1_000_000)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "AIBacktestRequest":
+        start = self.from_at if self.from_at.tzinfo else self.from_at.replace(tzinfo=timezone.utc)
+        end = self.to_at if self.to_at.tzinfo else self.to_at.replace(tzinfo=timezone.utc)
+        if end.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            raise ValueError("to_at must be after from_at")
+        return self
+
+
+class AIBacktestRead(BaseModel):
+    id: int
+    job_id: int | None
+    artifact_id: int | None
+    script_version_id: int
+    instrument_id: int
+    interval_seconds: int
+    from_at: datetime
+    to_at: datetime
+    assumptions: dict[str, Any]
+    metrics: dict[str, Any]
+    warnings: list[str]
+    reproducibility_hash: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class AIUsageSummaryRead(BaseModel):
+    period_start: datetime
+    period_end: datetime
+    jobs: int
+    input_tokens: int
+    output_tokens: int
+    credits: int
+    cost_micros: int
+    job_limit: int
+    token_limit: int
+    cost_limit_micros: int
+
+
+class AIRetentionResult(BaseModel):
+    conversations_purged: int
+    messages_purged: int
+    artifacts_purged: int
+
+
 class BacktestAdvanceRequest(BaseModel):
     steps: int = Field(default=1, ge=1, le=5000)
 

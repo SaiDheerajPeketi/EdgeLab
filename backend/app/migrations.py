@@ -351,6 +351,37 @@ def create_market_data_infrastructure_tables(engine: Engine) -> None:
         model.__table__.create(bind=engine, checkfirst=True)
 
 
+def create_quant_ai_tables(engine: Engine) -> None:
+    from app.models import (
+        AIBacktestRun,
+        AIConversation,
+        AIGeneratedArtifact,
+        AIGenerationJob,
+        AIJobEvent,
+        AIMessage,
+        AIAuditLog,
+        AIUsageLedger,
+        QuantScript,
+        QuantScriptPermission,
+        QuantScriptVersion,
+    )
+
+    for model in (
+        QuantScript,
+        AIConversation,
+        AIMessage,
+        AIGenerationJob,
+        QuantScriptVersion,
+        QuantScriptPermission,
+        AIJobEvent,
+        AIGeneratedArtifact,
+        AIBacktestRun,
+        AIUsageLedger,
+        AIAuditLog,
+    ):
+        model.__table__.create(bind=engine, checkfirst=True)
+
+
 MIGRATIONS = [
     Migration(1, "sqlite_compat_columns", migrate_sqlite_compat_columns),
     Migration(2, "workspace_share_snapshots", create_workspace_share_snapshots_table),
@@ -358,4 +389,5 @@ MIGRATIONS = [
     Migration(4, "broker_sync_foundation", create_broker_sync_tables),
     Migration(5, "relational_journal", create_relational_journal_tables),
     Migration(6, "market_data_infrastructure", create_market_data_infrastructure_tables),
+    Migration(7, "quant_ai_infrastructure", create_quant_ai_tables),
 ]

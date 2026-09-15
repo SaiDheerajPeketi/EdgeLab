@@ -1732,3 +1732,302 @@ class MarketAlertEvent(UserOwnedMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
     rule: Mapped[MarketAlertRule] = relationship(back_populates="events")
+
+
+class QuantScript(UserOwnedMixin, Base):
+    __tablename__ = "quant_scripts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "slug", name="uq_quant_scripts_user_slug"),
+        Index("ix_quant_scripts_user_updated", "user_id", "updated_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[str] = mapped_column(String(32), default="EDGELAB_DSL", nullable=False)
+    visibility: Mapped[str] = mapped_column(String(16), default="PRIVATE", nullable=False)
+    active_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="DRAFT", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    versions: Mapped[list["QuantScriptVersion"]] = relationship(
+        back_populates="script", cascade="all, delete-orphan"
+    )
+
+
+class QuantScriptVersion(UserOwnedMixin, Base):
+    __tablename__ = "quant_script_versions"
+    __table_args__ = (
+        UniqueConstraint("script_id", "version", name="uq_quant_script_versions_script_version"),
+        Index("ix_quant_script_versions_user_script_created", "user_id", "script_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    script_id: Mapped[int] = mapped_column(
+        ForeignKey("quant_scripts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    parent_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quant_script_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    generation_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_generation_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    dsl_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_by: Mapped[str] = mapped_column(String(16), default="USER", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="VALIDATED", nullable=False, index=True)
+    validation_report: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    input_schema: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    output_schema: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    script: Mapped[QuantScript] = relationship(back_populates="versions")
+
+
+@event.listens_for(QuantScriptVersion, "before_update")
+def prevent_quant_script_version_mutation(_mapper, _connection, target: QuantScriptVersion) -> None:
+    state = sqlalchemy_inspect(target)
+    immutable = (
+        "user_id", "script_id", "parent_version_id", "generation_job_id", "version",
+        "dsl_version", "source", "source_hash", "created_by", "validation_report",
+        "input_schema", "output_schema", "created_at",
+    )
+    if any(state.attrs[field].history.has_changes() for field in immutable):
+        raise ValueError("Quant script versions are immutable; create a new version")
+
+
+class QuantScriptPermission(UserOwnedMixin, Base):
+    __tablename__ = "quant_script_permissions"
+    __table_args__ = (
+        UniqueConstraint("script_id", "grantee_user_id", name="uq_quant_script_permissions_script_grantee"),
+        Index("ix_quant_script_permissions_grantee", "grantee_user_id", "revoked_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    script_id: Mapped[int] = mapped_column(
+        ForeignKey("quant_scripts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    grantee_user_id: Mapped[int] = mapped_column(
+        ForeignKey("beta_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    permission: Mapped[str] = mapped_column(String(16), default="VIEW", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AIConversation(UserOwnedMixin, Base):
+    __tablename__ = "ai_conversations"
+    __table_args__ = (Index("ix_ai_conversations_user_updated", "user_id", "updated_at", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False, index=True)
+    retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    retention_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    messages: Mapped[list["AIMessage"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
+    )
+
+
+class AIMessage(UserOwnedMixin, Base):
+    __tablename__ = "ai_messages"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence", name="uq_ai_messages_conversation_sequence"),
+        Index("ix_ai_messages_user_conversation", "user_id", "conversation_id", "sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    parent_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    chart_context: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    image_metadata: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    model_id: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    conversation: Mapped[AIConversation] = relationship(back_populates="messages")
+
+
+class AIGenerationJob(UserOwnedMixin, Base):
+    __tablename__ = "ai_generation_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_ai_generation_jobs_user_key"),
+        Index("ix_ai_generation_jobs_user_status", "user_id", "status", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    request_message_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_messages.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    secret_id: Mapped[int | None] = mapped_column(
+        ForeignKey("integration_secrets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    model_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="QUEUED", nullable=False, index=True)
+    estimated_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    hard_cost_ceiling_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    actual_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_cost_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    events: Mapped[list["AIJobEvent"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+    artifacts: Mapped[list["AIGeneratedArtifact"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+
+
+class AIJobEvent(UserOwnedMixin, Base):
+    __tablename__ = "ai_job_events"
+    __table_args__ = (
+        UniqueConstraint("job_id", "sequence", name="uq_ai_job_events_job_sequence"),
+        Index("ix_ai_job_events_user_job", "user_id", "job_id", "sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_generation_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    job: Mapped[AIGenerationJob] = relationship(back_populates="events")
+
+
+class AIGeneratedArtifact(UserOwnedMixin, Base):
+    __tablename__ = "ai_generated_artifacts"
+    __table_args__ = (
+        Index("ix_ai_generated_artifacts_user_created", "user_id", "created_at", "id"),
+        Index("ix_ai_generated_artifacts_job_type", "job_id", "artifact_type", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_generation_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quant_scripts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    script_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quant_script_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    artifact_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    content: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    provenance: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    retention_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    job: Mapped[AIGenerationJob] = relationship(back_populates="artifacts")
+
+
+class AIBacktestRun(UserOwnedMixin, Base):
+    __tablename__ = "ai_backtest_runs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "reproducibility_hash", name="uq_ai_backtest_runs_user_hash"),
+        Index("ix_ai_backtest_runs_user_created", "user_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_generation_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    artifact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_generated_artifacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    script_version_id: Mapped[int] = mapped_column(
+        ForeignKey("quant_script_versions.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    to_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    assumptions: Mapped[object] = mapped_column(JSON, nullable=False)
+    metrics: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    warnings: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
+    reproducibility_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AIUsageLedger(UserOwnedMixin, Base):
+    __tablename__ = "ai_usage_ledger"
+    __table_args__ = (
+        UniqueConstraint("job_id", name="uq_ai_usage_ledger_job"),
+        Index("ix_ai_usage_ledger_user_occurred", "user_id", "occurred_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_generation_jobs.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    credits: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+@event.listens_for(AIUsageLedger, "before_update")
+def prevent_ai_usage_mutation(_mapper, _connection, _target: AIUsageLedger) -> None:
+    raise ValueError("AI usage ledger entries are immutable")
+
+
+class AIAuditLog(UserOwnedMixin, Base):
+    __tablename__ = "ai_audit_logs"
+    __table_args__ = (Index("ix_ai_audit_logs_user_created", "user_id", "created_at", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    resource_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    resource_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    details: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
