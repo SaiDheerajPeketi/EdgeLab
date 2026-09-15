@@ -211,9 +211,9 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 ### 10. Indicator catalog and custom indicator source
 
 - [ ] `IND-01 · P1 · Partial` — Expand the 17-study catalog into a broad first-party professional library. Build original equivalents; do not copy LuxAlgo’s proprietary code or branding.
-- [ ] `IND-02 · P1 · Partial` — Replace the flat indicator menu with searchable categories for basic, volatility, momentum, structure, volume, order flow, custom, and favorites.
-- [ ] `IND-03 · P1 · Missing` — Add preview images/cards and concise behavior descriptions for each indicator.
-- [ ] `IND-04 · P1 · Missing` — Add indicator favorites and a fast favorites strip/quick-add control.
+- [x] `IND-02 · P1 · Partial` — Replace the flat indicator menu with searchable categories for basic, volatility, momentum, structure, volume, order flow, custom, and favorites.
+- [x] `IND-03 · P1 · Missing` — Add preview images/cards and concise behavior descriptions for each indicator.
+- [x] `IND-04 · P1 · Missing` — Add indicator favorites and a fast favorites strip/quick-add control.
 - [ ] `IND-05 · P0 · Missing` — Add a Pine-compatible editor or a documented EdgeLab indicator DSL/runtime; Pine itself requires a deliberate compatibility/licensing decision.
 - [ ] `IND-06 · P0 · Missing` — Compile/evaluate custom indicators in an isolated, resource-limited worker with deterministic historical and live updates.
 - [ ] `IND-07 · P1 · Missing` — Add editor syntax highlighting, autocomplete, diagnostics, version history, save/rename/duplicate/delete, and reusable user scripts.

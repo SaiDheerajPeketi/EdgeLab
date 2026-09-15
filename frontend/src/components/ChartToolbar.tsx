@@ -27,7 +27,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   TvCrosshairIcon,
   TvCursorIcon,
@@ -89,6 +89,21 @@ import {
   toggleDrawingToolFavorite,
   type FavoriteDrawingTool,
 } from "../lib/drawingToolFavorites";
+import {
+  INDICATOR_CATALOG,
+  getIndicatorCatalogItem,
+  isSingleInstanceIndicator,
+} from "../lib/indicatorCatalog";
+import {
+  hydrateIndicatorFavorites,
+  loadCachedIndicatorFavorites,
+  persistIndicatorFavorites,
+  sanitizeIndicatorFavorites,
+  subscribeIndicatorFavorites,
+  toggleIndicatorFavorite,
+  type FavoriteIndicator,
+} from "../lib/indicatorFavorites";
+import { IndicatorCatalogPanel } from "./IndicatorCatalogPanel";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
@@ -270,6 +285,9 @@ export function ChartToolbar({
   toolsOpen = true,
 }: Props) {
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+  const [indicatorFavorites, setIndicatorFavorites] = useState<FavoriteIndicator[]>(() =>
+    loadCachedIndicatorFavorites(),
+  );
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [customTimeframe, setCustomTimeframe] = useState("");
@@ -286,10 +304,12 @@ export function ChartToolbar({
     return loadActiveChartSettingsPresetName(presets) ?? "Default";
   });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const indicatorCatalogId = useId();
   const commandRef = useRef<HTMLDivElement | null>(null);
   const drawingFavoritesRef = useRef<HTMLDivElement | null>(null);
   const drawingFavoritesTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const indicatorMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const settingsWasOpenRef = useRef(false);
   const normalizedCustomTimeframe = normalizeChartTimeframe(customTimeframe);
@@ -315,6 +335,17 @@ export function ChartToolbar({
         !drawingFavorites.includes(item.tool as FavoriteDrawingTool),
     ),
   ];
+  const favoriteIndicatorOptions = indicatorFavorites.flatMap((kind) => {
+    const indicator = getIndicatorCatalogItem(kind);
+    return indicator ? [indicator] : [];
+  });
+
+  const closeIndicatorMenu = useCallback((restoreFocus = false) => {
+    setIndicatorMenuOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => indicatorMenuTriggerRef.current?.focus());
+    }
+  }, []);
 
   useEffect(() => {
     if (TIMEFRAMES.some((interval) => interval.id === timeframe)) {
@@ -362,6 +393,24 @@ export function ChartToolbar({
       setSettingsPresetName((current) =>
         nextPresets.some((preset) => preset.name === current) ? current : nextName,
       );
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateIndicatorFavorites().then((value) => {
+      if (active) {
+        setIndicatorFavorites(value);
+      }
+    });
+    const unsubscribe = subscribeIndicatorFavorites((value) => {
+      if (active) {
+        setIndicatorFavorites(value);
+      }
     });
     return () => {
       active = false;
@@ -460,6 +509,9 @@ export function ChartToolbar({
     if ((event?.target as HTMLElement | undefined)?.closest(".chart-command-menu")) {
       return;
     }
+    setDrawingFavoritesOpen(false);
+    setIndicatorMenuOpen(false);
+    setSettingsOpen(false);
     setCommandOpen(true);
     commandInputRef.current?.focus();
   }
@@ -476,6 +528,16 @@ export function ChartToolbar({
 
   function moveDrawingFavorite(tool: FavoriteDrawingTool, direction: -1 | 1) {
     updateDrawingFavorites(moveDrawingToolFavorite(drawingFavorites, tool, direction));
+  }
+
+  function updateIndicatorFavorites(next: FavoriteIndicator[]) {
+    const sanitized = sanitizeIndicatorFavorites(next);
+    setIndicatorFavorites(sanitized);
+    void persistIndicatorFavorites(sanitized);
+  }
+
+  function toggleFavoriteIndicator(kind: FavoriteIndicator) {
+    updateIndicatorFavorites(toggleIndicatorFavorite(indicatorFavorites, kind));
   }
 
   function handlePaneLayoutKeyDown(
@@ -1003,11 +1065,17 @@ export function ChartToolbar({
 
         <div ref={menuRef} className="relative">
           <button
-            className="chart-dropdown-trigger"
+            aria-controls={indicatorCatalogId}
+            aria-expanded={indicatorMenuOpen}
+            aria-haspopup="dialog"
+            className={`chart-dropdown-trigger ${indicatorMenuOpen ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
             onClick={() => {
               setIndicatorMenuOpen((value) => !value);
+              setCommandOpen(false);
+              setDrawingFavoritesOpen(false);
               setSettingsOpen(false);
             }}
+            ref={indicatorMenuTriggerRef}
             type="button"
           >
             <Layers size={15} />
@@ -1015,43 +1083,60 @@ export function ChartToolbar({
             <ChevronDown size={14} />
           </button>
           {indicatorMenuOpen && (
-            <div className="chart-dropdown-panel left-0 w-72">
-              {INDICATORS.map((indicator) => {
-                const count = indicatorInstances.filter(
-                  (instance) => instance.kind === indicator.kind,
-                ).length;
-                const isSingleInstanceGapStudy =
-                  indicator.kind === "fvg" || indicator.kind === "ifvg";
-                const disabled = isSingleInstanceGapStudy && count > 0;
-                return (
-                  <button
-                    className={`chart-dropdown-row ${count > 0 ? "chart-dropdown-row-active" : ""} ${disabled ? "opacity-60" : ""}`}
-                    disabled={disabled}
-                    key={indicator.id}
-                    onClick={() => onAddIndicator(indicator.kind)}
-                    type="button"
-                  >
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: indicator.color }}
-                    />
-                    <span className="min-w-0 flex-1 text-left">
-                      <span className="block truncate text-sm font-semibold text-slate-100">
-                        {indicator.label}
-                      </span>
-                      <span className="block truncate text-xs text-slate-500">
-                        {indicator.description}
-                      </span>
-                    </span>
-                    <span className={count > 0 ? "text-cyan-100" : "text-slate-500"}>
-                      {disabled ? "Active" : count > 0 ? `Add ${count + 1}` : "Add"}
-                    </span>
-                  </button>
-                );
-              })}
+            <div id={indicatorCatalogId}>
+              <IndicatorCatalogPanel
+                favorites={indicatorFavorites}
+                indicatorInstances={indicatorInstances}
+                onAddIndicator={onAddIndicator}
+                onClose={closeIndicatorMenu}
+                onToggleFavorite={toggleFavoriteIndicator}
+              />
             </div>
           )}
         </div>
+
+        {favoriteIndicatorOptions.length > 0 && (
+          <div
+            aria-label="Favorite indicators quick add"
+            className="flex min-h-10 min-w-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1"
+          >
+            <span className="inline-flex h-8 items-center gap-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+              <Star fill="currentColor" size={12} />
+              Quick add
+            </span>
+            {favoriteIndicatorOptions.map((indicator) => {
+              const count = indicatorInstances.filter(
+                (instance) => instance.kind === indicator.kind,
+              ).length;
+              const disabled = isSingleInstanceIndicator(indicator.kind) && count > 0;
+              return (
+                <button
+                  aria-label={
+                    disabled
+                      ? `${indicator.label} is already active`
+                      : count > 0
+                        ? `Add another ${indicator.label} indicator; ${count} active`
+                        : `Add ${indicator.label} indicator`
+                  }
+                  className={`studio-tool-button ${count > 0 ? "text-cyan-100" : ""}`}
+                  disabled={disabled}
+                  key={indicator.kind}
+                  onClick={() => onAddIndicator(indicator.kind)}
+                  title={disabled ? `${indicator.label} supports one instance` : indicator.description}
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: indicator.color }}
+                  />
+                  <span>{indicator.label}</span>
+                  {count > 0 && <span className="text-[10px] tabular-nums">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div ref={settingsRef} className="relative">
           <button
@@ -1856,23 +1941,25 @@ function CommandMenu({
     id: string;
     label: string;
     run: () => void;
+    searchText?: string;
     type: string;
   }> = [
-    ...INDICATORS.map((indicator) => ({
+    ...INDICATOR_CATALOG.map((indicator) => ({
       description:
-        (indicator.kind === "fvg" || indicator.kind === "ifvg") &&
+        isSingleInstanceIndicator(indicator.kind) &&
         indicatorInstances.some((instance) => instance.kind === indicator.kind)
           ? "Already active in this chart"
           : indicatorInstances.some((instance) => instance.kind === indicator.kind)
           ? "Add another configurable instance"
           : indicator.description,
       disabled:
-        (indicator.kind === "fvg" || indicator.kind === "ifvg") &&
+        isSingleInstanceIndicator(indicator.kind) &&
         indicatorInstances.some((instance) => instance.kind === indicator.kind),
       icon: Layers,
       id: `indicator-${indicator.id}`,
       label: indicator.label,
       run: () => onAddIndicator(indicator.kind),
+      searchText: indicator.searchText,
       type: "Study",
     })),
     ...DRAWING_TOOLS.map((tool) => ({
@@ -1917,7 +2004,7 @@ function CommandMenu({
   const visibleCommands = commands
     .filter((command) =>
       normalized
-        ? `${command.label} ${command.description} ${command.type}`
+        ? `${command.label} ${command.description} ${command.type} ${command.searchText ?? ""}`
             .toLowerCase()
             .includes(normalized)
         : true,
