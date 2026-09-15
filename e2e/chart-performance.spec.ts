@@ -32,23 +32,18 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   await client.send("Performance.enable");
   const before = await client.send("Performance.getMetrics");
   await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-  const representativeWorkload = await page.evaluate(async () => {
+  const interactionSurface = page.locator(".chart-pane-shell").nth(1).locator(".tv-lightweight-charts").first();
+  const interactionBounds = await interactionSurface.boundingBox();
+  if (!interactionBounds) throw new Error("Trading chart interaction surface is unavailable");
+  const sampling = page.evaluate(async () => {
     const stages = [...document.querySelectorAll<HTMLElement>(".chart-stage")];
     if (stages.length !== 16) throw new Error(`Expected 16 chart stages, received ${stages.length}`);
-    const source = stages[1].querySelector<HTMLElement>(".tv-lightweight-charts")
-      ?? stages[1].querySelector<HTMLElement>("canvas");
-    if (!source) throw new Error("Trading chart interaction surface is unavailable");
     const observedTimes = stages.map((stage) => new Set([
       stage.querySelector<HTMLElement>(".chart-ohlcv-time")?.textContent ?? "",
     ]));
     const values: number[] = [];
     let previous = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
     for (let index = 0; index < 120; index += 1) {
-      const bounds = source.getBoundingClientRect();
-      const clientX = bounds.left + bounds.width * ([0.2, 0.5, 0.8][index % 3] ?? 0.5);
-      const clientY = bounds.top + bounds.height * 0.45;
-      source.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX, clientY }));
-      source.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX, clientY }));
       const current = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
       values.push(current - previous);
       stages.forEach((stage, paneIndex) => {
@@ -56,14 +51,23 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
       });
       previous = current;
     }
-    source.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
     return {
-      dispatchedCrosshairUpdates: values.length,
       panesWithChangingOhlc: observedTimes.filter((times) => times.size >= 2).length,
       values,
     };
   });
-  expect(representativeWorkload.dispatchedCrosshairUpdates).toBe(120);
+  const driving = (async () => {
+    for (let index = 0; index < 120; index += 1) {
+      await page.mouse.move(
+        interactionBounds.x + interactionBounds.width * ([0.2, 0.5, 0.8][index % 3] ?? 0.5),
+        interactionBounds.y + interactionBounds.height * 0.45,
+      );
+      await page.waitForTimeout(60);
+    }
+    return 120;
+  })();
+  const [representativeWorkload, dispatchedCrosshairUpdates] = await Promise.all([sampling, driving]);
+  expect(dispatchedCrosshairUpdates).toBe(120);
   expect(representativeWorkload.panesWithChangingOhlc).toBe(16);
   const frames = representativeWorkload.values.slice(20);
   const resizeStress = await page.evaluate(async () => {
@@ -126,7 +130,7 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
     frameP95Ms: p95(frames), frames,
     interactionP95Ms: p95(interactions), interactions,
     representativeWorkload: {
-      dispatchedCrosshairUpdates: representativeWorkload.dispatchedCrosshairUpdates,
+      dispatchedCrosshairUpdates,
       panesWithChangingOhlc: representativeWorkload.panesWithChangingOhlc,
     },
     resizeStressP95Ms: p95(resizeStress.durations),
