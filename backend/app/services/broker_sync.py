@@ -7,7 +7,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from hashlib import sha256
 import json
-from typing import Protocol
+import os
+import socket
+from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -156,6 +161,148 @@ class BrokerAdapter(Protocol):
     ) -> SyncBatch: ...
 
 
+class BrokerHttpTransport(Protocol):
+    def get_json(
+        self, url: str, *, headers: Mapping[str, str], query: Mapping[str, str] | None = None
+    ) -> Any: ...
+
+
+class UrllibBrokerTransport:
+    """Small, dependency-free provider client with bounded I/O and no secret logging."""
+
+    def __init__(self, timeout_seconds: float = 15.0) -> None:
+        self.timeout_seconds = timeout_seconds
+
+    def get_json(
+        self, url: str, *, headers: Mapping[str, str], query: Mapping[str, str] | None = None
+    ) -> Any:
+        target = f"{url}?{urlencode(query)}" if query else url
+        request = Request(target, headers=dict(headers), method="GET")
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310 - URLs are server configured
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            if exc.code in {401, 403}:
+                raise BrokerAuthenticationError() from exc
+            if exc.code == 429 or exc.code >= 500:
+                raise BrokerTransientError(f"Broker request failed with status {exc.code}") from exc
+            raise BrokerDataError(f"Broker request failed with status {exc.code}") from exc
+        except (URLError, TimeoutError, socket.timeout) as exc:
+            raise BrokerTransientError("Broker endpoint could not be reached") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BrokerDataError("Broker returned an invalid JSON response") from exc
+
+
+class JsonRestBrokerAdapter:
+    """Normalizes account/order/fill payloads from supported broker REST APIs."""
+
+    provider_id = ""
+    token_key = "access_token"
+    default_base_url: str | None = None
+    environment_base_url = ""
+    account_path = "/accounts"
+    order_path = "/orders"
+    fill_path = "/fills"
+
+    def __init__(self, transport: BrokerHttpTransport | None = None, *, base_url: str | None = None) -> None:
+        self.transport = transport or UrllibBrokerTransport()
+        self.base_url = (base_url or os.getenv(self.environment_base_url) or self.default_base_url or "").rstrip("/")
+
+    def fetch_incremental(self, credentials: Mapping[str, str], cursor: str | None) -> SyncBatch:
+        token = credentials.get(self.token_key) or credentials.get("access_token") or credentials.get("api_key")
+        if not token:
+            raise BrokerAuthenticationError(f"{self.provider_id} credential is missing {self.token_key}")
+        if not self.base_url.startswith("https://"):
+            raise BrokerProviderUnavailableError(
+                f"{self.provider_id} endpoint is not configured with an HTTPS URL"
+            )
+        headers = self.auth_headers(token)
+        query = {"cursor": cursor} if cursor else None
+        accounts_payload = self.transport.get_json(f"{self.base_url}{self.account_path}", headers=headers)
+        orders_payload = self.transport.get_json(f"{self.base_url}{self.order_path}", headers=headers, query=query)
+        fills_payload = self.transport.get_json(f"{self.base_url}{self.fill_path}", headers=headers, query=query)
+        accounts = tuple(self.parse_account(item) for item in payload_rows(accounts_payload))
+        orders = tuple(self.parse_order(item) for item in payload_rows(orders_payload))
+        fills = tuple(self.parse_fill(item) for item in payload_rows(fills_payload))
+        next_cursor = payload_cursor(fills_payload) or payload_cursor(orders_payload) or cursor
+        watermark = max(
+            (record.provider_updated_at for record in (*orders, *fills)),
+            default=None,
+        )
+        return SyncBatch(accounts=accounts, orders=orders, fills=fills, next_cursor=next_cursor, high_watermark=watermark)
+
+    def auth_headers(self, token: str) -> dict[str, str]:
+        return {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+
+    def parse_account(self, item: Mapping[str, Any]) -> AccountRecord:
+        account_id = required_text(item, "id", "accountId", "account_id", "name")
+        return AccountRecord(
+            external_account_id=account_id,
+            display_name=text_value(item, "displayName", "name", "accountName") or account_id,
+            currency=(text_value(item, "currency", "currencyCode") or "USD").upper(),
+            status=(text_value(item, "status", "activeStatus") or "ACTIVE").upper(),
+        )
+
+    def parse_order(self, item: Mapping[str, Any]) -> OrderRecord:
+        quantity = decimal_field(item, "quantity", "qty", "orderQty")
+        filled = decimal_field(item, "filledQuantity", "filledQty", "cumQty", default="0")
+        status = (text_value(item, "status", "ordStatus") or "UNKNOWN").upper()
+        return OrderRecord(
+            external_order_id=required_text(item, "id", "orderId", "order_id"),
+            external_account_id=required_text(item, "accountId", "account_id", "account"),
+            symbol=required_text(item, "symbol", "contract", "instrument"),
+            side=normalize_side(required_text(item, "side", "action", "orderAction")),
+            order_type=(text_value(item, "orderType", "type", "ordType") or "UNKNOWN").upper(),
+            status=status,
+            quantity=quantity,
+            filled_quantity=filled,
+            average_fill_price=optional_decimal_field(item, "averageFillPrice", "avgPrice", "avgFillPrice"),
+            commission_total=decimal_field(item, "commission", "commissionTotal", default="0"),
+            fees_total=decimal_field(item, "fees", "feeTotal", default="0"),
+            placed_at=datetime_field(item, "placedAt", "createdAt", "timestamp", "orderTimestamp"),
+            provider_updated_at=datetime_field(item, "updatedAt", "modifiedAt", "timestamp", "orderTimestamp"),
+            source_revision=integer_field(item, "revision", "version", "updateSequence", default=1),
+            cancelled_at=(datetime_field(item, "cancelledAt", "canceledAt") if text_value(item, "cancelledAt", "canceledAt") else None),
+        )
+
+    def parse_fill(self, item: Mapping[str, Any]) -> FillRecord:
+        executed_at = datetime_field(item, "executedAt", "timestamp", "fillTime", "tradeTime")
+        return FillRecord(
+            external_fill_id=required_text(item, "id", "fillId", "executionId", "execId"),
+            external_order_id=required_text(item, "orderId", "order_id"),
+            external_account_id=required_text(item, "accountId", "account_id", "account"),
+            symbol=required_text(item, "symbol", "contract", "instrument"),
+            side=normalize_side(required_text(item, "side", "action", "orderAction")),
+            quantity=decimal_field(item, "quantity", "qty", "fillQty"),
+            price=decimal_field(item, "price", "fillPrice"),
+            commission=decimal_field(item, "commission", default="0"),
+            fees=decimal_field(item, "fees", "fee", default="0"),
+            executed_at=executed_at,
+            provider_updated_at=(datetime_field(item, "updatedAt", "modifiedAt") if text_value(item, "updatedAt", "modifiedAt") else executed_at),
+            source_revision=integer_field(item, "revision", "version", "updateSequence", default=1),
+            cancelled=bool(item.get("cancelled", False)),
+        )
+
+
+class TradovateBrokerAdapter(JsonRestBrokerAdapter):
+    provider_id = "tradovate"
+    token_key = "access_token"
+    default_base_url = "https://live.tradovateapi.com/v1"
+    environment_base_url = "EDGELAB_TRADOVATE_API_BASE_URL"
+    account_path = "/account/list"
+    order_path = "/order/list"
+    fill_path = "/fill/list"
+
+
+class NinjaTraderBrokerAdapter(JsonRestBrokerAdapter):
+    provider_id = "ninjatrader"
+    token_key = "api_key"
+    environment_base_url = "EDGELAB_NINJATRADER_API_BASE_URL"
+
+    def auth_headers(self, token: str) -> dict[str, str]:
+        return {"Accept": "application/json", "X-API-Key": token}
+
+
 @dataclass(frozen=True)
 class ProviderDefinition:
     provider_id: str
@@ -184,18 +331,22 @@ PROVIDERS: tuple[ProviderDefinition, ...] = (
     ProviderDefinition(
         provider_id="tradovate",
         display_name="Tradovate",
-        availability="planned",
-        capabilities=BrokerCapabilityRead(),
+        availability="available",
+        capabilities=BrokerCapabilityRead(
+            accounts=True, incremental_sync=True, orders=True, fills=True, live_connectivity=True
+        ),
         requires_secret=True,
-        description="Planned integration; no live adapter is implemented.",
+        description="Direct incremental REST sync. Requires a Tradovate access token stored in the EdgeLab vault.",
     ),
     ProviderDefinition(
         provider_id="ninjatrader",
         display_name="NinjaTrader",
-        availability="planned",
-        capabilities=BrokerCapabilityRead(),
+        availability="available" if os.getenv("EDGELAB_NINJATRADER_API_BASE_URL", "").startswith("https://") else "unconfigured",
+        capabilities=BrokerCapabilityRead(
+            accounts=True, incremental_sync=True, orders=True, fills=True, live_connectivity=True
+        ),
         requires_secret=True,
-        description="Planned integration; no live adapter is implemented.",
+        description="Direct incremental sync through the configured NinjaTrader HTTPS API endpoint. The server endpoint must be configured before connecting.",
     ),
 )
 
@@ -264,7 +415,7 @@ def create_connection(
     payload: BrokerConnectionCreate,
 ) -> BrokerConnectionRead:
     provider = provider_definition(payload.provider)
-    if provider.availability != "offline-fixture" or payload.provider not in ADAPTERS:
+    if provider.availability not in {"offline-fixture", "available"} or payload.provider not in ADAPTERS:
         raise BrokerProviderUnavailableError()
     secret = integration_secrets.get_integration_secret(db, user_id, payload.secret_id)
     if secret.state != "active":
@@ -1236,6 +1387,88 @@ def audit_read(row: BrokerAuditLog) -> BrokerAuditRead:
     )
 
 
+def payload_rows(payload: Any) -> list[Mapping[str, Any]]:
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = next(
+            (payload[key] for key in ("items", "data", "results", "accounts", "orders", "fills") if isinstance(payload.get(key), list)),
+            [],
+        )
+    else:
+        raise BrokerDataError("Broker response must be a JSON array or object")
+    if not all(isinstance(item, dict) for item in rows):
+        raise BrokerDataError("Broker response contains an invalid record")
+    return rows
+
+
+def payload_cursor(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("nextCursor", payload.get("next_cursor", payload.get("cursor")))
+    return str(value) if value not in (None, "") else None
+
+
+def text_value(item: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def required_text(item: Mapping[str, Any], *keys: str) -> str:
+    value = text_value(item, *keys)
+    if value is None:
+        raise BrokerDataError(f"Broker record is missing {keys[0]}")
+    return value
+
+
+def decimal_field(item: Mapping[str, Any], *keys: str, default: str | None = None) -> Decimal:
+    value = text_value(item, *keys)
+    if value is None:
+        if default is None:
+            raise BrokerDataError(f"Broker record is missing {keys[0]}")
+        value = default
+    try:
+        return Decimal(value)
+    except InvalidOperation as exc:
+        raise BrokerDataError(f"Broker record has invalid {keys[0]}") from exc
+
+
+def optional_decimal_field(item: Mapping[str, Any], *keys: str) -> Decimal | None:
+    value = text_value(item, *keys)
+    return decimal_field({keys[0]: value}, keys[0]) if value is not None else None
+
+
+def integer_field(item: Mapping[str, Any], *keys: str, default: int) -> int:
+    value = text_value(item, *keys)
+    try:
+        return int(value) if value is not None else default
+    except ValueError as exc:
+        raise BrokerDataError(f"Broker record has invalid {keys[0]}") from exc
+
+
+def datetime_field(item: Mapping[str, Any], *keys: str) -> datetime:
+    value = required_text(item, *keys)
+    try:
+        if value.isdigit():
+            number = int(value)
+            return datetime.fromtimestamp(number / 1000 if number > 10_000_000_000 else number, tz=timezone.utc)
+        return normalize_datetime(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    except (ValueError, OSError, OverflowError) as exc:
+        raise BrokerDataError(f"Broker record has invalid {keys[0]}") from exc
+
+
+def normalize_side(value: str) -> str:
+    normalized = value.strip().upper()
+    if normalized in {"BUY", "BUYTOCOVER", "BUY_TO_COVER", "B"}:
+        return "BUY"
+    if normalized in {"SELL", "SELLSHORT", "SELL_SHORT", "S"}:
+        return "SELL"
+    raise BrokerDataError("Broker record has an invalid side")
+
+
 def default_fixture_batches() -> tuple[SyncBatch, ...]:
     occurred_at = datetime(2024, 1, 2, 14, 30, tzinfo=timezone.utc)
     return (
@@ -1282,3 +1515,5 @@ def default_fixture_batches() -> tuple[SyncBatch, ...]:
 
 
 ADAPTERS["offline-fixture"] = FixtureBrokerAdapter()
+ADAPTERS["tradovate"] = TradovateBrokerAdapter()
+ADAPTERS["ninjatrader"] = NinjaTraderBrokerAdapter()

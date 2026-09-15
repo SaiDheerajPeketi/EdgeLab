@@ -253,7 +253,7 @@ class BrokerCapabilityRead(BaseModel):
 class BrokerProviderRead(BaseModel):
     provider_id: str
     display_name: str
-    availability: Literal["offline-fixture", "planned"]
+    availability: Literal["offline-fixture", "available", "unconfigured", "planned"]
     capabilities: BrokerCapabilityRead
     requires_secret: bool
     description: str
@@ -818,6 +818,14 @@ class BetaAuthConfig(BaseModel):
     google_redirect_uri: str | None = None
     manual_access_enabled: bool = False
     dev_auth_bypass_enabled: bool = False
+
+
+class UiRolloutConfig(BaseModel):
+    """Server-owned route-group flags with one emergency fallback."""
+
+    revision: str = "v2"
+    kill_switch: bool = False
+    flags: dict[str, bool] = Field(default_factory=dict)
 
 
 class BetaAccessRequest(BaseModel):

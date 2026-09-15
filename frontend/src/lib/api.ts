@@ -598,7 +598,7 @@ export type IntegrationSecretConnection = IntegrationSecret & {
 export type BrokerProvider = {
   provider_id: string;
   display_name: string;
-  availability: "offline-fixture" | "planned";
+  availability: "offline-fixture" | "available" | "unconfigured" | "planned";
   capabilities: {
     accounts: boolean;
     incremental_sync: boolean;
@@ -690,6 +690,12 @@ export type BetaAuthConfig = {
   google_redirect_uri: string | null;
   manual_access_enabled: boolean;
   dev_auth_bypass_enabled: boolean;
+};
+
+export type UiRolloutServerResponse = {
+  revision: string;
+  kill_switch: boolean;
+  flags: Partial<Record<"shell" | "journal" | "settings" | "chart" | "public", boolean>>;
 };
 
 export type BetaAccessPayload = {
@@ -846,6 +852,10 @@ export function getBetaProgramStatus() {
 
 export function getBetaAuthConfig() {
   return request<BetaAuthConfig>("/auth/config");
+}
+
+export function getUiRolloutConfig() {
+  return request<UiRolloutServerResponse>("/ui/rollout");
 }
 
 export function requestBetaAccess(payload: BetaAccessPayload) {

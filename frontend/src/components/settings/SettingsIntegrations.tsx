@@ -26,7 +26,8 @@ export function SettingsIntegrations() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [fixtureToken, setFixtureToken] = useState("");
+  const [credential, setCredential] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState("offline-fixture");
   const [connectionName, setConnectionName] = useState("Offline fixture");
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
 
@@ -53,26 +54,27 @@ export function SettingsIntegrations() {
 
   const activeSecrets = useMemo(() => secrets.filter((secret) => secret.state === "active"), [secrets]);
 
-  async function addFixture() {
-    if (!fixtureToken.trim() || !connectionName.trim()) return;
+  async function addConnection() {
+    if (!credential.trim() || !connectionName.trim()) return;
     setBusy("create");
     setError(null);
     try {
+      const credentialKey = selectedProvider === "offline-fixture" ? "fixture_token" : selectedProvider === "ninjatrader" ? "api_key" : "access_token";
       const secret = await createIntegrationSecret({
-        provider: "offline-fixture",
+        provider: selectedProvider,
         purpose: "broker-sync",
-        credentials: { fixture_token: fixtureToken },
+        credentials: { [credentialKey]: credential },
       });
       await verifyIntegrationSecret(secret.id);
       await createBrokerConnection({
-        provider: "offline-fixture",
+        provider: selectedProvider,
         display_name: connectionName.trim(),
         secret_id: secret.id,
       });
-      setFixtureToken("");
+      setCredential("");
       await load();
     } catch (caught) {
-      setError(messageFor(caught, "The offline connection could not be created."));
+      setError(messageFor(caught, "The broker connection could not be created. Verify the credential and provider configuration, then retry."));
     } finally {
       setBusy(null);
     }
@@ -105,7 +107,7 @@ export function SettingsIntegrations() {
                   <p className="text-sm font-medium text-zinc-100">{provider.display_name}</p>
                   <p className="mt-1 text-xs leading-5 text-zinc-500">{provider.description}</p>
                 </div>
-                <span className="text-xs text-zinc-400">{provider.availability === "planned" ? "Planned — unavailable" : "Local test environment"}</span>
+                <span className="text-xs text-zinc-400">{provider.availability === "available" ? "Available" : provider.availability === "offline-fixture" ? "Local test environment" : provider.availability === "unconfigured" ? "Server setup required" : "Planned — unavailable"}</span>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-3">
                 <Capability label="Accounts" enabled={provider.capabilities.accounts} />
@@ -118,15 +120,16 @@ export function SettingsIntegrations() {
             </div>
           ))}
 
-          {providers.some((provider) => provider.provider_id === "offline-fixture") ? (
-            <form className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.03] p-3" onSubmit={(event) => { event.preventDefault(); void addFixture(); }}>
-              <p className="text-sm font-medium text-zinc-100">Create offline fixture connection</p>
-              <p className="mt-1 text-xs leading-5 text-zinc-500">For development and contract testing only. “Verify” below confirms encrypted credentials can be decrypted; it does not prove broker connectivity.</p>
+          {providers.some((provider) => provider.availability === "available" || provider.availability === "offline-fixture") ? (
+            <form className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.03] p-3" onSubmit={(event) => { event.preventDefault(); void addConnection(); }}>
+              <p className="text-sm font-medium text-zinc-100">Create broker connection</p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">Credentials are encrypted server-side and never returned. The first refresh verifies provider connectivity and discovers accounts.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="text-xs font-medium text-zinc-300">Provider<select value={selectedProvider} onChange={(event) => { setSelectedProvider(event.target.value); setConnectionName(providers.find((provider) => provider.provider_id === event.target.value)?.display_name ?? "Broker"); }} className={`${fieldClassName} mt-1`}>{providers.filter((provider) => provider.availability === "available" || provider.availability === "offline-fixture").map((provider) => <option key={provider.provider_id} value={provider.provider_id}>{provider.display_name}</option>)}</select></label>
                 <label className="text-xs font-medium text-zinc-300">Connection name<input value={connectionName} onChange={(event) => setConnectionName(event.target.value)} maxLength={120} className={`${fieldClassName} mt-1`} /></label>
-                <label className="text-xs font-medium text-zinc-300">Fixture token<input value={fixtureToken} onChange={(event) => setFixtureToken(event.target.value)} type="password" autoComplete="new-password" className={`${fieldClassName} mt-1`} /></label>
+                <label className="text-xs font-medium text-zinc-300 sm:col-span-2">{selectedProvider === "offline-fixture" ? "Fixture token" : selectedProvider === "ninjatrader" ? "API key" : "Access token"}<input value={credential} onChange={(event) => setCredential(event.target.value)} type="password" autoComplete="new-password" className={`${fieldClassName} mt-1`} /></label>
               </div>
-              <button type="submit" disabled={!fixtureToken.trim() || !connectionName.trim() || busy === "create"} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-45">
+              <button type="submit" disabled={!credential.trim() || !connectionName.trim() || busy === "create"} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-45">
                 {busy === "create" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Database aria-hidden="true" className="h-4 w-4" />}
                 Save credential and create connection
               </button>

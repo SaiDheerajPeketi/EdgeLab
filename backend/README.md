@@ -105,7 +105,7 @@ export EDGELAB_SECRET_VAULT_KEYS='{"local-v1":"PASTE_GENERATED_KEY_HERE"}'
 
 Production sets `EDGELAB_ENVIRONMENT=production` and fails startup unless both vault variables are valid. To rotate keys, retain the prior key in `EDGELAB_SECRET_VAULT_KEYS`, add the new key, change the active key ID, restart, then call each credential's rotate endpoint. Remove an old key only after no metadata row references its key ID. `alembic upgrade head` creates the encrypted vault and broker sync tables; ciphertext cannot be migrated without the keyring.
 
-The broker catalog currently exposes only `offline-fixture` as connectable. Tradovate and NinjaTrader are marked planned and have no live connectivity or adapter implementation.
+The broker catalog includes the deterministic `offline-fixture`, direct Tradovate REST sync, and a NinjaTrader HTTPS sync connector. Tradovate accepts a vault-stored `access_token` and uses `https://live.tradovateapi.com/v1` by default; override its server-side endpoint with `EDGELAB_TRADOVATE_API_BASE_URL` for a compatible gateway. NinjaTrader accepts a vault-stored `api_key` and remains visibly unconfigured until `EDGELAB_NINJATRADER_API_BASE_URL` points to an HTTPS connector implementing `/accounts`, `/orders`, and `/fills`. Provider endpoints are server configuration, never browser input. Both adapters normalize accounts, orders, fills, correction revisions, incremental cursors, and health into the shared reconciliation pipeline.
 
 Run the backend server manually (outside of Docker):
 ```bash

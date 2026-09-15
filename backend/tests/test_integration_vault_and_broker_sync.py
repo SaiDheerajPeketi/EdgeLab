@@ -336,14 +336,14 @@ def create_connection(db, user: BetaUser, marker: str = "fixture-access"):
     )
 
 
-def test_catalog_is_truthful_and_planned_brokers_cannot_connect(db):
+def test_catalog_is_truthful_and_shipped_brokers_can_create_vault_backed_connections(db):
     catalog = {provider.provider_id: provider for provider in broker_sync.list_provider_catalog()}
     assert catalog["offline-fixture"].availability == "offline-fixture"
     assert catalog["offline-fixture"].capabilities.incremental_sync is True
     assert catalog["offline-fixture"].capabilities.live_connectivity is False
-    assert catalog["tradovate"].availability == "planned"
-    assert catalog["tradovate"].capabilities.live_connectivity is False
-    assert catalog["ninjatrader"].availability == "planned"
+    assert catalog["tradovate"].availability == "available"
+    assert catalog["tradovate"].capabilities.live_connectivity is True
+    assert catalog["ninjatrader"].availability in {"available", "unconfigured"}
 
     user = seed_user(db, "planned@example.com")
     secret = integration_secrets.create_integration_secret(
@@ -351,16 +351,16 @@ def test_catalog_is_truthful_and_planned_brokers_cannot_connect(db):
         user.id,
         secret_request("planned-token", provider="tradovate"),
     )
-    with pytest.raises(broker_sync.BrokerProviderUnavailableError):
-        broker_sync.create_connection(
-            db,
-            user.id,
-            BrokerConnectionCreate(
-                provider="tradovate",
-                display_name="Not live",
-                secret_id=secret.id,
-            ),
-        )
+    connection = broker_sync.create_connection(
+        db,
+        user.id,
+        BrokerConnectionCreate(
+            provider="tradovate",
+            display_name="Tradovate direct",
+            secret_id=secret.id,
+        ),
+    )
+    assert connection.status == "READY"
 
 
 def test_incremental_sync_reconciles_scale_corrections_cancellations_and_costs(db):
