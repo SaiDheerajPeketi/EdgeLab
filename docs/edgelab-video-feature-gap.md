@@ -179,7 +179,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 ### 8. Multi-chart layouts, synchronization, workspaces, screenshots, and sharing
 
 - [x] `LAY-01 · P1 · Partial` — Expand chart layouts from a maximum of four panes to a maximum of 16, including an explicit **4×4 grid** preset plus other useful arrangements and responsive sizing.
-- [ ] `LAY-02 · P0 · Missing` — Give every pane its own symbol/data subscription. Current panes share the selected watchlist symbol and candle set.
+- [x] `LAY-02 · P0 · Missing` — Give every pane its own symbol/data subscription. Current panes share the selected watchlist symbol and candle set.
 - [x] `LAY-03 · P1 · Missing` — Add independent synchronization toggles for symbol, interval, crosshair, and chart style.
 - [x] `LAY-04 · P1 · Missing` — Synchronize crosshair time/price and visible range across selected panes when enabled.
 - [x] `LAY-05 · P1 · Missing` — Add “sync drawings across charts,” with a clear symbol/timeframe mapping policy.
@@ -210,35 +210,35 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 ### 10. Indicator catalog and custom indicator source
 
-- [ ] `IND-01 · P1 · Partial` — Expand the 17-study catalog into a broad first-party professional library. Build original equivalents; do not copy LuxAlgo’s proprietary code or branding.
+- [x] `IND-01 · P1 · Partial` — Expand the 17-study catalog into a broad first-party professional library. Build original equivalents; do not copy LuxAlgo’s proprietary code or branding.
 - [x] `IND-02 · P1 · Partial` — Replace the flat indicator menu with searchable categories for basic, volatility, momentum, structure, volume, order flow, custom, and favorites.
 - [x] `IND-03 · P1 · Missing` — Add preview images/cards and concise behavior descriptions for each indicator.
 - [x] `IND-04 · P1 · Missing` — Add indicator favorites and a fast favorites strip/quick-add control.
-- [ ] `IND-05 · P0 · Missing` — Add a Pine-compatible editor or a documented EdgeLab indicator DSL/runtime; Pine itself requires a deliberate compatibility/licensing decision.
-- [ ] `IND-06 · P0 · Missing` — Compile/evaluate custom indicators in an isolated, resource-limited worker with deterministic historical and live updates.
-- [ ] `IND-07 · P1 · Missing` — Add editor syntax highlighting, autocomplete, diagnostics, version history, save/rename/duplicate/delete, and reusable user scripts.
-- [ ] `IND-08 · P1 · Missing` — Add “Add to chart,” settings/input generation, object-tree integration, saved-workspace persistence, and clear runtime-error states for custom indicators.
+- [x] `IND-05 · P0 · Missing` — Add a Pine-compatible editor or a documented EdgeLab indicator DSL/runtime; Pine itself requires a deliberate compatibility/licensing decision.
+- [x] `IND-06 · P0 · Missing` — Compile/evaluate custom indicators in an isolated, resource-limited worker with deterministic historical and live updates.
+- [x] `IND-07 · P1 · Missing` — Add editor syntax highlighting, autocomplete, diagnostics, version history, save/rename/duplicate/delete, and reusable user scripts.
+- [x] `IND-08 · P1 · Missing` — Add “Add to chart,” settings/input generation, object-tree integration, saved-workspace persistence, and clear runtime-error states for custom indicators.
 
 ### 11. Quant-style AI, voice, chart vision, and AI-generated studies
 
-- [ ] `AI-01 · P0 · Missing` — Add a docked Quant assistant on the chart rather than a separate generic help surface.
-- [ ] `AI-02 · P0 · Missing` — Persist and list both chart-analysis conversations and backtest/indicator-building conversations.
+- [x] `AI-01 · P0 · Missing` — Add a docked Quant assistant on the chart rather than a separate generic help surface.
+- [x] `AI-02 · P0 · Missing` — Persist and list both chart-analysis conversations and backtest/indicator-building conversations.
 - [x] `AI-03 · P0 · Missing` — Stream assistant responses and expose queued/running/completed/failed/cancelled generation states.
-- [ ] `AI-04 · P0 · Missing` — Supply structured chart context: symbol, provider, timeframe, timezone, visible/history bars, session mode, active indicators, settings, drawings, selected objects, and selected region.
-- [ ] `AI-05 · P1 · Missing` — Add a model selector for supported AI models.
-- [ ] `AI-06 · P1 · Missing` — Show the per-model token/credit/cost policy before use and display actual usage afterward.
-- [ ] `AI-07 · P1 · Missing` — Add microphone dictation with recording/transcription state, edit-before-send, cancellation, and permission/error handling.
-- [ ] `AI-08 · P0 · Missing` — Generate a custom indicator from natural language or dictation and write the source into the indicator editor.
+- [x] `AI-04 · P0 · Missing` — Supply structured chart context: symbol, provider, timeframe, timezone, visible/history bars, session mode, active indicators, settings, drawings, selected objects, and selected region.
+- [x] `AI-05 · P1 · Missing` — Add a model selector for supported AI models.
+- [x] `AI-06 · P1 · Missing` — Show the per-model token/credit/cost policy before use and display actual usage afterward.
+- [x] `AI-07 · P1 · Missing` — Add microphone dictation with recording/transcription state, edit-before-send, cancellation, and permission/error handling.
+- [x] `AI-08 · P0 · Missing` — Generate a custom indicator from natural language or dictation and write the source into the indicator editor.
 - [ ] `AI-09 · P1 · Missing` — Allow iterative follow-up edits in the same conversation while retaining the prior source, chart context, and test result.
-- [ ] `AI-10 · P1 · Missing` — Let the assistant add the generated indicator to the active chart and expose its settings immediately.
+- [x] `AI-10 · P1 · Missing` — Let the assistant add the generated indicator to the active chart and expose its settings immediately.
 - [x] `AI-11 · P0 · Missing` — Automatically backtest a generated study over a stated window—the demonstration uses 60 days—with configurable symbol, timeframe, rules, costs, and sample range.
-- [ ] `AI-12 · P1 · Missing` — Return reproducible backtest assumptions, metrics, warnings, source version, and rerun controls instead of only prose.
+- [x] `AI-12 · P1 · Missing` — Return reproducible backtest assumptions, metrics, warnings, source version, and rerun controls instead of only prose.
 - [ ] `AI-13 · P0 · Missing` — Send a full-chart screenshot and its structured chart context directly to the assistant.
 - [ ] `AI-14 · P1 · Missing` — Add chart-image analysis that can return a reasoned daily bias, relevant levels, invalidation, uncertainty, and risk warning.
 - [ ] `AI-15 · P1 · Missing` — Let the assistant offer to turn analysis into an indicator, write the source, add it to the chart, and update real-time score/probability labels.
 - [ ] `AI-16 · P1 · Missing` — Add the star/capture tool: drag-select a chart region, enter text or dictate without first opening chat, and send the cropped image plus prompt to Quant.
-- [ ] `AI-17 · P0 · Missing` — Isolate generated code and model tools with time/memory limits, permission boundaries, audit records, prompt/data-retention controls, and safe failure recovery.
-- [ ] `AI-18 · P0 · Missing` — Add server-side provider routing, encrypted API credentials, per-user quotas, rate limits, cancellation, usage accounting, and cost ceilings.
+- [x] `AI-17 · P0 · Missing` — Isolate generated code and model tools with time/memory limits, permission boundaries, audit records, prompt/data-retention controls, and safe failure recovery.
+- [x] `AI-18 · P0 · Missing` — Add server-side provider routing, encrypted API credentials, per-user quotas, rate limits, cancellation, usage accounting, and cost ceilings.
 
 ### 12. Features explicitly announced as future in the reference videos
 
@@ -251,15 +251,15 @@ These belong in the product roadmap but should not be treated as prerequisites f
 
 ### 13. Required platform work that makes the visible features reliable
 
-- [ ] `PLT-01 · P0 · Partial` — Move production Journal data from one app-storage JSON document into relational, user-scoped entities for accounts, connections, trades, fills, tags, reviews, ratings, daily notes, imports, and sync cursors.
+- [x] `PLT-01 · P0 · Partial` — Move production Journal data from one app-storage JSON document into relational, user-scoped entities for accounts, connections, trades, fills, tags, reviews, ratings, daily notes, imports, and sync cursors.
 - [x] `PLT-02 · P0 · Missing` — Add a migration/backfill path from existing Journal app storage and imported Backtest sessions without losing user data.
 - [x] `PLT-03 · P0 · Missing` — Store broker credentials/tokens in an encrypted secret store; never persist them in browser storage or logs. Add rotation and revocation.
-- [ ] `PLT-04 · P0 · Missing` — Add background jobs/webhooks with retries, dead-letter handling, idempotency, rate-limit backoff, provider audit logs, and sync observability.
+- [x] `PLT-04 · P0 · Missing` — Add background jobs/webhooks with retries, dead-letter handling, idempotency, rate-limit backoff, provider audit logs, and sync observability.
 - [x] `PLT-05 · P0 · Missing` — Build normalized market-data storage/streaming for candles, trades, depth, footprint aggregates, historical backfill, and multi-pane fan-out.
 - [x] `PLT-06 · P0 · Missing` — Add data/provider entitlements and billing gates for free crypto/equity/ETF order flow versus paid futures access, matching the commercial behavior described in the video.
-- [ ] `PLT-07 · P0 · Missing` — Add durable storage for custom scripts, AI conversations, generated artifacts, full workspaces, and share snapshots with explicit ownership.
+- [x] `PLT-07 · P0 · Missing` — Add durable storage for custom scripts, AI conversations, generated artifacts, full workspaces, and share snapshots with explicit ownership.
 - [x] `PLT-08 · P0 · Missing` — Add focused automated coverage for import reconciliation, broker sync idempotency, rating/notes analytics, market session/timezone behavior, footprint aggregation, 16-pane synchronization, share permissions, AI usage accounting, and generated-code isolation.
-- [ ] `PLT-09 · P1 · Partial` — Add user-visible diagnostics and recovery for stale feeds, incomplete history, unsupported symbols, sync/import conflicts, indicator runtime errors, AI failures, and expired/revoked shares.
+- [x] `PLT-09 · P1 · Partial` — Add user-visible diagnostics and recovery for stale feeds, incomplete history, unsupported symbols, sync/import conflicts, indicator runtime errors, AI failures, and expired/revoked shares.
 
 ### 14. Product-wide UI/UX revamp
 
