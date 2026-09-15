@@ -94,6 +94,7 @@ test("quality manifests inventory routes, critical states, and measurable budget
   assert.ok(inventory.overlays.every((overlay) => inventory.classification.includes(inventory.overlayDispositions[overlay])));
   assert.equal(budgets.runtime.interactionP95Ms, 200);
   assert.equal(budgets.runtime.sixteenPaneFrameP95Ms, 50);
+  assert.equal(budgets.runtime.sixteenPaneResizeStressP95Ms, 120);
 });
 
 test("financial states expose a non-color sign and accessible label", async () => {

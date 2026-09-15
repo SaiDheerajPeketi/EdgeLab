@@ -33,6 +33,8 @@ Every major surface implements: empty, loading/skeleton, partial data, offline, 
 | Route transition visible response | ≤ 100ms |
 | Long list | virtualize beyond 200 rows |
 | 16-pane workspace | one normalized subscription per unique symbol/provider/timeframe; no duplicate stream |
+| 16-pane steady-state frame P95 under 4× CPU throttling | ≤ 50ms |
+| 16-pane bounded resize-stress P95 under 4× CPU throttling | ≤ 120ms for 20 alternating 4px grid resizes, with every chart consuming and restoring the size |
 
 CI fails on budget regression unless a dated exception names owner, measurement, reason, and expiry.
 

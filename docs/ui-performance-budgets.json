@@ -18,6 +18,7 @@
     "interactionP95Ms": 200,
     "layoutShift": 0.1,
     "sixteenPaneFrameP95Ms": 50,
+    "sixteenPaneResizeStressP95Ms": 120,
     "longListRows": 200,
     "longListInitialRows": 100
   }
