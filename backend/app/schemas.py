@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -15,6 +15,11 @@ CommissionMode = Literal["NONE", "FIXED", "PERCENT"]
 FeedbackCategory = Literal["BUG", "FEATURE", "UX", "PERFORMANCE", "DATA", "OTHER"]
 FeedbackStatus = Literal["NEW", "REVIEWED", "CLOSED"]
 WorkspaceShareScope = Literal["chart-plus-panels", "panels-only", "complete-workspace"]
+JournalTagCategory = Literal["SETUP", "POSITIVE", "MISTAKE", "PROCESS"]
+JournalTradeSource = Literal["MANUAL", "CSV_IMPORT", "APP_STORAGE", "BACKTEST", "BROKER"]
+JournalEntryType = Literal["TAKEN", "MISSED"]
+JournalTradeStatus = Literal["OPEN", "CLOSED", "MISSED", "VOIDED"]
+SetupGrade = Literal["A+", "A", "B", "C", "D", "F"]
 
 
 class Candle(BaseModel):
@@ -1156,6 +1161,400 @@ class JournalUpdate(BaseModel):
 
 class TradeStrategyUpdate(BaseModel):
     strategy_name: str | None = Field(default=None, max_length=120)
+
+
+class JournalAccountCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    provider: str = Field(default="Manual", min_length=1, max_length=80)
+    currency: str = Field(default="USD", min_length=3, max_length=12)
+    timezone: str = Field(default="UTC", min_length=1, max_length=80)
+    initial_balance: Decimal = Field(default=Decimal("0"), ge=0)
+    color: str | None = Field(default=None, max_length=32)
+    notes: str | None = None
+    broker_account_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("name", "provider")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        clean = " ".join(value.strip().split())
+        if not clean:
+            raise ValueError("value cannot be blank")
+        return clean
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        clean = value.strip()
+        try:
+            ZoneInfo(clean)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timezone '{clean}'") from exc
+        return clean
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        clean = value.strip().upper()
+        if not clean.isalnum():
+            raise ValueError("currency must contain only letters and numbers")
+        return clean
+
+
+class JournalAccountRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    broker_account_id: int | None
+    source_type: str
+    source_key: str
+    name: str
+    provider: str
+    currency: str
+    timezone: str
+    initial_balance: Decimal
+    color: str | None
+    notes: str | None
+    status: Literal["ACTIVE", "ARCHIVED"]
+    created_at: datetime
+    updated_at: datetime
+
+
+class JournalTagCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: JournalTagCategory
+    name: str = Field(min_length=1, max_length=80)
+    color: str | None = Field(default=None, max_length=32)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        clean = " ".join(value.strip().split())
+        if not clean:
+            raise ValueError("name cannot be blank")
+        return clean
+
+
+class JournalTagRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    category: JournalTagCategory
+    name: str
+    color: str | None
+    archived_at: datetime | None
+    created_at: datetime
+
+
+class CanonicalExecutionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_ref: str | None = Field(default=None, max_length=240)
+    execution_type: Literal["ENTRY", "EXIT", "FILL"] = "FILL"
+    side: OrderSide
+    occurred_at: datetime
+    price: Decimal = Field(gt=0)
+    quantity: Decimal = Field(gt=0)
+    commission: Decimal = Field(default=Decimal("0"), ge=0)
+    fees: Decimal = Field(default=Decimal("0"), ge=0)
+    source_revision: int = Field(default=1, ge=1)
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class CanonicalExecutionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_type: str
+    source_ref: str
+    execution_type: str
+    side: OrderSide
+    occurred_at: datetime
+    price: Decimal
+    quantity: Decimal
+    commission: Decimal
+    fees: Decimal
+    sequence: int
+    source_revision: int
+    fingerprint: str
+    raw_payload: dict[str, Any]
+    created_at: datetime
+
+
+class CanonicalTradeNoteRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    body: str
+    created_at: datetime
+
+
+class CanonicalTradeScreenshotRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    url: str
+    caption: str | None
+    created_at: datetime
+
+
+class CanonicalTradeCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int = Field(gt=0)
+    symbol: str = Field(min_length=1, max_length=120)
+    currency: str | None = Field(default=None, min_length=3, max_length=12)
+    source_timezone: str | None = Field(default=None, min_length=1, max_length=80)
+    side: Literal["LONG", "SHORT"]
+    entry_type: JournalEntryType = "TAKEN"
+    entry_time: datetime
+    exit_time: datetime | None = None
+    entry_price: Decimal = Field(gt=0)
+    exit_price: Decimal | None = Field(default=None, gt=0)
+    quantity: Decimal = Field(ge=0)
+    remaining_quantity: Decimal | None = Field(default=None, ge=0)
+    gross_pnl: Decimal | None = None
+    net_pnl: Decimal | None = None
+    commission: Decimal = Field(default=Decimal("0"), ge=0)
+    fees: Decimal = Field(default=Decimal("0"), ge=0)
+    stop_loss: Decimal | None = Field(default=None, gt=0)
+    take_profit: Decimal | None = Field(default=None, gt=0)
+    planned_entry_price: Decimal | None = Field(default=None, gt=0)
+    planned_exit_price: Decimal | None = Field(default=None, gt=0)
+    planned_stop_loss: Decimal | None = Field(default=None, gt=0)
+    planned_take_profit: Decimal | None = Field(default=None, gt=0)
+    r_multiple: Decimal | None = None
+    strategy_name: str | None = Field(default=None, max_length=120)
+    emotional_state: str | None = Field(default=None, max_length=80)
+    missed_reason: str | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    setup_grade: SetupGrade | None = None
+    reviewed: bool = False
+    tag_ids: list[int] = Field(default_factory=list)
+    note: str | None = None
+    screenshot_urls: list[str] = Field(default_factory=list, max_length=12)
+    executions: list[CanonicalExecutionCreate] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_trade(self) -> "CanonicalTradeCreate":
+        if self.entry_type == "TAKEN" and self.quantity <= 0:
+            raise ValueError("taken trades require quantity greater than zero")
+        if self.remaining_quantity is not None and self.remaining_quantity > self.quantity:
+            raise ValueError("remaining_quantity cannot exceed quantity")
+        if self.exit_time is not None:
+            try:
+                if self.exit_time < self.entry_time:
+                    raise ValueError("exit_time cannot precede entry_time")
+            except TypeError:
+                pass
+        if self.exit_price is not None and self.exit_time is None:
+            raise ValueError("exit_price requires exit_time")
+        if self.entry_type == "MISSED" and not (self.missed_reason or self.note):
+            raise ValueError("missed entries require missed_reason or note")
+        if len(set(self.tag_ids)) != len(self.tag_ids):
+            raise ValueError("tag_ids must not contain duplicates")
+        return self
+
+
+class CanonicalTradeReviewUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reviewed: bool | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    setup_grade: SetupGrade | None = None
+    tag_ids: list[int] | None = None
+    entry_time: datetime | None = None
+    exit_time: datetime | None = None
+    entry_price: Decimal | None = Field(default=None, gt=0)
+    exit_price: Decimal | None = Field(default=None, gt=0)
+    stop_loss: Decimal | None = Field(default=None, gt=0)
+    take_profit: Decimal | None = Field(default=None, gt=0)
+    strategy_name: str | None = Field(default=None, max_length=120)
+    emotional_state: str | None = Field(default=None, max_length=80)
+    note: str | None = None
+    screenshot_urls: list[str] | None = Field(default=None, max_length=12)
+
+    @field_validator("tag_ids")
+    @classmethod
+    def unique_tag_ids(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("tag_ids must not contain duplicates")
+        return value
+
+
+class CanonicalTradeRead(BaseModel):
+    id: int
+    account_id: int
+    import_run_id: int | None
+    source_type: JournalTradeSource
+    source_ref: str
+    duplicate_key: str
+    entry_type: JournalEntryType
+    status: JournalTradeStatus
+    symbol: str
+    source_symbol: str | None
+    currency: str
+    source_timezone: str
+    side: Literal["LONG", "SHORT"]
+    entry_time: datetime
+    exit_time: datetime | None
+    entry_price: Decimal
+    exit_price: Decimal | None
+    quantity: Decimal
+    remaining_quantity: Decimal
+    gross_pnl: Decimal
+    net_pnl: Decimal
+    commission: Decimal
+    fees: Decimal
+    stop_loss: Decimal | None
+    take_profit: Decimal | None
+    planned_entry_price: Decimal | None
+    planned_exit_price: Decimal | None
+    planned_stop_loss: Decimal | None
+    planned_take_profit: Decimal | None
+    r_multiple: Decimal | None
+    strategy_name: str | None
+    emotional_state: str | None
+    missed_reason: str | None
+    rating: int | None
+    setup_grade: SetupGrade | None
+    reviewed: bool
+    reviewed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    tags: list[JournalTagRead] = Field(default_factory=list)
+    notes: list[CanonicalTradeNoteRead] = Field(default_factory=list)
+    screenshots: list[CanonicalTradeScreenshotRead] = Field(default_factory=list)
+    executions: list[CanonicalExecutionRead] = Field(default_factory=list)
+
+
+class JournalDailyNoteUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int | None = Field(default=None, gt=0)
+    body: str = Field(max_length=200_000)
+
+
+class JournalDailyNoteRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    account_id: int | None
+    note_date: date
+    body: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class JournalImportGrouping(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["ROW", "COLUMN"] = "ROW"
+    column: str | None = Field(default=None, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_grouping(self) -> "JournalImportGrouping":
+        if self.mode == "COLUMN" and not (self.column and self.column.strip()):
+            raise ValueError("COLUMN grouping requires a column")
+        return self
+
+
+class JournalImportCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    csv_text: str = Field(min_length=1, max_length=20_000_000)
+    destination_account_id: int | None = Field(default=None, gt=0)
+    destination_account: JournalAccountCreate | None = None
+    source_name: str = Field(default="CSV import", min_length=1, max_length=160)
+    source_timezone: str = Field(default="UTC", min_length=1, max_length=80)
+    currency: str | None = Field(default=None, min_length=3, max_length=12)
+    default_symbol: str | None = Field(default=None, max_length=120)
+    strategy_name: str | None = Field(default=None, max_length=120)
+    default_commission_mode: CommissionMode = "NONE"
+    default_commission_value: float = Field(default=0, ge=0)
+    default_fee_mode: CommissionMode = "NONE"
+    default_fee_value: float = Field(default=0, ge=0)
+    column_mapping: dict[str, str] = Field(default_factory=dict)
+    grouping: JournalImportGrouping = Field(default_factory=JournalImportGrouping)
+
+    @model_validator(mode="after")
+    def validate_import(self) -> "JournalImportCreate":
+        if (self.destination_account_id is None) == (self.destination_account is None):
+            raise ValueError("provide exactly one destination_account_id or destination_account")
+        try:
+            ZoneInfo(self.source_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timezone '{self.source_timezone}'") from exc
+        return self
+
+
+class JournalImportRowRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    row_number: int
+    group_key: str
+    status: Literal["IMPORTED", "SKIPPED", "DUPLICATE", "ERROR", "ROLLED_BACK"]
+    duplicate_key: str | None
+    trade_id: int | None
+    source_fingerprint: str
+    normalized_payload: dict[str, Any] | None
+
+
+class JournalImportDiagnosticRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    row_number: int | None
+    severity: Literal["INFO", "WARNING", "ERROR"]
+    code: str
+    field: str | None
+    message: str
+
+
+class JournalImportRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    account_id: int
+    source_name: str
+    source_digest: str
+    status: Literal["RUNNING", "COMPLETED", "FAILED", "ROLLED_BACK"]
+    source_timezone: str
+    currency: str
+    default_symbol: str | None
+    column_mapping: dict[str, str]
+    grouping: dict[str, Any]
+    detected_columns: list[str]
+    total_rows: int
+    imported_rows: int
+    skipped_rows: int
+    duplicate_rows: int
+    error_rows: int
+    created_at: datetime
+    completed_at: datetime | None
+    rolled_back_at: datetime | None
+    rows: list[JournalImportRowRead] = Field(default_factory=list)
+    diagnostics: list[JournalImportDiagnosticRead] = Field(default_factory=list)
+
+
+class JournalImportResult(BaseModel):
+    run: JournalImportRunRead
+    trades: list[CanonicalTradeRead] = Field(default_factory=list)
+
+
+class JournalBackfillResult(BaseModel):
+    accounts_created: int = 0
+    trades_created: int = 0
+    executions_created: int = 0
+    notes_created: int = 0
+    screenshots_created: int = 0
+    tags_created: int = 0
+    sources_unchanged: int = 0
+    diagnostics: list[str] = Field(default_factory=list)
 
 
 class BacktestAdvanceRequest(BaseModel):

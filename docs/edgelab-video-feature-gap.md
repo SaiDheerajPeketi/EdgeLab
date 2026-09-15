@@ -122,7 +122,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `DSH-05 · P1 · Missing` — Add a risk-behavior panel using measurable behavior such as planned-versus-actual risk, stop adherence, oversizing, loss escalation, and rule/tag violations.
 - [ ] `DSH-06 · P1 · Partial` — Make dashboard calendar cells clickable and open the selected day’s trades and note; the separate Day View already supports day selection.
 - [ ] `DSH-07 · P1 · Partial` — Make dashboard recent trades clickable and open the shared review flow.
-- [ ] `DSH-08 · P0 · Missing` — Add a Daily Note entity independent of a trade, keyed by date and optional account scope, so no-trade days can also be journaled.
+- [x] `DSH-08 · P0 · Missing` — Add a Daily Note entity independent of a trade, keyed by date and optional account scope, so no-trade days can also be journaled.
 - [ ] `DSH-09 · P1 · Missing` — Create/edit a daily note from the dashboard calendar and Day View.
 - [ ] `DSH-10 · P1 · Missing` — Automatically display every trade for that date inside its Daily Note and link each one to review/chart.
 - [ ] `DSH-11 · P1 · Partial` — Expand Notes into a searchable daily-notes library while retaining the current trade-note library; include account/date filters and empty/no-trade days.
@@ -252,7 +252,7 @@ These belong in the product roadmap but should not be treated as prerequisites f
 ### 13. Required platform work that makes the visible features reliable
 
 - [ ] `PLT-01 · P0 · Partial` — Move production Journal data from one app-storage JSON document into relational, user-scoped entities for accounts, connections, trades, fills, tags, reviews, ratings, daily notes, imports, and sync cursors.
-- [ ] `PLT-02 · P0 · Missing` — Add a migration/backfill path from existing Journal app storage and imported Backtest sessions without losing user data.
+- [x] `PLT-02 · P0 · Missing` — Add a migration/backfill path from existing Journal app storage and imported Backtest sessions without losing user data.
 - [x] `PLT-03 · P0 · Missing` — Store broker credentials/tokens in an encrypted secret store; never persist them in browser storage or logs. Add rotation and revocation.
 - [ ] `PLT-04 · P0 · Missing` — Add background jobs/webhooks with retries, dead-letter handling, idempotency, rate-limit backoff, provider audit logs, and sync observability.
 - [ ] `PLT-05 · P0 · Missing` — Build normalized market-data storage/streaming for candles, trades, depth, footprint aggregates, historical backfill, and multi-pane fan-out.

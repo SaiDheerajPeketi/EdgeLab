@@ -6,7 +6,7 @@ import logging
 import re
 from secrets import token_urlsafe
 import struct
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.parse import urlencode
@@ -25,7 +25,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.params import Param
-from sqlalchemy import DateTime, func, select
+from sqlalchemy import Date as SQLDate, DateTime, func, select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -49,6 +49,18 @@ from app.models import (
     DatasetTimeframe,
     Execution,
     FeedbackSubmission,
+    CanonicalExecution,
+    CanonicalTrade,
+    CanonicalTradeNote,
+    CanonicalTradeScreenshot,
+    CanonicalTradeTag,
+    JournalAccount,
+    JournalBackfillCheckpoint,
+    JournalDailyNote,
+    JournalImportDiagnostic,
+    JournalImportRow,
+    JournalImportRun,
+    JournalTag,
     Order,
     Playbook,
     Position,
@@ -113,6 +125,19 @@ from app.schemas import (
     IntegrationSecretCreate,
     IntegrationSecretRead,
     IntegrationSecretReplace,
+    CanonicalTradeCreate,
+    CanonicalTradeRead,
+    CanonicalTradeReviewUpdate,
+    JournalAccountCreate,
+    JournalAccountRead,
+    JournalBackfillResult,
+    JournalDailyNoteRead,
+    JournalDailyNoteUpsert,
+    JournalImportCreate,
+    JournalImportResult,
+    JournalImportRunRead,
+    JournalTagCreate,
+    JournalTagRead,
     JournalUpdate,
     MetricsResponse,
     MetricsCurvesResponse,
@@ -132,7 +157,7 @@ from app.schemas import (
     WorkspaceShareOwnerRead,
     WorkspaceSharePublicRead,
 )
-from app.services import broker_sync, integration_secrets, share_snapshots
+from app.services import broker_sync, integration_secrets, journal, share_snapshots
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -178,6 +203,9 @@ INTEGRATION_SECRET_WRITE_RATE_LIMIT = 30
 INTEGRATION_SECRET_READ_RATE_LIMIT = 120
 INTEGRATION_SECRET_CONNECT_RATE_LIMIT = 60
 BROKER_READ_RATE_LIMIT = 180
+JOURNAL_READ_RATE_LIMIT = 240
+JOURNAL_WRITE_RATE_LIMIT = 120
+JOURNAL_IMPORT_RATE_LIMIT = 20
 BROKER_WRITE_RATE_LIMIT = 30
 BROKER_SYNC_RATE_LIMIT = 30
 
@@ -238,6 +266,18 @@ APP_DATA_TABLES = [
     ("trades", Trade),
     ("executions", Execution),
     ("trade_notes", TradeNote),
+    ("journal_accounts", JournalAccount),
+    ("journal_import_runs", JournalImportRun),
+    ("canonical_trades", CanonicalTrade),
+    ("canonical_executions", CanonicalExecution),
+    ("journal_tags", JournalTag),
+    ("canonical_trade_tags", CanonicalTradeTag),
+    ("canonical_trade_notes", CanonicalTradeNote),
+    ("canonical_trade_screenshots", CanonicalTradeScreenshot),
+    ("journal_daily_notes", JournalDailyNote),
+    ("journal_import_rows", JournalImportRow),
+    ("journal_import_diagnostics", JournalImportDiagnostic),
+    ("journal_backfill_checkpoints", JournalBackfillCheckpoint),
 ]
 APP_DATA_TABLE_NAMES = {table_name for table_name, _model in APP_DATA_TABLES}
 APP_DATA_IMPORT_BATCH_SIZE = 1000
@@ -263,6 +303,17 @@ def parse_bundle_datetime(value: object) -> datetime | object:
     return value
 
 
+def parse_bundle_date(value: object) -> date | object:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return value
+    return value
+
+
 def bundle_row_to_model(model: type, payload: dict[str, object]) -> object:
     values: dict[str, object] = {}
     for column in model.__table__.columns:
@@ -271,6 +322,8 @@ def bundle_row_to_model(model: type, payload: dict[str, object]) -> object:
         value = payload[column.name]
         if value is not None and isinstance(column.type, DateTime):
             value = parse_bundle_datetime(value)
+        elif value is not None and isinstance(column.type, SQLDate):
+            value = parse_bundle_date(value)
         values[column.name] = value
     return model(**values)
 
@@ -463,6 +516,10 @@ def integration_secret_error(exc: integration_secrets.IntegrationSecretError) ->
 def broker_service_error(
     exc: broker_sync.BrokerServiceError | integration_secrets.IntegrationSecretError,
 ) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.public_message)
+
+
+def journal_service_error(exc: journal.JournalServiceError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.public_message)
 
 
@@ -1484,6 +1541,247 @@ def delete_app_storage_item(
     return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
 
 
+@router.post("/journal/accounts", response_model=JournalAccountRead, status_code=201)
+def create_journal_account(
+    payload: JournalAccountCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalAccountRead:
+    enforce_rate_limit("journal-write", current_user.id, JOURNAL_WRITE_RATE_LIMIT)
+    try:
+        return journal.create_account(db, current_user.id, payload)
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.get("/journal/accounts", response_model=list[JournalAccountRead])
+def list_journal_accounts(
+    include_archived: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[JournalAccountRead]:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    return journal.list_accounts(db, current_user.id, include_archived=include_archived)
+
+
+@router.post("/journal/tags", response_model=JournalTagRead, status_code=201)
+def create_journal_tag(
+    payload: JournalTagCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalTagRead:
+    enforce_rate_limit("journal-write", current_user.id, JOURNAL_WRITE_RATE_LIMIT)
+    try:
+        return journal.create_tag(db, current_user.id, payload)
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.get("/journal/tags", response_model=list[JournalTagRead])
+def list_journal_tags(
+    category: str | None = Query(default=None),
+    include_archived: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[JournalTagRead]:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    if category is not None and category not in {"SETUP", "POSITIVE", "MISTAKE", "PROCESS"}:
+        raise HTTPException(status_code=422, detail="Invalid Journal tag category")
+    return journal.list_tags(
+        db,
+        current_user.id,
+        category=category,
+        include_archived=include_archived,
+    )
+
+
+@router.post("/journal/trades", response_model=CanonicalTradeRead, status_code=201)
+def create_canonical_trade(
+    payload: CanonicalTradeCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> CanonicalTradeRead:
+    enforce_rate_limit("journal-write", current_user.id, JOURNAL_WRITE_RATE_LIMIT)
+    try:
+        return journal.create_trade(db, current_user.id, payload)
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.get("/journal/trades", response_model=list[CanonicalTradeRead])
+def list_canonical_trades(
+    account_id: int | None = Query(default=None, gt=0),
+    reviewed: bool | None = Query(default=None),
+    tag_id: list[int] | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[CanonicalTradeRead]:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    try:
+        return journal.list_trades(
+            db,
+            current_user.id,
+            account_id=account_id,
+            reviewed=reviewed,
+            tag_ids=tag_id or (),
+            offset=offset,
+            limit=limit,
+        )
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.patch("/journal/trades/{trade_id}/review", response_model=CanonicalTradeRead)
+def update_canonical_trade_review(
+    trade_id: int,
+    payload: CanonicalTradeReviewUpdate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> CanonicalTradeRead:
+    enforce_rate_limit("journal-write", current_user.id, JOURNAL_WRITE_RATE_LIMIT)
+    try:
+        return journal.update_trade_review(db, current_user.id, trade_id, payload)
+    except journal.JournalServiceError as exc:
+        db.rollback()
+        raise journal_service_error(exc) from exc
+
+
+@router.put("/journal/daily-notes/{note_date}", response_model=JournalDailyNoteRead)
+def upsert_journal_daily_note(
+    note_date: date,
+    payload: JournalDailyNoteUpsert,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalDailyNoteRead:
+    enforce_rate_limit("journal-write", current_user.id, JOURNAL_WRITE_RATE_LIMIT)
+    try:
+        return journal.upsert_daily_note(db, current_user.id, note_date, payload)
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.get("/journal/daily-notes", response_model=list[JournalDailyNoteRead])
+def list_journal_daily_notes(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    account_id: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[JournalDailyNoteRead]:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    if start_date is not None and end_date is not None and end_date < start_date:
+        raise HTTPException(status_code=422, detail="end_date cannot precede start_date")
+    try:
+        return journal.list_daily_notes(
+            db,
+            current_user.id,
+            start_date=start_date,
+            end_date=end_date,
+            account_id=account_id,
+        )
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.post("/journal/imports", response_model=JournalImportResult, status_code=201)
+def create_journal_import(
+    payload: JournalImportCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalImportResult:
+    enforce_rate_limit("journal-import", current_user.id, JOURNAL_IMPORT_RATE_LIMIT)
+    try:
+        return journal.import_journal_csv(db, current_user.id, payload)
+    except journal.JournalServiceError as exc:
+        db.rollback()
+        raise journal_service_error(exc) from exc
+
+
+@router.get("/journal/imports", response_model=list[JournalImportRunRead])
+def list_journal_imports(
+    account_id: int | None = Query(default=None, gt=0),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[JournalImportRunRead]:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    try:
+        return journal.list_import_runs(
+            db,
+            current_user.id,
+            account_id=account_id,
+            offset=offset,
+            limit=limit,
+        )
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.get("/journal/imports/{run_id}", response_model=JournalImportRunRead)
+def read_journal_import(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalImportRunRead:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    try:
+        return journal.get_import_run(db, current_user.id, run_id)
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
+@router.post("/journal/imports/{run_id}/rollback", response_model=JournalImportRunRead)
+def rollback_journal_import(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalImportRunRead:
+    enforce_rate_limit("journal-import", current_user.id, JOURNAL_IMPORT_RATE_LIMIT)
+    try:
+        return journal.rollback_import(db, current_user.id, run_id)
+    except journal.JournalServiceError as exc:
+        db.rollback()
+        raise journal_service_error(exc) from exc
+
+
+@router.post("/journal/backfill", response_model=JournalBackfillResult)
+def backfill_journal_data(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> JournalBackfillResult:
+    enforce_rate_limit("journal-import", current_user.id, JOURNAL_IMPORT_RATE_LIMIT)
+    try:
+        return journal.backfill_legacy_journal(db, current_user.id)
+    except journal.JournalServiceError as exc:
+        db.rollback()
+        raise journal_service_error(exc) from exc
+
+
+@router.post(
+    "/journal/broker-connections/{connection_id}/sync",
+    response_model=dict[str, int],
+)
+def sync_broker_connection_to_journal(
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> dict[str, int]:
+    enforce_rate_limit("journal-import", current_user.id, JOURNAL_IMPORT_RATE_LIMIT)
+    try:
+        trades, executions = journal.sync_broker_connection(
+            db,
+            current_user.id,
+            connection_id,
+        )
+        return {"trades_created": trades, "executions_created": executions}
+    except journal.JournalServiceError as exc:
+        db.rollback()
+        raise journal_service_error(exc) from exc
+
+
 @router.post(
     "/integration-secrets",
     response_model=IntegrationSecretRead,
@@ -1747,14 +2045,19 @@ def refresh_broker_connection(
     response.headers["Cache-Control"] = "no-store"
     enforce_rate_limit("broker-sync", current_user.id, BROKER_SYNC_RATE_LIMIT)
     try:
-        return broker_sync.refresh_connection(
+        result = broker_sync.refresh_connection(
             db,
             current_user.id,
             connection_id,
             max_attempts=payload.max_attempts,
         )
+        if result.status == "SUCCEEDED":
+            journal.sync_broker_connection(db, current_user.id, connection_id)
+        return result
     except broker_sync.BrokerServiceError as exc:
         raise broker_service_error(exc) from exc
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
 
 
 @router.post(
@@ -1771,14 +2074,19 @@ def retry_broker_sync_job(
     response.headers["Cache-Control"] = "no-store"
     enforce_rate_limit("broker-sync", current_user.id, BROKER_SYNC_RATE_LIMIT)
     try:
-        return broker_sync.retry_sync_job(
+        result = broker_sync.retry_sync_job(
             db,
             current_user.id,
             job_id,
             force=force,
         )
+        if result.status == "SUCCEEDED":
+            journal.sync_broker_connection(db, current_user.id, result.connection_id)
+        return result
     except broker_sync.BrokerServiceError as exc:
         raise broker_service_error(exc) from exc
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
 
 
 @router.get(

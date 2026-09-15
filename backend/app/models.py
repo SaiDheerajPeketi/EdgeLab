@@ -1,9 +1,11 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -917,3 +919,366 @@ class TradeNote(UserOwnedMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     trade: Mapped[Trade] = relationship(back_populates="notes_list")
+
+
+class JournalAccount(UserOwnedMixin, Base):
+    __tablename__ = "journal_accounts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_key", name="uq_journal_accounts_user_source"),
+        UniqueConstraint("user_id", "broker_account_id", name="uq_journal_accounts_user_broker_account"),
+        Index("ix_journal_accounts_user_status_name", "user_id", "status", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    broker_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("broker_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(24), default="MANUAL", nullable=False)
+    source_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), default="Manual", nullable=False)
+    currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), default="UTC", nullable=False)
+    initial_balance: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    trades: Mapped[list["CanonicalTrade"]] = relationship(back_populates="account")
+    daily_notes: Mapped[list["JournalDailyNote"]] = relationship(back_populates="account")
+
+
+class JournalImportRun(UserOwnedMixin, Base):
+    __tablename__ = "journal_import_runs"
+    __table_args__ = (
+        Index("ix_journal_import_runs_user_created_id", "user_id", "created_at", "id"),
+        Index("ix_journal_import_runs_user_account", "user_id", "account_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("journal_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    source_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="RUNNING", nullable=False, index=True)
+    source_timezone: Mapped[str] = mapped_column(String(80), default="UTC", nullable=False)
+    currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
+    default_symbol: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    column_mapping: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    grouping: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    detected_columns: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
+    total_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    imported_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    skipped_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duplicate_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    rows: Mapped[list["JournalImportRow"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="JournalImportRow.row_number",
+    )
+    diagnostics: Mapped[list["JournalImportDiagnostic"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="JournalImportDiagnostic.id",
+    )
+    trades: Mapped[list["CanonicalTrade"]] = relationship(back_populates="import_run")
+
+
+class CanonicalTrade(UserOwnedMixin, Base):
+    __tablename__ = "canonical_trades"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_type", "source_ref", name="uq_canonical_trades_user_source"),
+        UniqueConstraint("user_id", "account_id", "duplicate_key", name="uq_canonical_trades_user_account_duplicate"),
+        CheckConstraint("rating IS NULL OR (rating >= 1 AND rating <= 5)", name="ck_canonical_trades_rating"),
+        Index("ix_canonical_trades_user_account_entry", "user_id", "account_id", "entry_time", "id"),
+        Index("ix_canonical_trades_user_review_queue", "user_id", "reviewed", "entry_time", "id"),
+        Index("ix_canonical_trades_user_symbol_entry", "user_id", "symbol", "entry_time", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("journal_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    import_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("journal_import_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    source_ref: Mapped[str] = mapped_column(String(240), nullable=False)
+    duplicate_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(16), default="TAKEN", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="CLOSED", nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    source_symbol: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
+    source_timezone: Mapped[str] = mapped_column(String(80), default="UTC", nullable=False)
+    side: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+    entry_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    exit_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    exit_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    remaining_quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    gross_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    net_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    commission: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    fees: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    take_profit: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    planned_entry_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    planned_exit_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    planned_stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    planned_take_profit: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    r_multiple: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    strategy_name: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    emotional_state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    missed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    setup_grade: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    account: Mapped[JournalAccount] = relationship(back_populates="trades")
+    import_run: Mapped[JournalImportRun | None] = relationship(back_populates="trades")
+    executions: Mapped[list["CanonicalExecution"]] = relationship(
+        back_populates="trade",
+        cascade="all, delete-orphan",
+        order_by="CanonicalExecution.sequence",
+    )
+    tag_links: Mapped[list["CanonicalTradeTag"]] = relationship(
+        back_populates="trade",
+        cascade="all, delete-orphan",
+    )
+    notes: Mapped[list["CanonicalTradeNote"]] = relationship(
+        back_populates="trade",
+        cascade="all, delete-orphan",
+        order_by="CanonicalTradeNote.created_at",
+    )
+    screenshots: Mapped[list["CanonicalTradeScreenshot"]] = relationship(
+        back_populates="trade",
+        cascade="all, delete-orphan",
+        order_by="CanonicalTradeScreenshot.created_at",
+    )
+
+
+class CanonicalExecution(UserOwnedMixin, Base):
+    __tablename__ = "canonical_executions"
+    __table_args__ = (
+        UniqueConstraint("trade_id", "fingerprint", name="uq_canonical_executions_trade_fingerprint"),
+        Index("ix_canonical_executions_user_trade_time", "user_id", "trade_id", "occurred_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_trades.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(240), nullable=False)
+    execution_type: Mapped[str] = mapped_column(String(16), default="FILL", nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    commission: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    fees: Mapped[Decimal] = mapped_column(Numeric(28, 10), default=Decimal("0"), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_payload: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    trade: Mapped[CanonicalTrade] = relationship(back_populates="executions")
+
+
+@event.listens_for(CanonicalExecution, "before_update")
+def prevent_canonical_execution_update(_mapper, _connection, _target: CanonicalExecution) -> None:
+    raise ValueError("Canonical executions are immutable; append a corrected source revision")
+
+
+class JournalTag(UserOwnedMixin, Base):
+    __tablename__ = "journal_tags"
+    __table_args__ = (
+        UniqueConstraint("user_id", "category", "normalized_name", name="uq_journal_tags_user_category_name"),
+        CheckConstraint(
+            "category IN ('SETUP', 'POSITIVE', 'MISTAKE', 'PROCESS')",
+            name="ck_journal_tags_category",
+        ),
+        Index("ix_journal_tags_user_category_name", "user_id", "category", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    category: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    trade_links: Mapped[list["CanonicalTradeTag"]] = relationship(
+        back_populates="tag",
+        cascade="all, delete-orphan",
+    )
+
+
+class CanonicalTradeTag(UserOwnedMixin, Base):
+    __tablename__ = "canonical_trade_tags"
+    __table_args__ = (
+        UniqueConstraint("trade_id", "tag_id", name="uq_canonical_trade_tags_trade_tag"),
+        Index("ix_canonical_trade_tags_user_tag_trade", "user_id", "tag_id", "trade_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_trades.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("journal_tags.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    trade: Mapped[CanonicalTrade] = relationship(back_populates="tag_links")
+    tag: Mapped[JournalTag] = relationship(back_populates="trade_links")
+
+
+class CanonicalTradeNote(UserOwnedMixin, Base):
+    __tablename__ = "canonical_trade_notes"
+    __table_args__ = (Index("ix_canonical_trade_notes_user_trade", "user_id", "trade_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_trades.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(24), default="REVIEW", nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    trade: Mapped[CanonicalTrade] = relationship(back_populates="notes")
+
+
+class CanonicalTradeScreenshot(UserOwnedMixin, Base):
+    __tablename__ = "canonical_trade_screenshots"
+    __table_args__ = (Index("ix_canonical_trade_screenshots_user_trade", "user_id", "trade_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_trades.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    caption: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    trade: Mapped[CanonicalTrade] = relationship(back_populates="screenshots")
+
+
+class JournalDailyNote(UserOwnedMixin, Base):
+    __tablename__ = "journal_daily_notes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "note_date", "account_scope_key", name="uq_journal_daily_notes_user_date_scope"),
+        Index("ix_journal_daily_notes_user_date", "user_id", "note_date", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("journal_accounts.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    account_scope_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    note_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    body: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    account: Mapped[JournalAccount | None] = relationship(back_populates="daily_notes")
+
+
+class JournalImportRow(UserOwnedMixin, Base):
+    __tablename__ = "journal_import_rows"
+    __table_args__ = (
+        UniqueConstraint("run_id", "row_number", name="uq_journal_import_rows_run_row"),
+        Index("ix_journal_import_rows_user_run_status", "user_id", "run_id", "status"),
+        Index("ix_journal_import_rows_duplicate_key", "duplicate_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("journal_import_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    trade_id: Mapped[int | None] = mapped_column(
+        ForeignKey("canonical_trades.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    group_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    duplicate_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalized_payload: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    run: Mapped[JournalImportRun] = relationship(back_populates="rows")
+
+
+class JournalImportDiagnostic(UserOwnedMixin, Base):
+    __tablename__ = "journal_import_diagnostics"
+    __table_args__ = (Index("ix_journal_import_diagnostics_user_run", "user_id", "run_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("journal_import_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    severity: Mapped[str] = mapped_column(String(16), default="ERROR", nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    field: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    run: Mapped[JournalImportRun] = relationship(back_populates="diagnostics")
+
+
+class JournalBackfillCheckpoint(UserOwnedMixin, Base):
+    __tablename__ = "journal_backfill_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_key", name="uq_journal_backfill_user_source"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    source_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    accounts_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    trades_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    diagnostics: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
