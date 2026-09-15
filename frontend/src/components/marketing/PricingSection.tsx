@@ -281,9 +281,18 @@ function AccessComparison() {
       <p className="mt-3 max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
         Unknown launch details stay marked as unknown instead of becoming a sales promise.
       </p>
+      <dl className="mt-7 divide-y divide-edgelab-border border-y border-edgelab-border sm:hidden" data-access-comparison-mobile>
+        {ACCESS_COMPARISON.map((row) => (
+          <div className="py-5" key={row.area}>
+            <dt className="font-medium text-edgelab-text-primary">{row.area}</dt>
+            <dd className="mt-4 text-sm leading-6 text-edgelab-text-secondary"><span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/70">Private beta</span>{row.beta}</dd>
+            <dd className="mt-4 text-sm leading-6 text-edgelab-text-secondary"><span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100/70">Production</span>{row.production}</dd>
+          </div>
+        ))}
+      </dl>
       <div
         aria-label="Scrollable access comparison"
-        className="-mx-3 mt-7 overflow-x-auto px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:mx-0 sm:px-0"
+        className="-mx-3 mt-7 hidden overflow-x-auto px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:block sm:mx-0 sm:px-0"
         tabIndex={0}
       >
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
