@@ -140,6 +140,7 @@ export default defineConfig({
         VITE_BETA_SEATS_TAKEN: "137",
         VITE_BETA_SEATS_TOTAL: "500",
         VITE_DEPLOYMENT_MODE: "beta",
+        VITE_E2E_STATE_FIXTURES: "1",
       },
       stderr: "pipe",
       stdout: "pipe",
