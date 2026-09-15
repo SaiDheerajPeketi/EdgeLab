@@ -135,6 +135,69 @@ def add_missing_columns(connection, inspector, table_name: str, additions: dict[
             connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}"))
 
 
+def create_workspace_share_snapshots_table(engine: Engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS workspace_share_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    workspace_key VARCHAR(96) NOT NULL,
+                    snapshot_version INTEGER NOT NULL,
+                    schema_version INTEGER NOT NULL DEFAULT 1,
+                    scope VARCHAR(32) NOT NULL,
+                    title VARCHAR(160) NOT NULL,
+                    recipient_user_id INTEGER,
+                    recipient_email VARCHAR(320),
+                    token_digest VARCHAR(64) NOT NULL UNIQUE,
+                    payload JSON NOT NULL,
+                    expires_at DATETIME,
+                    revoked_at DATETIME,
+                    created_at DATETIME NOT NULL,
+                    CONSTRAINT uq_workspace_share_snapshots_user_workspace_version
+                        UNIQUE (user_id, workspace_key, snapshot_version),
+                    FOREIGN KEY(user_id) REFERENCES beta_users (id) ON DELETE CASCADE,
+                    FOREIGN KEY(recipient_user_id) REFERENCES beta_users (id) ON DELETE SET NULL
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workspace_share_snapshots_user_created_id
+                ON workspace_share_snapshots (user_id, created_at, id)
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workspace_share_snapshots_token_digest
+                ON workspace_share_snapshots (token_digest)
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workspace_share_snapshots_recipient_user_id
+                ON workspace_share_snapshots (recipient_user_id)
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workspace_share_snapshots_recipient_email
+                ON workspace_share_snapshots (recipient_email)
+                """
+            )
+        )
+
+
 MIGRATIONS = [
     Migration(1, "sqlite_compat_columns", migrate_sqlite_compat_columns),
+    Migration(2, "workspace_share_snapshots", create_workspace_share_snapshots_table),
 ]

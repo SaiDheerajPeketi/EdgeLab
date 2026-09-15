@@ -185,8 +185,8 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `LAY-05 · P1 · Missing` — Add “sync drawings across charts,” with a clear symbol/timeframe mapping policy.
 - [ ] `LAY-06 · P1 · Partial` — Expand named layouts into full workspaces containing symbols, intervals, styles, colors/settings, drawings, indicators, pane grid, panel arrangement, watchlist selection, timezone, and RTH/ETH state. Current named layouts save chart-pane state only.
 - [ ] `LAY-07 · P2 · Partial` — Add workspace duplicate, rename, default/startup selection, and conflict-safe autosave/recovery in addition to current save/load/delete.
-- [ ] `LAY-08 · P1 · Missing` — Add the three demonstrated sharing scopes: chart plus panel, panels only, and complete chart layout/workspace.
-- [ ] `LAY-09 · P0 · Missing` — Store versioned, immutable share snapshots with access controls, expiry/revocation, and an “open as copy” workflow.
+- [x] `LAY-08 · P1 · Missing` — Add the three demonstrated sharing scopes: chart plus panel, panels only, and complete chart layout/workspace.
+- [x] `LAY-09 · P0 · Missing` — Store versioned, immutable share snapshots with access controls, expiry/revocation, and an “open as copy” workflow.
 - [x] `LAY-10 · P1 · Missing` — Add a chart screenshot action that captures the whole chart cleanly and downloads a PNG; trade snapshot attachments are not equivalent.
 
 ### 9. Drawing tools, favorites, quick actions, and object layers

@@ -2,6 +2,7 @@ export const DEFAULT_AUTH_DESTINATION = "/app";
 const AUTH_DESTINATION_BASE = "https://edgelab.invalid";
 const CONTROL_OR_BACKSLASH_PATTERN = /[\\\u0000-\u001f\u007f]/;
 const ENCODED_SEPARATOR_OR_CONTROL_PATTERN = /%(?:2f|5c|0[0-9a-f]|1[0-9a-f]|7f)/i;
+const WORKSPACE_SHARE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,128}$/;
 
 type AuthLocationLike = {
   search: string;
@@ -52,9 +53,16 @@ export function safeAuthDestination(value: string | null | undefined) {
 
   try {
     const parsed = new URL(value, AUTH_DESTINATION_BASE);
+    const isWorkspacePath =
+      parsed.pathname === "/app" || parsed.pathname.startsWith("/app/");
+    const shareToken = parsed.hash.slice(1);
+    const isSharePath =
+      parsed.pathname === "/shared" &&
+      parsed.search === "" &&
+      WORKSPACE_SHARE_TOKEN_PATTERN.test(shareToken);
     if (
       parsed.origin !== AUTH_DESTINATION_BASE ||
-      (parsed.pathname !== "/app" && !parsed.pathname.startsWith("/app/"))
+      (!isWorkspacePath && !isSharePath)
     ) {
       return DEFAULT_AUTH_DESTINATION;
     }
@@ -85,7 +93,12 @@ export function buildAuthSignInHref({
 }: SignInHrefOptions = {}) {
   const query = new URLSearchParams();
   const destination = safeAuthDestination(fromPath);
-  if (destination !== DEFAULT_AUTH_DESTINATION) {
+  // Share capabilities stay in navigation state. Putting the fragment-backed
+  // token in this query would expose it to access logs and Referer headers.
+  if (
+    destination !== DEFAULT_AUTH_DESTINATION &&
+    !destination.startsWith("/shared#")
+  ) {
     query.set("from", destination);
   }
   if (waitlist) {

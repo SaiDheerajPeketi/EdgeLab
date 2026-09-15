@@ -12,6 +12,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
+    inspect as sqlalchemy_inspect,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -288,6 +290,81 @@ class AppStorageItem(UserOwnedMixin, Base):
     value: Mapped[object | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class WorkspaceShareSnapshot(UserOwnedMixin, Base):
+    __tablename__ = "workspace_share_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "workspace_key",
+            "snapshot_version",
+            name="uq_workspace_share_snapshots_user_workspace_version",
+        ),
+        Index(
+            "ix_workspace_share_snapshots_user_created_id",
+            "user_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    workspace_key: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    snapshot_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    recipient_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("beta_users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    recipient_email: Mapped[str | None] = mapped_column(String(320), index=True, nullable=True)
+    token_digest: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    payload: Mapped[object] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+@event.listens_for(WorkspaceShareSnapshot, "before_update")
+def prevent_workspace_share_snapshot_mutation(_mapper, _connection, target) -> None:
+    state = sqlalchemy_inspect(target)
+    immutable_fields = (
+        "workspace_key",
+        "snapshot_version",
+        "schema_version",
+        "scope",
+        "title",
+        "recipient_user_id",
+        "recipient_email",
+        "token_digest",
+        "expires_at",
+        "created_at",
+        "user_id",
+    )
+    if any(state.attrs[field].history.has_changes() for field in immutable_fields):
+        raise ValueError("Workspace share snapshots are immutable")
+    payload_history = state.attrs.payload.history
+    if payload_history.has_changes():
+        expires_at = target.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        revoked_before_update = (
+            target.revoked_at is not None
+            and not state.attrs.revoked_at.history.has_changes()
+        )
+        expired = expires_at is not None and expires_at <= utcnow()
+        previous_was_available = any(
+            previous not in ({}, None) for previous in payload_history.deleted
+        )
+        if (
+            target.payload != {}
+            or not previous_was_available
+            or not (revoked_before_update or expired)
+        ):
+            raise ValueError("Workspace share snapshots are immutable")
 
 
 class FeedbackSubmission(UserOwnedMixin, Base):

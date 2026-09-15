@@ -15,6 +15,7 @@ import {
   PanelRightOpen,
   PencilRuler,
   Radio,
+  Share2,
   Settings2,
   LineChart,
   ScrollText,
@@ -37,6 +38,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { WorkspaceMobileNav } from "./components/WorkspaceMobileNav";
+import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import {
   getApiWebSocketUrl,
@@ -108,6 +110,16 @@ import {
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import { trackDiagnosticWebSocket } from "./lib/browserDiagnostics";
+import {
+  buildWorkspaceSharePayload,
+  sanitizeWorkspaceShareCopyArtifact,
+  workspaceShareCopyStorageKey,
+  workspaceShareScopeLabel,
+  type WorkspaceShareCandle,
+  type WorkspaceShareCopyArtifact,
+  type WorkspaceShareMetrics,
+  type WorkspaceShareScope,
+} from "./lib/workspaceShare";
 import type { WorkspaceView } from "./lib/workspace";
 import {
   loadWorkspaceSidebarCollapsed,
@@ -358,6 +370,15 @@ export function WorkspaceApp() {
   const [chartSettingsOpenSignal, setChartSettingsOpenSignal] = useState(0);
   const [layersPanelOpen, setLayersPanelOpen] = useState(false);
   const [workspacePanel, setWorkspacePanel] = useState<"none" | "tape" | "review" | "results">("none");
+  const [workspaceShareOpen, setWorkspaceShareOpen] = useState(false);
+  const [sharedCopyNotice, setSharedCopyNotice] = useState<string | null>(null);
+  const [activeSharedCopy, setActiveSharedCopy] = useState<WorkspaceShareCopyArtifact | null>(null);
+  const [activeSharedCopyLocalOnly, setActiveSharedCopyLocalOnly] = useState(false);
+  const [sharedCopyResolving, setSharedCopyResolving] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URL(window.location.href).searchParams;
+    return params.has("workspaceCopy");
+  });
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [fullscreenOrderPanelOpen, setFullscreenOrderPanelOpen] = useState(false);
   const [backtestHeaderVisible, setBacktestHeaderVisible] = useState(true);
@@ -669,7 +690,7 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     let active = true;
-    void hydrateChartPersistence().then(() => {
+    void hydrateChartPersistence().then(async () => {
       if (!active) {
         return;
       }
@@ -682,6 +703,54 @@ export function WorkspaceApp() {
       const activeSettingsPreset = loadActiveChartSettingsPreset();
       if (activeSettingsPreset) {
         applyChartSettingsToCurrentScope(activeSettingsPreset.settings);
+      }
+
+      const url = new URL(window.location.href);
+      const requestedCopyId = url.searchParams.get("workspaceCopy");
+      if (!requestedCopyId) {
+        setSharedCopyResolving(false);
+        return;
+      }
+      let copyStorageKey: string;
+      try {
+        copyStorageKey = workspaceShareCopyStorageKey(requestedCopyId);
+      } catch {
+        setSharedCopyNotice("That copied snapshot link is invalid.");
+        url.searchParams.delete("workspaceCopy");
+        url.searchParams.delete("copyPersistence");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`,
+        );
+        setSharedCopyResolving(false);
+        return;
+      }
+      const requestedCopy = sanitizeWorkspaceShareCopyArtifact(
+        await loadAppStorageItem<unknown>(copyStorageKey, null),
+      );
+      if (!active) {
+        return;
+      }
+      if (requestedCopy?.id === requestedCopyId) {
+        setActiveSharedCopy(requestedCopy);
+        setActiveSharedCopyLocalOnly(url.searchParams.get("copyPersistence") === "local");
+        setSharedCopyNotice(null);
+      } else {
+        setSharedCopyNotice("That copied snapshot is no longer available in this account.");
+        url.searchParams.delete("workspaceCopy");
+        url.searchParams.delete("copyPersistence");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`,
+        );
+      }
+      setSharedCopyResolving(false);
+    }).catch(() => {
+      if (active) {
+        setSharedCopyResolving(false);
+        setSharedCopyNotice("The copied snapshot could not be loaded from this account.");
       }
     });
     const unsubscribeLayouts = subscribeAppStorageItem<unknown>(
@@ -1949,6 +2018,14 @@ export function WorkspaceApp() {
           <Settings2 size={14} />
           Settings
         </button>
+        <button
+          className="workspace-tab inline-flex items-center justify-center gap-2"
+          onClick={() => setWorkspaceShareOpen(true)}
+          type="button"
+        >
+          <Share2 aria-hidden="true" size={14} />
+          Share copy
+        </button>
         {!isChartFullscreen && (
           <button
             className="workspace-tab inline-flex items-center justify-center gap-2"
@@ -2045,6 +2122,35 @@ export function WorkspaceApp() {
     </div>
   ) : null;
 
+  function closeSharedCopy() {
+    setActiveSharedCopy(null);
+    setActiveSharedCopyLocalOnly(false);
+    setActiveWorkspace("sessions");
+    setSessionGateOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("workspaceCopy");
+    url.searchParams.delete("copyPersistence");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }
+
+  if (sharedCopyResolving) {
+    return <AppLoadingSpinner className="min-h-screen bg-[#05070a]" label="Opening copied workspace" />;
+  }
+
+  if (activeSharedCopy) {
+    return (
+      <SharedWorkspaceCopySurface
+        artifact={activeSharedCopy}
+        localOnly={activeSharedCopyLocalOnly}
+        onClose={closeSharedCopy}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
       <a
@@ -2070,6 +2176,18 @@ export function WorkspaceApp() {
           id="workspace-content"
           tabIndex={-1}
         >
+          {sharedCopyNotice ? (
+            <div className="mb-4 flex flex-col gap-3 rounded-xl bg-cyan-300/[0.08] px-4 py-3 text-sm text-cyan-50 sm:flex-row sm:items-center sm:justify-between" role="status">
+              <span>{sharedCopyNotice}</span>
+              <button
+                className="min-h-10 shrink-0 rounded-lg px-3 text-sm font-semibold text-cyan-100 outline-none hover:bg-cyan-300/10 focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+                onClick={() => setSharedCopyNotice(null)}
+                type="button"
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
             <Suspense fallback={<WorkspaceLoadingPanel />}>
               <EdgeLabWorkspace
@@ -2539,6 +2657,30 @@ export function WorkspaceApp() {
         <WorkspaceMobileNav activeView={activeWorkspace} onNavigate={navigateWorkspace} />
       ) : null}
 
+      {workspaceShareOpen ? (
+        <WorkspaceShareDialog
+          buildPayload={(scope: WorkspaceShareScope) =>
+            buildWorkspaceSharePayload(scope, {
+              activePanel: workspacePanel,
+              activePaneId: activeChartPane.id,
+              candles: visibleBars,
+              currentTimestamp: current?.timestamp ?? null,
+              layoutName,
+              metrics: state?.metrics ?? null,
+              paneLayout: chartPaneLayout,
+              panes: chartPanes,
+              sidebarCollapsed,
+              symbol: state?.session.symbol ?? "MARKET",
+              timeframe: state?.session.timeframe ?? effectiveTimeframe,
+              timezone: state?.session.timezone ?? null,
+            })
+          }
+          onClose={() => setWorkspaceShareOpen(false)}
+          suggestedTitle={`${state?.session.strategy_name ?? formatMarketSymbol(state?.session.symbol) ?? "Trading"} workspace`}
+          workspaceKey={`backtest:${state?.session.id ?? "draft"}`}
+        />
+      ) : null}
+
       {editingTrade && (
         <JournalEntryModal
           currency={currencyForTrade(editingTrade)}
@@ -2564,6 +2706,277 @@ export function WorkspaceApp() {
       )}
     </div>
   );
+}
+
+function SharedWorkspaceCopySurface({
+  artifact,
+  localOnly,
+  onClose,
+}: {
+  artifact: WorkspaceShareCopyArtifact;
+  localOnly: boolean;
+  onClose: () => void;
+}) {
+  const chart = artifact.payload.chart;
+  const panels = artifact.payload.panels;
+  const workspace = artifact.payload.workspace;
+  return (
+    <div
+      className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100"
+      data-workspace-share-copy={artifact.id}
+    >
+      <a
+        className="fixed left-3 top-3 z-50 -translate-y-20 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-semibold text-[#041217] outline-none transition focus:translate-y-0 focus:ring-2 focus:ring-white"
+        href="#copied-workspace-content"
+      >
+        Skip to copied workspace
+      </a>
+      <header className="border-b border-white/10 bg-[#080d13]">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-200">
+              <ClipboardCheck aria-hidden="true" size={20} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200">
+                Independent snapshot copy
+              </div>
+              <div className="truncate text-sm text-slate-400">{artifact.title}</div>
+            </div>
+          </div>
+          <button
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 px-4 text-sm font-semibold text-slate-200 outline-none hover:border-cyan-300/40 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300"
+            onClick={onClose}
+            type="button"
+          >
+            <ArrowLeft aria-hidden="true" size={16} />
+            Back to sessions
+          </button>
+        </div>
+      </header>
+
+      <main
+        className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 sm:py-10 lg:px-8"
+        id="copied-workspace-content"
+        tabIndex={-1}
+      >
+        {localOnly ? (
+          <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100" role="status">
+            This copy is saved only on this device because account sync was unavailable. Keep this browser data to retain the copy.
+          </div>
+        ) : null}
+        <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="break-words text-3xl font-semibold tracking-[-0.025em] text-white sm:text-4xl">
+              {artifact.title}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-400">
+              <span>{workspaceShareScopeLabel(artifact.scope)}</span>
+              <span aria-hidden="true" className="h-1 w-1 rounded-full bg-slate-600" />
+              <span className="inline-flex items-center gap-2">
+                <Clock3 aria-hidden="true" size={15} />
+                Copied <time dateTime={artifact.copiedAt}>{formatSharedCopyDate(artifact.copiedAt)}</time>
+              </span>
+            </div>
+          </div>
+          <div className="max-w-xl rounded-xl bg-cyan-300/[0.07] px-4 py-3 text-sm leading-6 text-cyan-50" role="status">
+            This saved copy is isolated from every backtest session. Its chart and aggregate results come only from the sanitized snapshot.
+          </div>
+        </section>
+
+        {chart ? (
+          <section aria-labelledby="copied-chart-title" className="overflow-hidden rounded-2xl bg-[#080d13] shadow-[0_24px_70px_rgba(0,0,0,0.38)]">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
+              <div>
+                <h2 className="text-lg font-semibold text-white" id="copied-chart-title">
+                  {chart.symbol} · {chart.timeframe}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {chart.candles.length.toLocaleString()} candle{chart.candles.length === 1 ? "" : "s"} · {chart.panes.length} pane{chart.panes.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400">
+                <LineChart aria-hidden="true" size={15} />
+                Copied market view
+              </span>
+            </div>
+            <SharedCopyCandlestickPreview candles={chart.candles} />
+            <dl className="grid gap-px border-t border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+              <SharedCopyDetail label="Symbol" value={chart.symbol} />
+              <SharedCopyDetail label="Chart interval" value={chart.timeframe} />
+              <SharedCopyDetail label="Pane grid" value={chart.paneLayout} />
+              <SharedCopyDetail
+                label="Snapshot time"
+                value={chart.currentTimestamp ? formatSharedCopyDate(chart.currentTimestamp) : "Not set"}
+              />
+            </dl>
+            <div className="border-t border-white/10 p-4 sm:p-5">
+              <h3 className="text-sm font-semibold text-white">Copied chart panes</h3>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {chart.panes.map((pane) => (
+                  <article className="rounded-xl border border-white/10 bg-black/20 p-4" key={pane.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-semibold text-white">{pane.id}</h4>
+                        <p className="mt-1 text-xs text-slate-500">{pane.timeframe} · {pane.chartStyle}</p>
+                      </div>
+                      {pane.id === chart.activePaneId ? (
+                        <span className="rounded-full bg-cyan-300/10 px-2 py-1 text-[11px] font-semibold text-cyan-200">Active</span>
+                      ) : null}
+                    </div>
+                    <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                      <SharedCopyPaneDetail label="Cursor" value={pane.drawingTool} />
+                      <SharedCopyPaneDetail label="Magnet" value={pane.magnetMode} />
+                      <SharedCopyPaneDetail label="Smoothing" value={pane.smoothCandles ? "On" : "Off"} />
+                      <SharedCopyPaneDetail label="Drawings" value={String(pane.drawings.length)} />
+                    </dl>
+                    <div className="mt-3 rounded-lg bg-white/[0.035] px-3 py-2 text-xs leading-5 text-slate-400">
+                      <span className="font-semibold text-slate-300">Indicators:</span>{" "}
+                      {pane.indicatorInstances.length > 0
+                        ? pane.indicatorInstances.map((indicator) => indicator.kind).join(", ")
+                        : "None"}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {panels ? <SharedCopyMetrics metrics={panels.metrics} activePanel={panels.activePanel} /> : null}
+
+        {workspace ? (
+          <section aria-labelledby="copied-workspace-config" className="rounded-2xl bg-[#080d13] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)]">
+            <div className="flex items-center gap-2">
+              <Database aria-hidden="true" className="text-cyan-300" size={17} />
+              <h2 className="text-base font-semibold text-white" id="copied-workspace-config">Workspace configuration</h2>
+            </div>
+            <dl className="mt-4 grid gap-px overflow-hidden rounded-xl bg-white/10 sm:grid-cols-2 lg:grid-cols-5">
+              <SharedCopyDetail label="Layout" value={workspace.layoutName} />
+              <SharedCopyDetail label="View" value={workspace.activeView === "backtest" ? "Backtest" : workspace.activeView} />
+              <SharedCopyDetail label="Sidebar" value={workspace.sidebarCollapsed ? "Collapsed" : "Expanded"} />
+              <SharedCopyDetail label="Timezone" value={workspace.timezone ?? "Workspace default"} />
+              <SharedCopyDetail label="Pane grid" value={workspace.paneLayout} />
+            </dl>
+          </section>
+        ) : null}
+      </main>
+    </div>
+  );
+}
+
+function SharedCopyCandlestickPreview({ candles }: { candles: WorkspaceShareCandle[] }) {
+  const geometry = useMemo(() => buildSharedCopyCandleGeometry(candles), [candles]);
+  if (geometry.items.length === 0) {
+    return <div className="grid min-h-72 place-items-center px-5 text-sm text-slate-500">No candle data was included in this copy.</div>;
+  }
+  return (
+    <div className="overflow-hidden p-3 sm:p-5">
+      <svg
+        aria-label={`Copied candlestick chart from ${geometry.low} to ${geometry.high}`}
+        className="h-72 w-full"
+        preserveAspectRatio="none"
+        role="img"
+        viewBox="0 0 1000 320"
+      >
+        <g stroke="#1E293B" strokeWidth="1">
+          {[40, 100, 160, 220, 280].map((y) => <line key={y} x1="0" x2="1000" y1={y} y2={y} />)}
+        </g>
+        {geometry.items.map((item) => (
+          <g key={`${item.x}-${item.time}`}>
+            <line stroke={item.up ? "#22C55E" : "#EF4444"} strokeWidth="2" x1={item.x} x2={item.x} y1={item.high} y2={item.low} />
+            <rect fill={item.up ? "#22C55E" : "#EF4444"} height={Math.max(2, item.bottom - item.top)} rx="1" width={Math.max(2, geometry.width * 0.62)} x={item.x - geometry.width * 0.31} y={item.top} />
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function buildSharedCopyCandleGeometry(candles: WorkspaceShareCandle[]) {
+  const clean = candles.filter((candle) =>
+    [candle.open, candle.high, candle.low, candle.close].every(Number.isFinite),
+  );
+  const high = clean.length > 0 ? Math.max(...clean.map((candle) => candle.high)) : 0;
+  const low = clean.length > 0 ? Math.min(...clean.map((candle) => candle.low)) : 0;
+  const range = Math.max(high - low, 0.000001);
+  const width = clean.length > 0 ? 960 / clean.length : 12;
+  const y = (value: number) => 20 + ((high - value) / range) * 280;
+  return {
+    high,
+    low,
+    width,
+    items: clean.map((candle, index) => ({
+      x: 20 + index * width + width / 2,
+      high: y(candle.high),
+      low: y(candle.low),
+      top: y(Math.max(candle.open, candle.close)),
+      bottom: y(Math.min(candle.open, candle.close)),
+      time: candle.time,
+      up: candle.close >= candle.open,
+    })),
+  };
+}
+
+function SharedCopyMetrics({
+  activePanel,
+  metrics,
+}: {
+  activePanel: "none" | "review" | "results";
+  metrics: WorkspaceShareMetrics;
+}) {
+  const values = [
+    ["Net P&L", formatSharedCopyNumber(metrics.netPnl)],
+    ["Win rate", `${metrics.winRate.toFixed(1)}%`],
+    ["Total trades", metrics.totalTrades.toLocaleString()],
+    ["Winning trades", metrics.winningTrades.toLocaleString()],
+    ["Breakeven trades", metrics.breakevenTrades.toLocaleString()],
+    ["Profit factor", formatSharedCopyOptional(metrics.profitFactor)],
+    ["Max drawdown", formatSharedCopyNumber(metrics.maxDrawdown)],
+    ["Average R", formatSharedCopyOptional(metrics.averageR)],
+    ["Expectancy", formatSharedCopyOptional(metrics.expectancy)],
+  ];
+  return (
+    <section aria-labelledby="copied-panel-metrics">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-white" id="copied-panel-metrics">Copied aggregate results</h2>
+        <span className="text-xs font-semibold text-slate-500">Selected panel: {activePanel}</span>
+      </div>
+      <dl className="mt-4 grid gap-px overflow-hidden rounded-2xl bg-white/10 sm:grid-cols-2 lg:grid-cols-3">
+        {values.map(([label, value]) => (
+          <div className="bg-[#080d13] px-4 py-5" key={label}>
+            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</dt>
+            <dd className="mt-2 font-data text-xl font-semibold tabular-nums text-white">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function SharedCopyDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 bg-[#080d13] px-4 py-4">
+      <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</dt>
+      <dd className="mt-2 break-words text-sm text-slate-200">{value}</dd>
+    </div>
+  );
+}
+
+function SharedCopyPaneDetail({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-slate-500">{label}</dt><dd className="mt-1 font-semibold text-slate-200">{value}</dd></div>;
+}
+
+function formatSharedCopyDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function formatSharedCopyNumber(value: number) {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, signDisplay: "exceptZero" }).format(value);
+}
+
+function formatSharedCopyOptional(value: number | null) {
+  return value == null ? "—" : formatSharedCopyNumber(value);
 }
 
 function TimeframeShortcutOverlay({

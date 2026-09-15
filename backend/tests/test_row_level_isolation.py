@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -17,9 +17,11 @@ from app.schemas import (
     FeedbackCreate,
     OrderCreate,
     PlaybookCreate,
+    WorkspaceShareCreate,
 )
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
+from app.services.rate_limits import RateLimitDecision
 
 
 def make_session_factory():
@@ -290,3 +292,119 @@ def test_feedback_list_returns_only_authenticated_user_submissions():
 
         intruder_submissions = routes.list_feedback(limit=50, db=db, current_user=intruder)
         assert [submission.id for submission in intruder_submissions] == [intruder_submission.id]
+
+
+def test_workspace_share_management_and_open_are_user_scoped():
+    session_factory = make_session_factory()
+
+    with session_factory() as db:
+        owner_id = seed_user(db, "owner@edgelab.local", "Owner")
+        intruder_id = seed_user(db, "intruder@edgelab.local", "Intruder")
+        owner = auth_user(owner_id, "owner@edgelab.local", "Owner")
+        intruder = auth_user(intruder_id, "intruder@edgelab.local", "Intruder")
+        created = routes.create_workspace_share(
+            payload=WorkspaceShareCreate(
+                workspace_key="replay:owner",
+                title="Owner snapshot",
+                scope="panels-only",
+                payload={
+                    "schemaVersion": 1,
+                    "panels": {"metrics": {"netPnl": 42}},
+                },
+            ),
+            db=db,
+            current_user=owner,
+        )
+
+        response = Response()
+        opened = routes.read_public_workspace_share(
+            response=response,
+            share_token=created.public_token,
+            db=db,
+            current_user=owner,
+        )
+        assert opened.title == "Owner snapshot"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["referrer-policy"] == "no-referrer"
+
+        assert routes.list_workspace_shares(
+            workspace_key=None,
+            offset=0,
+            limit=50,
+            db=db,
+            current_user=intruder,
+        ) == []
+        with pytest.raises(HTTPException) as revoke_error:
+            routes.revoke_workspace_share(
+                snapshot_id=created.id,
+                db=db,
+                current_user=intruder,
+            )
+        assert revoke_error.value.status_code == 404
+
+        with pytest.raises(HTTPException) as open_error:
+            routes.read_public_workspace_share(
+                response=Response(),
+                share_token=created.public_token,
+                db=db,
+                current_user=intruder,
+            )
+        assert open_error.value.status_code == 404
+
+
+def test_workspace_share_create_has_dedicated_rate_limit(monkeypatch):
+    calls = []
+
+    class RejectLimiter:
+        def consume(self, key, *, limit, window_seconds):
+            calls.append((key, limit, window_seconds))
+            return RateLimitDecision(allowed=False, retry_after_seconds=11)
+
+    session_factory = make_session_factory()
+    monkeypatch.setattr(routes, "rate_limiter", RejectLimiter())
+    with session_factory() as db:
+        owner_id = seed_user(db, "rate-owner@edgelab.local", "Rate Owner")
+        owner = auth_user(owner_id, "rate-owner@edgelab.local", "Rate Owner")
+        with pytest.raises(HTTPException) as exc_info:
+            routes.create_workspace_share(
+                payload=WorkspaceShareCreate(
+                    workspace_key="replay:rate-owner",
+                    title="Rate limited snapshot",
+                    scope="panels-only",
+                    payload={
+                        "schemaVersion": 1,
+                        "panels": {"metrics": {"netPnl": 42}},
+                    },
+                ),
+                db=db,
+                current_user=owner,
+            )
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.headers == {"Retry-After": "11"}
+    assert calls[0][0] == f"rate-limit:workspace-share-create:user:{owner_id}"
+
+
+def test_workspace_share_payload_purge_uses_management_rate_limit(monkeypatch):
+    calls = []
+
+    class RejectLimiter:
+        def consume(self, key, *, limit, window_seconds):
+            calls.append((key, limit, window_seconds))
+            return RateLimitDecision(allowed=False, retry_after_seconds=13)
+
+    session_factory = make_session_factory()
+    monkeypatch.setattr(routes, "rate_limiter", RejectLimiter())
+    with session_factory() as db:
+        owner_id = seed_user(db, "purge-owner@edgelab.local", "Purge Owner")
+        owner = auth_user(owner_id, "purge-owner@edgelab.local", "Purge Owner")
+        with pytest.raises(HTTPException) as exc_info:
+            routes.purge_workspace_share_payload(
+                snapshot_id=999,
+                db=db,
+                current_user=owner,
+            )
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.headers == {"Retry-After": "13"}
+    assert calls[0][0] == f"rate-limit:workspace-share-management:user:{owner_id}"

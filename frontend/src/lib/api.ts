@@ -1,3 +1,5 @@
+import type { WorkspaceSharePayload, WorkspaceShareScope } from "./workspaceShare";
+
 export type Candle = {
   time: number;
   timestamp: string;
@@ -574,6 +576,43 @@ export type AppDataImportResult = {
   summary: Record<string, number>;
 };
 
+export type WorkspaceShareCreatePayload = {
+  workspace_key: string;
+  title: string;
+  scope: WorkspaceShareScope;
+  recipient_email?: string | null;
+  expires_at?: string | null;
+  payload: WorkspaceSharePayload;
+};
+
+export type WorkspaceShareOwnerRecord = {
+  id: number;
+  workspace_key: string;
+  snapshot_version: number;
+  schema_version: number;
+  scope: WorkspaceShareScope;
+  title: string;
+  recipient_email: string | null;
+  payload_available: boolean;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+};
+
+export type WorkspaceShareCreated = WorkspaceShareOwnerRecord & {
+  public_token: string;
+};
+
+export type WorkspaceShareOpen = {
+  snapshot_version: number;
+  schema_version: number;
+  scope: WorkspaceShareScope;
+  title: string;
+  created_at: string;
+  expires_at: string | null;
+  payload: WorkspaceSharePayload;
+};
+
 export type BetaProgramStatus = {
   mode: "beta";
   seats_total: number;
@@ -644,17 +683,20 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const authToken = readStoredAuthToken();
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (!headers.has("Authorization")) {
+    if (authToken) {
+      headers.set("Authorization", `Bearer ${authToken}`);
+    } else if (API_BEARER_TOKEN) {
+      headers.set("Authorization", `Bearer ${API_BEARER_TOKEN}`);
+    }
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(authToken
-        ? { Authorization: `Bearer ${authToken}` }
-        : API_BEARER_TOKEN
-          ? { Authorization: `Bearer ${API_BEARER_TOKEN}` }
-          : {}),
-      ...init?.headers,
-    },
     ...init,
+    headers,
   });
 
   if (!response.ok) {
@@ -827,6 +869,50 @@ export function importAppDataBundle(bundle: AppDataBundle) {
   return request<AppDataImportResult>("/app-data/import", {
     method: "POST",
     body: JSON.stringify(bundle),
+  });
+}
+
+export function createWorkspaceShare(payload: WorkspaceShareCreatePayload) {
+  return request<WorkspaceShareCreated>("/workspace-shares", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkspaceShares({
+  workspaceKey,
+  offset = 0,
+  limit = 50,
+}: {
+  workspaceKey: string;
+  offset?: number;
+  limit?: number;
+}) {
+  const query = new URLSearchParams({
+    workspace_key: workspaceKey,
+    offset: String(offset),
+    limit: String(limit),
+  });
+  return request<WorkspaceShareOwnerRecord[]>(`/workspace-shares?${query.toString()}`);
+}
+
+export function revokeWorkspaceShare(snapshotId: number) {
+  return request<WorkspaceShareOwnerRecord>(`/workspace-shares/${snapshotId}/revoke`, {
+    method: "POST",
+  });
+}
+
+export function deleteWorkspaceSharePayload(snapshotId: number) {
+  return request<WorkspaceShareOwnerRecord>(`/workspace-shares/${snapshotId}/payload`, {
+    method: "DELETE",
+  });
+}
+
+export function openWorkspaceShare(publicToken: string) {
+  return request<WorkspaceShareOpen>("/workspace-shares/open", {
+    headers: {
+      "X-Workspace-Share-Token": publicToken,
+    },
   });
 }
 

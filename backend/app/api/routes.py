@@ -13,7 +13,17 @@ from urllib.parse import urlencode
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.params import Param
 from sqlalchemy import DateTime, func, select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -103,7 +113,12 @@ from app.schemas import (
     TradeRead,
     TradePage,
     TradeStrategyUpdate,
+    WorkspaceShareCreate,
+    WorkspaceShareCreatedRead,
+    WorkspaceShareOwnerRead,
+    WorkspaceSharePublicRead,
 )
+from app.services import share_snapshots
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -142,6 +157,9 @@ read_model_cache = ReadModelCacheService(
     redis_url=settings.redis_url,
 )
 rate_limiter = build_rate_limiter(settings.redis_url)
+WORKSPACE_SHARE_CREATE_RATE_LIMIT = 30
+WORKSPACE_SHARE_MANAGEMENT_RATE_LIMIT = 120
+WORKSPACE_SHARE_OPEN_RATE_LIMIT = 240
 
 
 def bootstrap_shell_cache_scope(user_id: int) -> str:
@@ -1434,6 +1452,111 @@ def delete_app_storage_item(
     db.delete(item)
     db.commit()
     return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
+
+
+@router.post(
+    "/workspace-shares",
+    response_model=WorkspaceShareCreatedRead,
+    status_code=201,
+)
+def create_workspace_share(
+    payload: WorkspaceShareCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> WorkspaceShareCreatedRead:
+    enforce_rate_limit(
+        "workspace-share-create",
+        current_user.id,
+        WORKSPACE_SHARE_CREATE_RATE_LIMIT,
+    )
+    return share_snapshots.create_workspace_share(db, current_user.id, payload)
+
+
+@router.get("/workspace-shares", response_model=list[WorkspaceShareOwnerRead])
+def list_workspace_shares(
+    workspace_key: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[WorkspaceShareOwnerRead]:
+    enforce_rate_limit(
+        "workspace-share-management",
+        current_user.id,
+        WORKSPACE_SHARE_MANAGEMENT_RATE_LIMIT,
+    )
+    return share_snapshots.list_workspace_shares(
+        db,
+        current_user.id,
+        workspace_key=workspace_key,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/workspace-shares/{snapshot_id}/revoke",
+    response_model=WorkspaceShareOwnerRead,
+)
+def revoke_workspace_share(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> WorkspaceShareOwnerRead:
+    enforce_rate_limit(
+        "workspace-share-management",
+        current_user.id,
+        WORKSPACE_SHARE_MANAGEMENT_RATE_LIMIT,
+    )
+    return share_snapshots.revoke_workspace_share(db, current_user.id, snapshot_id)
+
+
+@router.delete(
+    "/workspace-shares/{snapshot_id}/payload",
+    response_model=WorkspaceShareOwnerRead,
+)
+def purge_workspace_share_payload(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> WorkspaceShareOwnerRead:
+    enforce_rate_limit(
+        "workspace-share-management",
+        current_user.id,
+        WORKSPACE_SHARE_MANAGEMENT_RATE_LIMIT,
+    )
+    return share_snapshots.purge_workspace_share_payload(
+        db,
+        current_user.id,
+        snapshot_id,
+    )
+
+
+@router.get("/workspace-shares/open", response_model=WorkspaceSharePublicRead)
+def read_public_workspace_share(
+    response: Response,
+    share_token: str | None = Header(default=None, alias="X-Workspace-Share-Token"),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> WorkspaceSharePublicRead:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    enforce_rate_limit(
+        "workspace-share-open",
+        current_user.id,
+        WORKSPACE_SHARE_OPEN_RATE_LIMIT,
+    )
+    return share_snapshots.get_public_workspace_share(
+        db,
+        current_user.id,
+        current_user.email,
+        share_token,
+    )
 
 
 @router.post("/feedback", response_model=FeedbackRead)

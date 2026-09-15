@@ -14,6 +14,8 @@ const memoryCache = new Map<string, unknown>();
 const listeners = new Map<string, Set<Listener<unknown>>>();
 const mutationVersions = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
+const WORKSPACE_SHARE_COPY_APP_STORAGE_KEY =
+  /^workspace-share-copy\.v1\.workspace-copy-[a-z0-9-]{8,128}$/i;
 
 const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "active-chart-layout.v1": "edgelab.active-chart-layout.v1",
@@ -142,6 +144,50 @@ export async function saveAppStorageItem<T>(
   return value;
 }
 
+export async function saveAppStorageItemConfirmed<T>(
+  key: string,
+  value: T,
+  namespace = APP_STORAGE_NAMESPACE,
+): Promise<{ localPersisted: boolean; serverPersisted: boolean; value: T }> {
+  const combinedKey = storageKey(namespace, key);
+  mutationVersions.set(combinedKey, (mutationVersions.get(combinedKey) ?? 0) + 1);
+  setCachedValue(namespace, key, value);
+  let localPersisted = false;
+  try {
+    localPersisted = writeLocalStorageValue(key, value, Date.now());
+  } catch {
+    // The confirmed server write below remains a durable path when local storage is full.
+  }
+
+  const previousWrite = writeQueues.get(combinedKey) ?? Promise.resolve();
+  let serverPersisted = false;
+  const nextWrite = previousWrite
+    .catch(() => undefined)
+    .then(async () => {
+      const item = await putAppStorageItem(namespace, key, value);
+      serverPersisted = true;
+      try {
+        writeLocalStorageValue(key, value, parseTimestamp(item.updated_at) || Date.now());
+        localPersisted = true;
+      } catch {
+        // Server persistence is sufficient; hydration can recover the value remotely.
+      }
+    });
+  writeQueues.set(combinedKey, nextWrite);
+  try {
+    await nextWrite;
+  } catch (error) {
+    if (!localPersisted) {
+      throw error;
+    }
+  } finally {
+    if (writeQueues.get(combinedKey) === nextWrite) {
+      writeQueues.delete(combinedKey);
+    }
+  }
+  return { localPersisted, serverPersisted, value };
+}
+
 export function subscribeAppStorageItem<T>(
   key: string,
   listener: Listener<T>,
@@ -160,8 +206,11 @@ export function subscribeAppStorageItem<T>(
 }
 
 export function isAppStorageLocalStorageKey(key: string) {
-  return Object.values(LEGACY_STORAGE_KEY_MAP).some(
-    (prefix) => key === prefix || key.startsWith(`${prefix}.`),
+  return (
+    key.startsWith("edgelab.workspace-share-copy.v1.workspace-copy-") ||
+    Object.values(LEGACY_STORAGE_KEY_MAP).some(
+      (prefix) => key === prefix || key.startsWith(`${prefix}.`),
+    )
   );
 }
 
@@ -218,11 +267,11 @@ function readLocalStorageKeyValue<T>(
 
 function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number) {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
   const localKey = localStorageKeyFor(key);
   if (!localKey) {
-    return;
+    return false;
   }
   if (legacyStoresPlainString(key)) {
     window.localStorage.setItem(localKey, String(value ?? ""));
@@ -230,6 +279,7 @@ function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number) {
     window.localStorage.setItem(localKey, JSON.stringify(value));
   }
   window.localStorage.setItem(localStorageUpdatedAtKey(localKey), String(updatedAt || Date.now()));
+  return true;
 }
 
 function localStorageKeyFor(key: string) {
@@ -268,6 +318,9 @@ function parseTimestamp(value: string | number | null | undefined) {
 }
 
 function legacyStorageKeyFor(key: string) {
+  if (WORKSPACE_SHARE_COPY_APP_STORAGE_KEY.test(key)) {
+    return `edgelab.${key}`;
+  }
   return LEGACY_STORAGE_KEY_MAP[key] ?? null;
 }
 

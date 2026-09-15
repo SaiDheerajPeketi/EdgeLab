@@ -32,6 +32,9 @@ const TermsPage = lazy(() =>
 const AuthSignInPage = lazy(() =>
   import("../pages/AuthSignInPage").then((module) => ({ default: module.AuthSignInPage })),
 );
+const SharedWorkspacePage = lazy(() =>
+  import("../pages/SharedWorkspacePage").then((module) => ({ default: module.SharedWorkspacePage })),
+);
 
 type AppRoutesProps = {
   NotFoundPage: ComponentType;
@@ -264,6 +267,7 @@ export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
           <Route element={<TermsPage />} path="/terms" />
           <Route element={<AuthSignInRoute />} path="/auth/signin" />
           <Route element={<AuthCallbackPage />} path="/auth/callback/google" />
+          <Route element={<ProtectedWorkspace WorkspaceApp={SharedWorkspacePage} />} path="/shared" />
           <Route element={<ProtectedWorkspace WorkspaceApp={WorkspaceApp} />} path="/app" />
           <Route element={<ProtectedWorkspace WorkspaceApp={WorkspaceApp} />} path="/app/*" />
           <Route element={<Navigate replace to="/app" />} path="/workspace" />

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -12,6 +12,7 @@ RiskBase = Literal["CURRENT_BALANCE", "INITIAL_BALANCE"]
 CommissionMode = Literal["NONE", "FIXED", "PERCENT"]
 FeedbackCategory = Literal["BUG", "FEATURE", "UX", "PERFORMANCE", "DATA", "OTHER"]
 FeedbackStatus = Literal["NEW", "REVIEWED", "CLOSED"]
+WorkspaceShareScope = Literal["chart-plus-panels", "panels-only", "complete-workspace"]
 
 
 class Candle(BaseModel):
@@ -220,6 +221,320 @@ class AppDataImportResult(BaseModel):
     ok: bool = True
     imported_at: datetime
     summary: dict[str, int] = Field(default_factory=dict)
+
+
+def share_field_alias(value: str) -> str:
+    head, *tail = value.split("_")
+    return head + "".join(part.capitalize() for part in tail)
+
+
+class WorkspaceShareStrictModel(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=share_field_alias,
+        allow_inf_nan=False,
+        extra="forbid",
+        populate_by_name=True,
+    )
+
+
+class WorkspaceShareCandle(WorkspaceShareStrictModel):
+    time: int
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float = 0.0
+
+
+class WorkspaceShareIndicatorSettings(WorkspaceShareStrictModel):
+    color: str = Field(default="#32D3EE", pattern=r"^#[0-9A-Fa-f]{6}$")
+    period: int = Field(default=20, ge=1, le=10_000)
+    fill_opacity: float | None = Field(default=None, ge=0, le=1)
+    std_dev: float | None = Field(default=None, ge=0, le=100)
+    fast_period: int | None = Field(default=None, ge=1, le=10_000)
+    slow_period: int | None = Field(default=None, ge=1, le=10_000)
+    signal_period: int | None = Field(default=None, ge=1, le=10_000)
+    secondary_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    signal_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    show_labels: bool | None = None
+    unmitigated_only: bool | None = None
+    histogram_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    line_style: Literal["solid", "dashed", "dotted"] | None = None
+    line_width: float | None = Field(default=None, ge=1, le=8)
+
+
+class WorkspaceShareIndicator(WorkspaceShareStrictModel):
+    id: str = Field(min_length=1, max_length=96)
+    kind: Literal[
+        "atr",
+        "bb",
+        "dema",
+        "donchian",
+        "ema",
+        "fvg",
+        "hma",
+        "ifvg",
+        "keltner",
+        "macd",
+        "momentum",
+        "rsi",
+        "sma",
+        "supertrend",
+        "tema",
+        "vwap",
+        "wma",
+    ]
+    settings: WorkspaceShareIndicatorSettings = Field(
+        default_factory=WorkspaceShareIndicatorSettings
+    )
+    visible: bool = True
+    created_at: str | None = Field(default=None, max_length=64)
+
+
+class WorkspaceShareDrawingPoint(WorkspaceShareStrictModel):
+    logical: float | None = None
+    time: float
+    price: float
+
+
+class WorkspaceShareFibLevel(WorkspaceShareStrictModel):
+    id: str = Field(min_length=1, max_length=64)
+    value: float
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    background_opacity: float | None = Field(default=None, ge=0, le=1)
+    label: str | None = Field(default=None, max_length=80)
+    line_style: Literal["solid", "dashed", "dotted"] | None = None
+    visible: bool = True
+
+
+class WorkspaceShareDrawing(WorkspaceShareStrictModel):
+    id: str = Field(min_length=1, max_length=96)
+    tool: Literal[
+        "trendline",
+        "horizontal",
+        "vertical",
+        "rectangle",
+        "fib",
+        "measure",
+        "longPosition",
+        "shortPosition",
+        "text",
+    ]
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    points: list[WorkspaceShareDrawingPoint] = Field(min_length=1, max_length=64)
+    created_at: str = Field(min_length=1, max_length=64)
+    fib_extend_left: bool | None = None
+    fib_extend_right: bool | None = None
+    fib_levels: list[WorkspaceShareFibLevel] = Field(default_factory=list, max_length=32)
+    fill_opacity: float | None = Field(default=None, ge=0, le=1)
+    line_style: Literal["solid", "dashed", "dotted"] | None = None
+    line_width: float | None = Field(default=None, ge=1, le=8)
+    locked: bool = False
+    reward_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    risk_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    label: str | None = Field(default=None, max_length=160)
+    label_background_opacity: float | None = Field(default=None, ge=0, le=1)
+    visible: bool = True
+
+
+class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
+    background_color: str = Field(default="#070B10", pattern=r"^#[0-9A-Fa-f]{6}$")
+    bar_change_values: bool = True
+    body_down_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
+    body_up_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
+    body_visible: bool = True
+    border_down_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
+    border_up_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
+    border_visible: bool = True
+    candle_down_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
+    candle_up_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
+    chart_values: bool = True
+    color_bars_by_previous_close: bool = False
+    crosshair_color: str = Field(default="#748094", pattern=r"^#[0-9A-Fa-f]{6}$")
+    crosshair_visible: bool = True
+    date_format: Literal["dd MMM yy", "MMM dd yyyy", "yyyy-MM-dd"] = "dd MMM yy"
+    day_of_week_labels: bool = True
+    grid_color: str = Field(default="#1E293B", pattern=r"^#[0-9A-Fa-f]{6}$")
+    grid_mode: Literal["both", "horizontal", "none", "vertical"] = "both"
+    high_low_labels: Literal["hidden", "value", "valueLine"] = "hidden"
+    indicator_titles: bool = True
+    indicator_values: bool = True
+    no_overlapping_labels: bool = True
+    previous_day_close: Literal["hidden", "value", "valueLine"] = "hidden"
+    price_precision: int = Field(default=5, ge=0, le=8)
+    price_scale_border_visible: bool = True
+    scale_placement: Literal["auto", "left", "right"] = "right"
+    session_break_color: str = Field(default="#38BDF8", pattern=r"^#[0-9A-Fa-f]{6}$")
+    session_break_line_style: Literal["solid", "dashed", "dotted"] = "dashed"
+    session_break_line_width: int = Field(default=1, ge=1, le=8)
+    session_breaks: bool = False
+    symbol_line: Literal["hidden", "value", "valueLine"] = "valueLine"
+    text_color: str = Field(default="#F0F2F5", pattern=r"^#[0-9A-Fa-f]{6}$")
+    text_size: int = Field(default=12, ge=10, le=18)
+    time_scale_border_visible: bool = True
+    time_hours_format: Literal["12-hour", "24-hour"] = "24-hour"
+    title: bool = True
+    volume: bool = True
+    watermark: Literal["hidden", "symbol", "text"] = "hidden"
+    watermark_text: str = Field(default="EdgeLab", max_length=80)
+    wick_down_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
+    wick_up_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
+    wick_visible: bool = True
+
+
+class WorkspaceShareChartPane(WorkspaceShareStrictModel):
+    id: str = Field(min_length=1, max_length=80)
+    timeframe: str = Field(min_length=1, max_length=20)
+    chart_style: Literal["area", "candles", "heikinAshi", "line"] = "candles"
+    chart_settings: WorkspaceShareChartSettings = Field(
+        default_factory=WorkspaceShareChartSettings
+    )
+    drawing_tool: Literal["cursor", "crosshair"] = "crosshair"
+    drawings: list[WorkspaceShareDrawing] = Field(default_factory=list, max_length=500)
+    indicator_instances: list[WorkspaceShareIndicator] = Field(default_factory=list, max_length=64)
+    magnet_mode: Literal["off", "weak", "strong"] = "off"
+    smooth_candles: bool = False
+
+
+class WorkspaceShareChart(WorkspaceShareStrictModel):
+    symbol: str = Field(min_length=1, max_length=40)
+    timeframe: str = Field(min_length=1, max_length=20)
+    pane_layout: Literal[
+        "single",
+        "vertical-2",
+        "horizontal-2",
+        "grid-4",
+        "grid-6",
+        "grid-9",
+        "grid-12",
+        "grid-16",
+    ] = "single"
+    active_pane_id: str | None = Field(default=None, max_length=80)
+    panes: list[WorkspaceShareChartPane] = Field(min_length=1, max_length=16)
+    candles: list[WorkspaceShareCandle] = Field(default_factory=list, max_length=500)
+    current_timestamp: datetime | None = None
+
+
+class WorkspaceShareMetrics(WorkspaceShareStrictModel):
+    net_pnl: float = 0.0
+    win_rate: float = Field(default=0.0, ge=0, le=100)
+    total_trades: int = Field(default=0, ge=0)
+    winning_trades: int = Field(default=0, ge=0)
+    breakeven_trades: int = Field(default=0, ge=0)
+    profit_factor: float | None = Field(default=None, ge=0)
+    max_drawdown: float = Field(default=0.0, ge=0)
+    average_r: float | None = None
+    expectancy: float | None = None
+
+
+class WorkspaceSharePanels(WorkspaceShareStrictModel):
+    active_panel: Literal["none", "review", "results"] = "none"
+    panel_order: list[Literal["review", "results"]] = Field(
+        default_factory=lambda: ["review", "results"],
+        max_length=2,
+    )
+    metrics: WorkspaceShareMetrics = Field(default_factory=WorkspaceShareMetrics)
+
+
+class WorkspaceShareWorkspace(WorkspaceShareStrictModel):
+    layout_name: str = Field(min_length=1, max_length=48)
+    active_view: Literal["backtest"] = "backtest"
+    sidebar_collapsed: bool = False
+    timezone: str | None = Field(default=None, max_length=80)
+    pane_layout: Literal[
+        "single",
+        "vertical-2",
+        "horizontal-2",
+        "grid-4",
+        "grid-6",
+        "grid-9",
+        "grid-12",
+        "grid-16",
+    ] = "single"
+
+
+class WorkspaceSharePayload(WorkspaceShareStrictModel):
+    schema_version: Literal[1] = 1
+    chart: WorkspaceShareChart | None = None
+    panels: WorkspaceSharePanels | None = None
+    workspace: WorkspaceShareWorkspace | None = None
+
+
+class WorkspaceShareCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_key: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    title: str = Field(min_length=1, max_length=160)
+    scope: WorkspaceShareScope
+    recipient_email: str | None = Field(
+        default=None,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    expires_at: datetime | None = None
+    payload: WorkspaceSharePayload
+
+    @field_validator("recipient_email", mode="before")
+    @classmethod
+    def normalize_recipient_email(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def validate_scope_payload(self) -> "WorkspaceShareCreate":
+        self.workspace_key = self.workspace_key.strip()
+        self.title = self.title.strip()
+        if not self.title:
+            raise ValueError("Share title cannot be empty")
+
+        required = {
+            "chart-plus-panels": (True, True, False),
+            "panels-only": (False, True, False),
+            "complete-workspace": (True, True, True),
+        }[self.scope]
+        actual = (
+            self.payload.chart is not None,
+            self.payload.panels is not None,
+            self.payload.workspace is not None,
+        )
+        if actual != required:
+            raise ValueError(f"Payload does not match {self.scope} share scope")
+        return self
+
+
+class WorkspaceShareOwnerRead(BaseModel):
+    id: int
+    workspace_key: str
+    snapshot_version: int
+    schema_version: int
+    scope: WorkspaceShareScope
+    title: str
+    payload_available: bool
+    recipient_email: str | None = None
+    created_at: datetime
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class WorkspaceShareCreatedRead(WorkspaceShareOwnerRead):
+    public_token: str
+
+
+class WorkspaceSharePublicRead(BaseModel):
+    snapshot_version: int
+    schema_version: int
+    scope: WorkspaceShareScope
+    title: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    payload: WorkspaceSharePayload
 
 
 class BetaProgramStatus(BaseModel):

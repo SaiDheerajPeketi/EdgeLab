@@ -82,10 +82,19 @@ export function consumeGoogleAuthState(receivedState: string | null) {
 
 function storeGoogleAuthState(payload: StoredGoogleAuthState) {
   const rawValue = JSON.stringify(payload);
+  const containsShareCapability = payload.fromPath.startsWith("/shared#");
   try {
     window.sessionStorage.setItem(GOOGLE_AUTH_STATE_KEY, rawValue);
   } catch {
     // Keep the OAuth flow usable when sessionStorage is blocked.
+  }
+  if (containsShareCapability) {
+    try {
+      window.localStorage.removeItem(GOOGLE_AUTH_STATE_KEY);
+    } catch {
+      // A share capability must never fall back to durable storage.
+    }
+    return;
   }
   try {
     window.localStorage.setItem(GOOGLE_AUTH_STATE_KEY, rawValue);
