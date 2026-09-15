@@ -1,4 +1,5 @@
 import type { HeatmapColumn } from "./heatmap-context";
+import { formatLocaleDateTime, formatLocaleNumber } from "../../../lib/locale";
 
 export function getHeatmapColumnStartDate(column: HeatmapColumn): Date | null {
   return column.bins[0]?.date ?? null;
@@ -54,17 +55,12 @@ export function filterHeatmapColumns(
   });
 }
 
-const heatmapTooltipDateFmt = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  day: "numeric",
-});
-
 export function formatHeatmapContributionLabel(
   count: number,
   date: Date
 ): string {
   const word = count === 1 ? "contribution" : "contributions";
-  return `${count} ${word} on ${heatmapTooltipDateFmt.format(date)}`;
+  return `${formatLocaleNumber(count)} ${word} on ${formatLocaleDateTime(date, { month: "long", day: "numeric" })}`;
 }
 
 /** Maps a contribution count to the GitHub-style legend level (0–4). */

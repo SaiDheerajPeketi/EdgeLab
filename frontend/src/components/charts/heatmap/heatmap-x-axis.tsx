@@ -3,14 +3,13 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { formatLocaleDateTime } from "@/lib/locale";
 import { useHeatmap } from "./heatmap-context";
 
 export interface HeatmapXAxisProps {
   /** Additional class name for labels */
   className?: string;
 }
-
-const monthFmt = new Intl.DateTimeFormat("en-US", { month: "short" });
 
 export const HeatmapXAxis = memo(function HeatmapXAxis({
   className,
@@ -38,7 +37,7 @@ export const HeatmapXAxis = memo(function HeatmapXAxis({
       }
 
       ticks.push({
-        label: monthFmt.format(firstDate),
+        label: formatLocaleDateTime(firstDate, { month: "short" }),
         x: margin.left + xScale(columnIndex) + binWidth / 2,
         key: `${columnIndex}-${month}`,
       });

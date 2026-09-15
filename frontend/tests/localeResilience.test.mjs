@@ -54,3 +54,23 @@ test("locale lists retain valid fallbacks when another entry is malformed", () =
   assert.deepEqual(interfaceLocale(["invalid_%%%", "de-DE"]), ["de-DE"]);
   assert.equal(formatLocaleNumber(1234.5, { minimumFractionDigits: 1 }, ["invalid_%%%", "de-DE"]), "1.234,5");
 });
+
+test("high-traffic financial surfaces use shared locale formatting and logical alignment", async () => {
+  const files = await Promise.all([
+    read("components/MetricsBar.tsx"),
+    read("components/PositionPanel.tsx"),
+    read("components/EquityCurve.tsx"),
+    read("components/ExecutionTape.tsx"),
+    read("components/charts/heatmap/heatmap-utils.ts"),
+    read("components/charts/heatmap/heatmap-x-axis.tsx"),
+  ]);
+  for (const source of files) {
+    assert.doesNotMatch(source, /Intl\.(?:NumberFormat|DateTimeFormat)\("en-US"/);
+  }
+  assert.match(files[0], /formatLocaleCurrency/);
+  assert.match(files[0], /ui-number/);
+  assert.match(files[1], /border-e/);
+  assert.match(files[3], /formatLocaleDateTime/);
+  assert.match(files[4], /formatLocaleNumber/);
+  assert.match(files[5], /formatLocaleDateTime/);
+});

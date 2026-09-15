@@ -1,5 +1,6 @@
 import { Activity, BarChart3, Gauge, Sigma, Target, TrendingUp } from "lucide-react";
 import type { Metrics } from "../lib/api";
+import { formatLocaleCurrency, formatLocaleNumber } from "../lib/locale";
 
 type Props = {
   currency?: string;
@@ -56,12 +57,12 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
             className="min-w-0 rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel"
           >
             <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-medium uppercase tracking-[0.18em]">
+              <span className="ui-resilient-text min-w-0 text-xs font-medium uppercase tracking-[0.18em]" dir="auto">
                 {stat.label}
               </span>
               <Icon size={17} />
             </div>
-            <div className={`mt-3 truncate text-2xl font-semibold ${stat.tone}`}>
+            <div className={`ui-number mt-3 overflow-x-auto text-2xl font-semibold ${stat.tone}`} title={stat.value}>
               {stat.value}
             </div>
           </div>
@@ -72,17 +73,13 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
 }
 
 function money(value: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return formatLocaleCurrency(value, currency);
 }
 
 function percent(value: number) {
-  return `${(value * 100).toFixed(1)}%`;
+  return formatLocaleNumber(value, { style: "percent", maximumFractionDigits: 1 });
 }
 
 function optionalNumber(value: number | null | undefined) {
-  return value == null ? "—" : value.toFixed(2);
+  return value == null ? "—" : formatLocaleNumber(value, { maximumFractionDigits: 2 });
 }

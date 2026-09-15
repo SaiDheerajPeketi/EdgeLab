@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Metrics } from "../lib/api";
+import { formatLocaleCurrency } from "../lib/locale";
 
 type Props = {
   currency?: string;
@@ -193,9 +194,5 @@ function formatDateTime(value: string) {
 }
 
 function money(value: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return formatLocaleCurrency(value, currency);
 }

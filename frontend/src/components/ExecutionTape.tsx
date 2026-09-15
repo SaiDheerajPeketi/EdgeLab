@@ -1,6 +1,7 @@
 import { Activity, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import type { Execution } from "../lib/api";
 import { formatPrice } from "../lib/format";
+import { formatLocaleCurrency, formatLocaleDateTime, formatLocaleNumber } from "../lib/locale";
 
 type Props = {
   currency?: string;
@@ -29,7 +30,7 @@ export function ExecutionTape({ currency = "USD", executions }: Props) {
       <div className="grid grid-cols-[76px_minmax(0,1fr)_auto] gap-3 border-b border-white/[0.06] bg-white/[0.018] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
         <span>Side</span>
         <span>Fill</span>
-        <span className="text-right">Realized</span>
+        <span className="text-end">Realized</span>
       </div>
 
       <div aria-live="polite" className="max-h-72 overflow-auto" role="log">
@@ -55,10 +56,10 @@ export function ExecutionTape({ currency = "USD", executions }: Props) {
               </div>
               <div className="min-w-0">
                 <div className="truncate font-data text-xs text-slate-200">
-                  {execution.quantity.toLocaleString()} @ {formatPrice(execution.price)}
+                  {formatLocaleNumber(execution.quantity)} @ {formatPrice(execution.price)}
                 </div>
                 <div className="mt-1 truncate text-[10px] text-slate-400">
-                  {formatExecutionTime(execution.timestamp)} · {execution.position_side_after.toLowerCase()} {execution.position_quantity_after.toLocaleString()}
+                  {formatExecutionTime(execution.timestamp)} · {execution.position_side_after.toLowerCase()} {formatLocaleNumber(execution.position_quantity_after)}
                 </div>
               </div>
               <span
@@ -95,17 +96,13 @@ function formatExecutionTime(value: string) {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("en-US", {
+  return formatLocaleDateTime(parsed, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-  }).format(parsed);
+  });
 }
 
 function money(value: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return formatLocaleCurrency(value, currency);
 }

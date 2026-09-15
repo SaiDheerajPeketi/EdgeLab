@@ -1,6 +1,7 @@
 import { ArrowDownToLine, ArrowUpToLine, BadgeDollarSign } from "lucide-react";
 import type { Position } from "../lib/api";
 import { formatPrice } from "../lib/format";
+import { formatLocaleCurrency } from "../lib/locale";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -105,19 +106,15 @@ function Metric({
   tone?: string;
 }) {
   return (
-    <div className="min-w-0 border-b border-r border-white/[0.055] px-4 py-3 even:border-r-0">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</div>
-      <div className={`mt-1 truncate text-xs font-medium ${data ? "font-data" : ""} ${tone}`}>{value}</div>
+    <div className="min-w-0 border-b border-e border-white/[0.055] px-4 py-3 even:border-e-0">
+      <div className="ui-resilient-text text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400" dir="auto">{label}</div>
+      <div className={`ui-number mt-1 overflow-x-auto text-xs font-medium ${data ? "font-data" : ""} ${tone}`} title={value}>{value}</div>
     </div>
   );
 }
 
 function money(value: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return formatLocaleCurrency(value, currency);
 }
 
 function costValueForPayload(mode: string | null | undefined, value: number | null | undefined) {
