@@ -15,11 +15,9 @@ async function bundle(relativePath) {
   return { cleanup: () => fs.rmSync(directory, { force: true, recursive: true }), module: await import(`${pathToFileURL(output).href}?${Date.now()}`) };
 }
 
-test("shared switch and slider expose explicit localized state text", async () => {
+test("shared slider exposes explicit localized value text", async () => {
   const { cleanup, module } = await bundle("frontend/src/components/ui/Primitives.tsx");
   try {
-    assert.equal(module.toggleAccessibleLabel("Extended hours", true), "Extended hours: on");
-    assert.equal(module.toggleAccessibleLabel("Extended hours", false), "Extended hours: off");
     const previousDocument = globalThis.document;
     globalThis.document = { documentElement: { lang: "de-DE" } };
     assert.equal(module.sliderValueText(1234.5, " ms"), "1.234,5 ms");
@@ -34,7 +32,9 @@ test("shared selection controls enforce touch, focus, locale, and long-label con
   const slider = source.match(/export function Slider[\s\S]*?^}/m)?.[0] ?? "";
   const segmented = source.match(/export function SegmentedControl[\s\S]*?^}/m)?.[0] ?? "";
   assert.match(toggle, /min-h-\[var\(--control-height\)\]/);
-  assert.match(toggle, /aria-label=\{toggleAccessibleLabel/);
+  assert.match(toggle, /aria-label=\{label\}/);
+  assert.match(toggle, /aria-checked=\{checked\}/);
+  assert.doesNotMatch(toggle, /["'](?:on|off)["']/);
   assert.match(radio, /const groupName = useId\(\)/);
   assert.match(radio, /name=\{groupName\}/);
   assert.match(radio, /has-\[:focus-visible\]:ring-2/);
