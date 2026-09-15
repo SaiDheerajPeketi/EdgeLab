@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { gotoStable, installDeterminism, seedApprovedSession, seedChartLayout } from "./support/app";
 
 const budgets = JSON.parse(readFileSync(new URL("../docs/ui-performance-budgets.json", import.meta.url), "utf8")) as {
@@ -63,7 +63,10 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
     recalcStyleCountDelta: value(after, "RecalcStyleCount") - value(before, "RecalcStyleCount"),
     taskDurationDelta: value(after, "TaskDuration") - value(before, "TaskDuration"),
   };
-  await testInfo.attach("low-power-performance.json", { body: Buffer.from(JSON.stringify(result, null, 2)), contentType: "application/json" });
+  const metricsPath = testInfo.outputPath("low-power-performance.json");
+  writeFileSync(metricsPath, `${JSON.stringify(result, null, 2)}\n`);
+  console.log(`[low-power-performance] ${JSON.stringify(result)}`);
+  await testInfo.attach("low-power-performance.json", { contentType: "application/json", path: metricsPath });
   expect(result.frameP95Ms).toBeLessThanOrEqual(budgets.runtime.sixteenPaneFrameP95Ms);
   expect(result.interactionP95Ms).toBeLessThanOrEqual(budgets.runtime.interactionP95Ms);
 });
