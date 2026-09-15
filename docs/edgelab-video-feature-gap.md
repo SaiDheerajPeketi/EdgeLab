@@ -272,7 +272,7 @@ Use two expression levels inside one system:
 
 #### 14.1 Visual direction and design-system foundation
 
-- [ ] `UIR-01 · P0 · Partial` — Inventory every route, panel, modal, menu, empty state, loading state, and error state; capture desktop, tablet, and mobile baselines and label each surface as retain, restyle, restructure, or replace.
+- [ ] `UIR-01 · P0 · Partial` — Inventory every route, panel, modal, menu, empty state, loading state, and error state; capture desktop, tablet, and mobile baselines and label each surface as retain, restyle, restructure, or replace. Route/source/decision/width/state evidence is now executable via `npm run check:ui-inventory`; the recorded 1920px and critical-state screenshot gaps must be closed before completion.
 - [ ] `UIR-02 · P0 · Missing` — Produce and approve three production-grade cross-product direction studies before implementation, each showing the landing first viewport plus a dense authenticated screen and settings screen; choose one coherent EdgeLab world, not separate themes per page.
 - [x] `UIR-03 · P0 · Missing` — Record durable product truth before the redesign and document the implemented visual system afterward, including the chosen direction, protected product behaviors, route-specific intent, and explicit non-goals.
 - [x] `UIR-04 · P0 · Partial` — Consolidate semantic design tokens for backgrounds, surfaces, raised layers, borders, text, accents, focus, status, charts, spacing, radii, elevation, blur, and motion; migrate repeated one-off hex/RGBA and utility combinations in changed surfaces.

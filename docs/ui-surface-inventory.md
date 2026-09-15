@@ -4,16 +4,16 @@ This inventory is the release authority for route and state coverage. `retain` m
 
 | Route / surface | Mode | Decision | Required responsive baselines | Critical states |
 |---|---|---|---|---|
-| `/` landing | Persuade | restructure | 1440, 1024, 390 | default, beta capacity, CTA pending/success/error |
-| `/pricing` | Persuade | restyle | 1440, 1024, 390 | monthly/annual, entitlement unavailable |
-| `/privacy`, `/terms`, `*` | Read | restyle | 1440, 768, 390 | not found, maintenance |
-| `/auth/signin`, callback | Operate | restructure | 1280, 768, 390 | loading, denied, full beta, expired, retry |
-| `/shared` | Operate | restructure | 1440, 1024, 390 | loading, expired, revoked, forbidden, open-as-copy |
-| `/app/live` | Operate | restructure | 1920, 1440, 1024, 390 | connecting, live, delayed, stale, offline, unsupported |
-| `/app/replay` | Operate | restructure | 1920, 1440, 1024, 390 | empty, loading, active, ended, save error |
-| `/app/journal/*` | Operate | restructure | 1440, 1024, 390 | onboarding, sample, empty, loading, partial, error, success |
-| `/app/reports` | Operate | restyle | 1440, 1024, 390 | low sample, mixed currency, filtered empty |
-| `/app/settings/*` | Operate | replace | 1440, 768, 390 | pristine, dirty, saving, saved, conflict, retry, validation |
+| `/` landing | Persuade | restructure | 1440, 834, 390 | default, beta capacity, CTA pending/success/error |
+| `/pricing` | Persuade | restructure | 1440, 834, 390 | monthly/annual, entitlement unavailable |
+| `/privacy`, `/terms`, `*` | Read | restyle | 1440, 834, 390 | not found, maintenance |
+| `/auth/signin`, callback | Operate | replace | 1440, 834, 390 | loading, denied, full beta, expired, retry |
+| `/shared` | Operate | restructure | 1440, 834, 390 | loading, expired, revoked, forbidden, open-as-copy |
+| `/app/live`, `/app/order-flow` | Operate | restructure | 1920 gap; 1440, 834, 390 covered | connecting, live, delayed, stale, offline, unsupported |
+| `/app/replay` | Operate | restructure | 1920 gap; 1440, 834, 390 covered | empty, loading, active, ended, save error |
+| `/app/journal/*` | Operate | replace | 1440, 834, 390 | onboarding, sample, empty, loading, partial, error, success |
+| `/app/reports` | Operate | restructure | 1440, 834, 390 | low sample, mixed currency, filtered empty |
+| `/app/settings/*` | Operate | replace | 1440, 834, 390 | pristine, dirty, saving, saved, conflict, retry, validation |
 
 ## Panels and overlays
 
@@ -30,8 +30,14 @@ Overlays: command palette, account/system menu, symbol and indicator search, set
 | Protected overlays | connection, import, share, destructive confirmation, trade review | restructure | pristine, invalid, pending, failure, success, focus returned |
 | Inline system states | empty, skeleton, partial, offline, stale, denied, unsupported, error, retrying, success | replace | action available, no safe action, timestamped, persistent critical message |
 
-Every row is exercised with representative financial values, a long Latin label, Arabic user content, a missing entitlement, and keyboard-only operation. `docs/ui-release-matrix.json` is the executable scenario inventory.
+`docs/ui-release-matrix.json` is the executable scenario inventory. Representative financial values, long Latin labels, Arabic user content, missing entitlements, and keyboard-only operation remain required release scenarios; the JSON inventory records the stored-baseline gaps rather than implying that every state is already captured.
 
 ## Baseline matrix
 
-Desktop/tablet/mobile captures are required for every route above. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. File locations are `.impeccable/baselines/<route>/<width>-<state>.png`; the absence of a file is a failing release condition, never implicit approval.
+Desktop/tablet/mobile captures are required for every rendered route above. The maintained Playwright baselines are 1440px, 834px, and 390px; the planned 1920px trading baseline is still an explicit gap. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. Stored files live under `e2e/__snapshots__`; an absent file must be recorded as a gap, never treated as implicit approval.
+
+## Executable audit
+
+Run `npm run check:ui-inventory` to compare router and workspace route definitions with the inventory, verify every route/panel/overlay decision and source record, confirm responsive widths against the Playwright projects, and resolve every claimed snapshot to a stored baseline. `npm run check:ui-inventory -- --require-complete` additionally fails while any recorded viewport or state-coverage gap remains.
+
+UIR-01 remains partial: the inventory is structurally enforced, but the recorded 1920px trading viewport and route-state gaps must be captured before the item can be closed.

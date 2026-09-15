@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "postbuild": "node ../scripts/purge-vite-cache.js",
     "preview": "vite preview --host 127.0.0.1",
-    "quality:ui": "node ../scripts/check-ui-release.mjs && node ../scripts/check-ui-performance.mjs && node ../scripts/check-ui-motion.mjs"
+    "quality:ui": "node ../scripts/check-ui-surface-inventory.mjs && node ../scripts/check-ui-release.mjs && node ../scripts/check-ui-performance.mjs && node ../scripts/check-ui-motion.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

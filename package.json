@@ -14,6 +14,7 @@
     "export:screens": "node scripts/export-app-screens.mjs",
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
+    "check:ui-inventory": "node scripts/check-ui-surface-inventory.mjs",
     "test": "node --test \"backend/tests/*.test.js\"",
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots",
