@@ -312,7 +312,7 @@ export async function seedApprovedSession(page: Page) {
   }, { key: AUTH_SESSION_KEY, session: betaSessionResponse });
 }
 
-export async function seedChartLayout(page: Page, paneLayout: "single" | "grid-4" | "grid-16") {
+export async function seedChartLayout(page: Page, paneLayout: "single" | "vertical-2" | "horizontal-2" | "grid-4" | "grid-6" | "grid-9" | "grid-12" | "grid-16") {
   await page.addInitScript(({ layout }) => {
     const value = JSON.stringify({
       chartStyle: "candles",

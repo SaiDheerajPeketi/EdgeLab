@@ -9,6 +9,7 @@ const routes = fs.readFileSync(path.join(root, "frontend/src/routes/AppRoutes.ts
 const foundation = fs.readFileSync(path.join(root, "frontend/src/lib/uiFoundation.ts"), "utf8");
 const rollout = fs.readFileSync(path.join(root, "frontend/src/lib/uiRollout.ts"), "utf8");
 const inventory = JSON.parse(fs.readFileSync(path.join(root, "docs/ui-surface-inventory.json"), "utf8"));
+const snapshotRoot = path.join(root, "e2e/__snapshots__");
 
 assert.deepEqual(Object.keys(matrix.viewports), ["mobile", "tablet", "desktop", "tradingDesktop"]);
 for (const route of ["landing", "settings", "journal", "chart"]) {
@@ -33,6 +34,13 @@ for (const flag of ["ui.shell.v2", "ui.journal.v2", "ui.settings.v2", "ui.chart.
 assert.match(rollout, /killSwitch \? false/);
 assert.ok(inventory.routes.length >= 18);
 assert.ok(inventory.routes.every((route) => route.disposition && route.states.length));
+const protectedSnapshots = path.join(snapshotRoot, "protected-workspace.quality.spec.ts/darwin");
+for (const viewport of ["mobile", "tablet", "desktop"]) {
+  for (const baseline of ["gateway", "chart-compact", "chart-2-pane", "chart-4-pane", "chart-16-pane", "replay", "journal-dashboard", "journal-accounts", "journal-trades", "journal-analytics", "journal-notes", "journal-calendar", "journal-reports", "journal-settings", "reports", "quant", "settings", "shared-ready", "shared-expired", "shared-loading"]) {
+    assert.ok(fs.existsSync(path.join(protectedSnapshots, viewport, `${baseline}.png`)), `Missing ${viewport}/${baseline}.png`);
+  }
+  assert.ok(fs.existsSync(path.join(protectedSnapshots, viewport, "chart-fullscreen.png")), `Missing ${viewport}/chart-fullscreen.png`);
+}
 for (const assertion of ["contrast-aa", "textual-chart-summary", "zoom-200", "rtl", "server-rollout-fallback"]) assert.ok(matrix.requiredAssertions.includes(assertion));
 
 console.log(`UI release contract: ${Object.keys(matrix.routes).length} route groups, ${Object.keys(matrix.viewports).length} viewport classes, rollout fallback verified.`);

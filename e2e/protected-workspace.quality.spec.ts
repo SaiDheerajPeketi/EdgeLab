@@ -67,13 +67,31 @@ test.describe("authenticated route visual baselines", () => {
     });
   }
 
-  test("chart fullscreen baseline", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop", "Fullscreen is captured once at trading density.");
+  test("chart fullscreen baseline", async ({ page }) => {
     await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     await page.getByRole("button", { exact: true, name: "Full Screen" }).click();
     await expect(page.getByRole("button", { exact: true, name: "Exit" })).toBeVisible();
     await expectStableScreenshot(page, "chart-fullscreen", { fullPage: false });
   });
+
+  for (const layout of [
+    { id: "vertical-2", name: "chart-2-pane", panes: 2 },
+    { id: "grid-4", name: "chart-4-pane", panes: 4 },
+    { id: "grid-16", name: "chart-16-pane", panes: 16 },
+  ] as const) {
+    test(`${layout.name} responsive baseline`, async ({ page }) => {
+      await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+      await page.getByRole("button", { exact: true, name: "Tools" }).click();
+      const layoutName = layout.id === "vertical-2" ? "2 columns" : layout.id === "grid-4" ? "2 × 2 grid · 4 charts" : "4 × 4 grid · 16 charts";
+      await page.getByRole("radio", { name: layoutName }).click();
+      await expect(page.locator(".chart-stage")).toHaveCount(layout.panes);
+      await page.getByRole("button", { exact: true, name: "Tools" }).click();
+      await expectStableScreenshot(page, layout.name, {
+        fullPage: false,
+        mask: [page.locator(".chart-plot-column")],
+      });
+    });
+  }
 });
 
 test.describe("critical states and rollout fallback", () => {
@@ -112,6 +130,23 @@ test.describe("critical states and rollout fallback", () => {
     await expect(page.locator("#workspace-content")).toBeVisible();
     await expectStableScreenshot(page, "settings-rollout-fallback", { fullPage: false });
   });
+
+  for (const route of [
+    { group: "public", path: "/" },
+    { group: "shell", path: "/app" },
+    { group: "settings", path: "/app/settings/global" },
+    { group: "journal", path: "/app/journal/dashboard" },
+    { group: "chart", path: "/app/live" },
+  ] as const) {
+    test(`kill switch preserves the ${route.group} deep link`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "Rollout contract is viewport-independent.");
+      await installDeterminism(page, { rollout: "fallback" });
+      await gotoStable(page, route.path, { waitForNetworkIdle: false });
+      await expect(page).toHaveURL(new RegExp(`${route.path === "/" ? "/$" : `${route.path}$`}`));
+      await expect(page.locator(`[data-route-group="${route.group}"]`)).toHaveAttribute("data-ui-version", "fallback");
+      await expect(page.getByRole("main")).toBeVisible();
+    });
+  }
 
   test("unavailable rollout service keeps the verified default", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Failure fallback is viewport-independent.");
