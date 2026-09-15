@@ -161,7 +161,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 ### 7. Order flow, footprint, TPO, and advanced chart types
 
 - [ ] `OFL-01 · P0 · Missing` — Build or license a tick/trade feed with aggressor side, price, size, exchange timestamp, and historical retrieval; OHLCV candles alone cannot produce the demonstrated footprint.
-- [ ] `OFL-02 · P0 · Missing` — Build the price-by-bar aggregation service for bid volume, ask volume, total volume, delta, trade count, and average trade size.
+- [x] `OFL-02 · P0 · Missing` — Build the price-by-bar aggregation service for bid volume, ask volume, total volume, delta, trade count, and average trade size.
 - [ ] `OFL-03 · P0 · Missing` — Add Footprint as a first-class chart style and load it directly from the chart-style menu.
 - [ ] `OFL-04 · P1 · Missing` — Implement zoom-aware footprint detail so cells appear at usable zoom levels and degrade cleanly when zoomed out.
 - [ ] `OFL-05 · P1 · Missing` — Add bid/ask ladder display mode.
