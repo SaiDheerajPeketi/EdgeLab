@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Bot, Braces, ChevronLeft, ChevronRight, Columns3, Eye, List, NotebookPen, PanelLeftClose, PanelRightClose } from "lucide-react";
+import { Bell, Bot, Braces, ChevronLeft, ChevronRight, Columns3, Eye, List, ListTree, NotebookPen, PanelLeftClose, PanelRightClose } from "lucide-react";
 import {
   hydrateJournalPanelPreferences,
   loadJournalPanelPreferences,
@@ -16,6 +16,8 @@ const PANEL_META: Record<JournalPanelId, { label: string; icon: typeof NotebookP
   "data-window": { label: "Data window", icon: Eye },
   objects: { label: "Objects", icon: Columns3 },
   code: { label: "Code", icon: Braces },
+  "order-book": { label: "Order book", icon: ListTree },
+  alerts: { label: "Alerts", icon: Bell },
 };
 
 export type JournalPanelSlots = Partial<Record<JournalPanelId, ReactNode>>;

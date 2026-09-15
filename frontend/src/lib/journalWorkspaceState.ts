@@ -6,7 +6,7 @@ export type JournalAccountScope = {
   accountIds: number[];
 };
 
-export type JournalPanelId = "journal" | "watchlist" | "quant" | "data-window" | "objects" | "code";
+export type JournalPanelId = "journal" | "watchlist" | "quant" | "data-window" | "objects" | "code" | "order-book" | "alerts";
 export type JournalPanelPreferences = {
   activePanel: JournalPanelId;
   collapsed: boolean;
@@ -48,7 +48,7 @@ export function sanitizeJournalScope(value: unknown, validAccountIds?: Iterable<
 
 export function sanitizeJournalPanelPreferences(value: unknown): JournalPanelPreferences {
   const candidate = value && typeof value === "object" ? value as Partial<JournalPanelPreferences> : {};
-  const panels: JournalPanelId[] = ["journal", "watchlist", "quant", "data-window", "objects", "code"];
+  const panels: JournalPanelId[] = ["journal", "watchlist", "quant", "data-window", "objects", "code", "order-book", "alerts"];
   return {
     activePanel: panels.includes(candidate.activePanel as JournalPanelId) ? candidate.activePanel as JournalPanelId : "journal",
     collapsed: candidate.collapsed === true,

@@ -1,0 +1,37 @@
+import { useMemo, useState, type ReactNode } from "react";
+import { CheckCircle2, ExternalLink, LoaderCircle } from "lucide-react";
+import type { CanonicalTrade } from "../../lib/journalApi";
+import { numeric } from "../../lib/journalAnalytics";
+import { AlertsPanel, OrderBookPanel } from "./MarketToolsPanels";
+import { JournalError, JournalScopeControl } from "../journal/JournalControls";
+import { JournalPanelManager, type JournalPanelSlots } from "../journal/JournalPanelManager";
+import { JournalReviewDrawer, type JournalChartFocusRequest } from "../journal/JournalReviewDrawer";
+import { useJournalData } from "../journal/useJournalData";
+
+export function ChartWorkspaceFrame({ children, symbol, onChartFocus, slots = {} }: { children: ReactNode; symbol: string; onChartFocus?: (request: JournalChartFocusRequest) => void; slots?: JournalPanelSlots }) {
+  const journal = useJournalData();
+  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(null);
+  const selectedTrade = journal.trades.find((trade) => trade.id === selectedTradeId) ?? null;
+  const panelSlots: JournalPanelSlots = {
+    journal: <DockedJournalPanel journal={journal} symbol={symbol} onOpenTrade={(trade) => setSelectedTradeId(trade.id)} />,
+    "order-book": <OrderBookPanel symbol={symbol} />,
+    alerts: <AlertsPanel symbol={symbol} />,
+    ...slots,
+  };
+  return <>
+    <JournalPanelManager label="Chart tools" slots={panelSlots}>{children}</JournalPanelManager>
+    <JournalReviewDrawer trade={selectedTrade} tags={journal.tags} returnLabel={`${symbol || "Chart"} workspace`} onClose={() => setSelectedTradeId(null)} onSave={journal.updateReview} onCreateTag={journal.addTag} onShowOnChart={onChartFocus} />
+  </>;
+}
+
+function DockedJournalPanel({ journal, symbol, onOpenTrade }: { journal: ReturnType<typeof useJournalData>; symbol: string; onOpenTrade: (trade: CanonicalTrade) => void }) {
+  const symbolRows = useMemo(() => journal.scopedTrades.filter((trade) => normalize(trade.symbol) === normalize(symbol)).sort((a, b) => Date.parse(b.entry_time) - Date.parse(a.entry_time)), [journal.scopedTrades, symbol]);
+  const queue = useMemo(() => journal.scopedTrades.filter((trade) => !trade.reviewed).sort((a, b) => Date.parse(b.entry_time) - Date.parse(a.entry_time)), [journal.scopedTrades]);
+  return <section aria-labelledby="chart-journal-heading" className="min-h-full"><header className="border-b border-white/10 p-3"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><h2 id="chart-journal-heading" className="truncate text-sm font-semibold text-white">Journal beside chart</h2><p className="mt-0.5 truncate text-[11px] text-slate-500">{symbolRows.length} {symbol || "active-symbol"} trade{symbolRows.length === 1 ? "" : "s"} · {queue.length} pending</p></div><a href="#journal/trades" className="inline-flex min-h-9 items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline"><ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />Full Journal</a></div><div className="mt-3"><JournalScopeControl accounts={journal.accounts} scope={journal.scope} onChange={journal.setScope} /></div></header>
+    {journal.error ? <JournalError message={journal.error} onRetry={() => void journal.refresh()} onDismiss={journal.clearError} /> : null}
+    {journal.loading && !journal.trades.length ? <div className="flex items-center gap-2 px-3 py-8 text-sm text-slate-500" role="status"><LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />Loading Journal trades…</div> : <div><div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600">{symbolRows.length ? `${symbol} history` : "Review queue"}</div><div className="divide-y divide-white/8 border-y border-white/10">{(symbolRows.length ? symbolRows : queue).slice(0, 30).map((trade) => <button key={trade.id} type="button" onClick={() => onOpenTrade(trade)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left outline-none hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300"><span className="min-w-0"><span className="flex items-center gap-2"><strong className="text-sm text-white">{trade.symbol}</strong><span className={`text-[10px] font-semibold ${trade.side === "LONG" ? "text-emerald-300" : "text-rose-300"}`}>{trade.side === "LONG" ? "▲ LONG" : "▼ SHORT"}</span>{trade.reviewed ? <CheckCircle2 aria-label="Reviewed" className="h-3.5 w-3.5 text-emerald-300" /> : null}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{new Date(trade.entry_time).toLocaleString()} · {trade.strategy_name ?? "Unassigned"}</span></span><span className={`self-center text-xs font-semibold tabular-nums ${numeric(trade.net_pnl) >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{signedMoney(numeric(trade.net_pnl), trade.currency)}</span></button>)}{!symbolRows.length && !queue.length ? <p className="px-3 py-8 text-center text-sm leading-6 text-slate-500">No pending reviews or exact-symbol trades. Open the full Journal to add or import one.</p> : null}</div></div>}
+  </section>;
+}
+
+function normalize(value: string) { return value.toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+function signedMoney(value: number, currency: string) { try { const formatted = new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(Math.abs(value)); return `${value >= 0 ? "+" : "−"}${formatted}`; } catch { return `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)} ${currency}`; } }

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { ExecutionTape } from "./components/ExecutionTape";
 import { FilteredTradeReview } from "./components/FilteredTradeReview";
+import { GlobalCommandPalette } from "./components/GlobalCommandPalette";
 import { JournalEntryModal } from "./components/JournalEntryModal";
 import { OrderTicket } from "./components/OrderTicket";
 import { PendingOrders } from "./components/PendingOrders";
@@ -41,6 +42,9 @@ import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { WorkspaceMobileNav } from "./components/WorkspaceMobileNav";
 import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
+import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
+import { usePaneMarketData } from "./components/chart/usePaneMarketData";
+import type { JournalChartFocusRequest } from "./components/journal/JournalReviewDrawer";
 import {
   buildMarketingNavItems,
   MarketingShell,
@@ -149,6 +153,11 @@ import {
 } from "./lib/serverStorage";
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
+import {
+  applyJournalFocusDrawings,
+  journalFocusMatchesSymbol,
+  journalFocusVisibleRange,
+} from "./lib/journalChartFocus";
 import { trackDiagnosticWebSocket } from "./lib/browserDiagnostics";
 import {
   buildWorkspaceSharePayload,
@@ -456,6 +465,7 @@ export function WorkspaceApp() {
   const [resultsPanelSearch, setResultsPanelSearch] = useState("");
   const [resultsPanelFilter, setResultsPanelFilter] = useState<ResultsTradeOutcomeFilter>("ALL");
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
+  const [journalChartFocus, setJournalChartFocus] = useState<JournalChartFocusRequest | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadWorkspaceSidebarCollapsed);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
@@ -536,6 +546,7 @@ export function WorkspaceApp() {
   );
   const [syncedCrosshair, setSyncedCrosshair] = useState<SyncedChartCrosshair | null>(null);
   const [syncedVisibleRange, setSyncedVisibleRange] = useState<SyncedChartVisibleRange | null>(null);
+  const [journalFocusRange, setJournalFocusRange] = useState<SyncedChartVisibleRange | null>(null);
   const [drawingMarker, setDrawingMarker] = useState("★");
   const workspaceRevisionRef = useRef(loadChartLayout()?.revision ?? 0);
   const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
@@ -553,6 +564,12 @@ export function WorkspaceApp() {
   const activeChartPane = chartPanes[activeChartPaneIndex] ?? chartPanes[0] ?? createDefaultChartPane(0);
   const activeChartPaneCount = chartPaneLayoutById(chartPaneLayout).panes;
   const visibleChartPanes = chartPanes.slice(0, activeChartPaneCount);
+  const replayPaneMarketData = usePaneMarketData(
+    visibleChartPanes
+      .filter((pane) => !chartSymbolsEqual(pane.symbol, state?.session.symbol))
+      .map((pane) => ({ id: pane.id, symbol: pane.symbol, timeframe: pane.timeframe })),
+    activeWorkspace === "backtest" && !sessionGateOpen,
+  );
   const isMultiChartLayout = visibleChartPanes.length > 1;
   const chartPaneLayoutDefinition = chartPaneLayoutById(chartPaneLayout);
   const chartSymbolOptions = useMemo(
@@ -1497,6 +1514,63 @@ export function WorkspaceApp() {
       setSessionGateOpen(false);
     }
   }
+
+  function focusJournalTradeOnChart(request: JournalChartFocusRequest) {
+    if (!request.symbol.trim() || !Array.isArray(request.markers)) return;
+    setJournalChartFocus(request);
+    setReplayFocusTrade(null);
+    setPlaying(false);
+    setSessionGateOpen(false);
+    setSelectedDrawingId(null);
+
+    const sessionSymbol = state?.session.symbol ?? "";
+    const sessionMatches = chartSymbolsEqual(request.symbol, sessionSymbol)
+      || journalFocusMatchesSymbol(request.symbol, sessionSymbol);
+    if (!state?.session || !sessionMatches) {
+      setJournalFocusRange(null);
+      setActiveWorkspace("live");
+      return;
+    }
+
+    setActiveWorkspace("backtest");
+    const option = chartSymbolOptions.find((item) => chartSymbolsEqual(item.symbol, sessionSymbol));
+    setChartPanes((currentPanes) => currentPanes.map((pane) => pane.id === activeChartPane.id
+      ? {
+          ...pane,
+          dataSourceId: option?.sourceId ?? pane.dataSourceId,
+          drawings: applyJournalFocusDrawings(pane.drawings, request),
+          symbol: sessionSymbol,
+        }
+      : pane));
+    const range = journalFocusVisibleRange(request, Date.now());
+    setJournalFocusRange(range);
+    if (range && bars.length) {
+      const endIndex = bars.findIndex((bar) => bar.time >= range.to);
+      const targetIndex = endIndex >= 0 ? endIndex : bars.length - 1;
+      void jumpToOffset(Math.max(state.session.start_offset, barOffset + targetIndex));
+    }
+  }
+
+  useEffect(() => {
+    const onChartFocus = (event: Event) => {
+      const request = (event as CustomEvent<JournalChartFocusRequest>).detail;
+      if (!request || typeof request.symbol !== "string" || !Array.isArray(request.markers)) return;
+      focusJournalTradeOnChart(request);
+    };
+    window.addEventListener("edgelab:journal-show-on-chart", onChartFocus);
+    return () => window.removeEventListener("edgelab:journal-show-on-chart", onChartFocus);
+  }, [activeChartPane.id, barOffset, bars, chartSymbolOptions, state?.session]);
+
+  useEffect(() => {
+    const openJournalDeepLink = () => {
+      if (window.location.hash.replace(/^#/, "") !== "journal/trades") return;
+      setActiveWorkspace("journalTrades");
+      setSessionGateOpen(false);
+    };
+    openJournalDeepLink();
+    window.addEventListener("hashchange", openJournalDeepLink);
+    return () => window.removeEventListener("hashchange", openJournalDeepLink);
+  }, []);
 
   function addIndicator(kind: ChartIndicatorKind) {
     setIndicatorInstances((current) => {
@@ -2828,6 +2902,7 @@ export function WorkspaceApp() {
                 notebookReturnToDayView={notebookReturnTarget === "dayView"}
                 notebookReturnToTradeView={notebookReturnTarget === "tradeView"}
                 onReturnToBacktestPanel={returnToBacktestPanel}
+                journalChartFocus={journalChartFocus}
               />
             </Suspense>
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
@@ -2857,7 +2932,10 @@ export function WorkspaceApp() {
               />
             </>
           ) : (
-            <>
+            <ChartWorkspaceFrame
+              onChartFocus={focusJournalTradeOnChart}
+              symbol={activeChartPane.symbol}
+            >
           {error && (
             <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
               <AlertTriangle size={18} />
@@ -3049,7 +3127,8 @@ export function WorkspaceApp() {
                       {visibleChartPanes.map((pane, index) => {
                         const paneActive = pane.id === activeChartPane.id;
                         const paneHasSessionData = chartSymbolsEqual(pane.symbol, state?.session.symbol);
-                        const paneBars = paneHasSessionData ? visibleBars : [];
+                        const normalizedPane = replayPaneMarketData[pane.id];
+                        const paneBars = paneHasSessionData ? visibleBars : normalizedPane?.bars ?? [];
                         const paneDataState = paneHasSessionData
                           ? normalizedVisibleData.continuity.status === "gapped"
                             ? {
@@ -3061,8 +3140,12 @@ export function WorkspaceApp() {
                                 detail: paneBars.length > 0 ? "Session data is continuous." : "This session has not published candles yet.",
                               }
                           : {
-                              status: "unavailable" as const,
-                              detail: `${pane.symbol} has independent pane state, but this backtest exposes only ${state?.session.symbol ?? "the active symbol"} candles. Open a matching data session to populate it.`,
+                              status: normalizedPane?.status === "available"
+                                ? "available" as const
+                                : normalizedPane?.status === "empty"
+                                  ? "empty" as const
+                                  : "unavailable" as const,
+                              detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.`,
                             };
                         const paneTimeframe = coerceTimeframeToSource(
                           pane.timeframe,
@@ -3166,7 +3249,9 @@ export function WorkspaceApp() {
                               paneId={pane.id}
                               dataState={paneDataState}
                               syncedCrosshair={chartSyncSettings.crosshair ? syncedCrosshair : null}
-                              syncedVisibleRange={chartSyncSettings.visibleRange ? syncedVisibleRange : null}
+                              syncedVisibleRange={journalFocusRange
+                                ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length }
+                                : chartSyncSettings.visibleRange ? syncedVisibleRange : null}
                               symbol={pane.symbol}
                               currency={sessionCurrency}
                               datasetTimeframe={state?.session.timeframe}
@@ -3307,10 +3392,16 @@ export function WorkspaceApp() {
               </section>
             )}
           </div>
-            </>
+            </ChartWorkspaceFrame>
           )}
         </main>
       </div>
+
+      <GlobalCommandPalette
+        onNavigate={navigateWorkspace}
+        onSelectSymbol={changeChartSymbol}
+        symbols={activeWorkspace === "backtest" ? chartSymbolOptions.map((option) => option.symbol) : []}
+      />
 
       {indicatorEditorRequest ? (
         <Suspense fallback={<LazyPanelFallback className="fixed inset-4 z-[90] rounded-xl bg-[#071018]" />}>

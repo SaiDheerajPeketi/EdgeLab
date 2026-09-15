@@ -265,6 +265,8 @@ import {
 import type { WorkspaceView } from "../lib/workspace";
 import { useBacktestStore } from "../store/backtestStore";
 import { ChartObjectsPanel } from "./ChartObjectsPanel";
+import { ChartWorkspaceFrame } from "./chart/ChartWorkspaceFrame";
+import { usePaneMarketData } from "./chart/usePaneMarketData";
 import { ChartToolbar } from "./ChartToolbar";
 import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedDatePicker } from "./ThemedDatePicker";
@@ -274,12 +276,15 @@ import { TradingChart } from "./TradingChart";
 import { TradeLog } from "./TradeLog";
 import { SettingsCenter } from "./settings/SettingsCenter";
 import { RelationalJournalWorkspace } from "./journal/RelationalJournalWorkspace";
+import type { JournalChartFocusRequest } from "./journal/JournalReviewDrawer";
+import { applyJournalFocusDrawings, journalFocusMatchesSymbol, journalFocusVisibleRange } from "../lib/journalChartFocus";
 
 type WorkspacePageView = Exclude<WorkspaceView, "backtest" | "sessions">;
 
 type Props = {
   activeSession: BacktestSession | null;
   datasets: DatasetCatalog | null;
+  journalChartFocus?: JournalChartFocusRequest | null;
   onEditTrade: (trade: Trade) => void;
   onInspectTrade: (trade: Trade) => void;
   onOpenTradeNote: (trade: Trade) => void;
@@ -715,6 +720,7 @@ type ScrollSnapshot = {
 export function EdgeLabWorkspace({
   activeSession,
   datasets,
+  journalChartFocus,
   onEditTrade,
   onInspectTrade,
   onOpenTradeNote,
@@ -893,7 +899,7 @@ export function EdgeLabWorkspace({
     case "journalTrades":
       return <RelationalJournalWorkspace view={view} />;
     case "live":
-      return <LiveMarketsPage />;
+      return <LiveMarketsPage journalChartFocus={journalChartFocus} />;
     case "positionSizeCalculator":
       return <PositionSizeCalculatorPage />;
     case "journalAccounts":
@@ -1076,6 +1082,7 @@ type LiveChartPaneState = {
   magnetMode: MagnetMode;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
+  symbol: string;
   timeframe: ChartTimeframe;
 };
 
@@ -1295,7 +1302,7 @@ const DEFAULT_LIVE_WATCHLISTS: LiveWatchlist[] = [
   },
 ];
 
-function LiveMarketsPage() {
+function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalChartFocusRequest | null }) {
   const { confirm, confirmDialog } = useThemedConfirm();
   const { catalog } = useLiveMarketCatalog();
   const [watchlists, setWatchlists] = useLiveWatchlists();
@@ -1317,6 +1324,7 @@ function LiveMarketsPage() {
   const [tickers, setTickers] = useState<Record<string, LiveTicker>>({});
   const [cachedBarsBySymbol, setCachedBarsBySymbol] = useState<Record<string, Candle[]>>({});
   const [liveBars, setLiveBars] = useState<Candle[]>([]);
+  const [activeJournalFocus, setActiveJournalFocus] = useState<JournalChartFocusRequest | null>(journalChartFocus ?? null);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
   const [feedError, setFeedError] = useState<string | null>(null);
   const watchlistNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -1336,6 +1344,39 @@ function LiveMarketsPage() {
   );
   const selectedSourceLabel = liveSourceLabel(selectedFeed);
   const angelOneReady = hasAngelOneCredentials(angelOneCredentials);
+
+  const focusJournalTrade = useCallback((request: JournalChartFocusRequest) => {
+    setActiveJournalFocus(request);
+    const existing = watchlists.flatMap((watchlist) => watchlist.symbols.map((item) => ({ item, watchlistId: watchlist.id }))).find(({ item }) => journalFocusMatchesSymbol(item.symbol, request.symbol) || journalFocusMatchesSymbol(item.label, request.symbol));
+    if (existing) {
+      setSelectedWatchlistId(existing.watchlistId);
+      setSelectedSymbolKey(liveSymbolKey(existing.item));
+      setFeedError(null);
+      return;
+    }
+    const binance = findBinanceInstrument(catalog.binance, request.symbol);
+    const dukascopy = findDukascopyInstrument(catalog.dukascopy, request.symbol);
+    const angelOne = findAngelOneInstrument(catalog.angelone, request.symbol);
+    const nextSymbol = binance ? liveWatchlistSymbol(binance.symbol, { assetClass: binance.assetClass, description: binance.description, feed: "binance", label: binance.label }) : dukascopy ? liveWatchlistSymbol(dukascopy.symbol, { assetClass: dukascopy.assetClass, description: dukascopy.description, feed: "dukascopy", label: dukascopy.label }) : angelOne ? liveWatchlistSymbol(angelOne.symbol, { assetClass: angelOne.assetClass, description: angelOne.description, exchange: angelOne.exchange, exchangeType: angelOne.exchangeType, feed: "angelone", instrumentType: angelOne.instrumentType, label: angelOne.label, token: angelOne.token }) : null;
+    if (!nextSymbol || !selectedWatchlist) {
+      setFeedError(`${request.symbol} is not in an available Live provider catalog. Open or import a matching Replay dataset to focus this Journal trade.`);
+      return;
+    }
+    if (selectedWatchlist.symbols.length >= LIVE_MAX_WATCHLIST_SYMBOLS) {
+      setFeedError(`Add ${request.symbol} to a watchlist with fewer than ${LIVE_MAX_WATCHLIST_SYMBOLS} symbols, then retry Show on chart.`);
+      return;
+    }
+    persistWatchlist({ ...selectedWatchlist, symbols: [...selectedWatchlist.symbols, nextSymbol] });
+    setSelectedSymbolKey(liveSymbolKey(nextSymbol));
+    setFeedError(null);
+  }, [catalog, selectedWatchlist, watchlists]);
+
+  useEffect(() => {
+    if (journalChartFocus) focusJournalTrade(journalChartFocus);
+  // The parent changes this request for each explicit Journal action. Depending on
+  // the watchlist callback would replay the action after the callback mutates it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journalChartFocus]);
 
   useEffect(() => {
     window.localStorage.removeItem(ANGELONE_CREDENTIALS_STORAGE_KEY);
@@ -1824,6 +1865,7 @@ function LiveMarketsPage() {
   }
 
   return (
+    <ChartWorkspaceFrame symbol={selectedLiveSymbol?.symbol ?? selectedSymbol} onChartFocus={focusJournalTrade}>
     <PageScaffold
       eyebrow="Live Markets"
       title="Live Chart Watchlists"
@@ -2288,6 +2330,7 @@ function LiveMarketsPage() {
             <LiveChartStudio
               bars={liveBars}
               connectionStatus={connectionStatus}
+              journalChartFocus={activeJournalFocus}
               selectedSourceLabel={selectedSourceLabel}
               symbol={selectedLiveSymbol?.label ?? selectedSymbol}
               symbolCode={selectedLiveSymbol?.symbol ?? selectedSymbol}
@@ -2311,6 +2354,7 @@ function LiveMarketsPage() {
       </div>
       {confirmDialog}
     </PageScaffold>
+    </ChartWorkspaceFrame>
   );
 }
 
@@ -3917,6 +3961,7 @@ function formatEconomicEventDateTime(value: string) {
 function LiveChartStudio({
   bars,
   connectionStatus,
+  journalChartFocus,
   selectedSourceLabel,
   symbol,
   symbolCode,
@@ -3924,6 +3969,7 @@ function LiveChartStudio({
 }: {
   bars: Candle[];
   connectionStatus: LiveConnectionStatus;
+  journalChartFocus: JournalChartFocusRequest | null;
   selectedSourceLabel: string;
   symbol: string;
   symbolCode: string;
@@ -3963,6 +4009,29 @@ function LiveChartStudio({
       ? null
       : `Saved ${new Date(chartLayoutSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   const changeTone = toneForNumber(ticker?.changePercent ?? 0);
+  const paneMarketData = usePaneMarketData(visibleChartPanes.map((pane) => {
+    const paneSymbol = pane.symbol || symbolCode || symbol;
+    const focused = journalChartFocus && journalFocusMatchesSymbol(paneSymbol, journalChartFocus.symbol);
+    return {
+      id: pane.id,
+      symbol: paneSymbol,
+      timeframe: pane.timeframe,
+      fromAt: focused ? journalChartFocus.startAt : undefined,
+      toAt: focused ? journalChartFocus.endAt : undefined,
+    };
+  }));
+  const journalFocusRange = useMemo(() => journalChartFocus ? journalFocusVisibleRange(journalChartFocus, journalChartFocus.tradeId) : null, [journalChartFocus]);
+
+  useEffect(() => {
+    const nextSymbol = symbolCode || symbol;
+    if (!nextSymbol) return;
+    setChartPanes((current) => current.map((pane) => pane.id === activeChartPane.id ? { ...pane, symbol: nextSymbol } : pane));
+  }, [symbol, symbolCode]);
+
+  useEffect(() => {
+    if (!journalChartFocus) return;
+    setChartPanes((current) => current.map((pane) => pane.id === activeChartPane.id ? { ...pane, symbol: journalChartFocus.symbol, drawings: applyJournalFocusDrawings(pane.drawings, journalChartFocus) } : pane));
+  }, [journalChartFocus]);
 
   useEffect(() => {
     const unsubscribe = subscribeAppStorageItem<unknown>(
@@ -4522,6 +4591,10 @@ function LiveChartStudio({
           <div className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}>
             {visibleChartPanes.map((pane, index) => {
               const paneActive = pane.id === activeChartPane.id;
+              const paneHasHistoricalFocus = Boolean(journalChartFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, journalChartFocus.symbol));
+              const paneUsesPrimaryFeed = !paneHasHistoricalFocus && journalFocusMatchesSymbol(pane.symbol || symbolCode || symbol, symbolCode || symbol);
+              const normalizedPane = paneMarketData[pane.id];
+              const paneBars = paneUsesPrimaryFeed ? bars : normalizedPane?.bars ?? [];
               return (
                 <div
                   className={`chart-pane-shell ${paneActive && isMultiChartLayout ? "chart-pane-shell-active" : ""} ${isMultiChartLayout ? "chart-pane-shell-with-header" : ""}`}
@@ -4537,11 +4610,11 @@ function LiveChartStudio({
                       >
                         Pane {index + 1}
                       </button>
-                      <span>{formatChartTimeframeLabel(pane.timeframe)}</span>
+                      <span>{pane.symbol || symbolCode || symbol} · {formatChartTimeframeLabel(pane.timeframe)}</span>
                     </div>
                   )}
                   <TradingChart
-                    bars={bars}
+                    bars={paneBars}
                     canUndoDrawingChange={paneActive && drawingUndoStack.length > 0}
                     chartSettings={pane.chartSettings}
                     chartStyle={pane.chartStyle}
@@ -4575,9 +4648,11 @@ function LiveChartStudio({
                     position={null}
                     pnlMultiplier={1}
                     replayFocusTrade={null}
+                    dataState={paneUsesPrimaryFeed ? { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "Waiting for live candles." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
                     selectedDrawingId={paneActive ? selectedDrawingId : null}
                     showOrderOverlays={pane.showOrderOverlays}
-                    symbol={symbolCode || symbol}
+                    symbol={pane.symbol || symbolCode || symbol}
+                    syncedVisibleRange={journalFocusRange ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length } : null}
                     currency="USD"
                     datasetTimeframe={LIVE_SOURCE_TIMEFRAME}
                     timeframe={pane.timeframe}
@@ -4705,6 +4780,7 @@ function sanitizeLiveChartPanes(layout: Partial<LiveChartLayout>): LiveChartPane
     magnetMode: layout.magnetMode,
     showOrderOverlays: layout.showOrderOverlays,
     smoothCandles: layout.smoothCandles,
+    symbol: "",
     timeframe: layout.timeframe,
   };
   const rawPanes =
@@ -4747,6 +4823,7 @@ function sanitizeLiveChartPaneState(value: unknown, index = 0): LiveChartPaneSta
     magnetMode: sanitizeLiveMagnetMode(candidate.magnetMode),
     showOrderOverlays: candidate.showOrderOverlays === true,
     smoothCandles: candidate.smoothCandles === true,
+    symbol: typeof candidate.symbol === "string" ? candidate.symbol.trim().slice(0, 96) : fallback.symbol,
     timeframe: sanitizeLiveTimeframe(candidate.timeframe),
   };
 }
@@ -4765,6 +4842,7 @@ function createDefaultLiveChartPane(
     magnetMode: sanitizeLiveMagnetMode(template?.magnetMode),
     showOrderOverlays: template?.showOrderOverlays === true,
     smoothCandles: template?.smoothCandles === true,
+    symbol: typeof template?.symbol === "string" ? template.symbol : "",
     timeframe: sanitizeLiveTimeframe(template?.timeframe ?? LIVE_SOURCE_TIMEFRAME),
   };
 }
