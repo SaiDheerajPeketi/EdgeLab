@@ -434,6 +434,7 @@ export function ChartToolbar({
     return loadActiveChartSettingsPresetName(presets) ?? "Default";
   });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const suppressCommandFocusOpenRef = useRef(false);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
   const indicatorCatalogId = useId();
   const commandMenuId = useId();
@@ -688,6 +689,17 @@ export function ChartToolbar({
     setSettingsOpen(false);
     setCommandOpen(true);
     commandInputRef.current?.focus();
+  }
+
+  function closeCommandSearch() {
+    suppressCommandFocusOpenRef.current = true;
+    setCommandOpen(false);
+    setCommandQuery("");
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        suppressCommandFocusOpenRef.current = false;
+      });
+    });
   }
 
   function focusCommandResult(position: "first" | "last") {
@@ -967,7 +979,11 @@ export function ChartToolbar({
               setCommandOpen(true);
             }}
             onClick={() => setCommandOpen(true)}
-            onFocus={() => setCommandOpen(true)}
+            onFocus={() => {
+              if (!suppressCommandFocusOpenRef.current) {
+                setCommandOpen(true);
+              }
+            }}
             onKeyDown={handleCommandInputKeyDown}
             onPointerDown={() => setCommandOpen(true)}
             placeholder="Search tools, indicators, styles, intervals"
@@ -975,14 +991,11 @@ export function ChartToolbar({
           />
           <Search size={14} className="text-slate-500" />
           {commandOpen && (
-            <OverlaySurface anchorRef={commandRef} surfaceRef={commandSurfaceRef} triggerRef={commandInputRef} open onDismiss={() => { setCommandOpen(false); setCommandQuery(""); }} preferredWidth={520} estimatedHeight={440} id={commandMenuId} onKeyDown={handleCommandSurfaceKeyDown} role="dialog" ariaLabel="Chart command search results" className="chart-command-menu z-[var(--layer-popover)]">
+            <OverlaySurface anchorRef={commandRef} surfaceRef={commandSurfaceRef} triggerRef={commandInputRef} open onDismiss={closeCommandSearch} preferredWidth={520} estimatedHeight={440} id={commandMenuId} onKeyDown={handleCommandSurfaceKeyDown} role="dialog" ariaLabel="Chart command search results" className="chart-command-menu z-[var(--layer-popover)]">
             <CommandMenu
               indicatorInstances={indicatorInstances}
               onChartStyleChange={selectChartStyle}
-              onClose={() => {
-                setCommandOpen(false);
-                setCommandQuery("");
-              }}
+              onClose={closeCommandSearch}
               onDrawingToolChange={onDrawingToolChange}
               onMagnetModeChange={onMagnetModeChange}
               onTimeframeChange={onTimeframeChange}

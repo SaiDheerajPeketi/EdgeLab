@@ -357,7 +357,7 @@ Use two expression levels inside one system:
 - [x] `UIR-68 · P1 · Partial` — Animate panels, drawers, inspectors, dialogs, menus, layout changes, and responsive navigation from their spatial origin with reversible, interruption-safe transitions and stable focus.
 - [x] `UIR-69 · P1 · Partial` — Add purposeful microfeedback for save, copy, import, sync, favorite, reorder, pin, connection, filter, and destructive actions; use optimistic feedback only where rollback and failure are clear.
 - [x] `UIR-70 · P1 · Partial` — Give chart interactions crisp feedback for active pane, linked crosshair, layout selection, favorite drawing, radial-tool selection, capture region, and order placement without animating price in a misleading way.
-- [ ] `UIR-71 · P0 · Partial` — Honor `prefers-reduced-motion` across CSS, GSAP, chart transitions, marquees, loaders, and the circular toolbox; keep all content and controls visible and fully usable when motion is disabled.
+- [x] `UIR-71 · P0 · Partial` — Honor `prefers-reduced-motion` across CSS, GSAP, chart transitions, marquees, loaders, and the circular toolbox; keep all content and controls visible and fully usable when motion is disabled.
 - [ ] `UIR-72 · P0 · Partial` — Keep repeated animation on compositor-safe transforms/opacity, pause offscreen decorative work, cancel stale transitions, avoid layout thrash, and enforce smooth interaction on representative low-power devices.
 
 #### 14.7 Accessibility, responsiveness, performance, and rollout quality
