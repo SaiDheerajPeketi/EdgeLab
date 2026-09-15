@@ -50,6 +50,27 @@ test.describe("settings critical-state visual baselines", () => {
     await expect(conflict.getByRole("button", { name: "Use newer version" })).toBeVisible();
     await expect(conflict.getByRole("button", { name: "Keep this version" })).toBeVisible();
 
+    const geometry = await conflict.evaluate((alert) => {
+      const message = alert.querySelector<HTMLElement>("[data-settings-conflict-message]")!.getBoundingClientRect();
+      const actions = alert.querySelector<HTMLElement>("[data-settings-conflict-actions]")!.getBoundingClientRect();
+      const buttons = [...alert.querySelectorAll<HTMLElement>("button")].map((button) => button.getBoundingClientRect());
+      return {
+        actionsTop: actions.top,
+        alertLeft: alert.getBoundingClientRect().left,
+        alertRight: alert.getBoundingClientRect().right,
+        buttonBottom: Math.max(...buttons.map((button) => button.bottom)),
+        buttonLeft: Math.min(...buttons.map((button) => button.left)),
+        buttonRight: Math.max(...buttons.map((button) => button.right)),
+        messageBottom: message.bottom,
+      };
+    });
+    expect(geometry.buttonLeft).toBeGreaterThanOrEqual(geometry.alertLeft);
+    expect(geometry.buttonRight).toBeLessThanOrEqual(geometry.alertRight);
+    expect(geometry.buttonBottom).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
+    if ((await page.viewportSize())!.width < 640) {
+      expect(geometry.actionsTop).toBeGreaterThanOrEqual(geometry.messageBottom);
+    }
+
     await expectStableScreenshot(page, "settings-conflict", { fullPage: false });
   });
 });
