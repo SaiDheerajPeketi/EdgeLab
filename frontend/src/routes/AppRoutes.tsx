@@ -198,7 +198,7 @@ function WorkspaceBetaNotice() {
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
+    <div className="pointer-events-none relative z-[120] flex justify-center px-3 py-2 lg:fixed lg:inset-x-0 lg:top-4 lg:px-4 lg:py-0">
       <div
         aria-atomic="true"
         aria-live="polite"

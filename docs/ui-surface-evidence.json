@@ -41,6 +41,11 @@
         "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" },
         "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" }
       },
+      "capacity": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-capacity.png" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-capacity.png" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-capacity.png" }
+      },
       "expired": {
         "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" },
         "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" },
@@ -67,6 +72,16 @@
         "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" },
         "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" },
         "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" }
+      },
+      "success": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-success.png" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-success.png" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-success.png" }
+      },
+      "failure": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-failure.png" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-failure.png" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-failure.png" }
       }
     },
     "/shared": {
@@ -113,6 +128,16 @@
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" }
+      },
+      "empty": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-error.png" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-error.png" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-error.png" }
       }
     },
     "/app/live": {

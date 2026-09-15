@@ -82,10 +82,8 @@
     "gaps": {
       "/": "CTA pending/success/error and mobile-menu states do not yet have dedicated stored baselines.",
       "/pricing": "Annual, provider-limited, and expanded FAQ states do not yet have dedicated stored baselines.",
-      "/auth/signin": "The beta-capacity state does not yet have a dedicated stored baseline.",
-      "/auth/callback/google": "Only the exchange transition is captured; success and failure handoffs remain.",
       "/shared": "The generic transport-error state is not yet isolated from access and copy failures.",
-      "/app": "Empty, loading, and error gateway states remain uncaptured.",
+      "/app": "The loading and sample-data gateway states remain without dedicated stored baselines; loading behavior is exercised across all three Playwright projects.",
       "/app/live": "Connecting, stale, offline, unsupported, and dedicated 1920px states remain uncaptured.",
       "/app/replay": "Loading, completion, and save-error states remain uncaptured.",
       "/app/order-flow": "No dedicated order-flow route baseline exists yet.",
