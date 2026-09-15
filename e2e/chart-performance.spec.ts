@@ -28,17 +28,26 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   await client.send("Performance.enable");
   const before = await client.send("Performance.getMetrics");
   await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-  const allFrames = await page.evaluate(async () => {
+  const workload = await page.evaluate(async () => {
+    const grid = document.querySelector<HTMLElement>(".chart-pane-grid");
+    if (!grid) throw new Error("Dense chart grid is unavailable");
     const values: number[] = [];
+    const widths: number[] = [];
     let previous = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
     for (let index = 0; index < 120; index += 1) {
+      grid.style.width = index % 2 === 0 ? "100%" : "calc(100% - 1px)";
       const current = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
       values.push(current - previous);
+      widths.push(grid.getBoundingClientRect().width);
       previous = current;
     }
-    return values;
+    grid.style.removeProperty("width");
+    return { values, widths };
   });
-  const frames = allFrames.slice(20);
+  expect(workload.values).toHaveLength(120);
+  expect(new Set(workload.widths).size).toBeGreaterThanOrEqual(2);
+  await expect(page.locator(".chart-stage")).toHaveCount(16);
+  const frames = workload.values.slice(20);
   const interactions: number[] = [];
   for (let index = 0; index < 5; index += 1) {
     interactions.push(await page.evaluate(async () => {
@@ -59,6 +68,10 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   const result = {
     frameP95Ms: p95(frames), frames,
     interactionP95Ms: p95(interactions), interactions,
+    workload: {
+      resizeIterations: workload.values.length,
+      distinctGridWidths: new Set(workload.widths).size,
+    },
     layoutCountDelta: value(after, "LayoutCount") - value(before, "LayoutCount"),
     recalcStyleCountDelta: value(after, "RecalcStyleCount") - value(before, "RecalcStyleCount"),
     taskDurationDelta: value(after, "TaskDuration") - value(before, "TaskDuration"),

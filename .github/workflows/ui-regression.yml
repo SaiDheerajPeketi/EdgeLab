@@ -49,6 +49,22 @@ jobs:
       - name: Run deterministic UI gate
         run: npm run test:ui
 
+      - name: Publish low-power metrics summary
+        if: always()
+        shell: bash
+        run: |
+          metrics_path="$(find .artifacts/ui-results -name low-power-performance.json -print -quit)"
+          if [[ -n "$metrics_path" ]]; then
+            {
+              echo "## Low-power chart performance"
+              echo '```json'
+              cat "$metrics_path"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '## Low-power chart performance\n\nNo metrics file was produced.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
