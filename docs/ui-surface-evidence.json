@@ -7,6 +7,26 @@
         "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" },
         "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" },
         "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" }
+      },
+      "availability-pending": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png" }
+      },
+      "beta-open": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png" }
+      },
+      "availability-error": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" }
+      },
+      "mobile-menu": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png" }
       }
     },
     "/pricing": {
@@ -14,6 +34,21 @@
         "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" },
         "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" },
         "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" }
+      },
+      "annual": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png" }
+      },
+      "provider-limited": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png" }
+      },
+      "faq-open": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png" }
       }
     },
     "/privacy": {

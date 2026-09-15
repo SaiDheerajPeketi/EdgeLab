@@ -85,15 +85,17 @@ export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean 
 }
 
 function BetaBanner() {
-  const { loading, program } = useBetaProgramStatus();
+  const { error, loading, program } = useBetaProgramStatus();
 
   if (!isBetaMode()) {
     return null;
   }
 
   const seatSummary =
-    loading || program.seats_remaining == null
-      ? "seat sync live"
+    loading
+      ? "checking availability"
+      : error || program.seats_remaining == null
+        ? "availability unavailable"
       : program.seats_remaining > 0
         ? `${program.seats_remaining} open now`
         : "waitlist live";

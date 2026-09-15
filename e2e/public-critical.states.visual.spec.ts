@@ -38,7 +38,7 @@ test.describe("landing critical-state visual baselines", () => {
   test("CTA availability pending baseline", async ({ page }) => {
     await page.route("**/api/auth/beta/status", () => new Promise(() => undefined));
     await gotoStable(page, "/", { waitForNetworkIdle: false });
-    await expect(page.getByText("seat sync live", { exact: true })).toBeVisible();
+    await expect(page.getByText("checking availability", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Join beta" }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectStableScreenshot(page, "landing-cta-pending", { fullPage: false });
@@ -60,14 +60,14 @@ test.describe("landing critical-state visual baselines", () => {
   test("CTA availability error fallback baseline", async ({ page }) => {
     await page.route("**/api/auth/beta/status", (route) => route.abort("failed"));
     await gotoStable(page, "/", { waitForNetworkIdle: false });
-    await expect(page.getByText("seat sync live", { exact: true })).toBeVisible();
+    await expect(page.getByText("availability unavailable", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Join beta" }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectStableScreenshot(page, "landing-cta-error-fallback", { fullPage: false });
   });
 
   test("mobile navigation menu baseline", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "mobile", "The compact navigation menu is mobile-only.");
+    if (testInfo.project.name !== "mobile") await page.setViewportSize({ height: 844, width: 390 });
     await gotoStable(page, "/", { waitForNetworkIdle: false });
     await page.getByRole("button", { name: "Open navigation menu" }).click();
     const menu = page.getByRole("navigation", { name: "Mobile navigation" });
