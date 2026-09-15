@@ -149,6 +149,7 @@ const WORKSPACE_BETA_NOTICE_KEY = "workspace-beta-notice-dismissed.v1";
 
 function WorkspaceBetaNotice() {
   const session = useAuthSession();
+  const location = useLocation();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -183,7 +184,7 @@ function WorkspaceBetaNotice() {
     };
   }, [session?.user.isBetaUser]);
 
-  if (!session?.user.isBetaUser || !visible) {
+  if (!session?.user.isBetaUser || !visible || location.pathname === "/shared") {
     return null;
   }
 
@@ -308,5 +309,25 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [location.pathname]);
 
-  return <div className="ui-route-transition" data-route-group={group} data-ui-version={rollout[group] ? "v2" : "fallback"} ref={boundaryRef}>{children}</div>;
+  const modernUiEnabled = rollout[group];
+
+  return (
+    <div
+      className={`ui-route-transition ${modernUiEnabled ? "" : "ui-route-fallback"}`}
+      data-route-group={group}
+      data-ui-version={modernUiEnabled ? "v2" : "fallback"}
+      ref={boundaryRef}
+    >
+      {!modernUiEnabled ? (
+        <div
+          aria-atomic="true"
+          className="fixed inset-x-0 top-0 z-[140] border-b border-amber-300/20 bg-[#151108f2] px-4 py-2 text-center text-xs font-medium text-amber-100 shadow-lg backdrop-blur"
+          role="status"
+        >
+          Compatibility interface active. Your route and saved workspace remain available while the updated interface is paused.
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
 }

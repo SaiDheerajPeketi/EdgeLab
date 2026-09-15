@@ -64,3 +64,12 @@ test.describe("public and authentication visual baselines", () => {
     await expectStableScreenshot(page, "auth-callback", { fullPage: false });
   });
 });
+
+test("development sign-in restores the requested authenticated route", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Authentication routing is viewport-independent.");
+  await installDeterminism(page, { devAuth: true });
+  await gotoStable(page, "/auth/signin?from=%2Fapp%2Freports");
+  await page.getByRole("button", { name: "Local development sign-in" }).click();
+  await expect(page).toHaveURL(/\/app\/reports$/);
+  await expect(page.locator("#workspace-content")).toBeVisible();
+});

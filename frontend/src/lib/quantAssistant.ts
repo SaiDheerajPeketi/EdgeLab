@@ -53,8 +53,12 @@ export type QuantAnalysis = {
 export type QuantGeneratedIndicator = {
   name: string;
   source: string;
+  modelProvenance?: string;
+  scorePlotName?: string;
   scoreLabel?: string;
   scoreSemantics?: string;
+  probabilityPlotName?: string | null;
+  probabilityCalibrated?: boolean;
   probabilityLabel?: string;
   probabilitySemantics?: string;
 };
@@ -606,9 +610,13 @@ function backendArtifactUpdate(job: unknown, artifact: unknown, id: string): Qua
       content: String(artifact.content.summary ?? "Converted the validated server artifact to canonical EdgeLab DSL."),
       generatedIndicator: {
         name: generatedName(adapted.source),
+        modelProvenance: isRecord(job) ? `${String(job.provider ?? "unknown provider")} · ${String(job.model_id ?? "unknown model")}`.slice(0, 160) : "Unknown provider",
         probabilityLabel: typeof artifact.content.probability_label === "string" ? artifact.content.probability_label.slice(0, 80) : undefined,
+        probabilityCalibrated: artifact.content.probability_calibrated === true,
+        probabilityPlotName: typeof artifact.content.probability_plot === "string" ? artifact.content.probability_plot.slice(0, 80) : null,
         probabilitySemantics: typeof artifact.content.probability_semantics === "string" ? artifact.content.probability_semantics.slice(0, 300) : undefined,
         scoreLabel: typeof artifact.content.score_label === "string" ? artifact.content.score_label.slice(0, 80) : undefined,
+        scorePlotName: typeof artifact.content.score_plot === "string" ? artifact.content.score_plot.slice(0, 80) : undefined,
         scoreSemantics: typeof artifact.content.score_semantics === "string" ? artifact.content.score_semantics.slice(0, 300) : undefined,
         source: adapted.source,
       },
@@ -666,11 +674,16 @@ function sanitizeGeneratedIndicator(value: unknown): QuantGeneratedIndicator | u
   if (typeof value !== "object" || value == null || typeof (value as { source?: unknown }).source !== "string") return undefined;
   const candidate = value as Record<string, unknown> & { source: string };
   const optionalText = (key: string, limit: number) => typeof candidate[key] === "string" ? candidate[key].slice(0, limit) : undefined;
+  const probabilityCalibrated = candidate.probabilityCalibrated === true;
   return {
     name: String(candidate.name ?? "Generated indicator").slice(0, 80),
+    modelProvenance: optionalText("modelProvenance", 160),
     probabilityLabel: optionalText("probabilityLabel", 80),
+    probabilityCalibrated,
+    probabilityPlotName: probabilityCalibrated ? optionalText("probabilityPlotName", 80) ?? null : null,
     probabilitySemantics: optionalText("probabilitySemantics", 300),
     scoreLabel: optionalText("scoreLabel", 80),
+    scorePlotName: optionalText("scorePlotName", 80),
     scoreSemantics: optionalText("scoreSemantics", 300),
     source: candidate.source.slice(0, 20_000),
   };

@@ -52,3 +52,17 @@ export function FloatingWorkspacePanel({ children, dock, label, onSizeChange, si
 }
 
 function clampFloatingSize(size: number, dock: "bottom" | "right") { return Math.min(dock === "right" ? 720 : 760, Math.max(dock === "right" ? 320 : 280, size)); }
+
+export function DockedWorkspacePanel({ children, label, onSizeChange, size }: { children: ReactNode; label: string; onSizeChange: (size: number) => void; size: number }) {
+  const dragRef = useRef<{ clientX: number; size: number } | null>(null);
+  useEffect(() => {
+    const move = (event: PointerEvent) => { const start = dragRef.current; if (start) onSizeChange(clampWidth(start.size + start.clientX - event.clientX)); };
+    const end = () => { dragRef.current = null; };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", end);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
+  }, [onSizeChange]);
+  return <aside aria-label={label} data-workspace-panel-manager="docked" data-dock="right" data-motion="workspace-panel" className="ui-workspace-panel relative min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--ui-border-subtle)] bg-[var(--ui-surface)] shadow-[var(--elevation-raised)]" style={{ width: `min(${clampWidth(size)}px, calc(100vw - 24px))` }}>
+    <div role="separator" aria-label={`Resize ${label}`} aria-orientation="vertical" aria-valuemin={280} aria-valuemax={720} aria-valuenow={clampWidth(size)} tabIndex={0} onPointerDown={(event) => { dragRef.current = { clientX: event.clientX, size: clampWidth(size) }; event.currentTarget.setPointerCapture(event.pointerId); }} onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); onSizeChange(clampWidth(size + (event.key === "ArrowLeft" ? 24 : -24))); }} className="absolute inset-y-0 left-0 z-10 hidden w-2 -translate-x-1/2 cursor-col-resize outline-none hover:bg-[var(--ui-selection)] focus-visible:bg-[var(--ui-selection)] xl:block" />
+    {children}
+  </aside>;
+}

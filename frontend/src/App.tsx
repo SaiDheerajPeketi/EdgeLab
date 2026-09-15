@@ -1746,6 +1746,18 @@ export function WorkspaceApp() {
       preview: "oscillator",
       source: artifact.source,
       synonyms: ["quant", "generated"],
+      quantSemantics: artifact.scorePlotName && artifact.scoreLabel && artifact.scoreSemantics
+        ? {
+            modelProvenance: artifact.modelProvenance ?? "Unknown provider",
+            probabilityLabel: artifact.probabilityLabel ?? "Probability unavailable",
+            probabilityCalibrated: artifact.probabilityCalibrated === true,
+            probabilityPlotName: artifact.probabilityPlotName ?? null,
+            probabilitySemantics: artifact.probabilitySemantics ?? "No calibrated outcome probability is available.",
+            scoreLabel: artifact.scoreLabel,
+            scorePlotName: artifact.scorePlotName,
+            scoreSemantics: artifact.scoreSemantics,
+          }
+        : undefined,
     });
     if (!saved.script) {
       openIndicatorEditor(undefined, artifact.source);

@@ -26,6 +26,36 @@
     { "path": "/app/settings/:category", "surface": "Settings", "auth": true, "disposition": "replace", "states": ["loading", "default", "dirty", "saving", "saved", "validation-error", "conflict", "danger-confirmation"] }
   ],
   "panels": ["Journal", "Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"],
+  "panelDispositions": {
+    "Journal": "replace",
+    "Watchlist": "restructure",
+    "Quant assistant": "restructure",
+    "Data Window": "restyle",
+    "Objects": "restructure",
+    "Indicator editor": "restructure",
+    "Order Book": "retain",
+    "Alerts": "retain",
+    "Order ticket": "restructure",
+    "Replay transport": "restructure"
+  },
   "overlays": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "radial drawing toolbox", "confirmation dialog", "toast"],
+  "overlayDispositions": {
+    "command palette": "replace",
+    "shortcut catalog": "replace",
+    "account menu": "restructure",
+    "mobile navigation": "replace",
+    "trade review drawer": "replace",
+    "add trade flow": "replace",
+    "journal import flow": "replace",
+    "broker connection flow": "restructure",
+    "workspace sharing": "restructure",
+    "chart settings": "restructure",
+    "indicator settings": "restructure",
+    "drawing settings": "restructure",
+    "symbol search": "restructure",
+    "radial drawing toolbox": "replace",
+    "confirmation dialog": "restyle",
+    "toast": "restyle"
+  },
   "requiredStateFamilies": ["empty", "loading", "skeleton", "partial", "offline", "stale", "permission-denied", "unsupported", "error", "retrying", "success"]
 }

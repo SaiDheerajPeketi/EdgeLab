@@ -34,8 +34,11 @@ test("quality manifests inventory routes, critical states, and measurable budget
   const budgets = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/ui-performance-budgets.json"), "utf8"));
   assert.ok(inventory.routes.length >= 18);
   assert.ok(inventory.routes.every((route) => route.disposition && route.states.length));
+  assert.equal(new Set(inventory.routes.map((route) => route.path)).size, inventory.routes.length);
   assert.ok(inventory.panels.includes("Journal"));
+  assert.ok(inventory.panels.every((panel) => inventory.classification.includes(inventory.panelDispositions[panel])));
   assert.ok(inventory.overlays.includes("radial drawing toolbox"));
+  assert.ok(inventory.overlays.every((overlay) => inventory.classification.includes(inventory.overlayDispositions[overlay])));
   assert.equal(budgets.runtime.interactionP95Ms, 200);
   assert.equal(budgets.runtime.sixteenPaneFrameP95Ms, 50);
 });

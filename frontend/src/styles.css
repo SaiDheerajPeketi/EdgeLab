@@ -1660,7 +1660,7 @@ button:disabled {
   }
 
   .chart-studio-layout {
-    @apply grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_280px];
+    @apply grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_auto];
   }
 
   .chart-studio-layout-focus {

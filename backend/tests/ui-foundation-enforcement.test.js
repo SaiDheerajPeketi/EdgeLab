@@ -111,13 +111,17 @@ test("icon-only legacy controls have programmatic names", () => {
 
 test("floating and docked product tools share sizing and collision contracts", () => {
   const manager = read("frontend/src/components/ui/WorkspacePanelManager.tsx");
-  for (const contract of ["FloatingWorkspacePanel", 'role="separator"', "aria-valuemin", "aria-valuemax", "clampFloatingSize", "--layer-docked-tool"]) assert.ok(manager.includes(contract), `panel manager missing ${contract}`);
+  for (const contract of ["FloatingWorkspacePanel", "DockedWorkspacePanel", 'role="separator"', "aria-valuemin", "aria-valuemax", "clampFloatingSize", "--layer-docked-tool"]) assert.ok(manager.includes(contract), `panel manager missing ${contract}`);
   const quant = read("frontend/src/components/QuantPanel.tsx");
   assert.match(quant, /<FloatingWorkspacePanel/);
   assert.doesNotMatch(quant, /<aside|fixed z-\[/);
   const preferences = read("frontend/src/lib/quantAssistant.ts");
   assert.match(preferences, /panelHeight/);
   assert.match(preferences, /panelWidth/);
+  const objects = read("frontend/src/components/ChartObjectsPanel.tsx");
+  assert.match(objects, /<DockedWorkspacePanel/);
+  assert.match(objects, /useRestorableSurfaceState\("chart:objects", "viewport"/);
+  assert.match(objects, /OBJECTS_PANEL_SIZE_SCHEMA/);
 });
 
 test("interactive overlays delegate portal, focus, dismissal, and layer behavior", () => {
@@ -129,6 +133,11 @@ test("interactive overlays delegate portal, focus, dismissal, and layer behavior
   assert.doesNotMatch(chart, /createPortal/);
   const overlay = read("frontend/src/components/overlays/OverlaySurface.tsx");
   for (const contract of ["currentPortalHost", "computeOverlayGeometry", "useOverlayDismiss", "useFocusReturn", "PointOverlaySurface"]) assert.ok(overlay.includes(contract), `overlay system missing ${contract}`);
+  const catalog = read("frontend/src/components/IndicatorCatalogPanel.tsx");
+  assert.match(catalog, /<OverlaySurface/);
+  assert.doesNotMatch(catalog, /document\.addEventListener|absolute right-0 top-full|z-\[210\]/);
+  const toolbar = read("frontend/src/components/ChartToolbar.tsx");
+  assert.match(toolbar, /anchorRef=\{indicatorMenuTriggerRef\}/);
 });
 
 test("provider and account statuses use the product language normalizer", () => {

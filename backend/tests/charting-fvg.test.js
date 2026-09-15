@@ -40,6 +40,11 @@ async function loadChartingModule() {
     "utf8",
   );
   fs.writeFileSync(
+    path.join(sourceDir, "customIndicators.ts"),
+    "export type QuantIndicatorSemantics = { scorePlot: string; probabilityPlot?: string | null; probabilityCalibrated: boolean; };\n",
+    "utf8",
+  );
+  fs.writeFileSync(
     path.join(sourceDir, "lightweight-charts.d.ts"),
     [
       "declare module \"lightweight-charts\" {",
@@ -67,6 +72,7 @@ async function loadChartingModule() {
       path.join(sourceDir, "charting.ts"),
       path.join(sourceDir, "colorTokens.ts"),
       path.join(sourceDir, "api.ts"),
+      path.join(sourceDir, "customIndicators.ts"),
       path.join(sourceDir, "lightweight-charts.d.ts"),
     ],
     {

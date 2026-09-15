@@ -235,7 +235,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [x] `AI-12 · P1 · Missing` — Return reproducible backtest assumptions, metrics, warnings, source version, and rerun controls instead of only prose.
 - [ ] `AI-13 · P0 · Missing` — Send a full-chart screenshot and its structured chart context directly to the assistant.
 - [x] `AI-14 · P1 · Missing` — Add chart-image analysis that can return a reasoned daily bias, relevant levels, invalidation, uncertainty, and risk warning.
-- [ ] `AI-15 · P1 · Missing` — Let the assistant offer to turn analysis into an indicator, write the source, add it to the chart, and update real-time score/probability labels.
+- [x] `AI-15 · P1 · Missing` — Let the assistant offer to turn analysis into an indicator, write the source, add it to the chart, and update real-time score/probability labels.
 - [x] `AI-16 · P1 · Missing` — Add the star/capture tool: drag-select a chart region, enter text or dictate without first opening chat, and send the cropped image plus prompt to Quant.
 - [x] `AI-17 · P0 · Missing` — Isolate generated code and model tools with time/memory limits, permission boundaries, audit records, prompt/data-retention controls, and safe failure recovery.
 - [x] `AI-18 · P0 · Missing` — Add server-side provider routing, encrypted API credentials, per-user quotas, rate limits, cancellation, usage accounting, and cost ceilings.
@@ -296,7 +296,7 @@ Use two expression levels inside one system:
 - [x] `UIR-19 · P1 · Partial` — Create a contextual page/workspace header that consistently exposes location, title, active scope, connection/data status, primary actions, and a return path without duplicating giant page headers.
 - [x] `UIR-20 · P1 · Missing` — Add a global command palette/search that can navigate screens, switch symbols/workspaces/accounts, find trades and notes, open settings, run safe actions, and surface keyboard shortcuts.
 - [x] `UIR-21 · P1 · Partial` — Preserve scroll position, selected row, open panel, filters, chart viewport, and unsaved draft where appropriate when navigating between chart, Journal, reports, review, and settings; support shareable deep links.
-- [ ] `UIR-22 · P0 · Partial` — Unify right panels, inspectors, drawers, split views, and docked tools behind one resizable panel system with predictable close/back behavior, width persistence, minimum sizes, and collision rules.
+- [x] `UIR-22 · P0` — Unify right panels, inspectors, drawers, split views, and docked tools behind one resizable panel system with predictable close/back behavior, width persistence, minimum sizes, and collision rules.
 - [ ] `UIR-23 · P0 · Partial` — Centralize layering, focus trapping, outside-click, Escape, scroll locking, portal placement, and viewport collision handling for menus, select lists, tooltips, color pickers, popovers, dialogs, and radial tools.
 - [x] `UIR-24 · P1 · Partial` — Provide coherent compact, comfortable, full-screen, and multi-pane density behavior so controls remain usable from laptop to ultrawide without wasting space or shrinking hit targets.
 - [x] `UIR-25 · P1 · Partial` — Consolidate profile, plan/entitlement, data-provider status, help, feedback, release information, and sign-out into a polished account/system menu rather than isolated footer controls.

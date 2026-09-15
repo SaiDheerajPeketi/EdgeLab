@@ -182,6 +182,24 @@ SAFE_FIXTURE_SOURCE = json.dumps(
     sort_keys=True,
 )
 
+SAFE_ANALYSIS_INDICATOR_SOURCE = json.dumps(
+    {
+        "dsl_version": 1,
+        "name": "Fixture signal score",
+        "description": "Deterministic close-to-window-low distance score; not a probability.",
+        "inputs": {"length": {"type": "integer", "default": 14, "min": 2, "max": 500}},
+        "series": [
+            {"name": "window_high", "op": "highest", "source": "high", "length": "length"},
+            {"name": "window_low", "op": "lowest", "source": "low", "length": "length"},
+            {"name": "score", "op": "subtract", "left": "close", "right": "window_low"},
+        ],
+        "plots": [{"series": "score", "color": "#22d3ee"}],
+        "signals": [],
+    },
+    separators=(",", ":"),
+    sort_keys=True,
+)
+
 
 class DeterministicFixtureAIAdapter:
     """Offline-only fixture. It does not claim model intelligence or external connectivity."""
@@ -203,12 +221,15 @@ class DeterministicFixtureAIAdapter:
         operation = str(request["operation"])
         if operation in {"GENERATE_INDICATOR", "EDIT_INDICATOR", "ANALYSIS_TO_INDICATOR"}:
             content: Mapping[str, Any] = {
-                "source": SAFE_FIXTURE_SOURCE,
+                "source": SAFE_ANALYSIS_INDICATOR_SOURCE if operation == "ANALYSIS_TO_INDICATOR" else SAFE_FIXTURE_SOURCE,
                 "summary": "Created a deterministic restricted-DSL fixture indicator.",
                 **({
                     "score_label": "Fixture signal score",
+                    "score_plot": "score",
                     "score_semantics": "Deterministic study output; not model confidence.",
                     "probability_label": "Probability unavailable",
+                    "probability_calibrated": False,
+                    "probability_plot": None,
                     "probability_semantics": "No calibrated outcome model was run.",
                 } if operation == "ANALYSIS_TO_INDICATOR" else {}),
             }
@@ -1710,10 +1731,21 @@ def _persist_provider_result(
         report = validate_dsl(source)
         if job.operation == "ANALYSIS_TO_INDICATOR":
             required_semantics = {
-                "score_label", "score_semantics", "probability_label", "probability_semantics"
+                "score_label", "score_plot", "score_semantics", "probability_label",
+                "probability_calibrated", "probability_plot", "probability_semantics"
             }
             if not required_semantics <= set(content):
                 raise AISecurityError("Analysis indicator omitted score/probability semantics")
+            document = json.loads(source)
+            plot_names = {str(plot.get("name") or plot.get("series")) for plot in document["plots"]}
+            if content["score_plot"] not in plot_names:
+                raise AISecurityError("Analysis indicator score label does not match a live plot")
+            if content["probability_plot"] is not None and content["probability_plot"] not in plot_names:
+                raise AISecurityError("Analysis indicator probability label does not match a live plot")
+            if not isinstance(content["probability_calibrated"], bool):
+                raise AISecurityError("Analysis indicator probability calibration must be explicit")
+            if (content["probability_plot"] is not None) != content["probability_calibrated"]:
+                raise AISecurityError("A probability plot is allowed only for explicitly calibrated output")
         context = dict(message.chart_context or {})
         requested_script_id = context.get("script_id")
         base_version_id = context.get("base_version_id")

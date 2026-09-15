@@ -25,6 +25,19 @@ const protectedRoutes = [
   { name: "settings", path: "/app/settings/global", waitForNetworkIdle: false },
 ] as const;
 
+const sharedSnapshot = {
+  created_at: "2026-09-15T10:00:00.000Z",
+  expires_at: "2026-09-22T10:00:00.000Z",
+  payload: {
+    chart: { candles: [], paneLayout: "grid-4", panes: [{ id: "pane-1" }], symbol: "BTCUSDT", timeframe: "5m" },
+    panels: { metrics: { averageR: 1.4, maxDrawdown: -182.5, netPnl: 384.75, profitFactor: 1.82, totalTrades: 14, winRate: 57.1 } },
+    workspace: { layoutName: "Opening range review", paneLayout: "grid-4", timezone: "UTC" },
+  },
+  scope: "WORKSPACE",
+  snapshot_version: 1,
+  title: "Opening range review",
+} as const;
+
 test.describe("authenticated route visual baselines", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
@@ -51,12 +64,38 @@ test.describe("authenticated route visual baselines", () => {
 });
 
 test.describe("critical states and rollout fallback", () => {
+  test.beforeEach(async ({ page }) => {
+    await installDeterminism(page);
+    await seedApprovedSession(page);
+  });
+
+  test("shared workspace ready baseline", async ({ page }) => {
+    await page.route("**/api/workspace-shares/open", (route) => route.fulfill({ body: JSON.stringify(sharedSnapshot), contentType: "application/json", status: 200 }));
+    await gotoStable(page, "/shared#visual-share", { waitForNetworkIdle: false });
+    await expect(page.getByRole("heading", { name: "Opening range review" })).toBeVisible();
+    await expectStableScreenshot(page, "shared-ready", { fullPage: false });
+  });
+
+  test("shared workspace expired baseline", async ({ page }) => {
+    await page.route("**/api/workspace-shares/open", (route) => route.fulfill({ body: JSON.stringify({ detail: "expired" }), contentType: "application/json", status: 410 }));
+    await gotoStable(page, "/shared#expired-share", { waitForNetworkIdle: false });
+    await expect(page.getByRole("heading", { name: "Snapshot unavailable" })).toBeVisible();
+    await expectStableScreenshot(page, "shared-expired", { fullPage: false });
+  });
+
+  test("shared workspace loading baseline", async ({ page }) => {
+    await page.route("**/api/workspace-shares/open", () => new Promise(() => undefined));
+    await gotoStable(page, "/shared#pending-share", { waitForNetworkIdle: false });
+    await expect(page.getByRole("status").filter({ hasText: "Opening secure snapshot" })).toBeVisible();
+    await expectStableScreenshot(page, "shared-loading", { fullPage: false });
+  });
+
   test("server kill switch selects a complete route fallback", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Rollout contract is viewport-independent.");
     await installDeterminism(page, { rollout: "fallback" });
-    await seedApprovedSession(page);
     await gotoStable(page, "/app/settings/global");
     await expect(page.locator('[data-route-group="settings"]')).toHaveAttribute("data-ui-version", "fallback");
+    await expect(page.getByRole("status").filter({ hasText: "Compatibility interface active" })).toBeVisible();
     await expect(page.locator("#workspace-content")).toBeVisible();
     await expectStableScreenshot(page, "settings-rollout-fallback", { fullPage: false });
   });
@@ -64,7 +103,6 @@ test.describe("critical states and rollout fallback", () => {
   test("unavailable rollout service keeps the verified default", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Failure fallback is viewport-independent.");
     await installDeterminism(page, { rollout: "unavailable" });
-    await seedApprovedSession(page);
     await gotoStable(page, "/app/journal/dashboard");
     await expect(page.locator('[data-route-group="journal"]')).toHaveAttribute("data-ui-version", "v2");
     await expect(page.getByRole("main")).toBeVisible();
@@ -161,6 +199,44 @@ test.describe("accessibility and adaptive operation", () => {
     await expect(page.getByText("Settings density changed")).toBeVisible();
     await page.getByRole("button", { name: "Undo" }).click();
     await expect(density).toHaveValue("comfortable");
+  });
+
+  test("command menu navigates into the Journal and preserves a usable filter workflow", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Command navigation is checked once.");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+    await page.keyboard.press("Control+K");
+    const palette = page.getByRole("dialog", { name: "EdgeLab command palette" });
+    await expect(palette).toBeVisible();
+    await palette.getByRole("combobox").fill("Browse journaled trades");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/app\/journal\/trades$/);
+    await expect(page.getByRole("heading", { name: "Live Trade Ledger" })).toBeVisible();
+    await page.getByPlaceholder("Strategy, account, session, tag...").fill("no matching review");
+    await expect(page.getByText("0 entries")).toBeVisible();
+    await page.getByRole("button", { name: "Reset" }).click();
+    await expect(page.getByPlaceholder("Strategy, account, session, tag...")).toHaveValue("");
+  });
+
+  test("settings import rejects an invalid bundle without changing data", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Settings error recovery is checked once.");
+    await gotoStable(page, "/app/settings/global#settings/storage", { waitForNetworkIdle: false });
+    const chooser = page.locator('input[type="file"][accept*="json"]');
+    await chooser.setInputFiles({ buffer: Buffer.from('{"app":"unknown"}'), mimeType: "application/json", name: "invalid-export.json" });
+    await expect(page.getByRole("alert")).toContainText("not a supported EdgeLab export");
+    await expect(page.getByRole("button", { name: "Choose JSON bundle" })).toBeEnabled();
+  });
+
+  test("mobile navigation drawer returns focus and opens Journal", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile", "Mobile project supplies the bottom navigation.");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+    const more = page.getByRole("button", { exact: true, name: "More" });
+    await more.click();
+    await expect(page.getByRole("dialog", { name: "More workspace tools" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(more).toBeFocused();
+    await page.getByRole("button", { name: "Journal" }).click();
+    await expect(page).toHaveURL(/\/app\/journal\/dashboard$/);
+    await expect(page.locator("#workspace-content")).toBeFocused();
   });
 });
 

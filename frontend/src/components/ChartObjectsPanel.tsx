@@ -41,8 +41,11 @@ import {
 import { formatPrice } from "../lib/format";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+import { DockedWorkspacePanel } from "./ui/WorkspacePanelManager";
+import { useRestorableSurfaceState, type RestorableStateSchema } from "../lib/useRestorableSurfaceState";
 
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
+const OBJECTS_PANEL_SIZE_SCHEMA: RestorableStateSchema<number> = { version: 1, validate: (value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 280 && value <= 720 };
 
 type Props = {
   chartStyle: ChartStyle;
@@ -126,9 +129,11 @@ export function ChartObjectsPanel({
   smoothCandles,
 }: Props) {
   const unlockedDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+  const [panelWidth, setPanelWidth] = useRestorableSurfaceState("chart:objects", "viewport", 280, OBJECTS_PANEL_SIZE_SCHEMA);
 
   return (
-    <aside className="chart-side-panel">
+    <DockedWorkspacePanel label="Chart objects" onSizeChange={setPanelWidth} size={panelWidth}>
+    <div className="chart-side-panel border-0 shadow-none">
       <div className="border-b border-white/10 px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
@@ -373,7 +378,8 @@ export function ChartObjectsPanel({
           </div>
         </section>
       </div>
-    </aside>
+    </div>
+    </DockedWorkspacePanel>
   );
 }
 

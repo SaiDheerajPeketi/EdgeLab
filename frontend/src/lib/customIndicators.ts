@@ -53,6 +53,18 @@ export type CustomIndicatorScript = {
   synonyms: string[];
   updatedAt: string;
   versions: CustomIndicatorVersion[];
+  quantSemantics?: QuantIndicatorSemantics;
+};
+
+export type QuantIndicatorSemantics = {
+  modelProvenance: string;
+  probabilityLabel: string;
+  probabilityCalibrated: boolean;
+  probabilityPlotName: string | null;
+  probabilitySemantics: string;
+  scoreLabel: string;
+  scorePlotName: string;
+  scoreSemantics: string;
 };
 
 export type IndicatorAuditRecord = {
@@ -151,7 +163,7 @@ export function persistCustomIndicators(scripts: CustomIndicatorScript[]) {
 
 export function saveCustomIndicator(
   scripts: CustomIndicatorScript[],
-  draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms">,
+  draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms"> & { quantSemantics?: QuantIndicatorSemantics },
 ) {
   const parsed = parseEdgeIndicator(draft.source);
   if (!parsed.program) return { diagnostics: parsed.diagnostics, scripts };
@@ -175,6 +187,7 @@ export function saveCustomIndicator(
       ...(existing?.versions ?? []),
       ...(existing ? [{ createdAt: existing.updatedAt, revision: existing.revision, source: existing.source }] : []),
     ].slice(-MAX_SCRIPT_VERSIONS),
+    quantSemantics: sanitizeQuantSemantics(draft.quantSemantics),
   };
   return {
     diagnostics: parsed.diagnostics,
@@ -211,6 +224,7 @@ export function createCustomIndicatorInstance(
     customScriptName: script.name,
     customScriptSource: script.source,
     customScriptVersion: script.revision,
+    customQuantSemantics: script.quantSemantics,
     id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     kind: "custom",
     runtimeError: parsed.program ? null : "The saved script no longer compiles.",
@@ -247,8 +261,26 @@ export function sanitizeCustomIndicators(value: unknown): CustomIndicatorScript[
       synonyms: Array.isArray(candidate.synonyms) ? candidate.synonyms.filter((term): term is string => typeof term === "string").map((term) => term.slice(0, 32)).slice(0, 12) : [],
       updatedAt: validDate(candidate.updatedAt),
       versions: sanitizeVersions(candidate.versions),
+      quantSemantics: sanitizeQuantSemantics(candidate.quantSemantics),
     }];
   }).slice(0, MAX_CUSTOM_INDICATORS);
+}
+
+function sanitizeQuantSemantics(value: unknown): QuantIndicatorSemantics | undefined {
+  if (typeof value !== "object" || value == null) return undefined;
+  const candidate = value as Partial<QuantIndicatorSemantics>;
+  if (typeof candidate.scorePlotName !== "string" || typeof candidate.scoreLabel !== "string" || typeof candidate.scoreSemantics !== "string") return undefined;
+  const probabilityCalibrated = candidate.probabilityCalibrated === true;
+  return {
+    modelProvenance: String(candidate.modelProvenance ?? "Unknown provider").slice(0, 160),
+    probabilityLabel: String(candidate.probabilityLabel ?? "Probability unavailable").slice(0, 80),
+    probabilityCalibrated,
+    probabilityPlotName: probabilityCalibrated && typeof candidate.probabilityPlotName === "string" ? candidate.probabilityPlotName.slice(0, 80) : null,
+    probabilitySemantics: String(candidate.probabilitySemantics ?? "No calibrated outcome probability is available.").slice(0, 300),
+    scoreLabel: candidate.scoreLabel.slice(0, 80),
+    scorePlotName: candidate.scorePlotName.slice(0, 80),
+    scoreSemantics: candidate.scoreSemantics.slice(0, 300),
+  };
 }
 
 export function appendIndicatorAudit(record: Omit<IndicatorAuditRecord, "id" | "timestamp">) {

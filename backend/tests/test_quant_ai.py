@@ -343,6 +343,9 @@ def test_offline_analysis_and_indicator_semantics_are_explicit(db):
     quant.run_generation_job(db, owner.id, indicator_job.id)
     indicator = quant.list_artifacts(db, owner.id, conversation_id=conversation.id)[0].content
     assert indicator["score_semantics"] == "Deterministic study output; not model confidence."
+    assert indicator["score_plot"] == "score"
+    assert indicator["probability_plot"] is None
+    assert indicator["probability_calibrated"] is False
     assert indicator["probability_label"] == "Probability unavailable"
 
 

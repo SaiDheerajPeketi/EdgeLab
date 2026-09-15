@@ -1529,8 +1529,8 @@ export function ChartToolbar({
             <ChevronDown size={14} />
           </button>
           {indicatorMenuOpen && (
-            <div id={indicatorCatalogId}>
               <IndicatorCatalogPanel
+                anchorRef={indicatorMenuTriggerRef}
                 customScripts={customIndicatorScripts}
                 favorites={indicatorFavorites}
                 indicatorInstances={indicatorInstances}
@@ -1539,8 +1539,8 @@ export function ChartToolbar({
                 onClose={closeIndicatorMenu}
                 onEditCustomIndicator={onEditCustomIndicator}
                 onToggleFavorite={toggleFavoriteIndicator}
+                id={indicatorCatalogId}
               />
-            </div>
           )}
         </div>
 

@@ -192,6 +192,7 @@ export type ChartIndicatorInstance = {
   customScriptName?: string;
   customScriptSource?: string;
   customScriptVersion?: number;
+  customQuantSemantics?: import("./customIndicators").QuantIndicatorSemantics;
   runtimeError?: string | null;
   visible?: boolean;
   createdAt?: string;

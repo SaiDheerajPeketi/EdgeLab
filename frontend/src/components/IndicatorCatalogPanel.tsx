@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
 } from "react";
 import type { ChartIndicatorInstance, ChartIndicatorKind } from "../lib/charting";
 import {
@@ -17,8 +18,11 @@ import {
 } from "../lib/indicatorCatalog";
 import { MAX_INDICATOR_FAVORITES } from "../lib/indicatorFavorites";
 import type { CustomIndicatorScript } from "../lib/customIndicators";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
+  anchorRef: RefObject<HTMLElement>;
+  id?: string;
   favorites: readonly ChartIndicatorKind[];
   indicatorInstances: ChartIndicatorInstance[];
   customScripts?: readonly CustomIndicatorScript[];
@@ -30,6 +34,8 @@ type Props = {
 };
 
 export function IndicatorCatalogPanel({
+  anchorRef,
+  id,
   favorites,
   indicatorInstances,
   customScripts = [],
@@ -115,19 +121,6 @@ export function IndicatorCatalogPanel({
       setActiveCategory("all");
     }
   }, [activeCategory, supportedCategories]);
-
-  useEffect(() => {
-    function closeOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      onClose(true);
-    }
-    document.addEventListener("keydown", closeOnEscape, true);
-    return () => document.removeEventListener("keydown", closeOnEscape, true);
-  }, [onClose]);
 
   function activeCount(kind: ChartIndicatorKind) {
     return indicatorInstances.filter((indicator) => indicator.kind === kind).length;
@@ -237,13 +230,22 @@ export function IndicatorCatalogPanel({
   }
 
   return (
-    <div
-      aria-describedby={helpId}
-      aria-labelledby={titleId}
-      className="indicator-catalog-panel absolute right-0 top-full z-[210] mt-2 flex max-h-[min(680px,calc(100vh-96px))] w-[min(760px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-cyan-300/20 bg-[#070b10] shadow-[0_24px_64px_rgba(0,0,0,0.58)]"
+    <OverlaySurface
+      align="right"
+      anchorRef={anchorRef}
+      ariaDescribedBy={helpId}
+      ariaLabelledBy={titleId}
+      className="indicator-catalog-panel z-[var(--layer-popover)] flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--ui-border-subtle)] bg-[var(--ui-floating)] shadow-[var(--elevation-modal)]"
+      estimatedHeight={680}
+      id={id}
+      minWidth={320}
+      onDismiss={(reason) => onClose(reason === "escape")}
       onKeyDown={(event) => event.stopPropagation()}
-      ref={rootRef}
+      open
+      preferredWidth={760}
       role="dialog"
+      surfaceRef={rootRef}
+      triggerRef={anchorRef}
     >
       <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3">
         <div className="min-w-0">
@@ -489,7 +491,7 @@ export function IndicatorCatalogPanel({
           }
         }
       `}</style>
-    </div>
+    </OverlaySurface>
   );
 }
 

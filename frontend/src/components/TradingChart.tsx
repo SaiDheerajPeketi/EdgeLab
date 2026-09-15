@@ -262,6 +262,7 @@ type CustomRuntimeStudy = {
   id: string;
   label: string;
   overlay: boolean;
+  plotName: string;
   sourceId: string;
 };
 
@@ -2809,18 +2810,30 @@ export function TradingChart({
                     )}
                   </button>
                 ))}
-                {customRuntimeStudies.map((study) => (
-                  <button
+                {customRuntimeStudies.map((study) => {
+                  const semantics = indicatorInstances.find((indicator) => indicator.id === study.sourceId)?.customQuantSemantics;
+                  const isScore = semantics?.scorePlotName === study.plotName;
+                  const isProbability = semantics?.probabilityPlotName === study.plotName;
+                  const label = isScore ? semantics.scoreLabel : isProbability ? semantics.probabilityLabel : study.label;
+                  const detail = isScore ? semantics.scoreSemantics : isProbability ? semantics.probabilitySemantics : study.label;
+                  return <button
                     className={`chart-study-pill ${renderedSelectedIndicatorId === study.sourceId ? "chart-study-pill-active" : ""}`}
                     key={`header-${study.id}`}
                     onClick={(event) => openIndicatorToolbar(study.sourceId, event)}
-                    title={study.error ?? study.label}
+                    title={`${study.error ?? detail}${semantics ? ` · ${semantics.modelProvenance}` : ""}`}
                     type="button"
                   >
                     <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: study.error ? "#fb7185" : study.color }} />
-                    {chartSettings.indicatorTitles && <span>{study.label}</span>}
-                    {chartSettings.indicatorValues && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(4) ?? "—"}</strong>}
-                  </button>
+                    {chartSettings.indicatorTitles && <span>{label}</span>}
+                    {chartSettings.indicatorValues && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(isProbability ? 1 : 4) ?? "—"}{isProbability ? "%" : ""}</strong>}
+                  </button>;
+                })}
+                {indicatorInstances.filter((indicator) => indicator.visible !== false && indicator.customQuantSemantics != null && indicator.customQuantSemantics.probabilityPlotName == null).map((indicator) => (
+                  <span className="chart-study-pill" key={`probability-${indicator.id}`} title={`${indicator.customQuantSemantics!.probabilitySemantics} · ${indicator.customQuantSemantics!.modelProvenance}`}>
+                    <span className="h-2 w-2 rounded-sm bg-slate-500" />
+                    <span>{indicator.customQuantSemantics!.probabilityLabel}</span>
+                    <strong>Not calibrated</strong>
+                  </span>
                 ))}
               </div>
             )}
@@ -9024,6 +9037,7 @@ function customStudiesFromResult(
     id: `${indicator.id}-plot-${index}`,
     label: result.plots.length === 1 ? result.name : `${result.name} · ${plot.name}`,
     overlay: result.overlay,
+    plotName: plot.name,
     sourceId: indicator.id,
   }));
 }
@@ -9039,6 +9053,7 @@ function emptyCustomRuntimeStudy(
     id: `${indicator.id}-runtime-error`,
     label: indicator.customScriptName ?? "EdgeLab Script",
     overlay: indicator.customOverlay ?? false,
+    plotName: "Runtime error",
     sourceId: indicator.id,
   };
 }
