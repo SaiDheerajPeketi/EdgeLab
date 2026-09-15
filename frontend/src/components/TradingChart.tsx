@@ -1563,6 +1563,7 @@ export function TradingChart({
     if (!chart || !series || barsRef.current.length === 0) return;
     crosshairSyncRevisionRef.current = syncedCrosshair.revision;
     syncApplyingRef.current = true;
+    setTooltip(resolveTooltipAtTime(syncedCrosshair.time, barsRef.current));
     if (syncedCrosshair.time == null || syncedCrosshair.price == null) {
       chart.clearCrosshairPosition();
     } else {
@@ -9445,10 +9446,17 @@ function resolveTooltip(
   param: MouseEventParams<Time>,
   bars: Candle[],
 ): TooltipData | null {
-  if (param.time == null) {
+  return resolveTooltipAtTime(param.time, bars);
+}
+
+function resolveTooltipAtTime(
+  value: Time | number | null | undefined,
+  bars: Candle[],
+): TooltipData | null {
+  if (value == null) {
     return null;
   }
-  const time = Number(param.time);
+  const time = Number(value);
   const candle = bars.find((bar) => bar.time === time);
   if (!candle) {
     return null;

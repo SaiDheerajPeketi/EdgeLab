@@ -177,6 +177,11 @@ import {
   type ChartVisualSettings,
 } from "../lib/chartSettings";
 import {
+  sanitizeChartSyncSettings,
+  type ChartSyncSettings,
+  type SyncedChartCrosshair,
+} from "../lib/chartWorkspace";
+import {
   MIXED_CURRENCY,
   currencyForSession,
   currencyForSessions,
@@ -1101,6 +1106,7 @@ type LiveChartLayout = {
   panes?: LiveChartPaneState[];
   showOrderOverlays?: boolean;
   smoothCandles?: boolean;
+  syncSettings?: ChartSyncSettings;
   timeframe?: ChartTimeframe;
 };
 
@@ -1163,6 +1169,7 @@ const ANGELONE_CREDENTIALS_STORAGE_KEY = "live-angelone-smartapi.v1";
 const LIVE_CHART_LAYOUT_STORAGE_KEY = "live-chart-layout.v1";
 const LIVE_CHART_LAYOUTS_STORAGE_KEY = "live-chart-layouts.v1";
 const ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY = "active-live-chart-layout.v1";
+const LIVE_CHART_SYNC_SETTING_KEYS = ["crosshair"] as const;
 const BINANCE_REST_BASE = "https://data-api.binance.vision";
 const BINANCE_WS_BASE = "wss://data-stream.binance.vision";
 const LIVE_MAX_WATCHLIST_SYMBOLS = 40;
@@ -4031,6 +4038,10 @@ const LiveChartStudio = memo(function LiveChartStudio({
   const [chartPanes, setChartPanes] = useState<LiveChartPaneState[]>(() =>
     sanitizeLiveChartPanes(loadLiveChartLayout() ?? {}),
   );
+  const [chartSyncSettings, setChartSyncSettings] = useState<ChartSyncSettings>(() =>
+    sanitizeChartSyncSettings(loadLiveChartLayout()?.syncSettings),
+  );
+  const [syncedCrosshair, setSyncedCrosshair] = useState<SyncedChartCrosshair | null>(null);
   const [activeChartPaneId, setActiveChartPaneId] = useState(() => chartPanes[0]?.id ?? "live-chart-pane-1");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
@@ -4125,6 +4136,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
         const layout = sanitizeLiveChartLayout(value);
         setChartPaneLayout(sanitizeChartPaneLayout(layout.paneLayout));
         setChartPanes(sanitizeLiveChartPanes(layout));
+        setChartSyncSettings(sanitizeChartSyncSettings(layout.syncSettings));
         setActiveChartPaneId(layout.activePaneId ?? "live-chart-pane-1");
       },
     );
@@ -4136,7 +4148,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       void saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, buildLiveChartLayoutPayload());
     }, 0);
     return () => window.clearTimeout(persistTimer);
-  }, [activeChartPaneId, chartPaneLayout, chartPanes]);
+  }, [activeChartPaneId, chartPaneLayout, chartPanes, chartSyncSettings]);
 
   useEffect(() => {
     if (visibleChartPanes.some((pane) => pane.id === activeChartPaneId)) {
@@ -4562,6 +4574,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       panes,
       showOrderOverlays: activePane?.showOrderOverlays ?? false,
       smoothCandles: activePane?.smoothCandles ?? false,
+      syncSettings: sanitizeChartSyncSettings(chartSyncSettings),
       timeframe: sanitizeLiveTimeframe(activePane?.timeframe),
     };
   }
@@ -4592,6 +4605,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
     const nextActivePane = nextPanes.find((pane) => pane.id === layout.activePaneId) ?? nextPanes[0];
     setChartPaneLayout(nextLayout);
     setChartPanes(nextPanes);
+    setChartSyncSettings(sanitizeChartSyncSettings(layout.syncSettings));
     setActiveChartPaneId(nextActivePane?.id ?? "live-chart-pane-1");
     setSelectedDrawingId(null);
     setDrawingUndoStack([]);
@@ -4667,6 +4681,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
           onPaneLayoutChange={changeChartPaneLayout}
           onReplayTimeframeChange={changeReplayTimeframe}
           onSaveLayout={saveChartLayout}
+          onSyncSettingsChange={setChartSyncSettings}
           onTimeframeChange={changeTimeframe}
           onRemoveIndicator={removeIndicator}
           onSettingsClose={() => setChartSettingsPanelOpen(false)}
@@ -4681,6 +4696,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
           settingsOpenSignal={chartSettingsOpenSignal}
           smoothCandles={activeChartPane.smoothCandles}
           sourceTimeframe={LIVE_SOURCE_TIMEFRAME}
+          syncSettingKeys={LIVE_CHART_SYNC_SETTING_KEYS}
+          syncSettings={chartSyncSettings}
           timeframe={activeChartPane.timeframe}
           toolsOpen={chartToolsOpen}
         />
@@ -4740,6 +4757,8 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     onDeleteDrawing={(drawingId) => deleteDrawingForPane(pane.id, drawingId)}
                     onDrawingToolChange={(tool) => changeDrawingToolForPane(pane.id, tool)}
                     onMagnetModeChange={(magnetMode) => changeMagnetModeForPane(pane.id, magnetMode)}
+                    onCrosshairSync={chartSyncSettings.crosshair ? (value) =>
+                      setSyncedCrosshair((current) => ({ ...value, revision: (current?.revision ?? 0) + 1 })) : undefined}
                     onRemoveIndicator={(instanceId) => removeIndicatorForPane(pane.id, instanceId)}
                     onSelectDrawing={(drawingId) => {
                       selectChartPane(pane.id);
@@ -4753,6 +4772,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     }
                     onUpdatePosition={() => undefined}
                     orders={[]}
+                    paneId={pane.id}
                     position={null}
                     pnlMultiplier={1}
                     replayFocusTrade={null}
@@ -4761,6 +4781,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}
                     symbol={pane.symbol || symbolCode || symbol}
+                    syncedCrosshair={chartSyncSettings.crosshair ? syncedCrosshair : null}
                     syncedVisibleRange={journalFocusRange ? { ...journalFocusRange, revision: journalFocusRange.revision + paneBars.length } : null}
                     currency="USD"
                     datasetTimeframe={LIVE_SOURCE_TIMEFRAME}
@@ -4872,6 +4893,7 @@ function sanitizeLiveChartLayout(value: unknown): LiveChartLayout {
     panes,
     showOrderOverlays: layout.showOrderOverlays === true,
     smoothCandles: layout.smoothCandles === true,
+    syncSettings: sanitizeChartSyncSettings(layout.syncSettings),
     timeframe: sanitizeLiveTimeframe(layout.timeframe),
   };
 }

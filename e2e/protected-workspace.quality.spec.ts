@@ -423,6 +423,58 @@ test("16-pane workspace remains populated and interactive", async ({ page }, tes
   expect(layoutPersisted).toBe(true);
 });
 
+test("live 16-pane crosshair shares candle context and honors its toggle", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Dense crosshair synchronization is checked once.");
+  await installDeterminism(page);
+  await seedApprovedSession(page);
+  await seedChartLayout(page, "single");
+  await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+  await page.getByRole("button", { exact: true, name: "Tools" }).click();
+  await page.getByRole("radio", { name: "4 × 4 grid · 16 charts" }).click();
+  const syncControls = page.getByLabel("Chart synchronization controls");
+  const crosshairToggle = syncControls.getByRole("button", { name: "Crosshair" });
+  await expect(crosshairToggle).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { exact: true, name: "Tools" }).click();
+  await expect(page.locator('[data-chart-engines-ready="true"]')).toHaveCount(1);
+
+  const panes = page.locator(".chart-pane-shell");
+  const candleTimes = page.locator(".chart-pane-shell .chart-ohlcv-time");
+  await expect(panes).toHaveCount(16);
+  await expect(candleTimes).toHaveCount(16);
+  await expect(candleTimes.filter({ hasText: "No candle" })).toHaveCount(0);
+
+  const sourceSurface = panes.first().locator(".tv-lightweight-charts").first();
+  const sourceBounds = await sourceSurface.boundingBox();
+  if (!sourceBounds) throw new Error("Live chart interaction surface is unavailable");
+  const initialTimes = await candleTimes.allTextContents();
+  await page.mouse.move(
+    sourceBounds.x + sourceBounds.width * 0.2,
+    sourceBounds.y + sourceBounds.height * 0.45,
+  );
+  await expect.poll(async () => {
+    const currentTimes = await candleTimes.allTextContents();
+    return currentTimes.filter((value, index) => value !== initialTimes[index]).length;
+  }).toBe(16);
+
+  await page.getByRole("button", { exact: true, name: "Tools" }).click();
+  await crosshairToggle.click();
+  await expect(crosshairToggle).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { exact: true, name: "Tools" }).click();
+
+  const resizedSourceBounds = await sourceSurface.boundingBox();
+  if (!resizedSourceBounds) throw new Error("Live chart interaction surface is unavailable");
+  const unlinkedTimes = (await candleTimes.allTextContents()).map((value) => new Set([value]));
+  for (const fraction of [0.2, 0.5, 0.8]) {
+    await page.mouse.move(
+      resizedSourceBounds.x + resizedSourceBounds.width * fraction,
+      resizedSourceBounds.y + resizedSourceBounds.height * 0.45,
+    );
+    await page.waitForTimeout(100);
+    (await candleTimes.allTextContents()).forEach((value, index) => unlinkedTimes[index].add(value));
+  }
+  expect(unlinkedTimes.filter((values) => values.size > 1)).toHaveLength(1);
+});
+
 test("runtime interaction and layout stability stay inside release budgets", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "Runtime budgets use one stable desktop profile.");
   await installDeterminism(page);

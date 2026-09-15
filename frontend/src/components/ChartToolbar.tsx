@@ -138,6 +138,22 @@ import { ThemedSelect } from "./ThemedSelect";
 import type { CustomIndicatorScript } from "../lib/customIndicators";
 import { OverlaySurface } from "./overlays/OverlaySurface";
 
+type ChartSyncToggleKey = Exclude<keyof ChartSyncSettings, "drawingMappingPolicy">;
+
+const CHART_SYNC_TOGGLES: ReadonlyArray<{
+  key: ChartSyncToggleKey;
+  label: string;
+}> = [
+  { key: "symbol", label: "Symbol" },
+  { key: "interval", label: "Interval" },
+  { key: "crosshair", label: "Crosshair" },
+  { key: "visibleRange", label: "Range" },
+  { key: "style", label: "Style" },
+  { key: "drawings", label: "Drawings" },
+];
+
+const DEFAULT_CHART_SYNC_TOGGLE_KEYS = CHART_SYNC_TOGGLES.map(({ key }) => key);
+
 type Props = {
   activePaneLabel: string;
   captureMessage?: string;
@@ -208,6 +224,7 @@ type Props = {
   sourceTimeframe: ChartTimeframe | null;
   symbol?: string;
   symbolOptions?: ChartSymbolOption[];
+  syncSettingKeys?: readonly ChartSyncToggleKey[];
   syncSettings?: ChartSyncSettings;
   drawingMarker?: string;
   timeframe: ChartTimeframe;
@@ -402,6 +419,7 @@ export function ChartToolbar({
   sourceTimeframe,
   symbol = "MARKET",
   symbolOptions = [],
+  syncSettingKeys = DEFAULT_CHART_SYNC_TOGGLE_KEYS,
   syncSettings = DEFAULT_CHART_SYNC_SETTINGS,
   drawingMarker = "★",
   timeframe,
@@ -1241,17 +1259,10 @@ export function ChartToolbar({
         )}
       </div>
 
-      {onSyncSettingsChange ? (
+      {onSyncSettingsChange && syncSettingKeys.length > 0 ? (
         <div className="layout-manager-strip" aria-label="Chart synchronization controls">
           <span className="study-manager-label">Sync panes</span>
-          {([
-            ["symbol", "Symbol"],
-            ["interval", "Interval"],
-            ["crosshair", "Crosshair"],
-            ["visibleRange", "Range"],
-            ["style", "Style"],
-            ["drawings", "Drawings"],
-          ] as const).map(([key, label]) => (
+          {CHART_SYNC_TOGGLES.filter(({ key }) => syncSettingKeys.includes(key)).map(({ key, label }) => (
             <button
               aria-pressed={syncSettings[key]}
               className={`studio-tool-button ${syncSettings[key] ? "studio-tool-button-active" : ""}`}
@@ -1262,20 +1273,22 @@ export function ChartToolbar({
               {label}
             </button>
           ))}
-          <ThemedSelect
-            ariaLabel="Drawing synchronization mapping policy"
-            className="h-8 min-w-52"
-            disabled={!syncSettings.drawings}
-            onChange={(value) => onSyncSettingsChange({
-              ...syncSettings,
-              drawingMappingPolicy: value as DrawingMappingPolicy,
-            })}
-            options={[
-              { label: "Same symbol + interval", value: "same-symbol-timeframe" },
-              { label: "Map timestamp + price", value: "time-price" },
-            ]}
-            value={syncSettings.drawingMappingPolicy}
-          />
+          {syncSettingKeys.includes("drawings") ? (
+            <ThemedSelect
+              ariaLabel="Drawing synchronization mapping policy"
+              className="h-8 min-w-52"
+              disabled={!syncSettings.drawings}
+              onChange={(value) => onSyncSettingsChange({
+                ...syncSettings,
+                drawingMappingPolicy: value as DrawingMappingPolicy,
+              })}
+              options={[
+                { label: "Same symbol + interval", value: "same-symbol-timeframe" },
+                { label: "Map timestamp + price", value: "time-price" },
+              ]}
+              value={syncSettings.drawingMappingPolicy}
+            />
+          ) : null}
         </div>
       ) : null}
 
