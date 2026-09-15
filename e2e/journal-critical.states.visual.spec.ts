@@ -38,19 +38,47 @@ test.describe("Journal critical-state visual baselines", () => {
     await expectStableScreenshot(page, "journal-empty-onboarding", { fullPage: false });
   });
 
-  test("filtered empty trade log baseline", async ({ page }) => {
+  test("filtered empty trade log baseline", async ({ page }, testInfo) => {
     await gotoStable(page, "/app/journal/trades", { waitForNetworkIdle: false });
     await page.getByLabel("Search symbol, strategy, tag, or note").fill("NO-SUCH-TRADE-2026");
-    await expect(page.getByText("No matching trades", { exact: true })).toBeVisible();
+    const emptyState = page.getByText("No matching trades", { exact: true });
+    await expect(emptyState).toBeVisible();
     await expect(page.getByText("Showing 0 of 0 filtered trades", { exact: false })).toBeVisible();
+    if (testInfo.project.name === "mobile") {
+      await emptyState.scrollIntoViewIfNeeded();
+      await expect(emptyState).toBeInViewport();
+    }
     await expectStableScreenshot(page, "journal-filtered-empty", { fullPage: false });
   });
 
   test("trade review drawer baseline", async ({ page }) => {
     await gotoStable(page, "/app/journal/trades", { waitForNetworkIdle: false });
     await page.getByRole("table", { name: "Journal trades" }).getByRole("button", { name: "BTCUSDT", exact: true }).first().click({ force: true });
-    await expect(page.locator("[data-journal-review-drawer]")).toBeVisible();
+    const drawer = page.locator("[data-journal-review-drawer]");
+    await expect(drawer).toBeVisible();
     await expect(page.getByRole("heading", { name: "Review BTCUSDT" })).toBeVisible();
+    const geometry = await drawer.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const controls = [...element.querySelectorAll<HTMLElement>("button, input, select, textarea")]
+        .map((control) => control.getBoundingClientRect())
+        .filter((control) => control.width > 0 && control.height > 0);
+      return {
+        controlLeft: Math.min(...controls.map((control) => control.left)),
+        controlRight: Math.max(...controls.map((control) => control.right)),
+        drawerLeft: box.left,
+        drawerRight: box.right,
+        drawerScrollWidth: element.scrollWidth,
+        drawerWidth: element.clientWidth,
+        pageScrollWidth: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+      };
+    });
+    expect(geometry.drawerLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.drawerRight).toBeLessThanOrEqual(geometry.viewport + 1);
+    expect(geometry.drawerScrollWidth).toBeLessThanOrEqual(geometry.drawerWidth + 1);
+    expect(geometry.pageScrollWidth).toBeLessThanOrEqual(geometry.viewport + 1);
+    expect(geometry.controlLeft).toBeGreaterThanOrEqual(geometry.drawerLeft - 1);
+    expect(geometry.controlRight).toBeLessThanOrEqual(geometry.drawerRight + 1);
     await expectStableScreenshot(page, "journal-review-drawer", { fullPage: false });
   });
 });
