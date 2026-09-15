@@ -35,6 +35,85 @@ function fulfillJson(route: Route, value: unknown, status = 200) {
   });
 }
 
+type ViewportBox = {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+};
+
+function boxesIntersect(first: ViewportBox, second: ViewportBox) {
+  return first.x < second.x + second.width
+    && first.x + first.width > second.x
+    && first.y < second.y + second.height
+    && first.y + first.height > second.y;
+}
+
+function expectBoxInsideViewport(
+  box: ViewportBox,
+  viewport: { height: number; width: number },
+  label: string,
+) {
+  expect(box.x, `${label} left edge`).toBeGreaterThanOrEqual(-1);
+  expect(box.y, `${label} top edge`).toBeGreaterThanOrEqual(-1);
+  expect(box.x + box.width, `${label} right edge`).toBeLessThanOrEqual(viewport.width + 1);
+  expect(box.y + box.height, `${label} bottom edge`).toBeLessThanOrEqual(viewport.height + 1);
+}
+
+async function expectGatewayErrorGeometry(page: Page) {
+  const viewport = page.viewportSize();
+  if (!viewport || viewport.width >= 1024) return;
+
+  const surface = page.locator('section[aria-labelledby="session-gateway-unavailable-title"]');
+  const mobileNav = page.getByRole("navigation", { name: "Primary workspace" });
+  const commands = mobileNav.getByRole("button", { name: "Open command palette" });
+  const controls = page.locator(
+    "#workspace-content :is(button, a[href], input, select, textarea, [role='button']):visible",
+  );
+
+  await expect(surface).toBeVisible();
+  await expect(mobileNav).toBeVisible();
+  await expect(commands).toBeVisible();
+
+  const [surfaceBox, navBox, commandBox, controlBoxes, overflow] = await Promise.all([
+    surface.boundingBox(),
+    mobileNav.boundingBox(),
+    commands.boundingBox(),
+    controls.evaluateAll((elements) => elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        height: rect.height,
+        width: rect.width,
+        x: rect.x,
+        y: rect.y,
+      };
+    })),
+    page.evaluate(() => ({
+      body: document.body.scrollWidth - window.innerWidth,
+      document: document.documentElement.scrollWidth - window.innerWidth,
+    })),
+  ]);
+
+  expect(surfaceBox).not.toBeNull();
+  expect(navBox).not.toBeNull();
+  expect(commandBox).not.toBeNull();
+  expect(controlBoxes.length).toBeGreaterThan(0);
+  expect(overflow.body).toBeLessThanOrEqual(1);
+  expect(overflow.document).toBeLessThanOrEqual(1);
+
+  expectBoxInsideViewport(surfaceBox!, viewport, "gateway error surface");
+  expectBoxInsideViewport(navBox!, viewport, "mobile navigation");
+  expectBoxInsideViewport(commandBox!, viewport, "Commands control");
+  expect(boxesIntersect(surfaceBox!, navBox!)).toBe(false);
+  expect(boxesIntersect(surfaceBox!, commandBox!)).toBe(false);
+
+  for (const [index, controlBox] of controlBoxes.entries()) {
+    expectBoxInsideViewport(controlBox, viewport, `workspace control ${index + 1}`);
+    expect(boxesIntersect(controlBox, navBox!)).toBe(false);
+    expect(boxesIntersect(controlBox, commandBox!)).toBe(false);
+  }
+}
+
 async function holdCallbackHandoffFrame(page: Page) {
   await page.route("**/api/auth/google/exchange", async (route) => {
     await page.evaluate(() => {
@@ -168,7 +247,12 @@ test.describe("session gateway critical states", () => {
     await expect(page.getByRole("button", { name: "Create your first session" })).toHaveCount(0);
     const retry = page.getByRole("button", { name: "Retry saved sessions" });
     await expect(retry).toBeEnabled();
-    await expectStableScreenshot(page, "gateway-error", { fullPage: false });
+    await expectGatewayErrorGeometry(page);
+    await expect(page).toHaveScreenshot("gateway-error.png", {
+      fullPage: false,
+      maxDiffPixelRatio: 0.001,
+      threshold: 0.1,
+    });
 
     recoveryAvailable = true;
     await retry.click();
