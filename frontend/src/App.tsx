@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -181,6 +181,7 @@ import {
   type WorkspaceShareScope,
 } from "./lib/workspaceShare";
 import type { WorkspaceView } from "./lib/workspace";
+import { workspaceViewFromPath } from "./lib/workspaceRoute";
 import { rememberWindowScroll, restoreWindowScroll } from "./lib/navigationState";
 import {
   loadWorkspaceSidebarCollapsed,
@@ -385,6 +386,7 @@ export default function App() {
 }
 
 export function WorkspaceApp() {
+  const location = useLocation();
   const {
     bars,
     barOffset,
@@ -478,7 +480,9 @@ export function WorkspaceApp() {
   const [resultsPanelFilter, setResultsPanelFilter] = useState<ResultsTradeOutcomeFilter>("ALL");
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [journalChartFocus, setJournalChartFocus] = useState<JournalChartFocusRequest | null>(null);
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>(() =>
+    workspaceViewFromPath(window.location.pathname),
+  );
   const [commandJournalData, setCommandJournalData] = useState<{
     accounts: JournalAccount[];
     notes: JournalDailyNote[];
@@ -795,6 +799,11 @@ export function WorkspaceApp() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    setActiveWorkspace(workspaceViewFromPath(location.pathname));
+    if (location.pathname === "/app/replay") setSessionGateOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     let active = true;
