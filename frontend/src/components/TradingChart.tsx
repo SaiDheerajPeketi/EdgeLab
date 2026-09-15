@@ -1141,17 +1141,38 @@ export function TradingChart({
   const orderLineDragActive = orderLineDrag != null;
 
   const removableDrawingsCount = drawings.filter((drawing) => !drawing.locked).length;
+  const shouldWatchPriceScale =
+    drawings.length > 0 ||
+    draftDrawing != null ||
+    dragState != null ||
+    fvgZoneDefinitions.length > 0 ||
+    isDrawingPlacementMode ||
+    chartStyle === "footprint" ||
+    chartStyle === "tpo" ||
+    (showOrderOverlays && (activePosition != null || orders.length > 0));
 
   useEffect(() => {
     barsRef.current = displayBars;
   }, [displayBars]);
 
   useEffect(() => {
+    if (!shouldWatchPriceScale) {
+      priceScaleFingerprintRef.current = null;
+      return;
+    }
+
     let frameId: number | null = null;
+    let timerId: number | null = null;
 
     const watchPriceScale = () => {
       syncDrawingLayerToPriceScale();
-      frameId = window.requestAnimationFrame(watchPriceScale);
+      if (dragState != null || draftDrawing != null) {
+        frameId = window.requestAnimationFrame(watchPriceScale);
+      } else {
+        timerId = window.setTimeout(() => {
+          frameId = window.requestAnimationFrame(watchPriceScale);
+        }, 100);
+      }
     };
 
     frameId = window.requestAnimationFrame(watchPriceScale);
@@ -1159,8 +1180,11 @@ export function TradingChart({
       if (frameId != null) {
         window.cancelAnimationFrame(frameId);
       }
+      if (timerId != null) {
+        window.clearTimeout(timerId);
+      }
     };
-  }, []);
+  }, [draftDrawing, dragState, shouldWatchPriceScale]);
 
   useEffect(() => {
     if (magnetMode === "off" || !effectiveCrosshairVisible || !isDrawingPlacementMode) {

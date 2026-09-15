@@ -1,17 +1,24 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "gzipBytes": {
+    "publicInitial": 184320,
+    "authenticatedInitial": 266240,
+    "routeChunk": 184320
+  },
   "rawBytes": {
     "initialEntry": 600000,
     "routeChunk": 750000,
     "chartChunk": 1050000,
     "stylesheet": 300000,
     "font": 180000,
-    "image": 500000
+    "image": 500000,
+    "productDemoMediaTotal": 1000000
   },
   "runtime": {
     "interactionP95Ms": 200,
     "layoutShift": 0.1,
     "sixteenPaneFrameP95Ms": 50,
-    "longListRows": 1000
+    "longListRows": 200,
+    "longListInitialRows": 100
   }
 }

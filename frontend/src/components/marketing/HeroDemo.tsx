@@ -1353,22 +1353,36 @@ export function HeroDemo() {
     };
   }, [reducedMotion]);
 
+  const transitionedScenarioIdRef = useRef(selectedScenarioId);
+
   useEffect(() => {
     const stage = stageRef.current;
-    if (!stage || selectedScenarioId === visibleScenarioId) {
+    if (!stage) {
       return;
     }
 
     const nextScenarioId = selectedScenarioId;
     stageTransitionRef.current?.kill();
     stageTransitionRef.current = null;
+    stage.style.removeProperty("opacity");
+    stage.style.removeProperty("transform");
+
+    if (transitionedScenarioIdRef.current === nextScenarioId) {
+      if (reducedMotion) {
+        setVisibleScenarioId(nextScenarioId);
+      }
+      return;
+    }
+
+    transitionedScenarioIdRef.current = nextScenarioId;
+    setVisibleScenarioId(nextScenarioId);
 
     if (reducedMotion || prefersReducedMotion()) {
-      setVisibleScenarioId(nextScenarioId);
       return;
     }
 
     let cancelled = false;
+    let transition: { kill(): void } | null = null;
 
     void loadGsap()
       .then(({ gsap }) => {
@@ -1377,24 +1391,15 @@ export function HeroDemo() {
         }
 
         const timeline = gsap.timeline();
+        transition = timeline;
         stageTransitionRef.current = timeline;
         timeline
-          .to(stage, {
-            duration: 0.2,
-            ease: "power2.inOut",
-            opacity: 0,
-            scale: 0.986,
-            y: 16,
-          })
-          .add(() => {
-            setVisibleScenarioId(nextScenarioId);
-          })
           .fromTo(
             stage,
             {
-              opacity: 0,
+              opacity: 0.72,
               scale: 0.992,
-              y: -14,
+              y: 14,
             },
             {
               clearProps: "opacity,transform",
@@ -1410,8 +1415,14 @@ export function HeroDemo() {
 
     return () => {
       cancelled = true;
+      transition?.kill();
+      if (stageTransitionRef.current === transition) {
+        stageTransitionRef.current = null;
+      }
+      stage.style.removeProperty("opacity");
+      stage.style.removeProperty("transform");
     };
-  }, [reducedMotion, selectedScenarioId, visibleScenarioId]);
+  }, [reducedMotion, selectedScenarioId]);
 
   const selectScenario = (nextScenarioId: string) => {
     if (nextScenarioId === selectedScenarioIdRef.current) {

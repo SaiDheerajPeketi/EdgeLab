@@ -1,14 +1,8 @@
 import { ArrowRight, Check } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { HeroDemo } from "../components/marketing/HeroDemo";
 import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
 import { TrustEvidence } from "../components/marketing/TrustEvidence";
-import {
-  FaqAccordion,
-  PricingSection,
-  pricingFaqItems,
-} from "../components/marketing/PricingSection";
 import {
   buildMarketingNavItems,
   MarketingShell,
@@ -18,6 +12,30 @@ import { loadGsap, prefersReducedMotion } from "../lib/gsap";
 import { buildMarketingCta } from "../lib/marketingCta";
 import { useReducedMotionPreference } from "../lib/motionPreferences";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
+
+const HeroDemo = lazy(() => import("../components/marketing/HeroDemo").then((module) => ({ default: module.HeroDemo })));
+const PricingSection = lazy(() => import("../components/marketing/PricingSection").then((module) => ({ default: module.PricingSection })));
+const PricingFaq = lazy(() => import("../components/marketing/PricingSection").then((module) => ({
+  default: () => <module.FaqAccordion items={module.pricingFaqItems} />,
+})));
+
+function DeferredMount({ children, fallback }: { children: ReactNode; fallback: ReactNode }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (ready || !hostRef.current) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setReady(true);
+      observer.disconnect();
+    }, { rootMargin: "400px 0px" });
+    observer.observe(hostRef.current);
+    return () => observer.disconnect();
+  }, [ready]);
+
+  return <div ref={hostRef}>{ready ? children : fallback}</div>;
+}
 
 type WorkflowStep = {
   body: string;
@@ -362,7 +380,9 @@ export function LandingPage() {
             </div>
 
             <div className="mt-7 origin-top lg:mt-10" data-landing-stage>
-              <HeroDemo />
+              <DeferredMount fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg border border-edgelab-border bg-edgelab-surface" />}>
+                <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg border border-edgelab-border bg-edgelab-surface" />}><HeroDemo /></Suspense>
+              </DeferredMount>
               <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
                 Interactive product preview using illustrative market data.
               </p>
@@ -441,10 +461,9 @@ export function LandingPage() {
             </div>
 
             <div className="mt-14" data-marketing-reveal="pricing-cards" data-reveal-delay="0.08">
-              <PricingSection
-                mode={deploymentMode}
-                showComparison
-              />
+              <DeferredMount fallback={<div aria-hidden="true" className="min-h-96 border-y border-edgelab-border" />}>
+                <Suspense fallback={<div aria-hidden="true" className="min-h-96 border-y border-edgelab-border" />}><PricingSection mode={deploymentMode} showComparison /></Suspense>
+              </DeferredMount>
             </div>
           </div>
         </section>
@@ -456,7 +475,9 @@ export function LandingPage() {
               title="Before you enter."
             />
             <div data-marketing-reveal="faq-list" data-reveal-delay="0.06">
-              <FaqAccordion items={pricingFaqItems} />
+              <DeferredMount fallback={<div aria-hidden="true" className="min-h-80 border-y border-edgelab-border" />}>
+                <Suspense fallback={<div aria-hidden="true" className="min-h-80 border-y border-edgelab-border" />}><PricingFaq /></Suspense>
+              </DeferredMount>
             </div>
           </div>
         </section>

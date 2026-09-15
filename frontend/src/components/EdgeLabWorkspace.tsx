@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -2337,7 +2337,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
               selectedSourceLabel={selectedSourceLabel}
               symbol={selectedLiveSymbol?.label ?? selectedSymbol}
               symbolCode={selectedLiveSymbol?.symbol ?? selectedSymbol}
-              ticker={selectedTicker}
+              tickerChangeLabel={selectedTicker ? `${signedLiveNumber(selectedTicker.changePercent)}% 24h` : selectedSourceLabel}
             />
           </FeatureCard>
 
@@ -3961,14 +3961,14 @@ function formatEconomicEventDateTime(value: string) {
   });
 }
 
-function LiveChartStudio({
+const LiveChartStudio = memo(function LiveChartStudio({
   bars,
   connectionStatus,
   journalChartFocus,
   selectedSourceLabel,
   symbol,
   symbolCode,
-  ticker,
+  tickerChangeLabel,
 }: {
   bars: Candle[];
   connectionStatus: LiveConnectionStatus;
@@ -3976,7 +3976,7 @@ function LiveChartStudio({
   selectedSourceLabel: string;
   symbol: string;
   symbolCode: string;
-  ticker: LiveTicker | null;
+  tickerChangeLabel: string;
 }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chartPaneLayout, setChartPaneLayout] = useState<ChartPaneLayoutId>(() =>
@@ -4013,7 +4013,11 @@ function LiveChartStudio({
     chartLayoutSavedAt == null
       ? null
       : `Saved ${new Date(chartLayoutSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  const changeTone = toneForNumber(ticker?.changePercent ?? 0);
+  const changeTone = tickerChangeLabel.startsWith("+")
+    ? toneForNumber(1)
+    : tickerChangeLabel.startsWith("-")
+      ? toneForNumber(-1)
+      : toneForNumber(0);
   const paneMarketData = usePaneMarketData(visibleChartPanes.map((pane) => {
     const paneSymbol = pane.symbol || symbolCode || symbol;
     const focused = journalChartFocus && journalFocusMatchesSymbol(paneSymbol, journalChartFocus.symbol);
@@ -4558,7 +4562,7 @@ function LiveChartStudio({
             {connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
           </span>
           <span className={`status-pill h-8 px-2 text-[11px] ${changeTone}`}>
-            {ticker ? `${signedLiveNumber(ticker.changePercent)}% 24h` : selectedSourceLabel}
+            {tickerChangeLabel}
           </span>
           <span className="status-pill h-8 px-2 text-[11px]">
             {formatChartTimeframeLabel(activeChartPane.timeframe)}
@@ -4739,7 +4743,7 @@ function LiveChartStudio({
       </div>
     </div>
   );
-}
+});
 
 function LayersIcon() {
   return <Layers size={14} />;

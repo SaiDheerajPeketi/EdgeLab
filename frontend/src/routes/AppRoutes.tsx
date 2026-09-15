@@ -36,11 +36,12 @@ const AuthSignInPage = lazy(() =>
 const SharedWorkspacePage = lazy(() =>
   import("../pages/SharedWorkspacePage").then((module) => ({ default: module.SharedWorkspacePage })),
 );
-
-type AppRoutesProps = {
-  NotFoundPage: ComponentType;
-  WorkspaceApp: ComponentType;
-};
+const WorkspaceApp = lazy(() =>
+  import("../App").then((module) => ({ default: module.WorkspaceApp })),
+);
+const NotFoundPage = lazy(() =>
+  import("../App").then((module) => ({ default: module.NotFoundPage })),
+);
 
 function AppRouteFallback() {
   const location = useLocation();
@@ -256,7 +257,7 @@ function AuthSignInRoute() {
   return <AuthSignInPage />;
 }
 
-export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
+export function AppRoutes() {
   return (
     <BrowserRouter>
       <SessionRehydrator />

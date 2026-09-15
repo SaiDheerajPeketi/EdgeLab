@@ -190,7 +190,6 @@ import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_EXPANDED_WIDTH,
 } from "./lib/workspaceNavigation";
-import { AppRoutes } from "./routes/AppRoutes";
 import { useBacktestStore } from "./store/backtestStore";
 import { shallow } from "zustand/shallow";
 
@@ -381,10 +380,6 @@ const VALID_CHART_STYLES: ChartStyle[] = [
   "line",
   "tpo",
 ];
-
-export default function App() {
-  return <AppRoutes NotFoundPage={NotFoundPage} WorkspaceApp={WorkspaceApp} />;
-}
 
 export function WorkspaceApp() {
   const location = useLocation();
