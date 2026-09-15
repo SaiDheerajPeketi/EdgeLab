@@ -1,12 +1,12 @@
 import { Check, ChevronDown } from "lucide-react";
 import type {
+  FocusEvent,
   KeyboardEvent,
   MouseEvent,
-  PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 
 export type ThemedSelectOption = {
   disabled?: boolean;
@@ -30,6 +30,8 @@ type Props = {
   value?: string;
 };
 
+const TYPEAHEAD_RESET_MS = 700;
+
 export function ThemedSelect({
   align = "left",
   ariaLabel,
@@ -50,18 +52,15 @@ export function ThemedSelect({
   );
   const [internalValue, setInternalValue] = useState(fallbackValue);
   const [open, setOpen] = useState(false);
-  const [floatingPosition, setFloatingPosition] = useState<{
-    left: number;
-    maxHeight: number;
-    top: number;
-    width: number;
-  } | null>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const typeaheadRef = useRef({ query: "", timestamp: 0 });
+  const listboxId = useId();
+  const optionIdPrefix = `${listboxId}-option`;
   const selectedValue = value ?? internalValue;
   const selectedOption = options.find((option) => option.value === selectedValue);
-  const portalHost = portal ? currentPortalHost() : null;
 
   useEffect(() => {
     if (value == null) {
@@ -71,78 +70,33 @@ export function ThemedSelect({
 
   useEffect(() => {
     onOpenChange?.(open);
-    return () => {
-      if (open) {
-        onOpenChange?.(false);
-      }
-    };
   }, [onOpenChange, open]);
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    const selectedIndex = options.findIndex(
+      (option) => !option.disabled && option.value === selectedValue,
+    );
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : firstEnabledIndex(options));
+  }, [open, options, selectedValue]);
 
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        !rootRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
-      ) {
-        setOpen(false);
-      }
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open || !portal || !rootRef.current) {
+  useEffect(() => {
+    if (!open || activeIndex < 0) {
       return;
     }
+    menuRef.current
+      ?.querySelector<HTMLElement>(`#${CSS.escape(`${optionIdPrefix}-${activeIndex}`)}`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open, optionIdPrefix]);
 
-    function syncFloatingPosition() {
-      const root = rootRef.current;
-      if (!root) {
-        return;
-      }
-      const rect = root.getBoundingClientRect();
-      const margin = 12;
-      const width = Math.max(rect.width, 180);
-      const left = Math.min(
-        Math.max(margin, rect.left),
-        window.innerWidth - width - margin,
-      );
-      const top = Math.min(
-        rect.bottom + 8,
-        Math.max(margin, window.innerHeight - 300),
-      );
-      setFloatingPosition({
-        left,
-        maxHeight: Math.max(160, window.innerHeight - top - margin),
-        top,
-        width,
-      });
+  function setOpenState(nextOpen: boolean) {
+    if (disabled && nextOpen) {
+      return;
     }
-
-    syncFloatingPosition();
-    window.addEventListener("resize", syncFloatingPosition);
-    window.addEventListener("scroll", syncFloatingPosition, true);
-    return () => {
-      window.removeEventListener("resize", syncFloatingPosition);
-      window.removeEventListener("scroll", syncFloatingPosition, true);
-    };
-  }, [open, portal]);
+    setOpen(nextOpen);
+  }
 
   function choose(nextValue: string) {
     const nextOption = options.find((option) => option.value === nextValue);
@@ -153,9 +107,6 @@ export function ThemedSelect({
       setInternalValue(nextValue);
     }
     setOpen(false);
-    window.requestAnimationFrame(() => {
-      triggerRef.current?.blur();
-    });
     onChange?.(nextValue);
   }
 
@@ -168,13 +119,44 @@ export function ThemedSelect({
     choose(nextValue);
   }
 
-  function handleTriggerPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (disabled || event.button !== 0) {
+  function handleTriggerClick(event: MouseEvent<HTMLButtonElement>) {
+    if (disabled) {
       return;
     }
-    event.preventDefault();
     event.currentTarget.focus({ preventScroll: true });
     setOpen((current) => !current);
+  }
+
+  function handleTriggerBlur(event: FocusEvent<HTMLButtonElement>) {
+    const nextTarget = event.relatedTarget;
+    if (
+      open &&
+      !(nextTarget instanceof Node &&
+        (rootRef.current?.contains(nextTarget) || menuRef.current?.contains(nextTarget)))
+    ) {
+      setOpen(false);
+    }
+  }
+
+  function moveActive(direction: 1 | -1) {
+    setActiveIndex((current) => nextEnabledIndex(options, current, direction));
+  }
+
+  function handleTypeahead(key: string) {
+    const now = Date.now();
+    const previous = typeaheadRef.current;
+    const query =
+      now - previous.timestamp > TYPEAHEAD_RESET_MS
+        ? key.toLocaleLowerCase()
+        : `${previous.query}${key.toLocaleLowerCase()}`;
+    typeaheadRef.current = { query, timestamp: now };
+
+    const startIndex = activeIndex >= 0 ? activeIndex + 1 : 0;
+    const match = findTypeaheadMatch(options, query, startIndex);
+    if (match >= 0) {
+      setOpen(true);
+      setActiveIndex(match);
+    }
   }
 
   function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -183,93 +165,192 @@ export function ThemedSelect({
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      const enabled = options.filter((option) => !option.disabled);
-      if (enabled.length === 0) {
-        return;
+      if (!open) {
+        setOpen(true);
+        const selectedIndex = options.findIndex(
+          (option) => !option.disabled && option.value === selectedValue,
+        );
+        setActiveIndex(
+          selectedIndex >= 0
+            ? selectedIndex
+            : event.key === "ArrowDown"
+              ? firstEnabledIndex(options)
+              : lastEnabledIndex(options),
+        );
+      } else {
+        moveActive(event.key === "ArrowDown" ? 1 : -1);
       }
-      const currentIndex = enabled.findIndex((option) => option.value === selectedValue);
-      const direction = event.key === "ArrowDown" ? 1 : -1;
-      const nextIndex =
-        currentIndex < 0
-          ? 0
-          : (currentIndex + direction + enabled.length) % enabled.length;
-      choose(enabled[nextIndex].value);
+      return;
+    }
+    if (event.key === "Home" && open) {
+      event.preventDefault();
+      setActiveIndex(firstEnabledIndex(options));
+      return;
+    }
+    if (event.key === "End" && open) {
+      event.preventDefault();
+      setActiveIndex(lastEnabledIndex(options));
       return;
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      setOpen((current) => !current);
+      if (open && activeIndex >= 0) {
+        choose(options[activeIndex].value);
+      } else {
+        setOpen(true);
+      }
+      return;
+    }
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      setOpen(false);
+      return;
+    }
+    if (event.key === "Tab" && open) {
+      setOpen(false);
+      return;
+    }
+    if (
+      event.key.length === 1 &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      handleTypeahead(event.key);
     }
   }
 
-  const menu = open && !disabled ? (
-    <div
-      className={`themed-select-menu ${portal ? "themed-select-menu-floating" : align === "right" ? "right-0" : "left-0"} ${menuClassName}`}
-      ref={menuRef}
-      role="listbox"
-      style={
-        portal && floatingPosition
-          ? {
-              left: floatingPosition.left,
-              maxHeight: floatingPosition.maxHeight,
-              top: floatingPosition.top,
-              width: floatingPosition.width,
-            }
-          : undefined
-      }
-    >
-      {options.map((option) => {
-        const selected = option.value === selectedValue;
-        return (
-          <button
-            aria-selected={selected}
-            className={`themed-select-option ${selected ? "themed-select-option-active" : ""}`}
-            disabled={option.disabled}
-            key={option.value}
-            onClick={(event) => handleOptionClick(event, option.value)}
-            onMouseDown={(event) => event.preventDefault()}
-            role="option"
-            type="button"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{option.label}</span>
-              {option.sublabel && (
-                <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                  {option.sublabel}
-                </span>
-              )}
-            </span>
-            {selected && <Check className="shrink-0 text-cyan-100" size={14} />}
-          </button>
-        );
-      })}
-    </div>
-  ) : null;
+  const activeOptionId =
+    open && activeIndex >= 0 ? `${optionIdPrefix}-${activeIndex}` : undefined;
 
   return (
-    <div className={`themed-select ${open ? "themed-select-open" : ""} ${className}`} ref={rootRef}>
+    <div
+      className={`themed-select ${open ? "themed-select-open" : ""} ${className}`}
+      ref={rootRef}
+    >
       <button
+        aria-activedescendant={activeOptionId}
+        aria-controls={listboxId}
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label={ariaLabel}
-        className="themed-select-trigger"
+        className="themed-select-trigger touch-manipulation motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11"
         disabled={disabled}
+        onBlur={handleTriggerBlur}
         onKeyDown={handleTriggerKeyDown}
-        onPointerDown={handleTriggerPointerDown}
+        onClick={handleTriggerClick}
         ref={triggerRef}
+        role="combobox"
         type="button"
       >
         <span className={`themed-select-value ${selectedOption ? "" : "text-slate-500"}`}>
           {selectedOption?.label ?? placeholder}
         </span>
-        <ChevronDown className={`themed-select-chevron ${open ? "rotate-180" : ""}`} size={15} />
+        <ChevronDown
+          aria-hidden="true"
+          className={`themed-select-chevron motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+          size={15}
+        />
       </button>
 
-      {portal ? floatingPosition && menu && portalHost && createPortal(menu, portalHost) : menu}
+      <OverlaySurface
+        align={align}
+        anchorRef={triggerRef}
+        ariaLabel={ariaLabel}
+        className={`themed-select-menu ${portal ? "themed-select-menu-floating" : align === "right" ? "right-0" : "left-0"} ${menuClassName}`}
+        estimatedHeight={288}
+        id={listboxId}
+        minWidth={180}
+        onDismiss={() => setOpenState(false)}
+        open={open && !disabled}
+        portal={portal}
+        role="listbox"
+        surfaceRef={menuRef}
+      >
+        {options.map((option, index) => {
+          const selected = option.value === selectedValue;
+          const active = index === activeIndex;
+          return (
+            <button
+              aria-disabled={option.disabled || undefined}
+              aria-selected={selected}
+              className={`themed-select-option touch-manipulation motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11 ${selected || active ? "themed-select-option-active" : ""}`}
+              disabled={option.disabled}
+              id={`${optionIdPrefix}-${index}`}
+              key={option.value}
+              onClick={(event) => handleOptionClick(event, option.value)}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => !option.disabled && setActiveIndex(index)}
+              role="option"
+              tabIndex={-1}
+              type="button"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{option.label}</span>
+                {option.sublabel && (
+                  <span className="mt-0.5 block truncate text-[11px] text-slate-400">
+                    {option.sublabel}
+                  </span>
+                )}
+              </span>
+              {selected && <Check aria-hidden="true" className="shrink-0 text-cyan-100" size={14} />}
+            </button>
+          );
+        })}
+      </OverlaySurface>
     </div>
   );
 }
 
-function currentPortalHost() {
-  return document.fullscreenElement ?? document.body;
+function firstEnabledIndex(options: ThemedSelectOption[]) {
+  return options.findIndex((option) => !option.disabled);
+}
+
+function lastEnabledIndex(options: ThemedSelectOption[]) {
+  for (let index = options.length - 1; index >= 0; index -= 1) {
+    if (!options[index].disabled) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function nextEnabledIndex(
+  options: ThemedSelectOption[],
+  current: number,
+  direction: 1 | -1,
+) {
+  if (options.length === 0) {
+    return -1;
+  }
+  let index = current;
+  for (let attempts = 0; attempts < options.length; attempts += 1) {
+    index = (index + direction + options.length) % options.length;
+    if (!options[index].disabled) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function findTypeaheadMatch(
+  options: ThemedSelectOption[],
+  query: string,
+  startIndex: number,
+) {
+  for (let offset = 0; offset < options.length; offset += 1) {
+    const index = (startIndex + offset) % options.length;
+    const option = options[index];
+    if (
+      !option.disabled &&
+      optionText(option.label).toLocaleLowerCase().startsWith(query)
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function optionText(label: ReactNode) {
+  return typeof label === "string" || typeof label === "number" ? String(label) : "";
 }

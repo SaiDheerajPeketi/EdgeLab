@@ -1,12 +1,13 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
   ariaLabel?: string;
@@ -16,6 +17,8 @@ type Props = {
   onChange: (value: string) => void;
   value: string;
 };
+
+type ColorChannel = "blue" | "green" | "red";
 
 const FALLBACK_COLOR = "#32D3EE";
 const COLOR_PALETTES = [
@@ -37,6 +40,12 @@ const COLOR_PALETTES = [
   },
 ];
 
+const CHANNELS: Array<{ key: ColorChannel; label: string }> = [
+  { key: "red", label: "Red" },
+  { key: "green", label: "Green" },
+  { key: "blue", label: "Blue" },
+];
+
 export function ThemedColorPicker({
   ariaLabel = "Color",
   className = "",
@@ -51,26 +60,33 @@ export function ThemedColorPicker({
   );
   const [draft, setDraft] = useState(normalizedValue);
   const [isEditing, setIsEditing] = useState(false);
+  const [hexError, setHexError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const swatchRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({
-    left: 0,
-    top: 0,
-    visibility: "hidden",
-  });
+  const popoverHexRef = useRef<HTMLInputElement | null>(null);
+  const pickerId = useId();
+  const titleId = `${pickerId}-title`;
+  const errorId = `${pickerId}-error`;
+  const rgb = hexToRgb(normalizedValue);
 
   useEffect(() => {
     if (!isEditing) {
       setDraft(normalizedValue);
+      setHexError(null);
     }
-  }, [isEditing, normalizedValue]);
+    // A new committed value is the only external event that should clear an
+    // invalid draft; blur alone leaves the recovery message visible.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizedValue]);
 
   useEffect(() => {
     if (disabled) {
       setOpen(false);
       setIsEditing(false);
       setDraft(normalizedValue);
+      setHexError(null);
     }
   }, [disabled, normalizedValue]);
 
@@ -78,60 +94,10 @@ export function ThemedColorPicker({
     if (!open) {
       return;
     }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
-        setOpen(false);
-      }
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const updatePopoverPosition = () => {
-      const rect = rootRef.current?.getBoundingClientRect();
-      if (!rect) {
-        return;
-      }
-      const width = 256;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const nextLeft = Math.min(
-        Math.max(8, rect.left),
-        Math.max(8, viewportWidth - width - 8),
-      );
-      const spaceBelow = viewportHeight - rect.bottom;
-      const nextTop = spaceBelow >= 320 ? rect.bottom + 8 : Math.max(8, rect.top - 320 - 8);
-      setPopoverStyle({
-        left: nextLeft,
-        top: nextTop,
-        visibility: "visible",
-      });
-    };
-
-    updatePopoverPosition();
-    window.addEventListener("resize", updatePopoverPosition);
-    window.addEventListener("scroll", updatePopoverPosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePopoverPosition);
-      window.removeEventListener("scroll", updatePopoverPosition, true);
-    };
+    const frame = window.requestAnimationFrame(() => {
+      popoverHexRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [open]);
 
   function applyColor(nextValue: string) {
@@ -143,28 +109,41 @@ export function ThemedColorPicker({
       return;
     }
     setDraft(normalized);
+    setHexError(null);
     setIsEditing(false);
     onChange(normalized);
   }
 
+  function validateDraft(nextDraft: string) {
+    const normalized = normalizeHexColor(nextDraft);
+    if (!normalized) {
+      setHexError("Enter a 3- or 6-digit hex color, such as #32D3EE.");
+      return null;
+    }
+    setHexError(null);
+    return normalized;
+  }
+
   function handleDraftBlur() {
-    const normalized = normalizeHexColor(draft);
     setIsEditing(false);
+    const normalized = validateDraft(draft);
     if (normalized) {
       applyColor(normalized);
-      return;
     }
-    setDraft(normalizedValue);
   }
 
   function handleDraftKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") {
-      event.currentTarget.blur();
+      event.preventDefault();
+      const normalized = validateDraft(draft);
+      if (normalized) {
+        applyColor(normalized);
+      }
     }
     if (event.key === "Escape") {
       setDraft(normalizedValue);
+      setHexError(null);
       setIsEditing(false);
-      event.currentTarget.blur();
     }
   }
 
@@ -172,12 +151,24 @@ export function ThemedColorPicker({
     if (disabled) {
       return;
     }
-    const nextValue = sanitizeHexDraft(nextRawValue);
+    const nextValue = nextRawValue.toUpperCase();
     setDraft(nextValue);
     const normalized = normalizeHexColor(nextValue, { allowShorthand: false });
     if (normalized) {
+      setHexError(null);
       onChange(normalized);
+    } else {
+      setHexError("Enter a 3- or 6-digit hex color, such as #32D3EE.");
     }
+  }
+
+  function updateChannel(channel: ColorChannel, nextValue: number) {
+    applyColor(
+      rgbToHex({
+        ...rgb,
+        [channel]: nextValue,
+      }),
+    );
   }
 
   return (
@@ -187,11 +178,14 @@ export function ThemedColorPicker({
       ref={rootRef}
     >
       <button
+        aria-controls={pickerId}
         aria-expanded={open}
+        aria-haspopup="dialog"
         aria-label={`${ariaLabel} palette`}
-        className="themed-color-swatch"
+        className="themed-color-swatch touch-manipulation motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
+        ref={swatchRef}
         style={{ "--selected-color": normalizedValue } as CSSProperties}
         title={ariaLabel}
         type="button"
@@ -199,9 +193,12 @@ export function ThemedColorPicker({
         <span style={{ backgroundColor: normalizedValue }} />
       </button>
       <input
+        aria-describedby={hexError ? errorId : undefined}
+        aria-invalid={Boolean(hexError)}
         aria-label={`${ariaLabel} hex code`}
-        className="themed-color-hex"
+        className="themed-color-hex motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11"
         disabled={disabled}
+        maxLength={7}
         onBlur={handleDraftBlur}
         onChange={(event) => handleDraftChange(event.target.value)}
         onFocus={() => setIsEditing(true)}
@@ -210,77 +207,116 @@ export function ThemedColorPicker({
         value={draft}
       />
 
-      {open &&
-        createPortal(
-          <div
-            aria-label={`${ariaLabel} color palette`}
-            className="themed-color-popover"
-            ref={popoverRef}
-            role="dialog"
-            style={popoverStyle}
-          >
-            <div className="themed-color-popover-header">
-              <span>{ariaLabel}</span>
-              <code>{normalizedValue}</code>
+      {!open && hexError && (
+        <span
+          className="absolute left-0 top-full z-[300] mt-1 w-64 rounded border border-rose-400/30 bg-[#16090d] px-2 py-1.5 text-[11px] leading-4 text-rose-200 shadow-panel"
+          id={errorId}
+          role="alert"
+        >
+          {hexError}
+        </span>
+      )}
+
+      <OverlaySurface
+        anchorRef={rootRef}
+        ariaLabelledBy={titleId}
+        className="themed-color-popover"
+        estimatedHeight={540}
+        id={pickerId}
+        onDismiss={() => setOpen(false)}
+        open={open && !disabled}
+        preferredWidth={288}
+        role="dialog"
+        surfaceRef={popoverRef}
+        triggerRef={swatchRef}
+      >
+        <div className="themed-color-popover-header" id={titleId}>
+          <span>{ariaLabel}</span>
+          <code>{normalizedValue}</code>
+        </div>
+        <div
+          className="themed-color-preview"
+          style={{ "--selected-color": normalizedValue } as CSSProperties}
+        >
+          <span className="themed-color-preview-swatch" />
+          <div>
+            <span>Selected</span>
+            <strong>{normalizedValue}</strong>
+          </div>
+        </div>
+        <label className="themed-color-popover-field">
+          <span>Hex value</span>
+          <input
+            aria-describedby={hexError ? errorId : undefined}
+            aria-invalid={Boolean(hexError)}
+            aria-label={`${ariaLabel} selected color hex code`}
+            maxLength={7}
+            onBlur={handleDraftBlur}
+            onChange={(event) => handleDraftChange(event.target.value)}
+            onFocus={() => setIsEditing(true)}
+            onKeyDown={handleDraftKeyDown}
+            ref={popoverHexRef}
+            spellCheck={false}
+            value={draft}
+          />
+          {hexError && (
+            <span className="normal-case tracking-normal text-rose-200" id={errorId} role="alert">
+              {hexError}
+            </span>
+          )}
+        </label>
+
+        <div aria-label="RGB channels" className="grid gap-1.5 rounded border border-white/[0.07] bg-black/25 p-2" role="group">
+          {CHANNELS.map((channel) => {
+            const inputId = `${pickerId}-${channel.key}`;
+            return (
+              <label className="grid grid-cols-[3rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-[10px] font-bold text-slate-300" htmlFor={inputId} key={channel.key}>
+                <span>{channel.label}</span>
+                <input
+                  aria-valuetext={`${rgb[channel.key]} of 255`}
+                  className="h-11 w-full cursor-pointer touch-manipulation accent-cyan-300"
+                  id={inputId}
+                  max={255}
+                  min={0}
+                  onChange={(event) => updateChannel(channel.key, Number(event.target.value))}
+                  type="range"
+                  value={rgb[channel.key]}
+                />
+                <output className="rounded border border-white/10 bg-black/30 px-1 py-0.5 text-right font-mono tabular-nums text-cyan-100" htmlFor={inputId}>
+                  {rgb[channel.key]}
+                </output>
+              </label>
+            );
+          })}
+        </div>
+
+        {COLOR_PALETTES.map((palette) => (
+          <div className="themed-color-group" key={palette.label}>
+            <div className="themed-color-section-title">{palette.label}</div>
+            <div className="themed-color-grid">
+              {palette.swatches.map((color) => (
+                <button
+                  aria-current={normalizedValue === color ? "true" : undefined}
+                  aria-label={`Use ${color}`}
+                  className={`themed-color-option min-h-11 touch-manipulation motion-reduce:transition-none ${normalizedValue === color ? "themed-color-option-active" : ""}`}
+                  key={color}
+                  onClick={() => {
+                    applyColor(color);
+                    setOpen(false);
+                  }}
+                  style={{ "--swatch-color": color } as CSSProperties}
+                  type="button"
+                >
+                  <span />
+                  <i aria-hidden="true" className="themed-color-option-check" />
+                </button>
+              ))}
             </div>
-            <div
-              className="themed-color-preview"
-              style={{ "--selected-color": normalizedValue } as CSSProperties}
-            >
-              <span className="themed-color-preview-swatch" />
-              <div>
-                <span>Selected</span>
-                <strong>{normalizedValue}</strong>
-              </div>
-            </div>
-            <label className="themed-color-popover-field">
-              <span>Hex</span>
-              <input
-                aria-label={`${ariaLabel} selected color hex code`}
-                onBlur={handleDraftBlur}
-                onChange={(event) => handleDraftChange(event.target.value)}
-                onFocus={() => setIsEditing(true)}
-                onKeyDown={handleDraftKeyDown}
-                spellCheck={false}
-                value={draft}
-              />
-            </label>
-            {COLOR_PALETTES.map((palette) => (
-              <div className="themed-color-group" key={palette.label}>
-                <div className="themed-color-section-title">{palette.label}</div>
-                <div className="themed-color-grid">
-                  {palette.swatches.map((color) => (
-                    <button
-                      aria-current={normalizedValue === color ? "true" : undefined}
-                      aria-label={`Use ${color}`}
-                      className={`themed-color-option ${normalizedValue === color ? "themed-color-option-active" : ""}`}
-                      key={color}
-                      onClick={() => {
-                        applyColor(color);
-                        setOpen(false);
-                      }}
-                      style={{ "--swatch-color": color } as CSSProperties}
-                      type="button"
-                    >
-                      <span />
-                      <i aria-hidden="true" className="themed-color-option-check" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>,
-          document.body,
-        )}
+          </div>
+        ))}
+      </OverlaySurface>
     </div>
   );
-}
-
-function sanitizeHexDraft(value: string) {
-  const trimmed = value.trim().toUpperCase();
-  const hasHash = trimmed.startsWith("#");
-  const hex = trimmed.replace(/#/g, "").replace(/[^\dA-F]/g, "").slice(0, 6);
-  return `${hasHash ? "#" : ""}${hex}`;
 }
 
 function normalizeHexColor(
@@ -304,4 +340,19 @@ function normalizeHexColor(
     return `#${withoutHash.toUpperCase()}`;
   }
   return null;
+}
+
+function hexToRgb(value: string) {
+  return {
+    red: Number.parseInt(value.slice(1, 3), 16),
+    green: Number.parseInt(value.slice(3, 5), 16),
+    blue: Number.parseInt(value.slice(5, 7), 16),
+  };
+}
+
+function rgbToHex({ blue, green, red }: Record<ColorChannel, number>) {
+  return `#${[red, green, blue]
+    .map((channel) => Math.round(channel).toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase()}`;
 }
