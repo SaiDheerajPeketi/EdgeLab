@@ -112,6 +112,10 @@ import type {
   SyncedChartCrosshair,
   SyncedChartVisibleRange,
 } from "../lib/chartWorkspace";
+import {
+  createPriceScaleSettleScheduler,
+  type PriceScaleSettleScheduler,
+} from "../lib/chartScaleSync";
 import type { ChartVisualSettings } from "../lib/chartSettings";
 import {
   chartSessionPhaseLabel,
@@ -530,6 +534,7 @@ export function TradingChart({
   const orderLineDragRef = useRef<OrderLineDragState | null>(null);
   const pendingPriceScaleSyncRef = useRef(false);
   const priceScaleFingerprintRef = useRef<string | null>(null);
+  const priceScaleSettleSchedulerRef = useRef<PriceScaleSettleScheduler | null>(null);
   const suppressNextDrawingClickRef = useRef(false);
   const previousTimeframeRef = useRef(timeframe);
   const previousReplaySeekVersionRef = useRef(replaySeekVersion);
@@ -1157,6 +1162,7 @@ export function TradingChart({
 
   useEffect(() => {
     if (!shouldWatchPriceScale) {
+      priceScaleSettleSchedulerRef.current?.cancel();
       priceScaleFingerprintRef.current = null;
       return;
     }
@@ -1243,6 +1249,7 @@ export function TradingChart({
   useEffect(() => {
     return () => {
       cancelScheduledMagnetCrosshair();
+      priceScaleSettleSchedulerRef.current?.cancel();
     };
   }, []);
 
@@ -2203,6 +2210,20 @@ export function TradingChart({
     });
   }
 
+  function schedulePriceScaleSettle() {
+    if (!shouldWatchPriceScale) {
+      return;
+    }
+    if (!priceScaleSettleSchedulerRef.current) {
+      priceScaleSettleSchedulerRef.current = createPriceScaleSettleScheduler({
+        cancelFrame: (frameId) => window.cancelAnimationFrame(frameId),
+        requestFrame: (callback) => window.requestAnimationFrame(callback),
+        synchronize: syncDrawingLayerToPriceScale,
+      });
+    }
+    priceScaleSettleSchedulerRef.current.schedule();
+  }
+
   function syncDrawingLayerToPriceScale() {
     const fingerprint = priceScaleCoordinateFingerprint(
       candlesRef.current,
@@ -2896,7 +2917,11 @@ export function TradingChart({
             onMouseLeave={handleMagnetCrosshairLeave}
             onMouseMove={handleMagnetCrosshairMove}
             onMouseUp={finishDrawingInteraction}
+            onDoubleClickCapture={schedulePriceScaleSettle}
+            onPointerCancelCapture={schedulePriceScaleSettle}
             onPointerMove={schedulePriceScaleSync}
+            onPointerUpCapture={schedulePriceScaleSettle}
+            onTouchEndCapture={schedulePriceScaleSettle}
             onWheel={schedulePriceScaleSync}
             style={{ backgroundColor: chartSettings.backgroundColor }}
           >

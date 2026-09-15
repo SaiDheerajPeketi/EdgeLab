@@ -2691,7 +2691,7 @@ function PositionSizeCalculatorPage() {
               <span className={`text-sm font-semibold tabular-nums ${riskTone}`}>{riskLevel} · {formatPositionDecimal(riskPercentValue, 2)}%</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
-              <div aria-label="Risk heat" aria-valuemax={5} aria-valuemin={0} aria-valuenow={Math.min(5, riskPercentValue)} aria-valuetext={`${riskLevel} risk, ${formatPositionDecimal(riskPercentValue, 2)} percent`} className={`h-full rounded-full ${positionRiskBarClass(riskPercentValue)}`} role="progressbar" style={{ width: `${riskHeatWidth}%` }} />
+              <div aria-label="Risk heat" aria-valuemax={5} aria-valuemin={0} aria-valuenow={Math.min(5, riskPercentValue)} aria-valuetext={`${riskLevel}, ${formatPositionDecimal(riskPercentValue, 2)} percent`} className={`h-full rounded-full ${positionRiskBarClass(riskPercentValue)}`} role="progressbar" style={{ width: `${riskHeatWidth}%` }} />
             </div>
             <div className="mt-4 grid gap-2">
               {[
