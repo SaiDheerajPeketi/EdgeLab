@@ -77,9 +77,11 @@ import {
   DEFAULT_FIB_BACKGROUND_OPACITY,
   DEFAULT_FIB_LEVELS,
   defaultRiskRewardStopPoint,
+  drawingRequiredPoints,
   formatChartTimeframeLabel,
   fvgZoneVisibleSpan,
   indicatorDisplayName,
+  isFibDrawingTool,
   isRiskRewardTool,
   latestIndicatorValue,
   mergeIndicatorSettings,
@@ -104,6 +106,10 @@ import {
   type MacdData,
   type MagnetMode,
 } from "../lib/charting";
+import type {
+  SyncedChartCrosshair,
+  SyncedChartVisibleRange,
+} from "../lib/chartWorkspace";
 import type { ChartVisualSettings } from "../lib/chartSettings";
 import {
   chartSessionPhaseLabel,
@@ -181,6 +187,8 @@ const DRAWING_RAIL_TOOLS: Array<{
   { icon: TvRectangleIcon, label: "Rectangle zone", tool: "rectangle" },
   { icon: TvFibIcon, label: "Fib retracement", tool: "fib" },
   { icon: TvMeasureIcon, label: "Measure", tool: "measure" },
+  { icon: TvMeasureIcon, label: "Quick measure", tool: "quickMeasure" },
+  { icon: TvCursorIcon, label: "Erase one drawing", tool: "eraser" },
   { icon: TvLongPositionIcon, label: "Long position", tool: "longPosition" },
   { icon: TvShortPositionIcon, label: "Short position", tool: "shortPosition" },
   { icon: TvTextIcon, label: "Text label", tool: "text" },
@@ -202,6 +210,7 @@ type Props = {
   neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
   onAddDrawing: (drawing: ChartDrawing) => void;
   onCaptureChart?: () => void;
+  onCrosshairSync?: (value: SyncedChartCrosshair) => void;
   onAmendOrder: (orderId: number, payload: OrderUpdatePayload) => Promise<void> | void;
   onClearDrawings: () => void;
   onClosePositionFraction: (fraction: number) => void;
@@ -216,6 +225,7 @@ type Props = {
   onUpdateDrawing: (drawing: ChartDrawing, coalesceUndo?: boolean) => void;
   onUpdateIndicatorSettings: (instanceId: string, settings: Partial<IndicatorSettings>) => void;
   onUpdatePosition: (payload: PositionUpdatePayload) => Promise<void> | void;
+  onVisibleRangeSync?: (value: SyncedChartVisibleRange) => void;
   orders: Order[];
   position: Position | null;
   pnlMultiplier: number;
@@ -224,6 +234,11 @@ type Props = {
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
   showDrawingRail?: boolean;
+  paneId?: string;
+  dataState?: { detail: string; status: "available" | "empty" | "unavailable" | "stale" | "gapped" };
+  drawingMarker?: string;
+  syncedCrosshair?: SyncedChartCrosshair | null;
+  syncedVisibleRange?: SyncedChartVisibleRange | null;
   symbol?: string;
   currency?: string;
   datasetTimeframe?: string | null;
@@ -238,6 +253,7 @@ type TooltipData = {
 type DraftDrawing = {
   tool: Exclude<DrawingTool, "cursor" | "crosshair">;
   point: DrawingPoint;
+  points: DrawingPoint[];
 };
 
 type DragState = {
@@ -311,11 +327,23 @@ type LabelableDrawingTool =
   | "horizontal"
   | "vertical"
   | "rectangle"
+  | "ellipse"
+  | "triangle"
   | "trendline"
+  | "ray"
+  | "extendedLine"
+  | "segment"
+  | "angle"
+  | "horizontalRay"
+  | "parallelChannel"
+  | "arrow"
+  | "callout"
+  | "flag"
+  | "icon"
   | "longPosition"
   | "shortPosition";
 
-type FillableDrawingTool = "rectangle" | "longPosition" | "shortPosition";
+type FillableDrawingTool = "rectangle" | "ellipse" | "triangle" | "callout" | "longPosition" | "shortPosition";
 
 type DrawingPreset = {
   id: string;
@@ -343,14 +371,36 @@ type FibPreset = {
 
 const DRAWING_COLORS: Record<DraftDrawing["tool"], string> = {
   trendline: "#32d3ee",
+  ray: "#32d3ee",
+  extendedLine: "#32d3ee",
+  segment: "#38bdf8",
+  angle: "#f59e0b",
+  horizontalRay: "#f59e0b",
+  parallelChannel: "#a78bfa",
   horizontal: "#f59e0b",
   vertical: "#38bdf8",
   rectangle: "#a78bfa",
+  ellipse: "#a78bfa",
+  triangle: "#a78bfa",
   fib: "#22c55e",
+  fibExtension: "#22c55e",
+  fibChannel: "#22c55e",
+  fibTime: "#22c55e",
+  fibFan: "#22c55e",
+  chartPattern: "#38bdf8",
+  elliottWave: "#f59e0b",
+  harmonicPattern: "#a78bfa",
+  brush: "#f8fafc",
+  arrow: "#32d3ee",
   measure: "#38bdf8",
+  quickMeasure: "#38bdf8",
+  eraser: "#fb7185",
   longPosition: "#22c55e",
   shortPosition: "#fb7185",
   text: "#f8fafc",
+  callout: "#f8fafc",
+  flag: "#f59e0b",
+  icon: "#32d3ee",
 };
 
 const RECTANGLE_EDGE_HANDLE = {
@@ -386,6 +436,7 @@ export function TradingChart({
   neutralDrawingTool,
   onAddDrawing,
   onCaptureChart,
+  onCrosshairSync,
   onAmendOrder,
   onClearDrawings,
   onClosePositionFraction,
@@ -400,6 +451,7 @@ export function TradingChart({
   onUpdateDrawing,
   onUpdateIndicatorSettings,
   onUpdatePosition,
+  onVisibleRangeSync,
   orders,
   position,
   pnlMultiplier,
@@ -408,6 +460,11 @@ export function TradingChart({
   selectedDrawingId,
   showOrderOverlays,
   showDrawingRail = true,
+  paneId = "chart-pane-1",
+  dataState,
+  drawingMarker = "★",
+  syncedCrosshair = null,
+  syncedVisibleRange = null,
   symbol = "EURUSD",
   currency = "USD",
   datasetTimeframe,
@@ -458,9 +515,16 @@ export function TradingChart({
   const suppressNextDrawingClickRef = useRef(false);
   const previousTimeframeRef = useRef(timeframe);
   const previousReplaySeekVersionRef = useRef(replaySeekVersion);
+  const syncApplyingRef = useRef(false);
+  const crosshairSyncRevisionRef = useRef(-1);
+  const rangeSyncRevisionRef = useRef(-1);
+  const onCrosshairSyncRef = useRef(onCrosshairSync);
+  const onVisibleRangeSyncRef = useRef(onVisibleRangeSync);
   const drawingClipIdRef = useRef(
     `drawing-plot-clip-${Math.random().toString(36).slice(2, 10)}`,
   );
+  onCrosshairSyncRef.current = onCrosshairSync;
+  onVisibleRangeSyncRef.current = onVisibleRangeSync;
 
   const sessionTemplate = useMemo(
     () => resolveChartSessionTemplate(symbol, chartSettings.sessionTemplate),
@@ -1248,13 +1312,34 @@ export function TradingChart({
 
     chart.subscribeCrosshairMove((param) => {
       setTooltip(resolveTooltip(param, barsRef.current));
+      if (syncApplyingRef.current || !onCrosshairSyncRef.current) return;
+      const time = typeof param.time === "number" ? Number(param.time) : null;
+      const price = param.point ? candles.coordinateToPrice(param.point.y) : null;
+      onCrosshairSyncRef.current({
+        price: typeof price === "number" && Number.isFinite(price) ? price : null,
+        revision: Date.now(),
+        sourcePaneId: paneId,
+        time,
+      });
     });
-    chart.timeScale().subscribeVisibleLogicalRangeChange(refreshDrawingLayer);
+    const handleVisibleRangeChange = () => {
+      refreshDrawingLayer();
+      if (syncApplyingRef.current || !onVisibleRangeSyncRef.current) return;
+      const range = chart.timeScale().getVisibleRange();
+      if (!range || typeof range.from !== "number" || typeof range.to !== "number") return;
+      onVisibleRangeSyncRef.current({
+        from: Number(range.from),
+        revision: Date.now(),
+        sourcePaneId: paneId,
+        to: Number(range.to),
+      });
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
     window.addEventListener("resize", refreshDrawingLayer);
 
     return () => {
       window.removeEventListener("resize", refreshDrawingLayer);
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(refreshDrawingLayer);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
       candlesRef.current = null;
@@ -1263,7 +1348,55 @@ export function TradingChart({
       volumeRef.current = null;
       indicatorRefs.current = {};
     };
-  }, []);
+  }, [paneId]);
+
+  useEffect(() => {
+    if (
+      !syncedCrosshair ||
+      syncedCrosshair.sourcePaneId === paneId ||
+      syncedCrosshair.revision <= crosshairSyncRevisionRef.current
+    ) {
+      return;
+    }
+    const chart = chartRef.current;
+    const series = candlesRef.current;
+    if (!chart || !series || barsRef.current.length === 0) return;
+    crosshairSyncRevisionRef.current = syncedCrosshair.revision;
+    syncApplyingRef.current = true;
+    if (syncedCrosshair.time == null || syncedCrosshair.price == null) {
+      chart.clearCrosshairPosition();
+    } else {
+      chart.setCrosshairPosition(
+        syncedCrosshair.price,
+        syncedCrosshair.time as UTCTimestamp,
+        series,
+      );
+    }
+    window.requestAnimationFrame(() => {
+      syncApplyingRef.current = false;
+    });
+  }, [paneId, syncedCrosshair]);
+
+  useEffect(() => {
+    if (
+      !syncedVisibleRange ||
+      syncedVisibleRange.sourcePaneId === paneId ||
+      syncedVisibleRange.revision <= rangeSyncRevisionRef.current
+    ) {
+      return;
+    }
+    const chart = chartRef.current;
+    if (!chart || barsRef.current.length === 0) return;
+    rangeSyncRevisionRef.current = syncedVisibleRange.revision;
+    syncApplyingRef.current = true;
+    chart.timeScale().setVisibleRange({
+      from: syncedVisibleRange.from as UTCTimestamp,
+      to: syncedVisibleRange.to as UTCTimestamp,
+    });
+    window.requestAnimationFrame(() => {
+      syncApplyingRef.current = false;
+    });
+  }, [paneId, syncedVisibleRange]);
 
   useEffect(() => {
     candlesRef.current?.setData(toAscendingSeriesData(candleData));
@@ -1638,7 +1771,7 @@ export function TradingChart({
       return;
     }
     setChartContextMenuPosition(null);
-    if (drawingTool === "cursor" || drawingTool === "crosshair") {
+    if (drawingTool === "cursor" || drawingTool === "crosshair" || drawingTool === "eraser") {
       const indicatorPoint = pixelFromClient(
         event.clientX,
         event.clientY,
@@ -1654,6 +1787,15 @@ export function TradingChart({
             series: candlesRef.current,
           })
         : null;
+      if (drawingTool === "eraser") {
+        if (drawingHit && !drawingHit.drawing.locked) {
+          event.preventDefault();
+          onDeleteDrawing(drawingHit.drawing.id);
+          onSelectDrawing(null);
+          if (!keepDrawingAfterPlacement) onDrawingToolChange(neutralDrawingTool);
+        }
+        return;
+      }
       if (drawingHit) {
         event.preventDefault();
         beginDrawingDrag(
@@ -1689,30 +1831,34 @@ export function TradingChart({
       return;
     }
 
-    if (drawingTool === "horizontal" || drawingTool === "vertical") {
-      addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, [point]));
+    const requiredPoints = drawingRequiredPoints(drawingTool);
+    if (requiredPoints === 1) {
+      const label = drawingTool === "text" ? "Text" : undefined;
+      addDrawingAndMaybeOpenToolbar(
+        makeDrawing(drawingTool, [point], label, drawingTool === "icon" || drawingTool === "flag" ? drawingMarker : undefined),
+      );
       if (!keepDrawingAfterPlacement) {
         onDrawingToolChange(neutralDrawingTool);
       }
       return;
     }
 
-    if (drawingTool === "text") {
-      addDrawingAndMaybeOpenToolbar(makeDrawing("text", [point], "Text"));
-      if (!keepDrawingAfterPlacement) {
-        onDrawingToolChange(neutralDrawingTool);
-      }
-      setDraftDrawing(null);
-      setHoverPoint(null);
+    if (drawingTool === "brush") {
+      setDraftDrawing({ tool: drawingTool, point, points: [point] });
       return;
     }
 
     if (!draftDrawing || draftDrawing.tool !== drawingTool) {
-      setDraftDrawing({ tool: drawingTool, point });
+      setDraftDrawing({ tool: drawingTool, point, points: [point] });
       return;
     }
 
-    addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, [draftDrawing.point, point]));
+    const nextPoints = [...draftDrawing.points, point];
+    if (requiredPoints != null && nextPoints.length < requiredPoints) {
+      setDraftDrawing({ ...draftDrawing, points: nextPoints });
+      return;
+    }
+    addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, nextPoints));
     if (!keepDrawingAfterPlacement) {
       onDrawingToolChange(neutralDrawingTool);
     }
@@ -1759,8 +1905,7 @@ export function TradingChart({
     if (!draftDrawing || drawingTool === "cursor" || drawingTool === "crosshair") {
       return;
     }
-    setHoverPoint(
-      pointFromClient(
+    const nextPoint = pointFromClient(
         event.clientX,
         event.clientY,
         chartFrameRef.current,
@@ -1768,8 +1913,30 @@ export function TradingChart({
         candlesRef.current,
         barsRef.current,
         magnetMode,
-      ),
-    );
+      );
+    setHoverPoint(nextPoint);
+    if (
+      drawingTool === "brush" &&
+      nextPoint &&
+      event.buttons === 1 &&
+      drawingPointDistance(draftDrawing.points.at(-1), nextPoint) > 0.5
+    ) {
+      setDraftDrawing((current) =>
+        current?.tool === "brush"
+          ? { ...current, points: [...current.points, nextPoint].slice(-256) }
+          : current,
+      );
+    }
+  }
+
+  function finishDrawingInteraction() {
+    if (draftDrawing?.tool === "brush" && draftDrawing.points.length >= 2) {
+      addDrawingAndMaybeOpenToolbar(makeDrawing("brush", draftDrawing.points));
+      setDraftDrawing(null);
+      setHoverPoint(null);
+      if (!keepDrawingAfterPlacement) onDrawingToolChange(neutralDrawingTool);
+    }
+    stopDrawingDrag();
   }
 
   function handleMagnetCrosshairMove(event: MouseEvent<HTMLDivElement>) {
@@ -2589,7 +2756,7 @@ export function TradingChart({
             onMouseDown={handleDrawingClick}
             onMouseLeave={handleMagnetCrosshairLeave}
             onMouseMove={handleMagnetCrosshairMove}
-            onMouseUp={stopDrawingDrag}
+            onMouseUp={finishDrawingInteraction}
             onPointerMove={schedulePriceScaleSync}
             onWheel={schedulePriceScaleSync}
             style={{ backgroundColor: chartSettings.backgroundColor }}
@@ -2677,6 +2844,21 @@ export function TradingChart({
                 metric={chartSettings.footprintStatsMetric}
               />
             ) : null}
+            {bars.length === 0 && dataState && dataState.status !== "available" ? (
+              <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center px-6 text-center" role="status">
+                <div className="max-w-sm rounded-md border border-white/10 bg-slate-950/95 px-4 py-3 text-sm text-slate-200 shadow-lg">
+                  <strong className="block text-slate-100">
+                    {dataState.status === "unavailable" ? "No pane data subscription" : "No chart data"}
+                  </strong>
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">{dataState.detail}</span>
+                </div>
+              </div>
+            ) : null}
+            {bars.length > 0 && dataState && (dataState.status === "stale" || dataState.status === "gapped") ? (
+              <div className="pointer-events-none absolute right-2 top-2 z-20 max-w-xs rounded bg-amber-950/90 px-2 py-1 text-xs text-amber-100" role="status">
+                {dataState.detail}
+              </div>
+            ) : null}
             {bars.length > 0 && displayBars.length === 0 ? (
               <div
                 className="pointer-events-none absolute inset-0 z-20 grid place-items-center px-6 text-center"
@@ -2690,7 +2872,7 @@ export function TradingChart({
             ) : null}
             <div
               className={`absolute left-0 top-0 z-10 ${drawingLayerCapturesPointer ? "pointer-events-auto" : "pointer-events-none"} ${isDrawingPlacementMode || isCrosshairTool ? "cursor-crosshair" : "cursor-default"}`}
-              onMouseLeave={stopDrawingDrag}
+              onMouseLeave={finishDrawingInteraction}
               onMouseMove={handleDrawingMove}
               onMouseUp={stopDrawingDrag}
               style={{
@@ -2993,7 +3175,13 @@ export function TradingChart({
 
       {!captureMode && drawingTool !== "cursor" && drawingTool !== "crosshair" && (
         <div className="absolute left-20 top-20 z-20 rounded-md border border-cyan-300/20 bg-ink-950/95 px-3 py-2 text-xs text-cyan-100 shadow-panel">
-          {draftDrawing ? "Click the second anchor" : `Click to place ${toolLabel(drawingTool)}`}
+          {draftDrawing
+            ? drawingTool === "brush"
+              ? "Drag to draw, then release"
+              : `Place anchor ${draftDrawing.points.length + 1}${drawingRequiredPoints(drawingTool) ? ` of ${drawingRequiredPoints(drawingTool)}` : ""}`
+            : drawingTool === "eraser"
+              ? "Click an unlocked drawing to erase it"
+              : `Click to place ${toolLabel(drawingTool)}`}
         </div>
       )}
 
@@ -4987,7 +5175,7 @@ function FloatingDrawingToolbar({
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const canFill = isFillableDrawingTool(drawing.tool);
   const canDelete = !drawing.locked;
-  const isFib = drawing.tool === "fib";
+  const isFib = isFibDrawingTool(drawing.tool);
   const isPositionTool = isRiskRewardTool(drawing.tool);
   const canLabel = drawing.tool === "text" || isLabelableDrawingTool(drawing.tool);
   const hasRenderedLabel =
@@ -5663,7 +5851,7 @@ function buildDrawingElements({
                 id: "draft",
                 tool: draftDrawing.tool,
                 color: DRAWING_COLORS[draftDrawing.tool],
-                points: [draftDrawing.point, hoverPoint],
+                points: [...draftDrawing.points, hoverPoint],
                 createdAt: "",
               },
               toPixel,
@@ -5678,13 +5866,16 @@ function buildDrawingElements({
                 selected: false,
               },
             )}
-          <circle
-            cx={toPixel(draftDrawing.point)?.x ?? 0}
-            cy={toPixel(draftDrawing.point)?.y ?? 0}
-            fill={DRAWING_COLORS[draftDrawing.tool]}
-            opacity={0.9}
-            r={4}
-          />
+          {draftDrawing.points.map((point, index) => (
+            <circle
+              cx={toPixel(point)?.x ?? 0}
+              cy={toPixel(point)?.y ?? 0}
+              fill={DRAWING_COLORS[draftDrawing.tool]}
+              key={`draft-anchor-${index}`}
+              opacity={0.9}
+              r={4}
+            />
+          ))}
         </g>
       )}
     </>
@@ -6195,6 +6386,13 @@ function hitTestDrawingAtPoint({
       continue;
     }
 
+    if (drawing.tool === "flag" || drawing.tool === "icon") {
+      if (Math.hypot(point.x - first.x, point.y - first.y) <= 18) {
+        return { drawing, mode: "body", pointIndex: null };
+      }
+      continue;
+    }
+
     const second = pixels[1];
     if (!second) {
       continue;
@@ -6214,7 +6412,7 @@ function hitTestDrawingAtPoint({
       continue;
     }
 
-    if (drawing.tool === "fib") {
+    if (isFibDrawingTool(drawing.tool)) {
       const anchorLeft = Math.min(first.x, second.x);
       const anchorRight = Math.max(first.x, second.x);
       const lineLeft = drawing.fibExtendLeft === true ? 0 : anchorLeft;
@@ -6588,6 +6786,34 @@ function renderDrawing(
     );
   }
 
+  if (drawing.tool === "flag" || drawing.tool === "icon") {
+    const point = toPixel(drawing.points[0]);
+    if (!point) return null;
+    const marker = (drawing.marker?.trim() || (drawing.tool === "flag" ? "⚑" : "★")).slice(0, 3);
+    return (
+      <g
+        cursor={isLocked ? "default" : "move"}
+        key={drawing.id}
+        onClick={handleSelect}
+        onMouseDown={handleBodyDown}
+        pointerEvents={hitTargetPointerEvents}
+      >
+        <circle cx={point.x} cy={point.y} fill="rgba(8, 12, 17, 0.92)" r={14} stroke={color} strokeWidth={selectedStrokeWidth} />
+        <text dominantBaseline="central" fill={color} fontSize={16} fontWeight="800" textAnchor="middle" x={point.x} y={point.y}>{marker}</text>
+        {renderDrawingLabel({
+          backgroundOpacity: drawing.labelBackgroundOpacity,
+          color,
+          id: `${drawing.id}-label`,
+          label: drawing.label,
+          plotWidth: width,
+          x: point.x + 18,
+          y: point.y - 12,
+        })}
+        {isSelected && !isLocked && renderAnchors(drawing, [point], options)}
+      </g>
+    );
+  }
+
   if (drawing.tool === "text") {
     const point = toPixel(drawing.points[0]);
     if (!point) {
@@ -6700,7 +6926,205 @@ function renderDrawing(
     return null;
   }
 
-  if (drawing.tool === "measure") {
+  if (
+    drawing.tool === "brush" ||
+    drawing.tool === "chartPattern" ||
+    drawing.tool === "elliottWave" ||
+    drawing.tool === "harmonicPattern" ||
+    drawing.tool === "angle"
+  ) {
+    const pixels = drawing.points
+      .map(toPixel)
+      .filter((point): point is { x: number; y: number } => point != null);
+    if (pixels.length < 2) return null;
+    const pointText = pixels.map((point) => `${point.x},${point.y}`).join(" ");
+    const closePattern = drawing.tool === "harmonicPattern";
+    const labels =
+      drawing.tool === "elliottWave"
+        ? ["0", "1", "2", "3", "4"]
+        : drawing.tool === "harmonicPattern"
+          ? ["X", "A", "B", "C", "D"]
+          : drawing.tool === "chartPattern"
+            ? ["1", "2", "3", "4"]
+            : [];
+    return (
+      <g key={drawing.id}>
+        {closePattern ? (
+          <polygon fill={colorWithOpacity(color, drawing.fillOpacity ?? 0.08)} points={pointText} stroke="none" />
+        ) : null}
+        <polyline
+          cursor={isLocked ? "default" : "move"}
+          fill="none"
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents={hitTargetPointerEvents}
+          points={pointText}
+          stroke="transparent"
+          strokeWidth={14}
+        />
+        <polyline
+          fill="none"
+          points={pointText}
+          stroke={color}
+          strokeDasharray={strokeDasharray}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeOpacity={isSelected ? 1 : 0.9}
+          strokeWidth={selectedStrokeWidth}
+        />
+        {labels.map((label, index) => pixels[index] ? (
+          <g key={`${drawing.id}-point-${label}`} pointerEvents="none">
+            <circle cx={pixels[index].x} cy={pixels[index].y} fill="rgba(8,12,17,.92)" r={9} stroke={color} />
+            <text dominantBaseline="central" fill={color} fontSize={9} fontWeight="800" textAnchor="middle" x={pixels[index].x} y={pixels[index].y}>{label}</text>
+          </g>
+        ) : null)}
+        {drawing.tool === "angle" && pixels.length >= 3 ? (
+          <text fill={color} fontSize={11} fontWeight="800" x={pixels[1].x + 10} y={pixels[1].y - 10}>
+            {screenAngleDegrees(pixels[0], pixels[1], pixels[2]).toFixed(1)}°
+          </text>
+        ) : null}
+        {renderDrawingLabel({
+          backgroundOpacity: drawing.labelBackgroundOpacity,
+          color,
+          id: `${drawing.id}-label`,
+          label: drawing.label,
+          plotWidth: width,
+          x: pixels[0].x + 10,
+          y: pixels[0].y - 30,
+        })}
+        {isSelected && !isLocked && renderAnchors(drawing, pixels, options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "triangle") {
+    const third = toPixel(drawing.points[2]);
+    if (!third) return null;
+    const points = `${first.x},${first.y} ${second.x},${second.y} ${third.x},${third.y}`;
+    return (
+      <g key={drawing.id}>
+        <polygon
+          cursor={isLocked ? "default" : "move"}
+          fill={colorWithOpacity(color, drawing.fillOpacity ?? 0.12)}
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents={hitTargetPointerEvents}
+          points={points}
+          stroke={color}
+          strokeDasharray={strokeDasharray}
+          strokeWidth={selectedStrokeWidth}
+        />
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second, third], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "ellipse") {
+    const centerX = (first.x + second.x) / 2;
+    const centerY = (first.y + second.y) / 2;
+    return (
+      <g key={drawing.id}>
+        <ellipse
+          cursor={isLocked ? "default" : "move"}
+          cx={centerX}
+          cy={centerY}
+          fill={colorWithOpacity(color, drawing.fillOpacity ?? 0.12)}
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents={hitTargetPointerEvents}
+          rx={Math.abs(second.x - first.x) / 2}
+          ry={Math.abs(second.y - first.y) / 2}
+          stroke={color}
+          strokeDasharray={strokeDasharray}
+          strokeWidth={selectedStrokeWidth}
+        />
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "parallelChannel" || drawing.tool === "fibChannel") {
+    const third = toPixel(drawing.points[2]);
+    if (!third) return null;
+    const offsetX = third.x - first.x;
+    const offsetY = third.y - first.y;
+    const levels = drawing.tool === "fibChannel"
+      ? normalizeFibLevels(drawing.fibLevels, color).filter((level) => level.visible !== false)
+      : [{ id: "edge", value: 1, color }];
+    return (
+      <g key={drawing.id}>
+        <polygon fill={colorWithOpacity(color, drawing.fillOpacity ?? 0.08)} points={`${first.x},${first.y} ${second.x},${second.y} ${second.x + offsetX},${second.y + offsetY} ${first.x + offsetX},${first.y + offsetY}`} />
+        {[{ id: "base", value: 0, color }, ...levels].map((level) => (
+          <line
+            key={`${drawing.id}-${level.id}`}
+            onClick={handleSelect}
+            onMouseDown={handleBodyDown}
+            pointerEvents={hitTargetPointerEvents}
+            stroke={level.color}
+            strokeDasharray={strokeDasharray}
+            strokeWidth={selectedStrokeWidth}
+            x1={first.x + offsetX * level.value}
+            x2={second.x + offsetX * level.value}
+            y1={first.y + offsetY * level.value}
+            y2={second.y + offsetY * level.value}
+          />
+        ))}
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second, third], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "fibTime") {
+    const levels = normalizeFibLevels(drawing.fibLevels, color).filter((level) => level.visible !== false);
+    return (
+      <g key={drawing.id}>
+        {levels.map((level) => {
+          const x = first.x + (second.x - first.x) * level.value;
+          return <line key={`${drawing.id}-${level.id}`} onClick={handleSelect} onMouseDown={handleBodyDown} pointerEvents={hitTargetPointerEvents} stroke={level.color} strokeDasharray={lineStyleDasharray(level.lineStyle ?? "solid")} strokeWidth={selectedStrokeWidth} x1={x} x2={x} y1={0} y2={height} />;
+        })}
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "fibFan") {
+    const third = toPixel(drawing.points[2]);
+    if (!third) return null;
+    const levels = normalizeFibLevels(drawing.fibLevels, color).filter((level) => level.visible !== false);
+    return (
+      <g key={drawing.id}>
+        {levels.map((level) => {
+          const target = { x: second.x + (third.x - second.x) * level.value, y: second.y + (third.y - second.y) * level.value };
+          const end = extendLineToBounds(first, target, width, height, false);
+          return <line key={`${drawing.id}-${level.id}`} onClick={handleSelect} onMouseDown={handleBodyDown} pointerEvents={hitTargetPointerEvents} stroke={level.color} strokeDasharray={lineStyleDasharray(level.lineStyle ?? "solid")} strokeWidth={selectedStrokeWidth} x1={first.x} x2={end.to.x} y1={first.y} y2={end.to.y} />;
+        })}
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second, third], options)}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "fibExtension") {
+    const sourceTool = drawing.tool;
+    return renderDrawing(
+      {
+        ...drawing,
+        tool: "fib",
+        fibExtendRight: true,
+        fibLevels: normalizeFibLevels(drawing.fibLevels, color),
+      },
+      toPixel,
+      width,
+      height,
+      chartSettings,
+      {
+        ...options,
+        onDragStart: (renderedDrawing, mode, pointIndex, event) =>
+          options.onDragStart({ ...renderedDrawing, tool: sourceTool }, mode, pointIndex, event),
+      },
+    );
+  }
+
+  if (drawing.tool === "measure" || drawing.tool === "quickMeasure") {
     const priceDelta = drawing.points[1].price - drawing.points[0].price;
     const percentDelta =
       drawing.points[0].price === 0 ? 0 : (priceDelta / drawing.points[0].price) * 100;
@@ -6969,6 +7393,46 @@ function renderDrawing(
     );
   }
 
+  if (drawing.tool === "callout") {
+    const text = compactDrawingLabel(drawing.label) || "Callout";
+    const boxWidth = clamp(text.length * 7.2 + 24, 92, 240);
+    const boxX = clamp(second.x, 6, Math.max(6, width - boxWidth - 6));
+    const boxY = clamp(second.y - 18, 6, Math.max(6, height - 42));
+    return (
+      <g key={drawing.id}>
+        <line stroke={color} strokeWidth={selectedStrokeWidth} x1={first.x} x2={boxX} y1={first.y} y2={boxY + 18} />
+        <rect
+          cursor={isLocked ? "default" : "move"}
+          fill={drawingLabelBackgroundFill(drawing.labelBackgroundOpacity)}
+          height={36}
+          onClick={handleSelect}
+          onMouseDown={handleBodyDown}
+          pointerEvents={hitTargetPointerEvents}
+          rx={6}
+          stroke={color}
+          strokeWidth={selectedStrokeWidth}
+          width={boxWidth}
+          x={boxX}
+          y={boxY}
+        />
+        <text fill={color} fontSize={11} fontWeight="700" x={boxX + 12} y={boxY + 22}>{text}</text>
+        {isSelected && !isLocked && renderAnchors(drawing, [first, second], options)}
+      </g>
+    );
+  }
+
+  const lineGeometry =
+    drawing.tool === "horizontalRay"
+      ? { from: first, to: { x: width, y: first.y } }
+      : drawing.tool === "ray"
+        ? extendLineToBounds(first, second, width, height, false)
+        : drawing.tool === "extendedLine"
+          ? extendLineToBounds(first, second, width, height, true)
+          : { from: first, to: second };
+  const arrowHead = drawing.tool === "arrow"
+    ? arrowHeadPoints(lineGeometry.from, lineGeometry.to, 10)
+    : null;
+
   return (
     <g key={drawing.id}>
       <line
@@ -6978,10 +7442,10 @@ function renderDrawing(
         pointerEvents={hitTargetPointerEvents}
         stroke="transparent"
         strokeWidth="14"
-        x1={first.x}
-        x2={second.x}
-        y1={first.y}
-        y2={second.y}
+        x1={lineGeometry.from.x}
+        x2={lineGeometry.to.x}
+        y1={lineGeometry.from.y}
+        y2={lineGeometry.to.y}
       />
       <line
         stroke={color}
@@ -6989,11 +7453,12 @@ function renderDrawing(
         strokeLinecap="round"
         strokeOpacity={isSelected ? 1 : 0.9}
         strokeWidth={selectedStrokeWidth}
-        x1={first.x}
-        x2={second.x}
-        y1={first.y}
-        y2={second.y}
+        x1={lineGeometry.from.x}
+        x2={lineGeometry.to.x}
+        y1={lineGeometry.from.y}
+        y2={lineGeometry.to.y}
       />
+      {arrowHead ? <polygon fill={color} points={arrowHead} /> : null}
       {renderDrawingLabel({
         backgroundOpacity: drawing.labelBackgroundOpacity,
         color,
@@ -7616,7 +8081,19 @@ function isLabelableDrawingTool(
     tool === "horizontal" ||
     tool === "vertical" ||
     tool === "rectangle" ||
+    tool === "ellipse" ||
+    tool === "triangle" ||
     tool === "trendline" ||
+    tool === "ray" ||
+    tool === "extendedLine" ||
+    tool === "segment" ||
+    tool === "angle" ||
+    tool === "horizontalRay" ||
+    tool === "parallelChannel" ||
+    tool === "arrow" ||
+    tool === "callout" ||
+    tool === "flag" ||
+    tool === "icon" ||
     tool === "longPosition" ||
     tool === "shortPosition"
   );
@@ -7625,11 +8102,18 @@ function isLabelableDrawingTool(
 function isFillableDrawingTool(
   tool: ChartDrawing["tool"] | DrawingTool,
 ): tool is FillableDrawingTool {
-  return tool === "rectangle" || tool === "longPosition" || tool === "shortPosition";
+  return (
+    tool === "rectangle" ||
+    tool === "ellipse" ||
+    tool === "triangle" ||
+    tool === "callout" ||
+    tool === "longPosition" ||
+    tool === "shortPosition"
+  );
 }
 
 function shouldAutoOpenDrawingToolbar(drawing: ChartDrawing) {
-  return drawing.tool !== "fib";
+  return !isFibDrawingTool(drawing.tool);
 }
 
 function positionRewardColor(drawing: ChartDrawing) {
@@ -7839,6 +8323,30 @@ function presetToolName(tool: LabelableDrawingTool) {
       return "Rectangle";
     case "trendline":
       return "Trendline";
+    case "ray":
+      return "Ray";
+    case "extendedLine":
+      return "Extended line";
+    case "segment":
+      return "Segment";
+    case "angle":
+      return "Angle";
+    case "horizontalRay":
+      return "Horizontal ray";
+    case "parallelChannel":
+      return "Parallel channel";
+    case "ellipse":
+      return "Ellipse";
+    case "triangle":
+      return "Triangle";
+    case "arrow":
+      return "Arrow";
+    case "callout":
+      return "Callout";
+    case "flag":
+      return "Flag";
+    case "icon":
+      return "Icon";
     case "longPosition":
       return "Long position";
     case "shortPosition":
@@ -8237,6 +8745,7 @@ function makeDrawing(
   tool: DraftDrawing["tool"],
   points: DrawingPoint[],
   label?: string,
+  marker?: string,
 ): ChartDrawing {
   const normalizedPoints =
     isRiskRewardTool(tool) && points.length >= 2
@@ -8251,10 +8760,20 @@ function makeDrawing(
     id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     tool,
     color: DRAWING_COLORS[tool],
-    fibExtendLeft: tool === "fib" ? false : undefined,
-    fibExtendRight: tool === "fib" ? true : undefined,
+    fibExtendLeft: isFibDrawingTool(tool) ? false : undefined,
+    fibExtendRight: isFibDrawingTool(tool) ? true : undefined,
     fibLevels:
-      tool === "fib" ? DEFAULT_FIB_LEVELS.map((level) => ({ ...level })) : undefined,
+      isFibDrawingTool(tool)
+        ? [
+            ...DEFAULT_FIB_LEVELS.map((level) => ({ ...level })),
+            ...(tool === "fibExtension"
+              ? [
+                  { id: "fib-1-272", value: 1.272, color: "#38bdf8", label: "1.272", visible: true },
+                  { id: "fib-1-618", value: 1.618, color: "#a78bfa", label: "1.618", visible: true },
+                ]
+              : []),
+          ]
+        : undefined,
     fillOpacity: isFillableDrawingTool(tool) ? 0.16 : undefined,
     labelBackgroundOpacity:
       tool === "text" || isLabelableDrawingTool(tool)
@@ -8267,6 +8786,7 @@ function makeDrawing(
     rewardColor: isRiskRewardTool(tool) ? POSITION_REWARD_COLOR : undefined,
     riskColor: isRiskRewardTool(tool) ? POSITION_RISK_COLOR : undefined,
     label,
+    marker,
     createdAt: new Date().toISOString(),
     visible: true,
   };
@@ -8427,6 +8947,63 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function drawingPointDistance(left: DrawingPoint | undefined, right: DrawingPoint) {
+  if (!left) return Number.POSITIVE_INFINITY;
+  const horizontal = Math.abs((left.logical ?? left.time) - (right.logical ?? right.time));
+  const priceScale = Math.max(1, Math.abs(left.price), Math.abs(right.price));
+  return horizontal + (Math.abs(left.price - right.price) / priceScale) * 100;
+}
+
+function extendLineToBounds(
+  from: { x: number; y: number },
+  through: { x: number; y: number },
+  width: number,
+  height: number,
+  bothDirections: boolean,
+) {
+  const dx = through.x - from.x;
+  const dy = through.y - from.y;
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return { from, to: through };
+  const endpoint = (direction: 1 | -1) => {
+    const candidates: number[] = [];
+    if (Math.abs(dx) > 0.001) {
+      candidates.push((0 - from.x) / dx, (width - from.x) / dx);
+    }
+    if (Math.abs(dy) > 0.001) {
+      candidates.push((0 - from.y) / dy, (height - from.y) / dy);
+    }
+    const valid = candidates
+      .filter((value) => value * direction > 0.0001)
+      .map((value) => ({ value, x: from.x + dx * value, y: from.y + dy * value }))
+      .filter((point) => point.x >= -0.5 && point.x <= width + 0.5 && point.y >= -0.5 && point.y <= height + 0.5)
+      .sort((left, right) => Math.abs(left.value) - Math.abs(right.value));
+    return valid[0] ? { x: valid[0].x, y: valid[0].y } : through;
+  };
+  return { from: bothDirections ? endpoint(-1) : from, to: endpoint(1) };
+}
+
+function arrowHeadPoints(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  size: number,
+) {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const left = { x: to.x - Math.cos(angle - Math.PI / 6) * size, y: to.y - Math.sin(angle - Math.PI / 6) * size };
+  const right = { x: to.x - Math.cos(angle + Math.PI / 6) * size, y: to.y - Math.sin(angle + Math.PI / 6) * size };
+  return `${to.x},${to.y} ${left.x},${left.y} ${right.x},${right.y}`;
+}
+
+function screenAngleDegrees(
+  start: { x: number; y: number },
+  pivot: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const left = Math.atan2(start.y - pivot.y, start.x - pivot.x);
+  const right = Math.atan2(end.y - pivot.y, end.x - pivot.x);
+  const delta = Math.abs((right - left) * 180 / Math.PI) % 360;
+  return delta > 180 ? 360 - delta : delta;
+}
+
 function resolveTooltip(
   param: MouseEventParams<Time>,
   bars: Candle[],
@@ -8454,22 +9031,62 @@ function toolLabel(tool: DrawingTool) {
   switch (tool) {
     case "trendline":
       return "a trendline";
+    case "ray":
+      return "a ray";
+    case "extendedLine":
+      return "an extended line";
+    case "segment":
+      return "a line segment";
+    case "angle":
+      return "an angle";
+    case "horizontalRay":
+      return "a horizontal ray";
+    case "parallelChannel":
+      return "a parallel channel";
     case "horizontal":
       return "a horizontal level";
     case "vertical":
       return "a vertical level";
     case "rectangle":
       return "a zone";
+    case "ellipse":
+      return "an ellipse";
+    case "triangle":
+      return "a triangle";
     case "fib":
       return "fib anchors";
+    case "fibExtension":
+    case "fibChannel":
+    case "fibTime":
+    case "fibFan":
+      return "Fibonacci anchors";
+    case "chartPattern":
+      return "a chart pattern";
+    case "elliottWave":
+      return "an Elliott wave";
+    case "harmonicPattern":
+      return "a harmonic pattern";
+    case "brush":
+      return "a freehand path";
+    case "arrow":
+      return "an arrow";
     case "longPosition":
       return "long position anchors";
     case "measure":
+    case "quickMeasure":
       return "measurement anchors";
     case "shortPosition":
       return "short position anchors";
     case "text":
       return "a text label";
+    case "callout":
+      return "a callout";
+    case "flag":
+      return "a flag marker";
+    case "icon":
+      return "an icon marker";
+    case "eraser":
+      return "the eraser";
     default:
       return "a drawing";
   }

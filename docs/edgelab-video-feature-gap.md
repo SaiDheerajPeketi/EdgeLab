@@ -147,8 +147,8 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 ### 6. Core chart shell, instruments, sessions, and live data
 
-- [ ] `CHT-01 · P1 · Partial` — Put symbol selection in the chart’s main toolbar instead of requiring interaction with the separate watchlist column.
-- [ ] `CHT-02 · P1 · Missing` — Add type-anywhere symbol search when the chart has focus, with keyboard selection and no conflict with timeframe/drawing shortcuts.
+- [x] `CHT-01 · P1 · Partial` — Put symbol selection in the chart’s main toolbar instead of requiring interaction with the separate watchlist column.
+- [x] `CHT-02 · P1 · Missing` — Add type-anywhere symbol search when the chart has focus, with keyboard selection and no conflict with timeframe/drawing shortcuts.
 - [ ] `CHT-03 · P0 · Partial` — Create one normalized symbol universe across crypto, equities, ETFs, forex, indices, commodities, futures, options/derivatives, and provider-specific identifiers.
 - [ ] `CHT-04 · P0 · Missing` — Add real-time and historical CME futures data, including the nano-futures coverage called out in the video.
 - [ ] `CHT-05 · P0 · Missing` — Add exchange calendars, futures contract metadata, tick size/value, session templates, expiration, and continuous-contract roll logic.
@@ -180,33 +180,33 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 - [x] `LAY-01 · P1 · Partial` — Expand chart layouts from a maximum of four panes to a maximum of 16, including an explicit **4×4 grid** preset plus other useful arrangements and responsive sizing.
 - [ ] `LAY-02 · P0 · Missing` — Give every pane its own symbol/data subscription. Current panes share the selected watchlist symbol and candle set.
-- [ ] `LAY-03 · P1 · Missing` — Add independent synchronization toggles for symbol, interval, crosshair, and chart style.
-- [ ] `LAY-04 · P1 · Missing` — Synchronize crosshair time/price and visible range across selected panes when enabled.
-- [ ] `LAY-05 · P1 · Missing` — Add “sync drawings across charts,” with a clear symbol/timeframe mapping policy.
-- [ ] `LAY-06 · P1 · Partial` — Expand named layouts into full workspaces containing symbols, intervals, styles, colors/settings, drawings, indicators, pane grid, panel arrangement, watchlist selection, timezone, and RTH/ETH state. Current named layouts save chart-pane state only.
-- [ ] `LAY-07 · P2 · Partial` — Add workspace duplicate, rename, default/startup selection, and conflict-safe autosave/recovery in addition to current save/load/delete.
+- [x] `LAY-03 · P1 · Missing` — Add independent synchronization toggles for symbol, interval, crosshair, and chart style.
+- [x] `LAY-04 · P1 · Missing` — Synchronize crosshair time/price and visible range across selected panes when enabled.
+- [x] `LAY-05 · P1 · Missing` — Add “sync drawings across charts,” with a clear symbol/timeframe mapping policy.
+- [x] `LAY-06 · P1 · Partial` — Expand named layouts into full workspaces containing symbols, intervals, styles, colors/settings, drawings, indicators, pane grid, panel arrangement, watchlist selection, timezone, and RTH/ETH state. Current named layouts save chart-pane state only.
+- [x] `LAY-07 · P2 · Partial` — Add workspace duplicate, rename, default/startup selection, and conflict-safe autosave/recovery in addition to current save/load/delete.
 - [x] `LAY-08 · P1 · Missing` — Add the three demonstrated sharing scopes: chart plus panel, panels only, and complete chart layout/workspace.
 - [x] `LAY-09 · P0 · Missing` — Store versioned, immutable share snapshots with access controls, expiry/revocation, and an “open as copy” workflow.
 - [x] `LAY-10 · P1 · Missing` — Add a chart screenshot action that captures the whole chart cleanly and downloads a PNG; trade snapshot attachments are not equivalent.
 
 ### 9. Drawing tools, favorites, quick actions, and object layers
 
-- [ ] `DRW-01 · P1 · Partial` — Expand line tools beyond one trend line and horizontal/vertical lines: ray, extended line, segment, angle, horizontal ray, and parallel channel.
-- [ ] `DRW-02 · P1 · Partial` — Expand the single Fibonacci retracement into the needed Fibonacci family, with configurable saved levels and styles.
-- [ ] `DRW-03 · P1 · Missing` — Add multi-point chart-pattern tools.
-- [ ] `DRW-04 · P1 · Missing` — Add Elliott Wave tools.
-- [ ] `DRW-05 · P1 · Missing` — Add harmonic-pattern tools.
-- [ ] `DRW-06 · P1 · Missing` — Add freehand brush/path drawing.
-- [ ] `DRW-07 · P1 · Missing` — Add arrows and geometric shapes.
-- [ ] `DRW-08 · P1 · Partial` — Add callout/comment tools distinct from the current one-anchor text label.
-- [ ] `DRW-09 · P1 · Missing` — Add flags and a searchable icon/emoji marker library.
-- [ ] `DRW-10 · P2 · Partial` — Add the demonstrated quick-measure gesture/action; the standard two-click Measure tool already exists.
-- [ ] `DRW-11 · P2 · Partial` — Add a visible quick eraser that deletes a targeted object; keyboard delete/current clear-all behavior is not the same workflow.
+- [x] `DRW-01 · P1 · Partial` — Expand line tools beyond one trend line and horizontal/vertical lines: ray, extended line, segment, angle, horizontal ray, and parallel channel.
+- [x] `DRW-02 · P1 · Partial` — Expand the single Fibonacci retracement into the needed Fibonacci family, with configurable saved levels and styles.
+- [x] `DRW-03 · P1 · Missing` — Add multi-point chart-pattern tools.
+- [x] `DRW-04 · P1 · Missing` — Add Elliott Wave tools.
+- [x] `DRW-05 · P1 · Missing` — Add harmonic-pattern tools.
+- [x] `DRW-06 · P1 · Missing` — Add freehand brush/path drawing.
+- [x] `DRW-07 · P1 · Missing` — Add arrows and geometric shapes.
+- [x] `DRW-08 · P1 · Partial` — Add callout/comment tools distinct from the current one-anchor text label.
+- [x] `DRW-09 · P1 · Missing` — Add flags and a searchable icon/emoji marker library.
+- [x] `DRW-10 · P2 · Partial` — Add the demonstrated quick-measure gesture/action; the standard two-click Measure tool already exists.
+- [x] `DRW-11 · P2 · Partial` — Add a visible quick eraser that deletes a targeted object; keyboard delete/current clear-all behavior is not the same workflow.
 - [x] `DRW-12 · P1 · Missing` — Add persistent/stay-in-drawing mode. EdgeLab currently returns to cursor/crosshair after each completed drawing.
 - [x] `DRW-13 · P2 · Missing` — Allow the left drawing rail to be hidden/collapsed while leaving shortcuts available.
 - [x] `DRW-14 · P2 · Missing` — Add user favorites for drawing tools and persist their order.
 - [x] `DRW-15 · P2 · Missing` — Add the **circular chart toolbox** shown in the video: an Alt/Option radial quick wheel populated from favorite tools, with mouse selection and a keyboard-accessible fallback.
-- [ ] `DRW-16 · P1 · Partial` — Add drag reordering/z-order in the Objects tree plus bring forward/back/front/back actions. Current objects can be selected, hidden, locked, edited, or deleted but not layered.
+- [x] `DRW-16 · P1 · Partial` — Add drag reordering/z-order in the Objects tree plus bring forward/back/front/back actions. Current objects can be selected, hidden, locked, edited, or deleted but not layered.
 
 ### 10. Indicator catalog and custom indicator source
 

@@ -60,6 +60,13 @@ import {
   type MagnetMode,
 } from "../lib/charting";
 import {
+  DEFAULT_CHART_SYNC_SETTINGS,
+  searchChartSymbols,
+  type ChartSymbolOption,
+  type ChartSyncSettings,
+  type DrawingMappingPolicy,
+} from "../lib/chartWorkspace";
+import {
   deleteChartSettingsPreset,
   hydrateChartSettingsPresets,
   loadActiveChartSettingsPresetName,
@@ -140,6 +147,9 @@ type Props = {
   keepDrawingAfterPlacement?: boolean;
   layoutName: string;
   layoutNames: string[];
+  defaultLayoutName?: string | null;
+  startupLayoutName?: string | null;
+  workspaceRecoveryMessage?: string | null;
   magnetMode: MagnetMode;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onCaptureChart?: () => void;
@@ -148,8 +158,12 @@ type Props = {
   onClearDrawings: () => void;
   onChartStyleChange: (style: ChartStyle) => void;
   onDeleteLayout: (name: string) => void;
+  onDuplicateLayout?: (name: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onLayoutNameChange: (name: string) => void;
+  onRenameLayout?: (from: string, to: string) => void;
+  onSetDefaultLayout?: (name: string) => void;
+  onSetStartupLayout?: (name: string) => void;
   onKeepDrawingAfterPlacementChange?: (value: boolean) => void;
   onLoadLayout: (name: string) => void;
   onMagnetModeChange: (mode: MagnetMode) => void;
@@ -157,6 +171,9 @@ type Props = {
   onReplayTimeframeChange: (timeframe: ChartTimeframe) => void;
   onSaveLayout: () => void;
   onTimeframeChange: (timeframe: ChartTimeframe) => void;
+  onSymbolChange?: (symbol: string) => void;
+  onSyncSettingsChange?: (settings: ChartSyncSettings) => void;
+  onDrawingMarkerChange?: (marker: string) => void;
   onRemoveIndicator: (instanceId: string) => void;
   onToggleOrderOverlays: () => void;
   onSmoothCandlesChange: (value: boolean) => void;
@@ -179,6 +196,10 @@ type Props = {
   showDrawingRail?: boolean;
   smoothCandles: boolean;
   sourceTimeframe: ChartTimeframe | null;
+  symbol?: string;
+  symbolOptions?: ChartSymbolOption[];
+  syncSettings?: ChartSyncSettings;
+  drawingMarker?: string;
   timeframe: ChartTimeframe;
   toolsOpen?: boolean;
 };
@@ -197,14 +218,47 @@ const DRAWING_TOOLS: Array<{
   { icon: TvCursorIcon, label: "Select", tool: "cursor" },
   { icon: TvCrosshairIcon, label: "Inspect", tool: "crosshair" },
   { icon: TvTrendLineIcon, label: "Trend", shortcut: "T", tool: "trendline" },
+  { icon: TvTrendLineIcon, label: "Ray", tool: "ray" },
+  { icon: TvTrendLineIcon, label: "Extended", tool: "extendedLine" },
+  { icon: TvTrendLineIcon, label: "Segment", tool: "segment" },
+  { icon: TvTrendLineIcon, label: "Angle", tool: "angle" },
+  { icon: TvHorizontalLineIcon, label: "H-Ray", tool: "horizontalRay" },
+  { icon: TvTrendLineIcon, label: "Channel", tool: "parallelChannel" },
   { icon: TvHorizontalLineIcon, label: "H-Line", shortcut: "H", tool: "horizontal" },
   { icon: TvVerticalLineIcon, label: "V-Line", shortcut: "V", tool: "vertical" },
   { icon: TvRectangleIcon, label: "Zone", shortcut: "R", tool: "rectangle" },
+  { icon: TvRectangleIcon, label: "Ellipse", tool: "ellipse" },
+  { icon: TvRectangleIcon, label: "Triangle", tool: "triangle" },
   { icon: TvFibIcon, label: "Fib", shortcut: "F", tool: "fib" },
+  { icon: TvFibIcon, label: "Fib Ext", tool: "fibExtension" },
+  { icon: TvFibIcon, label: "Fib Channel", tool: "fibChannel" },
+  { icon: TvFibIcon, label: "Fib Time", tool: "fibTime" },
+  { icon: TvFibIcon, label: "Fib Fan", tool: "fibFan" },
+  { icon: TvTrendLineIcon, label: "Pattern", tool: "chartPattern" },
+  { icon: TvTrendLineIcon, label: "Elliott", tool: "elliottWave" },
+  { icon: TvTrendLineIcon, label: "Harmonic", tool: "harmonicPattern" },
+  { icon: TvTrendLineIcon, label: "Brush", tool: "brush" },
+  { icon: TvTrendLineIcon, label: "Arrow", tool: "arrow" },
   { icon: TvMeasureIcon, label: "Measure", shortcut: "M", tool: "measure" },
+  { icon: TvMeasureIcon, label: "Quick measure", tool: "quickMeasure" },
+  { icon: TvCursorIcon, label: "Eraser", tool: "eraser" },
   { icon: TvLongPositionIcon, label: "Long", tool: "longPosition" },
   { icon: TvShortPositionIcon, label: "Short", tool: "shortPosition" },
   { icon: TvTextIcon, label: "Text", shortcut: "L", tool: "text" },
+  { icon: TvTextIcon, label: "Callout", tool: "callout" },
+  { icon: TvTextIcon, label: "Flag", tool: "flag" },
+  { icon: TvTextIcon, label: "Icon", tool: "icon" },
+];
+
+const DRAWING_MARKERS = [
+  { label: "Star", value: "★" },
+  { label: "Flag", value: "⚑" },
+  { label: "Up", value: "↑" },
+  { label: "Down", value: "↓" },
+  { label: "Check", value: "✓" },
+  { label: "Warning", value: "!" },
+  { label: "Circle", value: "●" },
+  { label: "Diamond", value: "◆" },
 ];
 
 const MAGNET_MODES: Array<{
@@ -289,6 +343,9 @@ export function ChartToolbar({
   keepDrawingAfterPlacement = false,
   layoutName,
   layoutNames,
+  defaultLayoutName = null,
+  startupLayoutName = null,
+  workspaceRecoveryMessage = null,
   magnetMode,
   onAddIndicator,
   onCaptureChart,
@@ -297,8 +354,12 @@ export function ChartToolbar({
   onChartStyleChange,
   onClearDrawings,
   onDeleteLayout,
+  onDuplicateLayout,
   onDrawingToolChange,
   onLayoutNameChange,
+  onRenameLayout,
+  onSetDefaultLayout,
+  onSetStartupLayout,
   onKeepDrawingAfterPlacementChange,
   onLoadLayout,
   onMagnetModeChange,
@@ -306,6 +367,9 @@ export function ChartToolbar({
   onReplayTimeframeChange,
   onSaveLayout,
   onTimeframeChange,
+  onSymbolChange,
+  onSyncSettingsChange,
+  onDrawingMarkerChange,
   onRemoveIndicator,
   onToggleOrderOverlays,
   onSmoothCandlesChange,
@@ -320,6 +384,10 @@ export function ChartToolbar({
   settingsOpenSignal = 0,
   showDrawingRail = true,
   sourceTimeframe,
+  symbol = "MARKET",
+  symbolOptions = [],
+  syncSettings = DEFAULT_CHART_SYNC_SETTINGS,
+  drawingMarker = "★",
   timeframe,
   toolsOpen = true,
 }: Props) {
@@ -331,6 +399,13 @@ export function ChartToolbar({
   const [commandQuery, setCommandQuery] = useState("");
   const [customTimeframe, setCustomTimeframe] = useState("");
   const [drawingFavoritesOpen, setDrawingFavoritesOpen] = useState(false);
+  const [markerQuery, setMarkerQuery] = useState("");
+  const [selectedLayoutName, setSelectedLayoutName] = useState(() =>
+    layoutNames.includes(layoutName) ? layoutName : "",
+  );
+  const [symbolMenuOpen, setSymbolMenuOpen] = useState(false);
+  const [symbolQuery, setSymbolQuery] = useState(symbol);
+  const [symbolActiveIndex, setSymbolActiveIndex] = useState(0);
   const [drawingFavorites, setDrawingFavorites] = useState<FavoriteDrawingTool[]>(() =>
     loadCachedDrawingToolFavorites(),
   );
@@ -343,6 +418,7 @@ export function ChartToolbar({
     return loadActiveChartSettingsPresetName(presets) ?? "Default";
   });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const symbolInputRef = useRef<HTMLInputElement | null>(null);
   const indicatorCatalogId = useId();
   const commandRef = useRef<HTMLDivElement | null>(null);
   const drawingFavoritesRef = useRef<HTMLDivElement | null>(null);
@@ -378,6 +454,10 @@ export function ChartToolbar({
     const indicator = getIndicatorCatalogItem(kind);
     return indicator ? [indicator] : [];
   });
+  const visibleSymbolOptions = searchChartSymbols(symbolOptions, symbolQuery, 10);
+  const visibleMarkers = DRAWING_MARKERS.filter((marker) =>
+    `${marker.label} ${marker.value}`.toLowerCase().includes(markerQuery.trim().toLowerCase()),
+  );
 
   const closeIndicatorMenu = useCallback((restoreFocus = false) => {
     setIndicatorMenuOpen(false);
@@ -385,6 +465,68 @@ export function ChartToolbar({
       window.requestAnimationFrame(() => indicatorMenuTriggerRef.current?.focus());
     }
   }, []);
+
+  const closeSymbolMenu = useCallback((restoreValue = true) => {
+    setSymbolMenuOpen(false);
+    setSymbolActiveIndex(0);
+    if (restoreValue) setSymbolQuery(symbol);
+  }, [symbol]);
+
+  function selectSymbol(option: ChartSymbolOption) {
+    onSymbolChange?.(option.symbol);
+    setSymbolQuery(option.symbol);
+    setSymbolMenuOpen(false);
+    setSymbolActiveIndex(0);
+    window.requestAnimationFrame(() => symbolInputRef.current?.focus());
+  }
+
+  function handleSymbolKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSymbolMenu();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!symbolMenuOpen) setSymbolMenuOpen(true);
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setSymbolActiveIndex((index) =>
+        visibleSymbolOptions.length === 0
+          ? 0
+          : (index + direction + visibleSymbolOptions.length) % visibleSymbolOptions.length,
+      );
+      return;
+    }
+    if (event.key === "Enter") {
+      const selected = visibleSymbolOptions[symbolActiveIndex] ?? visibleSymbolOptions[0];
+      if (selected) {
+        event.preventDefault();
+        selectSymbol(selected);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!symbolMenuOpen) setSymbolQuery(symbol);
+  }, [symbol, symbolMenuOpen]);
+
+  useEffect(() => {
+    if (layoutNames.includes(layoutName)) setSelectedLayoutName(layoutName);
+    else if (selectedLayoutName && !layoutNames.includes(selectedLayoutName)) setSelectedLayoutName("");
+  }, [layoutName, layoutNames, selectedLayoutName]);
+
+  useEffect(() => {
+    function handleOpenSymbolSearch(event: Event) {
+      if (!onSymbolChange) return;
+      const detail = (event as CustomEvent<{ query?: string }>).detail;
+      setSymbolQuery(detail?.query ?? "");
+      setSymbolActiveIndex(0);
+      setSymbolMenuOpen(true);
+      window.requestAnimationFrame(() => symbolInputRef.current?.focus());
+    }
+    window.addEventListener("edgelab:open-symbol-search", handleOpenSymbolSearch);
+    return () => window.removeEventListener("edgelab:open-symbol-search", handleOpenSymbolSearch);
+  }, [onSymbolChange]);
 
   useEffect(() => {
     if (TIMEFRAMES.some((interval) => interval.id === timeframe)) {
@@ -701,6 +843,72 @@ export function ChartToolbar({
           </div>
         </div>
 
+        {onSymbolChange ? (
+          <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
+            <label className="sr-only" htmlFor="chart-symbol-search">Chart symbol</label>
+            <div className="chart-command-box">
+              <Search aria-hidden="true" size={15} className="text-cyan-200" />
+              <input
+                aria-activedescendant={
+                  symbolMenuOpen && visibleSymbolOptions[symbolActiveIndex]
+                    ? `chart-symbol-option-${visibleSymbolOptions[symbolActiveIndex].id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+                    : undefined
+                }
+                aria-autocomplete="list"
+                aria-controls="chart-symbol-results"
+                aria-expanded={symbolMenuOpen}
+                autoComplete="off"
+                id="chart-symbol-search"
+                onBlur={() => window.setTimeout(() => closeSymbolMenu(false), 120)}
+                onChange={(event) => {
+                  setSymbolQuery(event.target.value);
+                  setSymbolActiveIndex(0);
+                  setSymbolMenuOpen(true);
+                }}
+                onFocus={() => setSymbolMenuOpen(true)}
+                onKeyDown={handleSymbolKeyDown}
+                placeholder="Symbol or market"
+                ref={symbolInputRef}
+                role="combobox"
+                value={symbolQuery}
+              />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                {activePaneLabel}
+              </span>
+            </div>
+            {symbolMenuOpen ? (
+              <div className="chart-command-menu" id="chart-symbol-results" role="listbox">
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                  Symbols · ↑↓ choose · Enter apply · Esc close
+                </div>
+                {visibleSymbolOptions.length > 0 ? visibleSymbolOptions.map((option, index) => (
+                  <button
+                    aria-selected={index === symbolActiveIndex}
+                    className={index === symbolActiveIndex ? "chart-command-item chart-command-item-active" : "chart-command-item"}
+                    id={`chart-symbol-option-${option.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`}
+                    key={option.id}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setSymbolActiveIndex(index)}
+                    onClick={() => selectSymbol(option)}
+                    role="option"
+                    type="button"
+                  >
+                    <span className="min-w-0 flex-1 text-left">
+                      <strong className="block truncate text-sm text-slate-100">{option.label}</strong>
+                      <span className="block truncate text-xs text-slate-500">{option.name} · {option.assetClass}</span>
+                    </span>
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-cyan-200/70">{option.source}</span>
+                  </button>
+                )) : (
+                  <div className="px-4 py-5 text-center text-sm text-slate-500" role="status">
+                    No symbols match “{symbolQuery}”.
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div
           ref={commandRef}
           className="chart-command-box"
@@ -961,12 +1169,53 @@ export function ChartToolbar({
         )}
       </div>
 
+      {onSyncSettingsChange ? (
+        <div className="layout-manager-strip" aria-label="Chart synchronization controls">
+          <span className="study-manager-label">Sync panes</span>
+          {([
+            ["symbol", "Symbol"],
+            ["interval", "Interval"],
+            ["crosshair", "Crosshair"],
+            ["visibleRange", "Range"],
+            ["style", "Style"],
+            ["drawings", "Drawings"],
+          ] as const).map(([key, label]) => (
+            <button
+              aria-pressed={syncSettings[key]}
+              className={`studio-tool-button ${syncSettings[key] ? "studio-tool-button-active" : ""}`}
+              key={key}
+              onClick={() => onSyncSettingsChange({ ...syncSettings, [key]: !syncSettings[key] })}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+          <ThemedSelect
+            ariaLabel="Drawing synchronization mapping policy"
+            className="h-8 min-w-52"
+            disabled={!syncSettings.drawings}
+            onChange={(value) => onSyncSettingsChange({
+              ...syncSettings,
+              drawingMappingPolicy: value as DrawingMappingPolicy,
+            })}
+            options={[
+              { label: "Same symbol + interval", value: "same-symbol-timeframe" },
+              { label: "Map timestamp + price", value: "time-price" },
+            ]}
+            value={syncSettings.drawingMappingPolicy}
+          />
+        </div>
+      ) : null}
+
       <div className="layout-manager-strip">
         <span className="study-manager-label">Layouts</span>
         <ThemedSelect
           ariaLabel="Saved layouts"
           className="h-8 w-44"
-          onChange={onLoadLayout}
+          onChange={(name) => {
+            setSelectedLayoutName(name);
+            onLoadLayout(name);
+          }}
           options={
             layoutNames.length > 0
               ? [
@@ -975,7 +1224,7 @@ export function ChartToolbar({
                 ]
               : [{ disabled: true, label: "No saved layouts", value: "" }]
           }
-          value={layoutNames.includes(layoutName) ? layoutName : ""}
+          value={selectedLayoutName}
         />
         <input
           className="input-control h-8 max-w-56 text-xs"
@@ -993,13 +1242,59 @@ export function ChartToolbar({
         </button>
         <button
           className="studio-tool-button"
-          disabled={layoutNames.length === 0 || !layoutNames.includes(layoutName)}
-          onClick={() => onDeleteLayout(layoutName)}
+          disabled={!selectedLayoutName}
+          onClick={() => onDeleteLayout(selectedLayoutName)}
           type="button"
         >
           <Trash2 size={13} />
           Delete
         </button>
+        {onDuplicateLayout ? (
+          <button
+            className="studio-tool-button"
+            disabled={!selectedLayoutName}
+            onClick={() => onDuplicateLayout(selectedLayoutName)}
+            type="button"
+          >
+            Duplicate
+          </button>
+        ) : null}
+        {onRenameLayout ? (
+          <button
+            className="studio-tool-button"
+            disabled={!selectedLayoutName || selectedLayoutName === layoutName.trim()}
+            onClick={() => onRenameLayout(selectedLayoutName, layoutName)}
+            title="Type a new name, then choose Rename"
+            type="button"
+          >
+            Rename
+          </button>
+        ) : null}
+        {onSetDefaultLayout ? (
+          <button
+            aria-pressed={defaultLayoutName === selectedLayoutName}
+            className={`studio-tool-button ${defaultLayoutName === selectedLayoutName ? "studio-tool-button-active" : ""}`}
+            disabled={!selectedLayoutName}
+            onClick={() => onSetDefaultLayout(selectedLayoutName)}
+            type="button"
+          >
+            Default
+          </button>
+        ) : null}
+        {onSetStartupLayout ? (
+          <button
+            aria-pressed={startupLayoutName === selectedLayoutName}
+            className={`studio-tool-button ${startupLayoutName === selectedLayoutName ? "studio-tool-button-active" : ""}`}
+            disabled={!selectedLayoutName}
+            onClick={() => onSetStartupLayout(selectedLayoutName)}
+            type="button"
+          >
+            Startup
+          </button>
+        ) : null}
+        {workspaceRecoveryMessage ? (
+          <span className="text-xs text-amber-200" role="status">{workspaceRecoveryMessage}</span>
+        ) : null}
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1140,6 +1435,34 @@ export function ChartToolbar({
             )}
           </div>
         </div>
+
+        {(drawingTool === "icon" || drawingTool === "flag") && onDrawingMarkerChange ? (
+          <div className="flex min-w-48 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1" role="group" aria-label="Drawing marker library">
+            <input
+              aria-label="Search drawing markers"
+              className="input-control h-8 w-28 text-xs"
+              onChange={(event) => setMarkerQuery(event.target.value)}
+              placeholder="Search markers"
+              value={markerQuery}
+            />
+            {visibleMarkers.map((marker) => (
+              <button
+                aria-label={`Use ${marker.label} marker`}
+                aria-pressed={drawingMarker === marker.value}
+                className={`studio-tool-button h-8 min-w-8 ${drawingMarker === marker.value ? "studio-tool-button-active" : ""}`}
+                key={marker.label}
+                onClick={() => onDrawingMarkerChange(marker.value)}
+                title={marker.label}
+                type="button"
+              >
+                {marker.value}
+              </button>
+            ))}
+            {visibleMarkers.length === 0 ? (
+              <span className="px-2 text-xs text-slate-500">No markers</span>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="magnet-mode-strip" aria-label="Magnet mode">
           <span className="magnet-mode-label">

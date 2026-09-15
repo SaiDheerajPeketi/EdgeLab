@@ -1,5 +1,9 @@
 import {
   Activity,
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpToLine,
   CandlestickChart,
   Eye,
   EyeOff,
@@ -7,11 +11,13 @@ import {
   LockKeyhole,
   PanelRightClose,
   Trash2,
+  GripVertical,
   UnlockKeyhole,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
+  TvCursorIcon,
   TvFibIcon,
   TvHorizontalLineIcon,
   TvLongPositionIcon,
@@ -45,6 +51,8 @@ type Props = {
   onClearDrawings: () => void;
   onCollapse: () => void;
   onDeleteDrawing: (drawingId: string) => void;
+  onMoveDrawingLayer?: (drawingId: string, action: "back" | "backward" | "forward" | "front") => void;
+  onReorderDrawing?: (sourceId: string, targetId: string) => void;
   onRemoveIndicator: (instanceId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicatorVisibility: (instanceId: string) => void;
@@ -61,14 +69,36 @@ type Props = {
 
 const drawingIcons: Record<ChartDrawing["tool"], ChartToolIcon> = {
   fib: TvFibIcon,
+  fibExtension: TvFibIcon,
+  fibChannel: TvFibIcon,
+  fibTime: TvFibIcon,
+  fibFan: TvFibIcon,
   horizontal: TvHorizontalLineIcon,
+  horizontalRay: TvHorizontalLineIcon,
   vertical: TvVerticalLineIcon,
   longPosition: TvLongPositionIcon,
   measure: TvMeasureIcon,
+  quickMeasure: TvMeasureIcon,
+  eraser: TvCursorIcon,
   rectangle: TvRectangleIcon,
+  ellipse: TvRectangleIcon,
+  triangle: TvRectangleIcon,
   shortPosition: TvShortPositionIcon,
   text: TvTextIcon,
+  callout: TvTextIcon,
+  flag: TvTextIcon,
+  icon: TvTextIcon,
   trendline: TvTrendLineIcon,
+  ray: TvTrendLineIcon,
+  extendedLine: TvTrendLineIcon,
+  segment: TvTrendLineIcon,
+  angle: TvTrendLineIcon,
+  parallelChannel: TvTrendLineIcon,
+  chartPattern: TvTrendLineIcon,
+  elliottWave: TvTrendLineIcon,
+  harmonicPattern: TvTrendLineIcon,
+  brush: TvTrendLineIcon,
+  arrow: TvTrendLineIcon,
 };
 
 const FALLBACK_SETTING: IndicatorSettings = {
@@ -83,6 +113,8 @@ export function ChartObjectsPanel({
   onClearDrawings,
   onCollapse,
   onDeleteDrawing,
+  onMoveDrawingLayer,
+  onReorderDrawing,
   onRemoveIndicator,
   onSelectDrawing,
   onToggleIndicatorVisibility,
@@ -242,7 +274,26 @@ export function ChartObjectsPanel({
                 <div
                   className={`chart-object-row drawing-object-row object-row-with-hover ${drawing.visible === false ? "opacity-55" : ""} ${selectedDrawingId === drawing.id ? "chart-object-row-selected" : ""}`}
                   key={drawing.id}
+                  draggable={!drawing.locked && Boolean(onReorderDrawing)}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("application/x-edgelab-drawing", drawing.id);
+                  }}
+                  onDragOver={(event) => {
+                    if (onReorderDrawing) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const sourceId = event.dataTransfer.getData("application/x-edgelab-drawing");
+                    if (sourceId && sourceId !== drawing.id) onReorderDrawing?.(sourceId, drawing.id);
+                  }}
                   onClick={() => onSelectDrawing(drawing.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectDrawing(drawing.id);
+                    }
+                  }}
                   role="button"
                   tabIndex={0}
                 >
@@ -277,8 +328,32 @@ export function ChartObjectsPanel({
                     </span>
                   </span>
                   <div className="drawing-row-actions">
+                    {onReorderDrawing ? <GripVertical aria-hidden="true" size={13} /> : null}
                     {drawing.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
                     {drawing.locked ? <LockKeyhole size={13} /> : null}
+                    {onMoveDrawingLayer && !drawing.locked ? (
+                      <span className="flex items-center gap-0.5" role="group" aria-label={`Layer order for ${drawing.label || drawing.tool}`}>
+                        {([
+                          ["back", ArrowDownToLine, "Send to back"],
+                          ["backward", ArrowDown, "Move backward"],
+                          ["forward", ArrowUp, "Move forward"],
+                          ["front", ArrowUpToLine, "Bring to front"],
+                        ] as const).map(([action, ActionIcon, label]) => (
+                          <button
+                            aria-label={`${label}: ${drawing.label || drawing.tool}`}
+                            className="grid h-6 w-6 place-items-center rounded text-slate-400 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300"
+                            key={action}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onMoveDrawingLayer(drawing.id, action);
+                            }}
+                            type="button"
+                          >
+                            <ActionIcon size={11} />
+                          </button>
+                        ))}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               );

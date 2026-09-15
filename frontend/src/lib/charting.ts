@@ -72,14 +72,92 @@ export type DrawingTool =
   | "cursor"
   | "crosshair"
   | "trendline"
+  | "ray"
+  | "extendedLine"
+  | "segment"
+  | "angle"
+  | "horizontalRay"
+  | "parallelChannel"
   | "horizontal"
   | "vertical"
   | "rectangle"
+  | "ellipse"
+  | "triangle"
   | "fib"
+  | "fibExtension"
+  | "fibChannel"
+  | "fibTime"
+  | "fibFan"
+  | "chartPattern"
+  | "elliottWave"
+  | "harmonicPattern"
+  | "brush"
+  | "arrow"
   | "measure"
+  | "quickMeasure"
+  | "eraser"
   | "longPosition"
   | "shortPosition"
-  | "text";
+  | "text"
+  | "callout"
+  | "flag"
+  | "icon";
+
+export const DRAWING_TOOL_IDS: DrawingTool[] = [
+  "cursor",
+  "crosshair",
+  "trendline",
+  "ray",
+  "extendedLine",
+  "segment",
+  "angle",
+  "horizontalRay",
+  "parallelChannel",
+  "horizontal",
+  "vertical",
+  "rectangle",
+  "ellipse",
+  "triangle",
+  "fib",
+  "fibExtension",
+  "fibChannel",
+  "fibTime",
+  "fibFan",
+  "chartPattern",
+  "elliottWave",
+  "harmonicPattern",
+  "brush",
+  "arrow",
+  "measure",
+  "quickMeasure",
+  "eraser",
+  "longPosition",
+  "shortPosition",
+  "text",
+  "callout",
+  "flag",
+  "icon",
+];
+
+export function isDrawingTool(value: unknown): value is DrawingTool {
+  return DRAWING_TOOL_IDS.includes(value as DrawingTool);
+}
+
+export function drawingRequiredPoints(tool: DrawingTool): number | null {
+  if (tool === "cursor" || tool === "crosshair" || tool === "eraser") return null;
+  if (["horizontal", "vertical", "text", "flag", "icon"].includes(tool)) return 1;
+  if (["angle", "parallelChannel", "fibExtension", "fibChannel", "fibFan", "triangle"].includes(tool)) return 3;
+  if (tool === "chartPattern") return 4;
+  if (tool === "elliottWave" || tool === "harmonicPattern") return 5;
+  if (tool === "brush") return null;
+  return 2;
+}
+
+export function isFibDrawingTool(
+  tool: DrawingTool | ChartDrawing["tool"],
+): tool is Extract<DrawingTool, "fib" | "fibExtension" | "fibChannel" | "fibTime" | "fibFan"> {
+  return ["fib", "fibExtension", "fibChannel", "fibTime", "fibFan"].includes(tool);
+}
 export type DrawingLineStyle = "solid" | "dashed" | "dotted";
 export type MagnetMode = "off" | "weak" | "strong";
 export type IndicatorSettings = {
@@ -142,8 +220,10 @@ export type ChartDrawing = {
   rewardColor?: string;
   riskColor?: string;
   label?: string;
+  marker?: string;
   labelBackgroundOpacity?: number;
   createdAt: string;
+  syncKey?: string;
   visible?: boolean;
 };
 

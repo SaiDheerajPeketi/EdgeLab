@@ -74,8 +74,24 @@ import {
   nextIndicatorInstanceColor,
   normalizeChartTimeframe,
   normalizeFibLevels,
+  isDrawingTool,
   TIMEFRAMES,
 } from "./lib/charting";
+import {
+  DEFAULT_CHART_SYNC_SETTINGS,
+  buildChartSymbolUniverse,
+  chartSymbolsEqual,
+  chartSymbolTypeaheadQuery,
+  mapDrawingToPane,
+  nextWorkspaceRevision,
+  normalizeChartCandles,
+  normalizeChartSymbol,
+  sanitizeChartSyncSettings,
+  shouldMapDrawingToPane,
+  type ChartSyncSettings,
+  type SyncedChartCrosshair,
+  type SyncedChartVisibleRange,
+} from "./lib/chartWorkspace";
 import {
   DEFAULT_CHART_PANE_LAYOUT,
   chartPaneLayoutById,
@@ -143,6 +159,7 @@ const DRAWING_UNDO_LIMIT = 50;
 const DRAWING_UNDO_COALESCE_MS = 350;
 const TIMEFRAME_SHORTCUT_CLEAR_MS = 1200;
 const CHART_SETTINGS_DEFAULTS_VERSION = 2;
+const CHART_WORKSPACE_SCHEMA_VERSION = 2;
 const TRADE_REPLAY_CONTEXT_BARS = 30;
 const STALE_SINGLE_HORIZONTAL_PURGE_KEY =
   "edgelab.chart-layout-cleared-single-horizontal.v1";
@@ -282,6 +299,8 @@ type ChartPaneState = {
   magnetMode: MagnetMode;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
+  symbol: string;
+  dataSourceId: string | null;
   timeframe: ChartTimeframe;
 };
 const VALID_LEGACY_INDICATORS: ChartIndicatorId[] = [
@@ -454,8 +473,25 @@ export function WorkspaceApp() {
     loadCachedChartInteractionPreferences,
   );
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
-  const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
+  const [layoutName, setLayoutName] = useState(() =>
+    loadChartLayoutRecords().find((record) => record.isStartup)?.name ?? loadActiveLayoutName(),
+  );
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
+  const [defaultLayoutName, setDefaultLayoutName] = useState<string | null>(() =>
+    loadChartLayoutRecords().find((record) => record.isDefault)?.name ?? null,
+  );
+  const [startupLayoutName, setStartupLayoutName] = useState<string | null>(() =>
+    loadChartLayoutRecords().find((record) => record.isStartup)?.name ?? null,
+  );
+  const [workspaceRecoveryMessage, setWorkspaceRecoveryMessage] = useState<string | null>(null);
+  const [chartPersistenceHydrated, setChartPersistenceHydrated] = useState(false);
+  const [chartSyncSettings, setChartSyncSettings] = useState<ChartSyncSettings>(() =>
+    sanitizeChartSyncSettings(loadChartLayout()?.syncSettings),
+  );
+  const [syncedCrosshair, setSyncedCrosshair] = useState<SyncedChartCrosshair | null>(null);
+  const [syncedVisibleRange, setSyncedVisibleRange] = useState<SyncedChartVisibleRange | null>(null);
+  const [drawingMarker, setDrawingMarker] = useState("★");
+  const workspaceRevisionRef = useRef(loadChartLayout()?.revision ?? 0);
   const sourceTimeframe = toChartTimeframe(state?.session.timeframe);
   const [chartPaneLayout, setChartPaneLayout] = useState<ChartPaneLayoutId>(() =>
     sanitizeChartPaneLayout(loadChartLayout()?.paneLayout),
@@ -473,6 +509,10 @@ export function WorkspaceApp() {
   const visibleChartPanes = chartPanes.slice(0, activeChartPaneCount);
   const isMultiChartLayout = visibleChartPanes.length > 1;
   const chartPaneLayoutDefinition = chartPaneLayoutById(chartPaneLayout);
+  const chartSymbolOptions = useMemo(
+    () => buildChartSymbolUniverse(datasets, state?.session.symbol),
+    [datasets, state?.session.symbol],
+  );
   const activeChartPaneLabel = `Pane ${activeChartPaneIndex + 1}`;
   const timeframe = activeChartPane.timeframe;
   const chartStyle = activeChartPane.chartStyle;
@@ -507,14 +547,18 @@ export function WorkspaceApp() {
     replayTimeframeOptions[0]?.value ??
     effectiveSourceFallbackTimeframe(sourceTimeframe);
   const replayStepBars = getReplayStepBars(normalizedReplayTimeframe, sourceTimeframe);
-  const visibleBars = useMemo(() => {
+  const normalizedVisibleData = useMemo(() => {
     const currentOffset = state?.session.current_offset;
-    if (currentOffset == null) {
-      return bars;
-    }
-    const visibleCount = Math.max(0, Math.min(bars.length, currentOffset - barOffset + 1));
-    return bars.slice(0, visibleCount);
-  }, [barOffset, bars, state?.session.current_offset]);
+    const visibleCount = currentOffset == null
+      ? bars.length
+      : Math.max(0, Math.min(bars.length, currentOffset - barOffset + 1));
+    return normalizeChartCandles(
+      bars.slice(0, visibleCount),
+      getTimeframeSeconds(sourceTimeframe ?? "1m"),
+      { live: false },
+    );
+  }, [barOffset, bars, sourceTimeframe, state?.session.current_offset]);
+  const visibleBars = normalizedVisibleData.bars;
   const playbackStepBars = replayStepBars;
   const playbackTickMs = Math.max(
     16,
@@ -545,11 +589,23 @@ export function WorkspaceApp() {
   }
 
   function setTimeframe(action: SetStateAction<ChartTimeframe>) {
-    setPaneField("timeframe", action);
+    const next = resolveStateAction(action, activeChartPane.timeframe);
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => current.map((pane) =>
+      pane.id === activeChartPane.id || (chartSyncSettings.interval && visibleIds.has(pane.id))
+        ? { ...pane, timeframe: next }
+        : pane,
+    ));
   }
 
   function setChartStyle(action: SetStateAction<ChartStyle>) {
-    setPaneField("chartStyle", action);
+    const next = resolveStateAction(action, activeChartPane.chartStyle);
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => current.map((pane) =>
+      pane.id === activeChartPane.id || (chartSyncSettings.style && visibleIds.has(pane.id))
+        ? { ...pane, chartStyle: next, smoothCandles: next === "heikinAshi" }
+        : pane,
+    ));
   }
 
   function applyChartSettingsToCurrentScope(
@@ -557,17 +613,13 @@ export function WorkspaceApp() {
   ) {
     const resolveSettings = (previous: ChartVisualSettings) =>
       sanitizeChartVisualSettings(resolveStateAction(action, previous));
-    if (isMultiChartLayout) {
-      updateActiveChartPane((pane) => ({
-        ...pane,
-        chartSettings: resolveSettings(pane.chartSettings),
-      }));
-      return;
-    }
-    updateChartPane(activeChartPane.id, (pane) => ({
-      ...pane,
-      chartSettings: resolveSettings(pane.chartSettings),
-    }));
+    const next = resolveSettings(activeChartPane.chartSettings);
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => current.map((pane) =>
+      pane.id === activeChartPane.id || (chartSyncSettings.style && visibleIds.has(pane.id))
+        ? { ...pane, chartSettings: next }
+        : pane,
+    ));
   }
 
   function setIndicatorInstances(action: SetStateAction<ChartIndicatorInstance[]>) {
@@ -591,7 +643,25 @@ export function WorkspaceApp() {
   }
 
   function setSmoothCandles(action: SetStateAction<boolean>) {
-    setPaneField("smoothCandles", action);
+    const next = resolveStateAction(action, activeChartPane.smoothCandles);
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => current.map((pane) =>
+      pane.id === activeChartPane.id || (chartSyncSettings.style && visibleIds.has(pane.id))
+        ? { ...pane, smoothCandles: next }
+        : pane,
+    ));
+  }
+
+  function changeChartSymbol(symbol: string) {
+    const option = chartSymbolOptions.find((item) => chartSymbolsEqual(item.symbol, symbol));
+    const nextSymbol = option?.symbol ?? symbol.trim().toUpperCase();
+    if (!normalizeChartSymbol(nextSymbol)) return;
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => current.map((pane) =>
+      pane.id === activeChartPane.id || (chartSyncSettings.symbol && visibleIds.has(pane.id))
+        ? { ...pane, symbol: nextSymbol, dataSourceId: option?.sourceId ?? null }
+        : pane,
+    ));
   }
 
   function changeDrawingTool(tool: DrawingTool) {
@@ -746,12 +816,16 @@ export function WorkspaceApp() {
       if (saved) {
         applyChartLayout(saved);
       }
-      setLayoutName(loadActiveLayoutName());
-      setAvailableLayouts(loadSavedLayoutNames());
+      const hydratedRecords = loadChartLayoutRecords();
+      setLayoutName(hydratedRecords.find((record) => record.isStartup)?.name ?? loadActiveLayoutName());
+      setAvailableLayouts(hydratedRecords.map((record) => record.name));
+      setDefaultLayoutName(hydratedRecords.find((record) => record.isDefault)?.name ?? null);
+      setStartupLayoutName(hydratedRecords.find((record) => record.isStartup)?.name ?? null);
       const activeSettingsPreset = loadActiveChartSettingsPreset();
       if (activeSettingsPreset) {
         applyChartSettingsToCurrentScope(activeSettingsPreset.settings);
       }
+      setChartPersistenceHydrated(true);
 
       const url = new URL(window.location.href);
       const requestedCopyId = url.searchParams.get("workspaceCopy");
@@ -797,6 +871,7 @@ export function WorkspaceApp() {
       setSharedCopyResolving(false);
     }).catch(() => {
       if (active) {
+        setChartPersistenceHydrated(true);
         setSharedCopyResolving(false);
         setSharedCopyNotice("The copied snapshot could not be loaded from this account.");
       }
@@ -804,7 +879,10 @@ export function WorkspaceApp() {
     const unsubscribeLayouts = subscribeAppStorageItem<unknown>(
       CHART_LAYOUTS_STORAGE_KEY,
       () => {
-        setAvailableLayouts(loadSavedLayoutNames());
+        const records = loadChartLayoutRecords();
+        setAvailableLayouts(records.map((record) => record.name));
+        setDefaultLayoutName(records.find((record) => record.isDefault)?.name ?? null);
+        setStartupLayoutName(records.find((record) => record.isStartup)?.name ?? null);
       },
     );
     const unsubscribeActiveLayout = subscribeAppStorageItem<unknown>(
@@ -821,10 +899,34 @@ export function WorkspaceApp() {
   }, []);
 
   useEffect(() => {
+    if (!chartPersistenceHydrated || !availableLayouts.includes(normalizeLayoutName(layoutName))) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      persistWorkspaceRecord(normalizeLayoutName(layoutName), buildChartLayoutPayload(drawingsRef.current));
+      setChartLayoutSavedAt(Date.now());
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    chartPersistenceHydrated,
+    chartPaneLayout,
+    chartPanes,
+    chartSyncSettings,
+    fullscreenOrderPanelOpen,
+    layersPanelOpen,
+    leftPaneOpen,
+    layoutName,
+    sidebarCollapsed,
+    workspacePanel,
+  ]);
+
+  useEffect(() => {
     if (sourceTimeframe) {
       setChartPanes((current) =>
         current.map((pane, index) => ({
           ...pane,
+          symbol: index === 0 && state?.session.symbol ? state.session.symbol : pane.symbol,
+          dataSourceId: index === 0 ? null : pane.dataSourceId,
           timeframe:
             index === 0
               ? sourceTimeframe
@@ -833,7 +935,7 @@ export function WorkspaceApp() {
       );
       setReplayTimeframe(sourceTimeframe);
     }
-  }, [state?.session.id, sourceTimeframe]);
+  }, [state?.session.id, state?.session.symbol, sourceTimeframe]);
 
   useEffect(() => {
     let active = true;
@@ -1053,6 +1155,17 @@ export function WorkspaceApp() {
       }
 
       if (handleTimeframeShortcut(event)) {
+        return;
+      }
+
+      const symbolSearchQuery = chartSymbolTypeaheadQuery(event);
+      if (symbolSearchQuery != null) {
+        event.preventDefault();
+        setChartSettingsPanelOpen(false);
+        setChartToolsOpen(true);
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("edgelab:open-symbol-search", { detail: { query: symbolSearchQuery } }));
+        }, 0);
         return;
       }
 
@@ -1525,8 +1638,20 @@ export function WorkspaceApp() {
   }
 
   function addDrawing(drawing: ChartDrawing) {
-    commitDrawingsChange([...drawingsRef.current, drawing]);
-    setSelectedDrawingId(drawing.id);
+    const synchronizedDrawing = { ...drawing, syncKey: drawing.syncKey ?? drawing.id };
+    commitDrawingsChange([...drawingsRef.current, synchronizedDrawing]);
+    setSelectedDrawingId(synchronizedDrawing.id);
+    if (chartSyncSettings.drawings) {
+      const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+      setChartPanes((current) => current.map((pane) => {
+        if (
+          pane.id === activeChartPane.id ||
+          !visibleIds.has(pane.id) ||
+          !shouldMapDrawingToPane(chartSyncSettings.drawingMappingPolicy, activeChartPane, pane)
+        ) return pane;
+        return { ...pane, drawings: sanitizeDrawings([...pane.drawings, mapDrawingToPane(synchronizedDrawing, pane.id)]) };
+      }));
+    }
   }
 
   function addDrawingToPane(paneId: string, drawing: ChartDrawing) {
@@ -1534,13 +1659,25 @@ export function WorkspaceApp() {
       addDrawing(drawing);
       return;
     }
+    const synchronizedDrawing = { ...drawing, syncKey: drawing.syncKey ?? drawing.id };
     setActiveChartPaneId(paneId);
-    setSelectedDrawingId(drawing.id);
-    const pane = chartPanes.find((item) => item.id === paneId);
-    updateChartPane(paneId, (currentPane) => ({
-      ...currentPane,
-      drawings: sanitizeDrawings([...(pane?.drawings ?? []), drawing]),
-    }));
+    setSelectedDrawingId(synchronizedDrawing.id);
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => {
+      const sourcePane = current.find((pane) => pane.id === paneId);
+      if (!sourcePane) return current;
+      return current.map((pane) => {
+        if (pane.id === paneId) {
+          return { ...pane, drawings: sanitizeDrawings([...pane.drawings, synchronizedDrawing]) };
+        }
+        if (
+          !chartSyncSettings.drawings ||
+          !visibleIds.has(pane.id) ||
+          !shouldMapDrawingToPane(chartSyncSettings.drawingMappingPolicy, sourcePane, pane)
+        ) return pane;
+        return { ...pane, drawings: sanitizeDrawings([...pane.drawings, mapDrawingToPane(synchronizedDrawing, pane.id)]) };
+      });
+    });
   }
 
   function updateDrawing(updatedDrawing: ChartDrawing, coalesceUndo = false) {
@@ -1550,6 +1687,24 @@ export function WorkspaceApp() {
       ),
       { coalesceUndo },
     );
+    if (chartSyncSettings.drawings && updatedDrawing.syncKey) {
+      const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+      setChartPanes((current) => current.map((pane) => {
+        if (
+          pane.id === activeChartPane.id ||
+          !visibleIds.has(pane.id) ||
+          !shouldMapDrawingToPane(chartSyncSettings.drawingMappingPolicy, activeChartPane, pane)
+        ) return pane;
+        return {
+          ...pane,
+          drawings: pane.drawings.map((drawing) =>
+            drawing.syncKey === updatedDrawing.syncKey
+              ? { ...mapDrawingToPane(updatedDrawing, pane.id), id: drawing.id }
+              : drawing,
+          ),
+        };
+      }));
+    }
   }
 
   function updateDrawingForPane(
@@ -1561,14 +1716,23 @@ export function WorkspaceApp() {
       updateDrawing(updatedDrawing, coalesceUndo);
       return;
     }
-    updateChartPane(paneId, (pane) => ({
-      ...pane,
-      drawings: sanitizeDrawings(
-        pane.drawings.map((drawing) =>
-          drawing.id === updatedDrawing.id ? updatedDrawing : drawing,
-        ),
-      ),
-    }));
+    const visibleIds = new Set(visibleChartPanes.map((pane) => pane.id));
+    setChartPanes((current) => {
+      const sourcePane = current.find((pane) => pane.id === paneId);
+      if (!sourcePane) return current;
+      return current.map((pane) => {
+        if (pane.id === paneId) {
+          return { ...pane, drawings: sanitizeDrawings(pane.drawings.map((drawing) => drawing.id === updatedDrawing.id ? updatedDrawing : drawing)) };
+        }
+        if (
+          !chartSyncSettings.drawings ||
+          !updatedDrawing.syncKey ||
+          !visibleIds.has(pane.id) ||
+          !shouldMapDrawingToPane(chartSyncSettings.drawingMappingPolicy, sourcePane, pane)
+        ) return pane;
+        return { ...pane, drawings: pane.drawings.map((drawing) => drawing.syncKey === updatedDrawing.syncKey ? { ...mapDrawingToPane(updatedDrawing, pane.id), id: drawing.id } : drawing) };
+      });
+    });
   }
 
   function undoLastDrawingChange() {
@@ -1624,6 +1788,12 @@ export function WorkspaceApp() {
       return;
     }
     commitDrawingsChange(drawingsRef.current.filter((drawing) => drawing.id !== drawingId));
+    if (chartSyncSettings.drawings && targetDrawing.syncKey) {
+      setChartPanes((current) => current.map((pane) => pane.id === activeChartPane.id
+        ? pane
+        : { ...pane, drawings: pane.drawings.filter((drawing) => drawing.syncKey !== targetDrawing.syncKey) },
+      ));
+    }
     setSelectedDrawingId(null);
   }
 
@@ -1632,15 +1802,15 @@ export function WorkspaceApp() {
       deleteDrawing(drawingId);
       return;
     }
-    updateChartPane(paneId, (pane) => {
-      const targetDrawing = pane.drawings.find((drawing) => drawing.id === drawingId);
-      if (!targetDrawing || targetDrawing.locked) {
-        return pane;
-      }
-      return {
-        ...pane,
-        drawings: pane.drawings.filter((drawing) => drawing.id !== drawingId),
-      };
+    setChartPanes((current) => {
+      const sourcePane = current.find((pane) => pane.id === paneId);
+      const targetDrawing = sourcePane?.drawings.find((drawing) => drawing.id === drawingId);
+      if (!sourcePane || !targetDrawing || targetDrawing.locked) return current;
+      return current.map((pane) => {
+        if (pane.id === paneId) return { ...pane, drawings: pane.drawings.filter((drawing) => drawing.id !== drawingId) };
+        if (!chartSyncSettings.drawings || !targetDrawing.syncKey) return pane;
+        return { ...pane, drawings: pane.drawings.filter((drawing) => drawing.syncKey !== targetDrawing.syncKey) };
+      });
     });
     if (selectedDrawingId === drawingId) {
       setSelectedDrawingId(null);
@@ -1653,6 +1823,37 @@ export function WorkspaceApp() {
       return;
     }
     deleteDrawing(drawing.id);
+  }
+
+  function reorderDrawing(sourceId: string, targetId: string) {
+    const sourceIndex = drawingsRef.current.findIndex((drawing) => drawing.id === sourceId);
+    const targetIndex = drawingsRef.current.findIndex((drawing) => drawing.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    const next = [...drawingsRef.current];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    commitDrawingsChange(next);
+  }
+
+  function moveDrawingLayer(
+    drawingId: string,
+    action: "back" | "backward" | "forward" | "front",
+  ) {
+    const currentIndex = drawingsRef.current.findIndex((drawing) => drawing.id === drawingId);
+    if (currentIndex < 0 || drawingsRef.current[currentIndex].locked) return;
+    const targetIndex =
+      action === "back"
+        ? 0
+        : action === "front"
+          ? drawingsRef.current.length - 1
+          : action === "backward"
+            ? Math.max(0, currentIndex - 1)
+            : Math.min(drawingsRef.current.length - 1, currentIndex + 1);
+    if (targetIndex === currentIndex) return;
+    const next = [...drawingsRef.current];
+    const [moved] = next.splice(currentIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    commitDrawingsChange(next);
   }
 
   function toggleChartFullscreen() {
@@ -1695,10 +1896,7 @@ export function WorkspaceApp() {
   function saveChartLayout() {
     const payload = buildChartLayoutPayload(drawings);
     const name = normalizeLayoutName(layoutName);
-    void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, payload);
-    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, name);
-    setLayoutName(name);
-    setAvailableLayouts(saveNamedChartLayout(name, payload));
+    persistWorkspaceRecord(name, payload);
     setChartLayoutSavedAt(Date.now());
   }
 
@@ -1708,11 +1906,22 @@ export function WorkspaceApp() {
     }
     const payload = buildChartLayoutPayload(nextDrawings);
     const name = normalizeLayoutName(layoutName);
-    void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, payload);
-    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, name);
-    setLayoutName(name);
-    setAvailableLayouts(saveNamedChartLayout(name, payload));
+    persistWorkspaceRecord(name, payload);
     setChartLayoutSavedAt(Date.now());
+  }
+
+  function persistWorkspaceRecord(name: string, payload: StoredChartLayout) {
+    const result = saveNamedChartLayout(name, payload, workspaceRevisionRef.current);
+    workspaceRevisionRef.current = result.record.revision;
+    void saveAppStorageItem(CHART_LAYOUT_STORAGE_KEY, result.record.layout);
+    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.record.name);
+    setLayoutName(result.record.name);
+    setAvailableLayouts(result.names);
+    setWorkspaceRecoveryMessage(
+      result.conflict
+        ? `A newer revision was preserved. Your edits were recovered as “${result.record.name}”.`
+        : null,
+    );
   }
 
   function buildChartLayoutPayload(nextDrawings: ChartDrawing[]): StoredChartLayout {
@@ -1732,6 +1941,8 @@ export function WorkspaceApp() {
       paneLayout: chartPaneLayout,
       panes,
       replayTimeframe: normalizedReplayTimeframe,
+      revision: workspaceRevisionRef.current,
+      schemaVersion: CHART_WORKSPACE_SCHEMA_VERSION,
       settingsDefaultsVersion: CHART_SETTINGS_DEFAULTS_VERSION,
       showOrderOverlays: activePane?.showOrderOverlays ?? true,
       smoothCandles: activePane?.smoothCandles ?? false,
@@ -1739,6 +1950,17 @@ export function WorkspaceApp() {
         sanitizeTimeframe(activePane?.timeframe),
         sourceTimeframe,
       ),
+      syncSettings: sanitizeChartSyncSettings(chartSyncSettings),
+      panelState: {
+        activePanel: workspacePanel,
+        layersPanelOpen,
+        orderPanelOpen: leftPaneOpen || fullscreenOrderPanelOpen,
+        sidebarCollapsed,
+      },
+      watchlistSelection: {
+        id: null,
+        symbol: activePane?.symbol ?? state?.session.symbol ?? "MARKET",
+      },
     };
   }
 
@@ -1748,6 +1970,7 @@ export function WorkspaceApp() {
       return;
     }
     applyChartLayout(record.layout);
+    workspaceRevisionRef.current = record.revision;
     void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, record.name);
     setLayoutName(record.name);
     setChartLayoutSavedAt(Date.now());
@@ -1756,10 +1979,57 @@ export function WorkspaceApp() {
   function deleteNamedChartLayout(name: string) {
     const nextNames = deleteChartLayoutRecord(name);
     setAvailableLayouts(nextNames);
+    if (normalizeLayoutName(defaultLayoutName ?? "") === normalizeLayoutName(name)) setDefaultLayoutName(null);
+    if (normalizeLayoutName(startupLayoutName ?? "") === normalizeLayoutName(name)) setStartupLayoutName(null);
     if (normalizeLayoutName(name) === normalizeLayoutName(layoutName)) {
       setLayoutName(nextNames[0] ?? "Default");
       void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, nextNames[0] ?? null);
     }
+  }
+
+  function duplicateNamedChartLayout(name: string) {
+    const record = loadChartLayoutRecord(name);
+    if (!record) return;
+    const existing = new Set(loadSavedLayoutNames().map((item) => normalizeLayoutName(item)));
+    let copyName = normalizeLayoutName(`${record.name} copy`);
+    let suffix = 2;
+    while (existing.has(copyName)) copyName = normalizeLayoutName(`${record.name} copy ${suffix++}`);
+    workspaceRevisionRef.current = 0;
+    const result = saveNamedChartLayout(copyName, { ...record.layout, revision: 0 }, 0);
+    workspaceRevisionRef.current = result.record.revision;
+    setAvailableLayouts(result.names);
+    setLayoutName(result.record.name);
+    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, result.record.name);
+    applyChartLayout(result.record.layout);
+  }
+
+  function renameNamedChartLayout(from: string, to: string) {
+    const record = loadChartLayoutRecord(from);
+    const nextName = normalizeLayoutName(to);
+    if (!record || normalizeLayoutName(from) === nextName || loadChartLayoutRecord(nextName)) return;
+    const records = loadChartLayoutRecords().map((item) =>
+      normalizeLayoutName(item.name) === normalizeLayoutName(from)
+        ? { ...item, name: nextName, updatedAt: new Date().toISOString() }
+        : item,
+    );
+    void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, records);
+    void saveAppStorageItem(ACTIVE_CHART_LAYOUT_STORAGE_KEY, nextName);
+    setAvailableLayouts(records.map((item) => item.name));
+    setLayoutName(nextName);
+    if (record.isDefault) setDefaultLayoutName(nextName);
+    if (record.isStartup) setStartupLayoutName(nextName);
+  }
+
+  function setNamedLayoutFlag(name: string, flag: "isDefault" | "isStartup") {
+    const normalized = normalizeLayoutName(name);
+    const records = loadChartLayoutRecords().map((record) => ({
+      ...record,
+      [flag]: normalizeLayoutName(record.name) === normalized,
+    }));
+    void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, records);
+    setAvailableLayouts(records.map((record) => record.name));
+    if (flag === "isDefault") setDefaultLayoutName(normalized);
+    else setStartupLayoutName(normalized);
   }
 
   function applyChartLayout(layout: Partial<StoredChartLayout>) {
@@ -1771,6 +2041,14 @@ export function WorkspaceApp() {
     setChartPanes(nextPanes);
     setActiveChartPaneId(nextActivePane?.id ?? "chart-pane-1");
     setReplayTimeframe(sanitizeTimeframe(layout.replayTimeframe ?? nextActivePane?.timeframe));
+    setChartSyncSettings(sanitizeChartSyncSettings(layout.syncSettings));
+    workspaceRevisionRef.current = Math.max(0, Math.floor(layout.revision ?? 0));
+    if (layout.panelState) {
+      setWorkspacePanel(layout.panelState.activePanel);
+      setLayersPanelOpen(layout.panelState.layersPanelOpen === true);
+      setLeftPaneOpen(layout.panelState.orderPanelOpen === true);
+      setSidebarCollapsed(layout.panelState.sidebarCollapsed === true);
+    }
     drawingsRef.current = nextActivePane?.drawings ?? [];
     resetDrawingUndoHistory();
     setSelectedDrawingId(null);
@@ -2406,6 +2684,7 @@ export function WorkspaceApp() {
                       captureStatus={chartCapture.status}
                       chartSettings={chartSettings}
                       chartStyle={chartStyle}
+                      defaultLayoutName={defaultLayoutName}
                       clearableDrawingsCount={unlockedDrawingsCount}
                       drawingTool={drawingTool}
                       drawingsCount={drawings.length}
@@ -2421,9 +2700,15 @@ export function WorkspaceApp() {
                       onClearDrawings={clearDrawings}
                       layoutName={layoutName}
                       layoutNames={availableLayouts}
+                      startupLayoutName={startupLayoutName}
+                      workspaceRecoveryMessage={workspaceRecoveryMessage}
                       onDrawingToolChange={changeDrawingTool}
                       onDeleteLayout={deleteNamedChartLayout}
+                      onDuplicateLayout={duplicateNamedChartLayout}
                       onLayoutNameChange={setLayoutName}
+                      onRenameLayout={renameNamedChartLayout}
+                      onSetDefaultLayout={(name) => setNamedLayoutFlag(name, "isDefault")}
+                      onSetStartupLayout={(name) => setNamedLayoutFlag(name, "isStartup")}
                       onLoadLayout={loadNamedChartLayout}
                       magnetMode={magnetMode}
                       keepDrawingAfterPlacement={
@@ -2438,6 +2723,9 @@ export function WorkspaceApp() {
                       onReplayTimeframeChange={changeReplayTimeframe}
                       onSaveLayout={saveChartLayout}
                       onTimeframeChange={changeTimeframe}
+                      onSymbolChange={changeChartSymbol}
+                      onSyncSettingsChange={setChartSyncSettings}
+                      onDrawingMarkerChange={setDrawingMarker}
                       onToggleOrderOverlays={() => setShowOrderOverlays((value) => !value)}
                       onRemoveIndicator={removeIndicator}
                       onUpdateIndicatorSettings={updateIndicatorSettings}
@@ -2455,6 +2743,10 @@ export function WorkspaceApp() {
                       showDrawingRail={chartInteractionPreferences.showDrawingRail}
                       smoothCandles={smoothCandles}
                       sourceTimeframe={sourceTimeframe}
+                      symbol={activeChartPane.symbol}
+                      symbolOptions={chartSymbolOptions}
+                      syncSettings={chartSyncSettings}
+                      drawingMarker={drawingMarker}
                       timeframe={effectiveTimeframe}
                       toolsOpen={chartToolsOpen}
                     />
@@ -2493,6 +2785,22 @@ export function WorkspaceApp() {
                     >
                       {visibleChartPanes.map((pane, index) => {
                         const paneActive = pane.id === activeChartPane.id;
+                        const paneHasSessionData = chartSymbolsEqual(pane.symbol, state?.session.symbol);
+                        const paneBars = paneHasSessionData ? visibleBars : [];
+                        const paneDataState = paneHasSessionData
+                          ? normalizedVisibleData.continuity.status === "gapped"
+                            ? {
+                                status: "gapped" as const,
+                                detail: `${normalizedVisibleData.continuity.gapCount} feed gap${normalizedVisibleData.continuity.gapCount === 1 ? "" : "s"} detected; ${normalizedVisibleData.continuity.missingBars} candle${normalizedVisibleData.continuity.missingBars === 1 ? "" : "s"} missing.`,
+                              }
+                            : {
+                                status: (paneBars.length > 0 ? "available" : "empty") as "available" | "empty",
+                                detail: paneBars.length > 0 ? "Session data is continuous." : "This session has not published candles yet.",
+                              }
+                          : {
+                              status: "unavailable" as const,
+                              detail: `${pane.symbol} has independent pane state, but this backtest exposes only ${state?.session.symbol ?? "the active symbol"} candles. Open a matching data session to populate it.`,
+                            };
                         const paneTimeframe = coerceTimeframeToSource(
                           pane.timeframe,
                           sourceTimeframe,
@@ -2516,19 +2824,20 @@ export function WorkspaceApp() {
                                 >
                                   Pane {index + 1}
                                 </button>
-                                <span>{formatChartTimeframeLabel(paneTimeframe)}</span>
+                                <span>{pane.symbol} · {formatChartTimeframeLabel(paneTimeframe)}</span>
                               </div>
                             )}
                             <TradingChart
-                              bars={visibleBars}
+                              bars={paneBars}
                               canUndoDrawingChange={paneActive && drawingUndoDepth > 0}
                               captureMode={chartCaptureMode}
                               chartSettings={pane.chartSettings}
                               chartStyle={pane.chartStyle}
                               confirmOrderLineModifications={confirmOrderLineModifications}
                               drawingTool={pane.drawingTool}
+                              drawingMarker={drawingMarker}
                               drawings={pane.drawings}
-                              executions={executions}
+                              executions={paneHasSessionData ? executions : []}
                               indicatorInstances={pane.indicatorInstances}
                               magnetMode={pane.magnetMode}
                               keepDrawingAfterPlacement={
@@ -2551,6 +2860,8 @@ export function WorkspaceApp() {
                                 changeMagnetModeForPane(pane.id, mode)
                               }
                               onCaptureChart={() => void captureChartGrid()}
+                              onCrosshairSync={chartSyncSettings.crosshair ? (value) =>
+                                setSyncedCrosshair((current) => ({ ...value, revision: (current?.revision ?? 0) + 1 })) : undefined}
                               onOpenChartSettings={openChartSettings}
                               onRemoveIndicator={(instanceId) =>
                                 removeIndicatorForPane(pane.id, instanceId)
@@ -2563,6 +2874,8 @@ export function WorkspaceApp() {
                                 toggleIndicatorVisibilityForPane(pane.id, instanceId)
                               }
                               onUpdatePosition={updatePosition}
+                              onVisibleRangeSync={chartSyncSettings.visibleRange ? (value) =>
+                                setSyncedVisibleRange((current) => ({ ...value, revision: (current?.revision ?? 0) + 1 })) : undefined}
                               onUndoDrawingChange={
                                 paneActive ? undoLastDrawingChange : () => selectChartPane(pane.id)
                               }
@@ -2572,8 +2885,8 @@ export function WorkspaceApp() {
                               onUpdateIndicatorSettings={(instanceId, settings) =>
                                 updateIndicatorSettingsForPane(pane.id, instanceId, settings)
                               }
-                              orders={orders}
-                              position={position}
+                              orders={paneHasSessionData ? orders : []}
+                              position={paneHasSessionData ? position : null}
                               pnlMultiplier={state?.session.pnl_multiplier ?? 1}
                               replayFocusTrade={
                                 replayFocusTrade?.session_id === state?.session.id
@@ -2584,7 +2897,11 @@ export function WorkspaceApp() {
                               selectedDrawingId={paneActive ? selectedDrawingId : null}
                               showDrawingRail={chartInteractionPreferences.showDrawingRail}
                               showOrderOverlays={pane.showOrderOverlays}
-                              symbol={state?.session.symbol}
+                              paneId={pane.id}
+                              dataState={paneDataState}
+                              syncedCrosshair={chartSyncSettings.crosshair ? syncedCrosshair : null}
+                              syncedVisibleRange={chartSyncSettings.visibleRange ? syncedVisibleRange : null}
+                              symbol={pane.symbol}
                               currency={sessionCurrency}
                               datasetTimeframe={state?.session.timeframe}
                               timeframe={paneTimeframe}
@@ -2603,6 +2920,8 @@ export function WorkspaceApp() {
                       onClearDrawings={clearDrawings}
                       onCollapse={() => setLayersPanelOpen(false)}
                       onDeleteDrawing={deleteDrawing}
+                      onMoveDrawingLayer={moveDrawingLayer}
+                      onReorderDrawing={reorderDrawing}
                       onSelectDrawing={setSelectedDrawingId}
                       onRemoveIndicator={removeIndicator}
                       onToggleIndicatorVisibility={toggleIndicatorVisibility}
@@ -2711,14 +3030,14 @@ export function WorkspaceApp() {
             buildWorkspaceSharePayload(scope, {
               activePanel: workspacePanel,
               activePaneId: activeChartPane.id,
-              candles: visibleBars,
+              candles: chartSymbolsEqual(activeChartPane.symbol, state?.session.symbol) ? visibleBars : [],
               currentTimestamp: current?.timestamp ?? null,
               layoutName,
               metrics: state?.metrics ?? null,
               paneLayout: chartPaneLayout,
               panes: chartPanes,
               sidebarCollapsed,
-              symbol: state?.session.symbol ?? "MARKET",
+              symbol: activeChartPane.symbol,
               timeframe: state?.session.timeframe ?? effectiveTimeframe,
               timezone: state?.session.timezone ?? null,
             })
@@ -3138,15 +3457,31 @@ type StoredChartLayout = {
   paneLayout?: ChartPaneLayoutId;
   panes?: ChartPaneState[];
   replayTimeframe?: ChartTimeframe;
+  revision?: number;
+  schemaVersion?: number;
   settingsDefaultsVersion?: number;
   showOrderOverlays: boolean;
   smoothCandles: boolean;
   timeframe: ChartTimeframe;
+  syncSettings?: ChartSyncSettings;
+  panelState?: {
+    activePanel: "none" | "tape" | "review" | "results";
+    layersPanelOpen: boolean;
+    orderPanelOpen: boolean;
+    sidebarCollapsed: boolean;
+  };
+  watchlistSelection?: {
+    id: string | null;
+    symbol: string;
+  };
 };
 
 type StoredChartLayoutRecord = {
+  isDefault?: boolean;
+  isStartup?: boolean;
   layout: StoredChartLayout;
   name: string;
+  revision: number;
   updatedAt: string;
 };
 
@@ -3163,6 +3498,11 @@ async function hydrateChartPersistence() {
 function loadChartLayout(): Partial<StoredChartLayout> | null {
   purgeStaleSingleHorizontalDrawing();
   try {
+    const records = loadChartLayoutRecords();
+    const startupRecord = records.find((record) => record.isStartup);
+    if (startupRecord) {
+      return upgradeStoredChartLayout(startupRecord.layout);
+    }
     const activeName = getCachedAppStorageItem<string | null>(
       ACTIVE_CHART_LAYOUT_STORAGE_KEY,
       null,
@@ -3171,6 +3511,8 @@ function loadChartLayout(): Partial<StoredChartLayout> | null {
     if (activeRecord) {
       return upgradeStoredChartLayout(activeRecord.layout);
     }
+    const defaultRecord = records.find((record) => record.isDefault);
+    if (defaultRecord) return upgradeStoredChartLayout(defaultRecord.layout);
 
     const parsed = getCachedAppStorageItem<unknown>(CHART_LAYOUT_STORAGE_KEY, null);
     if (typeof parsed !== "object" || parsed == null) {
@@ -3255,8 +3597,10 @@ function purgeStaleSingleHorizontalDrawing() {
 }
 
 function loadActiveLayoutName() {
+  const activeName = getCachedAppStorageItem<string | null>(ACTIVE_CHART_LAYOUT_STORAGE_KEY, null);
+  const activeRecord = activeName ? loadChartLayoutRecord(activeName) : null;
   return normalizeLayoutName(
-    getCachedAppStorageItem<string | null>(ACTIVE_CHART_LAYOUT_STORAGE_KEY, null) ?? "Default",
+    activeRecord?.name ?? loadChartLayoutRecords().find((record) => record.isDefault)?.name ?? "Default",
   );
 }
 
@@ -3315,27 +3659,53 @@ function loadChartLayoutRecords(): StoredChartLayoutRecord[] {
         ...record,
         layout: upgradeStoredChartLayout(record.layout) as StoredChartLayout,
         name: normalizeLayoutName(record.name),
+        revision: Math.max(0, Math.floor(record.revision ?? record.layout.revision ?? 0)),
       }));
   } catch {
     return [];
   }
 }
 
-function saveNamedChartLayout(name: string, layout: StoredChartLayout) {
+function saveNamedChartLayout(
+  name: string,
+  layout: StoredChartLayout,
+  expectedRevision = 0,
+) {
   const normalizedName = normalizeLayoutName(name);
-  const records = loadChartLayoutRecords().filter(
-    (record) => normalizeLayoutName(record.name) !== normalizedName,
+  const allRecords = loadChartLayoutRecords();
+  const existing = allRecords.find(
+    (record) => normalizeLayoutName(record.name) === normalizedName,
   );
+  const revisionState = nextWorkspaceRevision(existing?.revision ?? 0, expectedRevision);
+  const recoverySuffix = Date.now().toString(36);
+  const savedName = revisionState.conflict
+    ? normalizeLayoutName(`${normalizedName.slice(0, 27)} recovered ${recoverySuffix}`)
+    : normalizedName;
+  const records = allRecords.filter(
+    (record) => normalizeLayoutName(record.name) !== savedName &&
+      (!revisionState.conflict || normalizeLayoutName(record.name) !== normalizedName),
+  );
+  if (revisionState.conflict && existing) records.unshift(existing);
+  const savedLayout = { ...layout, revision: revisionState.revision, schemaVersion: CHART_WORKSPACE_SCHEMA_VERSION };
+  const previousMetadata = revisionState.conflict ? null : existing;
+  const savedRecord: StoredChartLayoutRecord = {
+    isDefault: previousMetadata?.isDefault === true,
+    isStartup: previousMetadata?.isStartup === true,
+    layout: savedLayout,
+    name: savedName,
+    revision: revisionState.revision,
+    updatedAt: new Date().toISOString(),
+  };
   const nextRecords = [
-    {
-      layout,
-      name: normalizedName,
-      updatedAt: new Date().toISOString(),
-    },
+    savedRecord,
     ...records,
   ].slice(0, 12);
   void saveAppStorageItem(CHART_LAYOUTS_STORAGE_KEY, nextRecords);
-  return nextRecords.map((record) => record.name);
+  return {
+    conflict: revisionState.conflict,
+    names: nextRecords.map((record) => record.name),
+    record: savedRecord,
+  };
 }
 
 function deleteChartLayoutRecord(name: string) {
@@ -3406,6 +3776,12 @@ function sanitizeTimeframe(value: unknown): ChartTimeframe {
   return normalizeChartTimeframe(value) ?? "1m";
 }
 
+function sanitizePaneSymbol(value: unknown, fallback = "MARKET") {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9:/.!_-]/g, "").slice(0, 48);
+  return normalized || fallback;
+}
+
 function coerceTimeframeToSource(
   requested: ChartTimeframe,
   source: ChartTimeframe | null,
@@ -3423,21 +3799,7 @@ function sanitizeChartStyle(value: unknown): ChartStyle {
 }
 
 function sanitizeDrawingTool(value: unknown): DrawingTool {
-  return [
-    "cursor",
-    "crosshair",
-    "fib",
-    "horizontal",
-    "longPosition",
-    "measure",
-    "rectangle",
-    "shortPosition",
-    "text",
-    "trendline",
-    "vertical",
-  ].includes(value as DrawingTool)
-    ? (value as DrawingTool)
-    : "crosshair";
+  return isDrawingTool(value) ? value : "crosshair";
 }
 
 function createDefaultChartPane(
@@ -3456,6 +3818,11 @@ function createDefaultChartPane(
     magnetMode: sanitizeMagnetMode(template?.magnetMode),
     showOrderOverlays: template?.showOrderOverlays ?? true,
     smoothCandles: template?.smoothCandles ?? false,
+    symbol: sanitizePaneSymbol(template?.symbol),
+    dataSourceId:
+      typeof template?.dataSourceId === "string" && template.dataSourceId.trim()
+        ? template.dataSourceId.trim().slice(0, 96)
+        : null,
     timeframe: coerceTimeframeToSource(
       sanitizeTimeframe(template?.timeframe ?? fallbackTimeframe),
       sourceTimeframe ?? null,
@@ -3488,6 +3855,11 @@ function sanitizeChartPaneState(
     magnetMode: sanitizeMagnetMode(candidate.magnetMode),
     showOrderOverlays: candidate.showOrderOverlays !== false,
     smoothCandles: candidate.smoothCandles === true,
+    symbol: sanitizePaneSymbol(candidate.symbol, fallback.symbol),
+    dataSourceId:
+      typeof candidate.dataSourceId === "string" && candidate.dataSourceId.trim()
+        ? candidate.dataSourceId.trim().slice(0, 96)
+        : null,
     timeframe: coerceTimeframeToSource(
       sanitizeTimeframe(candidate.timeframe),
       sourceTimeframe,
@@ -3513,6 +3885,8 @@ function sanitizeChartPanes(
     magnetMode: layout.magnetMode,
     showOrderOverlays: layout.showOrderOverlays,
     smoothCandles: layout.smoothCandles,
+    symbol: layout.watchlistSelection?.symbol ?? "MARKET",
+    dataSourceId: null,
     timeframe: layout.timeframe,
   };
   const rawPanes =
@@ -3615,17 +3989,8 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
     const candidate = drawing as Partial<ChartDrawing>;
     const isValid =
       typeof candidate.id === "string" &&
-      [
-        "fib",
-        "horizontal",
-        "vertical",
-        "longPosition",
-        "measure",
-        "rectangle",
-        "shortPosition",
-        "text",
-        "trendline",
-      ].includes(candidate.tool ?? "") &&
+      isDrawingTool(candidate.tool) &&
+      candidate.tool !== "eraser" &&
       typeof candidate.color === "string" &&
       typeof candidate.createdAt === "string" &&
       (candidate.fillOpacity == null ||
@@ -3636,6 +4001,8 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
       (candidate.fibExtendRight == null ||
         typeof candidate.fibExtendRight === "boolean") &&
       (candidate.label == null || typeof candidate.label === "string") &&
+      (candidate.marker == null || typeof candidate.marker === "string") &&
+      (candidate.syncKey == null || typeof candidate.syncKey === "string") &&
       (candidate.labelBackgroundOpacity == null ||
         (typeof candidate.labelBackgroundOpacity === "number" &&
           Number.isFinite(candidate.labelBackgroundOpacity))) &&
@@ -3663,7 +4030,7 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
     }
 
     const normalized =
-      candidate.tool === "fib"
+      candidate.tool && ["fib", "fibExtension", "fibChannel", "fibTime", "fibFan"].includes(candidate.tool)
         ? ({
             ...candidate,
             fibExtendLeft: candidate.fibExtendLeft === true,
@@ -3672,7 +4039,7 @@ function sanitizeDrawings(value: unknown): ChartDrawing[] {
           } as ChartDrawing)
         : (candidate as ChartDrawing);
     return [
-      normalized.tool === "measure" && normalized.lineStyle === "dashed"
+      (normalized.tool === "measure" || normalized.tool === "quickMeasure") && normalized.lineStyle === "dashed"
         ? { ...normalized, lineStyle: "solid" }
         : normalized,
     ];
@@ -3683,6 +4050,7 @@ function cloneDrawingsForHistory(drawings: ChartDrawing[]) {
   return drawings.map((drawing) => ({
     ...drawing,
     fibLevels: drawing.fibLevels?.map((level) => ({ ...level })),
+    syncKey: drawing.syncKey,
     points: drawing.points.map((point) => ({ ...point })),
   }));
 }
