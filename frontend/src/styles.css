@@ -1880,6 +1880,14 @@ button:disabled {
   }
 
   @media (max-width: 760px) {
+    :is(.chart-pane-layout-grid-12, .chart-pane-layout-grid-16) {
+      grid-auto-rows: calc(430px + var(--density-touch));
+    }
+
+    :is(.chart-pane-layout-grid-12, .chart-pane-layout-grid-16) .chart-pane-shell {
+      contain-intrinsic-size: auto calc(430px + var(--density-touch));
+    }
+
     :is(.chart-pane-layout-grid-6, .chart-pane-layout-grid-9, .chart-pane-layout-grid-12, .chart-pane-layout-grid-16) .chart-stage {
       min-height: 430px;
     }
@@ -2132,14 +2140,14 @@ button:disabled {
 
   @media (max-width: 760px) {
     .chart-fullscreen-shell :is(.chart-pane-layout-grid-6, .chart-pane-layout-grid-9, .chart-pane-layout-grid-12, .chart-pane-layout-grid-16) {
-      grid-auto-rows: minmax(430px, auto);
+      grid-auto-rows: calc(430px + var(--density-touch));
       grid-template-rows: none;
       height: auto;
       min-height: 0;
     }
 
     .chart-fullscreen-shell :is(.chart-pane-layout-grid-6, .chart-pane-layout-grid-9, .chart-pane-layout-grid-12, .chart-pane-layout-grid-16) .chart-stage {
-      height: auto;
+      height: 430px;
       min-height: 430px;
     }
 

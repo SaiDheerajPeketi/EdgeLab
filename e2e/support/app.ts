@@ -6,6 +6,7 @@ export const AUTH_SESSION_KEY = "edgelab.auth.session.v1";
 
 type DeterminismOptions = {
   devAuth?: boolean;
+  motionLock?: boolean;
   seatsRemaining?: number;
   rollout?: "enabled" | "fallback" | "unavailable";
 };
@@ -30,10 +31,10 @@ export const betaSessionResponse = {
 
 export async function installDeterminism(
   page: Page,
-  { devAuth = false, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
+  { devAuth = false, motionLock = true, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
 ) {
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await page.addInitScript(({ datasetCatalog, frozenEpoch }) => {
+  await page.addInitScript(({ datasetCatalog, frozenEpoch, lockMotion }) => {
     const NativeDate = Date;
     class FrozenDate extends NativeDate {
       constructor(...args: ConstructorParameters<typeof Date>) {
@@ -126,25 +127,27 @@ export async function installDeterminism(
       return seed / 0x1_0000_0000;
     };
 
-    const installStyle = () => {
-      if (document.getElementById("edgelab-e2e-motion-lock")) return;
-      const style = document.createElement("style");
-      style.id = "edgelab-e2e-motion-lock";
-      style.textContent = `
-        *, *::before, *::after {
-          animation-delay: 0s !important;
-          animation-duration: 0s !important;
-          caret-color: transparent !important;
-          scroll-behavior: auto !important;
-          transition-delay: 0s !important;
-          transition-duration: 0s !important;
-        }
-      `;
-      document.head.append(style);
-    };
-    if (document.head) installStyle();
-    else document.addEventListener("DOMContentLoaded", installStyle, { once: true });
-  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME) });
+    if (lockMotion) {
+      const installStyle = () => {
+        if (document.getElementById("edgelab-e2e-motion-lock")) return;
+        const style = document.createElement("style");
+        style.id = "edgelab-e2e-motion-lock";
+        style.textContent = `
+          *, *::before, *::after {
+            animation-delay: 0s !important;
+            animation-duration: 0s !important;
+            caret-color: transparent !important;
+            scroll-behavior: auto !important;
+            transition-delay: 0s !important;
+            transition-duration: 0s !important;
+          }
+        `;
+        document.head.append(style);
+      };
+      if (document.head) installStyle();
+      else document.addEventListener("DOMContentLoaded", installStyle, { once: true });
+    }
+  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), lockMotion: motionLock });
 
   const total = 500;
   const remaining = Math.max(0, seatsRemaining);

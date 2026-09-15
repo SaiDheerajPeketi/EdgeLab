@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import axe from "axe-core";
+import { readFileSync } from "node:fs";
 import {
   expectStableScreenshot,
   gotoStable,
@@ -7,6 +8,20 @@ import {
   seedApprovedSession,
   seedChartLayout,
 } from "./support/app";
+
+const uiPerformanceBudgets = JSON.parse(
+  readFileSync(new URL("../docs/ui-performance-budgets.json", import.meta.url), "utf8"),
+) as {
+  runtime: {
+    interactionP95Ms: number;
+    sixteenPaneFrameP95Ms: number;
+  };
+};
+
+function p95(values: number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? Number.POSITIVE_INFINITY;
+}
 
 const protectedRoutes = [
   { name: "gateway", path: "/app", waitForNetworkIdle: false },
@@ -38,6 +53,31 @@ const sharedSnapshot = {
   title: "Opening range review",
 } as const;
 
+function clusteredPositions(values: number[], tolerance = 2) {
+  return [...values].sort((left, right) => left - right).reduce<number[]>((clusters, value) => {
+    if (clusters.length === 0 || Math.abs(value - clusters.at(-1)!) > tolerance) {
+      clusters.push(value);
+    }
+    return clusters;
+  }, []);
+}
+
+async function expectChartPaneGeometry(page: Page, panes: number, columns: number) {
+  const shells = page.locator(".chart-pane-grid > .chart-pane-shell");
+  await expect(shells).toHaveCount(panes);
+  const boxes = await shells.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { height: box.height, left: box.left, top: box.top, width: box.width };
+  }));
+  const rows = Math.ceil(panes / columns);
+  expect(clusteredPositions(boxes.map((box) => box.left))).toHaveLength(columns);
+  expect(clusteredPositions(boxes.map((box) => box.top))).toHaveLength(rows);
+  expect(Math.max(...boxes.map((box) => box.width)) - Math.min(...boxes.map((box) => box.width))).toBeLessThanOrEqual(2);
+  expect(Math.max(...boxes.map((box) => box.height)) - Math.min(...boxes.map((box) => box.height))).toBeLessThanOrEqual(2);
+  const viewport = await page.evaluate(() => ({ innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }));
+  expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.innerWidth + 1);
+}
+
 test.describe("authenticated route visual baselines", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
@@ -67,11 +107,18 @@ test.describe("authenticated route visual baselines", () => {
     });
   }
 
-  test("chart fullscreen baseline", async ({ page }) => {
+  test("chart fullscreen baseline", async ({ page }, testInfo) => {
     await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+    await page.getByRole("button", { exact: true, name: "Tools" }).click();
+    await page.getByRole("radio", { name: "4 × 4 grid · 16 charts" }).click();
+    await page.getByRole("button", { exact: true, name: "Tools" }).click();
     await page.getByRole("button", { exact: true, name: "Full Screen" }).click();
     await expect(page.getByRole("button", { exact: true, name: "Exit" })).toBeVisible();
-    await expectStableScreenshot(page, "chart-fullscreen", { fullPage: false });
+    await expectChartPaneGeometry(page, 16, testInfo.project.name === "mobile" ? 1 : 4);
+    await expect(page.locator(".chart-pane-grid")).toHaveScreenshot("chart-fullscreen.png", {
+      mask: [page.locator(".chart-plot-column")],
+      maskColor: "#0B1118",
+    });
   });
 
   for (const layout of [
@@ -79,16 +126,21 @@ test.describe("authenticated route visual baselines", () => {
     { id: "grid-4", name: "chart-4-pane", panes: 4 },
     { id: "grid-16", name: "chart-16-pane", panes: 16 },
   ] as const) {
-    test(`${layout.name} responsive baseline`, async ({ page }) => {
+    test(`${layout.name} responsive baseline`, async ({ page }, testInfo) => {
       await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
       await page.getByRole("button", { exact: true, name: "Tools" }).click();
       const layoutName = layout.id === "vertical-2" ? "2 columns" : layout.id === "grid-4" ? "2 × 2 grid · 4 charts" : "4 × 4 grid · 16 charts";
       await page.getByRole("radio", { name: layoutName }).click();
-      await expect(page.locator(".chart-stage")).toHaveCount(layout.panes);
       await page.getByRole("button", { exact: true, name: "Tools" }).click();
-      await expectStableScreenshot(page, layout.name, {
-        fullPage: false,
+      const columns = testInfo.project.name === "mobile"
+        ? 1
+        : layout.id === "grid-16"
+          ? testInfo.project.name === "tablet" ? 2 : 4
+          : 2;
+      await expectChartPaneGeometry(page, layout.panes, columns);
+      await expect(page.locator(".chart-pane-grid")).toHaveScreenshot(`${layout.name}.png`, {
         mask: [page.locator(".chart-plot-column")],
+        maskColor: "#0B1118",
       });
     });
   }
@@ -294,11 +346,11 @@ test.describe("accessibility and adaptive operation", () => {
     await palette.getByRole("combobox").fill("Browse journaled trades");
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/app\/journal\/trades$/);
-    await expect(page.getByRole("heading", { name: "Live Trade Ledger" })).toBeVisible();
-    await page.getByPlaceholder("Strategy, account, session, tag...").fill("no matching review");
-    await expect(page.getByText("0 entries")).toBeVisible();
-    await page.getByRole("button", { name: "Reset" }).click();
-    await expect(page.getByPlaceholder("Strategy, account, session, tag...")).toHaveValue("");
+    await expect(page.getByRole("heading", { name: "Trade log", level: 1 }).first()).toBeVisible();
+    await page.getByLabel("Search symbol, strategy, tag, or note").fill("no matching review");
+    await expect(page.getByText(/Showing 0 of 0 filtered trades/)).toBeVisible();
+    await page.getByLabel("Search symbol, strategy, tag, or note").fill("");
+    await expect(page.getByText(/Showing 1 of 1 filtered trades/)).toBeVisible();
   });
 
   test("settings import rejects an invalid bundle without changing data", async ({ page }, testInfo) => {
@@ -341,18 +393,41 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
     fullPage: false,
     mask: [page.locator(".chart-plot-column")],
   });
-  const interactionMs = await page.evaluate(async () => {
-    const start = performance.now();
-    const launcher = document.querySelector<HTMLButtonElement>('[aria-label="Open command palette"]');
-    if (!launcher) throw new Error("Command palette launcher is unavailable");
-    launcher.click();
-    while (!document.querySelector('[role="dialog"][aria-label="EdgeLab command palette"]')) {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  const frameDurations = await page.evaluate(async () => {
+    const samples: number[] = [];
+    let previous = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    for (let index = 0; index < 40; index += 1) {
+      const current = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
+      samples.push(current - previous);
+      previous = current;
     }
-    return performance.now() - start;
+    return samples;
   });
-  await expect(page.getByRole("dialog", { name: "EdgeLab command palette" })).toBeVisible();
-  expect(interactionMs).toBeLessThanOrEqual(250);
+  const interactionDurations: number[] = [];
+  const commandPalette = page.getByRole("dialog", { name: "EdgeLab command palette" });
+  for (let sample = 0; sample < 5; sample += 1) {
+    interactionDurations.push(await page.evaluate(async () => {
+      const start = performance.now();
+      const launcher = document.querySelector<HTMLButtonElement>('[aria-label="Open command palette"]');
+      if (!launcher) throw new Error("Command palette launcher is unavailable");
+      launcher.click();
+      while (!document.querySelector('[role="dialog"][aria-label="EdgeLab command palette"]')) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      return performance.now() - start;
+    }));
+    await expect(commandPalette).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(commandPalette).toBeHidden();
+  }
+  const frameP95Ms = p95(frameDurations);
+  const interactionP95Ms = p95(interactionDurations);
+  await testInfo.attach("low-power-performance.json", {
+    body: Buffer.from(JSON.stringify({ frameDurations, frameP95Ms, interactionDurations, interactionP95Ms }, null, 2)),
+    contentType: "application/json",
+  });
+  expect(frameP95Ms).toBeLessThanOrEqual(uiPerformanceBudgets.runtime.sixteenPaneFrameP95Ms);
+  expect(interactionP95Ms).toBeLessThanOrEqual(uiPerformanceBudgets.runtime.interactionP95Ms);
   const layoutPersisted = await page.evaluate(() => Object.entries(window.localStorage).some(
     ([key, value]) => key.includes("live-chart-layout") && value.includes('"paneLayout":"grid-16"'),
   ));
