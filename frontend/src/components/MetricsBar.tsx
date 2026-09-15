@@ -1,6 +1,6 @@
 import { Activity, BarChart3, Gauge, Sigma, Target, TrendingUp } from "lucide-react";
 import type { Metrics } from "../lib/api";
-import { formatLocaleCurrency, formatLocaleNumber } from "../lib/locale";
+import { formatLocaleCurrency, formatMetricPercent, formatMetricRatio } from "../lib/locale";
 
 type Props = {
   currency?: string;
@@ -17,7 +17,7 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
     },
     {
       label: "Win %",
-      value: percent(metrics?.win_rate ?? 0),
+      value: formatMetricPercent(metrics?.win_rate ?? 0),
       icon: Target,
       tone: "text-cyan-200",
     },
@@ -29,19 +29,19 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
     },
     {
       label: "Profit Factor",
-      value: optionalNumber(metrics?.profit_factor),
+      value: formatMetricRatio(metrics?.profit_factor),
       icon: Sigma,
       tone: "text-amber-200",
     },
     {
       label: "Sharpe",
-      value: optionalNumber(metrics?.sharpe_ratio),
+      value: formatMetricRatio(metrics?.sharpe_ratio),
       icon: BarChart3,
       tone: "text-cyan-200",
     },
     {
       label: "Avg R",
-      value: optionalNumber(metrics?.average_r),
+      value: formatMetricRatio(metrics?.average_r),
       icon: Gauge,
       tone: "text-emerald-200",
     },
@@ -74,12 +74,4 @@ export function MetricsBar({ currency = "USD", metrics }: Props) {
 
 function money(value: number, currency: string) {
   return formatLocaleCurrency(value, currency);
-}
-
-function percent(value: number) {
-  return formatLocaleNumber(value, { style: "percent", maximumFractionDigits: 1 });
-}
-
-function optionalNumber(value: number | null | undefined) {
-  return value == null ? "—" : formatLocaleNumber(value, { maximumFractionDigits: 2 });
 }

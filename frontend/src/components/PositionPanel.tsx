@@ -1,7 +1,7 @@
 import { ArrowDownToLine, ArrowUpToLine, BadgeDollarSign } from "lucide-react";
 import type { Position } from "../lib/api";
 import { formatPrice } from "../lib/format";
-import { formatLocaleCurrency } from "../lib/locale";
+import { formatLocaleCurrency, formatLocaleNumber } from "../lib/locale";
 import { useBacktestStore } from "../store/backtestStore";
 
 type Props = {
@@ -58,7 +58,7 @@ export function PositionPanel({ currency = "USD", position }: Props) {
         <div>
           <div className="grid min-w-0 grid-cols-2 text-sm">
             <Metric label="Side" value={position.side} tone={position.side === "LONG" ? "text-emerald-300" : "text-rose-300"} />
-            <Metric data label="Qty" value={position.quantity.toLocaleString()} />
+            <Metric data label="Qty" value={formatLocaleNumber(position.quantity)} />
             <Metric data label="Avg" value={formatPrice(position.avg_price)} />
             <Metric
               data

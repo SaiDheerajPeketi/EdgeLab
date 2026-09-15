@@ -61,3 +61,22 @@ export function formatLocaleDateTime(
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat(interfaceLocale(locale), options).format(date);
 }
+
+export function formatMetricPercent(value: number, locale?: string | string[]) {
+  return formatLocaleNumber(value, {
+    style: "percent",
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  }, locale);
+}
+
+export function formatMetricRatio(
+  value: number | null | undefined,
+  locale?: string | string[],
+) {
+  if (value == null) return "—";
+  return formatLocaleNumber(value, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  }, locale);
+}

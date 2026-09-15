@@ -6,6 +6,8 @@ import {
   formatLocaleCurrency,
   formatLocaleDateTime,
   formatLocaleNumber,
+  formatMetricPercent,
+  formatMetricRatio,
   interfaceLocale,
 } from "../src/lib/locale.ts";
 
@@ -73,4 +75,12 @@ test("high-traffic financial surfaces use shared locale formatting and logical a
   assert.match(files[3], /formatLocaleDateTime/);
   assert.match(files[4], /formatLocaleNumber/);
   assert.match(files[5], /formatLocaleDateTime/);
+});
+
+test("metrics preserve fixed display precision across locales", () => {
+  assert.equal(formatMetricPercent(0.5, "en-US"), "50.0%");
+  assert.equal(formatMetricPercent(0.12345, "de-DE"), "12,3 %");
+  assert.equal(formatMetricRatio(2, "en-US"), "2.00");
+  assert.equal(formatMetricRatio(2.345, "de-DE"), "2,35");
+  assert.equal(formatMetricRatio(null, "en-US"), "—");
 });

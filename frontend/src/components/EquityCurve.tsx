@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Metrics } from "../lib/api";
-import { formatLocaleCurrency } from "../lib/locale";
+import { formatLocaleCurrency, formatLocaleDateTime } from "../lib/locale";
 
 type Props = {
   currency?: string;
@@ -185,7 +185,7 @@ function formatDateTime(value: string) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString([], {
+  return formatLocaleDateTime(date, {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
