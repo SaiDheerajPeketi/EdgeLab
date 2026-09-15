@@ -66,7 +66,7 @@ test.describe("authentication capacity and callback handoffs", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Reserve your beta place." })).toBeVisible();
     await expect(page.getByText("Waitlist open", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Join waitlist with Google" })).toBeVisible();
-    await expectStableScreenshot(page, "auth-capacity");
+    await expectStableScreenshot(page, "auth-capacity", { fullPage: false });
   });
 
   test("callback success handoff baseline", async ({ page }) => {
@@ -101,7 +101,7 @@ test.describe("authentication capacity and callback handoffs", () => {
     await expect(page.getByRole("heading", { level: 1, name: "We could not finish signing in." })).toBeVisible();
     await expect(page.getByRole("alert")).toContainText("safely try the sign-in again");
     await settlePage(page, { waitForNetworkIdle: false });
-    await expectStableScreenshot(page, "auth-callback-failure");
+    await expectStableScreenshot(page, "auth-callback-failure", { fullPage: false });
   });
 
   test("callback success restores the requested route", async ({ page }, testInfo) => {
@@ -146,20 +146,35 @@ test.describe("session gateway critical states", () => {
   });
 
   test("gateway error baseline", async ({ page }) => {
+    let recoveryAvailable = false;
     const unavailable = (route: Route) => fulfillJson(
       route,
-      { detail: "Gateway fixture unavailable. Try again when the data service recovers." },
+      { detail: "Saved sessions request failed." },
       503,
     );
-    await page.route(/\/api\/bootstrap-shell(?:\?|$)/, unavailable);
+    await page.route(/\/api\/bootstrap-shell(?:\?|$)/, async (route) => {
+      if (!recoveryAvailable) return unavailable(route);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return fulfillJson(route, emptyShell);
+    });
     await page.route(/\/api\/bootstrap(?:\?|$)/, unavailable);
-    await page.route(/\/api\/datasets(?:\?|$)/, unavailable);
+    await page.route(/\/api\/backtests(?:\?|$)/, unavailable);
     await page.route(/\/api\/trades\/page(?:\?|$)/, (route) => fulfillJson(route, emptyTradePage));
     await gotoStable(page, "/app", { waitForNetworkIdle: false });
 
-    await expect(page.getByText("Gateway fixture unavailable. Try again when the data service recovers.", { exact: true })).toBeVisible();
-    await expect(page.getByText("No saved session yet", { exact: true })).toBeVisible();
-    await expect(page.getByText("Market data required", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Saved sessions unavailable" })).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText("session service did not respond");
+    await expect(page.getByText("No saved session yet", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create your first session" })).toHaveCount(0);
+    const retry = page.getByRole("button", { name: "Retry saved sessions" });
+    await expect(retry).toBeEnabled();
     await expectStableScreenshot(page, "gateway-error", { fullPage: false });
+
+    recoveryAvailable = true;
+    await retry.click();
+    await expect(page.getByRole("button", { name: "Retrying saved sessions…" })).toBeDisabled();
+    await expect(page.getByRole("heading", { level: 1, name: "Saved sessions unavailable" })).toHaveCount(0);
+    await expect(page.getByText("No saved session yet", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create your first session" })).toBeEnabled();
   });
 });

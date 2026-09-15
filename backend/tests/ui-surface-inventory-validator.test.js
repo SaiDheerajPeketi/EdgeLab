@@ -115,6 +115,20 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
       expected: /missing exact mobile snapshot "pricing-does-not-exist\.png"/,
     },
     {
+      name: "capture mode",
+      mutate(fixture) {
+        fixture.visualEvidence.routes["/app"].error.mobile.captureMode = "cropped";
+      },
+      expected: /uses unsupported capture mode "cropped"/,
+    },
+    {
+      name: "viewport snapshot dimensions",
+      mutate(fixture) {
+        fixture.inventory.viewportBaselines.mobile.height = 843;
+      },
+      expected: /mobile viewport capture is 390x844; expected 390x843/,
+    },
+    {
       name: "assertion evidence",
       mutate(fixture) {
         delete fixture.visualEvidence.assertions["zoom-200"];

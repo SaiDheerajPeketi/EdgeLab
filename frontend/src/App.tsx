@@ -38,6 +38,7 @@ import type {
 } from "./components/ResultsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
+import { SessionGatewayUnavailable } from "./components/SessionGatewayUnavailable";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { WorkspaceMobileNav } from "./components/WorkspaceMobileNav";
 import { WorkspaceContextHeader } from "./components/WorkspaceContextHeader";
@@ -394,6 +395,7 @@ export function WorkspaceApp() {
     playbooks,
     resultSessions,
     resultSessionsHasMore,
+    resultSessionsLoadError,
     strategySummaries,
     resultTrades,
     ensureResultTradesLoaded,
@@ -435,6 +437,7 @@ export function WorkspaceApp() {
       playbooks: store.playbooks,
       resultSessions: store.resultSessions,
       resultSessionsHasMore: store.resultSessionsHasMore,
+      resultSessionsLoadError: store.resultSessionsLoadError,
       strategySummaries: store.strategySummaries,
       resultTrades: store.resultTrades,
       ensureResultTradesLoaded: store.ensureResultTradesLoaded,
@@ -3055,29 +3058,36 @@ export function WorkspaceApp() {
                 onOpenSettings={() => navigateWorkspace("globalSettings")}
                 scope={state?.session ? `${formatMarketSymbol(state.session.symbol)} · Session #${state.session.id}` : "Choose or create a replay session"}
               />
-              {error && (
+              {error && !resultSessionsLoadError && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                   <AlertTriangle size={18} />
                   {error}
                 </div>
               )}
-              <SessionGateway
-                datasets={datasets}
-                isLoading={isLoading}
-                onCreateSession={createSessionFromGateway}
-                onCreatePlaybook={createPlaybook}
-                onDeleteSession={deleteSessionFromGateway}
-                onResumeSession={resumeSessionFromGateway}
-                onUpdateSession={updateSessionFromGateway}
-                playbooks={playbooks}
-                session={state?.session ?? null}
-                sessions={resultSessions}
-                sessionsHasMore={resultSessionsHasMore}
-                isLoadingMoreSessions={isLoadingMoreSessions}
-                strategySummaries={strategySummaries}
-                trades={resultTrades}
-                onLoadMoreSessions={loadMoreSessions}
-              />
+              {resultSessionsLoadError ? (
+                <SessionGatewayUnavailable
+                  isRetrying={isLoading}
+                  onRetry={() => void loadInitial()}
+                />
+              ) : (
+                <SessionGateway
+                  datasets={datasets}
+                  isLoading={isLoading}
+                  onCreateSession={createSessionFromGateway}
+                  onCreatePlaybook={createPlaybook}
+                  onDeleteSession={deleteSessionFromGateway}
+                  onResumeSession={resumeSessionFromGateway}
+                  onUpdateSession={updateSessionFromGateway}
+                  playbooks={playbooks}
+                  session={state?.session ?? null}
+                  sessions={resultSessions}
+                  sessionsHasMore={resultSessionsHasMore}
+                  isLoadingMoreSessions={isLoadingMoreSessions}
+                  strategySummaries={strategySummaries}
+                  trades={resultTrades}
+                  onLoadMoreSessions={loadMoreSessions}
+                />
+              )}
             </>
           ) : (
             <ChartWorkspaceFrame

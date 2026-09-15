@@ -77,6 +77,7 @@ type BacktestStore = {
   resultSessionsNextOffset: number;
   resultSessionsNextCursor: string | null;
   resultSessionsHasMore: boolean;
+  resultSessionsLoadError: string | null;
   strategySummaries: StrategySummary[];
   resultTrades: Trade[];
   resultTradesNextOffset: number;
@@ -139,6 +140,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   resultSessionsNextOffset: 0,
   resultSessionsNextCursor: null,
   resultSessionsHasMore: false,
+  resultSessionsLoadError: null,
   strategySummaries: [],
   resultTrades: [],
   resultTradesNextOffset: 0,
@@ -240,6 +242,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsNextOffset: shell.recent_sessions_next_offset,
         resultSessionsNextCursor: shell.recent_sessions_next_cursor,
         resultSessionsHasMore: shell.recent_sessions_has_more,
+        resultSessionsLoadError: null,
         strategySummaries: shell.strategy_summaries,
         resultTrades: [],
         resultTradesNextOffset: 0,
@@ -262,6 +265,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           resultSessionsNextOffset: bootstrap.recent_sessions_next_offset,
           resultSessionsNextCursor: bootstrap.recent_sessions_next_cursor,
           resultSessionsHasMore: bootstrap.recent_sessions_has_more,
+          resultSessionsLoadError: null,
           strategySummaries: bootstrap.strategy_summaries,
           resultTrades: bootstrap.recent_trades,
           resultTradesNextOffset: bootstrap.recent_trades.length,
@@ -287,6 +291,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
           const playbooks = playbooksResult.status === "fulfilled" ? playbooksResult.value : [];
           const resultSessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
           const uniqueResultSessions = uniqueSessions(resultSessions);
+          const resultSessionsLoadError =
+            sessionsResult.status === "rejected" ? toErrorMessage(sessionsResult.reason) : null;
           const tradeSnapshot =
             tradesResult.status === "fulfilled" ? tradesResult.value : emptyTradeSnapshot();
           const tradeLoadVersion = startResultTradesLoad();
@@ -297,6 +303,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             resultSessionsNextOffset: uniqueResultSessions.length,
             resultSessionsNextCursor: null,
             resultSessionsHasMore: false,
+            resultSessionsLoadError,
             strategySummaries: [],
             resultTrades: tradeSnapshot.resultTrades,
             resultTradesNextOffset: tradeSnapshot.resultTradesNextOffset,
@@ -315,7 +322,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             void hydrateRemainingResultTrades(tradeLoadVersion);
           }
         } catch (error) {
-          set({ error: toErrorMessage(error), isLoading: false, isPlaying: false });
+          const message = toErrorMessage(error);
+          set({ error: message, isLoading: false, isPlaying: false, resultSessionsLoadError: message });
         }
       }
     }
@@ -394,6 +402,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultSessionsHasMore: shell.resultSessionsHasMore,
         resultSessionsNextOffset: shell.resultSessionsNextOffset,
         resultSessionsNextCursor: shell.resultSessionsNextCursor,
+        resultSessionsLoadError: null,
         strategySummaries: shell.strategySummaries,
         resultTradesLoaded: current.resultTradesLoaded,
         error: null,

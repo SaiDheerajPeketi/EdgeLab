@@ -22,6 +22,15 @@ function sameKeys(left, right) {
   return left.length === right.length && left.every((key, index) => key === right[index]);
 }
 
+function readPngDimensions(filePath) {
+  const file = fs.readFileSync(filePath);
+  const isPng = file.length >= 24
+    && file[0] === 0x89
+    && file.subarray(1, 4).toString("ascii") === "PNG";
+  if (!isPng) return null;
+  return { height: file.readUInt32BE(20), width: file.readUInt32BE(16) };
+}
+
 export function discoverRouteDefinitions(appRoutesSource, workspaceRouteSource) {
   const appRoutes = [...appRoutesSource.matchAll(/^\s*<Route\b.*\bpath="([^"]+)"/gm)]
     .map((match) => match[1]);
@@ -253,8 +262,28 @@ export function validateUiSurfaceInventory({
           project,
           evidence.snapshot ?? "",
         );
-        if (!evidence.snapshot || !fs.existsSync(expectedSnapshot)) {
+        const snapshotExists = Boolean(evidence.snapshot && fs.existsSync(expectedSnapshot));
+        if (!snapshotExists) {
           errors.push(`Route "${route.path}" state "${state}" is missing exact ${project} snapshot "${evidence.snapshot ?? "(none)"}".`);
+        }
+        if (evidence.captureMode != null && !["viewport", "full-page"].includes(evidence.captureMode)) {
+          errors.push(`Route "${route.path}" state "${state}" uses unsupported capture mode "${evidence.captureMode}".`);
+        } else if (snapshotExists && evidence.captureMode) {
+          const dimensions = readPngDimensions(expectedSnapshot);
+          const expectedWidth = viewports[project].width;
+          const expectedHeight = viewports[project].height;
+          if (!dimensions) {
+            errors.push(`Route "${route.path}" state "${state}" snapshot is not a readable PNG.`);
+          } else {
+            const dimensionsMatch = evidence.captureMode === "viewport"
+              ? dimensions.width === expectedWidth && dimensions.height === expectedHeight
+              : dimensions.width === expectedWidth && dimensions.height >= expectedHeight;
+            if (!dimensionsMatch) {
+              errors.push(
+                `Route "${route.path}" state "${state}" ${project} ${evidence.captureMode} capture is ${dimensions.width}x${dimensions.height}; expected ${evidence.captureMode === "viewport" ? `${expectedWidth}x${expectedHeight}` : `${expectedWidth}x${expectedHeight} or taller`}.`,
+              );
+            }
+          }
         }
         const snapshotStem = path.basename(evidence.snapshot ?? "", ".png");
         const specSource = fs.readFileSync(specPath, "utf8");
