@@ -2645,6 +2645,13 @@ export function TradingChart({
       tabIndex={0}
     >
       <p className="sr-only" id={chartSummaryId}>{chartTextSummary}</p>
+      {displayBars.length > 0 ? (
+        <table className="sr-only">
+          <caption>{formatMarketSymbol(symbol)} recent price bars; newest five of {displayBars.length} visible bars</caption>
+          <thead><tr><th scope="col">Time</th><th scope="col">Open</th><th scope="col">High</th><th scope="col">Low</th><th scope="col">Close</th><th scope="col">Volume</th></tr></thead>
+          <tbody>{displayBars.slice(-5).map((bar) => <tr key={bar.time}><th scope="row">{new Date(Number(bar.time) * 1_000).toISOString()}</th><td>{bar.open}</td><td>{bar.high}</td><td>{bar.low}</td><td>{bar.close}</td><td>{bar.volume}</td></tr>)}</tbody>
+        </table>
+      ) : null}
       {radialToolbox && (
         <RadialDrawingToolbox
           anchor={radialToolbox.anchor}
