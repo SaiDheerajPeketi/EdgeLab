@@ -1,0 +1,45 @@
+# UI quality and rollout contract
+
+## State contract
+
+Every major surface implements: empty, loading/skeleton, partial data, offline, stale, permission denied, unsupported, error, retrying, and success. Each state names what happened, what remains safe/visible, and the next action. Critical information persists until acknowledged or resolved.
+
+## Save contract
+
+| Setting type | Contract | Feedback |
+|---|---|---|
+| Binary/local preference | immediate | optimistic only with rollback; Saving → Saved or Retry |
+| Text, numeric, slider | 450ms debounced | effective value remains visible; invalid input is preserved |
+| Credentials, provider, import, destructive scope | explicit submit | impact summary, progress, cancellation where safe, audit result |
+| Concurrent workspace document | revision-checked autosave | conflict preserves both revisions and offers keep mine/use server/copy |
+
+## Accessibility and resilience
+
+- WCAG 2.2 AA contrast; visible focus; skip and navigation landmarks; logical DOM order.
+- Keyboard parity for navigation, chart, replay, Journal, settings, menus, dialogs, drawers, imports, and radial-tool fallback.
+- Semantic labels, descriptions, status/live regions, tables, headings, and dialog/menu patterns.
+- Color is redundant with sign, text, icon, shape, pattern, or position.
+- Support 200% zoom, large text, coarse pointer, safe-area insets, software keyboards, 44×44 touch targets, long names/numbers, locale formats, and bidirectional user content.
+
+## Performance budgets
+
+| Budget | Threshold |
+|---|---|
+| Public initial JS, gzip | ≤ 180 KB |
+| Authenticated shell initial JS, gzip | ≤ 260 KB |
+| Lazy route/tool chunk, gzip | ≤ 180 KB |
+| LCP / CLS on representative mid-tier device | ≤ 2.5s / ≤ 0.1 |
+| INP | ≤ 200ms |
+| Route transition visible response | ≤ 100ms |
+| Long list | virtualize beyond 200 rows |
+| 16-pane workspace | one normalized subscription per unique symbol/provider/timeframe; no duplicate stream |
+
+CI fails on budget regression unless a dated exception names owner, measurement, reason, and expiry.
+
+## Controlled rollout
+
+Flags are scoped by route group: `ui.shell.v2`, `ui.journal.v2`, `ui.settings.v2`, `ui.chart.v2`, `ui.public.v2`. A route never mixes old and new primitives after migration. Rollout order is primitives → shell → settings/auth → Journal/reports → chart/live → public. Each flag has a server-controlled fallback until parity is verified; deep links and stored data use versioned migration adapters.
+
+## Route definition of done
+
+A route is complete only when its approved direction is honored, protected behavior passes, no legacy island remains, required baseline screenshots are reviewed, critical states and primary interactions pass, keyboard and screen-reader checks pass, performance budgets pass, deep links survive, fallback is verified, and implementation changes are reflected in `DESIGN.md` and the catalog.

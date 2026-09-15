@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Candle } from "../../lib/api";
-import { getTimeframeSeconds, type ChartTimeframe } from "../../lib/charting";
+import { getTimeframeSeconds } from "../../lib/charting";
 import { createMarketSubscription, deleteMarketSubscription, loadNormalizedCandles, resolveMarketInstrument, type MarketInstrument } from "../../lib/marketInfrastructure";
+import { planPaneSubscriptions, type PaneSubscriptionDescriptor } from "../../lib/paneSubscriptions";
 
-export type PaneMarketDescriptor = {
-  id: string;
-  symbol: string;
-  timeframe: ChartTimeframe;
-  fromAt?: string;
-  toAt?: string;
-};
+export type PaneMarketDescriptor = PaneSubscriptionDescriptor;
 export type PaneMarketData = { bars: Candle[]; detail: string; instrument: MarketInstrument | null; status: "loading" | "available" | "empty" | "unavailable" | "error"; updatedAt: string | null };
 
 export function usePaneMarketData(panes: PaneMarketDescriptor[], enabled = true) {
@@ -21,15 +16,15 @@ export function usePaneMarketData(panes: PaneMarketDescriptor[], enabled = true)
     let active = true;
     const subscriptions: string[] = [];
     const timers: number[] = [];
-    const currentPanes = panes.map((pane) => ({ ...pane }));
+    const groups = planPaneSubscriptions(panes);
 
-    const loadPane = async (pane: PaneMarketDescriptor) => {
-      setData((current) => ({ ...current, [pane.id]: current[pane.id]?.status === "available" ? current[pane.id] : { bars: [], instrument: null, status: "loading", detail: `Resolving ${pane.symbol}…`, updatedAt: null } }));
+    const loadGroup = async ({ leader: pane, paneIds }: ReturnType<typeof planPaneSubscriptions>[number]) => {
+      setData((current) => Object.fromEntries(Object.entries(current).concat(paneIds.map((paneId) => [paneId, current[paneId]?.status === "available" ? current[paneId] : { bars: [], instrument: null, status: "loading", detail: `Resolving ${pane.symbol}…`, updatedAt: null }]))));
       try {
         const instrument = await resolveMarketInstrument(pane.symbol);
         if (!active) return;
         if (!instrument) {
-          setData((current) => ({ ...current, [pane.id]: { bars: [], instrument: null, status: "unavailable", detail: `${pane.symbol} is not present in the normalized instrument catalog.`, updatedAt: null } }));
+          setData((current) => ({ ...current, ...Object.fromEntries(paneIds.map((paneId) => [paneId, { bars: [], instrument: null, status: "unavailable", detail: `${pane.symbol} is not present in the normalized instrument catalog.`, updatedAt: null }])) }));
           return;
         }
         try {
@@ -55,20 +50,21 @@ export function usePaneMarketData(panes: PaneMarketDescriptor[], enabled = true)
               requestedWindow,
             );
             if (!active) return;
-            setData((current) => ({ ...current, [pane.id]: { bars, instrument, status: bars.length ? "available" : "empty", detail: bars.length ? `${bars.length} normalized candles subscribed for ${instrument.canonical_symbol}.` : `No normalized ${pane.timeframe} candles are available for ${instrument.canonical_symbol}.`, updatedAt: new Date().toISOString() } }));
+            const updatedAt = new Date().toISOString();
+            setData((current) => ({ ...current, ...Object.fromEntries(paneIds.map((paneId) => [paneId, { bars, instrument, status: bars.length ? "available" : "empty", detail: bars.length ? `${bars.length} normalized candles shared across ${paneIds.length} pane${paneIds.length === 1 ? "" : "s"} for ${instrument.canonical_symbol}.` : `No normalized ${pane.timeframe} candles are available for ${instrument.canonical_symbol}.`, updatedAt }])) }));
           } catch (error) {
             if (!active) return;
-            setData((current) => ({ ...current, [pane.id]: { bars: current[pane.id]?.bars ?? [], instrument, status: "error", detail: error instanceof Error ? error.message : `Could not load ${pane.symbol}.`, updatedAt: current[pane.id]?.updatedAt ?? null } }));
+            setData((current) => ({ ...current, ...Object.fromEntries(paneIds.map((paneId) => [paneId, { bars: current[paneId]?.bars ?? [], instrument, status: "error", detail: error instanceof Error ? error.message : `Could not load ${pane.symbol}.`, updatedAt: current[paneId]?.updatedAt ?? null }])) }));
           }
         };
         await refresh();
         if (active) timers.push(window.setInterval(() => void refresh(), 5_000));
       } catch (error) {
-        if (active) setData((current) => ({ ...current, [pane.id]: { bars: [], instrument: null, status: "error", detail: error instanceof Error ? error.message : `Could not resolve ${pane.symbol}.`, updatedAt: null } }));
+        if (active) setData((current) => ({ ...current, ...Object.fromEntries(paneIds.map((paneId) => [paneId, { bars: [], instrument: null, status: "error", detail: error instanceof Error ? error.message : `Could not resolve ${pane.symbol}.`, updatedAt: null }])) }));
       }
     };
 
-    currentPanes.forEach((pane) => void loadPane(pane));
+    groups.forEach((group) => void loadGroup(group));
     return () => {
       active = false;
       timers.forEach((timer) => window.clearInterval(timer));

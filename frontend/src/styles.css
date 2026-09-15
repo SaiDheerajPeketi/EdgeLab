@@ -91,6 +91,54 @@
   --dur-fast: 150ms;
   --dur-base: 250ms;
   --dur-slow: 400ms;
+
+  /* Semantic operating layers and density contracts. */
+  --ui-canvas: var(--bg-base);
+  --ui-surface: var(--bg-surface);
+  --ui-inset: #0b0e13;
+  --ui-raised: #171b22;
+  --ui-floating: #1b2029;
+  --ui-modal: #202631;
+  --ui-border-subtle: rgba(240, 242, 245, 0.08);
+  --ui-border-strong: rgba(240, 242, 245, 0.18);
+  --ui-focus: #67e8f9;
+  --ui-info: #60a5fa;
+  --ui-selection: rgba(50, 211, 238, 0.16);
+  --elevation-inset: inset 0 1px 3px rgba(0, 0, 0, 0.42);
+  --elevation-raised: 0 8px 24px rgba(0, 0, 0, 0.26);
+  --elevation-floating: 0 18px 44px rgba(0, 0, 0, 0.38);
+  --elevation-modal: 0 28px 80px rgba(0, 0, 0, 0.56);
+  --blur-floating: 12px;
+  --blur-modal: 20px;
+  --density-compact: 32px;
+  --density-comfortable: 40px;
+  --density-touch: 44px;
+  --pane-gap: 2px;
+  --motion-distance-xs: 4px;
+  --motion-distance-sm: 8px;
+  --motion-distance-md: 16px;
+  --motion-stagger-max: 45ms;
+  --motion-app-fast: 120ms;
+  --motion-app-base: 180ms;
+  --motion-public-base: 420ms;
+}
+
+html { background: var(--ui-canvas); scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary); }
+::selection { background: var(--accent-primary-dim); color: var(--text-primary); }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+@media (pointer: coarse) {
+  :where(button, [role="button"], input, select, textarea) { min-height: var(--density-touch); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
 }
 
 /* EdgeLab typography utilities — used across landing + app retheme. */

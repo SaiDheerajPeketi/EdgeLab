@@ -3,10 +3,11 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, Check, CircleHelp, Command, CornerDownLeft, LoaderCircle, Search, X } from "lucide-react";
 import type { WorkspaceView } from "../lib/workspace";
 import { WORKSPACE_NAVIGATION_SECTIONS, isWorkspaceNavigationItem } from "../lib/workspaceNavigation";
+import { commandSearchScore, type SearchableCommandEntity } from "../lib/uiFoundation";
 
 type CommandItem = { id: string; label: string; detail: string; keywords: string; group: string; run: () => void };
 
-export function GlobalCommandPalette({ onNavigate, onSelectSymbol, symbols = [] }: { onNavigate: (view: WorkspaceView) => void; onSelectSymbol?: (symbol: string) => void; symbols?: string[] }) {
+export function GlobalCommandPalette({ commandEntities = [], onNavigate, onSelectSymbol, symbols = [] }: { commandEntities?: SearchableCommandEntity[]; onNavigate: (view: WorkspaceView) => void; onSelectSymbol?: (symbol: string) => void; symbols?: string[] }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"commands" | "shortcuts" | "components">("commands");
   const [query, setQuery] = useState("");
@@ -23,9 +24,10 @@ export function GlobalCommandPalette({ onNavigate, onSelectSymbol, symbols = [] 
       items.forEach((item) => navigation.push({ id: `view-${item.id}`, label: item.label, detail: item.description, keywords: `${item.id} ${item.label} ${item.description}`, group: "Navigate", run: () => { onNavigate(item.id); close(); } }));
     }));
     const symbolCommands: CommandItem[] = symbols.slice(0, 200).map((symbol) => ({ id: `symbol-${symbol}`, label: `Switch chart to ${symbol}`, detail: "Apply to the active chart pane", keywords: `symbol ticker market ${symbol}`, group: "Symbols", run: () => { onSelectSymbol?.(symbol); close(); } }));
-    return [...navigation, ...symbolCommands, { id: "shortcuts", label: "Keyboard shortcut reference", detail: "Replay, chart, navigation, Journal, and panel keys", keywords: "help keyboard shortcuts question", group: "Help", run: () => { setMode("shortcuts"); setQuery(""); } }, { id: "components", label: "Component state catalog", detail: "Browse the shared interaction and feedback states", keywords: "ui design system states components accessibility", group: "System", run: () => { setMode("components"); setQuery(""); } }];
-  }, [onNavigate, onSelectSymbol, symbols]);
-  const filtered = useMemo(() => { const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean); return commands.filter((item) => tokens.every((token) => `${item.label} ${item.detail} ${item.keywords}`.toLowerCase().includes(token))).slice(0, 80); }, [commands, query]);
+    const contextual = commandEntities.map<CommandItem>((entity) => ({ id: `${entity.kind}-${entity.id}`, label: entity.label, detail: entity.detail, keywords: `${entity.kind} ${entity.keywords ?? ""}`, group: ({ account: "Accounts", trade: "Trades", note: "Notes", workspace: "Workspaces", "safe-action": "Actions" } as const)[entity.kind], run: () => { entity.run(); close(); } }));
+    return [...navigation, ...symbolCommands, ...contextual, { id: "shortcuts", label: "Keyboard shortcut reference", detail: "Replay, chart, navigation, Journal, and panel keys", keywords: "help keyboard shortcuts question", group: "Help", run: () => { setMode("shortcuts"); setQuery(""); } }, { id: "components", label: "Component state catalog", detail: "Browse the shared interaction and feedback states", keywords: "ui design system states components accessibility", group: "System", run: () => { setMode("components"); setQuery(""); } }];
+  }, [commandEntities, onNavigate, onSelectSymbol, symbols]);
+  const filtered = useMemo(() => commands.map((item) => ({ item, score: commandSearchScore(item, query) })).filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label)).slice(0, 80).map(({ item }) => item), [commands, query]);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
