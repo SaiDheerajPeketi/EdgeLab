@@ -52,6 +52,7 @@ export type ChartIndicatorKind =
   | "bar-delta"
   | "bb"
   | "cumulative-delta"
+  | "custom"
   | "dema"
   | "donchian"
   | "ema"
@@ -163,6 +164,7 @@ export type MagnetMode = "off" | "weak" | "strong";
 export type IndicatorSettings = {
   color: string;
   period: number;
+  customInputs?: Record<string, boolean | number | string>;
   fillOpacity?: number;
   stdDev?: number;
   fastPeriod?: number;
@@ -185,6 +187,12 @@ export type ChartIndicatorInstance = {
   id: string;
   kind: ChartIndicatorKind;
   settings: IndicatorSettings;
+  customOverlay?: boolean;
+  customScriptId?: string;
+  customScriptName?: string;
+  customScriptSource?: string;
+  customScriptVersion?: number;
+  runtimeError?: string | null;
   visible?: boolean;
   createdAt?: string;
 };
@@ -317,6 +325,7 @@ export const INDICATORS: Array<{
   { id: "momentum", kind: "momentum", label: "Momentum", description: "Close-to-close momentum pane", color: CHART_COLOR.violetSoft, pane: "pane" },
   { id: "bar-delta", kind: "bar-delta", label: "Bar Delta", description: "Aggressor ask volume minus bid volume", color: CHART_COLOR.sky, pane: "pane" },
   { id: "cumulative-delta", kind: "cumulative-delta", label: "Cumulative Delta", description: "Running aggressor-side volume delta", color: CHART_COLOR.cyan, pane: "pane" },
+  { id: "custom", kind: "custom", label: "EdgeLab Script", description: "Isolated custom indicator", color: CHART_COLOR.cyan, pane: "overlay" },
   { id: "order-flow-imbalance", kind: "order-flow-imbalance", label: "Order-flow Imbalance", description: "Net count of diagonal buy and sell imbalances", color: CHART_COLOR.amber, pane: "pane" },
 ];
 
@@ -325,6 +334,7 @@ export const DEFAULT_INDICATOR_SETTINGS: IndicatorSettingsMap = {
   "bar-delta": { color: CHART_COLOR.sky, period: 1 },
   bb: { color: CHART_COLOR.muted, period: 20, stdDev: 2 },
   "cumulative-delta": { color: CHART_COLOR.cyan, period: 1 },
+  custom: { color: CHART_COLOR.cyan, period: 20, customInputs: {} },
   dema: { color: CHART_COLOR.teal, period: 20 },
   donchian: { color: CHART_COLOR.blue, period: 20 },
   ema: { color: CHART_COLOR.cyan, period: 20 },
@@ -512,6 +522,8 @@ export function indicatorDisplayName(indicator: ChartIndicatorInstance) {
       return `Bollinger ${period}`;
     case "cumulative-delta":
       return "Cumulative Delta";
+    case "custom":
+      return indicator.customScriptName?.trim() || "EdgeLab Script";
     case "dema":
       return `DEMA ${period}`;
     case "donchian":

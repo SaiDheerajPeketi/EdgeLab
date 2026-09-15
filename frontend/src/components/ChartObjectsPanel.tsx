@@ -224,7 +224,11 @@ export function ChartObjectsPanel({
                       {indicatorDisplayName(indicator)}
                     </span>
                     <span className="block truncate text-xs text-slate-500">
-                      {indicator.kind === "macd"
+                      {indicator.kind === "custom"
+                        ? indicator.runtimeError
+                          ? `Runtime error · ${indicator.runtimeError}`
+                          : `EdgeLab DSL · v${indicator.customScriptVersion ?? 1}`
+                        : indicator.kind === "macd"
                         ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
                         : indicator.kind === "fvg" || indicator.kind === "ifvg"
                         ? settings.unmitigatedOnly === true

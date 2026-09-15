@@ -84,6 +84,12 @@ const INDICATOR_METADATA = {
     preview: "oscillator",
     synonyms: ["cvd", "cumulative volume delta", "order flow", "aggressor"],
   },
+  custom: {
+    category: "custom",
+    description: "Runs a saved EdgeLab DSL study in the isolated indicator worker.",
+    preview: "oscillator",
+    synonyms: ["edge dsl", "user script", "custom study", "code"],
+  },
   dema: {
     category: "basic",
     description: "Reduces lag by combining two exponential averages.",
@@ -186,7 +192,9 @@ const CATEGORY_LABELS = new Map(
   INDICATOR_CATEGORIES.map((category) => [category.id, category.label]),
 );
 
-export const INDICATOR_CATALOG: readonly IndicatorCatalogItem[] = INDICATORS.map(
+export const INDICATOR_CATALOG: readonly IndicatorCatalogItem[] = INDICATORS.filter(
+  (indicator) => indicator.kind !== "custom",
+).map(
   (indicator) => {
     const metadata = INDICATOR_METADATA[indicator.kind];
     const categoryLabel = CATEGORY_LABELS.get(metadata.category) ?? metadata.category;

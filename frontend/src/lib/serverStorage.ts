@@ -28,6 +28,8 @@ const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "chart-layouts.v1": "edgelab.chart-layouts.v1",
   "chart-interaction-preferences.v1": "edgelab.chart-interaction-preferences.v1",
   "chart-settings-presets.v1": "edgelab.chart-settings-presets.v1",
+  "custom-indicator-audit.v1": "edgelab.custom-indicator-audit.v1",
+  "custom-indicator-scripts.v1": "edgelab.custom-indicator-scripts.v1",
   "drawing-presets.v1": "edgelab.drawing-presets.v1",
   "drawing-tool-favorites.v1": "edgelab.drawing-tool-favorites.v1",
   "fib-presets.v1": "edgelab.fib-presets.v1",
@@ -52,6 +54,9 @@ const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "order-line-modification-confirmation.v1": "edgelab.order-line-modification-confirmation.v1",
   "order-risk-base.v1": "edgelab.order-risk-base.v1",
   "order-sizing-mode.v1": "edgelab.order-sizing-mode.v1",
+  "quant-audit.v1": "edgelab.quant-audit.v1",
+  "quant-preferences.v1": "edgelab.quant-preferences.v1",
+  "quant-workspace.v1": "edgelab.quant-workspace.v1",
   "strategy-mistake-tags.v1": "edgelab.strategy-mistake-tags.v1",
   "workspace-beta-notice-dismissed.v1": "edgelab.workspace.beta-notice.dismissed.v1",
 };

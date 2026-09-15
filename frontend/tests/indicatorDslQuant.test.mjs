@@ -1,0 +1,108 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test, { after } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildSync } from "esbuild";
+
+const frontendRoot = fileURLToPath(new URL("..", import.meta.url));
+const bundleDirectory = mkdtempSync(path.join(tmpdir(), "edgelab-indicator-dsl-"));
+const bundlePath = path.join(bundleDirectory, "indicator-dsl-test.mjs");
+buildSync({
+  bundle: true,
+  define: { "import.meta.env": "{}" },
+  format: "esm",
+  logLevel: "silent",
+  outfile: bundlePath,
+  platform: "node",
+  stdin: {
+    contents: [
+      'export * from "./src/lib/indicatorDsl.ts";',
+      'export * from "./src/lib/customIndicators.ts";',
+      'export * from "./src/lib/quantAssistant.ts";',
+    ].join("\n"),
+    loader: "ts",
+    resolveDir: frontendRoot,
+    sourcefile: "indicator-dsl-test-entry.ts",
+  },
+  target: "node22",
+});
+const modules = await import(pathToFileURL(bundlePath).href);
+after(() => rmSync(bundleDirectory, { force: true, recursive: true }));
+
+const bars = Array.from({ length: 180 }, (_, index) => ({
+  close: 100 + index * 0.2 + Math.sin(index / 5),
+  ema_20: null,
+  ema_50: null,
+  high: 101 + index * 0.2,
+  low: 99 + index * 0.2,
+  open: 100 + index * 0.2,
+  rsi_14: null,
+  time: 1_700_000_000 + index * 60,
+  timestamp: new Date((1_700_000_000 + index * 60) * 1_000).toISOString(),
+  volume: 1_000 + index,
+}));
+
+test("EdgeLab DSL parses and executes deterministically without mutating candle epochs", () => {
+  const source = [
+    'indicator "Deterministic EMA" overlay',
+    "input period: number = 12 min 1 max 500",
+    "input source: source = close",
+    'plot "EMA" = ema(source, period) color "#22d3ee"',
+  ].join("\n");
+  assert.ok(modules.parseEdgeIndicator(source).program);
+  const first = modules.executeEdgeIndicator({ bars, source });
+  const second = modules.executeEdgeIndicator({ bars, source });
+  assert.deepEqual(first.plots, second.plots);
+  assert.deepEqual(bars.map((bar) => bar.time), Array.from({ length: 180 }, (_, index) => 1_700_000_000 + index * 60));
+  assert.equal(first.audit.bars, bars.length);
+});
+
+test("validated backend JSON is strictly adapted to canonical user DSL", () => {
+  const backend = JSON.stringify({
+    dsl_version: 1,
+    inputs: { length: { default: 3, max: 50, min: 1, type: "integer" } },
+    name: "Server average",
+    plots: [{ color: "#22D3EE", series: "average" }],
+    series: [{ length: "length", name: "average", op: "sma", source: "close" }],
+    signals: [],
+  });
+  const adapted = modules.adaptBackendIndicatorJson(backend);
+  assert.equal(adapted.diagnostics.length, 0);
+  assert.match(adapted.source, /^indicator "Server average" pane/m);
+  assert.ok(modules.parseEdgeIndicator(adapted.source).program);
+  assert.ok(modules.executeEdgeIndicator({ bars, source: adapted.source }).plots[0].points.length > 0);
+});
+
+test("adapter rejects unsupported server nodes and never treats raw JSON as executable DSL", () => {
+  const unsupported = modules.adaptBackendIndicatorJson(JSON.stringify({
+    dsl_version: 1,
+    inputs: {},
+    name: "Signal artifact",
+    plots: [{ series: "close" }],
+    series: [],
+    signals: [{ left: "close", name: "up", op: "above", right: "open" }],
+  }));
+  assert.equal(unsupported.source, null);
+  assert.equal(unsupported.diagnostics[0].code, "E_ADAPTER_SIGNALS");
+  assert.equal(modules.parseEdgeIndicator('{"dsl_version":1}').program, null);
+});
+
+test("the professional first-party DSL catalog compiles and remains broad", () => {
+  assert.ok(modules.FIRST_PARTY_EDGE_INDICATORS.length >= 20);
+  for (const indicator of modules.FIRST_PARTY_EDGE_INDICATORS) {
+    assert.ok(modules.parseEdgeIndicator(indicator.source).program, indicator.name);
+  }
+});
+
+test("the 60-day backtest is reproducible and records costs and source version", () => {
+  const plot = bars.map((bar, index) => ({ time: bar.time, value: bar.close + Math.sin(index / 8) }));
+  const config = { ...modules.DEFAULT_QUANT_BACKTEST_CONFIG, commissionBps: 2, slippageBps: 3 };
+  const first = modules.runReproducibleIndicatorBacktest(bars, plot, config, 7);
+  const second = modules.runReproducibleIndicatorBacktest(bars, plot, config, 7);
+  assert.deepEqual(first, second);
+  assert.equal(first.sourceVersion, 7);
+  assert.match(first.sample.hash, /^fnv1a-/);
+  assert.ok(first.assumptions.some((item) => item.includes("commission")));
+});

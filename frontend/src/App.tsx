@@ -109,6 +109,25 @@ import {
   subscribeChartInteractionPreferences,
 } from "./lib/chartInteractionPreferences";
 import {
+  FIRST_PARTY_EDGE_INDICATORS,
+  appendIndicatorAudit,
+  createCustomIndicatorInstance,
+  hydrateCustomIndicators,
+  loadCachedCustomIndicators,
+  persistCustomIndicators,
+  saveCustomIndicator,
+  subscribeCustomIndicators,
+  type CustomIndicatorScript,
+} from "./lib/customIndicators";
+import type { EdgeIndicatorInputValue } from "./lib/indicatorDsl";
+import {
+  appendQuantAudit,
+  type QuantCaptureAttachment,
+  type QuantChartContext,
+  type QuantGeneratedIndicator,
+  type QuantSelectedRegion,
+} from "./lib/quantAssistant";
+import {
   DEFAULT_CHART_VISUAL_SETTINGS,
   hydrateChartSettingsPresets,
   loadActiveChartSettingsPreset,
@@ -176,6 +195,16 @@ const ChartObjectsPanel = lazy(() =>
 const ChartToolbar = lazy(() =>
   import("./components/ChartToolbar").then((module) => ({
     default: module.ChartToolbar,
+  })),
+);
+const IndicatorEditorPanel = lazy(() =>
+  import("./components/IndicatorEditorPanel").then((module) => ({
+    default: module.IndicatorEditorPanel,
+  })),
+);
+const QuantPanel = lazy(() =>
+  import("./components/QuantPanel").then((module) => ({
+    default: module.QuantPanel,
   })),
 );
 const ResultsPanel = lazy(() =>
@@ -469,6 +498,23 @@ export function WorkspaceApp() {
     status: ChartCaptureStatus;
   }>({ message: "", status: "idle" });
   const [chartCaptureMode, setChartCaptureMode] = useState(false);
+  const [customIndicatorScripts, setCustomIndicatorScripts] = useState<CustomIndicatorScript[]>(
+    loadCachedCustomIndicators,
+  );
+  const [indicatorEditorRequest, setIndicatorEditorRequest] = useState<{
+    nonce: number;
+    scriptId?: string;
+    source?: string;
+  } | null>(null);
+  const [quantOpen, setQuantOpen] = useState(false);
+  const [quantAttachment, setQuantAttachment] = useState<QuantCaptureAttachment | null>(null);
+  const [quantRegionSelecting, setQuantRegionSelecting] = useState(false);
+  const [quantRegionDraft, setQuantRegionDraft] = useState<{
+    currentX: number;
+    currentY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const [chartInteractionPreferences, setChartInteractionPreferences] = useState(
     loadCachedChartInteractionPreferences,
   );
@@ -559,6 +605,31 @@ export function WorkspaceApp() {
     );
   }, [barOffset, bars, sourceTimeframe, state?.session.current_offset]);
   const visibleBars = normalizedVisibleData.bars;
+  const allCustomIndicatorScripts = useMemo(
+    () => [...FIRST_PARTY_EDGE_INDICATORS, ...customIndicatorScripts],
+    [customIndicatorScripts],
+  );
+  const quantContext: QuantChartContext = {
+    activeIndicators: indicatorInstances,
+    chartSettings,
+    drawings,
+    history: {
+      barCount: visibleBars.length,
+      firstTimestamp: visibleBars[0]?.timestamp ?? null,
+      lastTimestamp: visibleBars.at(-1)?.timestamp ?? null,
+      sampled: visibleBars.length > 2_000,
+    },
+    provider: activeChartPane.dataSourceId
+      ? `dataset:${activeChartPane.dataSourceId}`
+      : `backtest:${state?.session.id ?? "draft"}`,
+    selectedObjectId: selectedDrawingId,
+    selectedRegion: quantAttachment?.region ?? null,
+    sessionMode: chartSettings.tradingHoursMode,
+    symbol: activeChartPane.symbol,
+    timeframe: coerceTimeframeToSource(timeframe, sourceTimeframe),
+    timezone: chartSettings.timeZone,
+    visibleBars: visibleBars.slice(-2_000),
+  };
   const playbackStepBars = replayStepBars;
   const playbackTickMs = Math.max(
     16,
@@ -708,6 +779,33 @@ export function WorkspaceApp() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateCustomIndicators().then((scripts) => {
+      if (active) setCustomIndicatorScripts(scripts);
+    });
+    const unsubscribe = subscribeCustomIndicators((scripts) => {
+      if (active) setCustomIndicatorScripts(scripts);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!quantRegionSelecting) return;
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setQuantRegionDraft(null);
+      setQuantRegionSelecting(false);
+      setChartCapture({ message: "Chart region selection cancelled.", status: "idle" });
+    };
+    document.addEventListener("keydown", cancel, true);
+    return () => document.removeEventListener("keydown", cancel, true);
+  }, [quantRegionSelecting]);
 
   useEffect(() => {
     saveWorkspaceSidebarCollapsed(sidebarCollapsed);
@@ -1414,6 +1512,68 @@ export function WorkspaceApp() {
           color: nextIndicatorInstanceColor(kind, current),
         }),
       ];
+    });
+  }
+
+  function changeCustomIndicatorScripts(scripts: CustomIndicatorScript[]) {
+    setCustomIndicatorScripts(scripts);
+    void persistCustomIndicators(scripts);
+  }
+
+  function addCustomIndicator(
+    script: CustomIndicatorScript,
+    inputs: Record<string, EdgeIndicatorInputValue> = script.inputs,
+  ) {
+    setIndicatorInstances((current) => [
+      ...current,
+      createCustomIndicatorInstance(script, inputs),
+    ]);
+    appendIndicatorAudit({
+      action: "add-to-chart",
+      detail: `Added revision ${script.revision} to ${activeChartPaneLabel}.`,
+      scriptId: script.id,
+      status: "completed",
+    });
+  }
+
+  function openIndicatorEditor(scriptId?: string, source?: string) {
+    setIndicatorEditorRequest({ nonce: Date.now(), scriptId, source });
+  }
+
+  function saveGeneratedIndicator(artifact: QuantGeneratedIndicator, addToChart: boolean) {
+    const saved = saveCustomIndicator(customIndicatorScripts, {
+      category: "custom",
+      color: "#32d3ee",
+      description: "Indicator generated through Quant and saved as inspectable EdgeLab DSL.",
+      id: "",
+      inputs: {},
+      name: artifact.name,
+      preview: "oscillator",
+      source: artifact.source,
+      synonyms: ["quant", "generated"],
+    });
+    if (!saved.script) {
+      openIndicatorEditor(undefined, artifact.source);
+      return;
+    }
+    changeCustomIndicatorScripts(saved.scripts);
+    if (addToChart) addCustomIndicator(saved.script);
+  }
+
+  function updateIndicatorRuntimeStateForPane(
+    paneId: string,
+    instanceId: string,
+    runtimeError: string | null,
+  ) {
+    updateChartPane(paneId, (pane) => {
+      const current = pane.indicatorInstances.find((indicator) => indicator.id === instanceId);
+      if (!current || (current.runtimeError ?? null) === runtimeError) return pane;
+      return {
+        ...pane,
+        indicatorInstances: pane.indicatorInstances.map((indicator) =>
+          indicator.id === instanceId ? { ...indicator, runtimeError } : indicator,
+        ),
+      };
     });
   }
 
@@ -2149,6 +2309,104 @@ export function WorkspaceApp() {
     }
   }
 
+  async function captureChartForQuant(region: QuantSelectedRegion | null = null) {
+    const target = chartPaneGridRef.current;
+    if (!target) {
+      setChartCapture({ message: "The chart is still loading. Try the attachment again.", status: "error" });
+      return;
+    }
+    setChartCapture({ message: region ? "Capturing the selected chart region…" : "Attaching the visible chart…", status: "capturing" });
+    setChartCaptureMode(true);
+    try {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+      });
+      await document.fonts?.ready.catch(() => undefined);
+      const { toPng } = await import("html-to-image");
+      const bounds = target.getBoundingClientRect();
+      const width = Math.max(1, Math.ceil(target.scrollWidth || bounds.width));
+      const height = Math.max(1, Math.ceil(target.scrollHeight || bounds.height));
+      const pixelRatio = Math.min(1, 1_600 / width, 1_200 / height);
+      const fullDataUrl = await toPng(target, {
+        backgroundColor: "#05070a",
+        cacheBust: true,
+        filter: (node) =>
+          !(node instanceof HTMLElement) ||
+          !node.matches(".chart-context-menu,.chart-object-floating-toolbar,.chart-order-confirm-backdrop,.chart-radial-toolbox,[data-chart-capture-exclude='true']"),
+        height,
+        pixelRatio,
+        width,
+      });
+      const capture = region
+        ? await cropQuantCapture(fullDataUrl, region)
+        : {
+            dataUrl: fullDataUrl,
+            height: Math.max(1, Math.round(height * pixelRatio)),
+            width: Math.max(1, Math.round(width * pixelRatio)),
+          };
+      if (capture.dataUrl.length > 5_500_000) {
+        throw new Error("The chart attachment exceeds the 4 MB safety limit.");
+      }
+      setQuantAttachment({
+        ...capture,
+        id: `quant-capture-${Date.now().toString(36)}`,
+        kind: region ? "region" : "chart",
+        region,
+      });
+      setChartCapture({
+        message: `${region ? "Selected region" : "Visible chart"} attached to Quant · ${capture.width} × ${capture.height}`,
+        status: "success",
+      });
+      appendQuantAudit({ action: "capture", contextFields: [region ? "selectedRegion" : "visibleChart"], modelId: null, status: "completed" });
+    } catch (failure) {
+      setChartCapture({
+        message: failure instanceof Error ? failure.message : "The chart attachment could not be created.",
+        status: "error",
+      });
+      appendQuantAudit({ action: "capture", contextFields: [], modelId: null, status: "failed" });
+    } finally {
+      setChartCaptureMode(false);
+    }
+  }
+
+  function beginQuantRegionCapture() {
+    setQuantRegionDraft(null);
+    setQuantRegionSelecting(true);
+    setChartCapture({ message: "Drag over the chart to attach a region. Press Escape to cancel.", status: "capturing" });
+  }
+
+  function updateQuantRegionPointer(
+    event: ReactPointerEvent<HTMLDivElement>,
+    phase: "down" | "move" | "up",
+  ) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = clampRatio((event.clientX - bounds.left) / Math.max(bounds.width, 1));
+    const y = clampRatio((event.clientY - bounds.top) / Math.max(bounds.height, 1));
+    if (phase === "down") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setQuantRegionDraft({ currentX: x, currentY: y, startX: x, startY: y });
+      return;
+    }
+    if (!quantRegionDraft) return;
+    if (phase === "move") {
+      setQuantRegionDraft((current) => current ? { ...current, currentX: x, currentY: y } : null);
+      return;
+    }
+    const region: QuantSelectedRegion = {
+      heightRatio: Math.abs(y - quantRegionDraft.startY),
+      widthRatio: Math.abs(x - quantRegionDraft.startX),
+      xRatio: Math.min(x, quantRegionDraft.startX),
+      yRatio: Math.min(y, quantRegionDraft.startY),
+    };
+    setQuantRegionDraft(null);
+    setQuantRegionSelecting(false);
+    if (region.widthRatio < 0.02 || region.heightRatio < 0.02) {
+      setChartCapture({ message: "Select a larger chart region.", status: "error" });
+      return;
+    }
+    window.requestAnimationFrame(() => void captureChartForQuant(region));
+  }
+
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
     await newSession(payload);
     setReplayFocusTrade(null);
@@ -2688,8 +2946,13 @@ export function WorkspaceApp() {
                       clearableDrawingsCount={unlockedDrawingsCount}
                       drawingTool={drawingTool}
                       drawingsCount={drawings.length}
+                      customIndicatorScripts={allCustomIndicatorScripts}
                       indicatorInstances={indicatorInstances}
                       onAddIndicator={addIndicator}
+                      onAddCustomIndicator={addCustomIndicator}
+                      onEditCustomIndicator={(script) => openIndicatorEditor(script.id)}
+                      onOpenIndicatorEditor={() => openIndicatorEditor()}
+                      onOpenQuant={() => setQuantOpen(true)}
                       onChartSettingsChange={(settings) =>
                         applyChartSettingsToCurrentScope(settings)
                       }
@@ -2780,7 +3043,7 @@ export function WorkspaceApp() {
                       </div>
                     ) : null}
                     <div
-                      className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}
+                      className={`chart-pane-grid relative ${chartPaneLayoutDefinition.className}`}
                       ref={chartPaneGridRef}
                     >
                       {visibleChartPanes.map((pane, index) => {
@@ -2859,6 +3122,9 @@ export function WorkspaceApp() {
                               onMagnetModeChange={(mode) =>
                                 changeMagnetModeForPane(pane.id, mode)
                               }
+                              onIndicatorRuntimeState={(instanceId, runtimeError) =>
+                                updateIndicatorRuntimeStateForPane(pane.id, instanceId, runtimeError)
+                              }
                               onCaptureChart={() => void captureChartGrid()}
                               onCrosshairSync={chartSyncSettings.crosshair ? (value) =>
                                 setSyncedCrosshair((current) => ({ ...value, revision: (current?.revision ?? 0) + 1 })) : undefined}
@@ -2910,6 +3176,32 @@ export function WorkspaceApp() {
                           </div>
                         );
                       })}
+                      {quantRegionSelecting ? (
+                        <div
+                          aria-label="Select a chart region for Quant. Drag to select; press Escape to cancel."
+                          className="absolute inset-0 z-50 cursor-crosshair touch-none bg-cyan-950/10"
+                          data-chart-capture-exclude="true"
+                          onPointerDown={(event) => updateQuantRegionPointer(event, "down")}
+                          onPointerMove={(event) => updateQuantRegionPointer(event, "move")}
+                          onPointerUp={(event) => updateQuantRegionPointer(event, "up")}
+                          role="application"
+                        >
+                          <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-md border border-cyan-300/20 bg-[#071018]/95 px-3 py-1.5 text-xs font-medium text-cyan-100 shadow-xl">
+                            Drag to attach a region · Esc cancels
+                          </div>
+                          {quantRegionDraft ? (
+                            <div
+                              className="pointer-events-none absolute border border-cyan-300 bg-cyan-300/10 shadow-[0_0_0_1px_rgba(34,211,238,0.15)]"
+                              style={{
+                                height: `${Math.abs(quantRegionDraft.currentY - quantRegionDraft.startY) * 100}%`,
+                                left: `${Math.min(quantRegionDraft.currentX, quantRegionDraft.startX) * 100}%`,
+                                top: `${Math.min(quantRegionDraft.currentY, quantRegionDraft.startY) * 100}%`,
+                                width: `${Math.abs(quantRegionDraft.currentX - quantRegionDraft.startX) * 100}%`,
+                              }}
+                            />
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   {layersPanelOpen ? (
@@ -3020,6 +3312,40 @@ export function WorkspaceApp() {
         </main>
       </div>
 
+      {indicatorEditorRequest ? (
+        <Suspense fallback={<LazyPanelFallback className="fixed inset-4 z-[90] rounded-xl bg-[#071018]" />}>
+          <IndicatorEditorPanel
+            bars={visibleBars}
+            onAddToChart={addCustomIndicator}
+            onClose={() => setIndicatorEditorRequest(null)}
+            onScriptsChange={changeCustomIndicatorScripts}
+            request={indicatorEditorRequest}
+            scripts={allCustomIndicatorScripts}
+          />
+        </Suspense>
+      ) : null}
+
+      {quantOpen ? (
+        <Suspense fallback={<LazyPanelFallback className="fixed bottom-3 right-3 z-[80] h-72 w-96 rounded-xl bg-[#071018]" />}>
+          <QuantPanel
+            attachment={quantAttachment}
+            bars={visibleBars}
+            context={quantContext}
+            onAddGeneratedIndicator={(artifact) => saveGeneratedIndicator(artifact, true)}
+            onCaptureChart={() => captureChartForQuant()}
+            onCaptureRegion={beginQuantRegionCapture}
+            onClearAttachment={() => setQuantAttachment(null)}
+            onClose={() => {
+              setQuantOpen(false);
+              setQuantRegionSelecting(false);
+              setQuantRegionDraft(null);
+            }}
+            onOpenIndicatorEditor={(artifact) => openIndicatorEditor(undefined, artifact.source)}
+            scripts={allCustomIndicatorScripts}
+          />
+        </Suspense>
+      ) : null}
+
       {!isChartFullscreen && !editingTrade && !reviewTrade ? (
         <WorkspaceMobileNav activeView={activeWorkspace} onNavigate={navigateWorkspace} />
       ) : null}
@@ -3073,6 +3399,31 @@ export function WorkspaceApp() {
       )}
     </div>
   );
+}
+
+function clampRatio(value: number) {
+  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+}
+
+async function cropQuantCapture(dataUrl: string, region: QuantSelectedRegion) {
+  const image = new Image();
+  image.decoding = "async";
+  image.src = dataUrl;
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("The selected chart region could not be decoded."));
+  });
+  const sourceX = Math.floor(image.naturalWidth * clampRatio(region.xRatio));
+  const sourceY = Math.floor(image.naturalHeight * clampRatio(region.yRatio));
+  const width = Math.max(1, Math.min(image.naturalWidth - sourceX, Math.round(image.naturalWidth * clampRatio(region.widthRatio))));
+  const height = Math.max(1, Math.min(image.naturalHeight - sourceY, Math.round(image.naturalHeight * clampRatio(region.heightRatio))));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This browser cannot create a chart-region attachment.");
+  context.drawImage(image, sourceX, sourceY, width, height, 0, 0, width, height);
+  return { dataUrl: canvas.toDataURL("image/png"), height, width };
 }
 
 function SharedWorkspaceCopySurface({
@@ -3758,7 +4109,7 @@ function sanitizeIndicatorInstance(value: unknown): ChartIndicatorInstance | nul
     return null;
   }
   const base = createIndicatorInstance(candidate.kind, candidate.settings);
-  return {
+  const common: ChartIndicatorInstance = {
     ...base,
     id:
       typeof candidate.id === "string" && candidate.id.trim().length > 0
@@ -3770,6 +4121,50 @@ function sanitizeIndicatorInstance(value: unknown): ChartIndicatorInstance | nul
         ? candidate.createdAt
         : base.createdAt,
   };
+  if (candidate.kind !== "custom") return common;
+  if (
+    typeof candidate.customScriptId !== "string" ||
+    typeof candidate.customScriptSource !== "string" ||
+    candidate.customScriptSource.trim().length === 0
+  ) {
+    return null;
+  }
+  return {
+    ...common,
+    customOverlay: candidate.customOverlay === true,
+    customScriptId: candidate.customScriptId.trim().slice(0, 96),
+    customScriptName:
+      typeof candidate.customScriptName === "string"
+        ? candidate.customScriptName.trim().slice(0, 80)
+        : "EdgeLab Script",
+    customScriptSource: candidate.customScriptSource.slice(0, 20_000),
+    customScriptVersion:
+      typeof candidate.customScriptVersion === "number" &&
+      Number.isFinite(candidate.customScriptVersion)
+        ? Math.max(1, Math.floor(candidate.customScriptVersion))
+        : 1,
+    runtimeError:
+      typeof candidate.runtimeError === "string"
+        ? candidate.runtimeError.slice(0, 320)
+        : null,
+    settings: {
+      ...common.settings,
+      customInputs: sanitizeCustomIndicatorInputs(candidate.settings?.customInputs),
+    },
+  };
+}
+
+function sanitizeCustomIndicatorInputs(value: unknown): Record<string, EdgeIndicatorInputValue> {
+  if (typeof value !== "object" || value == null || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, item]) =>
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) &&
+      (typeof item === "boolean" || typeof item === "number" || typeof item === "string") &&
+      (typeof item !== "number" || Number.isFinite(item))
+        ? [[key, item]]
+        : [],
+    ),
+  );
 }
 
 function sanitizeTimeframe(value: unknown): ChartTimeframe {

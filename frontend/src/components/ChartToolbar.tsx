@@ -3,10 +3,12 @@ import {
   AreaChart,
   ArrowDown,
   ArrowUp,
+  Bot,
   CandlestickChart,
   Camera,
   Check,
   ChevronDown,
+  Code2,
   Command,
   Eye,
   EyeOff,
@@ -133,6 +135,7 @@ import {
 import { IndicatorCatalogPanel } from "./IndicatorCatalogPanel";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+import type { CustomIndicatorScript } from "../lib/customIndicators";
 
 type Props = {
   activePaneLabel: string;
@@ -141,6 +144,7 @@ type Props = {
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   clearableDrawingsCount: number;
+  customIndicatorScripts?: readonly CustomIndicatorScript[];
   drawingTool: DrawingTool;
   drawingsCount: number;
   indicatorInstances: ChartIndicatorInstance[];
@@ -152,6 +156,7 @@ type Props = {
   workspaceRecoveryMessage?: string | null;
   magnetMode: MagnetMode;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
+  onAddCustomIndicator?: (script: CustomIndicatorScript) => void;
   onCaptureChart?: () => void;
   onChartSettingsChange: (settings: ChartVisualSettings) => void;
   onChartSettingsReset: () => void;
@@ -174,6 +179,9 @@ type Props = {
   onSymbolChange?: (symbol: string) => void;
   onSyncSettingsChange?: (settings: ChartSyncSettings) => void;
   onDrawingMarkerChange?: (marker: string) => void;
+  onEditCustomIndicator?: (script: CustomIndicatorScript) => void;
+  onOpenIndicatorEditor?: () => void;
+  onOpenQuant?: () => void;
   onRemoveIndicator: (instanceId: string) => void;
   onToggleOrderOverlays: () => void;
   onSmoothCandlesChange: (value: boolean) => void;
@@ -337,6 +345,7 @@ export function ChartToolbar({
   chartSettings,
   chartStyle,
   clearableDrawingsCount,
+  customIndicatorScripts = [],
   drawingTool,
   drawingsCount,
   indicatorInstances,
@@ -348,6 +357,7 @@ export function ChartToolbar({
   workspaceRecoveryMessage = null,
   magnetMode,
   onAddIndicator,
+  onAddCustomIndicator,
   onCaptureChart,
   onChartSettingsChange,
   onChartSettingsReset,
@@ -370,6 +380,9 @@ export function ChartToolbar({
   onSymbolChange,
   onSyncSettingsChange,
   onDrawingMarkerChange,
+  onEditCustomIndicator,
+  onOpenIndicatorEditor,
+  onOpenQuant,
   onRemoveIndicator,
   onToggleOrderOverlays,
   onSmoothCandlesChange,
@@ -1504,15 +1517,32 @@ export function ChartToolbar({
           {indicatorMenuOpen && (
             <div id={indicatorCatalogId}>
               <IndicatorCatalogPanel
+                customScripts={customIndicatorScripts}
                 favorites={indicatorFavorites}
                 indicatorInstances={indicatorInstances}
+                onAddCustomIndicator={onAddCustomIndicator}
                 onAddIndicator={onAddIndicator}
                 onClose={closeIndicatorMenu}
+                onEditCustomIndicator={onEditCustomIndicator}
                 onToggleFavorite={toggleFavoriteIndicator}
               />
             </div>
           )}
         </div>
+
+        {onOpenIndicatorEditor ? (
+          <button className="chart-dropdown-trigger" onClick={onOpenIndicatorEditor} type="button">
+            <Code2 size={15} />
+            Editor
+          </button>
+        ) : null}
+
+        {onOpenQuant ? (
+          <button className="chart-dropdown-trigger" onClick={onOpenQuant} type="button">
+            <Bot size={15} />
+            Quant
+          </button>
+        ) : null}
 
         {favoriteIndicatorOptions.length > 0 && (
           <div

@@ -155,6 +155,8 @@ import {
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
+import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
+import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 
 const DRAWING_PRESETS_KEY = "drawing-presets.v1";
 const FIB_PRESETS_KEY = "fib-presets.v1";
@@ -226,6 +228,7 @@ type Props = {
   onUpdateIndicatorSettings: (instanceId: string, settings: Partial<IndicatorSettings>) => void;
   onUpdatePosition: (payload: PositionUpdatePayload) => Promise<void> | void;
   onVisibleRangeSync?: (value: SyncedChartVisibleRange) => void;
+  onIndicatorRuntimeState?: (instanceId: string, error: string | null) => void;
   orders: Order[];
   position: Position | null;
   pnlMultiplier: number;
@@ -248,6 +251,16 @@ type Props = {
 
 type TooltipData = {
   candle: Candle;
+};
+
+type CustomRuntimeStudy = {
+  color: string;
+  data: LineData[];
+  error: string | null;
+  id: string;
+  label: string;
+  overlay: boolean;
+  sourceId: string;
 };
 
 type DraftDrawing = {
@@ -452,6 +465,7 @@ export function TradingChart({
   onUpdateIndicatorSettings,
   onUpdatePosition,
   onVisibleRangeSync,
+  onIndicatorRuntimeState,
   orders,
   position,
   pnlMultiplier,
@@ -484,6 +498,7 @@ export function TradingChart({
   const settingPriceLinesRef = useRef<IPriceLine[]>([]);
   const barsRef = useRef<Candle[]>([]);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [customRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [orderLineDrag, setOrderLineDrag] = useState<OrderLineDragState | null>(null);
@@ -625,14 +640,77 @@ export function TradingChart({
     [chartSettings.bodyDownColor, chartSettings.bodyUpColor, displayBars, hasVolumeData],
   );
 
-  const indicatorDefinitions = useMemo(
+  const nativeIndicatorDefinitions = useMemo(
     () => buildIndicatorDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
+  );
+  const indicatorDefinitions = useMemo<IndicatorDefinition[]>(
+    () => [
+      ...nativeIndicatorDefinitions,
+      ...customRuntimeStudies.filter((study) => study.overlay && !study.error).map((study) => ({
+        color: study.color,
+        data: study.data,
+        id: study.id,
+        label: study.label,
+        lineWidth: 2 as const,
+        sourceId: study.sourceId,
+      })),
+    ],
+    [customRuntimeStudies, nativeIndicatorDefinitions],
   );
   const fvgZoneDefinitions = useMemo(
     () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
   );
+
+  useEffect(() => {
+    const customInstances = indicatorInstances.filter(
+      (indicator) => indicator.kind === "custom" && indicator.visible !== false,
+    );
+    if (customInstances.length === 0) {
+      setCustomRuntimeStudies([]);
+      return;
+    }
+    let active = true;
+    const jobs: ReturnType<typeof createIndicatorRuntimeJob>[] = [];
+    setCustomRuntimeStudies([]);
+    customInstances.forEach((indicator) => {
+      if (!indicator.customScriptSource) {
+        const error = "This custom indicator has no saved EdgeLab DSL source.";
+        setCustomRuntimeStudies((current) => [...current, emptyCustomRuntimeStudy(indicator, error)]);
+        if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
+        return;
+      }
+      const job = createIndicatorRuntimeJob({
+        bars: displayBars.slice(-20_000),
+        inputs: indicator.settings.customInputs,
+        mode: "historical",
+        source: indicator.customScriptSource,
+      });
+      jobs.push(job);
+      void job.promise.then((result) => {
+        if (!active) return;
+        const studies = customStudiesFromResult(indicator, result);
+        setCustomRuntimeStudies((current) => [
+          ...current.filter((study) => study.sourceId !== indicator.id),
+          ...studies,
+        ]);
+        if (indicator.runtimeError) onIndicatorRuntimeState?.(indicator.id, null);
+      }).catch((failure) => {
+        if (!active || (failure instanceof Error && failure.message === "Indicator execution was cancelled.")) return;
+        const error = failure instanceof Error ? failure.message : "Indicator execution failed.";
+        setCustomRuntimeStudies((current) => [
+          ...current.filter((study) => study.sourceId !== indicator.id),
+          emptyCustomRuntimeStudy(indicator, error),
+        ]);
+        if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
+      });
+    });
+    return () => {
+      active = false;
+      jobs.forEach((job) => job.cancel());
+    };
+  }, [displayBars, indicatorInstances]);
 
   useEffect(() => {
     let active = true;
@@ -2722,6 +2800,19 @@ export function TradingChart({
                     )}
                   </button>
                 ))}
+                {customRuntimeStudies.map((study) => (
+                  <button
+                    className={`chart-study-pill ${renderedSelectedIndicatorId === study.sourceId ? "chart-study-pill-active" : ""}`}
+                    key={`header-${study.id}`}
+                    onClick={(event) => openIndicatorToolbar(study.sourceId, event)}
+                    title={study.error ?? study.label}
+                    type="button"
+                  >
+                    <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: study.error ? "#fb7185" : study.color }} />
+                    {chartSettings.indicatorTitles && <span>{study.label}</span>}
+                    {chartSettings.indicatorValues && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(4) ?? "—"}</strong>}
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -3151,6 +3242,21 @@ export function TradingChart({
               selected={renderedSelectedIndicatorId === study.id}
               valueDigits={2}
               zeroLine
+            />
+          ))}
+          {customRuntimeStudies.filter((study) => !study.overlay || study.error).map((study) => (
+            <StudyLinePanel
+              color={study.color}
+              data={study.data}
+              emptyMessage={study.error ?? "The script has not produced a finite value yet."}
+              key={study.id}
+              label={study.label}
+              lineStyle="solid"
+              lineWidth={2}
+              onOpenSettings={(event) => openIndicatorToolbar(study.sourceId, event)}
+              selected={renderedSelectedIndicatorId === study.sourceId}
+              valueDigits={4}
+              zeroLine={!study.overlay}
             />
           ))}
         </div>
@@ -4775,6 +4881,9 @@ function FloatingIndicatorToolbar({
   const isMacd = indicator.kind === "macd";
   const isVwap = indicator.kind === "vwap";
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
+  const customInputs = indicator.kind === "custom" && indicator.customScriptSource
+    ? parseEdgeIndicator(indicator.customScriptSource).program?.inputs ?? []
+    : [];
   const hasDeviation =
     indicator.kind === "bb" || indicator.kind === "keltner" || indicator.kind === "supertrend";
   const isVisible = indicator.visible !== false;
@@ -4892,12 +5001,54 @@ function FloatingIndicatorToolbar({
             value={settings.histogramColor ?? "#94a3b8"}
           />
         </div>
-      ) : !isGapStudy && !isVwap ? (
+      ) : !isGapStudy && !isVwap && indicator.kind !== "custom" ? (
         <IndicatorNumberInput
           label="Period"
           onChange={(value) => onChange({ period: Math.max(1, Math.round(value)) })}
           value={settings.period}
         />
+      ) : null}
+
+      {indicator.kind === "custom" && customInputs.length > 0 ? (
+        <div className="indicator-floating-grid">
+          {customInputs.map((input) => {
+            const value = settings.customInputs?.[input.name] ?? input.defaultValue;
+            if (input.type === "boolean") {
+              return (
+                <button
+                  aria-pressed={Boolean(value)}
+                  className={`chart-object-floating-toggle ${Boolean(value) ? "active" : ""}`}
+                  key={input.name}
+                  onClick={() => onChange({ customInputs: { ...settings.customInputs, [input.name]: !Boolean(value) } })}
+                  type="button"
+                >
+                  {input.name}
+                </button>
+              );
+            }
+            if (input.type === "source") {
+              return (
+                <ThemedSelect
+                  ariaLabel={`${input.name} source`}
+                  className="h-8 w-28"
+                  key={input.name}
+                  onChange={(next) => onChange({ customInputs: { ...settings.customInputs, [input.name]: next } })}
+                  options={["open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4"].map((source) => ({ label: source, value: source }))}
+                  value={String(value)}
+                />
+              );
+            }
+            return (
+              <IndicatorNumberInput
+                key={input.name}
+                label={input.name}
+                min={input.min}
+                onChange={(next) => onChange({ customInputs: { ...settings.customInputs, [input.name]: next } })}
+                value={Number(value)}
+              />
+            );
+          })}
+        </div>
       ) : null}
 
       {hasDeviation && (
@@ -8856,6 +9007,39 @@ function indicatorPanelLineWidth(width: number | undefined, fallback: number) {
     return fallback;
   }
   return clamp(Math.round(width), 1, 4);
+}
+
+function customStudiesFromResult(
+  indicator: ChartIndicatorInstance,
+  result: EdgeIndicatorExecutionResult,
+): CustomRuntimeStudy[] {
+  return result.plots.map((plot, index) => ({
+    color: indicator.settings.color || plot.color,
+    data: plot.points.map((point) => ({
+      time: point.time as UTCTimestamp,
+      value: point.value,
+    })),
+    error: null,
+    id: `${indicator.id}-plot-${index}`,
+    label: result.plots.length === 1 ? result.name : `${result.name} · ${plot.name}`,
+    overlay: result.overlay,
+    sourceId: indicator.id,
+  }));
+}
+
+function emptyCustomRuntimeStudy(
+  indicator: ChartIndicatorInstance,
+  error: string,
+): CustomRuntimeStudy {
+  return {
+    color: indicator.settings.color,
+    data: [],
+    error,
+    id: `${indicator.id}-runtime-error`,
+    label: indicator.customScriptName ?? "EdgeLab Script",
+    overlay: indicator.customOverlay ?? false,
+    sourceId: indicator.id,
+  };
 }
 
 function isOverlayIndicatorKind(kind: ChartIndicatorInstance["kind"]) {

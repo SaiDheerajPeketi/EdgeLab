@@ -1,4 +1,4 @@
-import { Layers, Plus, Search, Star, X } from "lucide-react";
+import { Code2, Layers, Plus, Search, Star, X } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -16,20 +16,27 @@ import {
   type IndicatorCatalogItem,
 } from "../lib/indicatorCatalog";
 import { MAX_INDICATOR_FAVORITES } from "../lib/indicatorFavorites";
+import type { CustomIndicatorScript } from "../lib/customIndicators";
 
 type Props = {
   favorites: readonly ChartIndicatorKind[];
   indicatorInstances: ChartIndicatorInstance[];
+  customScripts?: readonly CustomIndicatorScript[];
   onAddIndicator: (kind: ChartIndicatorKind) => void;
+  onAddCustomIndicator?: (script: CustomIndicatorScript) => void;
   onClose: (restoreFocus: boolean) => void;
+  onEditCustomIndicator?: (script: CustomIndicatorScript) => void;
   onToggleFavorite: (kind: ChartIndicatorKind) => void;
 };
 
 export function IndicatorCatalogPanel({
   favorites,
   indicatorInstances,
+  customScripts = [],
   onAddIndicator,
+  onAddCustomIndicator,
   onClose,
+  onEditCustomIndicator,
   onToggleFavorite,
 }: Props) {
   const [activeCategory, setActiveCategory] =
@@ -55,6 +62,15 @@ export function IndicatorCatalogPanel({
       }),
     [activeCategory, favorites, query],
   );
+  const visibleScripts = useMemo(() => {
+    const terms = normalizeSearch(query).split(" ").filter(Boolean);
+    return customScripts.filter((script) => {
+      if (activeCategory !== "all" && activeCategory !== "favorites" && script.category !== activeCategory) return false;
+      if (activeCategory === "favorites") return false;
+      const searchable = normalizeSearch([script.name, script.description, script.category, script.origin, ...script.synonyms].join(" "));
+      return terms.every((term) => searchable.includes(term));
+    });
+  }, [activeCategory, customScripts, query]);
   const emptyState = useMemo(() => {
     if (query.trim()) {
       return {
@@ -76,7 +92,7 @@ export function IndicatorCatalogPanel({
     }
     if (activeCategory === "custom") {
       return {
-        description: "Saved EdgeLab scripts will appear here when the custom-indicator runtime is enabled.",
+        description: "Create or save an EdgeLab DSL script in the indicator editor.",
         title: "No custom indicators yet",
       };
     }
@@ -153,6 +169,9 @@ export function IndicatorCatalogPanel({
       if (firstAvailable) {
         event.preventDefault();
         addIndicator(firstAvailable);
+      } else if (visibleScripts[0] && onAddCustomIndicator) {
+        event.preventDefault();
+        onAddCustomIndicator(visibleScripts[0]);
       }
     }
   }
@@ -303,12 +322,12 @@ export function IndicatorCatalogPanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-slate-500">
           <span aria-live="polite">
-            {visibleIndicators.length} {visibleIndicators.length === 1 ? "indicator" : "indicators"}
+            {visibleIndicators.length + visibleScripts.length} {visibleIndicators.length + visibleScripts.length === 1 ? "indicator" : "indicators"}
           </span>
           <span className="truncate">Previews illustrate behavior, not live data</span>
         </div>
 
-        {visibleIndicators.length > 0 ? (
+        {visibleIndicators.length + visibleScripts.length > 0 ? (
           <div
             aria-label="Indicator results"
             className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2"
@@ -399,6 +418,25 @@ export function IndicatorCatalogPanel({
                 </article>
               );
             })}
+            {visibleScripts.map((script) => {
+              const count = indicatorInstances.filter((indicator) => indicator.kind === "custom" && indicator.customScriptId === script.id).length;
+              return (
+                <article className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-2.5 transition hover:border-cyan-300/20 hover:bg-cyan-300/[0.045]" key={script.id} role="listitem">
+                  <IndicatorPreview indicator={script} />
+                  <div className="flex min-w-0 flex-col">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-semibold text-white">{script.name}</h3>
+                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200/70">{script.origin === "first-party" ? "EdgeLab first-party" : `My script · v${script.revision}`}</span>
+                      </div>
+                      {onEditCustomIndicator ? <button aria-label={`Open ${script.name} in the indicator editor`} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 outline-none transition hover:bg-white/10 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-300/40" onClick={() => onEditCustomIndicator(script)} type="button"><Code2 size={14} /></button> : null}
+                    </div>
+                    <p className="mt-1 min-h-10 text-xs leading-5 text-slate-400">{script.description}</p>
+                    <button aria-label={`Add ${script.name} EdgeLab script${count ? `; ${count} active` : ""}`} className="mt-2 inline-flex h-8 items-center justify-center gap-1.5 self-start rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2.5 text-xs font-semibold text-cyan-100 outline-none transition hover:border-cyan-300/35 hover:bg-cyan-300/15 focus-visible:ring-2 focus-visible:ring-cyan-300/40 disabled:cursor-not-allowed disabled:opacity-40" data-indicator-catalog-add disabled={!onAddCustomIndicator} onClick={() => onAddCustomIndicator?.(script)} onKeyDown={handleResultKeyDown} type="button"><Plus size={13} />{count ? `Add ${count + 1}` : "Add"}</button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : (
           <div
@@ -434,8 +472,8 @@ export function IndicatorCatalogPanel({
         id={helpId}
       >
         Star up to {MAX_INDICATOR_FAVORITES} studies for quick add. Use arrows to move,
-        Enter to add, and Escape to return to the Indicators button. Reserved Order flow and
-        Custom categories stay visible and explain their data or runtime requirements.
+        Enter to add, and Escape to return to the Indicators button. EdgeLab DSL scripts
+        run in a deterministic, resource-limited worker.
       </p>
       <span aria-live="polite" className="sr-only">
         {announcement}
@@ -495,7 +533,7 @@ const AVERAGE_PATHS: Partial<Record<ChartIndicatorKind, string>> = {
   wma: "M7 44 C20 44 23 36 34 36 S47 38 56 28 S73 18 89 17",
 };
 
-function IndicatorPreview({ indicator }: { indicator: IndicatorCatalogItem }) {
+function IndicatorPreview({ indicator }: { indicator: Pick<IndicatorCatalogItem, "color" | "preview"> & { kind?: ChartIndicatorKind } }) {
   const grid = (
     <>
       <path d="M7 16H89M7 32H89M7 48H89" stroke="currentColor" opacity="0.08" />
@@ -507,7 +545,7 @@ function IndicatorPreview({ indicator }: { indicator: IndicatorCatalogItem }) {
   if (indicator.preview === "average") {
     graphic = (
       <path
-        d={AVERAGE_PATHS[indicator.kind] ?? AVERAGE_PATHS.ema}
+        d={(indicator.kind ? AVERAGE_PATHS[indicator.kind] : undefined) ?? AVERAGE_PATHS.ema}
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"
@@ -621,4 +659,8 @@ function IndicatorPreview({ indicator }: { indicator: IndicatorCatalogItem }) {
       </svg>
     </div>
   );
+}
+
+function normalizeSearch(value: string) {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
