@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import {
+  formatLocaleCurrency,
+  formatLocaleDateTime,
+  formatLocaleNumber,
+  interfaceLocale,
+} from "../src/lib/locale.ts";
+
 const root = new URL("../src/", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
 
@@ -27,4 +34,23 @@ test("shared controls tolerate long and bidirectional copy", async () => {
   assert.match(settings, /dir="auto"/);
   assert.match(settings, /min-w-0/);
   assert.match(journal, /text-start/);
+});
+
+test("invalid locale identifiers fall back for every formatter", () => {
+  const invalidLocale = "not_a_locale_%%%";
+
+  assert.equal(interfaceLocale(invalidLocale), undefined);
+  assert.doesNotThrow(() => formatLocaleNumber(1234567.89, {}, invalidLocale));
+  assert.doesNotThrow(() => formatLocaleNumber(0.425, { style: "percent" }, invalidLocale));
+  assert.doesNotThrow(() => formatLocaleCurrency(1234567.89, "EUR", {}, invalidLocale));
+  assert.doesNotThrow(() => formatLocaleDateTime("2026-09-16T08:30:00Z", {}, invalidLocale));
+
+  assert.notEqual(formatLocaleNumber(1234567.89, {}, invalidLocale), "");
+  assert.match(formatLocaleCurrency(1234567.89, "EUR", {}, invalidLocale), /[\d,.\s]+/);
+  assert.notEqual(formatLocaleDateTime("2026-09-16T08:30:00Z", {}, invalidLocale), "—");
+});
+
+test("locale lists retain valid fallbacks when another entry is malformed", () => {
+  assert.deepEqual(interfaceLocale(["invalid_%%%", "de-DE"]), ["de-DE"]);
+  assert.equal(formatLocaleNumber(1234.5, { minimumFractionDigits: 1 }, ["invalid_%%%", "de-DE"]), "1.234,5");
 });

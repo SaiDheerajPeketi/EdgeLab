@@ -3,11 +3,20 @@ export type LocaleFormatOptions = {
 };
 
 export function interfaceLocale(locale?: string | string[]) {
-  if (locale) return locale;
-  if (typeof document !== "undefined" && document.documentElement.lang) {
-    return document.documentElement.lang;
-  }
-  return undefined;
+  const requested = locale
+    ?? (typeof document !== "undefined" ? document.documentElement.lang : undefined);
+  if (!requested) return undefined;
+
+  const candidates = Array.isArray(requested) ? requested : [requested];
+  const canonical = candidates.flatMap((candidate) => {
+    if (typeof candidate !== "string" || !candidate.trim()) return [];
+    try {
+      return Intl.getCanonicalLocales(candidate.trim());
+    } catch {
+      return [];
+    }
+  });
+  return canonical.length ? canonical : undefined;
 }
 
 export function formatLocaleNumber(
