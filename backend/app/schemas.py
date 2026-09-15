@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -1555,6 +1555,476 @@ class JournalBackfillResult(BaseModel):
     tags_created: int = 0
     sources_unchanged: int = 0
     diagnostics: list[str] = Field(default_factory=list)
+
+
+MarketAssetClass = Literal[
+    "CRYPTO", "EQUITY", "ETF", "FOREX", "INDEX", "COMMODITY", "FUTURE", "OPTION", "DERIVATIVE"
+]
+MarketCapability = Literal["CANDLES", "TRADES", "DEPTH", "FOOTPRINT"]
+
+
+class ExchangeSessionTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=40)
+    weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], min_length=1)
+    opens_at: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    closes_at: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    crosses_midnight: bool = False
+
+    @field_validator("weekdays")
+    @classmethod
+    def validate_weekdays(cls, value: list[int]) -> list[int]:
+        if any(day < 0 or day > 6 for day in value):
+            raise ValueError("weekdays must contain values from 0 (Monday) through 6 (Sunday)")
+        return sorted(set(value))
+
+
+class ExchangeCalendarCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=48)
+    exchange: str = Field(min_length=1, max_length=80)
+    timezone: str = Field(min_length=1, max_length=80)
+    holidays: list[date] = Field(default_factory=list)
+    session_templates: list[ExchangeSessionTemplate] = Field(min_length=1)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timezone '{value}'") from exc
+        return value
+
+
+class ExchangeCalendarRead(BaseModel):
+    id: int
+    code: str
+    exchange: str
+    timezone: str
+    weekmask: str
+    holidays: list[str]
+    session_templates: list[ExchangeSessionTemplate]
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MarketIdentifierCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1, max_length=64)
+    provider_symbol: str = Field(min_length=1, max_length=160)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketIdentifierRead(BaseModel):
+    id: int
+    provider: str
+    provider_symbol: str
+    metadata: dict[str, Any]
+
+
+class MarketInstrumentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    canonical_symbol: str = Field(min_length=1, max_length=96)
+    display_name: str = Field(min_length=1, max_length=160)
+    asset_class: MarketAssetClass
+    instrument_type: str = Field(min_length=1, max_length=32)
+    exchange: str | None = Field(default=None, max_length=80)
+    base_asset: str | None = Field(default=None, max_length=32)
+    quote_asset: str | None = Field(default=None, max_length=32)
+    currency: str = Field(default="USD", min_length=3, max_length=12)
+    timezone: str = Field(default="UTC", min_length=1, max_length=80)
+    calendar_id: int | None = Field(default=None, gt=0)
+    tick_size: Decimal = Field(gt=0)
+    tick_value: Decimal = Field(gt=0)
+    contract_multiplier: Decimal = Field(default=Decimal("1"), gt=0)
+    continuous: bool = False
+    identifiers: list[MarketIdentifierCreate] = Field(default_factory=list, max_length=20)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Unknown timezone '{value}'") from exc
+        return value
+
+
+class MarketInstrumentRead(BaseModel):
+    id: int
+    canonical_symbol: str
+    display_name: str
+    asset_class: MarketAssetClass
+    instrument_type: str
+    exchange: str | None
+    base_asset: str | None
+    quote_asset: str | None
+    currency: str
+    timezone: str
+    calendar_id: int | None
+    tick_size: Decimal
+    tick_value: Decimal
+    contract_multiplier: Decimal
+    continuous: bool
+    active: bool
+    metadata: dict[str, Any]
+    identifiers: list[MarketIdentifierRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class MarketContractCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_symbol: str = Field(min_length=1, max_length=96)
+    provider: str = Field(min_length=1, max_length=64)
+    provider_symbol: str = Field(min_length=1, max_length=160)
+    expires_on: date
+    first_notice_on: date | None = None
+    last_trade_on: date | None = None
+    roll_on: date | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketContractRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    instrument_id: int
+    contract_symbol: str
+    provider: str
+    provider_symbol: str
+    expires_on: date
+    first_notice_on: date | None
+    last_trade_on: date | None
+    roll_on: date | None
+    status: str
+    metadata_json: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContinuousContractRuleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["CALENDAR", "VOLUME", "OPEN_INTEREST"] = "CALENDAR"
+    days_before_expiry: int = Field(default=5, ge=0, le=60)
+    adjustment: Literal["NONE", "DIFFERENCE", "RATIO"] = "NONE"
+
+
+class ContinuousContractRuleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    instrument_id: int
+    method: str
+    days_before_expiry: int
+    adjustment: str
+    active_contract_id: int | None
+    next_contract_id: int | None
+    last_evaluated_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MarketProviderRead(BaseModel):
+    provider_id: str
+    display_name: str
+    availability: Literal["AVAILABLE_OFFLINE", "UNAVAILABLE", "CONFIGURATION_REQUIRED"]
+    capabilities: list[MarketCapability]
+    asset_classes: list[MarketAssetClass]
+    live: bool
+    licensed: bool
+    message: str
+
+
+class MarketEntitlementRead(BaseModel):
+    asset_class: MarketAssetClass
+    capability: MarketCapability
+    allowed: bool
+    tier: Literal["FREE", "PAID", "UNAVAILABLE"]
+    reason: str
+    expires_at: datetime | None = None
+
+
+class MarketProviderStateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    instrument_id: int | None
+    availability: str
+    health: str
+    licensed: bool
+    capabilities: list[str]
+    last_sequence: int | None
+    last_exchange_timestamp: datetime | None
+    last_heartbeat_at: datetime | None
+    stale_after_seconds: int
+    reconnect_count: int
+    gap_count: int
+    incomplete: bool
+    error_code: str | None
+    error_message: str | None
+    updated_at: datetime
+
+
+class MarketDiagnosticRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    provider: str
+    instrument_id: int | None
+    code: str
+    severity: str
+    state: str
+    message: str
+    recovery_action: str | None
+    details: dict[str, Any]
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class NormalizedCandleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    instrument_id: int
+    contract_id: int | None
+    provider: str
+    interval_seconds: int
+    start_at: datetime
+    end_at: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+    sequence_start: int | None
+    sequence_end: int | None
+    source_revision: int
+    complete: bool
+
+
+class MarketTradeTickRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    instrument_id: int
+    contract_id: int | None
+    provider: str
+    external_trade_id: str
+    source_revision: int
+    sequence: int
+    exchange_timestamp: datetime
+    received_timestamp: datetime
+    price: Decimal
+    size: Decimal
+    aggressor_side: Literal["BID", "ASK", "UNKNOWN"]
+    cancelled: bool
+
+
+class FootprintLevelRead(BaseModel):
+    price: Decimal
+    bid_volume: Decimal
+    ask_volume: Decimal
+    unknown_volume: Decimal
+    total_volume: Decimal
+    delta: Decimal
+    trade_count: int
+    average_trade_size: Decimal
+
+
+class FootprintRead(BaseModel):
+    id: int
+    instrument_id: int
+    contract_id: int | None
+    provider: str
+    interval_seconds: int
+    start_at: datetime
+    end_at: datetime
+    tick_size: Decimal
+    bid_volume: Decimal
+    ask_volume: Decimal
+    unknown_volume: Decimal
+    total_volume: Decimal
+    delta: Decimal
+    trade_count: int
+    average_trade_size: Decimal
+    complete: bool
+    levels: list[FootprintLevelRead]
+
+
+class FootprintBuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(default="offline-fixture", min_length=1, max_length=64)
+    from_at: datetime
+    to_at: datetime
+    interval_seconds: int = Field(default=60, ge=1, le=86400)
+    tick_size: Decimal | None = Field(default=None, gt=0)
+    contract_id: int | None = Field(default=None, gt=0)
+    include_empty: bool = False
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "FootprintBuildRequest":
+        start = self.from_at if self.from_at.tzinfo else self.from_at.replace(tzinfo=timezone.utc)
+        end = self.to_at if self.to_at.tzinfo else self.to_at.replace(tzinfo=timezone.utc)
+        if end.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            raise ValueError("to_at must be after from_at")
+        return self
+
+
+class OrderBookLevelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    side: Literal["BID", "ASK"]
+    price: Decimal = Field(gt=0)
+    size: Decimal = Field(gt=0)
+    order_count: int = Field(default=0, ge=0)
+
+
+class OrderBookLevelRead(BaseModel):
+    side: Literal["BID", "ASK"]
+    price: Decimal
+    size: Decimal
+    order_count: int
+
+
+class OrderBookRead(BaseModel):
+    instrument_id: int
+    contract_id: int | None
+    provider: str | None
+    sequence: int | None
+    captured_at: datetime | None
+    status: Literal["AVAILABLE", "STALE", "INCOMPLETE", "UNAVAILABLE", "ENTITLEMENT_REQUIRED"]
+    aggregation_tick_size: Decimal
+    levels: list[OrderBookLevelRead] = Field(default_factory=list)
+    message: str | None = None
+
+
+class MarketBackfillCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(default="offline-fixture", min_length=1, max_length=64)
+    instrument_id: int = Field(gt=0)
+    data_type: Literal["CANDLES", "TRADES", "DEPTH"]
+    from_at: datetime
+    to_at: datetime
+    interval_seconds: int = Field(default=60, ge=1, le=86400)
+    idempotency_key: str | None = Field(default=None, max_length=96)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "MarketBackfillCreate":
+        start = self.from_at if self.from_at.tzinfo else self.from_at.replace(tzinfo=timezone.utc)
+        end = self.to_at if self.to_at.tzinfo else self.to_at.replace(tzinfo=timezone.utc)
+        if end.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            raise ValueError("to_at must be after from_at")
+        return self
+
+
+class MarketBackfillRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    idempotency_key: str
+    provider: str
+    instrument_id: int
+    data_type: str
+    from_at: datetime
+    to_at: datetime
+    status: str
+    cursor: str | None
+    received_count: int
+    inserted_count: int
+    duplicate_count: int
+    gap_count: int
+    error_code: str | None
+    error_message: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class MarketAlertRuleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_id: int | None = Field(default=None, gt=0)
+    name: str = Field(min_length=1, max_length=160)
+    alert_type: Literal[
+        "PRICE_ABOVE", "PRICE_BELOW", "PRICE_CROSSES_ABOVE", "PRICE_CROSSES_BELOW",
+        "VOLUME_ABOVE", "DELTA_ABOVE", "DELTA_BELOW", "PROVIDER_STALE", "SEQUENCE_GAP"
+    ]
+    threshold: Decimal | None = None
+    provider: str | None = Field(default=None, max_length=64)
+    cooldown_seconds: int = Field(default=60, ge=0, le=86400)
+
+    @model_validator(mode="after")
+    def validate_condition(self) -> "MarketAlertRuleCreate":
+        if self.alert_type not in {"PROVIDER_STALE", "SEQUENCE_GAP"} and self.threshold is None:
+            raise ValueError("threshold is required for numeric alert types")
+        return self
+
+
+class MarketAlertRuleRead(BaseModel):
+    id: int
+    instrument_id: int | None
+    name: str
+    alert_type: str
+    condition: dict[str, Any]
+    enabled: bool
+    cooldown_seconds: int
+    last_value: Decimal | None
+    last_evaluated_at: datetime | None
+    last_triggered_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MarketAlertEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    rule_id: int
+    instrument_id: int | None
+    observed_at: datetime
+    observed_value: Decimal | None
+    message: str
+    payload: dict[str, Any]
+    acknowledged_at: datetime | None
+    created_at: datetime
+
+
+class MarketSubscriptionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pane_id: str = Field(min_length=1, max_length=64)
+    instrument_id: int = Field(gt=0)
+    channels: list[Literal["CANDLES", "TRADES", "DEPTH", "FOOTPRINT", "DIAGNOSTICS"]] = Field(
+        min_length=1, max_length=5
+    )
+
+
+class MarketSubscriptionRead(BaseModel):
+    subscription_id: str
+    pane_id: str
+    instrument_id: int
+    channels: list[str]
+    queued_events: int
+    dropped_events: int
+
+
+class MarketStreamEventRead(BaseModel):
+    sequence: int
+    channel: str
+    instrument_id: int
+    occurred_at: datetime
+    payload: dict[str, Any]
 
 
 class BacktestAdvanceRequest(BaseModel):

@@ -120,6 +120,12 @@ from app.schemas import (
     EconomicCalendarResponse,
     FeedbackCreate,
     FeedbackRead,
+    ContinuousContractRuleCreate,
+    ContinuousContractRuleRead,
+    ExchangeCalendarCreate,
+    ExchangeCalendarRead,
+    FootprintBuildRequest,
+    FootprintRead,
     GoogleAuthExchangeRequest,
     IntegrationSecretConnectionRead,
     IntegrationSecretCreate,
@@ -139,15 +145,34 @@ from app.schemas import (
     JournalTagCreate,
     JournalTagRead,
     JournalUpdate,
+    MarketAlertEventRead,
+    MarketAlertRuleCreate,
+    MarketAlertRuleRead,
+    MarketBackfillCreate,
+    MarketBackfillRead,
+    MarketContractCreate,
+    MarketContractRead,
+    MarketDiagnosticRead,
+    MarketEntitlementRead,
+    MarketInstrumentCreate,
+    MarketInstrumentRead,
+    MarketProviderRead,
+    MarketProviderStateRead,
+    MarketStreamEventRead,
+    MarketSubscriptionCreate,
+    MarketSubscriptionRead,
+    MarketTradeTickRead,
     MetricsResponse,
     MetricsCurvesResponse,
     MetricsSummaryResponse,
     OrderCreate,
     OrderUpdate,
+    OrderBookRead,
     PlaybookCreate,
     PlaybookRead,
     PlaybookUpdate,
     PositionUpdate,
+    NormalizedCandleRead,
     StrategySummary,
     TradeRead,
     TradePage,
@@ -157,7 +182,7 @@ from app.schemas import (
     WorkspaceShareOwnerRead,
     WorkspaceSharePublicRead,
 )
-from app.services import broker_sync, integration_secrets, journal, share_snapshots
+from app.services import broker_sync, integration_secrets, journal, market_infrastructure, share_snapshots
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -208,6 +233,9 @@ JOURNAL_WRITE_RATE_LIMIT = 120
 JOURNAL_IMPORT_RATE_LIMIT = 20
 BROKER_WRITE_RATE_LIMIT = 30
 BROKER_SYNC_RATE_LIMIT = 30
+NORMALIZED_MARKET_READ_RATE_LIMIT = 240
+NORMALIZED_MARKET_WRITE_RATE_LIMIT = 60
+NORMALIZED_MARKET_BACKFILL_RATE_LIMIT = 20
 
 
 def bootstrap_shell_cache_scope(user_id: int) -> str:
@@ -510,6 +538,12 @@ def enforce_rate_limit(bucket: str, user_id: int, limit: int) -> None:
 
 
 def integration_secret_error(exc: integration_secrets.IntegrationSecretError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.public_message)
+
+
+def normalized_market_error(
+    exc: market_infrastructure.MarketInfrastructureError,
+) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.public_message)
 
 
@@ -3224,3 +3258,472 @@ def metrics_curves(
         session = list_latest_session(db, current_user.id)
         session_id = session.id if session else None
     return get_metrics_curves(db, current_user.id, session_id)
+
+
+@router.get("/market-data/providers", response_model=list[MarketProviderRead])
+def list_normalized_market_providers(
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketProviderRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.provider_registry.catalog()
+
+
+@router.post("/market-data/calendars", response_model=ExchangeCalendarRead, status_code=201)
+def create_market_calendar(
+    payload: ExchangeCalendarCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> ExchangeCalendarRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.create_exchange_calendar(db, current_user.id, payload)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/calendars", response_model=list[ExchangeCalendarRead])
+def list_market_calendars(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[ExchangeCalendarRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_exchange_calendars(db, current_user.id)
+
+
+@router.get("/market-data/calendars/{calendar_id}/session")
+def read_market_session(
+    calendar_id: int,
+    timestamp: datetime = Query(...),
+    template_name: str = Query(default="RTH", min_length=1, max_length=40),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> dict[str, object]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.market_session_at(
+            db, current_user.id, calendar_id, timestamp, template_name
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.post("/market-data/instruments", response_model=MarketInstrumentRead, status_code=201)
+def create_market_instrument(
+    payload: MarketInstrumentCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketInstrumentRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.create_instrument(db, current_user.id, payload)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/instruments", response_model=list[MarketInstrumentRead])
+def list_market_instruments(
+    asset_class: str | None = Query(default=None, max_length=24),
+    search: str | None = Query(default=None, max_length=96),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketInstrumentRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_instruments(
+        db, current_user.id, asset_class=asset_class.upper() if asset_class else None, search=search
+    )
+
+
+@router.post(
+    "/market-data/instruments/{instrument_id}/contracts",
+    response_model=MarketContractRead,
+    status_code=201,
+)
+def create_market_contract(
+    instrument_id: int,
+    payload: MarketContractCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketContractRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.create_contract(db, current_user.id, instrument_id, payload)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get(
+    "/market-data/instruments/{instrument_id}/contracts",
+    response_model=list[MarketContractRead],
+)
+def list_market_contracts(
+    instrument_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketContractRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.list_contracts(db, current_user.id, instrument_id)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.put(
+    "/market-data/instruments/{instrument_id}/continuous-rule",
+    response_model=ContinuousContractRuleRead,
+)
+def upsert_continuous_market_rule(
+    instrument_id: int,
+    payload: ContinuousContractRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> ContinuousContractRuleRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.set_continuous_contract_rule(
+            db, current_user.id, instrument_id, payload
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/instruments/{instrument_id}/continuous-contract")
+def resolve_continuous_market_contract(
+    instrument_id: int,
+    as_of: date = Query(...),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> dict[str, object]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.resolve_continuous_contract(
+            db, current_user.id, instrument_id, as_of=as_of
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/entitlements", response_model=list[MarketEntitlementRead])
+def read_market_entitlements(
+    asset_class: str | None = Query(default=None, max_length=24),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketEntitlementRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_entitlements(db, current_user.id, asset_class=asset_class)
+
+
+@router.get("/market-data/provider-states", response_model=list[MarketProviderStateRead])
+def read_market_provider_states(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketProviderStateRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_provider_states(db, current_user.id)
+
+
+@router.post("/market-data/provider-states/check", response_model=list[MarketProviderStateRead])
+def check_market_provider_states(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketProviderStateRead]:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    return market_infrastructure.check_provider_health(db, current_user.id)
+
+
+@router.post("/market-data/providers/{provider}/reconnect", response_model=MarketProviderStateRead)
+def reconnect_market_provider(
+    provider: str,
+    instrument_id: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketProviderStateRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.reconnect_provider(
+            db, current_user.id, provider=provider, instrument_id=instrument_id
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/diagnostics", response_model=list[MarketDiagnosticRead])
+def read_market_diagnostics(
+    state: str | None = Query(default="OPEN", max_length=16),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketDiagnosticRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_diagnostics(db, current_user.id, state=state, limit=limit)
+
+
+@router.post("/market-data/backfills", response_model=MarketBackfillRead, status_code=202)
+def create_market_backfill(
+    payload: MarketBackfillCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketBackfillRead:
+    enforce_rate_limit("normalized-market-backfill", current_user.id, NORMALIZED_MARKET_BACKFILL_RATE_LIMIT)
+    try:
+        return market_infrastructure.run_historical_backfill(db, current_user.id, payload)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/backfills", response_model=list[MarketBackfillRead])
+def read_market_backfills(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketBackfillRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_backfill_runs(db, current_user.id, limit=limit)
+
+
+@router.get(
+    "/market-data/instruments/{instrument_id}/candles",
+    response_model=list[NormalizedCandleRead],
+)
+def read_normalized_candles(
+    instrument_id: int,
+    from_at: datetime = Query(...),
+    to_at: datetime = Query(...),
+    interval_seconds: int = Query(default=60, ge=1, le=86400),
+    provider: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[NormalizedCandleRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.list_candles(
+            db,
+            current_user.id,
+            instrument_id,
+            from_at=from_at,
+            to_at=to_at,
+            interval_seconds=interval_seconds,
+            provider=provider,
+            limit=limit,
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get(
+    "/market-data/instruments/{instrument_id}/trades",
+    response_model=list[MarketTradeTickRead],
+)
+def read_normalized_trade_ticks(
+    instrument_id: int,
+    from_at: datetime = Query(...),
+    to_at: datetime = Query(...),
+    provider: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=10000, ge=1, le=50000),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketTradeTickRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.list_trade_ticks(
+            db,
+            current_user.id,
+            instrument_id,
+            from_at=from_at,
+            to_at=to_at,
+            provider=provider,
+            limit=limit,
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.post(
+    "/market-data/instruments/{instrument_id}/footprints",
+    response_model=list[FootprintRead],
+)
+def rebuild_market_footprints(
+    instrument_id: int,
+    payload: FootprintBuildRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[FootprintRead]:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.build_footprints(
+            db,
+            current_user.id,
+            instrument_id,
+            provider=payload.provider,
+            from_at=payload.from_at,
+            to_at=payload.to_at,
+            interval_seconds=payload.interval_seconds,
+            tick_size=payload.tick_size,
+            contract_id=payload.contract_id,
+            include_empty=payload.include_empty,
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get(
+    "/market-data/instruments/{instrument_id}/footprints",
+    response_model=list[FootprintRead],
+)
+def read_market_footprints(
+    instrument_id: int,
+    from_at: datetime = Query(...),
+    to_at: datetime = Query(...),
+    interval_seconds: int = Query(default=60, ge=1, le=86400),
+    provider: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[FootprintRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.list_footprints(
+            db,
+            current_user.id,
+            instrument_id,
+            from_at=from_at,
+            to_at=to_at,
+            interval_seconds=interval_seconds,
+            provider=provider,
+            limit=limit,
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/instruments/{instrument_id}/order-book", response_model=OrderBookRead)
+def read_market_order_book(
+    instrument_id: int,
+    provider: str | None = Query(default=None, max_length=64),
+    aggregation_ticks: int = Query(default=1, ge=1, le=1000),
+    depth: int = Query(default=20, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> OrderBookRead:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.get_order_book(
+            db,
+            current_user.id,
+            instrument_id,
+            provider=provider,
+            aggregation_ticks=aggregation_ticks,
+            depth=depth,
+        )
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.post("/market-data/alerts", response_model=MarketAlertRuleRead, status_code=201)
+def create_market_alert(
+    payload: MarketAlertRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketAlertRuleRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.create_alert_rule(db, current_user.id, payload)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/alerts", response_model=list[MarketAlertRuleRead])
+def read_market_alert_rules(
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketAlertRuleRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_alert_rules(db, current_user.id)
+
+
+@router.delete("/market-data/alerts/{rule_id}")
+def remove_market_alert_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> dict[str, bool]:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        market_infrastructure.delete_alert_rule(db, current_user.id, rule_id)
+        return {"ok": True}
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/alert-events", response_model=list[MarketAlertEventRead])
+def read_market_alert_events(
+    acknowledged: bool | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketAlertEventRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.list_alert_events(
+        db, current_user.id, acknowledged=acknowledged, limit=limit
+    )
+
+
+@router.post("/market-data/alert-events/{event_id}/acknowledge", response_model=MarketAlertEventRead)
+def acknowledge_market_alert_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketAlertEventRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.acknowledge_alert_event(db, current_user.id, event_id)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.post("/market-data/subscriptions", response_model=MarketSubscriptionRead, status_code=201)
+def create_market_subscription(
+    payload: MarketSubscriptionCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> MarketSubscriptionRead:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    try:
+        return market_infrastructure.subscribe_market_stream(db, current_user.id, payload)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.get("/market-data/subscriptions", response_model=list[MarketSubscriptionRead])
+def read_market_subscriptions(
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketSubscriptionRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    return market_infrastructure.fanout_hub.list(current_user.id)
+
+
+@router.get(
+    "/market-data/subscriptions/{subscription_id}/events",
+    response_model=list[MarketStreamEventRead],
+)
+def poll_market_subscription(
+    subscription_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[MarketStreamEventRead]:
+    enforce_rate_limit("normalized-market-read", current_user.id, NORMALIZED_MARKET_READ_RATE_LIMIT)
+    try:
+        return market_infrastructure.fanout_hub.poll(current_user.id, subscription_id, limit=limit)
+    except market_infrastructure.MarketInfrastructureError as exc:
+        raise normalized_market_error(exc) from exc
+
+
+@router.delete("/market-data/subscriptions/{subscription_id}")
+def remove_market_subscription(
+    subscription_id: str,
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> dict[str, bool]:
+    enforce_rate_limit("normalized-market-write", current_user.id, NORMALIZED_MARKET_WRITE_RATE_LIMIT)
+    if not market_infrastructure.fanout_hub.unsubscribe(current_user.id, subscription_id):
+        raise HTTPException(status_code=404, detail="Market-data subscription not found")
+    return {"ok": True}

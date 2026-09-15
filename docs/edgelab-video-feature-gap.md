@@ -149,14 +149,14 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 - [x] `CHT-01 · P1 · Partial` — Put symbol selection in the chart’s main toolbar instead of requiring interaction with the separate watchlist column.
 - [x] `CHT-02 · P1 · Missing` — Add type-anywhere symbol search when the chart has focus, with keyboard selection and no conflict with timeframe/drawing shortcuts.
-- [ ] `CHT-03 · P0 · Partial` — Create one normalized symbol universe across crypto, equities, ETFs, forex, indices, commodities, futures, options/derivatives, and provider-specific identifiers.
+- [x] `CHT-03 · P0 · Partial` — Create one normalized symbol universe across crypto, equities, ETFs, forex, indices, commodities, futures, options/derivatives, and provider-specific identifiers.
 - [ ] `CHT-04 · P0 · Missing` — Add real-time and historical CME futures data, including the nano-futures coverage called out in the video.
-- [ ] `CHT-05 · P0 · Missing` — Add exchange calendars, futures contract metadata, tick size/value, session templates, expiration, and continuous-contract roll logic.
+- [x] `CHT-05 · P0 · Missing` — Add exchange calendars, futures contract metadata, tick size/value, session templates, expiration, and continuous-contract roll logic.
 - [x] `CHT-06 · P1 · Missing` — Add a Regular Trading Hours versus Extended Trading Hours toggle and use it consistently for rendering and indicator calculations.
 - [x] `CHT-07 · P1 · Missing` — Add per-symbol pre-market/post-market background highlighting controls.
 - [x] `CHT-08 · P1 · Missing` — Add a chart timezone selector, default it to UTC, format chart/data-window times in it, and persist it in the workspace.
 - [x] `CHT-09 · P1 · Partial` — Add “Chart settings” to the right-click menu. EdgeLab has a settings button and a minimal context menu, but not this shortcut.
-- [ ] `CHT-10 · P0 · Partial` — Harden live-feed continuity with normalized timestamps, sequence/gap detection, reconnect/backfill, stale-data state, and provider health. EdgeLab currently has provider-specific polling/socket behavior and a limited cache.
+- [x] `CHT-10 · P0 · Partial` — Harden live-feed continuity with normalized timestamps, sequence/gap detection, reconnect/backfill, stale-data state, and provider health. EdgeLab currently has provider-specific polling/socket behavior and a limited cache.
 
 ### 7. Order flow, footprint, TPO, and advanced chart types
 
@@ -255,8 +255,8 @@ These belong in the product roadmap but should not be treated as prerequisites f
 - [x] `PLT-02 · P0 · Missing` — Add a migration/backfill path from existing Journal app storage and imported Backtest sessions without losing user data.
 - [x] `PLT-03 · P0 · Missing` — Store broker credentials/tokens in an encrypted secret store; never persist them in browser storage or logs. Add rotation and revocation.
 - [ ] `PLT-04 · P0 · Missing` — Add background jobs/webhooks with retries, dead-letter handling, idempotency, rate-limit backoff, provider audit logs, and sync observability.
-- [ ] `PLT-05 · P0 · Missing` — Build normalized market-data storage/streaming for candles, trades, depth, footprint aggregates, historical backfill, and multi-pane fan-out.
-- [ ] `PLT-06 · P0 · Missing` — Add data/provider entitlements and billing gates for free crypto/equity/ETF order flow versus paid futures access, matching the commercial behavior described in the video.
+- [x] `PLT-05 · P0 · Missing` — Build normalized market-data storage/streaming for candles, trades, depth, footprint aggregates, historical backfill, and multi-pane fan-out.
+- [x] `PLT-06 · P0 · Missing` — Add data/provider entitlements and billing gates for free crypto/equity/ETF order flow versus paid futures access, matching the commercial behavior described in the video.
 - [ ] `PLT-07 · P0 · Missing` — Add durable storage for custom scripts, AI conversations, generated artifacts, full workspaces, and share snapshots with explicit ownership.
 - [ ] `PLT-08 · P0 · Missing` — Add focused automated coverage for import reconciliation, broker sync idempotency, rating/notes analytics, market session/timezone behavior, footprint aggregation, 16-pane synchronization, share permissions, AI usage accounting, and generated-code isolation.
 - [ ] `PLT-09 · P1 · Partial` — Add user-visible diagnostics and recovery for stale feeds, incomplete history, unsupported symbols, sync/import conflicts, indicator runtime errors, AI failures, and expired/revoked shares.

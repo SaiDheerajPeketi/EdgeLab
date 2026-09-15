@@ -1282,3 +1282,453 @@ class JournalBackfillCheckpoint(UserOwnedMixin, Base):
     trades_created: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     diagnostics: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
     completed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class ExchangeCalendar(UserOwnedMixin, Base):
+    __tablename__ = "exchange_calendars"
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uq_exchange_calendars_user_code"),
+        Index("ix_exchange_calendars_user_exchange", "user_id", "exchange", "code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    exchange: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False)
+    weekmask: Mapped[str] = mapped_column(String(32), default="MON,TUE,WED,THU,FRI", nullable=False)
+    holidays: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
+    session_templates: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class MarketInstrument(UserOwnedMixin, Base):
+    __tablename__ = "market_instruments"
+    __table_args__ = (
+        UniqueConstraint("user_id", "canonical_symbol", name="uq_market_instruments_user_symbol"),
+        CheckConstraint(
+            "asset_class IN ('CRYPTO', 'EQUITY', 'ETF', 'FOREX', 'INDEX', 'COMMODITY', 'FUTURE', 'OPTION', 'DERIVATIVE')",
+            name="ck_market_instruments_asset_class",
+        ),
+        Index("ix_market_instruments_user_class_symbol", "user_id", "asset_class", "canonical_symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    canonical_symbol: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    asset_class: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    instrument_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    exchange: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    base_asset: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quote_asset: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), default="UTC", nullable=False)
+    calendar_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exchange_calendars.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tick_size: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    tick_value: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    contract_multiplier: Mapped[Decimal] = mapped_column(Numeric(28, 12), default=Decimal("1"), nullable=False)
+    continuous: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    metadata_json: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    calendar: Mapped[ExchangeCalendar | None] = relationship()
+    identifiers: Mapped[list["MarketInstrumentIdentifier"]] = relationship(
+        back_populates="instrument", cascade="all, delete-orphan"
+    )
+    contracts: Mapped[list["MarketContract"]] = relationship(
+        back_populates="instrument", cascade="all, delete-orphan"
+    )
+
+
+class MarketInstrumentIdentifier(UserOwnedMixin, Base):
+    __tablename__ = "market_instrument_identifiers"
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", "provider_symbol", name="uq_market_identifiers_user_provider_symbol"),
+        UniqueConstraint("instrument_id", "provider", name="uq_market_identifiers_instrument_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    provider_symbol: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    metadata_json: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    instrument: Mapped[MarketInstrument] = relationship(back_populates="identifiers")
+
+
+class MarketContract(UserOwnedMixin, Base):
+    __tablename__ = "market_contracts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "instrument_id", "contract_symbol", name="uq_market_contracts_user_instrument_symbol"),
+        UniqueConstraint("user_id", "provider", "provider_symbol", name="uq_market_contracts_user_provider_symbol"),
+        Index("ix_market_contracts_user_instrument_expiry", "user_id", "instrument_id", "expires_on"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    contract_symbol: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    provider_symbol: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    expires_on: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    first_notice_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_trade_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    roll_on: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="LISTED", nullable=False, index=True)
+    metadata_json: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    instrument: Mapped[MarketInstrument] = relationship(back_populates="contracts")
+
+
+class ContinuousContractRule(UserOwnedMixin, Base):
+    __tablename__ = "continuous_contract_rules"
+    __table_args__ = (UniqueConstraint("user_id", "instrument_id", name="uq_continuous_rules_user_instrument"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    method: Mapped[str] = mapped_column(String(24), default="CALENDAR", nullable=False)
+    days_before_expiry: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    adjustment: Mapped[str] = mapped_column(String(24), default="NONE", nullable=False)
+    active_contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_contracts.id", ondelete="SET NULL"), nullable=True
+    )
+    next_contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_contracts.id", ondelete="SET NULL"), nullable=True
+    )
+    last_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class MarketDataEntitlement(UserOwnedMixin, Base):
+    __tablename__ = "market_data_entitlements"
+    __table_args__ = (
+        UniqueConstraint("user_id", "asset_class", "capability", name="uq_market_entitlements_user_class_capability"),
+        Index("ix_market_entitlements_user_status", "user_id", "status", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    asset_class: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    capability: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    tier: Mapped[str] = mapped_column(String(24), default="PAID", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE", nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MarketProviderState(UserOwnedMixin, Base):
+    __tablename__ = "market_provider_states"
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", "instrument_scope", name="uq_market_provider_states_user_provider_scope"),
+        Index("ix_market_provider_states_user_health", "user_id", "health", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    instrument_scope: Mapped[str] = mapped_column(String(32), default="*", nullable=False)
+    availability: Mapped[str] = mapped_column(String(24), default="UNAVAILABLE", nullable=False)
+    health: Mapped[str] = mapped_column(String(24), default="UNKNOWN", nullable=False, index=True)
+    licensed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    capabilities: Mapped[object] = mapped_column(JSON, default=list, nullable=False)
+    last_sequence: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_exchange_timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stale_after_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    reconnect_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    gap_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    incomplete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class MarketDataDiagnostic(UserOwnedMixin, Base):
+    __tablename__ = "market_data_diagnostics"
+    __table_args__ = (Index("ix_market_data_diagnostics_user_created", "user_id", "created_at", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), default="OPEN", nullable=False, index=True)
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    recovery_action: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    details: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class NormalizedCandle(UserOwnedMixin, Base):
+    __tablename__ = "normalized_candles"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "instrument_id", "contract_scope", "provider", "interval_seconds", "start_at",
+            name="uq_normalized_candles_series_start",
+        ),
+        Index("ix_normalized_candles_user_series_time", "user_id", "instrument_id", "interval_seconds", "start_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    contract_scope: Mapped[str] = mapped_column(String(32), default="*", nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    end_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    open: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    high: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    low: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    close: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), default=Decimal("0"), nullable=False)
+    sequence_start: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sequence_end: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    complete: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class MarketTradeTick(UserOwnedMixin, Base):
+    __tablename__ = "market_trade_ticks"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "provider", "instrument_id", "external_trade_id", "source_revision",
+            name="uq_market_trade_ticks_provider_trade_revision",
+        ),
+        Index("ix_market_trade_ticks_user_series_time", "user_id", "instrument_id", "exchange_timestamp", "id"),
+        Index("ix_market_trade_ticks_user_series_sequence", "user_id", "instrument_id", "provider", "sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    external_trade_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    exchange_timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    received_timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    size: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    aggressor_side: Mapped[str] = mapped_column(String(12), default="UNKNOWN", nullable=False, index=True)
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+@event.listens_for(MarketTradeTick, "before_update")
+def prevent_market_trade_tick_update(_mapper, _connection, _target: MarketTradeTick) -> None:
+    raise ValueError("Market trade ticks are immutable; append a source revision")
+
+
+class OrderBookSnapshot(UserOwnedMixin, Base):
+    __tablename__ = "order_book_snapshots"
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", "instrument_id", "sequence", name="uq_order_book_snapshots_series_sequence"),
+        Index("ix_order_book_snapshots_user_series_time", "user_id", "instrument_id", "captured_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    complete: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    levels: Mapped[list["OrderBookLevel"]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan"
+    )
+
+
+class OrderBookLevel(UserOwnedMixin, Base):
+    __tablename__ = "order_book_levels"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "side", "price", name="uq_order_book_levels_snapshot_side_price"),
+        Index("ix_order_book_levels_user_snapshot_side", "user_id", "snapshot_id", "side", "price"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("order_book_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    side: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    size: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    order_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    snapshot: Mapped[OrderBookSnapshot] = relationship(back_populates="levels")
+
+
+class PersistedFootprint(UserOwnedMixin, Base):
+    __tablename__ = "persisted_footprints"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "instrument_id", "contract_scope", "provider", "interval_seconds", "start_at", "tick_size",
+            name="uq_persisted_footprints_series_start_tick",
+        ),
+        Index("ix_persisted_footprints_user_series_time", "user_id", "instrument_id", "interval_seconds", "start_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    contract_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    contract_scope: Mapped[str] = mapped_column(String(32), default="*", nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    end_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    tick_size: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    bid_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    ask_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    unknown_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    total_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    delta: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    trade_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    average_trade_size: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    complete: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    levels: Mapped[list["PersistedFootprintLevel"]] = relationship(
+        back_populates="footprint", cascade="all, delete-orphan"
+    )
+
+
+class PersistedFootprintLevel(UserOwnedMixin, Base):
+    __tablename__ = "persisted_footprint_levels"
+    __table_args__ = (UniqueConstraint("footprint_id", "price", name="uq_persisted_footprint_levels_price"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    footprint_id: Mapped[int] = mapped_column(
+        ForeignKey("persisted_footprints.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    bid_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    ask_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    unknown_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    total_volume: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    delta: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+    trade_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    average_trade_size: Mapped[Decimal] = mapped_column(Numeric(28, 12), nullable=False)
+
+    footprint: Mapped[PersistedFootprint] = relationship(back_populates="levels")
+
+
+class MarketBackfillRun(UserOwnedMixin, Base):
+    __tablename__ = "market_backfill_runs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_market_backfill_runs_user_key"),
+        Index("ix_market_backfill_runs_user_created", "user_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    data_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    from_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    to_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="RUNNING", nullable=False, index=True)
+    cursor: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    received_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    inserted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duplicate_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    gap_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MarketAlertRule(UserOwnedMixin, Base):
+    __tablename__ = "market_alert_rules"
+    __table_args__ = (Index("ix_market_alert_rules_user_enabled", "user_id", "enabled", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    alert_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    condition: Mapped[object] = mapped_column(JSON, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    cooldown_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    last_value: Mapped[Decimal | None] = mapped_column(Numeric(28, 12), nullable=True)
+    last_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    events: Mapped[list["MarketAlertEvent"]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
+
+
+class MarketAlertEvent(UserOwnedMixin, Base):
+    __tablename__ = "market_alert_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "rule_id", "event_key", name="uq_market_alert_events_user_rule_key"),
+        Index("ix_market_alert_events_user_observed", "user_id", "observed_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("market_alert_rules.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("market_instruments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    event_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    observed_value: Mapped[Decimal | None] = mapped_column(Numeric(28, 12), nullable=True)
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    payload: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+    rule: Mapped[MarketAlertRule] = relationship(back_populates="events")

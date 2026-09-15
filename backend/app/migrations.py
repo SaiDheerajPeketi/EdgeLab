@@ -308,10 +308,54 @@ def create_relational_journal_tables(engine: Engine) -> None:
         model.__table__.create(bind=engine, checkfirst=True)
 
 
+def create_market_data_infrastructure_tables(engine: Engine) -> None:
+    from app.models import (
+        ContinuousContractRule,
+        ExchangeCalendar,
+        MarketAlertEvent,
+        MarketAlertRule,
+        MarketBackfillRun,
+        MarketContract,
+        MarketDataDiagnostic,
+        MarketDataEntitlement,
+        MarketInstrument,
+        MarketInstrumentIdentifier,
+        MarketProviderState,
+        MarketTradeTick,
+        NormalizedCandle,
+        OrderBookLevel,
+        OrderBookSnapshot,
+        PersistedFootprint,
+        PersistedFootprintLevel,
+    )
+
+    for model in (
+        ExchangeCalendar,
+        MarketInstrument,
+        MarketInstrumentIdentifier,
+        MarketContract,
+        ContinuousContractRule,
+        MarketDataEntitlement,
+        MarketProviderState,
+        MarketDataDiagnostic,
+        NormalizedCandle,
+        MarketTradeTick,
+        OrderBookSnapshot,
+        OrderBookLevel,
+        PersistedFootprint,
+        PersistedFootprintLevel,
+        MarketBackfillRun,
+        MarketAlertRule,
+        MarketAlertEvent,
+    ):
+        model.__table__.create(bind=engine, checkfirst=True)
+
+
 MIGRATIONS = [
     Migration(1, "sqlite_compat_columns", migrate_sqlite_compat_columns),
     Migration(2, "workspace_share_snapshots", create_workspace_share_snapshots_table),
     Migration(3, "integration_secrets", create_integration_secrets_table),
     Migration(4, "broker_sync_foundation", create_broker_sync_tables),
     Migration(5, "relational_journal", create_relational_journal_tables),
+    Migration(6, "market_data_infrastructure", create_market_data_infrastructure_tables),
 ]
