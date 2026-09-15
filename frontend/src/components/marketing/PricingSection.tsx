@@ -1,5 +1,6 @@
-import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, ChevronDown } from "lucide-react";
+import { useId, useState } from "react";
+import { Link } from "react-router-dom";
 import { type DeploymentMode, isBetaMode } from "../../lib/deploymentMode";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
@@ -73,12 +74,22 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "Do I need a credit card?",
     answer:
-      "No card for beta. Production plans keep a 14-day trial and monthly or annual billing cadence.",
+      "No card is required during private beta. Production billing and trial details will be confirmed before launch.",
   },
   {
     question: "Will beta accounts keep history after launch?",
     answer:
       "No guarantee. Beta data is temporary test data and may be pruned after beta ends, so export anything critical.",
+  },
+  {
+    question: "Does EdgeLab connect to my broker or data provider?",
+    answer:
+      "The current beta centers on imported datasets. Broker synchronization and broader provider connections remain roadmap work and are not marketed as live integrations.",
+  },
+  {
+    question: "Are Quant, footprint, and TPO available now?",
+    answer:
+      "Not yet. Quant, footprint, and TPO are planned capabilities. Footprint and auction views require qualified bid/ask market data before they can ship responsibly.",
   },
 ];
 
@@ -100,6 +111,7 @@ function formatCadence(price: number, frequency: PricingFrequency) {
 
 export function FaqAccordion({ items }: { items: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState(-1);
+  const idPrefix = useId();
 
   return (
     <div className="grid gap-3">
@@ -107,31 +119,40 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
         const isOpen = index === openIndex;
 
         return (
-          <div
+          <section
             key={item.question}
-            className="overflow-hidden rounded-[24px] border border-white/10 bg-[#071018] shadow-panel"
+            className="border-b border-edgelab-border"
           >
-            <button
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
-              onClick={() => setOpenIndex(isOpen ? -1 : index)}
-              type="button"
-            >
-              <span className="text-base font-semibold tracking-[-0.02em] text-white">
-                {item.question}
-              </span>
-              <ChevronDown
-                className={`shrink-0 text-slate-400 transition duration-200 ease-out ${
-                  isOpen ? "rotate-180" : ""
-                }`}
-                size={18}
-              />
-            </button>
+            <h3>
+              <button
+                aria-controls={`${idPrefix}-answer-${index}`}
+                aria-expanded={isOpen}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-5 text-left text-base font-medium tracking-[-0.02em] text-edgelab-text-primary transition-colors hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-200 sm:text-lg"
+                id={`${idPrefix}-question-${index}`}
+                onClick={() => setOpenIndex(isOpen ? -1 : index)}
+                type="button"
+              >
+                <span>{item.question}</span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={`shrink-0 text-edgelab-text-secondary transition-transform duration-200 ease-el-out motion-reduce:transition-none ${
+                    isOpen ? "rotate-180" : ""
+                  }`}
+                  size={18}
+                />
+              </button>
+            </h3>
             {isOpen ? (
-              <div className="border-t border-white/10 px-5 py-4 text-sm leading-7 text-slate-400">
+              <div
+                aria-labelledby={`${idPrefix}-question-${index}`}
+                className="max-w-3xl pb-6 pr-10 text-sm leading-7 text-edgelab-text-secondary"
+                id={`${idPrefix}-answer-${index}`}
+                role="region"
+              >
                 {item.answer}
               </div>
             ) : null}
-          </div>
+          </section>
         );
       })}
     </div>
@@ -151,6 +172,11 @@ export function PricingSection({
     const seatsRemaining = program.seats_remaining;
     const waitlistCount = program.waitlist_count;
     const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
+    const capacityKnown = !loading && seatsRemaining != null;
+    const betaCtaLabel = capacityKnown && seatsRemaining <= 0 ? "Join waitlist" : "Join beta";
+    const betaCtaHref = capacityKnown && seatsRemaining <= 0
+      ? "/auth/signin?waitlist=1"
+      : "/auth/signin";
 
     return (
       <div className="grid gap-6">
@@ -161,10 +187,11 @@ export function PricingSection({
                 Private beta
               </div>
               <div className="mt-3 text-[2.6rem] font-semibold tracking-[-0.06em] text-white">
-                Free during private beta.
+                Test the core workflow free.
               </div>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-                Replay, journal review, analytics, and strategy memory stay open while beta runs.
+                Replay, Journal, reports, and playbooks remain open to approved users while
+                EdgeLab validates the product. Beta data is temporary test data.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -182,6 +209,14 @@ export function PricingSection({
                   </div>
                 ))}
               </div>
+
+              <Link
+                className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 transition-colors hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
+                to={betaCtaHref}
+              >
+                {betaCtaLabel}
+                <ArrowRight aria-hidden="true" size={16} />
+              </Link>
             </div>
 
             <div className="rounded-[26px] border border-white/10 bg-black/20 p-5">
@@ -246,7 +281,7 @@ export function PricingSection({
               key={value}
               className={`rounded-full px-4 py-2 transition duration-200 ease-out ${
                 frequency === value
-                  ? "bg-cyan-300 text-slate-950"
+                  ? "bg-cyan-300 text-ink-950"
                   : "text-slate-300 hover:text-white"
               }`}
               onClick={() => onFrequencyChange?.(value)}
@@ -300,7 +335,7 @@ export function PricingSection({
               <button
                 className={`mt-6 inline-flex w-full items-center justify-center rounded-full px-4 py-3 text-sm font-semibold transition duration-200 ease-out ${
                   plan.highlight
-                    ? "bg-cyan-300 text-slate-950 hover:-translate-y-0.5"
+                    ? "bg-cyan-300 text-ink-950 hover:-translate-y-0.5"
                     : "border border-white/10 bg-white/[0.04] text-slate-100 hover:border-cyan-300/30 hover:text-cyan-100"
                 }`}
                 type="button"

@@ -1,7 +1,8 @@
-import { Menu, X } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -21,6 +22,7 @@ type NavItem = {
 type MarketingShellProps = {
   children: ReactNode;
   navItems: NavItem[];
+  pageDescription: string;
   pageTitle: string;
 };
 
@@ -31,18 +33,30 @@ export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem
     { href: `${prefix}#product`, label: "Product" },
     { href: `${prefix}#how-it-works`, label: "How it works" },
     { href: `${prefix}#pricing`, label: "Pricing" },
+    { href: `${prefix}#faq`, label: "FAQ" },
   ];
 }
 
 function NavAnchor({
   className,
   href,
+  isCurrent,
   label,
   onClick,
-}: NavItem & { className?: string; onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void }) {
+}: NavItem & {
+  className?: string;
+  isCurrent?: boolean;
+  onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const sharedProps = {
+    "aria-current": isCurrent ? ("location" as const) : undefined,
+    className,
+    onClick,
+  };
+
   if (href.startsWith("#")) {
     return (
-      <a className={className} href={href} onClick={onClick}>
+      <a href={href} {...sharedProps}>
         {label}
       </a>
     );
@@ -50,14 +64,14 @@ function NavAnchor({
 
   if (href.startsWith("/")) {
     return (
-      <Link className={className} onClick={onClick} to={href}>
+      <Link to={href} {...sharedProps}>
         {label}
       </Link>
     );
   }
 
   return (
-    <a className={className} href={href} onClick={onClick}>
+    <a href={href} {...sharedProps}>
       {label}
     </a>
   );
@@ -68,11 +82,12 @@ export function EdgeLabWordmark({ showTagline = true }: { showTagline?: boolean 
 }
 
 function BetaBanner() {
+  const { loading, program } = useBetaProgramStatus();
+
   if (!isBetaMode()) {
     return null;
   }
 
-  const { loading, program } = useBetaProgramStatus();
   const seatSummary =
     loading || program.seats_remaining == null
       ? "seat sync live"
@@ -81,13 +96,12 @@ function BetaBanner() {
         : "waitlist live";
 
   return (
-    <div className="border-b border-white/10 bg-[#061018] px-4 py-2">
-      <div className="mx-auto flex max-w-7xl justify-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-slate-300">
-          <span className="font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
-            Beta access
-          </span>
-          <span className="text-slate-600">•</span>
+    <div className="border-b border-edgelab-border bg-edgelab-surface px-4 py-2">
+      <div className="mx-auto flex max-w-7xl justify-center" role="status">
+        <div className="inline-flex items-center gap-2 text-[11px] text-edgelab-text-secondary">
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+          <span className="font-semibold text-cyan-100">Private beta</span>
+          <span aria-hidden="true" className="h-px w-3 bg-edgelab-border" />
           <span>{seatSummary}</span>
         </div>
       </div>
@@ -95,12 +109,19 @@ function BetaBanner() {
   );
 }
 
-export function MarketingShell({ children, navItems, pageTitle }: MarketingShellProps) {
+export function MarketingShell({
+  children,
+  navItems,
+  pageDescription,
+  pageTitle,
+}: MarketingShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [activeHref, setActiveHref] = useState<string | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
-  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileMenuRef = useRef<HTMLElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const primaryCtaLabel =
@@ -110,6 +131,47 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
       ? "/auth/signin?waitlist=1"
       : "/auth/signin";
 
+  const closeMobileMenu = useCallback((restoreFocus = false) => {
+    setMenuOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => menuButtonRef.current?.focus({ preventScroll: true }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = `${pageTitle} · EdgeLab`;
+
+    const metaEntries = [
+      { key: "name", keyValue: "description", content: pageDescription },
+      { key: "property", keyValue: "og:title", content: `${pageTitle} · EdgeLab` },
+      { key: "property", keyValue: "og:description", content: pageDescription },
+    ];
+    const restorations = metaEntries.map(({ content, key, keyValue }) => {
+      let element = document.head.querySelector<HTMLMetaElement>(`meta[${key}="${keyValue}"]`);
+      const created = !element;
+      const previousContent = element?.content ?? "";
+      if (!element) {
+        element = document.createElement("meta");
+        element.setAttribute(key, keyValue);
+        document.head.append(element);
+      }
+      element.content = content;
+      return { created, element, previousContent };
+    });
+
+    return () => {
+      document.title = previousTitle;
+      restorations.forEach(({ created, element, previousContent }) => {
+        if (created) {
+          element.remove();
+        } else {
+          element.content = previousContent;
+        }
+      });
+    };
+  }, [pageDescription, pageTitle]);
+
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 12);
     handleScroll();
@@ -118,8 +180,83 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
   }, []);
 
   useEffect(() => {
+    const trackedSections = navItems.flatMap((item) => {
+      const hashIndex = item.href.indexOf("#");
+      if (hashIndex === -1) {
+        return [];
+      }
+      const targetPath = item.href.startsWith("/")
+        ? item.href.slice(0, hashIndex) || "/"
+        : window.location.pathname;
+      if (targetPath !== window.location.pathname) {
+        return [];
+      }
+      const node = document.getElementById(item.href.slice(hashIndex + 1));
+      return node ? [{ href: item.href, node }] : [];
+    });
+
+    if (trackedSections.length === 0) {
+      setActiveHref(null);
+      return;
+    }
+
+    let frame = 0;
+    const updateActiveSection = () => {
+      frame = 0;
+      const marker = (headerRef.current?.offsetHeight ?? 80) + window.innerHeight * 0.2;
+      let active = trackedSections[0];
+      trackedSections.forEach((section) => {
+        if (section.node.getBoundingClientRect().top <= marker) {
+          active = section;
+        }
+      });
+      setActiveHref(active.href);
+    };
+    const scheduleUpdate = () => {
+      if (frame === 0) {
+        frame = window.requestAnimationFrame(updateActiveSection);
+      }
+    };
+
+    updateActiveSection();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("hashchange", scheduleUpdate);
+    return () => {
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("hashchange", scheduleUpdate);
+      if (frame !== 0) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [navItems, pageTitle]);
+
+  useEffect(() => {
     setMenuOpen(false);
   }, [pageTitle]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      mobileMenuRef.current?.querySelector<HTMLElement>("a")?.focus();
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeMobileMenu(true);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeMobileMenu, menuOpen]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -325,7 +462,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
       }
 
       event.preventDefault();
-      setMenuOpen(false);
+      closeMobileMenu(true);
 
       const headerOffset = headerRef.current?.offsetHeight ?? 88;
       const top = target.getBoundingClientRect().top + window.scrollY - headerOffset - 12;
@@ -352,7 +489,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
           window.scrollTo({ top, behavior: "smooth" });
         });
     },
-    [],
+    [closeMobileMenu],
   );
 
   const headerClassName = useMemo(
@@ -360,8 +497,8 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
       [
         "sticky top-0 z-50 border-b transition-all duration-300",
         scrolled
-          ? "border-white/10 bg-[#07090dcc] shadow-[0_18px_45px_rgba(0,0,0,0.28)] backdrop-blur-xl"
-          : "border-transparent bg-[#07090d80] backdrop-blur-md",
+          ? "border-edgelab-border bg-edgelab-base shadow-panel"
+          : "border-transparent bg-edgelab-base",
       ].join(" "),
     [scrolled],
   );
@@ -372,11 +509,16 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
       ref={shellRef}
     >
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,#07090d_0%,#090b0f_46%,#05070a_100%)]" />
-        <div className="absolute left-1/2 top-0 h-px w-[min(80vw,980px)] -translate-x-1/2 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_8%,rgba(50,211,238,0.1),transparent_25%),linear-gradient(180deg,var(--bg-base)_0%,#07090d_100%)]" />
       </div>
 
       <div className="relative z-10 max-w-[100vw] overflow-x-clip">
+        <a
+          className="fixed left-3 top-3 z-[100] -translate-y-24 rounded-el-md bg-edgelab-accent px-4 py-3 text-sm font-semibold text-ink-950 transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-cyan-100 motion-reduce:transition-none"
+          href="#main-content"
+        >
+          Skip to content
+        </a>
         <BetaBanner />
         <header className={headerClassName} ref={headerRef}>
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-3 py-4 sm:px-6 lg:px-8">
@@ -384,12 +526,21 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
               <EdgeLabWordmark />
             </Link>
 
-            <nav className="hidden items-center gap-6 text-sm text-slate-300 md:flex" data-shell-motion="nav">
+            <nav
+              aria-label="Primary navigation"
+              className="hidden items-center gap-5 text-sm text-edgelab-text-secondary md:flex"
+              data-shell-motion="nav"
+            >
               {navItems.map((item) => (
                 <NavAnchor
                   key={item.href}
-                  className="transition hover:text-cyan-100"
+                  className={`border-b py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 ${
+                    activeHref === item.href
+                      ? "border-cyan-300 text-cyan-100"
+                      : "border-transparent hover:text-edgelab-text-primary"
+                  }`}
                   href={item.href}
+                  isCurrent={activeHref === item.href}
                   label={item.label}
                   onClick={handleNavClick}
                 />
@@ -398,20 +549,22 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
 
             <div className="hidden items-center gap-3 md:flex" data-shell-motion="cta">
               <Link
-                className="inline-flex items-center gap-2 rounded-lg bg-cyan-300 px-4 py-2 text-sm font-semibold text-[#031114] transition-colors duration-200 hover:bg-cyan-200"
+                className="inline-flex min-h-11 items-center gap-2 rounded-el-md bg-edgelab-accent px-4 py-2 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
                 to={primaryCtaHref}
               >
                 {primaryCtaLabel}
-                <span aria-hidden="true">→</span>
+                <ArrowRight aria-hidden="true" size={15} />
               </Link>
             </div>
 
             <button
               aria-expanded={menuOpen}
+              aria-controls="marketing-mobile-menu"
               aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-slate-100 md:hidden"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-el-md border border-edgelab-border bg-edgelab-surface text-edgelab-text-primary transition-colors hover:border-cyan-300/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 md:hidden"
               data-shell-motion="menu"
               onClick={() => setMenuOpen((current) => !current)}
+              ref={menuButtonRef}
               type="button"
             >
               {menuOpen ? <X size={18} /> : <Menu size={18} />}
@@ -419,42 +572,70 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
           </div>
 
           {menuOpen ? (
-            <div
-              className="border-t border-white/10 bg-[#05070af2] px-3 py-4 backdrop-blur-xl md:hidden"
+            <nav
+              aria-label="Mobile navigation"
+              className="border-t border-edgelab-border bg-edgelab-base px-3 py-4 md:hidden"
+              id="marketing-mobile-menu"
               ref={mobileMenuRef}
             >
               <div className="grid gap-3">
                 {navItems.map((item) => (
                   <NavAnchor
                     key={item.href}
-                    className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-100"
+                    className={`flex min-h-11 items-center rounded-el-md border px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 ${
+                      activeHref === item.href
+                        ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100"
+                        : "border-edgelab-border bg-edgelab-surface text-edgelab-text-primary"
+                    }`}
                     href={item.href}
+                    isCurrent={activeHref === item.href}
                     label={item.label}
                     onClick={handleNavClick}
                   />
                 ))}
                 <Link
-                  className="rounded-lg bg-cyan-300 px-4 py-3 text-sm font-semibold text-[#031114]"
+                  className="inline-flex min-h-11 items-center justify-between rounded-el-md bg-edgelab-accent px-4 py-3 text-sm font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
+                  onClick={() => closeMobileMenu(false)}
                   to={primaryCtaHref}
                 >
-                  {primaryCtaLabel} →
+                  {primaryCtaLabel}
+                  <ArrowRight aria-hidden="true" size={15} />
                 </Link>
               </div>
-            </div>
+            </nav>
           ) : null}
         </header>
 
-        <main>{children}</main>
+        <main id="main-content" tabIndex={-1}>{children}</main>
 
-        <footer className="px-3 pb-10 pt-6 sm:px-6 lg:px-8">
+        <footer className="border-t border-edgelab-border bg-edgelab-surface px-3 pb-10 pt-10 sm:px-6 lg:px-8">
           <div
-            className="mx-auto max-w-7xl border-t border-white/10 px-1 py-8"
+            className="mx-auto grid max-w-7xl gap-10 px-1 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
             data-marketing-reveal="footer"
           >
-            <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
               <EdgeLabWordmark showTagline={false} />
+              <p className="mt-4 max-w-md text-sm leading-6 text-edgelab-text-secondary">
+                Replay, Journal, and review for traders who want decisions they can inspect.
+              </p>
+              <p className="mt-5 text-xs text-edgelab-text-secondary">
+                Research software only. EdgeLab does not provide financial advice.
+              </p>
+            </div>
 
-              <div className="flex items-center gap-4 text-sm text-slate-400">
+            <nav aria-label="Footer navigation" className="grid gap-3 text-sm text-edgelab-text-secondary sm:text-right">
+              <div className="flex flex-wrap gap-x-5 gap-y-3 sm:justify-end">
+                {navItems.map((item) => (
+                  <NavAnchor
+                    className="transition-colors hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                    href={item.href}
+                    key={item.href}
+                    label={item.label}
+                    onClick={handleNavClick}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center gap-4 sm:justify-end">
                 <Link className="transition hover:text-cyan-100" to="/privacy">
                   Privacy
                 </Link>
@@ -462,7 +643,7 @@ export function MarketingShell({ children, navItems, pageTitle }: MarketingShell
                   Terms
                 </Link>
               </div>
-            </div>
+            </nav>
           </div>
         </footer>
       </div>

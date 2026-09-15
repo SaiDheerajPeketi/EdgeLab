@@ -9,9 +9,9 @@ function LegalSection({
   title: string;
 }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6 shadow-card">
-      <h2 className="text-2xl font-semibold text-white">{title}</h2>
-      <p className="mt-4 text-sm leading-7 text-slate-300">{body}</p>
+    <section className="border-t border-edgelab-border py-8 first:border-t-0 first:pt-0">
+      <h2 className="text-2xl font-medium tracking-[-0.02em] text-edgelab-text-primary">{title}</h2>
+      <p className="mt-4 max-w-3xl text-base leading-8 text-edgelab-text-secondary">{body}</p>
     </section>
   );
 }
@@ -30,19 +30,22 @@ function LegalPageFrame({
   return (
     <MarketingShell
       navItems={buildMarketingNavItems("inner")}
+      pageDescription={description}
       pageTitle={title.toLowerCase()}
     >
       <section className="px-4 pb-24 pt-14 sm:px-6 lg:px-8 lg:pt-20">
         <div className="mx-auto max-w-5xl">
-          <div className="max-w-3xl">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-cyan-100/65">
-              {eyebrow}
+          <div className="grid gap-8 border-b border-edgelab-border pb-12 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+            <div className="max-w-3xl">
+              <h1 className="text-balance text-[clamp(3rem,7vw,5.75rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary">{title}</h1>
+              <p className="mt-6 text-lg leading-8 text-edgelab-text-secondary">{description}</p>
             </div>
-            <h1 className="text-display mt-4 text-5xl text-white sm:text-6xl">{title}</h1>
-            <p className="mt-6 text-lg leading-8 text-slate-300">{description}</p>
+            <p className="text-sm leading-7 text-edgelab-text-secondary lg:border-l lg:border-edgelab-border lg:pl-6">
+              {eyebrow} · Current private-beta policy. Product access and data handling may change before launch.
+            </p>
           </div>
 
-          <div className="mt-12 grid gap-4">{children}</div>
+          <article className="mt-12 max-w-4xl">{children}</article>
         </div>
       </section>
     </MarketingShell>

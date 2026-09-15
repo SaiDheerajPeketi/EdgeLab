@@ -304,18 +304,18 @@ Use two expression levels inside one system:
 
 #### 14.3 Landing and public experience — Persuade mode
 
-- [ ] `UIR-27 · P0 · Partial` — Replace the landing first viewport with a clear product thesis, an immediate view of EdgeLab doing real work, one dominant CTA, one lower-commitment secondary action, and legible beta/waitlist status.
+- [x] `UIR-27 · P0 · Partial` — Replace the landing first viewport with a clear product thesis, an immediate view of EdgeLab doing real work, one dominant CTA, one lower-commitment secondary action, and legible beta/waitlist status.
 - [ ] `UIR-28 · P1 · Partial` — Turn the hero demo into a faithful, responsive product demonstration of the real chart–replay–journal–review loop; use realistic or clearly labeled synthetic data and keep controls understandable without prior product knowledge.
-- [ ] `UIR-29 · P1 · Partial` — Recompose the landing page as a paced story—capture context, execute/replay, journal, review, discover patterns, improve—with visual continuity between sections instead of disconnected feature blocks.
+- [x] `UIR-29 · P1 · Partial` — Recompose the landing page as a paced story—capture context, execute/replay, journal, review, discover patterns, improve—with visual continuity between sections instead of disconnected feature blocks.
 - [ ] `UIR-30 · P1 · Partial` — Author a distinctive EdgeLab visual world for marketing using confident scale, richer but controlled color, purposeful depth, custom diagrams/product crops, and one signature interaction; avoid generic glowing SaaS cards and decorative orbits as the main idea.
-- [ ] `UIR-31 · P1 · Partial` — Vary section composition, density, and rhythm; use full-width demonstrations, annotated workflows, comparison moments, and quiet breathing sections rather than an uninterrupted grid of similarly styled cards.
-- [ ] `UIR-32 · P1 · Missing` — Showcase the differentiating backlog capabilities—integrated chart Journal, 4×4 chart grid, circular chart toolbox, footprint/TPO, account comparison, and Quant—using accurate “available,” “beta,” or “planned” labels so the landing page never markets unshipped work as live.
-- [ ] `UIR-33 · P1 · Partial` — Rebuild public-page information architecture across Product, How it works, Pricing, FAQ, sign-in, legal, and future docs so anchor navigation, routes, page titles, and footer links behave consistently.
+- [x] `UIR-31 · P1 · Partial` — Vary section composition, density, and rhythm; use full-width demonstrations, annotated workflows, comparison moments, and quiet breathing sections rather than an uninterrupted grid of similarly styled cards.
+- [x] `UIR-32 · P1 · Missing` — Showcase the differentiating backlog capabilities—integrated chart Journal, 4×4 chart grid, circular chart toolbox, footprint/TPO, account comparison, and Quant—using accurate “available,” “beta,” or “planned” labels so the landing page never markets unshipped work as live.
+- [x] `UIR-33 · P1 · Partial` — Rebuild public-page information architecture across Product, How it works, Pricing, FAQ, sign-in, legal, and future docs so anchor navigation, routes, page titles, and footer links behave consistently.
 - [ ] `UIR-34 · P1 · Partial` — Unify CTA hierarchy and state across header, hero, pricing, final close, beta capacity, and waitlist flows; preserve campaign/query context through sign-in and give every submission a clear success/error state.
 - [ ] `UIR-35 · P1 · Partial` — Redesign pricing and FAQ as part of the same world, with clear plan comparison, entitlements, billing frequency, edge cases, and honest data-provider/AI limitations rather than generic marketing chrome.
 - [ ] `UIR-36 · P1 · Missing` — Add trust and proof modules only from verified material—real workflow evidence, security/privacy facts, supported providers, performance methodology, or genuine user evidence—and provide intentional placeholders rather than fabricated claims where proof is unavailable.
-- [ ] `UIR-37 · P1 · Partial` — Rebuild marketing header, mobile menu, and footer for responsive continuity, current-section indication, keyboard operation, safe sticky behavior, and smooth handoff into authentication and the app.
-- [ ] `UIR-38 · P1 · Partial` — Meet public-page performance, accessibility, metadata, and search/social-preview requirements: stable layout, optimized media/fonts, semantic headings, visible content without JavaScript motion, reduced motion, descriptive titles, and share metadata.
+- [x] `UIR-37 · P1 · Partial` — Rebuild marketing header, mobile menu, and footer for responsive continuity, current-section indication, keyboard operation, safe sticky behavior, and smooth handoff into authentication and the app.
+- [x] `UIR-38 · P1 · Partial` — Meet public-page performance, accessibility, metadata, and search/social-preview requirements: stable layout, optimized media/fonts, semantic headings, visible content without JavaScript motion, reduced motion, descriptive titles, and share metadata.
 
 #### 14.4 Settings redesign — Operate mode
 

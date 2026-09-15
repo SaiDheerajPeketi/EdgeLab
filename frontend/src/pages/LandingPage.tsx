@@ -2,6 +2,7 @@ import { ArrowRight, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
+import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
 import {
   FaqAccordion,
   PricingSection,
@@ -18,6 +19,7 @@ import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type WorkflowStep = {
   body: string;
+  phase: string;
   step: string;
   title: string;
 };
@@ -32,36 +34,27 @@ type MarketPulse = {
 const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     step: "01",
+    phase: "Replay",
     title: "Replay the decision, not just the candle.",
     body: "Walk price forward while entries, exits, sizing, and tempo remain visible in the same market context.",
   },
   {
     step: "02",
+    phase: "Journal",
     title: "Capture what you saw while it is still useful.",
     body: "Journal notes, mistake tags, and playbooks stay attached to the exact session behavior that produced them.",
   },
   {
     step: "03",
-    title: "Turn the session into evidence.",
-    body: "Metrics and strategy breakdowns pressure-test the process after replay and review already agree.",
-  },
-];
-
-const PROOF_STEPS = [
-  {
-    label: "Replay",
-    title: "Market context stays intact",
-    body: "Candle replay, order flow, risk controls, and chart context share one working surface.",
+    phase: "Review",
+    title: "Read the outcome beside the original context.",
+    body: "Trades, notes, mistake tags, and session metrics keep the review grounded in what actually happened.",
   },
   {
-    label: "Review",
-    title: "Memory stays attached",
-    body: "Notes, mistake tags, screenshots, and playbooks remain tied to the session truth.",
-  },
-  {
-    label: "Refine",
-    title: "Patterns become actionable",
-    body: "Session metrics and strategy analytics expose repeatable behavior without breaking the workflow.",
+    step: "04",
+    phase: "Refine",
+    title: "Carry the lesson into the next session.",
+    body: "Strategy breakdowns and playbooks turn repeated behavior into a process you can test again.",
   },
 ];
 
@@ -234,17 +227,6 @@ export function LandingPage() {
         }
 
         context = gsap.context(() => {
-          gsap.to("[data-landing-orbit]", {
-            ease: "none",
-            rotation: 10,
-            scrollTrigger: {
-              end: "bottom top",
-              scrub: 0.8,
-              start: "top top",
-              trigger: "[data-landing-hero]",
-            },
-            yPercent: 38,
-          });
           gsap.to("[data-landing-stage]", {
             ease: "none",
             scrollTrigger: {
@@ -287,23 +269,20 @@ export function LandingPage() {
   }, []);
 
   return (
-    <MarketingShell navItems={buildMarketingNavItems("home")} pageTitle="landing">
+    <MarketingShell
+      navItems={buildMarketingNavItems("home")}
+      pageDescription="Replay price action, record the decision, and review the evidence in one focused trading workspace."
+      pageTitle="Trading replay and journal"
+    >
       <div ref={pageRef}>
         <section
-          className="relative px-3 pb-24 pt-10 sm:px-6 sm:pb-28 sm:pt-16 lg:px-8 lg:pb-32 lg:pt-20"
+          className="relative px-3 pb-24 pt-12 sm:px-6 sm:pb-28 sm:pt-16 lg:px-8 lg:pb-32 lg:pt-20"
           data-landing-hero
+          id="product"
+          tabIndex={-1}
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute right-[-8rem] top-6 h-[28rem] w-[28rem] rounded-full border border-white/[0.07] opacity-70 sm:right-[-3rem] lg:h-[38rem] lg:w-[38rem]"
-            data-landing-orbit
-          >
-            <div className="absolute inset-[18%] rounded-full border border-white/[0.06]" />
-            <div className="absolute left-[12%] top-1/2 h-px w-[76%] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-          </div>
-
           <div className="relative mx-auto max-w-7xl">
-            <div className="grid gap-12 lg:grid-cols-[minmax(0,1.45fr)_minmax(260px,0.55fr)] lg:items-end lg:gap-16">
+            <div className="grid gap-12 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)] lg:items-end lg:gap-20">
               <div>
                 <h1
                   className="max-w-5xl text-balance text-[clamp(3.25rem,9.2vw,6rem)] font-medium leading-[0.84] tracking-[-0.04em] text-white"
@@ -312,7 +291,7 @@ export function LandingPage() {
                   data-reveal-delay="0.03"
                   data-split-text="lines"
                 >
-                  See the trade. Keep the proof.
+                  Replay the market. Preserve the decision.
                 </h1>
                 <p
                   className="mt-8 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl sm:leading-9"
@@ -320,7 +299,8 @@ export function LandingPage() {
                   data-motion="reveal"
                   data-reveal-delay="0.08"
                 >
-                  Replay price action, capture the decision, and review the outcome in one uninterrupted trading surface.
+                  EdgeLab keeps chart replay, Journal context, and performance review in one
+                  focused workspace—so every conclusion can be traced back to the trade.
                 </p>
                 <div
                   className="mt-8 flex flex-wrap items-center gap-3"
@@ -329,35 +309,49 @@ export function LandingPage() {
                   data-reveal-delay="0.12"
                 >
                   <Link
-                    className="inline-flex h-12 items-center gap-2 rounded-lg bg-cyan-300 px-5 text-sm font-semibold text-[#031114] transition-colors hover:bg-cyan-200"
+                    className="inline-flex h-12 items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
                     to={primaryCtaHref}
                   >
                     {primaryCtaLabel}
                     <ArrowRight aria-hidden="true" size={16} />
                   </Link>
                   <a
-                    className="inline-flex h-12 items-center rounded-lg border border-white/10 bg-white/[0.035] px-5 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/[0.065]"
+                    className="inline-flex h-12 items-center rounded-el-md border border-edgelab-border bg-edgelab-surface px-5 text-sm font-medium text-edgelab-text-primary transition-colors hover:border-cyan-300/40 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
                     href="#how-it-works"
                   >
-                    Follow the workflow
+                    See the workflow
                   </a>
                 </div>
               </div>
 
-              <aside className="border-t border-white/10 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-                <div className="grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-1">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Access</div>
-                    <div className="mt-2 text-xl font-medium text-white">{loading ? "Syncing…" : accessLabel}</div>
+              <aside
+                aria-label="Product workflow and beta status"
+                className="border-y border-edgelab-border py-6 lg:border-y-0 lg:border-l lg:py-1 lg:pl-8"
+              >
+                <ol className="grid gap-5">
+                  {["Replay market context", "Record the decision", "Review the evidence"].map(
+                    (label) => (
+                      <li className="flex items-center gap-3 text-sm text-edgelab-text-secondary" key={label}>
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-cyan-300/12 text-cyan-200">
+                          <Check aria-hidden="true" size={14} strokeWidth={2.4} />
+                        </span>
+                        {label}
+                      </li>
+                    ),
+                  )}
+                </ol>
+                <div className="mt-6 border-t border-edgelab-border pt-5" role="status">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <strong className="text-lg font-medium text-edgelab-text-primary">
+                      {loading ? "Checking beta access…" : accessLabel}
+                    </strong>
+                    <span className="text-xs text-edgelab-text-secondary">
+                      {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
+                    </span>
                   </div>
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Waitlist</div>
-                    <div className="mt-2 text-xl font-medium text-white">{waitlistCount == null ? "—" : waitlistCount}</div>
-                  </div>
-                  <div className="col-span-2 flex items-start gap-2 border-t border-white/[0.07] pt-5 text-xs leading-5 text-slate-400 lg:col-span-1">
-                    <Check aria-hidden="true" className="mt-0.5 shrink-0 text-cyan-300" size={14} />
-                    Private beta access. Temporary workspaces during the test track.
-                  </div>
+                  <p className="mt-2 text-xs leading-5 text-edgelab-text-secondary">
+                    Private beta workspaces are temporary test environments.
+                  </p>
                 </div>
               </aside>
             </div>
@@ -366,13 +360,20 @@ export function LandingPage() {
               <MarketTape />
             </div>
 
-            <div className="mt-7 origin-top lg:mt-10" data-landing-stage id="product">
+            <div className="mt-7 origin-top lg:mt-10" data-landing-stage>
               <HeroDemo />
+              <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
+                Interactive product preview using illustrative market data.
+              </p>
             </div>
           </div>
         </section>
 
-        <section className="border-y border-white/[0.07] bg-[#06090d]/70 px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="how-it-works">
+        <section
+          className="border-y border-edgelab-border bg-edgelab-surface px-3 py-24 sm:px-6 sm:py-32 lg:px-8"
+          id="how-it-works"
+          tabIndex={-1}
+        >
           <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1.38fr)] lg:gap-20">
             <div className="lg:sticky lg:top-32 lg:self-start">
               <SectionHeading
@@ -381,19 +382,22 @@ export function LandingPage() {
               />
             </div>
 
-            <div className="border-t border-white/10">
+            <div className="border-t border-edgelab-border">
               {WORKFLOW_STEPS.map((step) => (
                 <article
-                  className="grid gap-5 border-b border-white/10 py-10 sm:grid-cols-[70px_minmax(0,1fr)] sm:gap-8 sm:py-14"
+                  className="grid gap-5 border-b border-edgelab-border py-10 sm:grid-cols-[92px_minmax(0,1fr)] sm:gap-8 sm:py-14"
                   data-flow-row
                   key={step.step}
                 >
-                  <div className="font-data text-xs text-slate-400">{step.step}</div>
+                  <div className="flex items-center gap-3 self-start font-data text-xs text-edgelab-text-secondary">
+                    <span className="text-cyan-200">{step.step}</span>
+                    <span>{step.phase}</span>
+                  </div>
                   <div>
                     <h3 className="max-w-2xl text-2xl font-medium leading-tight tracking-[-0.025em] text-white sm:text-3xl">
                       {step.title}
                     </h3>
-                    <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400 sm:text-base sm:leading-8">
+                    <p className="mt-4 max-w-xl text-sm leading-7 text-edgelab-text-secondary sm:text-base sm:leading-8">
                       {step.body}
                     </p>
                   </div>
@@ -403,34 +407,22 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8">
-          <div className="mx-auto max-w-7xl">
-            <SectionHeading
-              description="EdgeLab keeps the full practice loop inside one workspace, so the result can still be traced back to the decision."
-              title="The product stays in motion."
-            />
-            <div className="mt-16 grid border-y border-white/10 md:grid-cols-3 md:divide-x md:divide-white/10">
-              {PROOF_STEPS.map((item) => (
-                <article className="border-b border-white/10 py-8 last:border-b-0 md:border-b-0 md:px-7 md:first:pl-0 md:last:pr-0" key={item.label}>
-                  <div className="text-xs font-semibold text-slate-400">{item.label}</div>
-                  <h3 className="mt-5 text-xl font-medium tracking-[-0.02em] text-white">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-slate-400">{item.body}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
+        <CapabilityStatusRail />
 
-        <section className="border-y border-white/[0.07] bg-[#06090d]/70 px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="pricing">
+        <section
+          className="border-y border-edgelab-border bg-edgelab-surface px-3 py-24 sm:px-6 sm:py-32 lg:px-8"
+          id="pricing"
+          tabIndex={-1}
+        >
           <div className="mx-auto max-w-7xl">
             <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
               <SectionHeading
                 description={
                   isBetaMode(deploymentMode)
-                    ? "Approved users get the complete workspace free during private beta. The queue opens automatically when seats fill."
+                    ? "Approved users can test the current replay, Journal, analytics, and playbook workflow free during private beta. The queue opens automatically when seats fill."
                     : "Choose a cadence that fits your review cycle, from solo validation to a growing desk."
                 }
-                title={isBetaMode(deploymentMode) ? "Full product. Limited beta." : "Plans that scale with the process."}
+                title={isBetaMode(deploymentMode) ? "Core workflow. Limited beta." : "Plans that scale with the process."}
               />
               <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Current mode</div>
@@ -456,7 +448,7 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8">
+        <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="faq" tabIndex={-1}>
           <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(0,0.76fr)_minmax(0,1.24fr)] lg:gap-20">
             <SectionHeading
               description="Straight answers on access, imports, billing timing, and the beta data lifecycle."
@@ -465,6 +457,26 @@ export function LandingPage() {
             <div data-marketing-reveal="faq-list" data-reveal-delay="0.06">
               <FaqAccordion items={pricingFaqItems} />
             </div>
+          </div>
+        </section>
+
+        <section className="px-3 pb-28 pt-8 sm:px-6 sm:pb-32 lg:px-8">
+          <div className="mx-auto grid max-w-7xl gap-8 border-y border-edgelab-border py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <h2 className="max-w-4xl text-balance text-[clamp(2.5rem,6vw,5rem)] font-medium leading-[0.94] tracking-[-0.04em] text-edgelab-text-primary">
+                Make every replay leave evidence.
+              </h2>
+              <p className="mt-5 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg">
+                Enter the current beta when a seat is open, or reserve a place in the queue when it is full.
+              </p>
+            </div>
+            <Link
+              className="inline-flex h-12 w-fit items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
+              to={primaryCtaHref}
+            >
+              {primaryCtaLabel}
+              <ArrowRight aria-hidden="true" size={16} />
+            </Link>
           </div>
         </section>
       </div>

@@ -1,0 +1,111 @@
+import { Check, Clock3 } from "lucide-react";
+
+type CapabilityStatus = "available" | "planned";
+
+type Capability = {
+  description: string;
+  name: string;
+  status: CapabilityStatus;
+};
+
+const CAPABILITIES: Capability[] = [
+  {
+    name: "4 × 4 chart grid",
+    description: "Arrange and inspect as many as sixteen charts in one responsive workspace.",
+    status: "available",
+  },
+  {
+    name: "Circular chart toolbox",
+    description: "Open a favorite drawing wheel from the active chart with Alt or Option.",
+    status: "available",
+  },
+  {
+    name: "Chart-integrated Journal",
+    description: "Review Journal trades and notes directly beside the chart that produced them.",
+    status: "planned",
+  },
+  {
+    name: "Footprint and TPO",
+    description: "Read bid/ask volume, imbalance, and auction structure from qualified market data.",
+    status: "planned",
+  },
+  {
+    name: "Account comparison",
+    description: "Compare behavior and outcomes across trading accounts in one review view.",
+    status: "planned",
+  },
+  {
+    name: "Quant assistant",
+    description: "Explore chart-aware research and backtest workflows with explicit user control.",
+    status: "planned",
+  },
+];
+
+const STATUS_COPY: Record<CapabilityStatus, string> = {
+  available: "Available now",
+  planned: "Planned",
+};
+
+export function CapabilityStatusRail() {
+  return (
+    <section
+      aria-labelledby="capability-status-title"
+      className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8"
+      id="capabilities"
+    >
+      <div className="mx-auto max-w-7xl">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end">
+          <div>
+            <h2
+              className="max-w-3xl text-balance text-[clamp(2.5rem,6vw,5.25rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary"
+              data-marketing-reveal="capability-title"
+              data-split-text="lines"
+              id="capability-status-title"
+            >
+              What ships now. What comes next.
+            </h2>
+          </div>
+          <p className="max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8 lg:justify-self-end">
+            EdgeLab separates working product from roadmap. Available means it is in the current
+            build; planned means it is not being sold as live yet.
+          </p>
+        </div>
+
+        <div className="mt-14 border-y border-edgelab-border">
+          {CAPABILITIES.map((capability) => {
+            const isAvailable = capability.status === "available";
+            const StatusIcon = isAvailable ? Check : Clock3;
+
+            return (
+              <article
+                className="grid gap-4 border-b border-edgelab-border py-6 last:border-b-0 sm:grid-cols-[160px_minmax(200px,0.72fr)_minmax(0,1fr)] sm:items-center sm:gap-8 sm:py-7"
+                key={capability.name}
+              >
+                <div
+                  className={`inline-flex w-fit items-center gap-2 text-xs font-semibold ${
+                    isAvailable ? "text-cyan-200" : "text-amber-200"
+                  }`}
+                >
+                  <span
+                    className={`grid h-6 w-6 place-items-center rounded-full ${
+                      isAvailable ? "bg-cyan-300/15" : "bg-amber-300/15"
+                    }`}
+                  >
+                    <StatusIcon aria-hidden="true" size={13} strokeWidth={2.4} />
+                  </span>
+                  {STATUS_COPY[capability.status]}
+                </div>
+                <h3 className="text-lg font-medium tracking-[-0.02em] text-edgelab-text-primary sm:text-xl">
+                  {capability.name}
+                </h3>
+                <p className="max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
+                  {capability.description}
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
