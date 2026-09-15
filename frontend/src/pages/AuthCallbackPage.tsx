@@ -1,8 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { ApiError, exchangeGoogleAuthCode } from "../lib/api";
 import { setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
+import {
+  buildAuthSignInHref,
+  safeAuthDestination,
+} from "../lib/authJourney";
 import { consumeGoogleAuthState } from "../lib/googleAuth";
 
 const CALLBACK_STEPS = [
@@ -20,41 +24,92 @@ const CALLBACK_STEPS = [
   },
 ] as const;
 
+type ConsumedGoogleAuthState = ReturnType<typeof consumeGoogleAuthState>;
+
+let cachedStateKey: string | null | undefined;
+let cachedAuthState: ConsumedGoogleAuthState = null;
+let cachedExchangeKey: string | null = null;
+let cachedExchangePromise: ReturnType<typeof exchangeGoogleAuthCode> | null = null;
+
+function consumeGoogleAuthStateOnce(stateKey: string | null) {
+  if (stateKey === cachedStateKey) {
+    return cachedAuthState;
+  }
+  cachedStateKey = stateKey;
+  cachedAuthState = consumeGoogleAuthState(stateKey);
+  cachedExchangeKey = null;
+  cachedExchangePromise = null;
+  return cachedAuthState;
+}
+
+function exchangeGoogleAuthCodeOnce(
+  code: string,
+  stateKey: string | null,
+  redirectUri: string,
+) {
+  const exchangeKey = `${stateKey ?? "missing"}:${code}`;
+  if (exchangeKey === cachedExchangeKey && cachedExchangePromise) {
+    return cachedExchangePromise;
+  }
+  cachedExchangeKey = exchangeKey;
+  cachedExchangePromise = exchangeGoogleAuthCode({ code, redirect_uri: redirectUri });
+  return cachedExchangePromise;
+}
+
 export function AuthCallbackPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [activeStep, setActiveStep] = useState(0);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const code = searchParams.get("code");
-    const authState = consumeGoogleAuthState(searchParams.get("state"));
+    const providerError = searchParams.get("error");
+    const stateKey = searchParams.get("state");
+    const authState = consumeGoogleAuthStateOnce(stateKey);
+    const fromPath = safeAuthDestination(authState?.fromPath);
 
     let active = true;
+    let handoffFrame = 0;
 
-    if (!code || !authState) {
-      navigate("/auth/signin?error=google-oauth-state", { replace: true });
+    if (providerError) {
+      navigate(buildAuthSignInHref({ error: providerError, fromPath }), {
+        replace: true,
+        state: { fromPath },
+      });
       return () => {
         active = false;
       };
     }
 
-    exchangeGoogleAuthCode({
-      code,
-      redirect_uri: authState.redirectUri,
-    })
+    if (!code || !authState) {
+      navigate(buildAuthSignInHref({ fromPath, reason: "oauth-state-expired" }), {
+        replace: true,
+        state: { fromPath },
+      });
+      return () => {
+        active = false;
+      };
+    }
+
+    setActiveStep(1);
+    exchangeGoogleAuthCodeOnce(code, stateKey, authState.redirectUri)
       .then((response) => {
         if (!active) {
           return;
         }
         setStoredAuthSession(toStoredAuthSession(response.session));
+        setActiveStep(2);
         if (response.session.user.approved) {
-          navigate(authState.fromPath, { replace: true });
+          handoffFrame = window.requestAnimationFrame(() => {
+            navigate(fromPath, { replace: true });
+          });
           return;
         }
 
-        navigate("/auth/signin?waitlist=1", {
+        navigate(buildAuthSignInHref({ fromPath, waitlist: true }), {
           replace: true,
-          state: { fromPath: authState.fromPath },
+          state: { fromPath },
         });
       })
       .catch((error: unknown) => {
@@ -62,27 +117,34 @@ export function AuthCallbackPage() {
           return;
         }
         const message = error instanceof ApiError ? error.message : "beta-auth-error";
-        navigate(`/auth/signin?error=${encodeURIComponent(message)}`, {
+        navigate(buildAuthSignInHref({
+          error: message,
+          fromPath,
+          reason: error instanceof ApiError && error.status === 403 ? "access-denied" : null,
+        }), {
           replace: true,
-          state: { fromPath: authState.fromPath },
+          state: { fromPath },
         });
       });
 
     return () => {
       active = false;
+      if (handoffFrame) {
+        window.cancelAnimationFrame(handoffFrame);
+      }
     };
   }, [location.search, navigate]);
 
   return (
     <AuthTransitionScreen
-      activeStep={1}
-      description="This usually takes a moment."
-      eyebrow="Secure callback"
-      panelEyebrow="Auth path"
-      panelTitle="Session restore in progress"
-      statusLabel="Signing in"
+      activeStep={activeStep}
+      description="Google has returned control to EdgeLab. Keep this page open while the secure session is restored."
+      eyebrow="Secure sign-in"
+      panelEyebrow="Authentication path"
+      panelTitle="Your destination stays preserved"
+      statusLabel={activeStep >= 2 ? "Opening workspace" : "Restoring session"}
       steps={[...CALLBACK_STEPS]}
-      title="Signing in"
+      title={activeStep >= 2 ? "Access confirmed." : "Restoring your EdgeLab session."}
     />
   );
 }

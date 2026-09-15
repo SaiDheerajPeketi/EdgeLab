@@ -1,4 +1,5 @@
 import type { BetaAuthConfig } from "./api";
+import { safeAuthDestination } from "./authJourney";
 
 const GOOGLE_AUTH_STATE_KEY = "edgelab.google-auth.state.v1";
 const GOOGLE_AUTH_STATE_TTL_MS = 15 * 60 * 1000;
@@ -30,7 +31,7 @@ export function buildGoogleAuthorizeUrl(
     configuredRedirectUri?.trim() || `${window.location.origin}/auth/callback/google`;
   const state = randomState();
   const payload: StoredGoogleAuthState = {
-    fromPath,
+    fromPath: safeAuthDestination(fromPath),
     issuedAt: Date.now(),
     redirectUri,
     state,
@@ -66,8 +67,13 @@ export function consumeGoogleAuthState(receivedState: string | null) {
       clearGoogleAuthState();
       return null;
     }
+    const sanitizedFromPath = safeAuthDestination(parsed.fromPath);
+    if (sanitizedFromPath !== parsed.fromPath) {
+      clearGoogleAuthState();
+      return null;
+    }
     clearGoogleAuthState();
-    return parsed;
+    return { ...parsed, fromPath: sanitizedFromPath };
   } catch {
     clearGoogleAuthState();
     return null;

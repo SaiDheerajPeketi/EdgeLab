@@ -338,7 +338,7 @@ Use two expression levels inside one system:
 
 #### 14.5 Refresh every remaining product surface
 
-- [ ] `UIR-55 · P1 · Partial` — Redesign sign-in, callback, beta-capacity, waitlist, expired-session, and access-denied screens as one trustworthy authentication journey with consistent branding, progress, recovery, and return-to-origin behavior.
+- [x] `UIR-55 · P1 · Partial` — Redesign sign-in, callback, beta-capacity, waitlist, expired-session, and access-denied screens as one trustworthy authentication journey with consistent branding, progress, recovery, and return-to-origin behavior.
 - [ ] `UIR-56 · P1 · Partial` — Redesign first-run onboarding and the session gateway around one obvious next step, progressive disclosure, recent/resumable work, sample-data choices, and clear provider/data prerequisites.
 - [ ] `UIR-57 · P1 · Partial` — Refresh dashboards and reports with stronger hierarchy, fewer interchangeable cards, aligned financial numbers, purposeful comparison, legible chart annotation, shared filters, and drill-down affordances.
 - [ ] `UIR-58 · P1 · Partial` — Refresh Journal accounts, trades, calendar, notes, day/week review, reports, and settings as one coherent system while preserving the higher-density workflow needed for frequent review.

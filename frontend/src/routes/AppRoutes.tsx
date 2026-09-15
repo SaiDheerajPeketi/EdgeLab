@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import type { ComponentType } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { getAuthSession } from "../lib/api";
@@ -11,6 +11,10 @@ import {
   subscribeAuthSession,
   toStoredAuthSession,
 } from "../lib/authSession";
+import {
+  authDestinationFromLocation,
+  buildAuthSignInHref,
+} from "../lib/authJourney";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 
 const LandingPage = lazy(() =>
@@ -98,6 +102,8 @@ function useAuthSession() {
 
 function SessionRehydrator() {
   const session = useAuthSession();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!session?.token) {
@@ -118,12 +124,19 @@ function SessionRehydrator() {
           return;
         }
         clearStoredAuthSession();
+        if (location.pathname.startsWith("/app")) {
+          const fromPath = `${location.pathname}${location.search}${location.hash}`;
+          navigate(buildAuthSignInHref({ fromPath, reason: "session-expired" }), {
+            replace: true,
+            state: { fromPath },
+          });
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [session?.token]);
+  }, [navigate, session?.token]);
 
   return null;
 }
@@ -172,7 +185,12 @@ function WorkspaceBetaNotice() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-[120] flex justify-center px-4">
-      <div className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-full border border-amber-300/15 bg-[#091019f2] px-4 py-2.5 text-sm text-slate-200 shadow-[0_18px_46px_rgba(0,0,0,0.34)] backdrop-blur-xl transition duration-500">
+      <div
+        aria-atomic="true"
+        aria-live="polite"
+        className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-full border border-amber-300/15 bg-[#091019f2] px-4 py-2.5 text-sm text-slate-200 shadow-[0_18px_46px_rgba(0,0,0,0.34)] backdrop-blur-xl transition duration-500"
+        role="status"
+      >
         <span className="h-2.5 w-2.5 rounded-full bg-amber-300 shadow-[0_0_18px_rgba(252,211,77,0.45)] motion-safe:animate-pulse" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-100/75">
           Beta workspace
@@ -190,7 +208,13 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
 
   if (!session) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
-    return <Navigate replace state={{ fromPath }} to="/auth/signin" />;
+    return (
+      <Navigate
+        replace
+        state={{ fromPath }}
+        to={buildAuthSignInHref({ fromPath })}
+      />
+    );
   }
 
   if (!session.user.approved) {
@@ -199,7 +223,7 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
       <Navigate
         replace
         state={{ fromPath }}
-        to="/auth/signin?waitlist=1"
+        to={buildAuthSignInHref({ fromPath, waitlist: true })}
       />
     );
   }
@@ -213,17 +237,7 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
 }
 
 function authRedirectTarget(location: { search: string; state: unknown }) {
-  const state = location.state;
-  const fromState =
-    typeof state === "object" &&
-    state &&
-    "fromPath" in state &&
-    typeof state.fromPath === "string"
-      ? state.fromPath
-      : null;
-  const fromQuery = new URLSearchParams(location.search).get("from");
-  const target = fromState ?? fromQuery;
-  return target?.startsWith("/") && !target.startsWith("/auth") ? target : "/app";
+  return authDestinationFromLocation(location);
 }
 
 function AuthSignInRoute() {
