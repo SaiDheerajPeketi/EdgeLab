@@ -26,7 +26,7 @@ export function ShimmeringText({
   const createCharVariants = useCallback(
     (charIndex: number): Variants => ({
       running: {
-        color: ["var(--color)", "var(--shimmering-color)", "var(--color)"],
+        opacity: [0.48, 1, 0.48],
         transition: {
           duration,
           repeat: Number.POSITIVE_INFINITY,
@@ -37,7 +37,7 @@ export function ShimmeringText({
         },
       },
       stopped: {
-        color: "var(--color)",
+        opacity: 0.72,
         transition: {
           duration: duration * 0.5,
           ease: "easeOut",
@@ -60,7 +60,7 @@ export function ShimmeringText({
         <motion.span
           animate={stopped ? "stopped" : "running"}
           aria-hidden
-          className="inline-block whitespace-pre leading-none"
+          className="inline-block whitespace-pre text-[var(--shimmering-color)] leading-none"
           initial="stopped"
           key={index}
           variants={createCharVariants(index)}

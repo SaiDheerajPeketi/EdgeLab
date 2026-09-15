@@ -191,7 +191,9 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;
+    animation-delay: 0s !important;
     scroll-behavior: auto !important;
+    transition-delay: 0s !important;
     transition-duration: 0s !important;
   }
 }

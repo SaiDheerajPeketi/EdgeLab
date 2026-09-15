@@ -60,7 +60,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
     <>
       <nav
         aria-label="Primary workspace"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--ui-divider)] bg-[var(--ui-navigation-mobile)] px-[max(0.35rem,env(safe-area-inset-left))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[var(--elevation-floating)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--ui-divider)] bg-[var(--ui-navigation-mobile)] ps-[max(0.35rem,env(safe-area-inset-left))] pe-[max(0.35rem,env(safe-area-inset-right))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[var(--elevation-floating)] lg:hidden"
       >
         <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
           {MOBILE_PRIMARY_NAVIGATION.map((item) => {

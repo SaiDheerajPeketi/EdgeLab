@@ -180,12 +180,7 @@ function registerPluginIfAvailable(gsap: GsapInstance, pluginName: GsapPluginNam
   registeredPlugins.add(pluginName);
 }
 
-export function prefersReducedMotion() {
-  if (typeof window === "undefined") {
-    return true;
-  }
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
+export { prefersReducedMotion };
 
 export async function loadGsap(options: LoadGsapOptions = {}): Promise<GsapRuntime> {
   if (typeof window === "undefined") {
@@ -225,3 +220,4 @@ export async function loadGsap(options: LoadGsapOptions = {}): Promise<GsapRunti
     },
   };
 }
+import { prefersReducedMotion } from "./motionPreferences";

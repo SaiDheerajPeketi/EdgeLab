@@ -13,6 +13,7 @@ import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
 import { isBetaMode } from "../../lib/deploymentMode";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
 import { buildMarketingCta } from "../../lib/marketingCta";
+import { useReducedMotionPreference } from "../../lib/motionPreferences";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
 type NavItem = {
@@ -121,6 +122,7 @@ export function MarketingShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeHref, setActiveHref] = useState<string | null>(null);
+  const reducedMotion = useReducedMotionPreference();
   const shellRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLElement | null>(null);
@@ -283,6 +285,11 @@ export function MarketingShell({
       splitInstances.splice(0).forEach((instance) => instance.revert());
     };
 
+    if (reducedMotion) {
+      restoreRevealNodes();
+      return;
+    }
+
     void loadGsap({ plugins: ["CustomEase", "ScrollTrigger", "SplitText"] })
       .then(({ gsap, plugins }) => {
         if (cancelled || !shell || !header) {
@@ -394,11 +401,11 @@ export function MarketingShell({
       splitInstances.forEach((instance) => instance.revert());
       context?.revert();
     };
-  }, [pageTitle]);
+  }, [pageTitle, reducedMotion]);
 
   useEffect(() => {
     const mobileMenu = mobileMenuRef.current;
-    if (!menuOpen || !mobileMenu || prefersReducedMotion()) {
+    if (!menuOpen || !mobileMenu || reducedMotion) {
       return;
     }
 
@@ -431,7 +438,7 @@ export function MarketingShell({
       cancelled = true;
       animation?.kill();
     };
-  }, [menuOpen]);
+  }, [menuOpen, reducedMotion]);
 
   const handleNavClick = useMemo(
     () => (event: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -469,7 +476,7 @@ export function MarketingShell({
       const top = target.getBoundingClientRect().top + window.scrollY - headerOffset - 12;
       window.history.replaceState(null, "", hash);
 
-      if (prefersReducedMotion()) {
+      if (reducedMotion || prefersReducedMotion()) {
         window.scrollTo({ top, behavior: "auto" });
         return;
       }
@@ -490,7 +497,7 @@ export function MarketingShell({
           window.scrollTo({ top, behavior: "smooth" });
         });
     },
-    [closeMobileMenu],
+    [closeMobileMenu, reducedMotion],
   );
 
   const headerClassName = useMemo(

@@ -142,3 +142,34 @@ test("replay date picker enters and restores the keyboard focus path", () => {
   assert.match(replay, /querySelector<HTMLElement>\("\[data-replay-picker-initial-focus\]"\)\?\.focus\(\)/);
   assert.match(replay, /triggerRef=\{triggerRef\}/);
 });
+
+test("conditionally mounted chart overlays restore focus to a real trigger", () => {
+  const focusReturn = readComponent("overlays/useFocusReturn.ts");
+  assert.match(focusReturn, /return \(\) => \{/);
+  assert.match(focusReturn, /requestAnimationFrame\(\(\) => \{/);
+  assert.match(focusReturn, /trigger\?\.isConnected && trigger\.tabIndex >= 0/);
+  assert.match(focusReturn, /previousFocus\?\.isConnected && previousFocus\.tabIndex >= 0/);
+
+  const toolbar = readComponent("ChartToolbar.tsx");
+  assert.match(toolbar, /triggerRef=\{commandInputRef\}/);
+  assert.match(toolbar, /triggerRef=\{settingsTriggerRef\}/);
+  assert.match(toolbar, /ref=\{settingsTriggerRef\}/);
+});
+
+test("chart command search exposes a labelled dialog and keyboard result navigation", () => {
+  const toolbar = readComponent("ChartToolbar.tsx");
+  for (const contract of [
+    /aria-controls=\{commandMenuId\}/,
+    /aria-expanded=\{commandOpen\}/,
+    /aria-haspopup="dialog"/,
+    /aria-label="Search chart commands"/,
+    /role="dialog" ariaLabel="Chart command search results"/,
+    /data-chart-command-result="true"/,
+    /handleCommandInputKeyDown/,
+    /handleCommandSurfaceKeyDown/,
+  ]) assert.match(toolbar, contract);
+  for (const key of ["ArrowDown", "ArrowUp", "Home", "End"]) {
+    assert.match(toolbar, new RegExp(`event\\.key === "${key}"|\\[.*"${key}"`));
+  }
+  assert.doesNotMatch(toolbar, /role="listbox" ariaLabel="Chart command search"/);
+});

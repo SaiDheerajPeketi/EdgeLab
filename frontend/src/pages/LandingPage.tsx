@@ -16,6 +16,7 @@ import {
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
 import { loadGsap, prefersReducedMotion } from "../lib/gsap";
 import { buildMarketingCta } from "../lib/marketingCta";
+import { useReducedMotionPreference } from "../lib/motionPreferences";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type WorkflowStep = {
@@ -91,9 +92,10 @@ function MarketTape() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState(MARKET_PULSE);
   const [isActive, setIsActive] = useState(true);
+  const reducedMotion = useReducedMotionPreference();
 
   useEffect(() => {
-    if (!isActive) {
+    if (!isActive || reducedMotion) {
       return;
     }
 
@@ -116,7 +118,7 @@ function MarketTape() {
     }, 1600);
 
     return () => window.clearInterval(timer);
-  }, [isActive]);
+  }, [isActive, reducedMotion]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -147,7 +149,7 @@ function MarketTape() {
       <div className="relative min-w-0 overflow-hidden">
         <div
           className={`edgelab-marquee absolute inset-y-0 left-0 flex w-max items-center ${
-            isActive ? "edgelab-marquee-active" : "edgelab-marquee-paused"
+            isActive && !reducedMotion ? "edgelab-marquee-active" : "edgelab-marquee-paused"
           }`}
         >
           {loopItems.map((item, index) => (
@@ -198,6 +200,7 @@ function SectionHeading({
 export function LandingPage() {
   const location = useLocation();
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const reducedMotion = useReducedMotionPreference();
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
   const waitlistCount = program.waitlist_count;
@@ -211,7 +214,7 @@ export function LandingPage() {
 
   useEffect(() => {
     const page = pageRef.current;
-    if (!page || prefersReducedMotion()) {
+    if (!page || reducedMotion || prefersReducedMotion()) {
       return;
     }
 
@@ -264,7 +267,7 @@ export function LandingPage() {
       cancelled = true;
       context?.revert();
     };
-  }, []);
+  }, [reducedMotion]);
 
   return (
     <MarketingShell

@@ -9,28 +9,40 @@ export function useFocusReturn({
   surfaceRef: RefObject<HTMLElement>;
   triggerRef: RefObject<HTMLElement>;
 }) {
-  const wasOpenRef = useRef(false);
+  const restoreFrameRef = useRef(0);
 
   useEffect(() => {
-    const wasOpen = wasOpenRef.current;
-    wasOpenRef.current = open;
-    if (!wasOpen || open) {
+    if (!open) {
       return;
     }
 
     const ownerDocument = triggerRef.current?.ownerDocument ?? document;
-    const frame = window.requestAnimationFrame(() => {
-      const trigger = triggerRef.current;
-      const activeElement = ownerDocument.activeElement;
-      const focusStayedInOverlay =
-        activeElement === ownerDocument.body ||
-        activeElement === ownerDocument.documentElement ||
-        (activeElement instanceof Node && surfaceRef.current?.contains(activeElement));
+    const ownerWindow = ownerDocument.defaultView ?? window;
+    const previousFocus = ownerDocument.activeElement instanceof HTMLElement
+      ? ownerDocument.activeElement
+      : null;
 
-      if (trigger?.isConnected && focusStayedInOverlay) {
-        trigger.focus({ preventScroll: true });
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
+    ownerWindow.cancelAnimationFrame(restoreFrameRef.current);
+    return () => {
+      const surface = surfaceRef.current;
+      restoreFrameRef.current = ownerWindow.requestAnimationFrame(() => {
+        const activeElement = ownerDocument.activeElement;
+        const focusStayedInOverlay =
+          activeElement === ownerDocument.body ||
+          activeElement === ownerDocument.documentElement ||
+          (activeElement instanceof Node && surface?.contains(activeElement));
+        if (!focusStayedInOverlay) {
+          return;
+        }
+
+        const trigger = triggerRef.current;
+        const target = trigger?.isConnected && trigger.tabIndex >= 0
+          ? trigger
+          : previousFocus?.isConnected && previousFocus.tabIndex >= 0
+            ? previousFocus
+            : null;
+        target?.focus({ preventScroll: true });
+      });
+    };
   }, [open, surfaceRef, triggerRef]);
 }

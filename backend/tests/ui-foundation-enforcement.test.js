@@ -140,7 +140,8 @@ test("interactive overlays delegate portal, focus, dismissal, and layer behavior
   assert.match(toolbar, /anchorRef=\{indicatorMenuTriggerRef\}/);
   assert.match(toolbar, /anchorRef=\{commandRef\}/);
   assert.match(toolbar, /anchorRef=\{drawingFavoritesRef\}/);
-  assert.match(toolbar, /anchorRef=\{settingsAnchorRef\}/);
+  assert.match(toolbar, /anchorRef=\{toolsOpen \? settingsTriggerRef : settingsAnchorRef\}/);
+  assert.match(toolbar, /triggerRef=\{settingsTriggerRef\}/);
   assert.doesNotMatch(toolbar, /document\.addEventListener\((?:"|')pointerdown|closeOnOutsideClick/);
 });
 

@@ -16,6 +16,7 @@ import { ResultsPanel } from "../ResultsPanel";
 import { TradeLog } from "../TradeLog";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
 import type { BacktestSession, Metrics, Playbook, Trade } from "../../lib/api";
+import { useReducedMotionPreference } from "../../lib/motionPreferences";
 import { isRichTextEmpty, normalizeStoredNoteHtml, sanitizeRichTextHtml } from "../../lib/richText";
 import { formatMarketSymbol } from "../../lib/symbols";
 import { tradeStrategyName } from "../../lib/strategy";
@@ -1221,6 +1222,7 @@ export function HeroDemo() {
   const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
   const [autoplayActive, setAutoplayActive] = useState(true);
+  const reducedMotion = useReducedMotionPreference();
   const [selectedReviewTradeId, setSelectedReviewTradeId] = useState<number | null>(
     SCENARIOS.find((item) => item.id === "review")?.featuredTradeId ??
       SCENARIOS.find((item) => item.id === "review")?.trades[0]?.id ??
@@ -1278,6 +1280,10 @@ export function HeroDemo() {
 
     setCurrentBarIndex(nextInitialCursor);
 
+    if (reducedMotion) {
+      return;
+    }
+
     const timer = window.setInterval(() => {
       setCurrentBarIndex((current) => {
         if (current >= scenario.bars.length - 1) {
@@ -1288,7 +1294,7 @@ export function HeroDemo() {
     }, 280);
 
     return () => window.clearInterval(timer);
-  }, [autoplayActive, scenario]);
+  }, [autoplayActive, reducedMotion, scenario]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -1319,31 +1325,33 @@ export function HeroDemo() {
       intersectionObserver.observe(root);
     }
 
-    void loadGsap({ plugins: ["CustomEase", "Flip", "Observer"] })
-      .then(({ plugins }) => {
-        if (cancelled) {
-          return;
-        }
+    if (!reducedMotion) {
+      void loadGsap({ plugins: ["CustomEase", "Flip", "Observer"] })
+        .then(({ plugins }) => {
+          if (cancelled) {
+            return;
+          }
 
-        flipPluginRef.current = plugins.Flip ?? null;
-        observer = plugins.Observer?.create({
-          onDown: () => stepScenario(-1),
-          onLeft: () => stepScenario(1),
-          onRight: () => stepScenario(-1),
-          onUp: () => stepScenario(1),
-          target: scenarioRail,
-          tolerance: 18,
-          type: "touch,pointer",
-        }) ?? null;
-      })
-      .catch(() => undefined);
+          flipPluginRef.current = plugins.Flip ?? null;
+          observer = plugins.Observer?.create({
+            onDown: () => stepScenario(-1),
+            onLeft: () => stepScenario(1),
+            onRight: () => stepScenario(-1),
+            onUp: () => stepScenario(1),
+            target: scenarioRail,
+            tolerance: 18,
+            type: "touch,pointer",
+          }) ?? null;
+        })
+        .catch(() => undefined);
+    }
 
     return () => {
       cancelled = true;
       intersectionObserver?.disconnect();
       observer?.kill();
     };
-  }, []);
+  }, [reducedMotion]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -1352,13 +1360,15 @@ export function HeroDemo() {
     }
 
     const nextScenarioId = selectedScenarioId;
-    if (prefersReducedMotion()) {
+    stageTransitionRef.current?.kill();
+    stageTransitionRef.current = null;
+
+    if (reducedMotion || prefersReducedMotion()) {
       setVisibleScenarioId(nextScenarioId);
       return;
     }
 
     let cancelled = false;
-    stageTransitionRef.current?.kill();
 
     void loadGsap()
       .then(({ gsap }) => {
@@ -1401,7 +1411,7 @@ export function HeroDemo() {
     return () => {
       cancelled = true;
     };
-  }, [selectedScenarioId, visibleScenarioId]);
+  }, [reducedMotion, selectedScenarioId, visibleScenarioId]);
 
   const selectScenario = (nextScenarioId: string) => {
     if (nextScenarioId === selectedScenarioIdRef.current) {
@@ -1409,7 +1419,7 @@ export function HeroDemo() {
     }
 
     const scenarioButtons = scenarioRailRef.current?.querySelectorAll("[data-scenario-pill]");
-    if (scenarioButtons && scenarioButtons.length > 0 && flipPluginRef.current && !prefersReducedMotion()) {
+    if (scenarioButtons && scenarioButtons.length > 0 && flipPluginRef.current && !reducedMotion && !prefersReducedMotion()) {
       pendingFlipStateRef.current = flipPluginRef.current.getState(scenarioButtons);
     }
     setSelectedScenarioId(nextScenarioId);
@@ -1418,7 +1428,7 @@ export function HeroDemo() {
   useEffect(() => {
     const flip = flipPluginRef.current;
     const state = pendingFlipStateRef.current;
-    if (!flip || !state || prefersReducedMotion()) {
+    if (!flip || !state || reducedMotion || prefersReducedMotion()) {
       pendingFlipStateRef.current = null;
       return;
     }
@@ -1433,7 +1443,7 @@ export function HeroDemo() {
     return () => {
       animation.kill();
     };
-  }, [selectedScenarioId]);
+  }, [reducedMotion, selectedScenarioId]);
 
   return (
     <div

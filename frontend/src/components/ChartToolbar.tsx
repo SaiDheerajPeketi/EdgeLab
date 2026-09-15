@@ -436,6 +436,8 @@ export function ChartToolbar({
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
   const indicatorCatalogId = useId();
+  const commandMenuId = useId();
+  const settingsOverlayId = useId();
   const commandRef = useRef<HTMLDivElement | null>(null);
   const commandSurfaceRef = useRef<HTMLDivElement | null>(null);
   const drawingFavoritesRef = useRef<HTMLDivElement | null>(null);
@@ -444,6 +446,7 @@ export function ChartToolbar({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const indicatorMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const settingsAnchorRef = useRef<HTMLDivElement | null>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const settingsWasOpenRef = useRef(false);
   const normalizedCustomTimeframe = normalizeChartTimeframe(customTimeframe);
@@ -687,6 +690,51 @@ export function ChartToolbar({
     commandInputRef.current?.focus();
   }
 
+  function focusCommandResult(position: "first" | "last") {
+    window.requestAnimationFrame(() => {
+      const commands = commandSurfaceRef.current?.querySelectorAll<HTMLButtonElement>(
+        "[data-chart-command-result]:not([disabled])",
+      );
+      commands?.[position === "first" ? 0 : commands.length - 1]?.focus();
+    });
+  }
+
+  function handleCommandInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+    event.preventDefault();
+    if (!commandOpen) {
+      setCommandOpen(true);
+    }
+    focusCommandResult(event.key === "ArrowDown" ? "first" : "last");
+  }
+
+  function handleCommandSurfaceKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    const commands = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      "[data-chart-command-result]:not([disabled])",
+    )];
+    const active = event.target instanceof HTMLElement
+      ? event.target.closest<HTMLButtonElement>("[data-chart-command-result]")
+      : null;
+    const activeIndex = active ? commands.indexOf(active) : -1;
+    if (commands.length === 0 || activeIndex < 0) {
+      return;
+    }
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? commands.length - 1
+        : event.key === "ArrowDown"
+          ? (activeIndex + 1) % commands.length
+          : (activeIndex - 1 + commands.length) % commands.length;
+    commands[nextIndex]?.focus();
+  }
+
   function updateDrawingFavorites(next: FavoriteDrawingTool[]) {
     const sanitized = sanitizeDrawingToolFavorites(next);
     setDrawingFavorites(sanitized);
@@ -768,7 +816,7 @@ export function ChartToolbar({
   }
 
   const settingsPanel = settingsOpen ? (
-    <OverlaySurface anchorRef={settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsAnchorRef} open onDismiss={() => setSettingsOpen(false)} align="right" preferredWidth={860} minWidth={320} estimatedHeight={680} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
+    <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={() => setSettingsOpen(false)} align="right" preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
     <ChartSettingsPanel
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
@@ -909,6 +957,10 @@ export function ChartToolbar({
         >
           <Command size={15} className="text-cyan-200" />
           <input
+            aria-controls={commandMenuId}
+            aria-expanded={commandOpen}
+            aria-haspopup="dialog"
+            aria-label="Search chart commands"
             ref={commandInputRef}
             onChange={(event) => {
               setCommandQuery(event.target.value);
@@ -916,13 +968,14 @@ export function ChartToolbar({
             }}
             onClick={() => setCommandOpen(true)}
             onFocus={() => setCommandOpen(true)}
+            onKeyDown={handleCommandInputKeyDown}
             onPointerDown={() => setCommandOpen(true)}
             placeholder="Search tools, indicators, styles, intervals"
             value={commandQuery}
           />
           <Search size={14} className="text-slate-500" />
           {commandOpen && (
-            <OverlaySurface anchorRef={commandRef} surfaceRef={commandSurfaceRef} triggerRef={commandRef} open onDismiss={() => { setCommandOpen(false); setCommandQuery(""); }} preferredWidth={520} estimatedHeight={440} role="listbox" ariaLabel="Chart command search" className="chart-command-menu z-[var(--layer-popover)]">
+            <OverlaySurface anchorRef={commandRef} surfaceRef={commandSurfaceRef} triggerRef={commandInputRef} open onDismiss={() => { setCommandOpen(false); setCommandQuery(""); }} preferredWidth={520} estimatedHeight={440} id={commandMenuId} onKeyDown={handleCommandSurfaceKeyDown} role="dialog" ariaLabel="Chart command search results" className="chart-command-menu z-[var(--layer-popover)]">
             <CommandMenu
               indicatorInstances={indicatorInstances}
               onChartStyleChange={selectChartStyle}
@@ -1583,11 +1636,15 @@ export function ChartToolbar({
 
         <div ref={settingsAnchorRef} className="relative">
           <button
+            aria-controls={settingsOverlayId}
+            aria-expanded={settingsOpen}
+            aria-haspopup="dialog"
             className="chart-dropdown-trigger"
             onClick={() => {
               setSettingsOpen((value) => !value);
               setIndicatorMenuOpen(false);
             }}
+            ref={settingsTriggerRef}
             type="button"
           >
             <Settings2 size={15} />
@@ -2797,6 +2854,7 @@ function CommandMenu({
         return (
           <button
             className={`chart-command-row ${command.disabled ? "chart-command-row-disabled" : ""}`}
+            data-chart-command-result="true"
             disabled={command.disabled}
             key={command.id}
             onMouseDown={(event) => event.preventDefault()}

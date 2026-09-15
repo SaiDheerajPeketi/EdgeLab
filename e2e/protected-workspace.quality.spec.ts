@@ -203,6 +203,42 @@ test.describe("accessibility and adaptive operation", () => {
     await expect(chart).toBeFocused();
   });
 
+  test("chart workbench overlays expose keyboard navigation and restore focus", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Keyboard overlay behavior is checked once.");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+    const toolsTrigger = page.getByRole("button", { exact: true, name: "Tools" });
+    await toolsTrigger.click();
+
+    const commandInput = page.getByRole("textbox", { name: "Search chart commands" });
+    await commandInput.focus();
+    const commandDialog = page.getByRole("dialog", { name: "Chart command search results" });
+    await expect(commandDialog).toBeVisible();
+    await commandInput.press("ArrowDown");
+    await expect(commandDialog.locator("[data-chart-command-result]").first()).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(commandDialog.locator("[data-chart-command-result]").last()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(commandDialog).toBeHidden();
+    await expect(commandInput).toBeFocused();
+
+    const settingsTrigger = page.locator(".chart-studio-toolbar").getByRole("button", { exact: true, name: "Settings" });
+    await settingsTrigger.click();
+    const settingsDialog = page.getByRole("dialog", { name: "Chart settings" });
+    await expect(settingsDialog).toBeVisible();
+    await settingsDialog.getByRole("button", { name: "Close chart settings" }).click();
+    await expect(settingsTrigger).toBeFocused();
+
+    await settingsTrigger.click();
+    await page.keyboard.press("Escape");
+    await expect(settingsDialog).toBeHidden();
+    await expect(settingsTrigger).toBeFocused();
+
+    await settingsTrigger.click();
+    await toolsTrigger.click();
+    await expect(settingsDialog).toBeHidden();
+    await expect(toolsTrigger).toBeFocused();
+  });
+
   test("settings immediate-save feedback offers a working undo", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Settings interaction is checked once.");
     await gotoStable(page, "/app/settings/global");
