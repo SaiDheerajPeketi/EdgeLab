@@ -77,7 +77,7 @@ export async function installDeterminism(
         const resolved = String(url);
         const parsed = new URL(resolved, window.location.href);
         const isDatasetStream = parsed.pathname.endsWith("/api/datasets/stream");
-        const isBinanceStream = parsed.hostname.endsWith("binance.com");
+        const isBinanceStream = parsed.hostname.endsWith("binance.com") || parsed.hostname.endsWith("binance.vision");
         if (!isDatasetStream && !isBinanceStream) {
           return new NativeWebSocket(resolved, protocols) as unknown as DeterministicFixtureWebSocket;
         }
@@ -209,11 +209,13 @@ export async function installDeterminism(
     if (endpoint === "/quant/models") return fulfillJson(route, { models: [] });
     return fulfillJson(route, {});
   });
-  await page.route("https://api.binance.com/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/ticker/24hr")) return fulfillJson(route, { lastPrice: "68124.50", priceChangePercent: "1.82" });
-    return fulfillJson(route, seedKlines);
-  });
+  for (const marketHost of ["api.binance.com", "data-api.binance.vision"]) {
+    await page.route(`https://${marketHost}/**`, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/ticker/24hr")) return fulfillJson(route, { lastPrice: "68124.50", priceChangePercent: "1.82" });
+      return fulfillJson(route, seedKlines);
+    });
+  }
   await page.route("**/api/auth/google/exchange", async (route) => {
     await route.fulfill({ body: JSON.stringify({ program, session: betaSessionResponse }), contentType: "application/json", status: 200 });
   });
