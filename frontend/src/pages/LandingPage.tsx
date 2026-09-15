@@ -1,13 +1,13 @@
 import { ArrowRight, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { HeroDemo } from "../components/marketing/HeroDemo";
 import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
+import { TrustEvidence } from "../components/marketing/TrustEvidence";
 import {
   FaqAccordion,
   PricingSection,
   pricingFaqItems,
-  type PricingFrequency,
 } from "../components/marketing/PricingSection";
 import {
   buildMarketingNavItems,
@@ -15,6 +15,7 @@ import {
 } from "../components/marketing/MarketingShell";
 import { deploymentMode, isBetaMode } from "../lib/deploymentMode";
 import { loadGsap, prefersReducedMotion } from "../lib/gsap";
+import { buildMarketingCta } from "../lib/marketingCta";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 type WorkflowStep = {
@@ -195,7 +196,7 @@ function SectionHeading({
 }
 
 export function LandingPage() {
-  const [frequency, setFrequency] = useState<PricingFrequency>("monthly");
+  const location = useLocation();
   const pageRef = useRef<HTMLDivElement | null>(null);
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
@@ -206,10 +207,7 @@ export function LandingPage() {
       : seatsRemaining > 0
         ? `${seatsRemaining} seats open`
         : "Waitlist open";
-  const primaryCtaLabel = seatsRemaining != null && seatsRemaining <= 0 ? "Join waitlist" : "Join beta";
-  const primaryCtaHref = seatsRemaining != null && seatsRemaining <= 0
-    ? "/auth/signin?waitlist=1"
-    : "/auth/signin";
+  const primaryCta = buildMarketingCta({ search: location.search, seatsRemaining });
 
   useEffect(() => {
     const page = pageRef.current;
@@ -310,9 +308,9 @@ export function LandingPage() {
                 >
                   <Link
                     className="inline-flex h-12 items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
-                    to={primaryCtaHref}
+                    to={primaryCta.href}
                   >
-                    {primaryCtaLabel}
+                    {primaryCta.label}
                     <ArrowRight aria-hidden="true" size={16} />
                   </Link>
                   <a
@@ -409,6 +407,8 @@ export function LandingPage() {
 
         <CapabilityStatusRail />
 
+        <TrustEvidence />
+
         <section
           className="border-y border-edgelab-border bg-edgelab-surface px-3 py-24 sm:px-6 sm:py-32 lg:px-8"
           id="pricing"
@@ -439,9 +439,7 @@ export function LandingPage() {
 
             <div className="mt-14" data-marketing-reveal="pricing-cards" data-reveal-delay="0.08">
               <PricingSection
-                frequency={frequency}
                 mode={deploymentMode}
-                onFrequencyChange={setFrequency}
                 showComparison
               />
             </div>
@@ -472,9 +470,9 @@ export function LandingPage() {
             </div>
             <Link
               className="inline-flex h-12 w-fit items-center gap-2 rounded-el-md bg-edgelab-accent px-5 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
-              to={primaryCtaHref}
+              to={primaryCta.href}
             >
-              {primaryCtaLabel}
+              {primaryCta.label}
               <ArrowRight aria-hidden="true" size={16} />
             </Link>
           </div>

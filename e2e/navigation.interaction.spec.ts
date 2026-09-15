@@ -22,6 +22,13 @@ test("marketing anchors and disclosure controls remain operable", async ({ page 
   await question.click();
   await expect(question).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("region", { name: "What happens during beta?" })).toBeVisible();
+
+  await gotoStable(page, "/?utm_source=release&utm_campaign=trust-launch&ref=wave4");
+  await page.getByRole("link", { name: "Join beta" }).first().click();
+  await expect(page).toHaveURL(/\/auth\/signin\?/);
+  expect(new URL(page.url()).searchParams.get("from")).toBe(
+    "/app?utm_source=release&utm_campaign=trust-launch&ref=wave4",
+  );
 });
 
 test("mobile navigation owns focus and Escape restores the trigger", async ({ page }, testInfo) => {

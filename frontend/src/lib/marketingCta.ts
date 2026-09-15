@@ -1,0 +1,53 @@
+import { buildAuthSignInHref } from "./authJourney";
+
+const ATTRIBUTION_KEYS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "ref",
+] as const;
+const INVALID_ATTRIBUTION_VALUE = /[\u0000-\u001f\u007f]/;
+const MAX_ATTRIBUTION_VALUE_LENGTH = 160;
+
+type MarketingCtaOptions = {
+  forceWaitlist?: boolean;
+  search: string;
+  seatsRemaining: number | null | undefined;
+};
+
+export function buildMarketingCta({
+  forceWaitlist = false,
+  search,
+  seatsRemaining,
+}: MarketingCtaOptions) {
+  const waitlist = forceWaitlist || (seatsRemaining != null && seatsRemaining <= 0);
+  const attribution = marketingAttributionFromSearch(search);
+  const destination = attribution.size > 0 ? `/app?${attribution.toString()}` : "/app";
+
+  return {
+    href: buildAuthSignInHref({ fromPath: destination, waitlist }),
+    label: waitlist ? "Join waitlist" : "Join beta",
+    waitlist,
+  } as const;
+}
+
+export function marketingAttributionFromSearch(search: string) {
+  const source = new URLSearchParams(search);
+  const attribution = new URLSearchParams();
+
+  ATTRIBUTION_KEYS.forEach((key) => {
+    const value = source.get(key)?.trim();
+    if (
+      !value ||
+      value.length > MAX_ATTRIBUTION_VALUE_LENGTH ||
+      INVALID_ATTRIBUTION_VALUE.test(value)
+    ) {
+      return;
+    }
+    attribution.set(key, value);
+  });
+
+  return attribution;
+}

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { buildMarketingNavItems, MarketingShell } from "../components/marketing/MarketingShell";
 
 function LegalSection({
@@ -18,6 +19,7 @@ function LegalSection({
 
 function LegalPageFrame({
   eyebrow,
+  kind,
   title,
   description,
   children,
@@ -25,6 +27,7 @@ function LegalPageFrame({
   children: ReactNode;
   description: string;
   eyebrow: string;
+  kind: "privacy" | "terms";
   title: string;
 }) {
   return (
@@ -35,6 +38,25 @@ function LegalPageFrame({
     >
       <section className="px-4 pb-24 pt-14 sm:px-6 lg:px-8 lg:pt-20">
         <div className="mx-auto max-w-5xl">
+          <nav aria-label="Legal documents" className="mb-10 flex gap-2">
+            {[
+              { href: "/privacy", label: "Privacy", value: "privacy" },
+              { href: "/terms", label: "Terms", value: "terms" },
+            ].map((item) => (
+              <Link
+                aria-current={kind === item.value ? "page" : undefined}
+                className={`inline-flex min-h-11 items-center rounded-el-md border px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 ${
+                  kind === item.value
+                    ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100"
+                    : "border-edgelab-border bg-edgelab-surface text-edgelab-text-secondary hover:border-cyan-300/30 hover:text-edgelab-text-primary"
+                }`}
+                key={item.href}
+                to={item.href}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
           <div className="grid gap-8 border-b border-edgelab-border pb-12 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
             <div className="max-w-3xl">
               <h1 className="text-balance text-[clamp(3rem,7vw,5.75rem)] font-medium leading-[0.92] tracking-[-0.04em] text-edgelab-text-primary">{title}</h1>
@@ -57,23 +79,24 @@ export function PrivacyPage() {
     <LegalPageFrame
       description="Current beta privacy stance for sign-in, product telemetry, exports, and temporary workspace storage."
       eyebrow="Legal"
+      kind="privacy"
       title="Privacy Policy"
     >
       <LegalSection
-        title="Identity data"
-        body="EdgeLab stores Google account basics needed for beta access, including name, email, provider, sign-in timestamps, and beta enrollment state. This data is used to authenticate users, manage beta seats, and contact cohort members about beta access."
+        title="Sign-in and identity"
+        body="Google handles Google-account credentials. EdgeLab receives and stores the account basics needed for beta access, including name, email, provider, sign-in timestamps, and beta enrollment state. EdgeLab uses that information to authenticate users, manage beta seats, and contact cohort members about access."
       />
       <LegalSection
         title="Workspace data"
         body="Beta workspace data may include replay sessions, notes, trades, analytics context, playbooks, and app storage records. During beta this data is considered test material, not permanent archival storage."
       />
       <LegalSection
-        title="Retention"
-        body="Beta data may be pruned after beta ends. Export anything important before beta closes. Operational logs and deployment records may be retained longer for security and support reasons."
+        title="Export and retention"
+        body="Authenticated users can export EdgeLab application data as JSON. Large market-data files are not included in that bundle. Beta data may be pruned after beta ends, so export anything important before beta closes. Operational logs may be retained longer for security and support."
       />
       <LegalSection
-        title="Infrastructure"
-        body="Application runs through Docker-based deployment. Runtime data persists in Docker-backed storage for continuity across rebuilds, but that persistence does not override beta pruning policy."
+        title="Access boundary"
+        body="Workspace requests require a valid EdgeLab session, and saved application records are scoped to the authenticated account. A signed-in session should be treated as access to that account's beta workspace and should not be shared."
       />
     </LegalPageFrame>
   );
@@ -84,6 +107,7 @@ export function TermsPage() {
     <LegalPageFrame
       description="Current beta participation terms while EdgeLab hardens auth, workflow, and deployment."
       eyebrow="Legal"
+      kind="terms"
       title="Terms of Use"
     >
       <LegalSection
@@ -92,7 +116,7 @@ export function TermsPage() {
       />
       <LegalSection
         title="No financial advice"
-        body="EdgeLab provides research and journaling software only. It does not provide investment, trading, tax, or legal advice."
+        body="EdgeLab provides simulated replay, research, and journaling software only. It does not place live trades or provide investment, trading, tax, or legal advice. You remain responsible for every trading and risk decision."
       />
       <LegalSection
         title="Account access"
@@ -100,7 +124,11 @@ export function TermsPage() {
       />
       <LegalSection
         title="Data expectations"
-        body="Do not treat beta workspace storage as permanent recordkeeping. Users are responsible for exporting or retaining any information they consider important before beta ends."
+        body="Do not treat beta workspace storage as permanent recordkeeping. Users are responsible for exporting or separately retaining information they consider important before beta ends. Large market-data files are not part of the application-data export."
+      />
+      <LegalSection
+        title="Providers and planned features"
+        body="The current beta centers on imported datasets. Live broker synchronization, Quant/AI, footprint, TPO, production pricing, and related provider entitlements are not promised by these terms and remain unavailable or unannounced until EdgeLab publishes otherwise."
       />
     </LegalPageFrame>
   );

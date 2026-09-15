@@ -9,7 +9,7 @@ import {
 
 const publicSurfaces = [
   { fullPage: true, heading: "Replay the market. Preserve the decision.", level: 1, name: "landing", path: "/" },
-  { fullPage: false, heading: "Core workflow. Limited beta.", level: 2, name: "pricing", path: "/pricing" },
+  { fullPage: true, heading: "Current access, without fine print.", level: 1, name: "pricing", path: "/pricing" },
   { fullPage: true, heading: "Privacy Policy", level: 1, name: "privacy", path: "/privacy" },
   { fullPage: true, heading: "Terms of Use", level: 1, name: "terms", path: "/terms" },
   { fullPage: true, heading: "Continue to EdgeLab.", level: 1, name: "signin", path: "/auth/signin" },
@@ -33,13 +33,6 @@ test.describe("public and authentication visual baselines", () => {
     test(`${surface.name} surface`, async ({ page }) => {
       await gotoStable(page, surface.path);
       await expect(page.getByRole("heading", { level: surface.level, name: surface.heading })).toBeVisible();
-      if (surface.name === "pricing") {
-        await page.locator("#pricing").evaluate(async (element) => {
-          const top = window.scrollY + element.getBoundingClientRect().top;
-          window.scrollTo(0, Math.round(top));
-          await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        });
-      }
       await expectStableScreenshot(page, surface.name, { fullPage: surface.fullPage });
     });
   }

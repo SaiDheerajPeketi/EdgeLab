@@ -311,9 +311,9 @@ Use two expression levels inside one system:
 - [x] `UIR-31 · P1 · Partial` — Vary section composition, density, and rhythm; use full-width demonstrations, annotated workflows, comparison moments, and quiet breathing sections rather than an uninterrupted grid of similarly styled cards.
 - [x] `UIR-32 · P1 · Missing` — Showcase the differentiating backlog capabilities—integrated chart Journal, 4×4 chart grid, circular chart toolbox, footprint/TPO, account comparison, and Quant—using accurate “available,” “beta,” or “planned” labels so the landing page never markets unshipped work as live.
 - [x] `UIR-33 · P1 · Partial` — Rebuild public-page information architecture across Product, How it works, Pricing, FAQ, sign-in, legal, and future docs so anchor navigation, routes, page titles, and footer links behave consistently.
-- [ ] `UIR-34 · P1 · Partial` — Unify CTA hierarchy and state across header, hero, pricing, final close, beta capacity, and waitlist flows; preserve campaign/query context through sign-in and give every submission a clear success/error state.
-- [ ] `UIR-35 · P1 · Partial` — Redesign pricing and FAQ as part of the same world, with clear plan comparison, entitlements, billing frequency, edge cases, and honest data-provider/AI limitations rather than generic marketing chrome.
-- [ ] `UIR-36 · P1 · Missing` — Add trust and proof modules only from verified material—real workflow evidence, security/privacy facts, supported providers, performance methodology, or genuine user evidence—and provide intentional placeholders rather than fabricated claims where proof is unavailable.
+- [x] `UIR-34 · P1 · Partial` — Unify CTA hierarchy and state across header, hero, pricing, final close, beta capacity, and waitlist flows; preserve campaign/query context through sign-in and give every submission a clear success/error state.
+- [x] `UIR-35 · P1 · Partial` — Redesign pricing and FAQ as part of the same world, with clear plan comparison, entitlements, billing frequency, edge cases, and honest data-provider/AI limitations rather than generic marketing chrome.
+- [x] `UIR-36 · P1 · Missing` — Add trust and proof modules only from verified material—real workflow evidence, security/privacy facts, supported providers, performance methodology, or genuine user evidence—and provide intentional placeholders rather than fabricated claims where proof is unavailable.
 - [x] `UIR-37 · P1 · Partial` — Rebuild marketing header, mobile menu, and footer for responsive continuity, current-section indication, keyboard operation, safe sticky behavior, and smooth handoff into authentication and the app.
 - [x] `UIR-38 · P1 · Partial` — Meet public-page performance, accessibility, metadata, and search/social-preview requirements: stable layout, optimized media/fonts, semantic headings, visible content without JavaScript motion, reduced motion, descriptive titles, and share metadata.
 
@@ -348,7 +348,7 @@ Use two expression levels inside one system:
 - [ ] `UIR-62 · P1 · Partial` — Standardize dense tables and lists with sticky headers where useful, numeric alignment, sort/filter state, row selection, bulk actions, expandable detail, keyboard traversal, responsive fallback, and virtualization for large datasets.
 - [ ] `UIR-63 · P1 · Partial` — Design first-class empty, loading, skeleton, partial-data, offline, stale, permission-denied, unsupported, error, retrying, and success states for every major surface; each state must explain what happened and the next safe action.
 - [ ] `UIR-64 · P1 · Partial` — Standardize dialogs, sheets, menus, popovers, tooltips, banners, and toasts with clear hierarchy, proportional emphasis, focus return, safe dismissal, action timing, and no critical information that vanishes before it can be read.
-- [ ] `UIR-65 · P1 · Partial` — Bring Pricing, Legal, not-found, maintenance, and other secondary public/system pages into the same visual world, typography, navigation, responsive grid, and accessibility standard instead of leaving legacy islands.
+- [x] `UIR-65 · P1 · Partial` — Bring Pricing, Legal, not-found, maintenance, and other secondary public/system pages into the same visual world, typography, navigation, responsive grid, and accessibility standard instead of leaving legacy islands.
 
 #### 14.6 Motion, feedback, and “flowy” behavior
 

@@ -8,10 +8,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
-import { deploymentMode, isBetaMode } from "../../lib/deploymentMode";
+import { isBetaMode } from "../../lib/deploymentMode";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
+import { buildMarketingCta } from "../../lib/marketingCta";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
 type NavItem = {
@@ -32,6 +33,7 @@ export function buildMarketingNavItems(mode: "home" | "inner" = "home"): NavItem
   return [
     { href: `${prefix}#product`, label: "Product" },
     { href: `${prefix}#how-it-works`, label: "How it works" },
+    { href: `${prefix}#evidence`, label: "Evidence" },
     { href: `${prefix}#pricing`, label: "Pricing" },
     { href: `${prefix}#faq`, label: "FAQ" },
   ];
@@ -115,6 +117,7 @@ export function MarketingShell({
   pageDescription,
   pageTitle,
 }: MarketingShellProps) {
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeHref, setActiveHref] = useState<string | null>(null);
@@ -124,12 +127,10 @@ export function MarketingShell({
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const { loading, program } = useBetaProgramStatus();
   const seatsRemaining = program.seats_remaining;
-  const primaryCtaLabel =
-    !loading && seatsRemaining != null && seatsRemaining <= 0 ? "Join Waitlist" : "Join Beta";
-  const primaryCtaHref =
-    !loading && seatsRemaining != null && seatsRemaining <= 0
-      ? "/auth/signin?waitlist=1"
-      : "/auth/signin";
+  const primaryCta = buildMarketingCta({
+    search: location.search,
+    seatsRemaining: loading ? null : seatsRemaining,
+  });
 
   const closeMobileMenu = useCallback((restoreFocus = false) => {
     setMenuOpen(false);
@@ -550,9 +551,9 @@ export function MarketingShell({
             <div className="hidden items-center gap-3 md:flex" data-shell-motion="cta">
               <Link
                 className="inline-flex min-h-11 items-center gap-2 rounded-el-md bg-edgelab-accent px-4 py-2 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none"
-                to={primaryCtaHref}
+                to={primaryCta.href}
               >
-                {primaryCtaLabel}
+                {primaryCta.label}
                 <ArrowRight aria-hidden="true" size={15} />
               </Link>
             </div>
@@ -596,9 +597,9 @@ export function MarketingShell({
                 <Link
                   className="inline-flex min-h-11 items-center justify-between rounded-el-md bg-edgelab-accent px-4 py-3 text-sm font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
                   onClick={() => closeMobileMenu(false)}
-                  to={primaryCtaHref}
+                  to={primaryCta.href}
                 >
-                  {primaryCtaLabel}
+                  {primaryCta.label}
                   <ArrowRight aria-hidden="true" size={15} />
                 </Link>
               </div>
@@ -636,10 +637,10 @@ export function MarketingShell({
                 ))}
               </div>
               <div className="flex items-center gap-4 sm:justify-end">
-                <Link className="transition hover:text-cyan-100" to="/privacy">
+                <Link className="transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" to="/privacy">
                   Privacy
                 </Link>
-                <Link className="transition hover:text-cyan-100" to="/terms">
+                <Link className="transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" to="/terms">
                   Terms
                 </Link>
               </div>

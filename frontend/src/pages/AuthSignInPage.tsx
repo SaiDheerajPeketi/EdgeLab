@@ -96,6 +96,18 @@ export function AuthSignInPage() {
                 {waitlistCount == null ? "Checking…" : `${waitlistCount} queued`}
               </dd>
             </div>
+            <div className="flex items-center justify-between gap-4 border-b border-edgelab-border py-4">
+              <dt className="text-sm text-edgelab-text-secondary">Sign-in</dt>
+              <dd className="text-right text-sm font-medium text-edgelab-text-primary">
+                Google OAuth
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 border-b border-edgelab-border py-4">
+              <dt className="text-sm text-edgelab-text-secondary">Billing</dt>
+              <dd className="text-right text-sm font-medium text-edgelab-text-primary">
+                No card during beta
+              </dd>
+            </div>
             <div className="flex items-center justify-between gap-4 py-4">
               <dt className="text-sm text-edgelab-text-secondary">Environment</dt>
               <dd className="text-right text-sm font-medium text-edgelab-text-primary">
@@ -148,6 +160,12 @@ export function AuthSignInPage() {
             Google sign-in is unavailable right now. Try again shortly.
           </p>
         ) : null}
+
+        <p className="mt-4 max-w-md text-xs leading-5 text-edgelab-text-secondary">
+          After Google confirms your account, EdgeLab returns you to the approved page you
+          requested. Campaign context included by an EdgeLab marketing link stays in that return
+          path.
+        </p>
 
         {config.dev_auth_bypass_enabled === true ? (
           <button

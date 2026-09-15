@@ -1,25 +1,13 @@
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight, Check, ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { type DeploymentMode, isBetaMode } from "../../lib/deploymentMode";
+import { buildMarketingCta } from "../../lib/marketingCta";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
 
-export type PricingFrequency = "monthly" | "annual";
-
 type PricingSectionProps = {
-  frequency?: PricingFrequency;
   mode: DeploymentMode;
-  onFrequencyChange?: (next: PricingFrequency) => void;
   showComparison?: boolean;
-};
-
-type PricingPlan = {
-  cta: string;
-  description: string;
-  features: string[];
-  highlight?: string;
-  monthlyPrice: number;
-  name: string;
 };
 
 type FaqItem = {
@@ -27,87 +15,53 @@ type FaqItem = {
   question: string;
 };
 
-const PRODUCTION_PLANS: PricingPlan[] = [
-  {
-    cta: "Get Started",
-    description: "Solo traders validating first repeatable process.",
-    features: ["1 account", "3 sessions", "100 trades", "Core stats"],
-    monthlyPrice: 0,
-    name: "Starter",
-  },
-  {
-    cta: "Start Pro",
-    description: "Unlimited replay, analytics, and review flow.",
-    features: ["Unlimited accounts", "Unlimited sessions", "Unlimited trades", "All analytics"],
-    highlight: "Most Popular",
-    monthlyPrice: 29,
-    name: "Pro",
-  },
-  {
-    cta: "Contact Us",
-    description: "Desk mode with API access, team seats, and priority support.",
-    features: ["Everything in Pro", "Priority support", "Team access (3)", "API access"],
-    monthlyPrice: 59,
-    name: "Trader+",
-  },
-];
+const INCLUDED_BETA_WORKFLOW = [
+  "Manual bar replay and simulated order management",
+  "Journal records, reports, and playbook review",
+  "Backtest CSV import with preview and row reporting",
+  "Authenticated JSON export for EdgeLab app data",
+] as const;
 
-const COMPARISON_ROWS = [
-  { feature: "Replay sessions", starter: "3", pro: "Unlimited", traderPlus: "Unlimited" },
-  { feature: "Trade journal", starter: "Basic", pro: "Advanced", traderPlus: "Advanced" },
-  { feature: "Analytics", starter: "Core", pro: "Full suite", traderPlus: "Full suite" },
-  { feature: "Strategy library", starter: "1", pro: "Unlimited", traderPlus: "Unlimited" },
-  { feature: "API access", starter: "—", pro: "—", traderPlus: "Included" },
-];
+const ACCESS_COMPARISON = [
+  { area: "Price", beta: "Free for approved beta users", production: "Not published" },
+  { area: "Billing frequency", beta: "No billing or credit card", production: "Monthly and annual options not confirmed" },
+  { area: "Replay and review", beta: "Current replay, Journal, reports, and playbooks", production: "Packaging and limits not confirmed" },
+  { area: "Market data", beta: "Imported datasets", production: "Provider entitlements not announced" },
+  { area: "Broker sync and AI", beta: "Not included in the current beta", production: "No launch commitment published" },
+] as const;
 
 export const pricingFaqItems: FaqItem[] = [
   {
     question: "What happens during beta?",
     answer:
-      "Beta users get full product access while EdgeLab collects feedback on replay, journaling, analytics, and review flow.",
+      "Approved users can use the capabilities present in the current beta build while EdgeLab validates replay, journaling, analytics, and review. Planned features are not included simply because they appear on the roadmap.",
   },
   {
     question: "Can I bring my own CSV data?",
     answer:
-      "Yes. EdgeLab supports dataset-root imports plus instrument and timeframe metadata, so beta users can test on their own data.",
+      "Yes. EdgeLab supports imported datasets with instrument and timeframe metadata, plus a separate backtest trade importer with preview, column mapping, and skipped-row reporting.",
   },
   {
     question: "Do I need a credit card?",
     answer:
-      "No card is required during private beta. Production billing and trial details will be confirmed before launch.",
+      "No. The private beta is free and does not collect a card. Production prices, trials, billing frequency, and renewal terms will be published before any paid plan is offered.",
   },
   {
     question: "Will beta accounts keep history after launch?",
     answer:
-      "No guarantee. Beta data is temporary test data and may be pruned after beta ends, so export anything critical.",
+      "There is no retention guarantee for beta data. Treat it as test material and use the authenticated JSON export for anything important; large market-data files are not included in that bundle.",
   },
   {
     question: "Does EdgeLab connect to my broker or data provider?",
     answer:
-      "The current beta centers on imported datasets. Broker synchronization and broader provider connections remain roadmap work and are not marketed as live integrations.",
+      "The current beta centers on imported datasets. Live broker synchronization and broader provider connections are not represented as available integrations.",
   },
   {
     question: "Are Quant, footprint, and TPO available now?",
     answer:
-      "Not yet. Quant, footprint, and TPO are planned capabilities. Footprint and auction views require qualified bid/ask market data before they can ship responsibly.",
+      "No. Quant/AI, footprint, and TPO remain planned work. Footprint and auction views also require qualified bid/ask market data before they can be offered responsibly.",
   },
 ];
-
-function priceForFrequency(monthlyPrice: number, frequency: PricingFrequency) {
-  if (frequency === "monthly") {
-    return monthlyPrice;
-  }
-
-  return Math.round(monthlyPrice * 12 * 0.7);
-}
-
-function formatCadence(price: number, frequency: PricingFrequency) {
-  if (price === 0) {
-    return "/mo";
-  }
-
-  return frequency === "monthly" ? "/mo" : "/yr";
-}
 
 export function FaqAccordion({ items }: { items: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState(-1);
@@ -160,11 +114,10 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
 }
 
 export function PricingSection({
-  frequency = "monthly",
   mode,
-  onFrequencyChange,
   showComparison = true,
 }: PricingSectionProps) {
+  const location = useLocation();
   const { loading, program } = useBetaProgramStatus();
 
   if (isBetaMode(mode)) {
@@ -173,14 +126,14 @@ export function PricingSection({
     const waitlistCount = program.waitlist_count;
     const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
     const capacityKnown = !loading && seatsRemaining != null;
-    const betaCtaLabel = capacityKnown && seatsRemaining <= 0 ? "Join waitlist" : "Join beta";
-    const betaCtaHref = capacityKnown && seatsRemaining <= 0
-      ? "/auth/signin?waitlist=1"
-      : "/auth/signin";
+    const betaCta = buildMarketingCta({
+      search: location.search,
+      seatsRemaining: capacityKnown ? seatsRemaining : null,
+    });
 
     return (
-      <div className="grid gap-6">
-        <div className="rounded-[32px] border border-white/10 bg-[#061018] p-6 shadow-card sm:p-7">
+      <div className="grid gap-10">
+        <div className="rounded-el-xl border border-white/10 bg-[#061018] p-6 shadow-card sm:p-7">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/60">
@@ -190,21 +143,17 @@ export function PricingSection({
                 Test the core workflow free.
               </div>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-                Replay, Journal, reports, and playbooks remain open to approved users while
-                EdgeLab validates the product. Beta data is temporary test data.
+                Approved users can use the verified beta workflow without billing. Future plans
+                are not inferred from roadmap features, and beta data remains temporary.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {[
-                  "Unlimited sessions and trades",
-                  "Full analytics and reports",
-                  "Strategy and playbook tracking",
-                  "CSV import and persistent storage",
-                ].map((feature) => (
+                {INCLUDED_BETA_WORKFLOW.map((feature) => (
                   <div
                     key={feature}
-                    className="rounded-[20px] border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200"
+                    className="flex items-start gap-2 border-t border-white/10 px-1 py-3 text-sm leading-6 text-slate-200"
                   >
+                    <Check aria-hidden="true" className="mt-1 shrink-0 text-cyan-200" size={15} />
                     {feature}
                   </div>
                 ))}
@@ -212,14 +161,14 @@ export function PricingSection({
 
               <Link
                 className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 transition-colors hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
-                to={betaCtaHref}
+                to={betaCta.href}
               >
-                {betaCtaLabel}
+                {betaCta.label}
                 <ArrowRight aria-hidden="true" size={16} />
               </Link>
             </div>
 
-            <div className="rounded-[26px] border border-white/10 bg-black/20 p-5">
+            <div className="rounded-el-lg border border-white/10 bg-black/20 p-5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Access
               </div>
@@ -228,10 +177,17 @@ export function PricingSection({
               </div>
               <div className="mt-1 text-sm text-slate-400">seats open</div>
 
-              <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
+              <div
+                aria-label="Beta seat capacity"
+                aria-valuemax={program.seats_total}
+                aria-valuemin={0}
+                aria-valuenow={capacityKnown ? seatsTaken : undefined}
+                className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"
+                role="progressbar"
+              >
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-amber-300"
-                  style={{ width: `${Math.max(fillRatio * 100, 10)}%` }}
+                  style={{ width: `${capacityKnown ? fillRatio * 100 : 0}%` }}
                 />
               </div>
 
@@ -242,7 +198,7 @@ export function PricingSection({
               </div>
 
               <div className="mt-5 grid gap-3">
-                <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div className="rounded-el-lg border border-white/10 bg-white/[0.03] px-4 py-3">
                   <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                     Waitlist
                   </div>
@@ -250,7 +206,7 @@ export function PricingSection({
                     {waitlistCount == null ? "Syncing" : `${waitlistCount} queued`}
                   </div>
                 </div>
-                <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div className="rounded-el-lg border border-white/10 bg-white/[0.03] px-4 py-3">
                   <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                     Data
                   </div>
@@ -262,112 +218,94 @@ export function PricingSection({
             </div>
           </div>
         </div>
+        {showComparison ? <AccessComparison /> : null}
       </div>
     );
   }
 
+  const launchCta = buildMarketingCta({
+    forceWaitlist: true,
+    search: location.search,
+    seatsRemaining: null,
+  });
+
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-[#071018] p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm text-slate-400">Billing cadence</div>
-          <div className="mt-1 text-lg font-semibold tracking-[-0.02em] text-white">
-            Save 30% with annual billing
-          </div>
-        </div>
-        <div className="inline-flex rounded-full border border-white/10 bg-black/25 p-1 text-sm">
-          {(["monthly", "annual"] as const).map((value) => (
-            <button
-              key={value}
-              className={`rounded-full px-4 py-2 transition duration-200 ease-out ${
-                frequency === value
-                  ? "bg-cyan-300 text-ink-950"
-                  : "text-slate-300 hover:text-white"
-              }`}
-              onClick={() => onFrequencyChange?.(value)}
-              type="button"
-            >
-              {value === "monthly" ? "Monthly" : "Annual"}
-            </button>
-          ))}
-        </div>
+    <div className="grid gap-10">
+      <div className="grid border-y border-edgelab-border lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
+        <section className="py-8 lg:pr-12">
+          <h3 className="max-w-2xl text-3xl font-medium leading-tight tracking-[-0.03em] text-edgelab-text-primary sm:text-4xl">
+            Launch pricing is not published yet.
+          </h3>
+          <p className="mt-5 max-w-2xl text-sm leading-7 text-edgelab-text-secondary sm:text-base">
+            EdgeLab has not opened paid plans. Prices, trials, renewal terms, limits, and
+            provider entitlements will be published together before checkout exists.
+          </p>
+          <Link
+            className="mt-8 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none sm:w-auto"
+            to={launchCta.href}
+          >
+            {launchCta.label}
+            <ArrowRight aria-hidden="true" size={16} />
+          </Link>
+        </section>
+        <aside className="border-t border-edgelab-border py-8 lg:border-l lg:border-t-0 lg:pl-10">
+          <h3 className="text-lg font-medium text-edgelab-text-primary">Billing boundary</h3>
+          <dl className="mt-5 border-y border-edgelab-border text-sm">
+            <div className="flex justify-between gap-6 border-b border-edgelab-border py-4">
+              <dt className="text-edgelab-text-secondary">Price</dt>
+              <dd className="text-right font-medium text-edgelab-text-primary">Not published</dd>
+            </div>
+            <div className="flex justify-between gap-6 border-b border-edgelab-border py-4">
+              <dt className="text-edgelab-text-secondary">Cadence</dt>
+              <dd className="text-right font-medium text-edgelab-text-primary">Not confirmed</dd>
+            </div>
+            <div className="flex justify-between gap-6 py-4">
+              <dt className="text-edgelab-text-secondary">Card required</dt>
+              <dd className="text-right font-medium text-edgelab-text-primary">No</dd>
+            </div>
+          </dl>
+        </aside>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        {PRODUCTION_PLANS.map((plan) => {
-          const price = priceForFrequency(plan.monthlyPrice, frequency);
+      {showComparison ? <AccessComparison /> : null}
+    </div>
+  );
+}
 
-          return (
-            <div
-              key={plan.name}
-              className={`relative overflow-hidden rounded-[30px] border p-6 shadow-panel ${
-                plan.highlight
-                  ? "border-cyan-300/25 bg-[linear-gradient(160deg,rgba(50,211,238,0.12),rgba(255,255,255,0.03),rgba(245,158,11,0.08))]"
-                  : "border-white/10 bg-[#071018]"
-              }`}
-            >
-              {plan.highlight ? (
-                <div className="absolute right-4 top-4 rounded-full border border-cyan-300/25 bg-cyan-300/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-50">
-                  {plan.highlight}
-                </div>
-              ) : null}
-
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                {plan.name}
-              </div>
-              <div className="mt-4 flex items-end gap-2">
-                <div className="text-[3rem] font-semibold tracking-[-0.07em] text-white">
-                  ${price}
-                </div>
-                <div className="pb-2 text-sm text-slate-400">{formatCadence(price, frequency)}</div>
-              </div>
-              <p className="mt-4 text-sm leading-7 text-slate-300">{plan.description}</p>
-              <div className="mt-6 grid gap-3">
-                {plan.features.map((feature) => (
-                  <div
-                    key={feature}
-                    className="rounded-[18px] border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200"
-                  >
-                    {feature}
-                  </div>
-                ))}
-              </div>
-              <button
-                className={`mt-6 inline-flex w-full items-center justify-center rounded-full px-4 py-3 text-sm font-semibold transition duration-200 ease-out ${
-                  plan.highlight
-                    ? "bg-cyan-300 text-ink-950 hover:-translate-y-0.5"
-                    : "border border-white/10 bg-white/[0.04] text-slate-100 hover:border-cyan-300/30 hover:text-cyan-100"
-                }`}
-                type="button"
-              >
-                {plan.cta}
-              </button>
-            </div>
-          );
-        })}
+function AccessComparison() {
+  return (
+    <div>
+      <h3 className="text-2xl font-medium tracking-[-0.025em] text-edgelab-text-primary">
+        Access terms, side by side
+      </h3>
+      <p className="mt-3 max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
+        Unknown launch details stay marked as unknown instead of becoming a sales promise.
+      </p>
+      <div
+        aria-label="Scrollable access comparison"
+        className="-mx-3 mt-7 overflow-x-auto px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:mx-0 sm:px-0"
+        tabIndex={0}
+      >
+        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+          <caption className="sr-only">Private beta and future production access comparison</caption>
+          <thead>
+            <tr className="border-y border-edgelab-border text-edgelab-text-secondary">
+              <th className="w-1/4 px-4 py-4 font-medium" scope="col">Area</th>
+              <th className="w-[37.5%] px-4 py-4 font-medium text-edgelab-text-primary" scope="col">Private beta</th>
+              <th className="w-[37.5%] px-4 py-4 font-medium text-edgelab-text-primary" scope="col">Production</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ACCESS_COMPARISON.map((row) => (
+              <tr className="border-b border-edgelab-border align-top" key={row.area}>
+                <th className="px-4 py-5 font-medium text-edgelab-text-primary" scope="row">{row.area}</th>
+                <td className="px-4 py-5 leading-6 text-edgelab-text-secondary">{row.beta}</td>
+                <td className="px-4 py-5 leading-6 text-edgelab-text-secondary">{row.production}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-
-      {showComparison ? (
-        <div className="overflow-hidden rounded-[30px] border border-white/10 bg-[#071018] shadow-panel">
-          <div className="grid grid-cols-[minmax(180px,1.4fr)_1fr_1fr_1fr] border-b border-white/10 px-5 py-4 text-sm font-semibold text-slate-300">
-            <div>Feature</div>
-            <div>Starter</div>
-            <div>Pro</div>
-            <div>Trader+</div>
-          </div>
-          {COMPARISON_ROWS.map((row) => (
-            <div
-              key={row.feature}
-              className="grid grid-cols-[minmax(180px,1.4fr)_1fr_1fr_1fr] border-b border-white/5 px-5 py-4 text-sm text-slate-300 last:border-b-0"
-            >
-              <div className="text-slate-100">{row.feature}</div>
-              <div>{row.starter}</div>
-              <div>{row.pro}</div>
-              <div>{row.traderPlus}</div>
-            </div>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
