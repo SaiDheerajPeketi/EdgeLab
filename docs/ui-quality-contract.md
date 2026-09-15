@@ -40,6 +40,12 @@ CI fails on budget regression unless a dated exception names owner, measurement,
 
 Flags are scoped by route group: `ui.shell.v2`, `ui.journal.v2`, `ui.settings.v2`, `ui.chart.v2`, `ui.public.v2`. A route never mixes old and new primitives after migration. Rollout order is primitives → shell → settings/auth → Journal/reports → chart/live → public. Each flag has a server-controlled fallback until parity is verified; deep links and stored data use versioned migration adapters.
 
+The executable source of truth is `frontend/src/lib/uiRollout.ts`. Server overrides take precedence over defaults and the global kill switch disables every v2 route group without rewriting a URL or stored document. `npm run quality:ui` validates the minimum release matrix before build artifacts are accepted.
+
+## Automated quality matrix
+
+`docs/ui-release-matrix.json` is the machine-readable matrix for authenticated and public captures. It covers desktop, tablet, mobile, 200% zoom, coarse pointers, RTL/long-label locales, color-vision simulations, compact/full-screen/4×4 chart layouts, settings conflict/validation, Journal dock/review states, landmarks, keyboard completion, focus return, reduced motion, color redundancy, overflow, touch targets, and performance budgets. A visual artifact is evidence only when its route, viewport, state, theme, locale, build SHA, and review result are recorded; a manifest entry is not a substitute for the capture.
+
 ## Route definition of done
 
 A route is complete only when its approved direction is honored, protected behavior passes, no legacy island remains, required baseline screenshots are reviewed, critical states and primary interactions pass, keyboard and screen-reader checks pass, performance budgets pass, deep links survive, fallback is verified, and implementation changes are reflected in `DESIGN.md` and the catalog.

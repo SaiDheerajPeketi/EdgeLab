@@ -15,7 +15,6 @@ import {
   RotateCcw,
   Save,
   Search,
-  Target,
   Trash2,
   X,
 } from "lucide-react";
@@ -165,6 +164,8 @@ export function SessionGateway({
   const [selectedStrategyName, setSelectedStrategyName] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<BacktestSession | null>(null);
   const [deletingSession, setDeletingSession] = useState<BacktestSession | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const builderRef = useRef<HTMLFormElement | null>(null);
   const instrumentPickerRef = useRef<HTMLDivElement | null>(null);
 
   const selectedInstrument = useMemo(
@@ -459,20 +460,41 @@ export function SessionGateway({
     setDeletingSession(null);
   }
 
+  function startFreshSession() {
+    setShowHistory(false);
+    window.requestAnimationFrame(() => {
+      builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      builderRef.current?.querySelector<HTMLInputElement>("input[name='strategy-name']")?.focus({ preventScroll: true });
+    });
+  }
+
+  function useSampleSetup() {
+    const sampleInstrument = instruments[0];
+    if (!sampleInstrument) return;
+    setInstrumentId(sampleInstrument.id);
+    setInstrumentSearch(buildInstrumentOptionLabel(sampleInstrument));
+    setTimeframe(sampleInstrument.timeframes[0]?.timeframe ?? "");
+    if (!strategy.trim()) setStrategy("Sample replay review");
+    startFreshSession();
+  }
+
   return (
     <section className="session-gateway">
       <div className="session-gateway-hero">
         <div className="min-w-0">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-cyan-100">
-            <Target size={14} />
-            EdgeLab / Your Edge Engineered
-          </div>
           <h1 className="max-w-3xl text-3xl font-semibold tracking-normal text-white xl:text-5xl">
-            Choose the session that sharpens your edge.
+            Continue where the market left you.
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-            Start with a strategy, attach the rules you want to grade against, then enter replay with the right market and date window.
+            Resume your latest replay in one click. Start a new one only when you need a different market, window, or playbook.
           </p>
+          <div className="mt-5 flex flex-wrap items-center gap-2" aria-label="Session prerequisites">
+            <span className={`gateway-prerequisite ${instruments.length ? "gateway-prerequisite-ready" : "gateway-prerequisite-blocked"}`}>
+              {instruments.length ? <CheckCircle2 size={14} /> : <Database size={14} />}
+              {instruments.length ? `${instruments.length} markets ready` : "Market data required"}
+            </span>
+            <span className="gateway-prerequisite gateway-prerequisite-ready"><CheckCircle2 size={14} />Local replay engine ready</span>
+          </div>
         </div>
 
         <div className="session-resume-card">
@@ -495,9 +517,9 @@ export function SessionGateway({
             </div>
           </div>
           <button
-            className="control-button mt-5 w-full border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/20"
-            disabled={!resumeSession || isLoading || resumingSessionId != null}
-            onClick={() => void handleResumeSession(resumeSession?.id)}
+            className="control-button mt-5 w-full border-cyan-200/40 bg-cyan-200 px-4 text-ink-950 hover:bg-cyan-100"
+            disabled={isLoading || resumingSessionId != null}
+            onClick={() => resumeSession ? void handleResumeSession(resumeSession.id) : startFreshSession()}
             type="button"
           >
             {resumingSessionId != null || isLoading ? (
@@ -505,12 +527,27 @@ export function SessionGateway({
             ) : (
               <RotateCcw size={16} />
             )}
-            Resume Session
+            {resumeSession ? "Resume latest session" : "Create your first session"}
           </button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button className="control-button justify-center" onClick={startFreshSession} type="button"><Plus size={15} />New session</button>
+            <button className="control-button justify-center" disabled={!instruments.length} onClick={useSampleSetup} type="button"><Database size={15} />Use sample setup</button>
+          </div>
         </div>
       </div>
 
-      <section className="terminal-panel min-w-0 p-4 xl:p-5">
+      <section className="terminal-panel min-w-0 overflow-hidden">
+        <button
+          aria-expanded={showHistory}
+          className="flex min-h-14 w-full items-center gap-3 px-4 text-left outline-none hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 xl:px-5"
+          onClick={() => setShowHistory((visible) => !visible)}
+          type="button"
+        >
+          <BarChart3 className="text-cyan-200" size={16} />
+          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Recent work</span><span className="block truncate text-xs text-slate-500">{sessions.length ? `${sessions.length} saved sessions across ${strategyGroups.length} strategies` : "Saved sessions will appear here"}</span></span>
+          <ChevronDown className={`text-slate-500 transition-transform motion-reduce:transition-none ${showHistory ? "rotate-180" : ""}`} size={17} />
+        </button>
+        {showHistory ? <div className="border-t border-white/10 p-4 xl:p-5">
         <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">
@@ -661,12 +698,15 @@ export function SessionGateway({
             onResumeSession={handleResumeSession}
           />
         )}
+        </div> : null}
       </section>
 
       <form
         autoComplete="off"
         className="session-builder"
+        id="new-session"
         onSubmit={(event) => void handleSubmit(event)}
+        ref={builderRef}
       >
         <div className="session-step">
           <div className="session-step-number">1</div>
@@ -705,6 +745,7 @@ export function SessionGateway({
             <input
               autoComplete="off"
               className="input-control h-11"
+              name="strategy-name"
               onChange={(event) => handleStrategyNameChange(event.target.value)}
               placeholder="Type strategy name"
               required

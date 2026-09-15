@@ -575,7 +575,7 @@ const SCENARIOS: DemoScenario[] = [
   },
   {
     id: "review",
-    label: "Review",
+    label: "Journal + review",
     note: "Journal pass stays anchored to the exact pullbacks and re-entries that mattered.",
     markerNote: "Review markers flag hesitation and clean follow-through.",
     symbol: "AAPL",
@@ -1437,43 +1437,44 @@ export function HeroDemo() {
 
   return (
     <div
-      className="w-full max-w-full min-w-0 overflow-hidden rounded-[34px] border border-white/10 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]"
+      className="group/demo w-full max-w-full min-w-0 overflow-hidden rounded-[28px] border border-cyan-100/15 bg-[#050a10]/95 shadow-[0_36px_90px_rgba(0,0,0,0.45)]"
       ref={rootRef}
     >
-      <div className="border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
+      <div className="relative overflow-hidden border-b border-white/10 bg-black/20 px-4 py-4 sm:px-5">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/80 to-transparent transition-[transform,opacity] duration-700 ease-out group-hover/demo:scale-x-110 group-hover/demo:opacity-100 motion-reduce:transition-none" />
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/65">
-              Live surface preview
-            </div>
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[clamp(1.35rem,5.8vw,1.9rem)] font-semibold leading-tight tracking-[-0.04em] text-white">
               <CandlestickChart className="text-cyan-100" size={22} />
-              <span className="min-w-0 break-words">Actual EdgeLab surfaces</span>
+              <span className="min-w-0 break-words">One trade. One continuous evidence trail.</span>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-400">
-              More candles, live playback, real chart markers, same workspace feel.
+              Move from chart to replay, attach the decision to your Journal, then review the exact market moment without rebuilding context.
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-medium text-cyan-50">
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1.5 text-xs font-medium text-amber-50">
             <ShieldCheck size={14} />
-            Private beta track
+            Illustrative market data
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2" ref={scenarioRailRef}>
+        <div className="mt-5 grid grid-cols-3 overflow-hidden rounded-xl border border-white/10 bg-[#070c12]" ref={scenarioRailRef} aria-label="Chart to review workflow">
           {SCENARIOS.map((item) => (
             <button
               data-scenario-pill="true"
               key={item.id}
-              className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition duration-200 ease-out motion-reduce:transition-none ${
+              aria-current={item.id === selectedScenarioId ? "step" : undefined}
+              className={`relative min-h-14 border-r border-white/10 px-3 py-2 text-left text-xs font-semibold transition duration-200 ease-out last:border-r-0 motion-reduce:transition-none ${
                 item.id === selectedScenarioId
-                  ? "border-cyan-300/30 bg-cyan-300/12 text-cyan-50"
-                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-cyan-300/20 hover:text-cyan-50"
+                  ? "bg-cyan-300/12 text-cyan-50"
+                  : "bg-transparent text-slate-400 hover:bg-white/[0.04] hover:text-white"
               }`}
               onClick={() => selectScenario(item.id)}
               type="button"
             >
-              {item.label}
+              <span className="block text-[10px] tabular-nums text-slate-500">{item.id === "replay" ? "01 · Chart + replay" : item.id === "review" ? "02 · Journal" : "03 · Patterns"}</span>
+              <span className="mt-1 block">{item.label}</span>
+              {item.id === selectedScenarioId ? <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 bg-cyan-200" /> : null}
             </button>
           ))}
         </div>

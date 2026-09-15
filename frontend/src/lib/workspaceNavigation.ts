@@ -162,6 +162,17 @@ export function isWorkspaceNavigationItem(
   return "id" in entry;
 }
 
+export function workspaceNavigationItem(activeView: WorkspaceView) {
+  for (const section of WORKSPACE_NAVIGATION_SECTIONS) {
+    for (const entry of section.entries) {
+      const items = isWorkspaceNavigationItem(entry) ? [entry] : entry.children;
+      const item = items.find((candidate) => workspaceNavigationItemIsActive(candidate.id, activeView));
+      if (item) return { ...item, section: section.label };
+    }
+  }
+  return { description: "Continue your EdgeLab workflow", id: activeView, label: "Workspace", section: "EdgeLab" };
+}
+
 export function workspaceNavigationItemIsActive(
   id: WorkspaceView,
   activeView: WorkspaceView,

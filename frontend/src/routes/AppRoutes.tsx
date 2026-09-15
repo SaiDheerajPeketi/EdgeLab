@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
-import type { ComponentType } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
@@ -16,6 +16,7 @@ import {
   buildAuthSignInHref,
 } from "../lib/authJourney";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
+import { routeGroup } from "../lib/uiRollout";
 
 const LandingPage = lazy(() =>
   import("../pages/LandingPage").then((module) => ({ default: module.LandingPage })),
@@ -258,8 +259,9 @@ export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
   return (
     <BrowserRouter>
       <SessionRehydrator />
-      <Suspense fallback={<AppRouteFallback />}>
-        <Routes>
+      <RouteTransitionBoundary>
+        <Suspense fallback={<AppRouteFallback />}>
+          <Routes>
           <Route element={<LandingPage />} path="/" />
           <Route element={<Navigate replace to="/" />} path="/index.html" />
           <Route element={<PricingPage />} path="/pricing" />
@@ -272,8 +274,24 @@ export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
           <Route element={<ProtectedWorkspace WorkspaceApp={WorkspaceApp} />} path="/app/*" />
           <Route element={<Navigate replace to="/app" />} path="/workspace" />
           <Route element={<NotFoundPage />} path="*" />
-        </Routes>
-      </Suspense>
+          </Routes>
+        </Suspense>
+      </RouteTransitionBoundary>
     </BrowserRouter>
   );
+}
+
+export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const boundaryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const boundary = boundaryRef.current;
+    if (!boundary) return;
+    boundary.dataset.transitioning = "true";
+    const timer = window.setTimeout(() => delete boundary.dataset.transitioning, 120);
+    return () => window.clearTimeout(timer);
+  }, [location.pathname]);
+
+  return <div className="ui-route-transition" data-route-group={routeGroup(location.pathname)} ref={boundaryRef}>{children}</div>;
 }

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "viewports": {
+    "mobile": { "width": 390, "height": 844, "pointer": "coarse", "zoom": 2 },
+    "tablet": { "width": 1024, "height": 768, "pointer": "coarse", "zoom": 1 },
+    "desktop": { "width": 1440, "height": 900, "pointer": "fine", "zoom": 1 },
+    "tradingDesktop": { "width": 1920, "height": 1080, "pointer": "fine", "zoom": 1 }
+  },
+  "routes": {
+    "landing": { "path": "/", "auth": false, "viewports": ["mobile", "tablet", "desktop"], "states": ["default", "pending", "success", "error"] },
+    "settings": { "path": "/app/settings/global", "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["default", "dirty", "saving", "saved", "conflict", "validation-error"] },
+    "journal": { "path": "/app/journal/trades", "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["empty", "loading", "partial", "offline", "error", "populated", "review-drawer", "docked"] },
+    "chart": { "path": "/app/live", "auth": true, "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "states": ["compact", "fullscreen", "two-pane", "four-pane", "sixteen-pane", "stale", "unsupported", "offline"] }
+  },
+  "themes": ["dark"],
+  "locales": ["en-US", "de-DE", "ar-SA"],
+  "colorVision": ["protanopia", "deuteranopia", "tritanopia"],
+  "requiredAssertions": ["landmarks", "heading-order", "accessible-names", "keyboard-complete", "focus-return", "escape-dismissal", "color-redundancy", "reduced-motion", "no-horizontal-overflow", "touch-targets", "performance-budget"]
+}

@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
 
 const SETTINGS_PREFERENCES_KEY = "settings-center.v1";
 
-function localKey() {
+export function settingsPreferencesStorageKey() {
   const user = getStoredAuthSession()?.user;
   const owner = user?.id ? `user-${user.id}` : user?.email ? `user-${encodeURIComponent(user.email.toLowerCase())}` : "anonymous";
   return `edgelab.${SETTINGS_PREFERENCES_KEY}.${owner}`;
@@ -35,7 +35,7 @@ export function sanitizeSettingsPreferences(value: unknown): SettingsPreferences
 export function loadSettingsPreferences(): SettingsPreferences {
   if (typeof window === "undefined") return DEFAULT_SETTINGS_PREFERENCES;
   try {
-    const raw = window.localStorage.getItem(localKey());
+    const raw = window.localStorage.getItem(settingsPreferencesStorageKey());
     return raw ? sanitizeSettingsPreferences(JSON.parse(raw)) : DEFAULT_SETTINGS_PREFERENCES;
   } catch {
     return DEFAULT_SETTINGS_PREFERENCES;
@@ -60,5 +60,5 @@ export async function saveSettingsPreferences(value: SettingsPreferences) {
 
 function persistLocal(value: SettingsPreferences) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(localKey(), JSON.stringify(value));
+  window.localStorage.setItem(settingsPreferencesStorageKey(), JSON.stringify(value));
 }

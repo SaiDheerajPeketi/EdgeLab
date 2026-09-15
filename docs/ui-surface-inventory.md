@@ -21,6 +21,17 @@ Right-panel manager: Journal, Watchlist, Quant, Data Window, Objects, Indicator 
 
 Overlays: command palette, account/system menu, symbol and indicator search, settings pickers, chart context/radial menus, import and connection flows, review drawer, share dialog, confirmations, banners and toasts. All require Escape handling, focus return, safe outside dismissal, zoom collision handling, and non-vanishing critical messages.
 
+| Surface family | Includes | Decision | Release states |
+|---|---|---|---|
+| Persistent app chrome | sidebar, mobile navigation, contextual header, connection status, account menu | restructure | expanded, collapsed, compact, offline, keyboard-only |
+| Chart tools | top toolbar, drawing rail, radial toolbox, pane header, replay transport, order ticket | restyle | default, selected, disabled, compact, 4×4, unsupported |
+| Right panels | Journal, Quant, Watchlist, Data Window, Objects, Indicators, Order Book, Alerts | restructure | closed, opening, resized, minimum-width, collision, restored |
+| Menus/popovers | symbol search, indicator search, context menu, color/date/select controls | retain + restyle | empty, results, no results, keyboard active, zoom collision |
+| Protected overlays | connection, import, share, destructive confirmation, trade review | restructure | pristine, invalid, pending, failure, success, focus returned |
+| Inline system states | empty, skeleton, partial, offline, stale, denied, unsupported, error, retrying, success | replace | action available, no safe action, timestamped, persistent critical message |
+
+Every row is exercised with representative financial values, a long Latin label, Arabic user content, a missing entitlement, and keyboard-only operation. `docs/ui-release-matrix.json` is the executable scenario inventory.
+
 ## Baseline matrix
 
 Desktop/tablet/mobile captures are required for every route above. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. File locations are `.impeccable/baselines/<route>/<width>-<state>.png`; the absence of a file is a failing release condition, never implicit approval.

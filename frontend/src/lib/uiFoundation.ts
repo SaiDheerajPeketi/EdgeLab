@@ -65,6 +65,36 @@ export const UI_PERFORMANCE_BUDGETS = Object.freeze({
   virtualizeRowsAbove: 200,
 });
 
+export const UI_SUPPORTED_VIEWPORTS = Object.freeze({
+  mobile: { width: 390, minHeight: 720 },
+  tablet: { width: 1024, minHeight: 768 },
+  desktop: { width: 1440, minHeight: 900 },
+  tradingDesktop: { width: 1920, minHeight: 1080 },
+});
+
+export const UI_INTERACTION_CONTRACT = Object.freeze({
+  minimumCoarsePointerTargetPx: 44,
+  maximumZoomPercent: 200,
+  focusIndicatorWidthPx: 2,
+  bodyTextContrast: 4.5,
+  largeTextContrast: 3,
+  routeFeedbackMs: 100,
+});
+
+export type SemanticFinancialState = {
+  label: string;
+  sign: "+" | "−" | "=" | "!";
+  tone: "profit" | "loss" | "neutral" | "warning";
+};
+
+/** A textual channel is mandatory so financial meaning never depends on color. */
+export function financialState(value: number | null, unavailableLabel = "Unavailable"): SemanticFinancialState {
+  if (value == null || !Number.isFinite(value)) return { label: unavailableLabel, sign: "!", tone: "warning" };
+  if (value > 0) return { label: `Profit +${value}`, sign: "+", tone: "profit" };
+  if (value < 0) return { label: `Loss −${Math.abs(value)}`, sign: "−", tone: "loss" };
+  return { label: "Unchanged 0", sign: "=", tone: "neutral" };
+}
+
 export function commandSearchScore(entity: Pick<SearchableCommandEntity, "label" | "detail" | "keywords">, query: string) {
   const tokens = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return 1;

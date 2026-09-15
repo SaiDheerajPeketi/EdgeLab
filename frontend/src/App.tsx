@@ -40,6 +40,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
 import { WorkspaceMobileNav } from "./components/WorkspaceMobileNav";
+import { WorkspaceContextHeader } from "./components/WorkspaceContextHeader";
 import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
@@ -159,6 +160,7 @@ import {
   journalFocusVisibleRange,
 } from "./lib/journalChartFocus";
 import { trackDiagnosticWebSocket } from "./lib/browserDiagnostics";
+import type { SearchableCommandEntity } from "./lib/uiFoundation";
 import {
   buildWorkspaceSharePayload,
   sanitizeWorkspaceShareCopyArtifact,
@@ -1478,6 +1480,40 @@ export function WorkspaceApp() {
           minute: "2-digit",
         })}`;
   const latestRiskRewardDrawing = findLatestRiskRewardDrawing(drawings);
+  const commandEntities = useMemo<SearchableCommandEntity[]>(() => {
+    const tradeCommands = resultTrades.slice(0, 100).map((trade) => {
+      const session = resultSessions.find((candidate) => candidate.id === trade.session_id);
+      return {
+        id: String(trade.id),
+        kind: "trade" as const,
+        label: `${session?.symbol ?? "Trade"} · ${trade.side} · ${new Date(trade.entry_time).toLocaleDateString()}`,
+        detail: `${trade.status === "CLOSED" ? "Closed" : "Open"} trade${trade.strategy_name ? ` · ${trade.strategy_name}` : ""}`,
+        keywords: `${trade.notes ?? ""} ${trade.mistake_tags.join(" ")} ${trade.emotional_state ?? ""}`,
+        run: () => { setReviewTrade(trade); },
+      };
+    });
+    const noteCommands = resultTrades.filter((trade) => trade.notes?.trim()).slice(0, 50).map((trade) => ({
+      id: String(trade.id),
+      kind: "note" as const,
+      label: trade.notes!.split(/\r?\n/)[0].slice(0, 80),
+      detail: `Replay note · trade ${trade.id}`,
+      keywords: trade.notes!,
+      run: () => openTradeNoteFromLog(trade),
+    }));
+    const workspaceCommands = availableLayouts.map((name) => ({
+      id: name,
+      kind: "workspace" as const,
+      label: name,
+      detail: name === layoutName ? "Current chart workspace" : "Load saved chart workspace",
+      keywords: "layout panes chart saved",
+      run: () => { loadNamedChartLayout(name); navigateWorkspace("backtest"); },
+    }));
+    const safeActions: SearchableCommandEntity[] = [
+      { id: "new-replay", kind: "safe-action", label: "Start a replay session", detail: "Open replay sessions without changing the current session", keywords: "create practice", run: () => navigateWorkspace("sessions") },
+      { id: "settings", kind: "safe-action", label: "Open workspace settings", detail: "Review account, chart, data, and privacy preferences", keywords: "preferences configuration", run: () => navigateWorkspace("globalSettings") },
+    ];
+    return [...tradeCommands, ...noteCommands, ...workspaceCommands, ...safeActions];
+  }, [availableLayouts, layoutName, resultSessions, resultTrades]);
 
   function closePositionFraction(fraction: number) {
     if (!position || position.side === "FLAT" || position.quantity <= 0) {
@@ -2848,6 +2884,13 @@ export function WorkspaceApp() {
           ) : null}
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
             <Suspense fallback={<WorkspaceLoadingPanel />}>
+              <WorkspaceContextHeader
+                activeView={activeWorkspace}
+                connection={activeWorkspace === "live" ? "connected" : "local"}
+                onBack={() => navigateWorkspace("sessions")}
+                onOpenSettings={() => navigateWorkspace("globalSettings")}
+                scope={activeWorkspace === "live" ? `${activeChartPane.symbol} · ${formatChartTimeframeLabel(activeChartPane.timeframe)}` : undefined}
+              />
               <EdgeLabWorkspace
                 activeSession={state?.session ?? null}
                 datasets={datasets}
@@ -3398,6 +3441,7 @@ export function WorkspaceApp() {
       </div>
 
       <GlobalCommandPalette
+        commandEntities={commandEntities}
         onNavigate={navigateWorkspace}
         onSelectSymbol={changeChartSymbol}
         symbols={activeWorkspace === "backtest" ? chartSymbolOptions.map((option) => option.symbol) : []}

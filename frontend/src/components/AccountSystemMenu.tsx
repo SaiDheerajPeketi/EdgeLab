@@ -1,11 +1,14 @@
 import {
   BadgeCheck,
   ChevronDown,
+  Database,
   HelpCircle,
+  Info,
   Keyboard,
   LogOut,
   MessageSquareQuote,
   Settings,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -24,6 +27,7 @@ import {
   subscribeAuthSession,
 } from "../lib/authSession";
 import type { WorkspaceView } from "../lib/workspace";
+import { settingsDeepLink, type SettingsCategoryId } from "./settings/settingsCatalog";
 
 const LOGOUT_REDIRECT_TIMEOUT_MS = 800;
 const FOCUSABLE_SELECTOR =
@@ -123,6 +127,11 @@ export function AccountSystemMenu({
     onNavigate(view);
   }
 
+  function navigateSettings(category: SettingsCategoryId, controlId?: string) {
+    window.history.replaceState(window.history.state, "", settingsDeepLink(category, controlId));
+    navigate("globalSettings");
+  }
+
   async function handleSignOut() {
     if (signingOut) {
       return;
@@ -181,12 +190,23 @@ export function AccountSystemMenu({
           dataMenuFocus
           icon={Settings}
           label="Workspace settings"
-          onClick={() => navigate("globalSettings")}
+          onClick={() => navigateSettings("global")}
+        />
+        <MenuAction
+          icon={Database}
+          label="Data-provider status"
+          onClick={() => navigateSettings("data-providers", "broker-connections")}
         />
         <MenuAction
           icon={MessageSquareQuote}
           label="Send feedback"
           onClick={() => navigate("feedback")}
+        />
+        <MenuAction
+          icon={Info}
+          label="Release information"
+          detail="EdgeLab beta · build 0.1"
+          onClick={() => navigateSettings("account", "account-identity")}
         />
         <button
           aria-controls={shortcutId}
@@ -294,11 +314,13 @@ function MenuAction({
   dataMenuFocus = false,
   icon: Icon,
   label,
+  detail,
   onClick,
 }: {
   dataMenuFocus?: boolean;
-  icon: typeof Settings;
+  icon: LucideIcon;
   label: string;
+  detail?: string;
   onClick: () => void;
 }) {
   return (
@@ -309,7 +331,7 @@ function MenuAction({
       type="button"
     >
       <Icon aria-hidden="true" size={17} />
-      {label}
+      <span className="min-w-0 flex-1"><span className="block truncate">{label}</span>{detail ? <span className="mt-0.5 block truncate text-[11px] font-normal text-slate-500">{detail}</span> : null}</span>
     </button>
   );
 }
