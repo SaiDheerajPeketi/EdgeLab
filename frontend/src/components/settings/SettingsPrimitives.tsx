@@ -84,7 +84,7 @@ export function SettingRow({
         <p className="ui-resilient-text mt-1 text-sm leading-5 text-zinc-400" dir="auto">{description}</p>
         {learnMore ? <a href={learnMore.href} className="mt-1 inline-block text-xs text-cyan-300 underline-offset-2 hover:underline">{learnMore.label}</a> : null}
         {effective ? <p className="ui-resilient-text mt-2 text-xs text-zinc-500" dir="auto">Effective: {effective}</p> : null}
-        {validation ? <p className="ui-resilient-text mt-2 text-xs text-rose-300" dir="auto" role="alert">{validation}</p> : null}
+        {validation ? <p className="ui-resilient-text mt-2 text-xs text-rose-300" dir="auto" id={`setting-${controlId}-validation`} role="alert">{validation}</p> : null}
         <SaveStatus state={saveState} message={saveMessage} onRetry={onRetry} />
       </div>
       <div className="mt-4 min-w-0 sm:mt-0">{children}</div>

@@ -218,6 +218,26 @@
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" }
+      },
+      "dirty": {
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png" }
+      },
+      "saving": {
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png" }
+      },
+      "saved": {
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png" }
+      },
+      "validation-error": {
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png" }
       }
     },
     "/app/reports": {
