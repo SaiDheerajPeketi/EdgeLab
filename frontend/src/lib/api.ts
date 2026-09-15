@@ -576,6 +576,69 @@ export type AppDataImportResult = {
   summary: Record<string, number>;
 };
 
+export type IntegrationSecret = {
+  id: number;
+  provider: string;
+  purpose: string;
+  key_id: string;
+  cipher_version: number;
+  version: number;
+  state: "active" | "revoked";
+  created_at: string;
+  updated_at: string;
+  rotated_at: string | null;
+  last_connected_at: string | null;
+  revoked_at: string | null;
+};
+
+export type IntegrationSecretConnection = IntegrationSecret & {
+  connection_status: "credentials-ready";
+};
+
+export type BrokerProvider = {
+  provider_id: string;
+  display_name: string;
+  availability: "offline-fixture" | "planned";
+  capabilities: {
+    accounts: boolean;
+    incremental_sync: boolean;
+    orders: boolean;
+    fills: boolean;
+    live_connectivity: boolean;
+  };
+  requires_secret: boolean;
+  description: string;
+};
+
+export type BrokerConnection = {
+  id: number;
+  provider: string;
+  display_name: string;
+  secret_id: number;
+  status: "READY" | "SYNCING" | "HEALTHY" | "DEGRADED" | "ERROR" | "REVOKED";
+  health: "UNKNOWN" | "HEALTHY" | "DEGRADED" | "ERROR";
+  last_error_code: string | null;
+  last_error_message: string | null;
+  last_sync_started_at: string | null;
+  last_sync_completed_at: string | null;
+  next_retry_at: string | null;
+  created_at: string;
+  updated_at: string;
+  revoked_at: string | null;
+};
+
+export type BrokerSyncJob = {
+  id: number;
+  connection_id: number;
+  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "RETRYING" | "DEAD_LETTER";
+  attempt_count: number;
+  max_attempts: number;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkspaceShareCreatePayload = {
   workspace_key: string;
   title: string;
@@ -869,6 +932,71 @@ export function importAppDataBundle(bundle: AppDataBundle) {
   return request<AppDataImportResult>("/app-data/import", {
     method: "POST",
     body: JSON.stringify(bundle),
+  });
+}
+
+export function getIntegrationSecrets() {
+  return request<IntegrationSecret[]>("/integration-secrets");
+}
+
+export function createIntegrationSecret(payload: {
+  provider: string;
+  purpose: string;
+  credentials: Record<string, string>;
+}) {
+  return request<IntegrationSecret>("/integration-secrets", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyIntegrationSecret(secretId: number) {
+  return request<IntegrationSecretConnection>(`/integration-secrets/${secretId}/connect`, {
+    method: "POST",
+  });
+}
+
+export function rotateIntegrationSecret(secretId: number) {
+  return request<IntegrationSecret>(`/integration-secrets/${secretId}/rotate`, {
+    method: "POST",
+  });
+}
+
+export function revokeIntegrationSecret(secretId: number) {
+  return request<IntegrationSecret>(`/integration-secrets/${secretId}`, {
+    method: "DELETE",
+  });
+}
+
+export function getBrokerProviders() {
+  return request<BrokerProvider[]>("/broker-providers");
+}
+
+export function getBrokerConnections() {
+  return request<BrokerConnection[]>("/broker-connections");
+}
+
+export function createBrokerConnection(payload: {
+  provider: string;
+  display_name: string;
+  secret_id: number;
+}) {
+  return request<BrokerConnection>("/broker-connections", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function refreshBrokerConnection(connectionId: number) {
+  return request<BrokerSyncJob>(`/broker-connections/${connectionId}/refresh`, {
+    method: "POST",
+    body: JSON.stringify({ max_attempts: 3 }),
+  });
+}
+
+export function revokeBrokerConnection(connectionId: number) {
+  return request<BrokerConnection>(`/broker-connections/${connectionId}`, {
+    method: "DELETE",
   });
 }
 

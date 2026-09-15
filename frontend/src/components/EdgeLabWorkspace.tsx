@@ -181,6 +181,7 @@ import {
 } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { getStoredAuthSession } from "../lib/authSession";
+import { loadSettingsPreferences } from "../lib/settingsPreferences";
 import {
   DEFAULT_MISTAKE_TAGS,
   hydrateStrategyMistakeTags,
@@ -271,6 +272,7 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { TradingChart } from "./TradingChart";
 import { TradeLog } from "./TradeLog";
+import { SettingsCenter } from "./settings/SettingsCenter";
 
 type WorkspacePageView = Exclude<WorkspaceView, "backtest" | "sessions">;
 
@@ -851,6 +853,26 @@ export function EdgeLabWorkspace({
     tradeViewLogScrollTop: pendingTradeViewLogScrollRestoreRef.current,
   };
 
+  const settingsCenter = (initialCategory: "backtest" | "global" | "journal", onBack?: () => void, backLabel?: string) => (
+    <SettingsCenter
+      datasets={datasets}
+      initialCategory={initialCategory}
+      journalDefaults={{
+        default_broker: liveJournal.data.settings.default_broker,
+        default_currency: liveJournal.data.settings.default_currency,
+        default_entry_type: liveJournal.data.settings.default_entry_type,
+        require_account_for_taken_trades: liveJournal.data.settings.require_account_for_taken_trades,
+      }}
+      onBack={onBack}
+      backLabel={backLabel}
+      onGetDatasetRefreshStatus={onGetDatasetRefreshStatus}
+      onRefreshDatasets={onRefreshDatasets}
+      onUpdateDatasetAsset={onUpdateDatasetAsset}
+      onUpdateDatasetSettings={onUpdateDatasetSettings}
+      onUpdateJournalDefaults={liveJournal.updateSettings}
+    />
+  );
+
   switch (view) {
     case "accounts":
       return <AccountsPage {...shared} />;
@@ -859,7 +881,7 @@ export function EdgeLabWorkspace({
     case "feedback":
       return <FeedbackPage activeSession={activeSession} />;
     case "globalSettings":
-      return <GlobalSettingsPage datasets={datasets} playbooks={playbooks} sessions={sessions} trades={trades} />;
+      return settingsCenter("global");
     case "dayView":
       return <DayViewPage {...shared} />;
     case "economicCalendar":
@@ -880,9 +902,10 @@ export function EdgeLabWorkspace({
     case "journalPlaybooks":
     case "journalReports":
     case "journalSessions":
-    case "journalSettings":
     case "journalStrategies":
       return <JournalWorkspacePage journal={liveJournal} view={view} />;
+    case "journalSettings":
+      return settingsCenter("journal");
     case "notebook":
       return <NotebookPage {...shared} />;
     case "playbooks":
@@ -890,7 +913,7 @@ export function EdgeLabWorkspace({
     case "reports":
       return <ReportsPage {...shared} />;
     case "settings":
-      return <SettingsPage {...shared} />;
+      return settingsCenter("backtest", onNavigateBacktest, "Back to Backtest");
     case "strategies":
       return <StrategiesPage {...shared} />;
     case "tradeView":
@@ -6341,7 +6364,9 @@ function FeedbackPage({ activeSession }: { activeSession: BacktestSession | null
   const [category, setCategory] = useState<FeedbackCategory>("FEATURE");
   const [message, setMessage] = useState("");
   const [includeSessionContext, setIncludeSessionContext] = useState(true);
-  const [includeDiagnostics, setIncludeDiagnostics] = useState(true);
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(
+    () => loadSettingsPreferences().includeDiagnosticsByDefault,
+  );
   const [screenshots, setScreenshots] = useState<FeedbackScreenshotAttachment[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
