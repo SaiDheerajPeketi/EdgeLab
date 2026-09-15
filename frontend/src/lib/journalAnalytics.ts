@@ -50,6 +50,20 @@ export type JournalBreakdownRow = JournalSummary & {
   tradeIds: number[];
 };
 
+export type JournalAssetMixDimension = "market" | "symbol";
+
+export function journalAssetMix(trades: CanonicalTrade[], dimension: JournalAssetMixDimension) {
+  const groups = new Map<string, number>();
+  trades.forEach((trade) => {
+    const label = dimension === "market" ? inferMarket(trade.symbol) : trade.symbol;
+    groups.set(label, (groups.get(label) ?? 0) + 1);
+  });
+  const total = trades.length;
+  return [...groups.entries()]
+    .map(([label, count]) => ({ label, count, percent: total ? count / total * 100 : 0 }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
 export function filterJournalTrades(trades: CanonicalTrade[], filters: JournalFilters) {
   const tagIds = new Set(filters.tagIds);
   const accountIds = new Set(filters.accountIds);

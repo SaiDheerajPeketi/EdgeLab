@@ -4,7 +4,7 @@ import {
   DEFAULT_JOURNAL_FILTERS,
   buildJournalBreakdown,
   filterJournalTrades,
-  inferMarket,
+  journalAssetMix,
   numeric,
   scopedCurrency,
   summarizeJournalTrades,
@@ -40,7 +40,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
     <JournalFilterBar accounts={accounts} filters={filters} tags={tags} trades={trades} onChange={(next) => { setFilters(next); setDrillIds(null); }} />
     {!currency.combinable ? <p className="rounded-md border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5 text-amber-100">This filter contains {currency.currencies?.join(", ")}. P&amp;L totals remain labeled by row currency context; use account filtering before comparing monetary totals.</p> : null}
 
-    <section aria-labelledby="asset-mix-heading" className="border-t border-white/10 pt-5"><div className="flex items-center gap-2"><Target aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="asset-mix-heading" className="text-base font-semibold text-white">Asset mix</h2></div><AssetMix trades={filtered} onSelect={(market) => setFilters((current) => ({ ...current, market }))} /></section>
+    <section aria-labelledby="asset-mix-heading" className="border-t border-white/10 pt-5"><div className="flex items-center gap-2"><Target aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="asset-mix-heading" className="text-base font-semibold text-white">Position mix</h2></div><div className="mt-4 grid gap-8 xl:grid-cols-2"><AssetMix title="By market" rows={journalAssetMix(filtered, "market")} onSelect={(market) => setFilters((current) => ({ ...current, market }))} /><AssetMix title="By symbol" rows={journalAssetMix(filtered, "symbol")} onSelect={(symbol) => setFilters((current) => ({ ...current, symbol }))} /></div></section>
 
     <section aria-labelledby="breakdown-heading" className="border-t border-white/10 pt-5">
       <div className="flex flex-wrap items-center gap-2"><h2 id="breakdown-heading" className="mr-2 text-base font-semibold text-white">Performance breakdown</h2><div role="tablist" aria-label="Breakdown dimension" className="flex flex-wrap gap-1">{DIMENSIONS.map((item) => <button key={item.id} type="button" role="tab" aria-selected={dimension === item.id} onClick={() => { setDimension(item.id); setDrillIds(null); }} className={`min-h-9 rounded px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${dimension === item.id ? "bg-cyan-300/10 text-cyan-100" : "text-slate-500 hover:bg-white/5 hover:text-slate-200"}`}>{item.label}</button>)}</div></div>
@@ -53,11 +53,10 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
   </div>;
 }
 
-function AssetMix({ trades, onSelect }: { trades: CanonicalTrade[]; onSelect: (market: string) => void }) {
-  const rows = [...trades.reduce((groups, trade) => groups.set(inferMarket(trade.symbol), (groups.get(inferMarket(trade.symbol)) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]);
-  const total = Math.max(1, trades.length); let offset = 0;
+function AssetMix({ title, rows, onSelect }: { title: string; rows: ReturnType<typeof journalAssetMix>; onSelect: (label: string) => void }) {
+  let offset = 0;
   const palette = ["#67e8f9", "#a78bfa", "#34d399", "#fbbf24", "#fb7185", "#94a3b8"];
-  return <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-center"><svg viewBox="0 0 42 42" role="img" aria-label={`Asset distribution across ${rows.length} markets`} className="h-36 w-36 shrink-0 -rotate-90">{rows.map(([market, count], index) => { const fraction = count / total * 100; const circle = <circle key={market} cx="21" cy="21" r="15.915" fill="none" stroke={palette[index % palette.length]} strokeWidth="6" strokeDasharray={`${fraction} ${100 - fraction}`} strokeDashoffset={-offset} />; offset += fraction; return circle; })}</svg><div className="grid flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">{rows.map(([market, count], index) => <button key={market} type="button" onClick={() => onSelect(market)} className="flex min-h-10 items-center gap-2 rounded px-2 text-left text-sm text-slate-300 hover:bg-white/5"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[index % palette.length] }} /><span className="min-w-0 flex-1 truncate">{market}</span><span className="tabular-nums text-slate-500">{count} · {(count / total * 100).toFixed(0)}%</span></button>)}{!rows.length ? <p className="text-sm text-slate-500">Asset allocation appears after trades are added.</p> : null}</div></div>;
+  return <div><h3 className="text-xs font-semibold text-slate-300">{title}</h3><div className="mt-3 flex flex-col gap-5 sm:flex-row sm:items-center"><svg viewBox="0 0 42 42" role="img" aria-label={`${title} across ${rows.length} segments`} className="h-32 w-32 shrink-0 -rotate-90">{rows.map((row, index) => { const circle = <circle key={row.label} cx="21" cy="21" r="15.915" fill="none" stroke={palette[index % palette.length]} strokeWidth="6" strokeDasharray={`${row.percent} ${100 - row.percent}`} strokeDashoffset={-offset} />; offset += row.percent; return circle; })}</svg><div className="grid min-w-0 flex-1 gap-1">{rows.map((row, index) => <button key={row.label} type="button" onClick={() => onSelect(row.label)} className="flex min-h-9 items-center gap-2 rounded px-2 text-left text-sm text-slate-300 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[index % palette.length] }} /><span className="min-w-0 flex-1 truncate">{row.label}</span><span className="tabular-nums text-slate-500">{row.count} · {row.percent.toFixed(0)}%</span></button>)}{!rows.length ? <p className="text-sm text-slate-500">Position mix appears after trades are added.</p> : null}</div></div></div>;
 }
 
 function MoneyCell({ value, currency, combinable, muted }: { value: number; currency: string; combinable: boolean; muted?: boolean }) { return <td className={`px-3 py-3 text-right tabular-nums ${muted ? "text-slate-500" : value >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{combinable ? money(value, currency) : "—"}</td>; }

@@ -49,7 +49,27 @@ test("Journal UI contracts preserve owner scope, deep links, costs, filters, and
     assert.deepEqual(filtered.map((row) => row.id), [2]);
     const markets = analytics.buildJournalBreakdown(rows, "market", []);
     assert.deepEqual(new Set(markets.map((row) => row.label)), new Set(["Futures", "Crypto"]));
+    assert.deepEqual(analytics.journalAssetMix(rows, "market"), [
+      { label: "Crypto", count: 1, percent: 50 },
+      { label: "Futures", count: 1, percent: 50 },
+    ]);
+    assert.deepEqual(analytics.journalAssetMix(rows, "symbol"), [
+      { label: "BTCUSDT", count: 1, percent: 50 },
+      { label: "MES", count: 1, percent: 50 },
+    ]);
     assert.deepEqual(analytics.scopedCurrency([{ id: 1, status: "ACTIVE", currency: "USD" }, { id: 2, status: "ACTIVE", currency: "EUR" }], []), { combinable: false, currency: "USD", currencies: ["USD", "EUR"] });
     assert.equal(analytics.riskBehavior(rows).sampleSize, 2);
   } finally { cleanup(); }
+});
+
+test("Journal command center exposes complete scoped KPIs and account-comparison lenses", () => {
+  const dashboard = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/JournalDashboard.tsx"), "utf8");
+  const comparison = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/JournalAccountComparison.tsx"), "utf8");
+  const analytics = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/JournalAnalyticsSurface.tsx"), "utf8");
+  for (const label of ["Net P&L", "Gross P&L", "Balance", "Win rate", "Profit factor", "Trades", "Costs", "Drawdown"]) assert.match(dashboard, new RegExp(`label=\\"${label.replace("&", "&")}\\"`));
+  for (const lens of ["direction", "market", "symbol", "hour", "duration", "size", "tag", "rating", "strategy"]) assert.match(comparison, new RegExp(`dimension: \\"${lens}\\"`));
+  assert.match(comparison, /Trading-day comparison/);
+  assert.match(comparison, /label="Drawdown"/);
+  assert.match(analytics, /journalAssetMix\(filtered, "market"\)/);
+  assert.match(analytics, /journalAssetMix\(filtered, "symbol"\)/);
 });

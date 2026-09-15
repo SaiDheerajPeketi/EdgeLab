@@ -54,13 +54,15 @@ export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTr
   return <div className="space-y-8">
     <section aria-labelledby="journal-overview-heading">
       <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 id="journal-overview-heading" className="text-xl font-semibold text-white">Trading overview</h1><p className="mt-1 text-sm text-slate-400">Closed-trade performance, review discipline, and risk behavior for the active account scope.</p></div>{!currency.combinable ? <p className="max-w-md text-xs leading-5 text-amber-200">Totals are separated because this scope includes {currency.currencies?.join(", ")}. Choose one currency for combined P&amp;L.</p> : null}</div>
-      <dl className="mt-5 grid border-y border-white/10 sm:grid-cols-2 xl:grid-cols-6">
+      <dl className="mt-5 grid border-y border-white/10 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         <Metric label="Net P&L" value={money(summary.netPnl)} tone={currency.combinable ? summary.netPnl : undefined} />
+        <Metric label="Gross P&L" value={money(summary.grossPnl)} tone={currency.combinable ? summary.grossPnl : undefined} />
+        <Metric label="Balance" value={money(initialBalance + summary.netPnl)} />
         <Metric label="Win rate" value={`${summary.winRate.toFixed(1)}%`} hint={`${summary.wins}W / ${summary.losses}L`} />
         <Metric label="Profit factor" value={summary.profitFactor == null ? "No losses" : summary.profitFactor.toFixed(2)} />
-        <Metric label="Expectancy" value={money(summary.expectancy)} />
-        <Metric label="Average R" value={summary.averageR == null ? "Not recorded" : `${summary.averageR.toFixed(2)}R`} />
-        <Metric label="Costs" value={money(summary.costs)} hint={`${summary.closedTrades} closed`} />
+        <Metric label="Trades" value={summary.closedTrades.toLocaleString()} hint={`${summary.totalTrades - summary.closedTrades} open or missed`} />
+        <Metric label="Costs" value={money(summary.costs)} />
+        <Metric label="Drawdown" value={money(summary.maxDrawdown)} />
       </dl>
     </section>
 
