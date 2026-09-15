@@ -97,7 +97,6 @@ import {
 } from "./settingsCatalog";
 
 const NOTE_TEMPLATE_KEY = "notebook-template.v1";
-const MIN_SAVE_FEEDBACK_MS = 600;
 const DEFAULT_NOTE_TEMPLATE = [
   "Setup",
   "- Context:",
@@ -380,10 +379,15 @@ export function SettingsCenter({
 
   async function saveJournal() {
     await save("journal", async () => {
-      await Promise.all([
-        onUpdateJournalDefaults(journalDraft),
-        new Promise<void>((resolve) => window.setTimeout(resolve, MIN_SAVE_FEEDBACK_MS)),
-      ]);
+      const fixtureWaits: Promise<unknown>[] = [];
+      window.dispatchEvent(new CustomEvent("edgelab:test:settings-save", {
+        detail: {
+          key: "journal",
+          waitUntil: (pending: Promise<unknown>) => fixtureWaits.push(pending),
+        },
+      }));
+      await onUpdateJournalDefaults(journalDraft);
+      await Promise.all(fixtureWaits);
     });
     setJournalBaseline(journalDraft);
   }
@@ -477,7 +481,7 @@ export function SettingsCenter({
           {category === "global" ? <GlobalSettings /> : null}
           {category === "journal" ? <>
             <SettingsSection title="Journal defaults" description="These workspace defaults prefill new journal entries; existing trades are never rewritten." dirty={journalDirty} onReset={() => setJournalDraft({ default_broker: "", default_currency: "USD", default_entry_type: "TAKEN", require_account_for_taken_trades: false })}>
-              <SettingRow controlId="journal-defaults" label="Capture defaults" description="Set the currency, broker label, entry type, and whether taken trades require an account." scope="Workspace" effective={`${journalBaseline.default_currency} · ${journalBaseline.default_entry_type.toLowerCase()}`} saveState={saveStates.journal} onRetry={() => void saveJournal()} validation={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "Use a three-letter currency code, for example USD." : null}>
+              <SettingRow controlId="journal-defaults" label="Capture defaults" description="Set the currency, broker label, entry type, and whether taken trades require an account." scope="Workspace" effective={`${journalBaseline.default_currency} · ${journalBaseline.default_entry_type.toLowerCase()}`} saveState={saveStates.journal} saveMessage={saveStates.journal === "saving" ? "Applying locally…" : saveStates.journal === "saved" ? "Applied locally" : saveStates.journal === "error" ? "Could not apply locally" : undefined} onRetry={() => void saveJournal()} validation={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "Use a three-letter currency code, for example USD." : null}>
                 <div className="space-y-2"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs text-zinc-400">Currency<input value={journalDraft.default_currency} maxLength={3} aria-invalid={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency)} aria-describedby={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "setting-journal-defaults-validation" : undefined} onChange={(event) => setJournalDraft((current) => ({ ...current, default_currency: event.target.value.toUpperCase() }))} className={`${fieldClassName} mt-1`} /></label><label className="text-xs text-zinc-400">Broker label<input value={journalDraft.default_broker} maxLength={80} placeholder="Optional" onChange={(event) => setJournalDraft((current) => ({ ...current, default_broker: event.target.value }))} className={`${fieldClassName} mt-1`} /></label></div><label className="block text-xs text-zinc-400">Default entry type<select value={journalDraft.default_entry_type} onChange={(event) => setJournalDraft((current) => ({ ...current, default_entry_type: event.target.value as "MISSED" | "TAKEN" }))} className={`${fieldClassName} mt-1`}><option value="TAKEN">Taken</option><option value="MISSED">Missed</option></select></label><div className="flex items-center justify-between gap-3 rounded-md border border-white/10 p-2.5"><span className="text-xs text-zinc-300">Require account for taken trades</span><SettingsToggle checked={journalDraft.require_account_for_taken_trades} label="Require account for taken trades" onChange={(checked) => setJournalDraft((current) => ({ ...current, require_account_for_taken_trades: checked }))} /></div><button type="button" disabled={!journalDirty || !/^[A-Za-z]{3}$/.test(journalDraft.default_currency) || saveStates.journal === "saving"} onClick={() => void saveJournal()} className="min-h-11 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45 sm:min-h-10">Apply journal defaults</button></div>
               </SettingRow>
               <SettingRow controlId="note-template" label="Review note template" description="Supported placeholders: {side}, {quantity}, {entry}, {exit}, {pnl}, and {r}." scope="Personal" effective="Inserted when a new notebook note starts" validation={!noteDraft.trim() ? "The template cannot be empty." : null} saveState={saveStates.note} onRetry={() => void saveNote()}>

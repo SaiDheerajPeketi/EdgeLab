@@ -12,6 +12,17 @@ test.describe("journal settings state baselines", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
     await seedApprovedSession(page);
+    await page.addInitScript(() => {
+      let resolveJournalSave: (() => void) | null = null;
+      window.addEventListener("edgelab:test:settings-save", ((event: CustomEvent<{ key: string; waitUntil: (pending: Promise<void>) => void }>) => {
+        if (event.detail.key !== "journal") return;
+        event.detail.waitUntil(new Promise<void>((resolve) => { resolveJournalSave = resolve; }));
+      }) as EventListener);
+      Object.defineProperty(window, "__resolveJournalSettingsSave", {
+        configurable: true,
+        value: () => resolveJournalSave?.(),
+      });
+    });
     await gotoStable(page, route, { waitForNetworkIdle: false });
     await expect(page.getByRole("heading", { name: "Journal defaults" })).toBeVisible();
   });
@@ -23,6 +34,7 @@ test.describe("journal settings state baselines", () => {
     const apply = page.getByRole("button", { name: "Apply journal defaults" });
     await expect(apply).toBeEnabled();
     await expectControlGeometry(page, apply);
+    await expectCommandLauncherClear(page, apply);
     await expectStableScreenshot(page, "journal-settings-dirty", { fullPage: false });
   });
 
@@ -31,9 +43,10 @@ test.describe("journal settings state baselines", () => {
     const apply = page.getByRole("button", { name: "Apply journal defaults" });
     await apply.click();
 
-    await expect(page.getByRole("status").filter({ hasText: "Saving…" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Applying locally…" })).toBeVisible();
     await expect(apply).toBeDisabled();
     await expectControlGeometry(page, apply);
+    await expectCommandLauncherClear(page, apply);
     await expectStableScreenshot(page, "journal-settings-saving", { fullPage: false });
   });
 
@@ -41,10 +54,12 @@ test.describe("journal settings state baselines", () => {
     await page.getByLabel("Broker label").fill("Frankfurt futures desk");
     const apply = page.getByRole("button", { name: "Apply journal defaults" });
     await apply.click();
+    await page.evaluate(() => (window as typeof window & { __resolveJournalSettingsSave: () => void }).__resolveJournalSettingsSave());
 
-    await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Applied locally" })).toBeVisible();
     await expect(page.getByText("All explicit changes applied")).toBeVisible();
     await expect(apply).toBeDisabled();
+    await expectCommandLauncherClear(page, apply);
     await expectStableScreenshot(page, "journal-settings-saved", { fullPage: false });
   });
 
@@ -72,4 +87,17 @@ async function expectControlGeometry(page: Page, control: Locator) {
   }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function expectCommandLauncherClear(page: Page, control: Locator) {
+  const launcher = page.getByRole("button", { name: "Open command palette" });
+  if (!(await launcher.isVisible())) return;
+  const [controlBox, launcherBox] = await Promise.all([control.boundingBox(), launcher.boundingBox()]);
+  expect(controlBox).not.toBeNull();
+  expect(launcherBox).not.toBeNull();
+  const intersects = controlBox!.x < launcherBox!.x + launcherBox!.width
+    && controlBox!.x + controlBox!.width > launcherBox!.x
+    && controlBox!.y < launcherBox!.y + launcherBox!.height
+    && controlBox!.y + controlBox!.height > launcherBox!.y;
+  expect(intersects).toBe(false);
 }
