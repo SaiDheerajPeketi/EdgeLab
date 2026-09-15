@@ -557,6 +557,41 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Localization resilience: human copy follows its own script while financial
+   values remain isolated and readable inside bidirectional layouts. */
+.ui-resilient-text {
+  hyphens: auto;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.ui-number,
+.numeric,
+.tabular-nums {
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
+  unicode-bidi: isolate;
+}
+
+:where([dir="rtl"]) .ui-directional-icon {
+  transform: scaleX(-1);
+}
+
+:where([dir="rtl"]) .ui-command-trigger {
+  left: max(0.75rem, env(safe-area-inset-left));
+  right: auto;
+}
+
+:where([dir="rtl"]) :where(input, textarea, select) {
+  text-align: start;
+}
+
+@media (max-width: 640px) {
+  :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    font-size: max(1rem, 1em);
+  }
+}
+
 ::selection {
   background: rgba(50, 211, 238, 0.26);
   color: #ecfeff;

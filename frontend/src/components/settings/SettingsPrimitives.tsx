@@ -32,10 +32,10 @@ export function SettingsSection({
 }) {
   return (
     <section className="border-b border-white/10 py-7 first:pt-1 last:border-b-0" aria-labelledby={`settings-${slug(title)}`}>
-      <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-white" id={`settings-${slug(title)}`}>{title}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-400">{description}</p>
+      <div className="mb-1 flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="ui-resilient-text text-base font-semibold text-white" dir="auto" id={`settings-${slug(title)}`}>{title}</h2>
+          <p className="ui-resilient-text mt-1 max-w-2xl text-sm leading-6 text-zinc-400" dir="auto">{description}</p>
         </div>
         {onReset ? (
           <button type="button" onClick={onReset} className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-xs font-medium text-zinc-400 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
@@ -77,14 +77,14 @@ export function SettingRow({
   return (
     <div id={`setting-${controlId}`} data-setting-control={controlId} tabIndex={-1} className="scroll-mt-28 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] sm:gap-8">
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-medium text-zinc-100">{label}</h3>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h3 className="ui-resilient-text min-w-0 text-sm font-medium text-zinc-100" dir="auto">{label}</h3>
           <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{scope}</span>
         </div>
-        <p className="mt-1 text-sm leading-5 text-zinc-400">{description}</p>
+        <p className="ui-resilient-text mt-1 text-sm leading-5 text-zinc-400" dir="auto">{description}</p>
         {learnMore ? <a href={learnMore.href} className="mt-1 inline-block text-xs text-cyan-300 underline-offset-2 hover:underline">{learnMore.label}</a> : null}
-        {effective ? <p className="mt-2 text-xs text-zinc-500">Effective: {effective}</p> : null}
-        {validation ? <p className="mt-2 text-xs text-rose-300" role="alert">{validation}</p> : null}
+        {effective ? <p className="ui-resilient-text mt-2 text-xs text-zinc-500" dir="auto">Effective: {effective}</p> : null}
+        {validation ? <p className="ui-resilient-text mt-2 text-xs text-rose-300" dir="auto" role="alert">{validation}</p> : null}
         <SaveStatus state={saveState} message={saveMessage} onRetry={onRetry} />
       </div>
       <div className="mt-4 min-w-0 sm:mt-0">{children}</div>
@@ -100,7 +100,7 @@ export function SettingsToggle({ checked, disabled, label, onChange }: { checked
   );
 }
 
-export const fieldClassName = "min-h-10 w-full rounded-md border border-white/12 bg-black/25 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-55";
+export const fieldClassName = "min-h-10 w-full min-w-0 rounded-md border border-white/12 bg-black/25 px-3 text-start text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-55";
 
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
