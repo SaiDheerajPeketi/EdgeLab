@@ -1371,8 +1371,18 @@ def run_generation_job(
         def emit(event_type: str, event_payload: Mapping[str, Any]) -> None:
             buffered_events.append((event_type[:32], _safe_json(event_payload)))
 
+        def refresh_cancel_state() -> bool:
+            refreshed = db.scalar(
+                select(AIGenerationJob)
+                .where(AIGenerationJob.id == job_id, AIGenerationJob.user_id == user_id)
+                .execution_options(populate_existing=True)
+            )
+            if refreshed is None:
+                raise AINotFoundError("AI generation job not found")
+            return refreshed.cancel_requested_at is not None or refreshed.status == "CANCELLED"
+
         def cancelled() -> bool:
-            return job.cancel_requested_at is not None
+            return refresh_cancel_state()
 
         def call(credentials: Mapping[str, str]) -> AIProviderResult:
             result = adapter.generate(credentials, provider_request, emit, cancelled)
@@ -1391,7 +1401,7 @@ def run_generation_job(
             )
         else:
             result = call({})
-        if job.cancel_requested_at is not None:
+        if refresh_cancel_state():
             raise AIConflictError("Generation was cancelled")
         if result.input_tokens < 0 or result.output_tokens < 0 or result.output_tokens > job.max_output_tokens:
             raise AISecurityError("Provider returned invalid usage accounting")

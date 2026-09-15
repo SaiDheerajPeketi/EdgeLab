@@ -1,3 +1,9 @@
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -8,6 +14,23 @@ from backend.scripts.migrate_sqlite_to_database import migrate_sqlite_to_databas
 
 def _sqlite_engine(database_url: str):
     return create_engine(database_url, connect_args={"check_same_thread": False})
+
+
+def test_empty_sqlite_database_upgrades_to_alembic_head(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'alembic-head.db'}"
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    command.upgrade(config, "head")
+
+    engine = _sqlite_engine(database_url)
+    inspector = inspect(engine)
+    with engine.connect() as connection:
+        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20260915_0014"
+    assert "backtest_session_summaries" in inspector.get_table_names()
+    assert "ai_generation_jobs" in inspector.get_table_names()
 
 
 def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):

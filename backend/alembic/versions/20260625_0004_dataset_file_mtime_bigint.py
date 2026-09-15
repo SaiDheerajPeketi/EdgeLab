@@ -17,20 +17,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "dataset_timeframes",
-        "file_mtime_ns",
-        existing_type=sa.Integer(),
-        type_=sa.BigInteger(),
-        existing_nullable=False,
-    )
+    with op.batch_alter_table("dataset_timeframes") as batch_op:
+        batch_op.alter_column(
+            "file_mtime_ns",
+            existing_type=sa.Integer(),
+            type_=sa.BigInteger(),
+            existing_nullable=False,
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "dataset_timeframes",
-        "file_mtime_ns",
-        existing_type=sa.BigInteger(),
-        type_=sa.Integer(),
-        existing_nullable=False,
-    )
+    with op.batch_alter_table("dataset_timeframes") as batch_op:
+        batch_op.alter_column(
+            "file_mtime_ns",
+            existing_type=sa.BigInteger(),
+            type_=sa.Integer(),
+            existing_nullable=False,
+        )

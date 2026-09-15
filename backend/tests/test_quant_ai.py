@@ -271,6 +271,58 @@ class CredentialAdapter:
         return quant.AIProviderResult(content=content, input_tokens=12, output_tokens=4, provider_request_id="req-private")
 
 
+class CancellingAdapter:
+    provider_id = "offline-ai-fixture"
+
+    def __init__(self, session_factory, job_id: int) -> None:
+        self.session_factory = session_factory
+        self.job_id = job_id
+        self.observed_cancel = False
+
+    def generate(self, credentials, request, emit, cancelled):
+        with self.session_factory() as cancelling_db:
+            cancelling_db.execute(
+                update(AIGenerationJob)
+                .where(AIGenerationJob.id == self.job_id)
+                .values(cancel_requested_at=quant.utcnow())
+            )
+            cancelling_db.commit()
+        self.observed_cancel = cancelled()
+        return quant.AIProviderResult(content={"text": "stale result"}, input_tokens=1, output_tokens=1)
+
+
+def test_running_generation_observes_external_cancellation(db):
+    owner = seed_user(db, "cancel-running-ai@example.com")
+    conversation = quant.create_conversation(
+        db, owner.id, AIConversationCreate(kind="CHART_ANALYSIS", title="Cancel running")
+    )
+    queued = quant.create_generation_job(
+        db,
+        owner.id,
+        AIGenerationRequest(
+            conversation_id=conversation.id,
+            operation="CHAT",
+            model_id="offline-deterministic",
+            prompt="cancel while provider is running",
+            idempotency_key="cancel-running",
+        ),
+    )
+    adapter = CancellingAdapter(sessionmaker(bind=db.get_bind()), queued.id)
+    router = quant.AIProviderRouter(
+        [quant.DEFAULT_MODEL_POLICIES[0]],
+        [adapter],
+    )
+
+    with pytest.raises(quant.AIConflictError, match="cancelled"):
+        quant.run_generation_job(db, owner.id, queued.id, router=router)
+
+    assert adapter.observed_cancel is True
+    assert quant.get_generation_job(db, owner.id, queued.id).status == "CANCELLED"
+    assert not db.scalars(
+        select(AIGeneratedArtifact).where(AIGeneratedArtifact.job_id == queued.id)
+    ).all()
+
+
 def external_router(adapter: CredentialAdapter) -> quant.AIProviderRouter:
     return quant.AIProviderRouter(
         policies=[

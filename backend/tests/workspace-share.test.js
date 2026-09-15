@@ -18,8 +18,10 @@ function loadWorkspaceShareModule() {
   for (const file of [
     "workspaceShare.ts",
     "chartSettings.ts",
+    "chartSessions.ts",
     "chartTimezones.ts",
     "colorTokens.ts",
+    "orderFlowPresentation.ts",
   ]) {
     fs.copyFileSync(
       path.join(repoRoot, "frontend/src/lib", file),
