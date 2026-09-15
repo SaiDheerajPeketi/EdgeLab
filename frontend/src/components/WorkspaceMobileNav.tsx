@@ -1,6 +1,5 @@
 import { Check, MoreHorizontal, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MOBILE_PRIMARY_NAVIGATION,
   mobileMoreNavigationSections,
@@ -9,9 +8,7 @@ import {
 } from "../lib/workspaceNavigation";
 import type { WorkspaceView } from "../lib/workspace";
 import { AccountSystemMenu } from "./AccountSystemMenu";
-
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+import { Drawer, IconButton } from "./ui/Primitives";
 
 type Props = {
   activeView: WorkspaceView;
@@ -21,10 +18,7 @@ type Props = {
 export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
-  const titleId = useId();
-  const sheetId = useId();
   const sections = useMemo(mobileMoreNavigationSections, []);
   const primaryActive = MOBILE_PRIMARY_NAVIGATION.some((item) =>
     mobilePrimaryItemIsActive(item.matches, activeView),
@@ -49,36 +43,6 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
     if (!moreOpen) {
       return;
     }
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    window.requestAnimationFrame(() => closeRef.current?.focus());
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeMore();
-        return;
-      }
-      if (event.key !== "Tab" || !sheetRef.current) {
-        return;
-      }
-      const focusable = Array.from(
-        sheetRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      );
-      if (focusable.length === 0) {
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
     const desktopQuery = window.matchMedia("(min-width: 1024px)");
     function handleDesktopChange(event: MediaQueryListEvent) {
       if (event.matches) {
@@ -86,11 +50,8 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown);
     desktopQuery.addEventListener("change", handleDesktopChange);
     return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", handleKeyDown);
       desktopQuery.removeEventListener("change", handleDesktopChange);
     };
   }, [moreOpen]);
@@ -99,7 +60,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
     <>
       <nav
         aria-label="Primary workspace"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#080c12]/[0.98] px-[max(0.35rem,env(safe-area-inset-left))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-18px_50px_rgba(0,0,0,0.38)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--ui-divider)] bg-[var(--ui-navigation-mobile)] px-[max(0.35rem,env(safe-area-inset-left))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[var(--elevation-floating)] lg:hidden"
       >
         <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
           {MOBILE_PRIMARY_NAVIGATION.map((item) => {
@@ -110,8 +71,8 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
                 aria-current={active ? "page" : undefined}
                 className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/50 ${
                   active
-                    ? "bg-cyan-300/[0.11] text-white"
-                    : "text-slate-500 hover:bg-white/[0.05] hover:text-slate-200"
+                    ? "bg-[var(--ui-navigation-active)] text-[var(--text-primary)]"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--ui-navigation-hover)] hover:text-[var(--text-primary)]"
                 }`}
                 key={item.destination}
                 onClick={() => onNavigate(item.destination)}
@@ -127,14 +88,13 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
             );
           })}
           <button
-            aria-controls={sheetId}
             aria-current={!primaryActive ? "page" : undefined}
             aria-expanded={moreOpen}
             aria-haspopup="dialog"
             className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/50 ${
               !primaryActive
-                ? "bg-cyan-300/[0.11] text-white"
-                : "text-slate-500 hover:bg-white/[0.05] hover:text-slate-200"
+                ? "bg-[var(--ui-navigation-active)] text-[var(--text-primary)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--ui-navigation-hover)] hover:text-[var(--text-primary)]"
             }`}
             onClick={() => setMoreOpen(true)}
             ref={moreTriggerRef}
@@ -150,39 +110,19 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
         </div>
       </nav>
 
-      {moreOpen && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 px-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)] backdrop-blur-[2px] lg:hidden"
-              onPointerDown={(event) => {
-                if (event.currentTarget === event.target) {
-                  closeMore();
-                }
-              }}
-            >
-              <div
-                aria-labelledby={titleId}
-                aria-modal="true"
-                className="max-h-[min(86dvh,760px)] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-t-2xl border border-b-0 border-white/10 bg-[#0a0f16] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-28px_90px_rgba(0,0,0,0.62)]"
-                id={sheetId}
-                ref={sheetRef}
-                role="dialog"
-              >
+      <Drawer open={moreOpen} onClose={() => closeMore()} placement="bottom" label="More workspace tools" initialFocusRef={closeRef} className="max-w-2xl border border-b-0 border-[var(--ui-border-subtle)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 lg:hidden">
                 <div aria-hidden="true" className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-600" />
-                <div className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-[#0a0f16]/95 py-2 backdrop-blur">
+                <div className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-[var(--ui-modal)] py-2">
                   <div className="min-w-0">
-                    <h2 className="text-lg font-semibold text-white" id={titleId}>More tools</h2>
+                    <h2 className="text-lg font-semibold text-white">More tools</h2>
                     <p className="mt-0.5 text-sm text-slate-400">Every workspace is one tap away.</p>
                   </div>
-                  <button
-                    aria-label="Close more tools"
-                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 outline-none transition hover:bg-white/[0.08] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+                  <IconButton
+                    icon={X}
+                    label="Close more tools"
                     onClick={() => closeMore()}
                     ref={closeRef}
-                    type="button"
-                  >
-                    <X aria-hidden="true" size={20} />
-                  </button>
+                  />
                 </div>
 
                 <div className="mt-3 grid gap-6 sm:grid-cols-2">
@@ -228,11 +168,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
                     presentation="inline"
                   />
                 </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      </Drawer>
     </>
   );
 }

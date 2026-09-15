@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+
+test("every inventoried route has a maintained UI foundation contract", () => {
+  const inventory = JSON.parse(read("docs/ui-surface-inventory.json"));
+  const contracts = JSON.parse(read("docs/ui-foundation-contracts.json"));
+  assert.deepEqual(Object.keys(contracts.routes).sort(), inventory.routes.map(({ path: route }) => route).sort());
+  for (const [route, contract] of Object.entries(contracts.routes)) {
+    assert.ok(fs.existsSync(path.join(root, contract.source)), `${route} source is missing`);
+    assert.ok(contract.restoration, `${route} has no restoration decision`);
+  }
+  for (const source of Object.values(contracts.sharedContracts)) assert.ok(fs.existsSync(path.join(root, source)), `${source} is missing`);
+});
+
+test("stateful operating routes restore rows, filters, drafts, panels, and chart context", () => {
+  const navigation = read("frontend/src/lib/navigationState.ts");
+  for (const key of ["draft", "filters", "openPanel", "scrollLeft", "scrollTop", "selectedId", "viewport"]) assert.match(navigation, new RegExp(`\\b${key}\\b`));
+  assert.match(read("frontend/src/components/journal/JournalTradesSurface.tsx"), /useRestorableSurfaceState<JournalFilters>[\s\S]*"filters"/);
+  assert.match(read("frontend/src/components/journal/JournalTradesSurface.tsx"), /"selectedId"/);
+  assert.match(read("frontend/src/components/journal/JournalDashboard.tsx"), /"draft"/);
+  assert.match(read("frontend/src/components/ResultsPanel.tsx"), /"reports:results"[\s\S]*"filters"/);
+  const chart = `${read("frontend/src/lib/chartWorkspace.ts")}\n${read("frontend/src/App.tsx")}`;
+  for (const contract of ["visibleRange", "activePaneId", "panelState", "revision"]) assert.ok(chart.includes(contract), `chart workspace does not retain ${contract}`);
+  const settings = read("frontend/src/lib/settingsPreferences.ts");
+  assert.match(settings, /localStorage/);
+  assert.match(read("frontend/src/lib/journalWorkspaceState.ts"), /saveAppStorageItemConfirmed/);
+});
+
+test("navigation and mobile overlay use semantic tokens and shared primitives", () => {
+  const styles = read("frontend/src/styles.css");
+  for (const token of ["--ui-navigation", "--ui-navigation-mobile", "--ui-navigation-active", "--ui-divider", "--ui-danger-surface"]) assert.ok(styles.includes(token), `missing ${token}`);
+  for (const file of ["frontend/src/components/Sidebar.tsx", "frontend/src/components/WorkspaceMobileNav.tsx"]) {
+    const source = read(file);
+    assert.doesNotMatch(source, /#[0-9a-f]{3,8}|rgba?\(/i, `${file} reintroduced one-off colors`);
+  }
+  const mobile = read("frontend/src/components/WorkspaceMobileNav.tsx");
+  assert.match(mobile, /<Drawer[\s\S]*placement="bottom"/);
+  assert.doesNotMatch(mobile, /createPortal|role="dialog"|document\.body\.style\.overflow/);
+});
+
+test("shared icon and language contracts are used by primary navigation", () => {
+  const primitives = read("frontend/src/components/ui/Primitives.tsx");
+  assert.match(primitives, /label: string/);
+  assert.match(primitives, /tooltip \?\? label/);
+  assert.match(primitives, /aria-label=\{label\}/);
+  const navigation = read("frontend/src/lib/workspaceNavigation.ts");
+  assert.match(navigation, /PRODUCT_TERMS/);
+  assert.doesNotMatch(navigation, /\bNotebook\b|\bBacktesting\b|Back test/);
+  const language = read("frontend/src/lib/productLanguage.ts");
+  for (const term of ["account", "Journal", "chart layout", "Live", "Replay", "report", "session", "settings", "workspace"]) assert.ok(language.includes(`\"${term}\"`), `missing canonical term ${term}`);
+});

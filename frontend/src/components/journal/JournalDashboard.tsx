@@ -12,6 +12,7 @@ import {
 import type { CanonicalTrade, JournalAccount, JournalDailyNote } from "../../lib/journalApi";
 import { JournalButton, journalFieldClass } from "./JournalControls";
 import { JournalAccountComparison } from "./JournalAccountComparison";
+import { useRestorableSurfaceState } from "../../lib/useRestorableSurfaceState";
 
 type Props = {
   accounts: JournalAccount[];
@@ -32,13 +33,14 @@ export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTr
   const risk = useMemo(() => riskBehavior(trades), [trades]);
   const calendar = useMemo(() => journalCalendar(trades), [trades]);
   const latestDate = calendar.at(-1)?.date ?? today();
-  const [selectedDate, setSelectedDate] = useState(latestDate);
+  const [selectedDate, setSelectedDate] = useRestorableSurfaceState<string>("journal:dashboard", "selectedId", latestDate);
   const selectedNote = notes.find((note) => note.note_date === selectedDate) ?? null;
-  const [noteBody, setNoteBody] = useState(selectedNote?.body ?? "");
+  const [noteDraft, setNoteDraft] = useRestorableSurfaceState<{ date: string; body: string }>("journal:dashboard", "draft", { date: selectedDate, body: selectedNote?.body ?? "" });
+  const noteBody = noteDraft.date === selectedDate ? noteDraft.body : selectedNote?.body ?? "";
   const [noteState, setNoteState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const selectedAccount = accounts.length === 1 ? accounts[0].id : null;
 
-  useEffect(() => { setNoteBody(selectedNote?.body ?? ""); setNoteState("idle"); }, [selectedDate, selectedNote?.id, selectedNote?.body]);
+  useEffect(() => { setNoteState("idle"); }, [selectedDate, selectedNote?.id, selectedNote?.body]);
 
   const days = useMemo(() => calendarDays(latestDate, calendar), [calendar, latestDate]);
   const selectedTrades = trades.filter((trade) => trade.entry_time.slice(0, 10) === selectedDate);
@@ -75,7 +77,7 @@ export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTr
 
     <div className="grid gap-8 2xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,.75fr)]">
       <section aria-labelledby="calendar-heading" className="min-w-0 border-t border-white/10 pt-5"><div className="flex items-center gap-2"><CalendarDays aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="calendar-heading" className="text-base font-semibold text-white">Trading calendar</h2><span className="ml-auto text-xs text-slate-500">Select a day for its note and trades</span></div><div className="mt-4 grid grid-cols-7 gap-px overflow-hidden rounded-md bg-white/10" role="grid" aria-label="Recent trading days">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day) => <div key={day} role="columnheader" className="bg-[#0d1117] px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600">{day}</div>)}{days.map((day) => <button key={day.date} type="button" role="gridcell" aria-selected={selectedDate === day.date} onClick={() => { setSelectedDate(day.date); onOpenDate(day.date); }} className={`min-h-16 bg-[#0d1117] p-2 text-left outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 ${selectedDate === day.date ? "bg-cyan-300/[0.08]" : ""}`}><span className="text-[11px] text-slate-500">{Number(day.date.slice(8))}</span>{day.summary ? <><span className={`mt-1 block text-xs font-semibold tabular-nums ${day.summary.netPnl >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{currency.combinable ? compactMoney(day.summary.netPnl, currency.currency) : `${day.summary.totalTrades} trades`}</span><span className="mt-0.5 block text-[10px] text-slate-600">{day.summary.totalTrades} · {day.summary.winRate.toFixed(0)}%</span></> : null}</button>)}</div></section>
-      <section aria-labelledby="daily-note-heading" className="border-t border-white/10 pt-5"><div className="flex items-center justify-between gap-3"><div><h2 id="daily-note-heading" className="text-base font-semibold text-white">Daily note</h2><p className="mt-1 text-xs text-slate-500">{formatDate(selectedDate)} · {selectedTrades.length} trade{selectedTrades.length === 1 ? "" : "s"}</p></div><button type="button" onClick={() => onOpenDate(selectedDate)} className="min-h-9 text-xs font-semibold text-cyan-300 hover:underline">Open full day</button></div><label className="mt-4 block text-xs text-slate-500">Session reflection<textarea className={`${journalFieldClass} mt-1 min-h-40 resize-y py-2`} value={noteBody} onChange={(event) => { setNoteBody(event.target.value); setNoteState("idle"); }} placeholder="Plan quality, execution, emotions, and what to carry forward…" /></label><div className="mt-3 flex items-center justify-between gap-3"><span className={`text-xs ${noteState === "error" ? "text-rose-200" : "text-slate-500"}`}>{noteState === "saving" ? "Saving…" : noteState === "saved" ? "Saved across devices" : noteState === "error" ? "Save failed. Your text is still here." : "Explicit save"}</span><JournalButton onClick={() => void saveNote()} disabled={noteState === "saving" || noteBody === (selectedNote?.body ?? "")} tone="primary"><Save aria-hidden="true" className="h-4 w-4" />{noteState === "error" ? "Retry" : "Save note"}</JournalButton></div></section>
+      <section aria-labelledby="daily-note-heading" className="border-t border-white/10 pt-5"><div className="flex items-center justify-between gap-3"><div><h2 id="daily-note-heading" className="text-base font-semibold text-white">Daily note</h2><p className="mt-1 text-xs text-slate-500">{formatDate(selectedDate)} · {selectedTrades.length} trade{selectedTrades.length === 1 ? "" : "s"}</p></div><button type="button" onClick={() => onOpenDate(selectedDate)} className="min-h-9 text-xs font-semibold text-cyan-300 hover:underline">Open full day</button></div><label className="mt-4 block text-xs text-slate-500">Session reflection<textarea className={`${journalFieldClass} mt-1 min-h-40 resize-y py-2`} value={noteBody} onChange={(event) => { setNoteDraft({ date: selectedDate, body: event.target.value }); setNoteState("idle"); }} placeholder="Plan quality, execution, emotions, and what to carry forward…" /></label><div className="mt-3 flex items-center justify-between gap-3"><span className={`text-xs ${noteState === "error" ? "text-rose-200" : "text-slate-500"}`}>{noteState === "saving" ? "Saving…" : noteState === "saved" ? "Saved across devices" : noteState === "error" ? "Save failed. Your text is still here." : "Explicit save"}</span><JournalButton onClick={() => void saveNote()} disabled={noteState === "saving" || noteBody === (selectedNote?.body ?? "")} tone="primary"><Save aria-hidden="true" className="h-4 w-4" />{noteState === "error" ? "Retry" : "Save note"}</JournalButton></div></section>
     </div>
 
     <JournalAccountComparison accounts={accounts} trades={trades} />

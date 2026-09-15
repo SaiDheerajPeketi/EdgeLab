@@ -101,6 +101,7 @@ import {
 } from "@/components/charts/profit-loss-line";
 import { ChartTooltip as BacklitChartTooltip } from "@/components/charts/tooltip";
 import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
+import { Dialog, DialogHeader } from "@/components/ui/Primitives";
 import {
   exportAppDataBundle,
   getAngelOneInstruments,
@@ -18394,19 +18395,17 @@ function ModalFrame({
 }) {
   const widthClass = maxWidth === "wide" ? "w-[min(760px,100%)]" : "w-[min(520px,100%)]";
   return (
-    <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 px-4 py-6">
-      <div className={`grid max-h-[calc(100vh-48px)] ${widthClass} grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-cyan-300/15 bg-[#071018] shadow-panel`}>
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-          <h2 className="truncate text-lg font-semibold text-white">{title}</h2>
-          <button className="icon-button h-9 w-9" onClick={onClose} type="button">
-            <X size={15} />
-          </button>
-        </div>
+    <Dialog
+      className={`grid ${widthClass} max-w-none grid-rows-[auto_minmax(0,1fr)] overflow-hidden`}
+      label={title}
+      onClose={onClose}
+      open
+    >
+        <DialogHeader onClose={onClose} title={title} />
         <div className="min-h-0 overflow-y-auto p-4">
           {children}
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 

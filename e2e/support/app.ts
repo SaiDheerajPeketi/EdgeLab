@@ -314,8 +314,7 @@ export async function seedApprovedSession(page: Page) {
 
 export async function seedChartLayout(page: Page, paneLayout: "single" | "grid-4" | "grid-16") {
   await page.addInitScript(({ layout }) => {
-    const key = "edgelab.chart-layout.v1.user-7001";
-    window.localStorage.setItem(key, JSON.stringify({
+    const value = JSON.stringify({
       chartStyle: "candles",
       drawings: [],
       indicatorInstances: [],
@@ -326,8 +325,11 @@ export async function seedChartLayout(page: Page, paneLayout: "single" | "grid-4
       showOrderOverlays: true,
       smoothCandles: false,
       timeframe: "5m",
-    }));
-    window.localStorage.setItem(`${key}.__updatedAt`, String(Date.now()));
+    });
+    for (const key of ["edgelab.chart-layout.v1.user-7001", "edgelab.live-chart-layout.v1.user-7001"]) {
+      window.localStorage.setItem(key, value);
+      window.localStorage.setItem(`${key}.__updatedAt`, String(Date.now()));
+    }
   }, { layout: paneLayout });
 }
 

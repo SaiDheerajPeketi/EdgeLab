@@ -13,10 +13,10 @@ import {
   StepForward,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
   dateFormat?: ReplayDateFormat;
@@ -339,16 +339,9 @@ export function ReplayDateTimePicker({
   timeHoursFormat: TimeHoursFormat;
   value: string;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
-  const [popoverPosition, setPopoverPosition] = useState<{
-    left: number;
-    maxHeight: number;
-    top: number;
-    width: number;
-  } | null>(null);
   const selected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
   const [viewYear, setViewYear] = useState(() => selected?.year ?? new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => selected?.month ?? new Date().getMonth() + 1);
@@ -379,72 +372,6 @@ export function ReplayDateTimePicker({
     setDraftHour(nextSelected.hour);
     setDraftMinute(nextSelected.minute);
   }, [currentTimestamp, open, value]);
-
-  useEffect(() => {
-    function closeOnOutside(event: PointerEvent) {
-      if (!open || !containerRef.current) {
-        return;
-      }
-      const target = event.target as Node;
-      if (
-        !containerRef.current.contains(target) &&
-        !popoverRef.current?.contains(target)
-      ) {
-        setOpen(false);
-      }
-    }
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) {
-      return;
-    }
-
-    function syncPopoverPosition() {
-      const trigger = triggerRef.current;
-      if (!trigger) {
-        return;
-      }
-      const rect = trigger.getBoundingClientRect();
-      const margin = 12;
-      const width = Math.min(340, window.innerWidth - margin * 2);
-      const left = Math.min(
-        Math.max(margin, rect.right - width),
-        window.innerWidth - width - margin,
-      );
-      const top = Math.min(
-        rect.bottom + 10,
-        Math.max(margin, window.innerHeight - 430),
-      );
-      setPopoverPosition({
-        left,
-        maxHeight: Math.max(280, window.innerHeight - top - margin),
-        top,
-        width,
-      });
-    }
-
-    syncPopoverPosition();
-    window.addEventListener("resize", syncPopoverPosition);
-    window.addEventListener("scroll", syncPopoverPosition, true);
-    return () => {
-      window.removeEventListener("resize", syncPopoverPosition);
-      window.removeEventListener("scroll", syncPopoverPosition, true);
-    };
-  }, [open]);
 
   function openPicker() {
     if (disabled) {
@@ -535,11 +462,10 @@ export function ReplayDateTimePicker({
     : placeholder;
   const is12Hour = timeHoursFormat === "12-hour";
   const currentPeriod = hourPeriod(draftHour);
-  const portalHost = currentPortalHost();
   const activeDraftDay = Math.min(draftDay, daysInMonth(viewYear, viewMonth));
 
   return (
-    <div className="replay-date-picker" ref={containerRef}>
+    <div className="replay-date-picker">
       <button
         className={`replay-date-trigger ${is12Hour ? "replay-date-trigger-12" : ""}`}
         disabled={disabled}
@@ -551,17 +477,19 @@ export function ReplayDateTimePicker({
         <span>{displayValue}</span>
       </button>
 
-      {open && popoverPosition && createPortal(
-        <div
-          className="replay-date-popover replay-date-popover-floating"
-          ref={popoverRef}
-          style={{
-            left: popoverPosition.left,
-            maxHeight: popoverPosition.maxHeight,
-            top: popoverPosition.top,
-            width: popoverPosition.width,
-          }}
-        >
+      <OverlaySurface
+        align="right"
+        anchorRef={triggerRef}
+        ariaLabel={dialogLabel}
+        className="replay-date-popover replay-date-popover-floating z-[180]"
+        estimatedHeight={430}
+        onDismiss={() => setOpen(false)}
+        open={open}
+        preferredWidth={340}
+        role="dialog"
+        surfaceRef={popoverRef}
+        triggerRef={triggerRef}
+      >
           <div className="replay-date-popover-header">
             <button
               aria-label={viewMode === "years" ? "Previous 12 years" : "Previous month"}
@@ -695,15 +623,9 @@ export function ReplayDateTimePicker({
               Set
             </button>
           </div>
-        </div>,
-        portalHost,
-      )}
+      </OverlaySurface>
     </div>
   );
-}
-
-function currentPortalHost() {
-  return document.fullscreenElement ?? document.body;
 }
 
 function toReplayInputValue(value: string | null) {

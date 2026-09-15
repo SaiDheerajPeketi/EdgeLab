@@ -107,6 +107,12 @@
   --ui-overlay-backdrop: rgba(0, 0, 0, 0.72);
   --ui-hover: rgba(240, 242, 245, 0.06);
   --ui-pressed: rgba(240, 242, 245, 0.1);
+  --ui-navigation: #070a0f;
+  --ui-navigation-mobile: #080c12;
+  --ui-navigation-active: rgba(50, 211, 238, 0.11);
+  --ui-navigation-hover: rgba(240, 242, 245, 0.05);
+  --ui-divider: rgba(240, 242, 245, 0.08);
+  --ui-danger-surface: #16090d;
   --interaction: var(--accent-primary);
   --on-interaction: #061017;
   --interaction-hover: #67e8f9;
@@ -199,9 +205,15 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 .ui-modal-backdrop { animation: ui-backdrop-enter var(--motion-app-fast) linear both; }
 .ui-dialog-surface { animation: ui-dialog-enter var(--motion-app-base) var(--ease-out) both; }
 .ui-drawer-surface { animation: ui-drawer-enter var(--motion-app-base) var(--ease-out) both; }
+.ui-drawer-surface-bottom { animation-name: ui-drawer-enter-bottom; }
 .ui-workspace-panel { animation: ui-panel-from-right var(--motion-app-base) var(--ease-out) both; contain: paint; }
 .ui-workspace-panel[data-dock="left"] { animation-name: ui-panel-from-left; }
 .ui-workspace-panel-trigger { animation: ui-control-feedback var(--motion-app-fast) var(--ease-out) both; }
+[data-motion="route-surface"] { animation: ui-route-enter var(--motion-app-fast) var(--ease-out) both; }
+[data-motion="microfeedback"] { transition: color var(--motion-app-fast) var(--ease-out), background-color var(--motion-app-fast) var(--ease-out), transform var(--motion-app-fast) var(--ease-out); }
+[data-motion="microfeedback"]:active:not(:disabled) { transform: scale(.975); }
+[data-chart-active="true"], [data-pane-active="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interaction) 68%, transparent); }
+[data-chart-feedback="linked"] { animation: ui-control-feedback var(--motion-app-fast) var(--ease-out) both; }
 .ui-action-feedback { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--ui-inset); color: var(--text-secondary); }
 .ui-action-feedback[data-state="saved"] { background: color-mix(in srgb, var(--profit) 9%, var(--ui-inset)); color: var(--profit-text); animation: ui-control-feedback var(--motion-app-base) var(--ease-out) both; }
 .ui-action-feedback[data-state="error"] { background: color-mix(in srgb, var(--loss) 9%, var(--ui-inset)); color: var(--loss-text); }
@@ -217,6 +229,7 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 @keyframes ui-backdrop-enter { from { opacity: 0; } }
 @keyframes ui-dialog-enter { from { opacity: .9; transform: translate3d(0, var(--motion-distance-sm), 0) scale(.985); } }
 @keyframes ui-drawer-enter { from { transform: translate3d(var(--motion-distance-md), 0, 0); } }
+@keyframes ui-drawer-enter-bottom { from { transform: translate3d(0, var(--motion-distance-md), 0); } }
 @keyframes ui-panel-from-right { from { opacity: .96; transform: translate3d(var(--motion-distance-md), 0, 0); } }
 @keyframes ui-panel-from-left { from { opacity: .96; transform: translate3d(calc(-1 * var(--motion-distance-md)), 0, 0); } }
 @keyframes ui-control-feedback { 40% { transform: scale(.985); } }
@@ -241,7 +254,7 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 .ui-critical-state__title { font-weight: 650; line-height: 1.25; }
 .ui-critical-state__detail, .ui-critical-state__timestamp { margin-top: var(--space-1); max-width: 70ch; color: var(--text-secondary); line-height: 1.5; }
 .ui-critical-state__timestamp { font-family: var(--font-data); font-size: 0.75rem; }
-.ui-critical-state__action { min-height: 40px; padding: 0 var(--space-3); border-radius: var(--radius-md); background: var(--accent-primary); color: #061017; font-weight: 700; }
+.ui-critical-state__action { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 40px; padding: 0 var(--space-3); border-radius: var(--radius-md); background: var(--accent-primary); color: #061017; font-weight: 700; }
 
 @media (max-width: 640px) {
   .ui-critical-state { grid-template-columns: auto minmax(0, 1fr); }
@@ -2288,16 +2301,18 @@ button:disabled {
   .chart-radial-toolbox {
     position: fixed;
     z-index: 10000;
-    width: 0;
-    height: 0;
+    width: 224px;
+    height: 224px;
+    margin-left: -112px;
+    margin-top: -112px;
     pointer-events: none;
     animation: chart-radial-toolbox-in 150ms var(--ease-out) both;
   }
 
   .chart-radial-toolbox-ring {
     position: absolute;
-    left: -112px;
-    top: -112px;
+    left: 0;
+    top: 0;
     width: 224px;
     height: 224px;
     border: 1px solid rgba(103, 232, 249, 0.22);
@@ -2333,6 +2348,8 @@ button:disabled {
 
   .chart-radial-toolbox-center {
     @apply absolute grid h-[68px] w-[112px] -translate-x-1/2 -translate-y-1/2 place-content-center gap-1 rounded-full border border-white/10 bg-[#080d12] px-3 text-center shadow-[0_10px_28px_rgba(0,0,0,0.4)];
+    left: 112px;
+    top: 112px;
   }
 
   .chart-radial-toolbox-center strong {

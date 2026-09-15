@@ -209,7 +209,7 @@ export function ThemedColorPicker({
 
       {!open && hexError && (
         <span
-          className="absolute left-0 top-full z-[300] mt-1 w-64 rounded border border-rose-400/30 bg-[#16090d] px-2 py-1.5 text-[11px] leading-4 text-rose-200 shadow-panel"
+          className="absolute left-0 top-full z-[300] mt-1 w-64 rounded-[var(--radius-sm)] border border-[var(--loss-text)] bg-[var(--ui-danger-surface)] px-2 py-1.5 text-[11px] leading-4 text-[var(--loss-text)] shadow-[var(--elevation-floating)]"
           id={errorId}
           role="alert"
         >

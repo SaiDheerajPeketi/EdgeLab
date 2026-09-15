@@ -1,8 +1,9 @@
-import { AlertCircle, Check, ChevronDown, Filter, RefreshCw, X } from "lucide-react";
+import { Check, ChevronDown, Filter, RefreshCw, X } from "lucide-react";
 import type { ReactNode } from "react";
 import type { JournalAccount, JournalTag } from "../../lib/journalApi";
 import { inferMarket, tagOptions, type JournalFilters } from "../../lib/journalAnalytics";
 import type { JournalAccountScope } from "../../lib/journalWorkspaceState";
+import { CriticalStateSurface } from "../ui/CriticalStateSurface";
 
 export const journalFieldClass = "min-h-10 w-full rounded-md border border-white/10 bg-[#0a0d11] px-3 text-sm text-slate-100 outline-none focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -48,7 +49,7 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 }
 
 export function JournalError({ message, onRetry, onDismiss }: { message: string; onRetry?: () => void; onDismiss?: () => void }) {
-  return <div role="alert" className="flex flex-col gap-3 border-y border-rose-400/25 bg-rose-400/[0.06] px-4 py-3 text-sm text-rose-100 sm:flex-row sm:items-center"><AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1">{message}</span><div className="flex gap-2">{onRetry ? <button type="button" onClick={onRetry} className="inline-flex min-h-9 items-center gap-1.5 rounded px-2 font-semibold text-white hover:bg-rose-400/10"><RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />Retry</button> : null}{onDismiss ? <button type="button" onClick={onDismiss} className="min-h-9 rounded px-2 text-rose-200 hover:bg-rose-400/10">Dismiss</button> : null}</div></div>;
+  return <CriticalStateSurface state="error" title="Journal could not update" detail={message} action={<div className="flex gap-2">{onRetry ? <button type="button" onClick={onRetry} className="ui-critical-state__action"><RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />Retry</button> : null}{onDismiss ? <button type="button" onClick={onDismiss} className="ui-critical-state__action">Dismiss</button> : null}</div>} />;
 }
 
 export function JournalSkeleton({ rows = 6 }: { rows?: number }) {
@@ -56,10 +57,10 @@ export function JournalSkeleton({ rows = 6 }: { rows?: number }) {
 }
 
 export function JournalEmpty({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
-  return <div className="mx-auto max-w-lg px-5 py-14 text-center"><h2 className="text-lg font-semibold text-white">{title}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">{detail}</p>{action ? <div className="mt-5 flex justify-center">{action}</div> : null}</div>;
+  return <CriticalStateSurface state="empty" title={title} detail={detail} action={action} />;
 }
 
 export function JournalButton({ children, onClick, disabled, tone = "secondary", type = "button" }: { children: ReactNode; onClick?: () => void; disabled?: boolean; tone?: "primary" | "secondary" | "danger"; type?: "button" | "submit" }) {
   const toneClass = tone === "primary" ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200" : tone === "danger" ? "border border-rose-400/30 text-rose-200 hover:bg-rose-400/10" : "border border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.07]";
-  return <button type={type} onClick={onClick} disabled={disabled} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45 ${toneClass}`}>{children}</button>;
+  return <button type={type} onClick={onClick} disabled={disabled} data-motion="microfeedback" className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45 ${toneClass}`}>{children}</button>;
 }

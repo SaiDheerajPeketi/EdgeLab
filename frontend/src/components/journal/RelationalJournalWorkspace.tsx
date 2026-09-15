@@ -34,6 +34,7 @@ export function RelationalJournalWorkspace({ view }: { view: WorkspaceView }) {
   const [sampleBusy, setSampleBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const selectedTrade = journal.trades.find((trade) => trade.id === selectedTradeId) ?? null;
+  const routePresentation = journalRoutePresentation(view);
 
   useEffect(() => { const next = viewSurface(view); setSurface(next); setInitialDimension(viewDimension(view)); }, [view]);
   useEffect(() => {
@@ -56,13 +57,13 @@ export function RelationalJournalWorkspace({ view }: { view: WorkspaceView }) {
 
   const panel = <JournalDock trades={journal.scopedTrades} onOpen={openTrade} onOpenAll={() => navigate("trades")} />;
   return <div className="ui-operating-surface min-h-0 bg-[#0d1117] text-slate-200" data-ui-surface="journal" data-active-view={surface}>
-    <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0d1117]/95 backdrop-blur"><div className="flex min-h-14 items-center gap-2 overflow-x-auto px-3 sm:px-5"><span className="mr-1 shrink-0 text-sm font-semibold text-white">Journal</span>{NAV.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" aria-current={surface === item.id ? "page" : undefined} onClick={() => navigate(item.id)} className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${surface === item.id ? "bg-white/10 text-white" : "text-slate-500 hover:bg-white/5 hover:text-slate-200"}`}><Icon aria-hidden="true" className="h-3.5 w-3.5" />{item.label}</button>; })}<button type="button" onClick={() => void journal.refresh()} disabled={journal.loading} className="ml-auto grid h-10 w-10 shrink-0 place-items-center rounded text-slate-500 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" aria-label="Refresh Journal"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${journal.loading ? "animate-spin motion-reduce:animate-none" : ""}`} /></button></div></header>
+    <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0d1117]/95 backdrop-blur"><div className="flex min-h-14 items-center gap-2 overflow-x-auto px-3 sm:px-5"><span className="mr-1 shrink-0 text-sm font-semibold text-white" title={routePresentation.description}>Journal <span className="text-slate-500">/ {routePresentation.label}</span></span>{NAV.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" aria-current={surface === item.id ? "page" : undefined} onClick={() => navigate(item.id)} data-motion="microfeedback" className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${surface === item.id ? "bg-white/10 text-white" : "text-slate-500 hover:bg-white/5 hover:text-slate-200"}`}><Icon aria-hidden="true" className="h-3.5 w-3.5" />{item.label}</button>; })}<button type="button" onClick={() => void journal.refresh()} disabled={journal.loading} className="ml-auto grid h-10 w-10 shrink-0 place-items-center rounded text-slate-500 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" aria-label="Refresh Journal"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${journal.loading ? "animate-spin motion-reduce:animate-none" : ""}`} /></button></div></header>
     <JournalPanelManager slots={{ journal: panel }} label="Journal review panel"><section aria-label="Journal workspace" className="min-w-0 px-3 py-5 sm:px-5 lg:px-6"><div className="mx-auto max-w-[96rem]">
       <div className="mb-5 grid gap-3 border-b border-white/10 pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"><JournalScopeControl accounts={journal.accounts} scope={journal.scope} onChange={journal.setScope} /><div className="flex flex-wrap gap-2"><JournalButton onClick={() => navigate("trades")} disabled={!journal.accounts.length}><Plus aria-hidden="true" className="h-4 w-4" />Quick add</JournalButton>{journal.imports.some((run) => run.source_name === "EdgeLab sample trades" && run.status === "COMPLETED") ? <JournalButton tone="danger" disabled={sampleBusy} onClick={() => void resetSample()}><RotateCcw aria-hidden="true" className="h-4 w-4" />Reset sample</JournalButton> : null}</div></div>
       {journal.error ? <div className="mb-5"><JournalError message={journal.error} onRetry={() => void journal.refresh()} onDismiss={journal.clearError} /></div> : null}
       {notice ? <p role="status" className="mb-5 border-y border-emerald-300/20 bg-emerald-300/[0.04] px-3 py-2 text-sm text-emerald-100">{notice}</p> : null}
       {journal.migration === "migrating" ? <p className="mb-5 flex items-center gap-2 text-xs text-slate-500"><LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />Checking the safe one-time legacy Journal backfill…</p> : null}
-      {!journal.accounts.length ? <Onboarding busy={sampleBusy} onAccounts={() => navigate("accounts")} onSample={() => void importSample()} /> : <SurfaceContent surface={surface} journal={journal} initialDimension={initialDimension} selectedDate={selectedDate} navigate={navigate} openTrade={openTrade} />}
+      {!journal.accounts.length ? <Onboarding busy={sampleBusy} onAccounts={() => navigate("accounts")} onSample={() => void importSample()} /> : <div key={`${view}-${surface}`} data-motion="route-surface" data-journal-route={view}><SurfaceContent surface={surface} journal={journal} initialDimension={initialDimension} selectedDate={selectedDate} navigate={navigate} openTrade={openTrade} /></div>}
     </div></section></JournalPanelManager>
     <JournalReviewDrawer trade={selectedTrade} tags={journal.tags} returnLabel={NAV.find((item) => item.id === surface)?.label ?? "Journal"} onClose={() => { setSelectedTradeId(null); window.history.replaceState(null, "", journalDeepLink({ surface, tradeId: null, date: selectedDate, accountId: null, segment: null, returnTo: null })); }} onSave={journal.updateReview} onCreateTag={journal.addTag} />
   </div>;
@@ -84,3 +85,17 @@ function viewSurface(view: WorkspaceView): Surface { if (view === "journalAccoun
 function viewDimension(view: WorkspaceView): JournalBreakdownDimension { if (view === "journalStrategies" || view === "journalPlaybooks") return "strategy"; if (view === "journalSessions") return "account"; if (view === "journalReports") return "market"; return "market"; }
 function linkSurface(surface: JournalDeepLink["surface"]): Surface { return surface === "calendar" ? "notes" : surface; }
 function isDimension(value: string): value is JournalBreakdownDimension { return ["account","direction","duration","grade","hour","market","rating","size","strategy","symbol","tag","weekday"].includes(value); }
+
+const JOURNAL_ROUTE_PRESENTATION: Partial<Record<WorkspaceView, { label: string; description: string }>> = {
+  journal: { label: "Trades", description: "Capture and review journaled executions" },
+  journalTrades: { label: "Trade log", description: "Filter, select, and review canonical trades" },
+  journalDashboard: { label: "Overview", description: "Account-scoped performance and review discipline" },
+  journalDayView: { label: "Day & week review", description: "Calendar-linked trading days and weekly patterns" },
+  journalNotes: { label: "Notes", description: "Daily and trade-linked reflections" },
+  journalAccounts: { label: "Accounts & imports", description: "Connections, account comparison, and imports" },
+  journalReports: { label: "Reports", description: "Segmented Journal analytics and drill-down" },
+  journalStrategies: { label: "Strategies", description: "Strategy performance and review evidence" },
+  journalPlaybooks: { label: "Playbooks", description: "Playbook adherence and outcomes" },
+  journalSessions: { label: "Sessions", description: "Session-scoped Journal performance" },
+};
+function journalRoutePresentation(view: WorkspaceView) { return JOURNAL_ROUTE_PRESENTATION[view] ?? { label: "Workspace", description: "Relational trading Journal" }; }

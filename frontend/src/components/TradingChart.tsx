@@ -3588,8 +3588,8 @@ function RadialDrawingToolbox({
             onPointerEnter={() => onHighlight(index)}
             role="menuitem"
             style={{
-              left: Math.cos(angle) * RADIAL_TOOLBOX_RADIUS,
-              top: Math.sin(angle) * RADIAL_TOOLBOX_RADIUS,
+              left: RADIAL_TOOLBOX_RADIUS + Math.cos(angle) * RADIAL_TOOLBOX_RADIUS,
+              top: RADIAL_TOOLBOX_RADIUS + Math.sin(angle) * RADIAL_TOOLBOX_RADIUS,
             }}
             title={`${index + 1}. ${definition.label}`}
             type="button"

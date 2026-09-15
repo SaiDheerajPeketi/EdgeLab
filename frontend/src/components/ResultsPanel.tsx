@@ -30,6 +30,7 @@ import type { BacktestSession, Metrics, Trade } from "../lib/api";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { formatMarketSymbol } from "../lib/symbols";
 import { sessionStrategyName, tradeStrategyName } from "../lib/strategy";
+import { useRestorableSurfaceState } from "../lib/useRestorableSurfaceState";
 
 type Props = {
   activeSessionId: number | null;
@@ -100,9 +101,10 @@ export function ResultsPanel({
   onViewChange,
   view,
 }: Props) {
-  const [localView, setLocalView] = useState<ResultsPanelView>("overview");
-  const [localTradeSearch, setLocalTradeSearch] = useState("");
-  const [localOutcomeFilter, setLocalOutcomeFilter] = useState<ResultsTradeOutcomeFilter>("ALL");
+  const [localView, setLocalView] = useRestorableSurfaceState<ResultsPanelView>("reports:results", "openPanel", "overview");
+  const [reportControls, setReportControls] = useRestorableSurfaceState<{ search: string; outcome: ResultsTradeOutcomeFilter }>("reports:results", "filters", { search: "", outcome: "ALL" });
+  const localTradeSearch = reportControls.search;
+  const localOutcomeFilter = reportControls.outcome;
   const currentView = view ?? localView;
   const currentTradeSearch = search ?? localTradeSearch;
   const currentOutcomeFilter = filter ?? localOutcomeFilter;
@@ -190,14 +192,14 @@ export function ResultsPanel({
   function setPanelSearch(nextSearch: string) {
     onSearchChange?.(nextSearch);
     if (search == null) {
-      setLocalTradeSearch(nextSearch);
+      setReportControls((current) => ({ ...current, search: nextSearch }));
     }
   }
 
   function setPanelFilter(nextFilter: ResultsTradeOutcomeFilter) {
     onFilterChange?.(nextFilter);
     if (filter == null) {
-      setLocalOutcomeFilter(nextFilter);
+      setReportControls((current) => ({ ...current, outcome: nextFilter }));
     }
   }
 

@@ -1,26 +1,29 @@
 import type { WorkspaceView } from "./workspace";
 
+export type NavigationSurfaceId = WorkspaceView | `journal:${string}` | `reports:${string}` | `settings:${string}` | `chart:${string}`;
+
 export type NavigationSurfaceState = {
   draft?: Record<string, unknown>;
   filters?: Record<string, unknown>;
   openPanel?: string | null;
   scrollLeft: number;
   scrollTop: number;
-  selectedId?: string | number | null;
+  selectedId?: string | number | Array<string | number> | null;
+  viewport?: Record<string, number | string | boolean | null>;
 };
 
-const memory = new Map<WorkspaceView, NavigationSurfaceState>();
+const memory = new Map<NavigationSurfaceId, NavigationSurfaceState>();
 const STORAGE_KEY = "edgelab.navigation-surfaces.v2";
 
 hydrateMemory();
 
-export function rememberNavigationState(view: WorkspaceView, state: NavigationSurfaceState) {
+export function rememberNavigationState(view: NavigationSurfaceId, state: NavigationSurfaceState) {
   memory.set(view, structuredCloneSafe(state));
   persistMemory();
 }
 
 export function updateNavigationState(
-  view: WorkspaceView,
+  view: NavigationSurfaceId,
   patch: Partial<NavigationSurfaceState>,
 ) {
   const current = memory.get(view) ?? { scrollLeft: 0, scrollTop: 0 };
@@ -34,7 +37,7 @@ export function navigationDeepLink(
 ) {
   const query = new URLSearchParams();
   if (state.openPanel) query.set("panel", state.openPanel);
-  if (state.selectedId != null) query.set("selected", String(state.selectedId));
+  if (state.selectedId != null && !Array.isArray(state.selectedId)) query.set("selected", String(state.selectedId));
   const suffix = query.toString();
   return `#workspace/${encodeURIComponent(view)}${suffix ? `?${suffix}` : ""}`;
 }
@@ -50,12 +53,12 @@ export function parseNavigationDeepLink(hash: string) {
   };
 }
 
-export function navigationStateFor(view: WorkspaceView) {
+export function navigationStateFor(view: NavigationSurfaceId) {
   const state = memory.get(view);
   return state ? structuredCloneSafe(state) : null;
 }
 
-export function rememberWindowScroll(view: WorkspaceView) {
+export function rememberWindowScroll(view: NavigationSurfaceId) {
   if (typeof window === "undefined") return;
   const current = memory.get(view);
   rememberNavigationState(view, {
@@ -65,7 +68,7 @@ export function rememberWindowScroll(view: WorkspaceView) {
   });
 }
 
-export function restoreWindowScroll(view: WorkspaceView) {
+export function restoreWindowScroll(view: NavigationSurfaceId) {
   if (typeof window === "undefined") return () => undefined;
   const state = navigationStateFor(view);
   if (!state) return () => undefined;
@@ -90,7 +93,7 @@ function hydrateMemory() {
     const stored = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, NavigationSurfaceState>;
     Object.entries(stored).forEach(([view, state]) => {
       if (state && Number.isFinite(state.scrollLeft) && Number.isFinite(state.scrollTop)) {
-        memory.set(view as WorkspaceView, structuredCloneSafe(state));
+        memory.set(view as NavigationSurfaceId, structuredCloneSafe(state));
       }
     });
   } catch {

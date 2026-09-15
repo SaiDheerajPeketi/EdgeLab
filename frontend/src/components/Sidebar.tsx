@@ -10,6 +10,7 @@ import {
 } from "../lib/workspaceNavigation";
 import { AccountSystemMenu } from "./AccountSystemMenu";
 import { EdgeLabMark, EdgeLabWordmark } from "./brand/EdgeLabBrand";
+import { IconButton } from "./ui/Primitives";
 
 const SIDEBAR_ICON_SIZE = 18;
 
@@ -25,8 +26,8 @@ function sidebarItemClass(collapsed: boolean, active: boolean) {
     collapsed ? "w-11 justify-center" : "w-full gap-3 px-3 text-left"
   } ${
     active
-      ? "bg-cyan-300/[0.11] font-semibold text-white ring-1 ring-inset ring-cyan-300/20"
-      : "text-slate-400 hover:bg-white/[0.05] hover:text-white"
+      ? "bg-[var(--ui-navigation-active)] font-semibold text-[var(--text-primary)] ring-1 ring-inset ring-[var(--ui-border-strong)]"
+      : "text-[var(--text-secondary)] hover:bg-[var(--ui-navigation-hover)] hover:text-[var(--text-primary)]"
   }`;
 }
 
@@ -39,7 +40,7 @@ export function Sidebar({
   return (
     <aside
       aria-label="Workspace navigation"
-      className={`edge-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen shrink-0 border-r border-white/[0.08] bg-[#070a0f] text-slate-300 transition-[width] duration-200 ease-el-out lg:flex lg:flex-col ${
+      className={`edge-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen shrink-0 border-r border-[var(--ui-divider)] bg-[var(--ui-navigation)] text-[var(--text-secondary)] transition-[width] duration-[var(--motion-app-base)] ease-el-out lg:flex lg:flex-col ${
         collapsed ? "items-center px-4 py-4" : "px-4 py-4"
       }`}
       style={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH }}
@@ -47,7 +48,7 @@ export function Sidebar({
       <div className={`flex h-12 w-full items-center ${collapsed ? "justify-center" : "justify-between gap-3"}`}>
         {collapsed ? (
           <div
-            className="grid h-11 w-11 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/[0.08] text-cyan-100 outline-none transition hover:bg-cyan-300/[0.13] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+            className="grid h-11 w-11 place-items-center rounded-[var(--radius-md)] border border-[var(--ui-border-strong)] bg-[var(--ui-selection)] text-[var(--text-primary)] outline-none transition hover:bg-[var(--ui-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
             title="EdgeLab"
           >
             <EdgeLabMark className="h-8 w-8" />
@@ -57,29 +58,23 @@ export function Sidebar({
             <div className="min-w-0 flex-1">
               <EdgeLabWordmark markFrame="bare" showTagline={false} size="sm" />
             </div>
-            <button
-              aria-label="Collapse workspace navigation"
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 outline-none transition hover:bg-white/[0.06] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+            <IconButton
+              icon={PanelLeftClose}
+              label="Collapse workspace navigation"
+              className="h-11 w-11"
               onClick={() => onCollapsedChange(true)}
-              title="Collapse navigation"
-              type="button"
-            >
-              <PanelLeftClose aria-hidden="true" size={19} />
-            </button>
+            />
           </>
         )}
       </div>
 
       {collapsed ? (
-        <button
-          aria-label="Expand workspace navigation"
-          className="mt-2 grid h-11 w-11 place-items-center rounded-xl text-slate-500 outline-none transition hover:bg-white/[0.05] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+        <IconButton
+          icon={PanelLeftOpen}
+          label="Expand workspace navigation"
+          className="mt-2 h-11 w-11"
           onClick={() => onCollapsedChange(false)}
-          title="Expand navigation"
-          type="button"
-        >
-          <PanelLeftOpen aria-hidden="true" size={18} />
-        </button>
+        />
       ) : null}
 
       <nav aria-label="Trading workspace" className="mt-4 min-h-0 w-full flex-1 overflow-y-auto overscroll-contain">
@@ -167,7 +162,7 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="w-full border-t border-white/[0.07] pt-3">
+      <div className="w-full border-t border-[var(--ui-divider)] pt-3">
         <AccountSystemMenu collapsed={collapsed} onNavigate={onNavigate} />
       </div>
     </aside>

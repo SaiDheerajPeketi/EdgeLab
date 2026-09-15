@@ -159,9 +159,12 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
   await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
   await installDeterminism(page);
   await seedApprovedSession(page);
-  await seedChartLayout(page, "grid-16");
+  await seedChartLayout(page, "single");
   await gotoStable(page, "/app/live");
+  await page.getByRole("button", { name: "Tools" }).click();
+  await page.getByRole("radio", { name: "4 × 4 grid · 16 charts" }).click();
   await expect(page.locator(".chart-stage")).toHaveCount(16);
+  await page.waitForTimeout(1_500);
   const frameP95 = await page.evaluate(async () => {
     const samples: number[] = [];
     let previous = performance.now();
@@ -174,8 +177,8 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
     }
     return samples.sort((a, b) => a - b)[Math.floor(samples.length * 0.95)];
   });
-  expect(frameP95).toBeLessThanOrEqual(50);
   await expectStableScreenshot(page, "chart-4x4-low-power", { fullPage: false });
+  expect(frameP95).toBeLessThanOrEqual(50);
 });
 
 test("runtime interaction and layout stability stay inside release budgets", async ({ page }, testInfo) => {

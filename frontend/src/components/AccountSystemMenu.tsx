@@ -18,7 +18,6 @@ import {
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import { deleteAuthSession } from "../lib/api";
 import {
   clearStoredAuthSession,
@@ -28,11 +27,9 @@ import {
 } from "../lib/authSession";
 import type { WorkspaceView } from "../lib/workspace";
 import { settingsDeepLink, type SettingsCategoryId } from "./settings/settingsCatalog";
+import { OverlaySurface } from "./overlays/OverlaySurface";
 
 const LOGOUT_REDIRECT_TIMEOUT_MS = 800;
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 type Props = {
   collapsed?: boolean;
   onNavigate: (view: WorkspaceView) => void;
@@ -76,45 +73,7 @@ export function AccountSystemMenu({
       panelRef.current?.querySelector<HTMLElement>("[data-menu-focus]")?.focus();
     });
 
-    function handlePointerDown(event: PointerEvent) {
-      const target = event.target as Node;
-      if (!panelRef.current?.contains(target) && !triggerRef.current?.contains(target)) {
-        closePopover(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closePopover();
-        return;
-      }
-      if (event.key !== "Tab" || !panelRef.current) {
-        return;
-      }
-      const focusable = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      );
-      if (focusable.length === 0) {
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return undefined;
   }, [open, presentation]);
 
   if (!session) {
@@ -157,8 +116,7 @@ export function AccountSystemMenu({
           : "rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-slate-200"
       }
       id={panelId}
-      ref={panelRef}
-      role={presentation === "popover" ? "dialog" : "group"}
+      role="group"
     >
       <div className="flex min-w-0 items-center gap-3 px-2 py-2">
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-cyan-300 text-sm font-bold text-slate-950 shadow-[0_8px_24px_rgba(34,211,238,0.2)]">
@@ -295,17 +253,21 @@ export function AccountSystemMenu({
           </>
         ) : null}
       </button>
-      {open && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="fixed bottom-4 z-[90]"
-              style={{ left: collapsed ? 88 : 264 }}
-            >
-              {panel}
-            </div>,
-            document.body,
-          )
-        : null}
+      <OverlaySurface
+        align="left"
+        anchorRef={triggerRef}
+        ariaLabelledBy={titleId}
+        className="z-[180]"
+        estimatedHeight={560}
+        onDismiss={() => closePopover(false)}
+        open={open}
+        preferredWidth={340}
+        role="dialog"
+        surfaceRef={panelRef}
+        triggerRef={triggerRef}
+      >
+        {panel}
+      </OverlaySurface>
     </>
   );
 }

@@ -55,6 +55,7 @@ import { sessionStrategyName } from "../lib/strategy";
 import { EdgePulseLoader } from "./EdgePulseLoader";
 import { ReplayDateTimePicker } from "./ReplayController";
 import { ThemedSelect } from "./ThemedSelect";
+import { Dialog, DialogHeader } from "./ui/Primitives";
 
 type Props = {
   datasets: DatasetCatalog | null;
@@ -1321,34 +1322,13 @@ function SessionEditDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[260] grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-      role="presentation"
-    >
+    <Dialog className="w-[min(760px,100%)] max-w-none overflow-hidden" label={`Edit ${session.name}`} onClose={onClose} open>
       <form
         autoComplete="off"
-        className="grid w-[min(760px,100%)] max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-cyan-300/15 bg-[#071018] shadow-panel"
-        onPointerDown={(event) => event.stopPropagation()}
+        className="grid max-h-[min(90dvh,52rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
         onSubmit={(event) => void handleSubmit(event)}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-200">
-              Session Details
-            </div>
-            <h3 className="mt-1 truncate text-base font-semibold text-white">
-              Edit {session.name}
-            </h3>
-          </div>
-          <button className="icon-button h-9 w-9" onClick={onClose} type="button">
-            <X size={15} />
-          </button>
-        </div>
+        <DialogHeader description="Update the strategy, account assumptions, and replay defaults." onClose={onClose} title={`Edit ${session.name}`} />
 
         <div className="grid min-h-0 gap-4 overflow-auto p-4">
           <div className="grid gap-3 md:grid-cols-3">
@@ -1491,7 +1471,7 @@ function SessionEditDialog({
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1519,35 +1499,9 @@ function SessionDeleteDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[260] grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-      role="presentation"
-    >
-      <div
-        className="w-[min(460px,100%)] rounded-md border border-rose-300/20 bg-[#071018] p-4 shadow-panel"
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-200">
-              Delete Session
-            </div>
-            <h3 className="mt-2 text-lg font-semibold text-white">
-              {session.name}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              This removes the session and its linked replay orders, executions, trades, and results.
-            </p>
-          </div>
-          <button className="icon-button h-9 w-9" onClick={onClose} type="button">
-            <X size={15} />
-          </button>
-        </div>
+    <Dialog className="w-[min(460px,100%)] max-w-none overflow-hidden" dismissBlocked={deleting} label={`Delete ${session.name}`} onClose={onClose} open>
+      <DialogHeader description="This removes the session and its linked replay orders, executions, trades, and results." onClose={onClose} title={`Delete ${session.name}`} />
+      <div className="p-4">
         {error && (
           <div className="mt-4 rounded-md border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-100">
             {error}
@@ -1568,7 +1522,7 @@ function SessionDeleteDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
 

@@ -18,6 +18,9 @@
     { "path": "/app/journal/trades", "surface": "Journal trades", "auth": true, "disposition": "replace", "states": ["loading", "empty", "filtered", "review-drawer", "add-trade", "import", "error"] },
     { "path": "/app/journal/analytics", "surface": "Journal analytics", "auth": true, "disposition": "replace", "states": ["empty", "low-sample", "populated", "segment-selected", "mixed-currency"] },
     { "path": "/app/journal/notes", "surface": "Journal notes", "auth": true, "disposition": "replace", "states": ["empty", "daily-note", "trade-note", "search-results"] },
+    { "path": "/app/journal/calendar", "surface": "Journal calendar", "auth": true, "disposition": "replace", "states": ["empty", "day-selected", "week-summary", "mixed-account"] },
+    { "path": "/app/journal/reports", "surface": "Journal reports", "auth": true, "disposition": "replace", "states": ["empty", "low-sample", "filtered", "segment-selected", "drill-down"] },
+    { "path": "/app/journal/settings", "surface": "Journal settings", "auth": true, "disposition": "replace", "states": ["default", "dirty", "saving", "saved", "validation-error"] },
     { "path": "/app/reports", "surface": "Reports", "auth": true, "disposition": "restructure", "states": ["loading", "empty", "populated", "filtered", "trade-selected"] },
     { "path": "/app/quant", "surface": "Quant assistant", "auth": true, "disposition": "restructure", "states": ["unavailable", "empty", "streaming", "cancelled", "error", "artifact"] },
     { "path": "/app/settings/:category", "surface": "Settings", "auth": true, "disposition": "replace", "states": ["loading", "default", "dirty", "saving", "saved", "validation-error", "conflict", "danger-confirmation"] }

@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { WorkspaceView } from "./workspace";
+import { PRODUCT_TERMS } from "./productLanguage";
 
 export const SIDEBAR_COLLAPSED_WIDTH = 76;
 export const SIDEBAR_EXPANDED_WIDTH = 252;
@@ -70,11 +71,11 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
     ],
   },
   {
-    label: "Replay & improve",
+    label: `${PRODUCT_TERMS.replay} & improve`,
     shortLabel: "REPLAY",
     sidebar: true,
     entries: [
-      { id: "sessions", label: "Replay sessions", description: "Start or resume deliberate practice", icon: PlaySquare },
+      { id: "sessions", label: `${PRODUCT_TERMS.replay} sessions`, description: "Start or resume deliberate practice", icon: PlaySquare },
       { label: "Results", primaryId: "reports", icon: BarChart3, children: resultItems },
       { id: "strategies", label: "Strategies", description: "Define and compare your setups", icon: Target },
       { id: "playbooks", label: "Playbooks", description: "Turn rules into repeatable plans", icon: BookOpen },
@@ -83,11 +84,11 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
     ],
   },
   {
-    label: "Journal & review",
+    label: `${PRODUCT_TERMS.journal} & review`,
     shortLabel: "JOURNAL",
     sidebar: true,
     entries: [
-      { id: "journalSessions", label: "Journal sessions", description: "Capture and review live trading days", icon: PlaySquare },
+      { id: "journalSessions", label: `${PRODUCT_TERMS.journal} sessions`, description: "Capture and review live trading days", icon: PlaySquare },
       { label: "Journal results", primaryId: "journalDashboard", icon: BarChart3, children: journalResultItems },
       { id: "journalStrategies", label: "Strategies", description: "Organize journal strategy tags", icon: Target },
       { id: "journalPlaybooks", label: "Playbooks", description: "Review execution against your plans", icon: BookOpen },
@@ -101,7 +102,7 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
     shortLabel: "SYSTEM",
     sidebar: false,
     entries: [
-      { id: "globalSettings", label: "Workspace settings", description: "Manage data and workspace preferences", icon: Settings },
+      { id: "globalSettings", label: `Workspace ${PRODUCT_TERMS.settings}`, description: "Manage data and workspace preferences", icon: Settings },
       { id: "feedback", label: "Feedback", description: "Share feedback with the EdgeLab team", icon: MessageSquareQuote },
     ],
   },

@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, CircleOff, CloudOff, LoaderCircle, LockKeyhole, type LucideIcon } from "lucide-react";
 import { UI_STATE_DESCRIPTORS, type UiAsyncState } from "../../lib/uiFoundation";
+import type { ReactNode } from "react";
 
 const STATE_ICONS: Record<UiAsyncState, LucideIcon> = {
   empty: CircleOff,
@@ -21,9 +22,10 @@ type CriticalStateSurfaceProps = {
   actionLabel?: string | null;
   onAction?: () => void;
   timestamp?: string;
+  action?: ReactNode;
 };
 
-export function CriticalStateSurface({ state, title, detail, actionLabel, onAction, timestamp }: CriticalStateSurfaceProps) {
+export function CriticalStateSurface({ state, title, detail, actionLabel, onAction, timestamp, action }: CriticalStateSurfaceProps) {
   const descriptor = UI_STATE_DESCRIPTORS[state];
   const Icon = STATE_ICONS[state];
   const label = actionLabel === undefined ? descriptor.actionLabel : actionLabel;
@@ -45,7 +47,7 @@ export function CriticalStateSurface({ state, title, detail, actionLabel, onActi
         <p className="ui-critical-state__detail">{detail ?? descriptor.detail}</p>
         {timestamp ? <p className="ui-critical-state__timestamp">Last verified {timestamp}</p> : null}
       </div>
-      {label && onAction ? <button className="ui-critical-state__action" onClick={onAction} type="button">{label}</button> : null}
+      {action ?? (label && onAction ? <button className="ui-critical-state__action" onClick={onAction} type="button">{label}</button> : null)}
     </section>
   );
 }

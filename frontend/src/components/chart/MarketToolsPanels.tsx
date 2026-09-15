@@ -15,6 +15,7 @@ import {
   type OrderBookSnapshot,
 } from "../../lib/marketInfrastructure";
 import { JournalButton, journalFieldClass } from "../journal/JournalControls";
+import { CriticalStateSurface } from "../ui/CriticalStateSurface";
 
 export function OrderBookPanel({ symbol }: { symbol: string }) {
   const [instrument, setInstrument] = useState<MarketInstrument | null>(null);
@@ -104,7 +105,7 @@ export function AlertsPanel({ symbol }: { symbol: string }) {
 }
 
 function DepthRow({ side, price, size, orders, fraction }: { side: "BID" | "ASK"; price: number; size: number; orders: number; fraction: number }) { return <div className="relative grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_3rem] items-center px-3"><span aria-hidden="true" className={`absolute inset-y-0 ${side === "BID" ? "left-0 bg-emerald-300/[0.08]" : "right-0 bg-rose-300/[0.08]"}`} style={{ width: `${Math.max(2, fraction * 100)}%` }} /><span className={`relative tabular-nums ${side === "BID" ? "text-emerald-300" : "text-rose-300"}`}><span className="sr-only">{side === "BID" ? "Bid" : "Ask"} </span>{price.toLocaleString(undefined, { maximumFractionDigits: 8 })}</span><span className="relative text-right tabular-nums text-slate-300">{size.toLocaleString()}</span><span className="relative text-right tabular-nums text-slate-600">{orders}</span></div>; }
-function PanelMessage({ title, detail, tone = "neutral" }: { title: string; detail: string; tone?: "neutral" | "warning" | "error" }) { return <div className={`m-3 rounded-md px-3 py-4 text-sm ${tone === "error" ? "bg-rose-300/[0.06] text-rose-100" : tone === "warning" ? "bg-amber-300/[0.06] text-amber-100" : "bg-white/[0.025] text-slate-300"}`}><p className="flex items-center gap-2 font-semibold">{tone !== "neutral" ? <AlertCircle aria-hidden="true" className="h-4 w-4" /> : null}{title}</p><p className="mt-1 text-xs leading-5 opacity-75">{detail}</p></div>; }
+function PanelMessage({ title, detail, tone = "neutral" }: { title: string; detail: string; tone?: "neutral" | "warning" | "error" }) { return <div className="m-3"><CriticalStateSurface state={tone === "error" ? "error" : tone === "warning" ? "stale" : "unsupported"} title={title} detail={detail} actionLabel={null} /></div>; }
 function statusTitle(status?: OrderBookSnapshot["status"]) { if (status === "STALE") return "Depth is stale"; if (status === "INCOMPLETE") return "Depth is incomplete"; if (status === "ENTITLEMENT_REQUIRED") return "Depth entitlement required"; return "Depth unavailable"; }
 function conditionLabel(rule: MarketAlertRule) { const threshold = rule.condition.threshold ?? rule.last_value; return `${rule.alert_type.toLowerCase().replace(/_/g, " ")}${threshold == null ? "" : ` · ${Number(threshold).toLocaleString()}`}`; }
 
