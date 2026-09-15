@@ -97,6 +97,13 @@ test("quality manifests inventory routes, critical states, and measurable budget
   assert.equal(budgets.runtime.sixteenPaneResizeStressP95Ms, 120);
 });
 
+test("low-power chart budget drives and proves representative pane work", () => {
+  const source = fs.readFileSync(path.join(ROOT, "e2e/chart-performance.spec.ts"), "utf8");
+  assert.match(source, /dispatchEvent\(new MouseEvent\("mousemove"/);
+  assert.match(source, /panesWithChangingOhlc\)\.toBe\(16\)/);
+  assert.match(source, /resizeStressP95Ms/);
+});
+
 test("financial states expose a non-color sign and accessible label", async () => {
   const { cleanup, module } = await bundle("frontend/src/lib/uiFoundation.ts");
   try {

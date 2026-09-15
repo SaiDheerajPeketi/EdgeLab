@@ -32,17 +32,40 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   await client.send("Performance.enable");
   const before = await client.send("Performance.getMetrics");
   await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-  const allFrames = await page.evaluate(async () => {
+  const representativeWorkload = await page.evaluate(async () => {
+    const stages = [...document.querySelectorAll<HTMLElement>(".chart-stage")];
+    if (stages.length !== 16) throw new Error(`Expected 16 chart stages, received ${stages.length}`);
+    const source = stages[1].querySelector<HTMLElement>(".tv-lightweight-charts")
+      ?? stages[1].querySelector<HTMLElement>("canvas");
+    if (!source) throw new Error("Trading chart interaction surface is unavailable");
+    const observedTimes = stages.map((stage) => new Set([
+      stage.querySelector<HTMLElement>(".chart-ohlcv-time")?.textContent ?? "",
+    ]));
     const values: number[] = [];
     let previous = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
     for (let index = 0; index < 120; index += 1) {
+      const bounds = source.getBoundingClientRect();
+      const clientX = bounds.left + bounds.width * ([0.2, 0.5, 0.8][index % 3] ?? 0.5);
+      const clientY = bounds.top + bounds.height * 0.45;
+      source.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX, clientY }));
+      source.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX, clientY }));
       const current = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
       values.push(current - previous);
+      stages.forEach((stage, paneIndex) => {
+        observedTimes[paneIndex].add(stage.querySelector<HTMLElement>(".chart-ohlcv-time")?.textContent ?? "");
+      });
       previous = current;
     }
-    return values;
+    source.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+    return {
+      dispatchedCrosshairUpdates: values.length,
+      panesWithChangingOhlc: observedTimes.filter((times) => times.size >= 2).length,
+      values,
+    };
   });
-  const frames = allFrames.slice(20);
+  expect(representativeWorkload.dispatchedCrosshairUpdates).toBe(120);
+  expect(representativeWorkload.panesWithChangingOhlc).toBe(16);
+  const frames = representativeWorkload.values.slice(20);
   const resizeStress = await page.evaluate(async () => {
     const grid = document.querySelector<HTMLElement>(".chart-pane-grid");
     if (!grid) throw new Error("Dense chart grid is unavailable");
@@ -102,6 +125,10 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   const result = {
     frameP95Ms: p95(frames), frames,
     interactionP95Ms: p95(interactions), interactions,
+    representativeWorkload: {
+      dispatchedCrosshairUpdates: representativeWorkload.dispatchedCrosshairUpdates,
+      panesWithChangingOhlc: representativeWorkload.panesWithChangingOhlc,
+    },
     resizeStressP95Ms: p95(resizeStress.durations),
     resizeStress,
     layoutCountDelta: value(after, "LayoutCount") - value(before, "LayoutCount"),
