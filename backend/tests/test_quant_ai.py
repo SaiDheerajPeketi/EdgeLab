@@ -291,6 +291,85 @@ class CancellingAdapter:
         return quant.AIProviderResult(content={"text": "stale result"}, input_tokens=1, output_tokens=1)
 
 
+class MockHTTPResponse:
+    def __init__(self, payload: bytes, headers: dict[str, str] | None = None) -> None:
+        self.payload = payload
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read(self, _limit: int) -> bytes:
+        return self.payload
+
+
+def test_openai_compatible_adapter_uses_vault_secret_and_validates_json():
+    observed = {}
+
+    def opener(request, *, timeout):
+        observed["authorization"] = request.headers["Authorization"]
+        observed["body"] = json.loads(request.data)
+        observed["timeout"] = timeout
+        return MockHTTPResponse(
+            json.dumps(
+                {
+                    "id": "safe-request-id",
+                    "choices": [{"message": {"content": json.dumps({"text": "safe result"})}}],
+                    "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+                }
+            ).encode()
+        )
+
+    adapter = quant.OpenAICompatibleAdapter(
+        base_url="https://ai.example.test/v1", model="model-a", timeout_seconds=9, opener=opener
+    )
+    events = []
+    result = adapter.generate(
+        {"api_key": "vault-secret"},
+        {"operation": "CHAT", "prompt": "hello", "max_output_tokens": 20},
+        lambda kind, payload: events.append((kind, payload)),
+        lambda: False,
+    )
+
+    assert result.content == {"text": "safe result"}
+    assert (result.input_tokens, result.output_tokens, result.provider_request_id) == (7, 3, "safe-request-id")
+    assert observed["authorization"] == "Bearer vault-secret"
+    assert "vault-secret" not in json.dumps(observed["body"])
+    assert observed["timeout"] == 9
+    assert events == [("PROGRESS", {"stage": "generated", "percent": 100})]
+
+
+def test_openai_compatible_adapter_fails_closed_for_invalid_response_and_cancel():
+    adapter = quant.OpenAICompatibleAdapter(
+        base_url="https://ai.example.test/v1",
+        model="model-a",
+        opener=lambda *_args, **_kwargs: MockHTTPResponse(b"not-json"),
+    )
+    request = {"operation": "CHAT", "prompt": "hello", "max_output_tokens": 20}
+    with pytest.raises(quant.AISecurityError, match="invalid JSON"):
+        adapter.generate({"api_key": "secret"}, request, lambda *_args: None, lambda: False)
+    with pytest.raises(quant.AIConflictError, match="cancelled"):
+        adapter.generate({"api_key": "secret"}, request, lambda *_args: None, lambda: True)
+
+
+def test_external_adapter_registration_is_honestly_configuration_gated(monkeypatch):
+    monkeypatch.delenv("EDGELAB_EXTERNAL_AI_BASE_URL", raising=False)
+    monkeypatch.delenv("EDGELAB_EXTERNAL_AI_MODEL", raising=False)
+    assert quant.configured_external_ai_adapter() is None
+
+    monkeypatch.setenv("EDGELAB_EXTERNAL_AI_BASE_URL", "http://unsafe.example/v1")
+    monkeypatch.setenv("EDGELAB_EXTERNAL_AI_MODEL", "model-a")
+    assert quant.configured_external_ai_adapter() is None
+
+    monkeypatch.setenv("EDGELAB_EXTERNAL_AI_BASE_URL", "https://ai.example.test/v1")
+    configured = quant.configured_external_ai_adapter()
+    assert configured is not None
+    assert configured.provider_id == "external-ai"
+
+
 def test_running_generation_observes_external_cancellation(db):
     owner = seed_user(db, "cancel-running-ai@example.com")
     conversation = quant.create_conversation(

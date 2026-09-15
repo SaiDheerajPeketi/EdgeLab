@@ -7,9 +7,13 @@ from decimal import Decimal, ROUND_CEILING
 from hashlib import sha256
 import json
 import logging
+import os
 import re
 from time import monotonic
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -218,6 +222,108 @@ class DeterministicFixtureAIAdapter:
         )
 
 
+class OpenAICompatibleAdapter:
+    """Minimal OpenAI-compatible chat-completions adapter with server-owned routing."""
+
+    provider_id = "external-ai"
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        timeout_seconds: float = 30.0,
+        opener: Callable[..., Any] = urlopen,
+    ) -> None:
+        normalized_url = base_url.rstrip("/")
+        parsed = urlparse(normalized_url)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+            raise ValueError("External AI base URL must be an HTTPS origin")
+        if not model.strip():
+            raise ValueError("External AI model must be configured")
+        if not 1.0 <= timeout_seconds <= 120.0:
+            raise ValueError("External AI timeout must be between 1 and 120 seconds")
+        self._endpoint = f"{normalized_url}/chat/completions"
+        self._model = model.strip()
+        self._timeout_seconds = timeout_seconds
+        self._opener = opener
+
+    def generate(
+        self,
+        credentials: Mapping[str, str],
+        request: Mapping[str, Any],
+        emit: Callable[[str, Mapping[str, Any]], None],
+        cancelled: Callable[[], bool],
+    ) -> AIProviderResult:
+        api_key = credentials.get("api_key", "").strip()
+        if not api_key:
+            raise AIProviderUnavailableError("Encrypted provider credential is incomplete")
+        if cancelled():
+            raise AIConflictError("Generation was cancelled")
+        body = json.dumps(
+            {
+                "model": self._model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Return one valid JSON object only. Do not use markdown fences.",
+                    },
+                    {"role": "user", "content": json.dumps(_safe_json(request), separators=(",", ":"))},
+                ],
+                "max_tokens": int(request["max_output_tokens"]),
+                "response_format": {"type": "json_object"},
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        http_request = Request(
+            self._endpoint,
+            data=body,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with self._opener(http_request, timeout=self._timeout_seconds) as response:
+                raw = response.read(2 * 1024 * 1024 + 1)
+                request_id = response.headers.get("x-request-id")
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            raise AIProviderUnavailableError("External AI provider request failed safely") from exc
+        if len(raw) > 2 * 1024 * 1024:
+            raise AISecurityError("External AI provider response exceeded the size limit")
+        if cancelled():
+            raise AIConflictError("Generation was cancelled")
+        try:
+            payload = json.loads(raw)
+            message_content = payload["choices"][0]["message"]["content"]
+            content = json.loads(message_content) if isinstance(message_content, str) else message_content
+            usage = payload.get("usage", {})
+            input_tokens = int(usage.get("prompt_tokens", 0))
+            output_tokens = int(usage.get("completion_tokens", 0))
+        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise AISecurityError("External AI provider returned an invalid JSON response") from exc
+        if not isinstance(content, dict) or input_tokens < 0 or output_tokens < 0:
+            raise AISecurityError("External AI provider returned an invalid JSON response")
+        emit("PROGRESS", {"stage": "generated", "percent": 100})
+        return AIProviderResult(
+            content=_safe_json(content),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            provider_request_id=str(payload.get("id") or request_id or "") or None,
+        )
+
+
+def configured_external_ai_adapter() -> OpenAICompatibleAdapter | None:
+    base_url = os.getenv("EDGELAB_EXTERNAL_AI_BASE_URL", "").strip()
+    model = os.getenv("EDGELAB_EXTERNAL_AI_MODEL", "").strip()
+    if not base_url or not model:
+        return None
+    try:
+        timeout = float(os.getenv("EDGELAB_EXTERNAL_AI_TIMEOUT_SECONDS", "30"))
+        return OpenAICompatibleAdapter(base_url=base_url, model=model, timeout_seconds=timeout)
+    except (TypeError, ValueError):
+        logger.warning("External AI adapter configuration is invalid; provider remains unavailable")
+        return None
+
+
 DEFAULT_MODEL_POLICIES = (
     AIModelPolicy(
         model_id="offline-deterministic",
@@ -298,7 +404,14 @@ class AIProviderRouter:
         return result
 
 
-ai_provider_router = AIProviderRouter(adapters=(DeterministicFixtureAIAdapter(),))
+_external_ai_adapter = configured_external_ai_adapter()
+ai_provider_router = AIProviderRouter(
+    adapters=tuple(
+        adapter
+        for adapter in (DeterministicFixtureAIAdapter(), _external_ai_adapter)
+        if adapter is not None
+    )
+)
 
 
 def _utc_naive(value: datetime) -> datetime:
