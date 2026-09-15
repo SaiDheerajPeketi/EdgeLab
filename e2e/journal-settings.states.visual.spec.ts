@@ -1,6 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
-  expectStableScreenshot,
   gotoStable,
   installDeterminism,
   seedApprovedSession,
@@ -14,10 +13,14 @@ test.describe("journal settings state baselines", () => {
     await seedApprovedSession(page);
     await page.addInitScript(() => {
       let resolveJournalSave: (() => void) | null = null;
-      window.addEventListener("edgelab:test:settings-save", ((event: CustomEvent<{ key: string; waitUntil: (pending: Promise<void>) => void }>) => {
-        if (event.detail.key !== "journal") return;
-        event.detail.waitUntil(new Promise<void>((resolve) => { resolveJournalSave = resolve; }));
-      }) as EventListener);
+      Object.defineProperty(window, "__edgeLabE2E", {
+        configurable: true,
+        value: {
+          waitForSettingsSave: (key: string) => key === "journal"
+            ? new Promise<void>((resolve) => { resolveJournalSave = resolve; })
+            : Promise.resolve(),
+        },
+      });
       Object.defineProperty(window, "__resolveJournalSettingsSave", {
         configurable: true,
         value: () => resolveJournalSave?.(),
@@ -35,7 +38,7 @@ test.describe("journal settings state baselines", () => {
     await expect(apply).toBeEnabled();
     await expectControlGeometry(page, apply);
     await expectCommandLauncherClear(page, apply);
-    await expectStableScreenshot(page, "journal-settings-dirty", { fullPage: false });
+    await expectStateScreenshot(page, "journal-settings-dirty");
   });
 
   test("saving state announces progress and prevents duplicate submission", async ({ page }) => {
@@ -47,7 +50,7 @@ test.describe("journal settings state baselines", () => {
     await expect(apply).toBeDisabled();
     await expectControlGeometry(page, apply);
     await expectCommandLauncherClear(page, apply);
-    await expectStableScreenshot(page, "journal-settings-saving", { fullPage: false });
+    await expectStateScreenshot(page, "journal-settings-saving");
   });
 
   test("saved state announces completion and clears dirty state", async ({ page }) => {
@@ -60,7 +63,7 @@ test.describe("journal settings state baselines", () => {
     await expect(page.getByText("All explicit changes applied")).toBeVisible();
     await expect(apply).toBeDisabled();
     await expectCommandLauncherClear(page, apply);
-    await expectStableScreenshot(page, "journal-settings-saved", { fullPage: false });
+    await expectStateScreenshot(page, "journal-settings-saved");
   });
 
   test("validation error is programmatically associated with currency", async ({ page }) => {
@@ -73,9 +76,26 @@ test.describe("journal settings state baselines", () => {
     await expect(currency).toHaveAttribute("aria-describedby", "setting-journal-defaults-validation");
     await expect(page.getByRole("button", { name: "Apply journal defaults" })).toBeDisabled();
     await expectControlGeometry(page, currency);
-    await expectStableScreenshot(page, "journal-settings-validation-error", { fullPage: false });
+    await expectStateScreenshot(page, "journal-settings-validation-error");
+  });
+
+  test("global settings keeps the docked command entry clear of content", async ({ page }) => {
+    await gotoStable(page, "/app/settings/global", { waitForNetworkIdle: false });
+    const regional = page.getByRole("heading", { name: "Language, time zone, and number format" });
+    await expect(regional).toBeVisible();
+    await expectCommandLauncherClear(page, regional);
   });
 });
+
+async function expectStateScreenshot(page: Page, name: string) {
+  await expect(page).toHaveScreenshot(`${name}.png`, {
+    animations: "disabled",
+    caret: "hide",
+    fullPage: false,
+    maxDiffPixelRatio: 0.003,
+    threshold: 0.1,
+  });
+}
 
 async function expectControlGeometry(page: Page, control: Locator) {
   const box = await control.boundingBox();

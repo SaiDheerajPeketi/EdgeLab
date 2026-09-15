@@ -379,15 +379,10 @@ export function SettingsCenter({
 
   async function saveJournal() {
     await save("journal", async () => {
-      const fixtureWaits: Promise<unknown>[] = [];
-      window.dispatchEvent(new CustomEvent("edgelab:test:settings-save", {
-        detail: {
-          key: "journal",
-          waitUntil: (pending: Promise<unknown>) => fixtureWaits.push(pending),
-        },
-      }));
       await onUpdateJournalDefaults(journalDraft);
-      await Promise.all(fixtureWaits);
+      if (import.meta.env.VITE_E2E_STATE_FIXTURES === "1") {
+        await (window as typeof window & { __edgeLabE2E?: { waitForSettingsSave?: (key: string) => Promise<void> } }).__edgeLabE2E?.waitForSettingsSave?.("journal");
+      }
     });
     setJournalBaseline(journalDraft);
   }

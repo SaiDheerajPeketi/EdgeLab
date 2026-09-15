@@ -1,4 +1,4 @@
-import { Check, MoreHorizontal, X } from "lucide-react";
+import { Check, Command, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MOBILE_PRIMARY_NAVIGATION,
@@ -64,7 +64,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
         aria-label="Primary workspace"
         className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--ui-divider)] bg-[var(--ui-navigation-mobile)] ps-[max(0.35rem,env(safe-area-inset-left))] pe-[max(0.35rem,env(safe-area-inset-right))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[var(--elevation-floating)] lg:hidden"
       >
-        <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
+        <div className="mx-auto grid max-w-xl grid-cols-6 gap-1">
           {MOBILE_PRIMARY_NAVIGATION.map((item) => {
             const Icon = item.icon;
             const active = mobilePrimaryItemIsActive(item.matches, activeView);
@@ -89,6 +89,15 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
               </button>
             );
           })}
+          <button
+            aria-label="Open command palette"
+            className="relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold text-[var(--text-secondary)] outline-none transition hover:bg-[var(--ui-navigation-hover)] hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+            onClick={() => window.dispatchEvent(new Event("edgelab:open-command-palette"))}
+            type="button"
+          >
+            <Command aria-hidden="true" size={19} />
+            <span>Commands</span>
+          </button>
           <button
             aria-current={!primaryActive ? "page" : undefined}
             aria-expanded={moreOpen}
