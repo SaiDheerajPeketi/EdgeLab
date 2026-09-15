@@ -55,6 +55,9 @@ type Props = {
 export type ResultsPanelView = "overview" | "trades";
 export type ResultsTradeScroll = { left: number; top: number };
 export type ResultsTradeOutcomeFilter = "ALL" | "WIN" | "LOSS" | "BREAKEVEN";
+const RESULTS_VIEW_SCHEMA = { version: 1, validate: (value: unknown): value is ResultsPanelView => value === "overview" || value === "trades" } as const;
+type ReportControls = { search: string; outcome: ResultsTradeOutcomeFilter };
+const REPORT_CONTROLS_SCHEMA = { version: 1, validate: (value: unknown): value is ReportControls => Boolean(value && typeof value === "object" && typeof (value as Partial<ReportControls>).search === "string" && ["ALL", "WIN", "LOSS", "BREAKEVEN"].includes((value as Partial<ReportControls>).outcome ?? "")) } as const;
 
 type Aggregate = {
   averageHoldMinutes: number | null;
@@ -101,8 +104,8 @@ export function ResultsPanel({
   onViewChange,
   view,
 }: Props) {
-  const [localView, setLocalView] = useRestorableSurfaceState<ResultsPanelView>("reports:results", "openPanel", "overview");
-  const [reportControls, setReportControls] = useRestorableSurfaceState<{ search: string; outcome: ResultsTradeOutcomeFilter }>("reports:results", "filters", { search: "", outcome: "ALL" });
+  const [localView, setLocalView] = useRestorableSurfaceState<ResultsPanelView>("reports:results", "openPanel", "overview", RESULTS_VIEW_SCHEMA);
+  const [reportControls, setReportControls] = useRestorableSurfaceState<ReportControls>("reports:results", "filters", { search: "", outcome: "ALL" }, REPORT_CONTROLS_SCHEMA);
   const localTradeSearch = reportControls.search;
   const localOutcomeFilter = reportControls.outcome;
   const currentView = view ?? localView;

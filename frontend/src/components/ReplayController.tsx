@@ -13,7 +13,7 @@ import {
   StepForward,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useBacktestStore } from "../store/backtestStore";
 import { ThemedSelect } from "./ThemedSelect";
 import { OverlaySurface } from "./overlays/OverlaySurface";
@@ -341,6 +341,7 @@ export function ReplayDateTimePicker({
 }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const popoverId = useId();
   const [open, setOpen] = useState(false);
   const selected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
   const [viewYear, setViewYear] = useState(() => selected?.year ?? new Date().getFullYear());
@@ -359,6 +360,14 @@ export function ReplayDateTimePicker({
       }
     };
   }, [onOpenChange, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      popoverRef.current?.querySelector<HTMLElement>("[data-replay-picker-initial-focus]")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
   useEffect(() => {
     const nextSelected = parseReplayDateTime(value) ?? parseReplayDateTime(toReplayInputValue(currentTimestamp));
@@ -467,6 +476,9 @@ export function ReplayDateTimePicker({
   return (
     <div className="replay-date-picker">
       <button
+        aria-controls={popoverId}
+        aria-expanded={open}
+        aria-haspopup="dialog"
         className={`replay-date-trigger ${is12Hour ? "replay-date-trigger-12" : ""}`}
         disabled={disabled}
         onClick={openPicker}
@@ -483,6 +495,7 @@ export function ReplayDateTimePicker({
         ariaLabel={dialogLabel}
         className="replay-date-popover replay-date-popover-floating z-[180]"
         estimatedHeight={430}
+        id={popoverId}
         onDismiss={() => setOpen(false)}
         open={open}
         preferredWidth={340}
@@ -494,6 +507,7 @@ export function ReplayDateTimePicker({
             <button
               aria-label={viewMode === "years" ? "Previous 12 years" : "Previous month"}
               className="replay-date-icon-button"
+              data-replay-picker-initial-focus="true"
               onClick={() => moveView(-1)}
               type="button"
             >

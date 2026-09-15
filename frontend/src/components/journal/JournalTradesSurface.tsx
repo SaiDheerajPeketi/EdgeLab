@@ -18,16 +18,34 @@ type Props = {
 };
 
 type Sort = "newest" | "oldest" | "net-desc" | "net-asc";
+const JOURNAL_FILTERS_SCHEMA = { version: 1, validate: (value: unknown): value is JournalFilters => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<JournalFilters>;
+  return Array.isArray(candidate.accountIds) && candidate.accountIds.every(Number.isInteger)
+    && Array.isArray(candidate.tagIds) && candidate.tagIds.every(Number.isInteger)
+    && typeof candidate.dateFrom === "string" && typeof candidate.dateTo === "string"
+    && ["ALL", "LONG", "SHORT"].includes(candidate.direction ?? "")
+    && ["ALL", "UNRATED", "1", "2", "3", "4", "5"].includes(candidate.rating ?? "")
+    && [candidate.market, candidate.strategy, candidate.symbol].every((item) => typeof item === "string");
+} } as const;
+type TradeControls = { query: string; reviewQueue: boolean; sort: Sort };
+const TRADE_CONTROLS_SCHEMA = { version: 1, validate: (value: unknown): value is TradeControls => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<TradeControls>;
+  return typeof candidate.query === "string" && typeof candidate.reviewQueue === "boolean" && ["newest", "oldest", "net-desc", "net-asc"].includes(candidate.sort ?? "");
+} } as const;
+const OPEN_TRADE_PANEL_SCHEMA = { version: 1, validate: (value: unknown): value is string | null => value === null || value === "add-trade" } as const;
+const TRADE_SELECTION_SCHEMA = { version: 1, validate: (value: unknown): value is number[] => Array.isArray(value) && value.every((item) => Number.isInteger(item) && item > 0) } as const;
 
 export function JournalTradesSurface({ accounts, tags, trades, initialFilters, onAddTrade, onOpenTrade, onMarkReviewed }: Props) {
-  const [filters, setFilters] = useRestorableSurfaceState<JournalFilters>("journal:trades", "filters", { ...DEFAULT_JOURNAL_FILTERS, ...initialFilters });
-  const [controls, setControls] = useRestorableSurfaceState<{ query: string; reviewQueue: boolean; sort: Sort }>("journal:trades", "draft", { query: "", reviewQueue: false, sort: "newest" });
+  const [filters, setFilters] = useRestorableSurfaceState<JournalFilters>("journal:trades", "filters", { ...DEFAULT_JOURNAL_FILTERS, ...initialFilters }, JOURNAL_FILTERS_SCHEMA);
+  const [controls, setControls] = useRestorableSurfaceState<TradeControls>("journal:trades", "draft", { query: "", reviewQueue: false, sort: "newest" }, TRADE_CONTROLS_SCHEMA);
   const { query, reviewQueue, sort } = controls;
   const [limit, setLimit] = useState(100);
-  const [openPanel, setOpenPanel] = useRestorableSurfaceState<string | null>("journal:trades", "openPanel", null);
+  const [openPanel, setOpenPanel] = useRestorableSurfaceState<string | null>("journal:trades", "openPanel", null, OPEN_TRADE_PANEL_SCHEMA);
   const adding = openPanel === "add-trade";
   const [busyTradeId, setBusyTradeId] = useState<number | null>(null);
-  const [selectedIds, setSelectedIds] = useRestorableSurfaceState<number[]>("journal:trades", "selectedId", []);
+  const [selectedIds, setSelectedIds] = useRestorableSurfaceState<number[]>("journal:trades", "selectedId", [], TRADE_SELECTION_SCHEMA);
   const [bulkState, setBulkState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();

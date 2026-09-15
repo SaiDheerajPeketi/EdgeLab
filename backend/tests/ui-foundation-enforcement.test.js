@@ -3,9 +3,19 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
+import { pathToFileURL } from "node:url";
+import { buildSync } from "../../node_modules/esbuild/lib/main.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+
+async function bundle(relativePath) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "edgelab-foundation-"));
+  const output = path.join(directory, "module.mjs");
+  buildSync({ bundle: true, entryPoints: [path.join(root, relativePath)], format: "esm", outfile: output, platform: "node" });
+  return { cleanup: () => fs.rmSync(directory, { force: true, recursive: true }), module: await import(`${pathToFileURL(output).href}?${Date.now()}`) };
+}
 
 test("every inventoried route has a maintained UI foundation contract", () => {
   const inventory = JSON.parse(read("docs/ui-surface-inventory.json"));
@@ -54,4 +64,26 @@ test("shared icon and language contracts are used by primary navigation", () => 
   assert.doesNotMatch(navigation, /\bNotebook\b|\bBacktesting\b|Back test/);
   const language = read("frontend/src/lib/productLanguage.ts");
   for (const term of ["account", "Journal", "chart layout", "Live", "Replay", "report", "session", "settings", "workspace"]) assert.ok(language.includes(`\"${term}\"`), `missing canonical term ${term}`);
+});
+
+test("restorable state rejects corrupt and stale schema values", async () => {
+  const { cleanup, module } = await bundle("frontend/src/lib/useRestorableSurfaceState.ts");
+  try {
+    const schema = { version: 2, validate: (value) => Boolean(value && typeof value === "object" && typeof value.query === "string") };
+    const fallback = { query: "safe" };
+    assert.deepEqual(module.restoreSurfaceValue(null, fallback, schema), fallback);
+    assert.deepEqual(module.restoreSurfaceValue({ __schemaVersion: 1, value: { query: "stale" } }, fallback, schema), fallback);
+    assert.deepEqual(module.restoreSurfaceValue({ __schemaVersion: 2, value: { query: 42 } }, fallback, schema), fallback);
+    assert.deepEqual(module.restoreSurfaceValue({ __schemaVersion: 2, value: { query: "restored" } }, fallback, schema), { query: "restored" });
+  } finally { cleanup(); }
+});
+
+test("Journal report and settings URLs resolve directly", async () => {
+  const { cleanup, module } = await bundle("frontend/src/lib/workspaceRoute.ts");
+  try {
+    assert.equal(module.workspaceViewFromPath("/app/journal/reports"), "journalReports");
+    assert.equal(module.workspaceViewFromPath("/app/journal/reports/weekly"), "journalReports");
+    assert.equal(module.workspaceViewFromPath("/app/journal/settings"), "journalSettings");
+    assert.equal(module.workspaceViewFromPath("/app/journal/settings/import"), "journalSettings");
+  } finally { cleanup(); }
 });

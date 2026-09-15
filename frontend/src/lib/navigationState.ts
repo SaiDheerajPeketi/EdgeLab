@@ -1,4 +1,5 @@
 import type { WorkspaceView } from "./workspace";
+import { getStoredAuthSession } from "./authSession";
 
 export type NavigationSurfaceId = WorkspaceView | `journal:${string}` | `reports:${string}` | `settings:${string}` | `chart:${string}`;
 
@@ -13,9 +14,11 @@ export type NavigationSurfaceState = {
 };
 
 const memory = new Map<NavigationSurfaceId, NavigationSurfaceState>();
-const STORAGE_KEY = "edgelab.navigation-surfaces.v2";
+const STORAGE_PREFIX = "edgelab.navigation-surfaces.v3";
+let activeOwner = ownerSegment();
 
 hydrateMemory();
+if (typeof window !== "undefined") window.addEventListener("edgelab:auth-session-change", reloadNavigationStateForAuth);
 
 export function rememberNavigationState(view: NavigationSurfaceId, state: NavigationSurfaceState) {
   memory.set(view, structuredCloneSafe(state));
@@ -90,7 +93,7 @@ function structuredCloneSafe<T>(value: T): T {
 function hydrateMemory() {
   if (typeof window === "undefined") return;
   try {
-    const stored = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, NavigationSurfaceState>;
+    const stored = JSON.parse(window.sessionStorage.getItem(storageKey(activeOwner)) ?? "{}") as Record<string, NavigationSurfaceState>;
     Object.entries(stored).forEach(([view, state]) => {
       if (state && Number.isFinite(state.scrollLeft) && Number.isFinite(state.scrollTop)) {
         memory.set(view as NavigationSurfaceId, structuredCloneSafe(state));
@@ -104,10 +107,27 @@ function hydrateMemory() {
 function persistMemory() {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(memory)));
+    window.sessionStorage.setItem(storageKey(activeOwner), JSON.stringify(Object.fromEntries(memory)));
   } catch {
     // In-memory restoration remains available for the current document.
   }
+}
+
+export function reloadNavigationStateForAuth() {
+  const nextOwner = ownerSegment();
+  if (nextOwner === activeOwner) return;
+  memory.clear();
+  activeOwner = nextOwner;
+  hydrateMemory();
+}
+
+function ownerSegment() {
+  const user = getStoredAuthSession()?.user;
+  return user?.id ? `user-${user.id}` : user?.email ? `user-${encodeURIComponent(user.email.toLowerCase())}` : "anonymous";
+}
+
+function storageKey(owner: string) {
+  return `${STORAGE_PREFIX}.${owner}`;
 }
 
 function safeToken(value: string | null) {

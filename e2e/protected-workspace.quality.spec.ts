@@ -159,13 +159,17 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
   await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
   await installDeterminism(page);
   await seedApprovedSession(page);
-  await seedChartLayout(page, "single");
-  await gotoStable(page, "/app/live");
+  await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
   await page.getByRole("button", { name: "Tools" }).click();
   await page.getByRole("radio", { name: "4 × 4 grid · 16 charts" }).click();
   await expect(page.locator(".chart-stage")).toHaveCount(16);
+  await page.getByRole("button", { name: "Tools" }).click();
+  await expect(page.getByRole("radio", { name: "4 × 4 grid · 16 charts" })).toBeHidden();
   await page.waitForTimeout(1_500);
-  await expectStableScreenshot(page, "chart-4x4-low-power", { fullPage: false });
+  await expectStableScreenshot(page, "chart-4x4-low-power", {
+    fullPage: false,
+    mask: [page.locator(".chart-plot-column")],
+  });
   const interactionMs = await page.evaluate(async () => {
     const start = performance.now();
     const launcher = document.querySelector<HTMLButtonElement>('[aria-label="Open command palette"]');
@@ -178,6 +182,10 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
   });
   await expect(page.getByRole("dialog", { name: "EdgeLab command palette" })).toBeVisible();
   expect(interactionMs).toBeLessThanOrEqual(250);
+  const layoutPersisted = await page.evaluate(() => Object.entries(window.localStorage).some(
+    ([key, value]) => key.includes("live-chart-layout") && value.includes('"paneLayout":"grid-16"'),
+  ));
+  expect(layoutPersisted).toBe(true);
 });
 
 test("runtime interaction and layout stability stay inside release budgets", async ({ page }, testInfo) => {

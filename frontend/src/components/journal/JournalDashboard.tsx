@@ -22,6 +22,9 @@ type Props = {
   onOpenTrade: (trade: CanonicalTrade) => void;
   onSaveNote: (date: string, payload: { account_id?: number | null; body: string }) => Promise<JournalDailyNote>;
 };
+const JOURNAL_DATE_SCHEMA = { version: 1, validate: (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) } as const;
+type JournalNoteDraft = { date: string; body: string };
+const JOURNAL_NOTE_DRAFT_SCHEMA = { version: 1, validate: (value: unknown): value is JournalNoteDraft => Boolean(value && typeof value === "object" && /^\d{4}-\d{2}-\d{2}$/.test(String((value as Partial<JournalNoteDraft>).date ?? "")) && typeof (value as Partial<JournalNoteDraft>).body === "string") } as const;
 
 export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTrade, onSaveNote }: Props) {
   const summary = useMemo(() => summarizeJournalTrades(trades), [trades]);
@@ -33,9 +36,9 @@ export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTr
   const risk = useMemo(() => riskBehavior(trades), [trades]);
   const calendar = useMemo(() => journalCalendar(trades), [trades]);
   const latestDate = calendar.at(-1)?.date ?? today();
-  const [selectedDate, setSelectedDate] = useRestorableSurfaceState<string>("journal:dashboard", "selectedId", latestDate);
+  const [selectedDate, setSelectedDate] = useRestorableSurfaceState<string>("journal:dashboard", "selectedId", latestDate, JOURNAL_DATE_SCHEMA);
   const selectedNote = notes.find((note) => note.note_date === selectedDate) ?? null;
-  const [noteDraft, setNoteDraft] = useRestorableSurfaceState<{ date: string; body: string }>("journal:dashboard", "draft", { date: selectedDate, body: selectedNote?.body ?? "" });
+  const [noteDraft, setNoteDraft] = useRestorableSurfaceState<JournalNoteDraft>("journal:dashboard", "draft", { date: selectedDate, body: selectedNote?.body ?? "" }, JOURNAL_NOTE_DRAFT_SCHEMA);
   const noteBody = noteDraft.date === selectedDate ? noteDraft.body : selectedNote?.body ?? "";
   const [noteState, setNoteState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const selectedAccount = accounts.length === 1 ? accounts[0].id : null;

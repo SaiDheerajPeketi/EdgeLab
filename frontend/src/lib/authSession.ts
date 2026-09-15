@@ -33,6 +33,10 @@ function notifyListeners() {
   listeners.forEach((listener) => listener());
 }
 
+function notifyAuthIdentityChange() {
+  if (isBrowser()) window.dispatchEvent(new Event("edgelab:auth-session-change"));
+}
+
 function safeParse(rawValue: string | null): AuthSession | null {
   if (!rawValue) {
     return null;
@@ -106,6 +110,7 @@ export function setStoredAuthSession(
   if (options.notify !== false) {
     notifyListeners();
   }
+  notifyAuthIdentityChange();
 }
 
 export function clearStoredAuthSession(options: AuthSessionUpdateOptions = {}) {

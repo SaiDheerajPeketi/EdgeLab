@@ -4081,6 +4081,13 @@ function LiveChartStudio({
   }, []);
 
   useEffect(() => {
+    const persistTimer = window.setTimeout(() => {
+      void saveAppStorageItem(LIVE_CHART_LAYOUT_STORAGE_KEY, buildLiveChartLayoutPayload());
+    }, 0);
+    return () => window.clearTimeout(persistTimer);
+  }, [activeChartPaneId, chartPaneLayout, chartPanes]);
+
+  useEffect(() => {
     if (visibleChartPanes.some((pane) => pane.id === activeChartPaneId)) {
       return;
     }
@@ -4289,6 +4296,7 @@ function LiveChartStudio({
 
   function changeChartPaneLayout(nextLayout: ChartPaneLayoutId) {
     const layout = chartPaneLayoutById(nextLayout);
+    void saveAppStorageItem(ACTIVE_LIVE_CHART_LAYOUT_STORAGE_KEY, null);
     setChartPaneLayout(layout.id);
     setChartPanes((current) => {
       const nextPanes = [...current];

@@ -121,3 +121,24 @@ test("picker-specific keyboard and validation contracts remain explicit", () => 
   assert.match(color, /<output/);
   assert.match(color, /popoverHexRef\.current\?\.focus/);
 });
+
+test("nested overlays own Escape before their parent modal", () => {
+  const primitives = readComponent("ui/Primitives.tsx");
+  assert.match(primitives, /shouldDismissModalOnEscape\(event, document\)/);
+  assert.match(primitives, /!event\.defaultPrevented/);
+  assert.match(primitives, /dataset\.overlayActive !== "true"/);
+
+  const dismiss = readComponent("overlays/useOverlayDismiss.ts");
+  assert.match(dismiss, /if \(!isTopOverlay\(id\)\)/);
+  assert.match(dismiss, /event\.preventDefault\(\);\s*onDismissRef\.current\("escape"\)/);
+});
+
+test("replay date picker enters and restores the keyboard focus path", () => {
+  const replay = readComponent("ReplayController.tsx");
+  assert.match(replay, /import \{ OverlaySurface \}/);
+  assert.match(replay, /aria-haspopup="dialog"/);
+  assert.match(replay, /aria-controls=\{popoverId\}/);
+  assert.match(replay, /data-replay-picker-initial-focus/);
+  assert.match(replay, /querySelector<HTMLElement>\("\[data-replay-picker-initial-focus\]"\)\?\.focus\(\)/);
+  assert.match(replay, /triggerRef=\{triggerRef\}/);
+});
