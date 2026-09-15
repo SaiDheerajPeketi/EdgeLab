@@ -30,6 +30,9 @@ export default defineConfig({
           if (normalizedId.includes("/node_modules/lightweight-charts/")) {
             return "chart-vendor";
           }
+          if (normalizedId.includes("/node_modules/html-to-image/")) {
+            return "chart-capture-vendor";
+          }
           if (
             normalizedId.includes("/node_modules/zustand/") ||
             normalizedId.includes("/node_modules/use-sync-external-store/")

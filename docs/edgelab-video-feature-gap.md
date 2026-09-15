@@ -155,7 +155,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `CHT-06 · P1 · Missing` — Add a Regular Trading Hours versus Extended Trading Hours toggle and use it consistently for rendering and indicator calculations.
 - [ ] `CHT-07 · P1 · Missing` — Add per-symbol pre-market/post-market background highlighting controls.
 - [ ] `CHT-08 · P1 · Missing` — Add a chart timezone selector, default it to UTC, format chart/data-window times in it, and persist it in the workspace.
-- [ ] `CHT-09 · P1 · Partial` — Add “Chart settings” to the right-click menu. EdgeLab has a settings button and a minimal context menu, but not this shortcut.
+- [x] `CHT-09 · P1 · Partial` — Add “Chart settings” to the right-click menu. EdgeLab has a settings button and a minimal context menu, but not this shortcut.
 - [ ] `CHT-10 · P0 · Partial` — Harden live-feed continuity with normalized timestamps, sequence/gap detection, reconnect/backfill, stale-data state, and provider health. EdgeLab currently has provider-specific polling/socket behavior and a limited cache.
 
 ### 7. Order flow, footprint, TPO, and advanced chart types
@@ -187,7 +187,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `LAY-07 · P2 · Partial` — Add workspace duplicate, rename, default/startup selection, and conflict-safe autosave/recovery in addition to current save/load/delete.
 - [ ] `LAY-08 · P1 · Missing` — Add the three demonstrated sharing scopes: chart plus panel, panels only, and complete chart layout/workspace.
 - [ ] `LAY-09 · P0 · Missing` — Store versioned, immutable share snapshots with access controls, expiry/revocation, and an “open as copy” workflow.
-- [ ] `LAY-10 · P1 · Missing` — Add a chart screenshot action that captures the whole chart cleanly and downloads a PNG; trade snapshot attachments are not equivalent.
+- [x] `LAY-10 · P1 · Missing` — Add a chart screenshot action that captures the whole chart cleanly and downloads a PNG; trade snapshot attachments are not equivalent.
 
 ### 9. Drawing tools, favorites, quick actions, and object layers
 
@@ -202,8 +202,8 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `DRW-09 · P1 · Missing` — Add flags and a searchable icon/emoji marker library.
 - [ ] `DRW-10 · P2 · Partial` — Add the demonstrated quick-measure gesture/action; the standard two-click Measure tool already exists.
 - [ ] `DRW-11 · P2 · Partial` — Add a visible quick eraser that deletes a targeted object; keyboard delete/current clear-all behavior is not the same workflow.
-- [ ] `DRW-12 · P1 · Missing` — Add persistent/stay-in-drawing mode. EdgeLab currently returns to cursor/crosshair after each completed drawing.
-- [ ] `DRW-13 · P2 · Missing` — Allow the left drawing rail to be hidden/collapsed while leaving shortcuts available.
+- [x] `DRW-12 · P1 · Missing` — Add persistent/stay-in-drawing mode. EdgeLab currently returns to cursor/crosshair after each completed drawing.
+- [x] `DRW-13 · P2 · Missing` — Allow the left drawing rail to be hidden/collapsed while leaving shortcuts available.
 - [x] `DRW-14 · P2 · Missing` — Add user favorites for drawing tools and persist their order.
 - [x] `DRW-15 · P2 · Missing` — Add the **circular chart toolbox** shown in the video: an Alt/Option radial quick wheel populated from favorite tools, with mouse selection and a keyboard-accessible fallback.
 - [ ] `DRW-16 · P1 · Partial` — Add drag reordering/z-order in the Objects tree plus bring forward/back/front/back actions. Current objects can be selected, hidden, locked, edited, or deleted but not layered.

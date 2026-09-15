@@ -76,6 +76,16 @@ import {
   type ChartPaneLayoutId,
 } from "./lib/chartLayouts";
 import {
+  captureVisibleChartGridPng,
+  type ChartCaptureStatus,
+} from "./lib/chartCapture";
+import {
+  hydrateChartInteractionPreferences,
+  loadCachedChartInteractionPreferences,
+  persistChartInteractionPreferences,
+  subscribeChartInteractionPreferences,
+} from "./lib/chartInteractionPreferences";
+import {
   DEFAULT_CHART_VISUAL_SETTINGS,
   hydrateChartSettingsPresets,
   loadActiveChartSettingsPreset,
@@ -364,7 +374,16 @@ export function WorkspaceApp() {
   const pendingResultsPanelTradeScrollRestoreRef = useRef<ResultsTradeScroll | null>(null);
   const pendingNotebookScrollResetRef = useRef(false);
   const chartShellRef = useRef<HTMLDivElement | null>(null);
+  const chartPaneGridRef = useRef<HTMLDivElement | null>(null);
   const skipNextToolsClickRef = useRef(false);
+  const [chartCapture, setChartCapture] = useState<{
+    message: string;
+    status: ChartCaptureStatus;
+  }>({ message: "", status: "idle" });
+  const [chartCaptureMode, setChartCaptureMode] = useState(false);
+  const [chartInteractionPreferences, setChartInteractionPreferences] = useState(
+    loadCachedChartInteractionPreferences,
+  );
   const [chartLayoutSavedAt, setChartLayoutSavedAt] = useState<number | null>(null);
   const [layoutName, setLayoutName] = useState(() => loadActiveLayoutName());
   const [availableLayouts, setAvailableLayouts] = useState(() => loadSavedLayoutNames());
@@ -532,6 +551,24 @@ export function WorkspaceApp() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateChartInteractionPreferences().then((preferences) => {
+      if (active) {
+        setChartInteractionPreferences(preferences);
+      }
+    });
+    const unsubscribe = subscribeChartInteractionPreferences((preferences) => {
+      if (active) {
+        setChartInteractionPreferences(preferences);
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     saveWorkspaceSidebarCollapsed(sidebarCollapsed);
@@ -1663,6 +1700,58 @@ export function WorkspaceApp() {
 
   function handleChartSettingsClose() {
     setChartSettingsPanelOpen(false);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>('[data-chart-header-control="settings"]')
+        ?.focus({ preventScroll: true });
+    });
+  }
+
+  function updateChartInteractionPreference(
+    patch: Partial<typeof chartInteractionPreferences>,
+  ) {
+    setChartInteractionPreferences((current) => {
+      const next = { ...current, ...patch };
+      void persistChartInteractionPreferences(next);
+      return next;
+    });
+  }
+
+  async function captureChartGrid() {
+    if (chartCapture.status === "capturing") {
+      return;
+    }
+    const target = chartPaneGridRef.current;
+    if (!target) {
+      setChartCapture({
+        message: "The chart is still loading. Try the capture again.",
+        status: "error",
+      });
+      return;
+    }
+    setChartCapture({ message: "Preparing the visible chart layout…", status: "capturing" });
+    setChartCaptureMode(true);
+    try {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+      });
+      const result = await captureVisibleChartGridPng(target, {
+        layout: chartPaneLayout,
+        symbol: state?.session.symbol ?? "chart",
+        timeframe: isMultiChartLayout ? "multi" : effectiveTimeframe,
+      });
+      setChartCapture({
+        message: `Saved ${result.fileName} · ${result.width} × ${result.height}`,
+        status: "success",
+      });
+    } catch {
+      setChartCapture({
+        message: "PNG capture could not be created. Check browser download permissions and retry.",
+        status: "error",
+      });
+    } finally {
+      setChartCaptureMode(false);
+    }
   }
 
   async function createSessionFromGateway(payload: BacktestCreatePayload) {
@@ -2147,6 +2236,8 @@ export function WorkspaceApp() {
                     <ChartToolbar
                       key={chartToolsOpen ? "chart-tools" : "chart-settings"}
                       activePaneLabel={activeChartPaneLabel}
+                      captureMessage={chartCapture.message}
+                      captureStatus={chartCapture.status}
                       chartSettings={chartSettings}
                       chartStyle={chartStyle}
                       clearableDrawingsCount={unlockedDrawingsCount}
@@ -2169,6 +2260,13 @@ export function WorkspaceApp() {
                       onLayoutNameChange={setLayoutName}
                       onLoadLayout={loadNamedChartLayout}
                       magnetMode={magnetMode}
+                      keepDrawingAfterPlacement={
+                        chartInteractionPreferences.keepDrawingAfterPlacement
+                      }
+                      onCaptureChart={() => void captureChartGrid()}
+                      onKeepDrawingAfterPlacementChange={(keepDrawingAfterPlacement) =>
+                        updateChartInteractionPreference({ keepDrawingAfterPlacement })
+                      }
                       onMagnetModeChange={setMagnetMode}
                       onPaneLayoutChange={changeChartPaneLayout}
                       onReplayTimeframeChange={changeReplayTimeframe}
@@ -2178,6 +2276,9 @@ export function WorkspaceApp() {
                       onRemoveIndicator={removeIndicator}
                       onUpdateIndicatorSettings={updateIndicatorSettings}
                       onSettingsClose={handleChartSettingsClose}
+                      onShowDrawingRailChange={(showDrawingRail) =>
+                        updateChartInteractionPreference({ showDrawingRail })
+                      }
                       onSmoothCandlesChange={setSmoothCandles}
                       orderOverlaysVisible={showOrderOverlays}
                       paneLayout={chartPaneLayout}
@@ -2185,6 +2286,7 @@ export function WorkspaceApp() {
                       replayTimeframeOptions={replayTimeframeOptions}
                       savedLabel={savedLayoutLabel}
                       settingsOpenSignal={chartSettingsOpenSignal}
+                      showDrawingRail={chartInteractionPreferences.showDrawingRail}
                       smoothCandles={smoothCandles}
                       sourceTimeframe={sourceTimeframe}
                       timeframe={effectiveTimeframe}
@@ -2195,8 +2297,33 @@ export function WorkspaceApp() {
                 <Suspense fallback={<ChartChunkFallback />}>
                   <div className={`chart-studio-layout ${layersPanelOpen ? "" : "chart-studio-layout-focus"}`}>
                   <div className="min-w-0 space-y-3">
+                    {chartCapture.status !== "idle" ? (
+                      <div
+                        aria-live="polite"
+                        className={`chart-capture-feedback chart-capture-feedback-${chartCapture.status}`}
+                        data-chart-capture-exclude="true"
+                        role={chartCapture.status === "error" ? "alert" : "status"}
+                      >
+                        <span aria-hidden="true" className="chart-capture-feedback-mark" />
+                        <span className="min-w-0 flex-1 truncate">{chartCapture.message}</span>
+                        {chartCapture.status === "error" ? (
+                          <button onClick={() => void captureChartGrid()} type="button">
+                            Retry
+                          </button>
+                        ) : chartCapture.status === "success" ? (
+                          <button
+                            aria-label="Dismiss capture confirmation"
+                            onClick={() => setChartCapture({ message: "", status: "idle" })}
+                            type="button"
+                          >
+                            Dismiss
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div
                       className={`chart-pane-grid ${chartPaneLayoutDefinition.className}`}
+                      ref={chartPaneGridRef}
                     >
                       {visibleChartPanes.map((pane, index) => {
                         const paneActive = pane.id === activeChartPane.id;
@@ -2229,6 +2356,7 @@ export function WorkspaceApp() {
                             <TradingChart
                               bars={visibleBars}
                               canUndoDrawingChange={paneActive && drawingUndoDepth > 0}
+                              captureMode={chartCaptureMode}
                               chartSettings={pane.chartSettings}
                               chartStyle={pane.chartStyle}
                               confirmOrderLineModifications={confirmOrderLineModifications}
@@ -2237,6 +2365,9 @@ export function WorkspaceApp() {
                               executions={executions}
                               indicatorInstances={pane.indicatorInstances}
                               magnetMode={pane.magnetMode}
+                              keepDrawingAfterPlacement={
+                                chartInteractionPreferences.keepDrawingAfterPlacement
+                              }
                               neutralDrawingTool={lastNeutralDrawingToolRef.current}
                               onAddDrawing={(nextDrawing) =>
                                 addDrawingToPane(pane.id, nextDrawing)
@@ -2253,6 +2384,8 @@ export function WorkspaceApp() {
                               onMagnetModeChange={(mode) =>
                                 changeMagnetModeForPane(pane.id, mode)
                               }
+                              onCaptureChart={() => void captureChartGrid()}
+                              onOpenChartSettings={openChartSettings}
                               onRemoveIndicator={(instanceId) =>
                                 removeIndicatorForPane(pane.id, instanceId)
                               }
@@ -2283,6 +2416,7 @@ export function WorkspaceApp() {
                               }
                               replaySeekVersion={replaySeekVersion}
                               selectedDrawingId={paneActive ? selectedDrawingId : null}
+                              showDrawingRail={chartInteractionPreferences.showDrawingRail}
                               showOrderOverlays={pane.showOrderOverlays}
                               symbol={state?.session.symbol}
                               currency={sessionCurrency}

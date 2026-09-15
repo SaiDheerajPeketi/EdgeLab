@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -10,6 +11,7 @@ import { createPortal, flushSync } from "react-dom";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
+  Camera,
   Check,
   ChevronDown,
   Eye,
@@ -20,6 +22,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Settings2,
   Trash2,
   Undo2,
   UnlockKeyhole,
@@ -150,6 +153,7 @@ const DRAWING_RAIL_TOOLS: Array<{
 type Props = {
   bars: Candle[];
   canUndoDrawingChange: boolean;
+  captureMode?: boolean;
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   confirmOrderLineModifications: boolean;
@@ -157,15 +161,18 @@ type Props = {
   drawings: ChartDrawing[];
   executions: Execution[];
   indicatorInstances: ChartIndicatorInstance[];
+  keepDrawingAfterPlacement?: boolean;
   magnetMode: MagnetMode;
   neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
   onAddDrawing: (drawing: ChartDrawing) => void;
+  onCaptureChart?: () => void;
   onAmendOrder: (orderId: number, payload: OrderUpdatePayload) => Promise<void> | void;
   onClearDrawings: () => void;
   onClosePositionFraction: (fraction: number) => void;
   onDeleteDrawing: (drawingId: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onMagnetModeChange: (mode: MagnetMode) => void;
+  onOpenChartSettings?: () => void;
   onRemoveIndicator: (instanceId: string) => void;
   onSelectDrawing: (drawingId: string | null) => void;
   onToggleIndicatorVisibility: (instanceId: string) => void;
@@ -180,6 +187,7 @@ type Props = {
   replaySeekVersion?: number;
   selectedDrawingId: string | null;
   showOrderOverlays: boolean;
+  showDrawingRail?: boolean;
   symbol?: string;
   currency?: string;
   datasetTimeframe?: string | null;
@@ -329,6 +337,7 @@ const POSITION_RISK_COLOR = "#fb7185";
 export function TradingChart({
   bars,
   canUndoDrawingChange,
+  captureMode = false,
   chartSettings,
   chartStyle,
   confirmOrderLineModifications,
@@ -336,15 +345,18 @@ export function TradingChart({
   drawings,
   executions,
   indicatorInstances,
+  keepDrawingAfterPlacement = false,
   magnetMode,
   neutralDrawingTool,
   onAddDrawing,
+  onCaptureChart,
   onAmendOrder,
   onClearDrawings,
   onClosePositionFraction,
   onDeleteDrawing,
   onDrawingToolChange,
   onMagnetModeChange,
+  onOpenChartSettings,
   onRemoveIndicator,
   onSelectDrawing,
   onToggleIndicatorVisibility,
@@ -359,6 +371,7 @@ export function TradingChart({
   replaySeekVersion = 0,
   selectedDrawingId,
   showOrderOverlays,
+  showDrawingRail = true,
   symbol = "EURUSD",
   currency = "USD",
   datasetTimeframe,
@@ -388,8 +401,10 @@ export function TradingChart({
     useState<{ x: number; y: number } | null>(null);
   const [chartContextMenuPosition, setChartContextMenuPosition] =
     useState<{ x: number; y: number } | null>(null);
+  const chartContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
+  const renderedSelectedIndicatorId = captureMode ? null : selectedIndicatorId;
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
   const [favoriteDrawingTools, setFavoriteDrawingTools] = useState<FavoriteDrawingTool[]>(() =>
     loadCachedDrawingToolFavorites(),
@@ -716,7 +731,7 @@ export function TradingChart({
   const isNeutralTool = isCursorTool || isCrosshairTool;
   const isDrawingPlacementMode = !isCursorTool && !isCrosshairTool;
   const effectiveCrosshairVisible =
-    isCrosshairTool || (chartSettings.crosshairVisible && !isCursorTool);
+    !captureMode && (isCrosshairTool || (chartSettings.crosshairVisible && !isCursorTool));
   const drawingObjectsInteractive = isNeutralTool;
   const drawingLayerCapturesPointer =
     dragState != null || isDrawingPlacementMode || isCursorTool;
@@ -732,20 +747,21 @@ export function TradingChart({
     [indicatorInstances, selectedIndicatorId],
   );
   const activePosition = isOpenPosition(position) ? position : null;
-  const activeHeaderCandle = tooltip?.candle ?? displayBars.at(-1) ?? null;
+  const activeHeaderCandle =
+    (captureMode ? null : tooltip?.candle) ?? displayBars.at(-1) ?? null;
   const headerPriceTone = candleChangeTone(activeHeaderCandle);
   const drawingElements = buildDrawingElements({
     chart: chartRef.current,
     chartSettings,
     drawings,
-    draftDrawing,
+    draftDrawing: captureMode ? null : draftDrawing,
     frame: chartFrameRef.current,
-    hoverPoint,
+    hoverPoint: captureMode ? null : hoverPoint,
     onDeleteDrawing,
     onDragStart: startDrawingDrag,
     onSelectDrawing: selectDrawingFromChart,
-    interactive: drawingObjectsInteractive,
-    selectedDrawingId,
+    interactive: captureMode ? false : drawingObjectsInteractive,
+    selectedDrawingId: captureMode ? null : selectedDrawingId,
     series: candlesRef.current,
     version: plotVersion,
   });
@@ -754,7 +770,7 @@ export function TradingChart({
     definitions: fvgZoneDefinitions,
     frame: chartFrameRef.current,
     onOpenSettings: openIndicatorToolbarAtFramePoint,
-    selectedIndicatorId,
+    selectedIndicatorId: renderedSelectedIndicatorId,
     series: candlesRef.current,
   });
   const drawingPlotWidth =
@@ -765,7 +781,7 @@ export function TradingChart({
     ? chartPlotHeight(chartRef.current, chartFrameRef.current)
     : 0;
   const floatingToolbarPosition =
-    selectedDrawing && drawingToolbarOpen && !isDrawingPlacementMode && dragState == null
+    !captureMode && selectedDrawing && drawingToolbarOpen && !isDrawingPlacementMode && dragState == null
       ? toolbarPositionFromDrawing(
           selectedDrawing,
           chartFrameRef.current,
@@ -893,13 +909,19 @@ export function TradingChart({
       return;
     }
 
+    window.requestAnimationFrame(() => {
+      chartContextMenuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+    });
+
     function closeMenu() {
       setChartContextMenuPosition(null);
     }
 
     function closeMenuOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        event.preventDefault();
         closeMenu();
+        stageRef.current?.focus({ preventScroll: true });
       }
     }
 
@@ -1225,7 +1247,7 @@ export function TradingChart({
           color: indicator.color,
           lineWidth: selectedIndicatorLineWidth(
             indicator.lineWidth,
-            indicator.sourceId === selectedIndicatorId,
+            indicator.sourceId === renderedSelectedIndicatorId,
           ),
           lineStyle: indicator.lineStyle ?? 0,
           priceLineVisible: false,
@@ -1244,7 +1266,7 @@ export function TradingChart({
         lineStyle: indicator.lineStyle ?? 0,
         lineWidth: selectedIndicatorLineWidth(
           indicator.lineWidth,
-          indicator.sourceId === selectedIndicatorId,
+          indicator.sourceId === renderedSelectedIndicatorId,
         ),
         priceFormat: priceFormatFromPrecision(chartSettings.pricePrecision),
         priceScaleId: primaryPriceScaleId,
@@ -1256,7 +1278,7 @@ export function TradingChart({
     chartSettings.pricePrecision,
     chartSettings.scalePlacement,
     indicatorDefinitions,
-    selectedIndicatorId,
+    renderedSelectedIndicatorId,
   ]);
 
   useEffect(() => {
@@ -1486,13 +1508,17 @@ export function TradingChart({
 
     if (drawingTool === "horizontal" || drawingTool === "vertical") {
       addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, [point]));
-      onDrawingToolChange(neutralDrawingTool);
+      if (!keepDrawingAfterPlacement) {
+        onDrawingToolChange(neutralDrawingTool);
+      }
       return;
     }
 
     if (drawingTool === "text") {
       addDrawingAndMaybeOpenToolbar(makeDrawing("text", [point], "Text"));
-      onDrawingToolChange(neutralDrawingTool);
+      if (!keepDrawingAfterPlacement) {
+        onDrawingToolChange(neutralDrawingTool);
+      }
       setDraftDrawing(null);
       setHoverPoint(null);
       return;
@@ -1504,7 +1530,9 @@ export function TradingChart({
     }
 
     addDrawingAndMaybeOpenToolbar(makeDrawing(drawingTool, [draftDrawing.point, point]));
-    onDrawingToolChange(neutralDrawingTool);
+    if (!keepDrawingAfterPlacement) {
+      onDrawingToolChange(neutralDrawingTool);
+    }
     setDraftDrawing(null);
     setHoverPoint(null);
   }
@@ -1612,7 +1640,8 @@ export function TradingChart({
     }
     const rect = frame.getBoundingClientRect();
     const menuWidth = 256;
-    const menuHeight = 152;
+    const menuHeight =
+      152 + (onCaptureChart ? 44 : 0) + (onOpenChartSettings ? 44 : 0);
     setChartContextMenuPosition({
       x: clamp(event.clientX - rect.left, 8, Math.max(8, rect.width - menuWidth - 8)),
       y: clamp(event.clientY - rect.top, 8, Math.max(8, rect.height - menuHeight - 8)),
@@ -1625,11 +1654,39 @@ export function TradingChart({
   function runChartContextMenuAction(
     action: () => void,
     event?: MouseEvent<HTMLElement>,
+    restoreChartFocus = true,
   ) {
     event?.preventDefault();
     event?.stopPropagation();
     action();
     setChartContextMenuPosition(null);
+    if (restoreChartFocus) {
+      window.requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
+    }
+  }
+
+  function handleChartContextMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)',
+      ),
+    );
+    if (items.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
+            items.length;
+    items[nextIndex]?.focus();
   }
 
   function resetChartView() {
@@ -2113,6 +2170,7 @@ export function TradingChart({
       aria-keyshortcuts="Alt"
       aria-label={`${formatMarketSymbol(symbol)} ${formatChartTimeframeLabel(timeframe)} chart`}
       className="chart-stage"
+      data-chart-capture-mode={captureMode ? "true" : undefined}
       onPointerDownCapture={(event) => {
         const target = event.target as HTMLElement;
         if (!isEditableTarget(target) && !target.closest("button, [role='button'], a")) {
@@ -2174,7 +2232,7 @@ export function TradingChart({
               <div className="chart-study-row">
                 {overlayIndicatorPills.slice(0, 5).map((indicator) => (
                   <button
-                    className={`chart-study-pill ${selectedIndicatorId === indicator.id ? "chart-study-pill-active" : ""}`}
+                    className={`chart-study-pill ${renderedSelectedIndicatorId === indicator.id ? "chart-study-pill-active" : ""}`}
                     key={indicator.id}
                     onClick={(event) => openIndicatorToolbar(indicator.id, event)}
                     type="button"
@@ -2197,7 +2255,7 @@ export function TradingChart({
                 {rsiStudies.map((study) =>
                   study.data.length > 0 ? (
                     <button
-                      className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                      className={`chart-study-pill ${renderedSelectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
                       key={`header-${study.id}`}
                       onClick={(event) => openIndicatorToolbar(study.id, event)}
                       type="button"
@@ -2215,7 +2273,7 @@ export function TradingChart({
                 )}
                 {macdStudies.map((study) => (
                   <button
-                    className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                    className={`chart-study-pill ${renderedSelectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
                     key={`header-${study.id}`}
                     onClick={(event) => openIndicatorToolbar(study.id, event)}
                     type="button"
@@ -2233,7 +2291,7 @@ export function TradingChart({
                 {atrStudies.map((study) =>
                   study.data.length > 0 ? (
                     <button
-                      className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                      className={`chart-study-pill ${renderedSelectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
                       key={`header-${study.id}`}
                       onClick={(event) => openIndicatorToolbar(study.id, event)}
                       type="button"
@@ -2252,7 +2310,7 @@ export function TradingChart({
                 {momentumStudies.map((study) =>
                   study.data.length > 0 ? (
                     <button
-                      className={`chart-study-pill ${selectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
+                      className={`chart-study-pill ${renderedSelectedIndicatorId === study.id ? "chart-study-pill-active" : ""}`}
                       key={`header-${study.id}`}
                       onClick={(event) => openIndicatorToolbar(study.id, event)}
                       type="button"
@@ -2277,20 +2335,22 @@ export function TradingChart({
       <div
         className={`chart-canvas-grid ${
           chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""
-        }`}
+        } ${showDrawingRail ? "" : "chart-canvas-grid-no-rail"}`}
       >
-        <DrawingRail
-          activeTool={drawingTool}
-          canUndoDrawingChange={canUndoDrawingChange}
-          clearableDrawingsCount={unlockedDrawingsCount}
-          drawingsCount={drawings.length}
-          magnetMode={magnetMode}
-          onClearDrawings={onClearDrawings}
-          onMagnetModeChange={onMagnetModeChange}
-          onToolChange={onDrawingToolChange}
-          onUndoDrawingChange={onUndoDrawingChange}
-          undoShortcutLabel={undoShortcutLabel}
-        />
+        {showDrawingRail ? (
+          <DrawingRail
+            activeTool={drawingTool}
+            canUndoDrawingChange={canUndoDrawingChange}
+            clearableDrawingsCount={unlockedDrawingsCount}
+            drawingsCount={drawings.length}
+            magnetMode={magnetMode}
+            onClearDrawings={onClearDrawings}
+            onMagnetModeChange={onMagnetModeChange}
+            onToolChange={onDrawingToolChange}
+            onUndoDrawingChange={onUndoDrawingChange}
+            undoShortcutLabel={undoShortcutLabel}
+          />
+        ) : null}
 
         <div className="chart-plot-column relative min-w-0">
           <div
@@ -2417,7 +2477,7 @@ export function TradingChart({
                 })}
               </div>
             )}
-            {selectedDrawing && floatingToolbarPosition && isNeutralTool && (
+            {!captureMode && selectedDrawing && floatingToolbarPosition && isNeutralTool && (
               <FloatingDrawingToolbar
                 drawing={selectedDrawing}
                 onChange={updateSelectedDrawing}
@@ -2432,7 +2492,7 @@ export function TradingChart({
             {activePosition && positionOverlayPosition && showOrderOverlays && (
               <PositionLineOverlay
                 currency={currency}
-                open={positionActionsOpen}
+                open={captureMode ? false : positionActionsOpen}
                 onCloseFraction={(fraction) => {
                   onClosePositionFraction(fraction);
                   setPositionActionsOpen(false);
@@ -2446,24 +2506,47 @@ export function TradingChart({
             {chartContextMenuPosition && (
               <div
                 className="chart-context-menu"
+                data-chart-capture-exclude="true"
                 onClick={(event) => event.stopPropagation()}
                 onContextMenu={(event) => event.preventDefault()}
+                onKeyDown={handleChartContextMenuKeyDown}
                 onMouseDown={(event) => event.stopPropagation()}
                 onMouseUp={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
                 role="menu"
+                ref={chartContextMenuRef}
                 style={{
                   left: chartContextMenuPosition.x,
                   top: chartContextMenuPosition.y,
                 }}
               >
+                {onCaptureChart ? (
+                  <button
+                    className="chart-context-menu-row"
+                    onClick={(event) => runChartContextMenuAction(onCaptureChart, event)}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Camera size={17} />
+                    <span>Capture layout as PNG</span>
+                  </button>
+                ) : null}
+                {onOpenChartSettings ? (
+                  <button
+                    className="chart-context-menu-row"
+                    onClick={(event) =>
+                      runChartContextMenuAction(onOpenChartSettings, event, false)
+                    }
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Settings2 size={17} />
+                    <span>Chart settings</span>
+                  </button>
+                ) : null}
                 <button
                   className="chart-context-menu-row"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onMouseDown={(event) => runChartContextMenuAction(resetChartView, event)}
+                  onClick={(event) => runChartContextMenuAction(resetChartView, event)}
                   role="menuitem"
                   type="button"
                 >
@@ -2473,11 +2556,7 @@ export function TradingChart({
                 <button
                   className="chart-context-menu-row"
                   disabled={removableDrawingsCount === 0}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onMouseDown={(event) => runChartContextMenuAction(onClearDrawings, event)}
+                  onClick={(event) => runChartContextMenuAction(onClearDrawings, event)}
                   role="menuitem"
                   type="button"
                 >
@@ -2487,11 +2566,7 @@ export function TradingChart({
                 <button
                   className="chart-context-menu-row"
                   disabled={indicatorInstances.length === 0}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onMouseDown={(event) => runChartContextMenuAction(removeAllIndicators, event)}
+                  onClick={(event) => runChartContextMenuAction(removeAllIndicators, event)}
                   role="menuitem"
                   type="button"
                 >
@@ -2518,7 +2593,7 @@ export function TradingChart({
               lineStyle={study.lineStyle}
               lineWidth={study.lineWidth}
               onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
-              selected={selectedIndicatorId === study.id}
+              selected={renderedSelectedIndicatorId === study.id}
             />
           ))}
           {macdStudies.map((study) => (
@@ -2531,7 +2606,7 @@ export function TradingChart({
               lineStyle={study.lineStyle}
               lineWidth={study.lineWidth}
               onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
-              selected={selectedIndicatorId === study.id}
+              selected={renderedSelectedIndicatorId === study.id}
               signalColor={study.signalColor}
             />
           ))}
@@ -2544,7 +2619,7 @@ export function TradingChart({
               lineStyle={study.lineStyle}
               lineWidth={study.lineWidth}
               onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
-              selected={selectedIndicatorId === study.id}
+              selected={renderedSelectedIndicatorId === study.id}
               valueDigits={5}
             />
           ))}
@@ -2557,7 +2632,7 @@ export function TradingChart({
               lineStyle={study.lineStyle}
               lineWidth={study.lineWidth}
               onOpenSettings={(event) => openIndicatorToolbar(study.id, event)}
-              selected={selectedIndicatorId === study.id}
+              selected={renderedSelectedIndicatorId === study.id}
               valueDigits={5}
               zeroLine
             />
@@ -2565,7 +2640,7 @@ export function TradingChart({
         </div>
       </div>
 
-      {selectedIndicator && indicatorToolbarPosition && (
+      {!captureMode && selectedIndicator && indicatorToolbarPosition && (
         <FloatingIndicatorToolbar
           indicator={selectedIndicator}
           onChange={(settings) => onUpdateIndicatorSettings(selectedIndicator.id, settings)}
@@ -2582,7 +2657,7 @@ export function TradingChart({
         />
       )}
 
-      {drawingTool !== "cursor" && drawingTool !== "crosshair" && (
+      {!captureMode && drawingTool !== "cursor" && drawingTool !== "crosshair" && (
         <div className="absolute left-20 top-20 z-20 rounded-md border border-cyan-300/20 bg-ink-950/95 px-3 py-2 text-xs text-cyan-100 shadow-panel">
           {draftDrawing ? "Click the second anchor" : `Click to place ${toolLabel(drawingTool)}`}
         </div>

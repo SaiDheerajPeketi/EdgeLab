@@ -2066,6 +2066,16 @@ button:disabled {
     @apply grid min-h-0 min-w-0 grid-cols-[56px_minmax(0,1fr)];
   }
 
+  .chart-pane-grid .chart-canvas-grid-no-rail,
+  .chart-pane-grid .chart-canvas-grid-no-rail.chart-canvas-grid-rail-right {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chart-pane-grid .chart-canvas-grid-no-rail > .chart-plot-column {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
   @keyframes chart-radial-toolbox-in {
     from {
       opacity: 0;
@@ -2214,6 +2224,44 @@ button:disabled {
 
   .chart-context-menu-row:not(:last-child) {
     @apply border-b border-white/5;
+  }
+
+  .chart-capture-feedback {
+    @apply flex min-h-11 min-w-0 items-center gap-3 rounded-md border border-white/10 bg-[#0b1017] px-3 py-2 text-xs font-semibold text-slate-300 shadow-panel;
+  }
+
+  .chart-capture-feedback-mark {
+    @apply h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-300;
+  }
+
+  .chart-capture-feedback-capturing .chart-capture-feedback-mark {
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  .chart-capture-feedback-success {
+    @apply border-emerald-300/25 text-emerald-100;
+  }
+
+  .chart-capture-feedback-success .chart-capture-feedback-mark {
+    @apply bg-emerald-300;
+  }
+
+  .chart-capture-feedback-error {
+    @apply border-rose-300/25 text-rose-100;
+  }
+
+  .chart-capture-feedback-error .chart-capture-feedback-mark {
+    @apply bg-rose-300;
+  }
+
+  .chart-capture-feedback button {
+    @apply h-8 shrink-0 rounded-md border border-white/15 px-3 text-xs font-bold outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300/45;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chart-capture-feedback-capturing .chart-capture-feedback-mark {
+      animation: none;
+    }
   }
 
   .chart-container-surface {

@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   CandlestickChart,
+  Camera,
   Check,
   ChevronDown,
   Command,
@@ -75,6 +76,7 @@ import {
   type ChartPaneLayoutDefinition,
   type ChartPaneLayoutId,
 } from "../lib/chartLayouts";
+import type { ChartCaptureStatus } from "../lib/chartCapture";
 import {
   hydrateDrawingToolFavorites,
   isFavoriteDrawingTool,
@@ -92,16 +94,20 @@ import { ThemedSelect } from "./ThemedSelect";
 
 type Props = {
   activePaneLabel: string;
+  captureMessage?: string;
+  captureStatus?: ChartCaptureStatus;
   chartSettings: ChartVisualSettings;
   chartStyle: ChartStyle;
   clearableDrawingsCount: number;
   drawingTool: DrawingTool;
   drawingsCount: number;
   indicatorInstances: ChartIndicatorInstance[];
+  keepDrawingAfterPlacement?: boolean;
   layoutName: string;
   layoutNames: string[];
   magnetMode: MagnetMode;
   onAddIndicator: (kind: ChartIndicatorKind) => void;
+  onCaptureChart?: () => void;
   onChartSettingsChange: (settings: ChartVisualSettings) => void;
   onChartSettingsReset: () => void;
   onClearDrawings: () => void;
@@ -109,6 +115,7 @@ type Props = {
   onDeleteLayout: (name: string) => void;
   onDrawingToolChange: (tool: DrawingTool) => void;
   onLayoutNameChange: (name: string) => void;
+  onKeepDrawingAfterPlacementChange?: (value: boolean) => void;
   onLoadLayout: (name: string) => void;
   onMagnetModeChange: (mode: MagnetMode) => void;
   onPaneLayoutChange: (layout: ChartPaneLayoutId) => void;
@@ -123,6 +130,7 @@ type Props = {
     settings: Partial<IndicatorSettings>,
   ) => void;
   onSettingsClose?: () => void;
+  onShowDrawingRailChange?: (value: boolean) => void;
   orderOverlaysVisible: boolean;
   paneLayout: ChartPaneLayoutId;
   replayTimeframe: ChartTimeframe;
@@ -133,6 +141,7 @@ type Props = {
   }>;
   savedLabel: string | null;
   settingsOpenSignal?: number;
+  showDrawingRail?: boolean;
   smoothCandles: boolean;
   sourceTimeframe: ChartTimeframe | null;
   timeframe: ChartTimeframe;
@@ -215,16 +224,20 @@ function ChartPaneLayoutGlyph({ layout }: { layout: ChartPaneLayoutDefinition })
 
 export function ChartToolbar({
   activePaneLabel,
+  captureMessage = "",
+  captureStatus = "idle",
   chartSettings,
   chartStyle,
   clearableDrawingsCount,
   drawingTool,
   drawingsCount,
   indicatorInstances,
+  keepDrawingAfterPlacement = false,
   layoutName,
   layoutNames,
   magnetMode,
   onAddIndicator,
+  onCaptureChart,
   onChartSettingsChange,
   onChartSettingsReset,
   onChartStyleChange,
@@ -232,6 +245,7 @@ export function ChartToolbar({
   onDeleteLayout,
   onDrawingToolChange,
   onLayoutNameChange,
+  onKeepDrawingAfterPlacementChange,
   onLoadLayout,
   onMagnetModeChange,
   onPaneLayoutChange,
@@ -243,12 +257,14 @@ export function ChartToolbar({
   onSmoothCandlesChange,
   onUpdateIndicatorSettings,
   onSettingsClose,
+  onShowDrawingRailChange,
   orderOverlaysVisible,
   paneLayout,
   replayTimeframe,
   replayTimeframeOptions,
   savedLabel,
   settingsOpenSignal = 0,
+  showDrawingRail = true,
   sourceTimeframe,
   timeframe,
   toolsOpen = true,
@@ -424,6 +440,11 @@ export function ChartToolbar({
   useEffect(() => {
     if (settingsOpen) {
       settingsWasOpenRef.current = true;
+      window.requestAnimationFrame(() => {
+        settingsRef.current
+          ?.querySelector<HTMLElement>(".chart-settings-nav-button")
+          ?.focus({ preventScroll: true });
+      });
       return;
     }
     if (!settingsWasOpenRef.current) {
@@ -634,6 +655,50 @@ export function ChartToolbar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onCaptureChart ? (
+            <>
+              <button
+                aria-describedby={captureMessage ? "chart-capture-toolbar-status" : undefined}
+                className="chart-mode-button"
+                disabled={captureStatus === "capturing"}
+                onClick={onCaptureChart}
+                type="button"
+              >
+                <Camera size={15} />
+                {captureStatus === "capturing"
+                  ? "Capturing…"
+                  : captureStatus === "error"
+                    ? "Retry PNG"
+                    : "Capture PNG"}
+              </button>
+              <span aria-live="polite" className="sr-only" id="chart-capture-toolbar-status">
+                {captureMessage}
+              </span>
+            </>
+          ) : null}
+          {onShowDrawingRailChange ? (
+            <button
+              aria-pressed={showDrawingRail}
+              className={`chart-mode-button ${showDrawingRail ? "chart-mode-active" : ""}`}
+              onClick={() => onShowDrawingRailChange(!showDrawingRail)}
+              type="button"
+            >
+              {showDrawingRail ? <Eye size={16} /> : <EyeOff size={16} />}
+              Rail {showDrawingRail ? "on" : "off"}
+            </button>
+          ) : null}
+          {onKeepDrawingAfterPlacementChange ? (
+            <button
+              aria-pressed={keepDrawingAfterPlacement}
+              className={`chart-mode-button ${keepDrawingAfterPlacement ? "chart-mode-active" : ""}`}
+              onClick={() => onKeepDrawingAfterPlacementChange(!keepDrawingAfterPlacement)}
+              title="Keep the selected drawing tool active after placing an object"
+              type="button"
+            >
+              <Command size={15} />
+              Stay {keepDrawingAfterPlacement ? "on" : "off"}
+            </button>
+          ) : null}
           <button
             className="chart-mode-button"
             onClick={() => selectChartStyle("candles")}

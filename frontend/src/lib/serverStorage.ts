@@ -24,6 +24,7 @@ const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "chart-layout-cleared-single-horizontal.v1": "edgelab.chart-layout-cleared-single-horizontal.v1",
   "chart-layout.v1": "edgelab.chart-layout.v1",
   "chart-layouts.v1": "edgelab.chart-layouts.v1",
+  "chart-interaction-preferences.v1": "edgelab.chart-interaction-preferences.v1",
   "chart-settings-presets.v1": "edgelab.chart-settings-presets.v1",
   "drawing-presets.v1": "edgelab.drawing-presets.v1",
   "drawing-tool-favorites.v1": "edgelab.drawing-tool-favorites.v1",
