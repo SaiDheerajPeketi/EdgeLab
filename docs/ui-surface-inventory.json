@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-15",
+  "classification": ["retain", "restyle", "restructure", "replace"],
+  "routes": [
+    { "path": "/", "surface": "Landing", "auth": false, "disposition": "restructure", "states": ["default", "beta-open", "beta-full", "submission-error", "mobile-menu"] },
+    { "path": "/pricing", "surface": "Pricing and FAQ", "auth": false, "disposition": "restructure", "states": ["default", "annual", "provider-limited", "faq-open"] },
+    { "path": "/privacy", "surface": "Privacy", "auth": false, "disposition": "restyle", "states": ["default"] },
+    { "path": "/terms", "surface": "Terms", "auth": false, "disposition": "restyle", "states": ["default"] },
+    { "path": "/auth/signin", "surface": "Authentication", "auth": false, "disposition": "replace", "states": ["signin", "waitlist", "capacity", "expired", "denied", "cancelled", "retryable"] },
+    { "path": "/auth/callback/google", "surface": "Authentication callback", "auth": false, "disposition": "replace", "states": ["exchanging", "success", "failure"] },
+    { "path": "/shared", "surface": "Shared workspace", "auth": true, "disposition": "restructure", "states": ["loading", "available", "expired", "revoked", "error", "open-as-copy"] },
+    { "path": "/app", "surface": "Session gateway", "auth": true, "disposition": "replace", "states": ["empty", "loading", "recent", "sample-data", "error"] },
+    { "path": "/app/live", "surface": "Live chart workspace", "auth": true, "disposition": "restructure", "states": ["empty", "connecting", "live", "stale", "offline", "unsupported", "fullscreen", "one-pane", "two-pane", "four-pane", "sixteen-pane"] },
+    { "path": "/app/replay", "surface": "Replay workspace", "auth": true, "disposition": "restructure", "states": ["loading", "paused", "playing", "order-open", "trade-selected", "complete", "error"] },
+    { "path": "/app/journal/dashboard", "surface": "Journal dashboard", "auth": true, "disposition": "replace", "states": ["loading", "empty", "partial", "populated", "mixed-currency", "error"] },
+    { "path": "/app/journal/accounts", "surface": "Journal accounts", "auth": true, "disposition": "replace", "states": ["empty", "connected", "syncing", "provider-error", "comparison"] },
+    { "path": "/app/journal/trades", "surface": "Journal trades", "auth": true, "disposition": "replace", "states": ["loading", "empty", "filtered", "review-drawer", "add-trade", "import", "error"] },
+    { "path": "/app/journal/analytics", "surface": "Journal analytics", "auth": true, "disposition": "replace", "states": ["empty", "low-sample", "populated", "segment-selected", "mixed-currency"] },
+    { "path": "/app/journal/notes", "surface": "Journal notes", "auth": true, "disposition": "replace", "states": ["empty", "daily-note", "trade-note", "search-results"] },
+    { "path": "/app/reports", "surface": "Reports", "auth": true, "disposition": "restructure", "states": ["loading", "empty", "populated", "filtered", "trade-selected"] },
+    { "path": "/app/quant", "surface": "Quant assistant", "auth": true, "disposition": "restructure", "states": ["unavailable", "empty", "streaming", "cancelled", "error", "artifact"] },
+    { "path": "/app/settings/:category", "surface": "Settings", "auth": true, "disposition": "replace", "states": ["loading", "default", "dirty", "saving", "saved", "validation-error", "conflict", "danger-confirmation"] }
+  ],
+  "panels": ["Journal", "Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"],
+  "overlays": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "radial drawing toolbox", "confirmation dialog", "toast"],
+  "requiredStateFamilies": ["empty", "loading", "skeleton", "partial", "offline", "stale", "permission-denied", "unsupported", "error", "retrying", "success"]
+}

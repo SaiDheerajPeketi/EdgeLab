@@ -42,6 +42,11 @@ export function loadSettingsPreferences(): SettingsPreferences {
   }
 }
 
+export function applySettingsPreferences(value: SettingsPreferences) {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.density = sanitizeSettingsPreferences(value).density;
+}
+
 export async function hydrateSettingsPreferences(): Promise<SettingsPreferences> {
   const local = loadSettingsPreferences();
   const remote = sanitizeSettingsPreferences(
@@ -61,4 +66,6 @@ export async function saveSettingsPreferences(value: SettingsPreferences) {
 function persistLocal(value: SettingsPreferences) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(settingsPreferencesStorageKey(), JSON.stringify(value));
+  applySettingsPreferences(value);
+  window.dispatchEvent(new CustomEvent("edgelab:settings-preferences", { detail: value }));
 }

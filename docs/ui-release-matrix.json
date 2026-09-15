@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "viewports": {
     "mobile": { "width": 390, "height": 844, "pointer": "coarse", "zoom": 2 },
     "tablet": { "width": 1024, "height": 768, "pointer": "coarse", "zoom": 1 },
@@ -7,13 +7,17 @@
     "tradingDesktop": { "width": 1920, "height": 1080, "pointer": "fine", "zoom": 1 }
   },
   "routes": {
-    "landing": { "path": "/", "auth": false, "viewports": ["mobile", "tablet", "desktop"], "states": ["default", "pending", "success", "error"] },
+    "landing": { "path": "/", "auth": false, "viewports": ["mobile", "tablet", "desktop"], "states": ["default", "pending", "success", "error", "mobile-menu"] },
+    "public": { "paths": ["/pricing", "/privacy", "/terms", "/missing-ui-regression-route"], "auth": false, "viewports": ["mobile", "tablet", "desktop"], "states": ["default", "expanded", "not-found", "error"] },
+    "authentication": { "paths": ["/auth/signin", "/auth/callback/google"], "auth": false, "viewports": ["mobile", "tablet", "desktop"], "states": ["signin", "waitlist", "expired", "denied", "cancelled", "retryable", "callback"] },
+    "gateway": { "path": "/app", "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["empty", "loading", "resumable", "sample-data", "error"] },
     "settings": { "path": "/app/settings/global", "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["default", "dirty", "saving", "saved", "conflict", "validation-error"] },
-    "journal": { "path": "/app/journal/trades", "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["empty", "loading", "partial", "offline", "error", "populated", "review-drawer", "docked"] },
+    "journal": { "paths": ["/app/journal/dashboard", "/app/journal/accounts", "/app/journal/trades", "/app/journal/analytics", "/app/journal/notes"], "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["empty", "loading", "partial", "offline", "error", "populated", "review-drawer", "docked", "import"] },
+    "reports": { "path": "/app/reports", "auth": true, "viewports": ["mobile", "tablet", "desktop"], "states": ["empty", "loading", "populated", "filtered", "drill-down"] },
     "chart": { "path": "/app/live", "auth": true, "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "states": ["compact", "fullscreen", "two-pane", "four-pane", "sixteen-pane", "stale", "unsupported", "offline"] }
   },
   "themes": ["dark"],
   "locales": ["en-US", "de-DE", "ar-SA"],
   "colorVision": ["protanopia", "deuteranopia", "tritanopia"],
-  "requiredAssertions": ["landmarks", "heading-order", "accessible-names", "keyboard-complete", "focus-return", "escape-dismissal", "color-redundancy", "reduced-motion", "no-horizontal-overflow", "touch-targets", "performance-budget"]
+  "requiredAssertions": ["landmarks", "heading-order", "accessible-names", "keyboard-complete", "focus-return", "escape-dismissal", "textual-chart-summary", "contrast-aa", "color-redundancy", "color-vision-simulation", "reduced-motion", "compositor-only-repeated-motion", "no-horizontal-overflow", "zoom-200", "coarse-pointer", "safe-area", "rtl", "long-content", "touch-targets", "raw-route-chunk-budget", "sixteen-pane-interaction-budget", "performance-budget", "server-rollout-fallback"]
 }

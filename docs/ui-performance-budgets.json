@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "rawBytes": {
+    "initialEntry": 600000,
+    "routeChunk": 750000,
+    "chartChunk": 1050000,
+    "stylesheet": 300000,
+    "font": 180000,
+    "image": 500000
+  },
+  "runtime": {
+    "interactionP95Ms": 200,
+    "layoutShift": 0.1,
+    "sixteenPaneFrameP95Ms": 50,
+    "longListRows": 1000
+  }
+}

@@ -19,6 +19,7 @@ import {
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
@@ -33,7 +34,7 @@ const disabled = "disabled:cursor-not-allowed disabled:opacity-45";
 
 export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean; tone?: ActionTone }>(function Button({ children, className = "", disabled: isDisabled, loading = false, tone = "secondary", ...props }, ref) {
   const tones: Record<ActionTone, string> = {
-    primary: "bg-[var(--accent-primary)] text-slate-950 hover:bg-cyan-200 active:bg-cyan-100",
+    primary: "bg-[var(--accent-primary)] text-[var(--on-interaction)] hover:bg-cyan-200 active:bg-cyan-100",
     secondary: "bg-[var(--ui-raised)] text-[var(--text-primary)] hover:bg-[var(--ui-floating)] ring-1 ring-inset ring-[var(--ui-border-subtle)]",
     quiet: "text-[var(--text-secondary)] hover:bg-white/[0.06] hover:text-[var(--text-primary)]",
     destructive: "bg-[var(--loss-soft)] text-[var(--loss-text)] hover:bg-rose-400/20 ring-1 ring-inset ring-rose-300/20",
@@ -62,12 +63,112 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HT
   return <label className="block text-xs font-medium text-[var(--text-secondary)]" htmlFor={controlId}>{label}<span className="relative mt-1 block"><select {...props} ref={ref} id={controlId} className={`min-h-[var(--control-height)] w-full appearance-none rounded-[var(--radius-sm)] border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-3 pe-10 text-sm text-[var(--text-primary)] ${focus} ${disabled} ${className}`}>{children}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-secondary)]" /></span>{hint ? <span className="mt-1.5 block text-xs leading-5 text-[var(--text-secondary)]">{hint}</span> : null}</label>;
 });
 
+export type ComboboxOption = {
+  description?: string;
+  disabled?: boolean;
+  keywords?: string;
+  label: string;
+  value: string;
+};
+
+/** Searchable single-select with listbox keyboard semantics and viewport-aware placement. */
+export function Combobox({
+  disabled: isDisabled,
+  emptyMessage = "No matching options",
+  hint,
+  label,
+  onChange,
+  options,
+  placeholder = "Search options…",
+  value,
+}: {
+  disabled?: boolean;
+  emptyMessage?: string;
+  hint?: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: readonly ComboboxOption[];
+  placeholder?: string;
+  value: string | null;
+}) {
+  const id = useId();
+  const listboxId = `${id}-listbox`;
+  const anchorRef = useRef<HTMLInputElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value) ?? null;
+  const [query, setQuery] = useState(selected?.label ?? "");
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle || selected?.label === query) return options;
+    return options.filter((option) => `${option.label} ${option.description ?? ""} ${option.keywords ?? ""}`.toLocaleLowerCase().includes(needle));
+  }, [options, query, selected?.label]);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (!open) setQuery(selected?.label ?? "");
+  }, [open, selected?.label]);
+  useEffect(() => setActiveIndex(0), [query]);
+
+  const choose = (option: ComboboxOption) => {
+    if (option.disabled) return;
+    onChange(option.value);
+    setQuery(option.label);
+    setOpen(false);
+    window.requestAnimationFrame(() => anchorRef.current?.focus());
+  };
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => Math.min(Math.max(current + delta, 0), Math.max(filtered.length - 1, 0)));
+    } else if (event.key === "Enter" && open && filtered[activeIndex]) {
+      event.preventDefault();
+      choose(filtered[activeIndex]);
+    } else if (event.key === "Escape" && open) {
+      event.preventDefault();
+      setOpen(false);
+      setQuery(selected?.label ?? "");
+    }
+  };
+
+  return <label className="block min-w-0 text-xs font-medium text-[var(--text-secondary)]" htmlFor={id}>
+    {label}
+    <span className="relative mt-1 block">
+      <input
+        aria-activedescendant={open && filtered[activeIndex] ? `${id}-option-${filtered[activeIndex].value}` : undefined}
+        aria-autocomplete="list"
+        aria-controls={listboxId}
+        aria-expanded={open}
+        autoComplete="off"
+        className={`min-h-[var(--control-height)] w-full rounded-[var(--radius-sm)] border border-[var(--ui-border-strong)] bg-[var(--ui-inset)] px-3 pe-10 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ${focus} ${disabled}`}
+        disabled={isDisabled}
+        id={id}
+        onBlur={() => { if (!surfaceRef.current?.matches(":focus-within")) setOpen(false); }}
+        onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+        onClick={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        ref={anchorRef}
+        role="combobox"
+        value={query}
+      />
+      <ChevronDown aria-hidden="true" className={`pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-secondary)] transition-transform duration-[var(--motion-app-fast)] ${open ? "rotate-180" : ""}`} />
+    </span>
+    {hint ? <span className="mt-1.5 block text-xs leading-5 text-[var(--text-secondary)]">{hint}</span> : null}
+    <OverlaySurface anchorRef={anchorRef} triggerRef={anchorRef} surfaceRef={surfaceRef} open={open && !isDisabled} onDismiss={() => setOpen(false)} preferredWidth={280} estimatedHeight={280} id={listboxId} role="listbox" ariaLabel={`${label} options`} className="z-[180] rounded-[var(--radius-md)] bg-[var(--ui-floating)] p-1.5 shadow-[var(--elevation-floating)] ring-1 ring-[var(--ui-border-strong)] transition-[opacity,transform] duration-[var(--motion-app-fast)]">
+      {filtered.length ? filtered.map((option, index) => <button key={option.value} id={`${id}-option-${option.value}`} type="button" role="option" aria-selected={option.value === value} disabled={option.disabled} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)} className={`flex min-h-[var(--control-height)] w-full items-center gap-2 rounded-[var(--radius-sm)] px-2.5 text-start ${focus} ${disabled} ${index === activeIndex ? "bg-[var(--ui-selection)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-white/[0.06] hover:text-[var(--text-primary)]"}`}><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{option.label}</span>{option.description ? <span className="mt-0.5 block truncate text-xs opacity-70">{option.description}</span> : null}</span>{option.value === value ? <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-cyan-200" /> : null}</button>) : <p className="px-3 py-6 text-center text-sm text-[var(--text-secondary)]">{emptyMessage}</p>}
+    </OverlaySurface>
+  </label>;
+}
+
 export function Toggle({ checked, disabled: isDisabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={isDisabled} onClick={() => onChange(!checked)} className={`relative h-7 w-12 rounded-full border transition-colors ${checked ? "border-cyan-200/60 bg-cyan-300/30" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"} ${focus} ${disabled}`}><span aria-hidden="true" className={`absolute top-1 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} /></button>;
 }
 
 export function Checkbox({ checked, disabled: isDisabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
-  return <label className="inline-flex min-h-[var(--control-height)] cursor-pointer items-center gap-2 text-sm text-[var(--text-primary)]"><input type="checkbox" checked={checked} disabled={isDisabled} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" /><span aria-hidden="true" className={`grid h-5 w-5 place-items-center rounded border ${checked ? "border-cyan-200 bg-cyan-300 text-slate-950" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"} peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--ui-focus)] peer-disabled:opacity-45`}>{checked ? <Check className="h-3.5 w-3.5" /> : null}</span><span>{label}</span></label>;
+  return <label className="inline-flex min-h-[var(--control-height)] cursor-pointer items-center gap-2 text-sm text-[var(--text-primary)]"><input type="checkbox" checked={checked} disabled={isDisabled} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" /><span aria-hidden="true" className={`grid h-5 w-5 place-items-center rounded border ${checked ? "border-cyan-200 bg-cyan-300 text-[var(--on-interaction)]" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"} peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--ui-focus)] peer-disabled:opacity-45`}>{checked ? <Check className="h-3.5 w-3.5" /> : null}</span><span>{label}</span></label>;
 }
 
 export function RadioGroup<T extends string>({ label, onChange, options, value }: { label: string; onChange: (value: T) => void; options: readonly { label: string; value: T; description?: string }[]; value: T }) {
@@ -108,7 +209,7 @@ export function Menu({ anchor, items, label, open, onOpenChange }: { anchor: (pr
 function ModalFrame({ children, label, onClose, kind }: { children: ReactNode; label: string; onClose: () => void; kind: "dialog" | "drawer" }) {
   const frameRef = useRef<HTMLDivElement>(null);
   useEffect(() => { const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null; const overflow = document.body.style.overflow; document.body.style.overflow = "hidden"; window.requestAnimationFrame(() => frameRef.current?.querySelector<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus()); const key = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } if (event.key === "Tab" && frameRef.current) trapFocus(event, frameRef.current); }; document.addEventListener("keydown", key); return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", key); previous?.focus(); }; }, [onClose]);
-  return createPortal(<div className={`fixed inset-0 z-[200] flex bg-black/70 ${kind === "drawer" ? "justify-end" : "items-center justify-center p-3"}`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div ref={frameRef} role="dialog" aria-modal="true" aria-label={label} className={kind === "drawer" ? "h-full w-[min(30rem,100vw)] overflow-auto bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]" : "max-h-[min(90dvh,52rem)] w-full max-w-lg overflow-auto rounded-[var(--radius-lg)] bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]"}>{children}</div></div>, document.body);
+  return createPortal(<div className={`ui-modal-backdrop fixed inset-0 z-[200] flex bg-[var(--ui-overlay-backdrop)] ${kind === "drawer" ? "justify-end" : "items-center justify-center p-3"}`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div data-motion={kind} ref={frameRef} role="dialog" aria-modal="true" aria-label={label} className={kind === "drawer" ? "ui-drawer-surface h-full w-[min(30rem,100vw)] overflow-auto bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]" : "ui-dialog-surface max-h-[min(90dvh,52rem)] w-full max-w-lg overflow-auto rounded-[var(--radius-lg)] bg-[var(--ui-modal)] shadow-[var(--elevation-modal)]"}>{children}</div></div>, document.body);
 }
 export function Dialog({ children, label, onClose, open }: { children: ReactNode; label: string; onClose: () => void; open: boolean }) { return open ? <ModalFrame kind="dialog" label={label} onClose={onClose}>{children}</ModalFrame> : null; }
 export function Drawer({ children, label, onClose, open }: { children: ReactNode; label: string; onClose: () => void; open: boolean }) { return open ? <ModalFrame kind="drawer" label={label} onClose={onClose}>{children}</ModalFrame> : null; }

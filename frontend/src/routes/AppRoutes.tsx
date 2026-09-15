@@ -3,7 +3,7 @@ import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
-import { getAuthSession } from "../lib/api";
+import { getAuthSession, getUiRolloutConfig } from "../lib/api";
 import {
   clearStoredAuthSession,
   getStoredAuthSession,
@@ -16,7 +16,7 @@ import {
   buildAuthSignInHref,
 } from "../lib/authJourney";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
-import { routeGroup } from "../lib/uiRollout";
+import { resolveServerUiRollout, resolveUiRollout, routeGroup } from "../lib/uiRollout";
 
 const LandingPage = lazy(() =>
   import("../pages/LandingPage").then((module) => ({ default: module.LandingPage })),
@@ -284,6 +284,21 @@ export function AppRoutes({ WorkspaceApp, NotFoundPage }: AppRoutesProps) {
 export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
   const location = useLocation();
   const boundaryRef = useRef<HTMLDivElement>(null);
+  const [rollout, setRollout] = useState(() => resolveUiRollout());
+  const group = routeGroup(location.pathname);
+
+  useEffect(() => {
+    let active = true;
+    void getUiRolloutConfig()
+      .then((response) => {
+        if (active) setRollout(resolveServerUiRollout(response));
+      })
+      .catch(() => {
+        // Network/config failures retain the fully verified default rather than
+        // leaving a route in a mixed or partially migrated state.
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const boundary = boundaryRef.current;
@@ -293,5 +308,5 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [location.pathname]);
 
-  return <div className="ui-route-transition" data-route-group={routeGroup(location.pathname)} ref={boundaryRef}>{children}</div>;
+  return <div className="ui-route-transition" data-route-group={group} data-ui-version={rollout[group] ? "v2" : "fallback"} ref={boundaryRef}>{children}</div>;
 }

@@ -3,6 +3,7 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 import binascii
 import json
 import logging
+import os
 import re
 from secrets import token_urlsafe
 import struct
@@ -94,6 +95,7 @@ from app.schemas import (
     BetaAccessRequest,
     BetaAccessResponse,
     BetaAuthConfig,
+    UiRolloutConfig,
     BetaAuthSessionRead,
     BetaAuthUser,
     BetaProgramStatus,
@@ -1185,6 +1187,29 @@ def beta_auth_config() -> BetaAuthConfig:
         google_redirect_uri=settings.google_redirect_uri or None,
         manual_access_enabled=beta_manual_access_enabled(),
         dev_auth_bypass_enabled=dev_auth_bypass_enabled(),
+    )
+
+
+@router.get("/ui/rollout", response_model=UiRolloutConfig)
+def ui_rollout_config() -> UiRolloutConfig:
+    """Return deploy-time UI migration flags without exposing operator secrets."""
+
+    def enabled(name: str, default: bool = True) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        return raw.strip().lower() not in {"", "0", "false", "no", "off"}
+
+    return UiRolloutConfig(
+        revision=os.getenv("EDGELAB_UI_REVISION", "v2").strip() or "v2",
+        kill_switch=enabled("EDGELAB_UI_KILL_SWITCH", False),
+        flags={
+            "shell": enabled("EDGELAB_UI_SHELL_V2"),
+            "journal": enabled("EDGELAB_UI_JOURNAL_V2"),
+            "settings": enabled("EDGELAB_UI_SETTINGS_V2"),
+            "chart": enabled("EDGELAB_UI_CHART_V2"),
+            "public": enabled("EDGELAB_UI_PUBLIC_V2"),
+        },
     )
 
 

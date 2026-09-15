@@ -155,6 +155,15 @@ import {
 import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import {
+  listCanonicalTrades,
+  listJournalAccounts,
+  listJournalDailyNotes,
+  type CanonicalTrade,
+  type JournalAccount,
+  type JournalDailyNote,
+} from "./lib/journalApi";
+import { journalDeepLink } from "./lib/journalWorkspaceState";
+import {
   applyJournalFocusDrawings,
   journalFocusMatchesSymbol,
   journalFocusVisibleRange,
@@ -172,6 +181,7 @@ import {
   type WorkspaceShareScope,
 } from "./lib/workspaceShare";
 import type { WorkspaceView } from "./lib/workspace";
+import { rememberWindowScroll, restoreWindowScroll } from "./lib/navigationState";
 import {
   loadWorkspaceSidebarCollapsed,
   saveWorkspaceSidebarCollapsed,
@@ -469,6 +479,11 @@ export function WorkspaceApp() {
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [journalChartFocus, setJournalChartFocus] = useState<JournalChartFocusRequest | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
+  const [commandJournalData, setCommandJournalData] = useState<{
+    accounts: JournalAccount[];
+    notes: JournalDailyNote[];
+    trades: CanonicalTrade[];
+  }>({ accounts: [], notes: [], trades: [] });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadWorkspaceSidebarCollapsed);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
@@ -1480,6 +1495,30 @@ export function WorkspaceApp() {
           minute: "2-digit",
         })}`;
   const latestRiskRewardDrawing = findLatestRiskRewardDrawing(drawings);
+  useEffect(() => {
+    if (activeWorkspace === "backtest" || activeWorkspace === "notebook") return;
+    return restoreWindowScroll(activeWorkspace);
+  }, [activeWorkspace]);
+  useEffect(() => {
+    let cancelled = false;
+    const loadCommandJournalData = () => {
+      void Promise.all([
+        listJournalAccounts(),
+        listCanonicalTrades({ limit: 200 }),
+        listJournalDailyNotes(),
+      ]).then(([accounts, canonicalTrades, notes]) => {
+        if (!cancelled) setCommandJournalData({ accounts, notes, trades: canonicalTrades });
+      }).catch(() => {
+        // The public/auth routes share this root. Journal commands appear after authentication succeeds.
+      });
+    };
+    loadCommandJournalData();
+    window.addEventListener("edgelab:command-palette-open", loadCommandJournalData);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("edgelab:command-palette-open", loadCommandJournalData);
+    };
+  }, []);
   const commandEntities = useMemo<SearchableCommandEntity[]>(() => {
     const tradeCommands = resultTrades.slice(0, 100).map((trade) => {
       const session = resultSessions.find((candidate) => candidate.id === trade.session_id);
@@ -1508,12 +1547,48 @@ export function WorkspaceApp() {
       keywords: "layout panes chart saved",
       run: () => { loadNamedChartLayout(name); navigateWorkspace("backtest"); },
     }));
+    const accountCommands = commandJournalData.accounts.map((account) => ({
+      id: String(account.id),
+      kind: "account" as const,
+      label: account.name,
+      detail: `${account.provider} · ${account.currency} · ${account.status === "ACTIVE" ? "Active account" : "Archived account"}`,
+      keywords: `${account.source_type} ${account.timezone} trading journal`,
+      run: () => {
+        window.history.pushState(null, "", journalDeepLink({ surface: "accounts", tradeId: null, date: null, accountId: account.id, segment: null, returnTo: null }));
+        navigateWorkspace("journalAccounts");
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      },
+    }));
+    const canonicalTradeCommands = commandJournalData.trades.map((trade) => ({
+      id: String(trade.id),
+      kind: "trade" as const,
+      label: `${trade.symbol} · ${trade.side} · ${new Date(trade.entry_time).toLocaleDateString()}`,
+      detail: `${trade.reviewed ? "Reviewed" : "Awaiting review"}${trade.strategy_name ? ` · ${trade.strategy_name}` : ""}`,
+      keywords: `${trade.status} ${trade.entry_type} ${trade.tags.map((tag) => tag.name).join(" ")} ${trade.notes.map((note) => note.body).join(" ")}`,
+      run: () => {
+        window.history.pushState(null, "", journalDeepLink({ surface: "trades", tradeId: trade.id, date: null, accountId: trade.account_id, segment: null, returnTo: null }));
+        navigateWorkspace("journalTrades");
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      },
+    }));
+    const dailyNoteCommands = commandJournalData.notes.filter((note) => note.body.trim()).map((note) => ({
+      id: String(note.id),
+      kind: "note" as const,
+      label: note.body.split(/\r?\n/)[0].slice(0, 80),
+      detail: `Daily note · ${new Date(`${note.note_date}T00:00:00`).toLocaleDateString()}`,
+      keywords: `${note.note_date} ${note.body}`,
+      run: () => {
+        window.history.pushState(null, "", journalDeepLink({ surface: "calendar", tradeId: null, date: note.note_date, accountId: note.account_id, segment: null, returnTo: null }));
+        navigateWorkspace("journalNotes");
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      },
+    }));
     const safeActions: SearchableCommandEntity[] = [
       { id: "new-replay", kind: "safe-action", label: "Start a replay session", detail: "Open replay sessions without changing the current session", keywords: "create practice", run: () => navigateWorkspace("sessions") },
       { id: "settings", kind: "safe-action", label: "Open workspace settings", detail: "Review account, chart, data, and privacy preferences", keywords: "preferences configuration", run: () => navigateWorkspace("globalSettings") },
     ];
-    return [...tradeCommands, ...noteCommands, ...workspaceCommands, ...safeActions];
-  }, [availableLayouts, layoutName, resultSessions, resultTrades]);
+    return [...accountCommands, ...canonicalTradeCommands, ...dailyNoteCommands, ...tradeCommands, ...noteCommands, ...workspaceCommands, ...safeActions];
+  }, [availableLayouts, commandJournalData, layoutName, resultSessions, resultTrades]);
 
   function closePositionFraction(fraction: number) {
     if (!position || position.side === "FLAT" || position.quantity <= 0) {
@@ -1537,6 +1612,7 @@ export function WorkspaceApp() {
   }
 
   function navigateWorkspace(view: WorkspaceView) {
+    rememberWindowScroll(activeWorkspace);
     setNotebookReturnTarget(null);
     setActiveWorkspace(view);
     if (view === "sessions") {
@@ -2950,6 +3026,12 @@ export function WorkspaceApp() {
             </Suspense>
           ) : sessionGateOpen || activeWorkspace === "sessions" ? (
             <>
+              <WorkspaceContextHeader
+                activeView="sessions"
+                connection={state?.session ? "local" : "offline"}
+                onOpenSettings={() => navigateWorkspace("globalSettings")}
+                scope={state?.session ? `${formatMarketSymbol(state.session.symbol)} · Session #${state.session.id}` : "Choose or create a replay session"}
+              />
               {error && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                   <AlertTriangle size={18} />

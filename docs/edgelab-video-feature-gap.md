@@ -244,10 +244,10 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 These belong in the product roadmap but should not be treated as prerequisites for matching the videos’ currently available feature set.
 
-- [ ] `RDM-01 · P3 · Missing` — Add an Order Book panel with live depth, ladder controls, aggregation, and provider availability states. The chart video says this tab is “coming.”
-- [ ] `RDM-02 · P3 · Missing` — Add an Alerts panel and alert engine. The chart video says alerts are “coming.”
-- [ ] `RDM-03 · P3 · Missing` — Add direct Tradovate account synchronization. The journal video presents CSV import now and direct integration as later work.
-- [ ] `RDM-04 · P3 · Missing` — Add direct NinjaTrader account synchronization. The journal video presents CSV import now and direct integration as later work.
+- [x] `RDM-01 · P3 · Missing` — Add an Order Book panel with live depth, ladder controls, aggregation, and provider availability states. The chart video says this tab is “coming.”
+- [x] `RDM-02 · P3 · Missing` — Add an Alerts panel and alert engine. The chart video says alerts are “coming.”
+- [x] `RDM-03 · P3 · Missing` — Add direct Tradovate account synchronization. The journal video presents CSV import now and direct integration as later work.
+- [x] `RDM-04 · P3 · Missing` — Add direct NinjaTrader account synchronization. The journal video presents CSV import now and direct integration as later work.
 
 ### 13. Required platform work that makes the visible features reliable
 
@@ -280,7 +280,7 @@ Use two expression levels inside one system:
 - [x] `UIR-06 · P0 · Partial` — Establish a responsive typography system for expressive public-page display type, workhorse application text, compact labels, and tabular financial data, with defined weights, line heights, truncation, and numeric alignment.
 - [x] `UIR-07 · P0 · Partial` — Define one spacing, grid, sizing, and density system covering marketing sections, page scaffolds, app chrome, side panels, forms, cards, tables, chart toolbars, and 1-to-16-pane layouts.
 - [x] `UIR-08 · P1 · Partial` — Define a restrained material and elevation language for base, inset, floating, modal, and selected surfaces so hierarchy does not depend on repeated white borders and near-identical dark cards.
-- [ ] `UIR-09 · P0 · Partial` — Build shared, accessible primitives for buttons, icon buttons, fields, selects, comboboxes, toggles, checkboxes, radios, sliders, segmented controls, tabs, cards, tables, badges, tooltips, menus, popovers, dialogs, drawers, banners, and toasts.
+- [x] `UIR-09 · P0 · Partial` — Build shared, accessible primitives for buttons, icon buttons, fields, selects, comboboxes, toggles, checkboxes, radios, sliders, segmented controls, tabs, cards, tables, badges, tooltips, menus, popovers, dialogs, drawers, banners, and toasts.
 - [x] `UIR-10 · P0 · Partial` — Specify and implement every component state—default, hover, pressed, focused, selected, disabled, read-only, loading, success, warning, error, and destructive—with consistent feedback and no color-only meaning.
 - [ ] `UIR-11 · P1 · Partial` — Standardize icon family, stroke weight, optical size, filled/outline usage, button sizing, labels, and tooltip rules; replace ambiguous icon-only actions or give them accessible names and discoverable help.
 - [x] `UIR-12 · P0 · Partial` — Define one data-visualization language for chart series, P&L, benchmark/comparison, selections, annotations, calendars, heatmaps, distributions, and low-sample states, including color-blind-safe alternatives.
@@ -293,12 +293,12 @@ Use two expression levels inside one system:
 - [x] `UIR-16 · P0 · Partial` — Simplify information architecture and navigation naming; group destinations by user job, remove duplicate routes to the same concept, and keep advanced tools discoverable without overwhelming the primary flow.
 - [x] `UIR-17 · P1 · Partial` — Modernize the desktop sidebar with calmer grouping, unmistakable active state, intentional collapsed/expanded behavior, stable icon positions, useful hover labels, and no layout jump when it expands.
 - [x] `UIR-18 · P1 · Missing` — Add a purpose-built tablet/mobile navigation pattern—compact rail, bottom navigation, or sheet as appropriate—instead of merely hiding the desktop sidebar below the large breakpoint.
-- [ ] `UIR-19 · P1 · Partial` — Create a contextual page/workspace header that consistently exposes location, title, active scope, connection/data status, primary actions, and a return path without duplicating giant page headers.
-- [ ] `UIR-20 · P1 · Missing` — Add a global command palette/search that can navigate screens, switch symbols/workspaces/accounts, find trades and notes, open settings, run safe actions, and surface keyboard shortcuts.
+- [x] `UIR-19 · P1 · Partial` — Create a contextual page/workspace header that consistently exposes location, title, active scope, connection/data status, primary actions, and a return path without duplicating giant page headers.
+- [x] `UIR-20 · P1 · Missing` — Add a global command palette/search that can navigate screens, switch symbols/workspaces/accounts, find trades and notes, open settings, run safe actions, and surface keyboard shortcuts.
 - [ ] `UIR-21 · P1 · Partial` — Preserve scroll position, selected row, open panel, filters, chart viewport, and unsaved draft where appropriate when navigating between chart, Journal, reports, review, and settings; support shareable deep links.
 - [ ] `UIR-22 · P0 · Partial` — Unify right panels, inspectors, drawers, split views, and docked tools behind one resizable panel system with predictable close/back behavior, width persistence, minimum sizes, and collision rules.
 - [ ] `UIR-23 · P0 · Partial` — Centralize layering, focus trapping, outside-click, Escape, scroll locking, portal placement, and viewport collision handling for menus, select lists, tooltips, color pickers, popovers, dialogs, and radial tools.
-- [ ] `UIR-24 · P1 · Partial` — Provide coherent compact, comfortable, full-screen, and multi-pane density behavior so controls remain usable from laptop to ultrawide without wasting space or shrinking hit targets.
+- [x] `UIR-24 · P1 · Partial` — Provide coherent compact, comfortable, full-screen, and multi-pane density behavior so controls remain usable from laptop to ultrawide without wasting space or shrinking hit targets.
 - [x] `UIR-25 · P1 · Partial` — Consolidate profile, plan/entitlement, data-provider status, help, feedback, release information, and sign-out into a polished account/system menu rather than isolated footer controls.
 - [x] `UIR-26 · P2 · Missing` — Add an always-current shortcut reference and contextual shortcut hints for charting, replay, Journal, navigation, layouts, drawings, and the Alt/Option circular toolbox.
 

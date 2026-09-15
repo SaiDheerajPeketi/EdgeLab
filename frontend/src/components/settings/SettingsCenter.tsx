@@ -306,7 +306,6 @@ export function SettingsCenter({
 
   useEffect(() => {
     document.documentElement.dataset.density = preferences.density;
-    return () => { delete document.documentElement.dataset.density; };
   }, [preferences.density]);
 
   useEffect(() => {

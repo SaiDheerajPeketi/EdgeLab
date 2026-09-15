@@ -104,7 +104,11 @@
   --ui-focus: #67e8f9;
   --ui-info: #60a5fa;
   --ui-selection: rgba(50, 211, 238, 0.16);
+  --ui-overlay-backdrop: rgba(0, 0, 0, 0.72);
+  --ui-hover: rgba(240, 242, 245, 0.06);
+  --ui-pressed: rgba(240, 242, 245, 0.1);
   --interaction: var(--accent-primary);
+  --on-interaction: #061017;
   --interaction-hover: #67e8f9;
   --interaction-pressed: #a5f3fc;
   --information: #60a5fa;
@@ -155,11 +159,15 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
     scroll-behavior: auto !important;
-    transition-duration: 1ms !important;
+    transition-duration: 0s !important;
   }
+}
+
+.ui-route-transition[data-ui-version="fallback"] {
+  animation: none !important;
+  contain: none;
 }
 
 .ui-route-transition {
@@ -167,10 +175,21 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 }
 .ui-route-transition[data-transitioning="true"] { animation: ui-route-enter var(--motion-app-fast) var(--ease-out) both; }
 
+[data-overlay-surface="true"][data-overlay-placement="below"] { transform-origin: top; animation: ui-overlay-below var(--motion-app-fast) var(--ease-out) both; }
+[data-overlay-surface="true"][data-overlay-placement="above"] { transform-origin: bottom; animation: ui-overlay-above var(--motion-app-fast) var(--ease-out) both; }
+.ui-modal-backdrop { animation: ui-backdrop-enter var(--motion-app-fast) linear both; }
+.ui-dialog-surface { animation: ui-dialog-enter var(--motion-app-base) var(--ease-out) both; }
+.ui-drawer-surface { animation: ui-drawer-enter var(--motion-app-base) var(--ease-out) both; }
+
 @keyframes ui-route-enter {
   from { opacity: 0.92; transform: translate3d(0, var(--motion-distance-xs), 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
+@keyframes ui-overlay-below { from { opacity: 0; transform: translate3d(0, calc(-1 * var(--motion-distance-xs)), 0) scale(.985); } }
+@keyframes ui-overlay-above { from { opacity: 0; transform: translate3d(0, var(--motion-distance-xs), 0) scale(.985); } }
+@keyframes ui-backdrop-enter { from { opacity: 0; } }
+@keyframes ui-dialog-enter { from { opacity: .9; transform: translate3d(0, var(--motion-distance-sm), 0) scale(.985); } }
+@keyframes ui-drawer-enter { from { transform: translate3d(var(--motion-distance-md), 0, 0); } }
 
 .ui-critical-state {
   display: grid;

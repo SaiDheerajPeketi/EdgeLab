@@ -14,6 +14,12 @@ export type UiRolloutConfig = {
   killSwitch?: boolean;
 };
 
+export type UiRolloutServerResponse = {
+  revision: string;
+  kill_switch: boolean;
+  flags: Partial<Record<UiRouteGroup, boolean>>;
+};
+
 /** Server overrides win; the kill switch provides a reversible fallback without changing routes or data. */
 export function resolveUiRollout(config: UiRolloutConfig = {}): Readonly<Record<UiRouteGroup, boolean>> {
   const groups = Object.keys(UI_ROLLOUT_FLAGS) as UiRouteGroup[];
@@ -33,4 +39,8 @@ export function routeGroup(pathname: string): UiRouteGroup {
 
 export function rolloutStorageKey(workspaceId: string) {
   return `edgelab.ui-rollout.v2.${encodeURIComponent(workspaceId)}`;
+}
+
+export function resolveServerUiRollout(response: UiRolloutServerResponse) {
+  return resolveUiRollout({ killSwitch: response.kill_switch, overrides: response.flags });
 }

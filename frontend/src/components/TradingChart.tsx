@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -2592,9 +2593,15 @@ export function TradingChart({
   }, [selectedIndicatorId]);
 
   const unlockedDrawingsCount = removableDrawingsCount;
+  const chartSummaryId = useId();
+  const latestSummaryBar = displayBars.at(-1);
+  const chartTextSummary = latestSummaryBar
+    ? `${formatMarketSymbol(symbol)} ${formatChartTimeframeLabel(timeframe)} chart with ${displayBars.length} visible bars. Latest bar: open ${latestSummaryBar.open}, high ${latestSummaryBar.high}, low ${latestSummaryBar.low}, close ${latestSummaryBar.close}, volume ${latestSummaryBar.volume}.`
+    : `${formatMarketSymbol(symbol)} ${formatChartTimeframeLabel(timeframe)} chart. ${dataState?.detail ?? "No bars are currently available."}`;
 
   return (
     <section
+      aria-describedby={chartSummaryId}
       aria-keyshortcuts="Alt"
       aria-label={`${formatMarketSymbol(symbol)} ${formatChartTimeframeLabel(timeframe)} chart`}
       className="chart-stage"
@@ -2611,6 +2618,7 @@ export function TradingChart({
       ref={stageRef}
       tabIndex={0}
     >
+      <p className="sr-only" id={chartSummaryId}>{chartTextSummary}</p>
       {radialToolbox && (
         <RadialDrawingToolbox
           anchor={radialToolbox.anchor}

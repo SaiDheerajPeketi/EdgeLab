@@ -25,7 +25,19 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));
     assert.equal(module.resolveUiRollout({ overrides: { chart: false } }).chart, false);
+    assert.ok(Object.values(module.resolveServerUiRollout({ revision: "incident", kill_switch: true, flags: {} })).every((value) => !value));
   } finally { cleanup(); }
+});
+
+test("quality manifests inventory routes, critical states, and measurable budgets", () => {
+  const inventory = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/ui-surface-inventory.json"), "utf8"));
+  const budgets = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/ui-performance-budgets.json"), "utf8"));
+  assert.ok(inventory.routes.length >= 18);
+  assert.ok(inventory.routes.every((route) => route.disposition && route.states.length));
+  assert.ok(inventory.panels.includes("Journal"));
+  assert.ok(inventory.overlays.includes("radial drawing toolbox"));
+  assert.equal(budgets.runtime.interactionP95Ms, 200);
+  assert.equal(budgets.runtime.sixteenPaneFrameP95Ms, 50);
 });
 
 test("financial states expose a non-color sign and accessible label", async () => {
