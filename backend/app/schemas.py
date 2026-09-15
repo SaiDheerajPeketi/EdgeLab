@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -374,6 +375,7 @@ class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
     text_size: int = Field(default=12, ge=10, le=18)
     time_scale_border_visible: bool = True
     time_hours_format: Literal["12-hour", "24-hour"] = "24-hour"
+    time_zone: str = Field(default="UTC", min_length=1, max_length=80)
     title: bool = True
     volume: bool = True
     watermark: Literal["hidden", "symbol", "text"] = "hidden"
@@ -381,6 +383,16 @@ class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
     wick_down_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
     wick_up_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
     wick_visible: bool = True
+
+    @field_validator("time_zone")
+    @classmethod
+    def validate_time_zone(cls, value: str) -> str:
+        normalized = value.strip()
+        try:
+            ZoneInfo(normalized)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timeZone must be a valid IANA timezone") from exc
+        return normalized
 
 
 class WorkspaceShareChartPane(WorkspaceShareStrictModel):

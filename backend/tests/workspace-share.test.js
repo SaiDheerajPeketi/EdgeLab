@@ -15,7 +15,12 @@ function loadWorkspaceShareModule() {
   const sourceDir = path.join(tempDir, "src");
   const outDir = path.join(tempDir, "out");
   fs.mkdirSync(sourceDir, { recursive: true });
-  for (const file of ["workspaceShare.ts", "chartSettings.ts", "colorTokens.ts"]) {
+  for (const file of [
+    "workspaceShare.ts",
+    "chartSettings.ts",
+    "chartTimezones.ts",
+    "colorTokens.ts",
+  ]) {
     fs.copyFileSync(
       path.join(repoRoot, "frontend/src/lib", file),
       path.join(sourceDir, file),
@@ -239,6 +244,63 @@ test("panels-only copies remain isolated artifacts and malformed scopes are reje
       }),
       /could not be copied safely/,
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test("frontend timezone share payload validates against the strict backend schema", () => {
+  const { module, cleanup } = loadWorkspaceShareModule();
+  try {
+    const payload = module.buildWorkspaceSharePayload("chart-plus-panels", {
+      activePanel: "results",
+      activePaneId: "chart-pane-1",
+      candles: [],
+      currentTimestamp: null,
+      layoutName: "Timezone proof",
+      metrics: { total_trades: 0 },
+      paneLayout: "single",
+      panes: [{
+        id: "chart-pane-1",
+        timeframe: "1m",
+        chartStyle: "candles",
+        chartSettings: { timeZone: "America/New_York" },
+        drawingTool: "crosshair",
+        drawings: [],
+        indicatorInstances: [],
+        magnetMode: "off",
+        smoothCandles: false,
+      }],
+      sidebarCollapsed: false,
+      symbol: "EURUSD",
+      timeframe: "1m",
+      timezone: "America/New_York",
+    });
+    const validation = spawnSync(
+      path.join(repoRoot, "backend/.venv/bin/python"),
+      [
+        "-c",
+        [
+          "import json, sys",
+          "from app.schemas import WorkspaceShareCreate",
+          "value = WorkspaceShareCreate.model_validate(json.load(sys.stdin))",
+          "print(value.payload.chart.panes[0].chart_settings.time_zone)",
+        ].join("; "),
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: { ...process.env, PYTHONPATH: path.join(repoRoot, "backend") },
+        input: JSON.stringify({
+          workspace_key: "replay:timezone-proof",
+          title: "Timezone proof",
+          scope: "chart-plus-panels",
+          payload,
+        }),
+      },
+    );
+    assert.equal(validation.status, 0, validation.stderr || validation.stdout);
+    assert.equal(validation.stdout.trim(), "America/New_York");
   } finally {
     cleanup();
   }

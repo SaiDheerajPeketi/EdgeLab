@@ -30,6 +30,7 @@ import {
 import {
   CrosshairMode,
   createChart,
+  TickMarkType,
 } from "lightweight-charts";
 import type {
   CandlestickData,
@@ -103,6 +104,12 @@ import {
   type MagnetMode,
 } from "../lib/charting";
 import type { ChartVisualSettings } from "../lib/chartSettings";
+import {
+  formatChartAxisTick,
+  formatChartDateTime,
+  getChartTimeZoneLabel,
+  type ChartTickGranularity,
+} from "../lib/chartTimezones";
 import {
   hydrateDrawingToolFavorites,
   loadCachedDrawingToolFavorites,
@@ -1181,6 +1188,8 @@ export function TradingChart({
       timeScale: {
         borderColor: colorWithOpacity(chartSettings.textColor, 0.16),
         borderVisible: chartSettings.timeScaleBorderVisible,
+        tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) =>
+          formatChartTickMark(time, tickMarkType, chartSettings),
       },
       watermark: {
         color: colorWithOpacity(chartSettings.textColor, 0.08),
@@ -2210,8 +2219,8 @@ export function TradingChart({
                   <div className="flex items-center gap-2 text-base font-semibold text-white">
                     {formatMarketSymbol(symbol)}
                   </div>
-                  <div className="text-xs text-slate-400">
-                    {datasetTimeframe ?? formatChartTimeframeLabel(timeframe)} source / {formatChartTimeframeLabel(timeframe)} view / {chartStyleLabel(chartStyle)}
+                  <div className="truncate text-xs text-slate-400">
+                    {datasetTimeframe ?? formatChartTimeframeLabel(timeframe)} source / {formatChartTimeframeLabel(timeframe)} view / {chartStyleLabel(chartStyle)} / {getChartTimeZoneLabel(chartSettings.timeZone)} time
                   </div>
                 </div>
               </div>
@@ -2221,6 +2230,7 @@ export function TradingChart({
               (chartSettings.volume && hasVolumeData)) && (
               <OhlcvStrip
                 candle={activeHeaderCandle}
+                chartSettings={chartSettings}
                 pricePrecision={chartSettings.pricePrecision}
                 showChange={chartSettings.barChangeValues}
                 showOhlc={chartSettings.chartValues}
@@ -2669,6 +2679,7 @@ export function TradingChart({
 
 function OhlcvStrip({
   candle,
+  chartSettings,
   pricePrecision,
   showChange,
   showOhlc,
@@ -2676,6 +2687,7 @@ function OhlcvStrip({
   tone,
 }: {
   candle: Candle | null;
+  chartSettings: ChartVisualSettings;
   pricePrecision: number;
   showChange: boolean;
   showOhlc: boolean;
@@ -2691,7 +2703,7 @@ function OhlcvStrip({
   return (
     <div className="chart-ohlcv-row">
       <span className="chart-ohlcv-time">
-        {candle ? new Date(candle.timestamp).toLocaleString() : "No candle"}
+        {candle ? formatChartDateTime(candle.timestamp, chartSettings) : "No candle"}
       </span>
       {showOhlc && (
         <>
@@ -3168,58 +3180,38 @@ function toLightweightDateFormat(format: ChartVisualSettings["dateFormat"]) {
   return "dd MMM 'yy";
 }
 
-const MONTH_LABELS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 function formatChartTime(time: Time, settings: ChartVisualSettings) {
   const date = timeToDate(time);
   if (!date) {
     return String(time);
   }
-  const timeOptions: Intl.DateTimeFormatOptions = {
-    hour: "2-digit",
-    hour12: settings.timeHoursFormat === "12-hour",
-    minute: "2-digit",
-  };
-  const timeLabel = new Intl.DateTimeFormat(undefined, timeOptions).format(date);
-  return `${formatChartDateLabel(date, settings)} ${timeLabel}`;
+  return formatChartDateTime(date, settings);
 }
 
-function formatChartDateLabel(date: Date, settings: ChartVisualSettings) {
-  const weekday = settings.dayOfWeekLabels
-    ? `${WEEKDAY_LABELS[date.getDay()]} `
-    : "";
-  const day = padDatePart(date.getDate());
-  const month = MONTH_LABELS[date.getMonth()];
-  const year = date.getFullYear();
-
-  if (settings.dateFormat === "yyyy-MM-dd") {
-    return `${weekday}${year}-${padDatePart(date.getMonth() + 1)}-${day}`;
-  }
-
-  if (settings.dateFormat === "MMM dd yyyy") {
-    return `${weekday}${month} ${day} ${year}`;
-  }
-
-  return `${weekday}${day} ${month} '${String(year).slice(-2)}`;
+function formatChartTickMark(
+  time: Time,
+  tickMarkType: TickMarkType,
+  settings: ChartVisualSettings,
+) {
+  const date = timeToDate(time);
+  return date
+    ? formatChartAxisTick(date, chartTickGranularity(tickMarkType), settings)
+    : null;
 }
 
-function padDatePart(value: number) {
-  return String(value).padStart(2, "0");
+function chartTickGranularity(tickMarkType: TickMarkType): ChartTickGranularity {
+  if (tickMarkType === TickMarkType.Year) {
+    return "year";
+  }
+  if (tickMarkType === TickMarkType.Month) {
+    return "month";
+  }
+  if (tickMarkType === TickMarkType.DayOfMonth) {
+    return "day";
+  }
+  return tickMarkType === TickMarkType.TimeWithSeconds
+    ? "time-with-seconds"
+    : "time";
 }
 
 function timeToDate(time: Time) {

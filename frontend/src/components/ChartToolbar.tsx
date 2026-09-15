@@ -10,6 +10,7 @@ import {
   Command,
   Eye,
   EyeOff,
+  Globe2,
   Layers,
   LineChart,
   Magnet,
@@ -103,6 +104,12 @@ import {
   toggleIndicatorFavorite,
   type FavoriteIndicator,
 } from "../lib/indicatorFavorites";
+import {
+  CHART_TIMEZONES,
+  getChartTimeZoneLabel,
+  searchChartTimeZones,
+  type ChartTimeZone,
+} from "../lib/chartTimezones";
 import { IndicatorCatalogPanel } from "./IndicatorCatalogPanel";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
@@ -626,7 +633,7 @@ export function ChartToolbar({
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white">Chart Workbench</div>
               <div className="truncate text-xs text-slate-500">
-                {formatChartTimeframeLabel(timeframe)} / {chartStyleLabel(chartStyle)} / {indicatorInstances.length} studies / {drawingsCount} drawings
+                {formatChartTimeframeLabel(timeframe)} / {chartStyleLabel(chartStyle)} / {getChartTimeZoneLabel(chartSettings.timeZone)} / {indicatorInstances.length} studies / {drawingsCount} drawings
               </div>
             </div>
           </div>
@@ -1602,6 +1609,10 @@ function ChartSettingsPanel({
                   label="Day of week on labels"
                   onChange={(dayOfWeekLabels) => updateSettings({ dayOfWeekLabels })}
                 />
+                <TimeZoneSetting
+                  onChange={(timeZone) => updateSettings({ timeZone })}
+                  value={settings.timeZone}
+                />
                 <SelectSetting
                   label="Date format"
                   onChange={(dateFormat) =>
@@ -1904,6 +1915,109 @@ function SelectSetting({
       />
     </label>
   );
+}
+
+function TimeZoneSetting({
+  onChange,
+  value,
+}: {
+  onChange: (value: ChartTimeZone) => void;
+  value: ChartTimeZone;
+}) {
+  const listId = useId();
+  const helpId = useId();
+  const selectedTimeZone =
+    CHART_TIMEZONES.find((timeZone) => timeZone.id === value) ?? CHART_TIMEZONES[0];
+  const selectedLabel = timeZoneOptionLabel(selectedTimeZone);
+  const [query, setQuery] = useState(selectedLabel);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setQuery(selectedLabel);
+    setMessage("");
+  }, [selectedLabel]);
+
+  function commitQuery(raw: string) {
+    const normalized = raw.trim().toLowerCase();
+    const exact = CHART_TIMEZONES.find((timeZone) =>
+      [timeZone.id, timeZone.label, timeZoneOptionLabel(timeZone)].some(
+        (candidate) => candidate.toLowerCase() === normalized,
+      ),
+    );
+    const matches = exact ? [exact] : searchChartTimeZones(raw);
+    if (matches.length === 1) {
+      onChange(matches[0].id);
+      setQuery(timeZoneOptionLabel(matches[0]));
+      setMessage(`Chart time zone set to ${matches[0].label}.`);
+      return;
+    }
+    setQuery(selectedLabel);
+    setMessage(
+      raw.trim()
+        ? `Choose one time zone from the suggestions. Kept ${selectedTimeZone.label}.`
+        : `Chart time zone remains ${selectedTimeZone.label}.`,
+    );
+  }
+
+  return (
+    <label className="chart-settings-field">
+      <span>Time zone</span>
+      <span className="relative block">
+        <Globe2
+          aria-hidden="true"
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cyan-200"
+          size={14}
+        />
+        <input
+          aria-describedby={helpId}
+          autoComplete="off"
+          className="input-control h-9 w-full pl-9 text-base normal-case tracking-normal sm:text-xs"
+          list={listId}
+          onBlur={(event) => commitQuery(event.currentTarget.value)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setMessage("");
+          }}
+          onFocus={(event) => event.currentTarget.select()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitQuery(event.currentTarget.value);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              setQuery(selectedLabel);
+              setMessage(`Chart time zone remains ${selectedTimeZone.label}.`);
+            }
+          }}
+          placeholder="Search city or IANA zone"
+          spellCheck={false}
+          type="text"
+          value={query}
+        />
+        <datalist id={listId}>
+          {CHART_TIMEZONES.map((timeZone) => (
+            <option
+              key={timeZone.id}
+              label={`${timeZone.region} · ${timeZone.id}`}
+              value={timeZoneOptionLabel(timeZone)}
+            />
+          ))}
+        </datalist>
+      </span>
+      <span
+        aria-live="polite"
+        className="normal-case font-normal leading-4 tracking-normal text-slate-500"
+        id={helpId}
+      >
+        {message || `${selectedTimeZone.id} · Applied to axis, values, drawings, and captures.`}
+      </span>
+    </label>
+  );
+}
+
+function timeZoneOptionLabel(timeZone: (typeof CHART_TIMEZONES)[number]) {
+  return `${timeZone.label} — ${timeZone.id}`;
 }
 
 const visibilityOptions = [

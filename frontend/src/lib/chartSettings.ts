@@ -1,4 +1,9 @@
 import { CHART_COLOR } from "./colorTokens";
+import {
+  DEFAULT_CHART_TIME_ZONE,
+  sanitizeChartTimeZone,
+  type ChartTimeZone,
+} from "./chartTimezones";
 
 export type ChartGridMode = "both" | "horizontal" | "none" | "vertical";
 export type ChartLineStyle = "solid" | "dashed" | "dotted";
@@ -41,6 +46,7 @@ export type ChartVisualSettings = {
   textSize: number;
   timeScaleBorderVisible: boolean;
   timeHoursFormat: "12-hour" | "24-hour";
+  timeZone: ChartTimeZone;
   title: boolean;
   volume: boolean;
   watermark: "hidden" | "symbol" | "text";
@@ -92,6 +98,7 @@ export const DEFAULT_CHART_VISUAL_SETTINGS: ChartVisualSettings = {
   textSize: 12,
   timeScaleBorderVisible: true,
   timeHoursFormat: "24-hour",
+  timeZone: DEFAULT_CHART_TIME_ZONE,
   title: true,
   volume: true,
   watermark: "hidden",
@@ -143,6 +150,7 @@ export function sanitizeChartVisualSettings(
     ),
     textColor: sanitizeHex(candidate.textColor, DEFAULT_CHART_VISUAL_SETTINGS.textColor),
     textSize: clampInteger(candidate.textSize, 10, 18, DEFAULT_CHART_VISUAL_SETTINGS.textSize),
+    timeZone: sanitizeChartTimeZone(candidate.timeZone),
     timeScaleBorderVisible:
       typeof candidate.timeScaleBorderVisible === "boolean"
         ? candidate.timeScaleBorderVisible

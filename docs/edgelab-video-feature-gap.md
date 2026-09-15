@@ -154,7 +154,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `CHT-05 · P0 · Missing` — Add exchange calendars, futures contract metadata, tick size/value, session templates, expiration, and continuous-contract roll logic.
 - [ ] `CHT-06 · P1 · Missing` — Add a Regular Trading Hours versus Extended Trading Hours toggle and use it consistently for rendering and indicator calculations.
 - [ ] `CHT-07 · P1 · Missing` — Add per-symbol pre-market/post-market background highlighting controls.
-- [ ] `CHT-08 · P1 · Missing` — Add a chart timezone selector, default it to UTC, format chart/data-window times in it, and persist it in the workspace.
+- [x] `CHT-08 · P1 · Missing` — Add a chart timezone selector, default it to UTC, format chart/data-window times in it, and persist it in the workspace.
 - [x] `CHT-09 · P1 · Partial` — Add “Chart settings” to the right-click menu. EdgeLab has a settings button and a minimal context menu, but not this shortcut.
 - [ ] `CHT-10 · P0 · Partial` — Harden live-feed continuity with normalized timestamps, sequence/gap detection, reconnect/backfill, stale-data state, and provider health. EdgeLab currently has provider-specific polling/socket behavior and a limited cache.
 

@@ -341,6 +341,7 @@ def test_scope_validation_rejects_credentials_orders_and_mismatched_shapes():
             }
         )
 
+
     with pytest.raises(ValidationError):
         WorkspaceShareCreate.model_validate(
             {
@@ -378,6 +379,21 @@ def test_scope_validation_rejects_credentials_orders_and_mismatched_shapes():
                 "recipient_user_id": 123,
             }
         )
+
+
+def test_chart_settings_accept_only_valid_iana_timezones():
+    request = share_request("chart-plus-panels").model_dump(mode="json", by_alias=True)
+    request["payload"]["chart"]["panes"][0]["chartSettings"] = {
+        "timeZone": "America/New_York"
+    }
+    validated = WorkspaceShareCreate.model_validate(request)
+    assert validated.payload.chart.panes[0].chart_settings.time_zone == "America/New_York"
+
+    request["payload"]["chart"]["panes"][0]["chartSettings"]["timeZone"] = (
+        "Mars/Olympus_Mons"
+    )
+    with pytest.raises(ValidationError, match="valid IANA timezone"):
+        WorkspaceShareCreate.model_validate(request)
 
 
 def test_concurrent_creates_allocate_unique_monotonic_versions(tmp_path):
