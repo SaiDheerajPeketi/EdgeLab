@@ -178,7 +178,7 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 
 ### 8. Multi-chart layouts, synchronization, workspaces, screenshots, and sharing
 
-- [ ] `LAY-01 · P1 · Partial` — Expand chart layouts from a maximum of four panes to a maximum of 16, including an explicit **4×4 grid** preset plus other useful arrangements and responsive sizing.
+- [x] `LAY-01 · P1 · Partial` — Expand chart layouts from a maximum of four panes to a maximum of 16, including an explicit **4×4 grid** preset plus other useful arrangements and responsive sizing.
 - [ ] `LAY-02 · P0 · Missing` — Give every pane its own symbol/data subscription. Current panes share the selected watchlist symbol and candle set.
 - [ ] `LAY-03 · P1 · Missing` — Add independent synchronization toggles for symbol, interval, crosshair, and chart style.
 - [ ] `LAY-04 · P1 · Missing` — Synchronize crosshair time/price and visible range across selected panes when enabled.
@@ -204,8 +204,8 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `DRW-11 · P2 · Partial` — Add a visible quick eraser that deletes a targeted object; keyboard delete/current clear-all behavior is not the same workflow.
 - [ ] `DRW-12 · P1 · Missing` — Add persistent/stay-in-drawing mode. EdgeLab currently returns to cursor/crosshair after each completed drawing.
 - [ ] `DRW-13 · P2 · Missing` — Allow the left drawing rail to be hidden/collapsed while leaving shortcuts available.
-- [ ] `DRW-14 · P2 · Missing` — Add user favorites for drawing tools and persist their order.
-- [ ] `DRW-15 · P2 · Missing` — Add the **circular chart toolbox** shown in the video: an Alt/Option radial quick wheel populated from favorite tools, with mouse selection and a keyboard-accessible fallback.
+- [x] `DRW-14 · P2 · Missing` — Add user favorites for drawing tools and persist their order.
+- [x] `DRW-15 · P2 · Missing` — Add the **circular chart toolbox** shown in the video: an Alt/Option radial quick wheel populated from favorite tools, with mouse selection and a keyboard-accessible fallback.
 - [ ] `DRW-16 · P1 · Partial` — Add drag reordering/z-order in the Objects tree plus bring forward/back/front/back actions. Current objects can be selected, hidden, locked, edited, or deleted but not layered.
 
 ### 10. Indicator catalog and custom indicator source

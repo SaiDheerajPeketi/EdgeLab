@@ -1,28 +1,28 @@
 import {
   Activity,
   AreaChart,
+  ArrowDown,
+  ArrowUp,
   CandlestickChart,
   Check,
   ChevronDown,
   Command,
   Eye,
   EyeOff,
-  Columns2,
-  Grid2X2,
   Layers,
   LineChart,
   Magnet,
-  Rows2,
   Save,
   Search,
   Settings2,
   SlidersHorizontal,
-  Square,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
+  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
@@ -72,8 +72,21 @@ import {
 } from "../lib/chartSettings";
 import {
   CHART_PANE_LAYOUTS,
+  type ChartPaneLayoutDefinition,
   type ChartPaneLayoutId,
 } from "../lib/chartLayouts";
+import {
+  hydrateDrawingToolFavorites,
+  isFavoriteDrawingTool,
+  loadCachedDrawingToolFavorites,
+  MAX_DRAWING_TOOL_FAVORITES,
+  moveDrawingToolFavorite,
+  persistDrawingToolFavorites,
+  sanitizeDrawingToolFavorites,
+  subscribeDrawingToolFavorites,
+  toggleDrawingToolFavorite,
+  type FavoriteDrawingTool,
+} from "../lib/drawingToolFavorites";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 
@@ -183,12 +196,22 @@ const CHART_STYLES: Array<{
   { icon: AreaChart, id: "area", label: "Area" },
 ];
 
-const CHART_PANE_LAYOUT_ICONS: Record<ChartPaneLayoutId, LucideIcon> = {
-  "grid-4": Grid2X2,
-  "horizontal-2": Rows2,
-  single: Square,
-  "vertical-2": Columns2,
-};
+function ChartPaneLayoutGlyph({ layout }: { layout: ChartPaneLayoutDefinition }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="chart-pane-layout-glyph"
+      style={{
+        gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+      }}
+    >
+      {Array.from({ length: layout.panes }, (_, index) => (
+        <span key={index} />
+      ))}
+    </span>
+  );
+}
 
 export function ChartToolbar({
   activePaneLabel,
@@ -234,6 +257,10 @@ export function ChartToolbar({
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [customTimeframe, setCustomTimeframe] = useState("");
+  const [drawingFavoritesOpen, setDrawingFavoritesOpen] = useState(false);
+  const [drawingFavorites, setDrawingFavorites] = useState<FavoriteDrawingTool[]>(() =>
+    loadCachedDrawingToolFavorites(),
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPresets, setSettingsPresets] = useState<ChartSettingsPreset[]>(() =>
     loadChartSettingsPresets(),
@@ -244,6 +271,8 @@ export function ChartToolbar({
   });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const commandRef = useRef<HTMLDivElement | null>(null);
+  const drawingFavoritesRef = useRef<HTMLDivElement | null>(null);
+  const drawingFavoritesTriggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const settingsWasOpenRef = useRef(false);
@@ -259,6 +288,17 @@ export function ChartToolbar({
         : customTimeframeAvailable
           ? `Switch to ${formatChartTimeframeLabel(normalizedCustomTimeframe)}`
           : `Cannot build ${formatChartTimeframeLabel(normalizedCustomTimeframe)} from ${sourceTimeframe} source`;
+  const favoriteDrawingToolOptions = [
+    ...drawingFavorites.flatMap((tool) => {
+      const option = DRAWING_TOOLS.find((item) => item.tool === tool);
+      return option ? [option] : [];
+    }),
+    ...DRAWING_TOOLS.filter(
+      (item) =>
+        isFavoriteDrawingTool(item.tool) &&
+        !drawingFavorites.includes(item.tool as FavoriteDrawingTool),
+    ),
+  ];
 
   useEffect(() => {
     if (TIMEFRAMES.some((interval) => interval.id === timeframe)) {
@@ -314,6 +354,24 @@ export function ChartToolbar({
   }, []);
 
   useEffect(() => {
+    let active = true;
+    void hydrateDrawingToolFavorites().then((value) => {
+      if (active) {
+        setDrawingFavorites(value);
+      }
+    });
+    const unsubscribe = subscribeDrawingToolFavorites((value) => {
+      if (active) {
+        setDrawingFavorites(value);
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     function closeOnOutsideClick(event: globalThis.PointerEvent) {
       const target = event.target as Node;
       const targetElement = target instanceof Element ? target : null;
@@ -329,11 +387,18 @@ export function ChartToolbar({
       if (commandRef.current && !commandRef.current.contains(target)) {
         setCommandOpen(false);
       }
+      if (
+        drawingFavoritesOpen &&
+        drawingFavoritesRef.current &&
+        !drawingFavoritesRef.current.contains(target)
+      ) {
+        setDrawingFavoritesOpen(false);
+      }
     }
 
     document.addEventListener("pointerdown", closeOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, [settingsOpen]);
+  }, [drawingFavoritesOpen, settingsOpen]);
 
   useEffect(() => {
     if (settingsOpenSignal <= 0 || toolsOpen) {
@@ -352,6 +417,7 @@ export function ChartToolbar({
       return;
     }
     setCommandOpen(false);
+    setDrawingFavoritesOpen(false);
     setIndicatorMenuOpen(false);
   }, [toolsOpen]);
 
@@ -375,6 +441,46 @@ export function ChartToolbar({
     }
     setCommandOpen(true);
     commandInputRef.current?.focus();
+  }
+
+  function updateDrawingFavorites(next: FavoriteDrawingTool[]) {
+    const sanitized = sanitizeDrawingToolFavorites(next);
+    setDrawingFavorites(sanitized);
+    void persistDrawingToolFavorites(sanitized);
+  }
+
+  function toggleDrawingFavorite(tool: FavoriteDrawingTool) {
+    updateDrawingFavorites(toggleDrawingToolFavorite(drawingFavorites, tool));
+  }
+
+  function moveDrawingFavorite(tool: FavoriteDrawingTool, direction: -1 | 1) {
+    updateDrawingFavorites(moveDrawingToolFavorite(drawingFavorites, tool, direction));
+  }
+
+  function handlePaneLayoutKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % CHART_PANE_LAYOUTS.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex =
+        (currentIndex - 1 + CHART_PANE_LAYOUTS.length) % CHART_PANE_LAYOUTS.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = CHART_PANE_LAYOUTS.length - 1;
+    }
+    if (nextIndex == null) {
+      return;
+    }
+    event.preventDefault();
+    const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      '[role="radio"]',
+    );
+    onPaneLayoutChange(CHART_PANE_LAYOUTS[nextIndex].id);
+    window.requestAnimationFrame(() => buttons?.[nextIndex]?.focus());
   }
 
   const settingsPanel = settingsOpen ? (
@@ -589,21 +695,30 @@ export function ChartToolbar({
 
       <div className="chart-pane-layout-strip">
         <span className="study-manager-label">Chart layout</span>
-        <div className="chart-pane-layout-buttons" aria-label="Chart pane layout">
-          {CHART_PANE_LAYOUTS.map((layout) => {
-            const Icon = CHART_PANE_LAYOUT_ICONS[layout.id];
+        <div
+          aria-label="Chart pane layout"
+          aria-orientation="horizontal"
+          className="chart-pane-layout-buttons"
+          role="radiogroup"
+        >
+          {CHART_PANE_LAYOUTS.map((layout, index) => {
             return (
               <button
+                aria-checked={paneLayout === layout.id}
                 aria-label={layout.label}
                 className={`chart-pane-layout-button ${
                   paneLayout === layout.id ? "chart-pane-layout-button-active" : ""
                 }`}
                 key={layout.id}
+                onKeyDown={(event) => handlePaneLayoutKeyDown(event, index)}
                 onClick={() => onPaneLayoutChange(layout.id)}
+                role="radio"
+                tabIndex={paneLayout === layout.id ? 0 : -1}
                 title={layout.label}
                 type="button"
               >
-                <Icon size={14} />
+                <ChartPaneLayoutGlyph layout={layout} />
+                <span className="chart-pane-layout-count">{layout.panes}</span>
               </button>
             );
           })}
@@ -695,6 +810,112 @@ export function ChartToolbar({
             <Trash2 size={14} />
             <span>{clearableDrawingsCount}</span>
           </button>
+          <div
+            className="relative"
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && drawingFavoritesOpen) {
+                event.preventDefault();
+                setDrawingFavoritesOpen(false);
+                window.requestAnimationFrame(() => drawingFavoritesTriggerRef.current?.focus());
+              }
+            }}
+            ref={drawingFavoritesRef}
+          >
+            <button
+              aria-controls="chart-drawing-favorites"
+              aria-expanded={drawingFavoritesOpen}
+              aria-haspopup="dialog"
+              className={`studio-tool-button ${drawingFavoritesOpen ? "studio-tool-button-active" : ""}`}
+              onClick={() => {
+                setDrawingFavoritesOpen((value) => !value);
+                setCommandOpen(false);
+                setIndicatorMenuOpen(false);
+                setSettingsOpen(false);
+              }}
+              title="Edit circular toolbox favorites"
+              type="button"
+              ref={drawingFavoritesTriggerRef}
+            >
+              <Star fill="currentColor" size={14} />
+              <span>Quick wheel</span>
+              <span className="drawing-favorites-count">{drawingFavorites.length}</span>
+            </button>
+            {drawingFavoritesOpen && (
+              <div
+                aria-label="Circular toolbox favorites"
+                className="drawing-favorites-panel"
+                id="chart-drawing-favorites"
+                role="dialog"
+              >
+                <div className="drawing-favorites-header">
+                  <div>
+                    <strong>Quick wheel</strong>
+                    <span>Hold Alt/Option on the active chart</span>
+                  </div>
+                  <span>{drawingFavorites.length}/{MAX_DRAWING_TOOL_FAVORITES}</span>
+                </div>
+                <div className="drawing-favorites-list">
+                  {favoriteDrawingToolOptions.map((item) => {
+                    const tool = item.tool as FavoriteDrawingTool;
+                    const favoriteIndex = drawingFavorites.indexOf(tool);
+                    const isFavorite = favoriteIndex >= 0;
+                    const atLimit =
+                      !isFavorite && drawingFavorites.length >= MAX_DRAWING_TOOL_FAVORITES;
+                    const Icon = item.icon;
+                    return (
+                      <div
+                        className={`drawing-favorites-row ${isFavorite ? "drawing-favorites-row-active" : ""}`}
+                        key={tool}
+                      >
+                        <button
+                          aria-pressed={isFavorite}
+                          className="drawing-favorites-toggle"
+                          disabled={atLimit || (isFavorite && drawingFavorites.length === 1)}
+                          onClick={() => toggleDrawingFavorite(tool)}
+                          title={
+                            atLimit
+                              ? `Keep up to ${MAX_DRAWING_TOOL_FAVORITES} favorites`
+                              : isFavorite && drawingFavorites.length === 1
+                                ? "Keep at least one favorite"
+                                : `${isFavorite ? "Remove" : "Add"} ${item.label}`
+                          }
+                          type="button"
+                        >
+                          <Star fill={isFavorite ? "currentColor" : "none"} size={14} />
+                          <Icon size={15} />
+                          <span>{item.label}</span>
+                        </button>
+                        {isFavorite && (
+                          <div className="drawing-favorites-order" aria-label={`Reorder ${item.label}`}>
+                            <button
+                              aria-label={`Move ${item.label} earlier`}
+                              disabled={favoriteIndex === 0}
+                              onClick={() => moveDrawingFavorite(tool, -1)}
+                              type="button"
+                            >
+                              <ArrowUp size={13} />
+                            </button>
+                            <span>{favoriteIndex + 1}</span>
+                            <button
+                              aria-label={`Move ${item.label} later`}
+                              disabled={favoriteIndex === drawingFavorites.length - 1}
+                              onClick={() => moveDrawingFavorite(tool, 1)}
+                              type="button"
+                            >
+                              <ArrowDown size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="drawing-favorites-hint">
+                  Hover and release Alt/Option, click a tool, or use arrows and Enter. Number keys 1–8 select directly.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="magnet-mode-strip" aria-label="Magnet mode">

@@ -6,7 +6,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -100,6 +100,12 @@ import {
   type MagnetMode,
 } from "../lib/charting";
 import type { ChartVisualSettings } from "../lib/chartSettings";
+import {
+  hydrateDrawingToolFavorites,
+  loadCachedDrawingToolFavorites,
+  subscribeDrawingToolFavorites,
+  type FavoriteDrawingTool,
+} from "../lib/drawingToolFavorites";
 import { formatPrice } from "../lib/format";
 import {
   getCachedAppStorageItem,
@@ -113,6 +119,8 @@ import { ThemedSelect } from "./ThemedSelect";
 
 const DRAWING_PRESETS_KEY = "drawing-presets.v1";
 const FIB_PRESETS_KEY = "fib-presets.v1";
+const RADIAL_TOOLBOX_RADIUS = 88;
+const RADIAL_TOOLBOX_EDGE_PADDING = 118;
 const DEFAULT_LABEL_BACKGROUND_OPACITY = 0.92;
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 const WEAK_MAGNET_THRESHOLD_PX = 14;
@@ -120,6 +128,24 @@ const DEFAULT_REPLAY_BAR_SPACING = 6;
 const DEFAULT_REPLAY_RIGHT_OFFSET = 8;
 const MIN_RESET_REPLAY_BARS = 96;
 const MAX_RESET_REPLAY_BARS = 320;
+
+const DRAWING_RAIL_TOOLS: Array<{
+  icon: ChartToolIcon;
+  label: string;
+  tool: DrawingTool;
+}> = [
+  { icon: TvCursorIcon, label: "Cursor: select and edit drawings", tool: "cursor" },
+  { icon: TvCrosshairIcon, label: "Crosshair: inspect candles", tool: "crosshair" },
+  { icon: TvTrendLineIcon, label: "Trendline", tool: "trendline" },
+  { icon: TvHorizontalLineIcon, label: "Horizontal level", tool: "horizontal" },
+  { icon: TvVerticalLineIcon, label: "Vertical level", tool: "vertical" },
+  { icon: TvRectangleIcon, label: "Rectangle zone", tool: "rectangle" },
+  { icon: TvFibIcon, label: "Fib retracement", tool: "fib" },
+  { icon: TvMeasureIcon, label: "Measure", tool: "measure" },
+  { icon: TvLongPositionIcon, label: "Long position", tool: "longPosition" },
+  { icon: TvShortPositionIcon, label: "Short position", tool: "shortPosition" },
+  { icon: TvTextIcon, label: "Text label", tool: "text" },
+];
 
 type Props = {
   bars: Candle[];
@@ -184,6 +210,11 @@ type DrawingHit = {
   drawing: ChartDrawing;
   mode: DragState["mode"];
   pointIndex: number | null;
+};
+
+type RadialToolboxState = {
+  anchor: { x: number; y: number };
+  highlightedIndex: number | null;
 };
 
 type PositionOrderField = "stop_loss" | "take_profit";
@@ -360,11 +391,16 @@ export function TradingChart({
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
+  const [favoriteDrawingTools, setFavoriteDrawingTools] = useState<FavoriteDrawingTool[]>(() =>
+    loadCachedDrawingToolFavorites(),
+  );
+  const [radialToolbox, setRadialToolbox] = useState<RadialToolboxState | null>(null);
   const [positionActionsOpen, setPositionActionsOpen] = useState(false);
   const snappedCrosshairRef = useRef<string | null>(null);
   const pendingCrosshairPointRef = useRef<DrawingPoint | null>(null);
   const crosshairFrameRef = useRef<number | null>(null);
   const drawingDragMovedRef = useRef(false);
+  const lastChartPointerRef = useRef<{ x: number; y: number } | null>(null);
   const orderLineDragRef = useRef<OrderLineDragState | null>(null);
   const pendingPriceScaleSyncRef = useRef(false);
   const priceScaleFingerprintRef = useRef<string | null>(null);
@@ -428,6 +464,131 @@ export function TradingChart({
     () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
   );
+
+  useEffect(() => {
+    let active = true;
+    void hydrateDrawingToolFavorites().then((value) => {
+      if (active) {
+        setFavoriteDrawingTools(value);
+      }
+    });
+    const unsubscribe = subscribeDrawingToolFavorites((value) => {
+      if (active) {
+        setFavoriteDrawingTools(value);
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    function closeRadialToolbox() {
+      setRadialToolbox(null);
+    }
+
+    function selectRadialTool(index: number | null) {
+      if (index == null) {
+        return false;
+      }
+      const tool = favoriteDrawingTools[index];
+      if (!tool) {
+        return false;
+      }
+      onDrawingToolChange(tool);
+      closeRadialToolbox();
+      return true;
+    }
+
+    function handleRadialKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Alt") {
+        if (event.repeat || radialToolbox || !chartAcceptsRadialToolbox(stageRef.current)) {
+          return;
+        }
+        const activeElement = document.activeElement as HTMLElement | null;
+        if (
+          isEditableTarget(activeElement) ||
+          activeElement?.closest('[role="dialog"], [role="menu"], .chart-command-menu')
+        ) {
+          return;
+        }
+        event.preventDefault();
+        setRadialToolbox({
+          anchor: radialToolboxAnchor(stageRef.current, lastChartPointerRef.current),
+          highlightedIndex: null,
+        });
+        return;
+      }
+
+      if (!radialToolbox) {
+        return;
+      }
+
+      if (/^[1-8]$/.test(event.key)) {
+        const index = Number(event.key) - 1;
+        if (selectRadialTool(index)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        setRadialToolbox((current) => {
+          if (!current) {
+            return current;
+          }
+          const lastIndex = Math.max(0, favoriteDrawingTools.length - 1);
+          if (event.key === "Home") {
+            return { ...current, highlightedIndex: 0 };
+          }
+          if (event.key === "End") {
+            return { ...current, highlightedIndex: lastIndex };
+          }
+          const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+          const currentIndex = current.highlightedIndex ?? (direction > 0 ? -1 : 0);
+          return {
+            ...current,
+            highlightedIndex:
+              (currentIndex + direction + favoriteDrawingTools.length) % favoriteDrawingTools.length,
+          };
+        });
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === " ") {
+        if (selectRadialTool(radialToolbox.highlightedIndex)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRadialToolbox();
+      }
+    }
+
+    function handleRadialKeyUp(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Alt" || !radialToolbox) {
+        return;
+      }
+      event.preventDefault();
+      if (!selectRadialTool(radialToolbox.highlightedIndex)) {
+        closeRadialToolbox();
+      }
+    }
+
+    window.addEventListener("blur", closeRadialToolbox);
+    window.addEventListener("keydown", handleRadialKeyDown);
+    window.addEventListener("keyup", handleRadialKeyUp);
+    return () => {
+      window.removeEventListener("blur", closeRadialToolbox);
+      window.removeEventListener("keydown", handleRadialKeyDown);
+      window.removeEventListener("keyup", handleRadialKeyUp);
+    };
+  }, [favoriteDrawingTools, onDrawingToolChange, radialToolbox]);
 
   const visibleIndicatorInstances = useMemo(
     () => indicatorInstances.filter((indicator) => indicator.visible !== false),
@@ -1948,7 +2109,37 @@ export function TradingChart({
   const unlockedDrawingsCount = removableDrawingsCount;
 
   return (
-    <section className="chart-stage" ref={stageRef}>
+    <section
+      aria-keyshortcuts="Alt"
+      aria-label={`${formatMarketSymbol(symbol)} ${formatChartTimeframeLabel(timeframe)} chart`}
+      className="chart-stage"
+      onPointerDownCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (!isEditableTarget(target) && !target.closest("button, [role='button'], a")) {
+          stageRef.current?.focus({ preventScroll: true });
+        }
+      }}
+      onPointerMoveCapture={(event) => {
+        lastChartPointerRef.current = { x: event.clientX, y: event.clientY };
+      }}
+      ref={stageRef}
+      tabIndex={0}
+    >
+      {radialToolbox && (
+        <RadialDrawingToolbox
+          anchor={radialToolbox.anchor}
+          favorites={favoriteDrawingTools}
+          highlightedIndex={radialToolbox.highlightedIndex}
+          onHighlight={(highlightedIndex) =>
+            setRadialToolbox((current) => current ? { ...current, highlightedIndex } : current)
+          }
+          onSelect={(tool) => {
+            onDrawingToolChange(tool);
+            setRadialToolbox(null);
+            stageRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       <div className="chart-stage-header">
         <div className="min-w-0">
           <div className="min-w-0 flex-1">
@@ -2592,6 +2783,121 @@ function OrderLineModificationDialog({
   );
 }
 
+function isEditableTarget(target: HTMLElement | null) {
+  return Boolean(
+    target &&
+      (target.isContentEditable ||
+        target.matches("input, textarea, select") ||
+        target.closest("input, textarea, select, [contenteditable='true']")),
+  );
+}
+
+function chartAcceptsRadialToolbox(stage: HTMLElement | null) {
+  if (!stage || document.visibilityState !== "visible") {
+    return false;
+  }
+  const chartEngaged = stage.matches(":hover") || stage.contains(document.activeElement);
+  if (!chartEngaged) {
+    return false;
+  }
+  const paneShell = stage.closest(".chart-pane-shell");
+  if (!paneShell) {
+    return true;
+  }
+  if (!paneShell.classList.contains("chart-pane-shell-with-header")) {
+    return true;
+  }
+  return paneShell.classList.contains("chart-pane-shell-active");
+}
+
+function radialToolboxAnchor(
+  stage: HTMLElement | null,
+  pointer: { x: number; y: number } | null,
+) {
+  const rect = stage?.getBoundingClientRect();
+  const pointerInside =
+    rect &&
+    pointer &&
+    pointer.x >= rect.left &&
+    pointer.x <= rect.right &&
+    pointer.y >= rect.top &&
+    pointer.y <= rect.bottom;
+  const desiredX = pointerInside && pointer ? pointer.x : rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+  const desiredY = pointerInside && pointer ? pointer.y : rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+  const horizontalPadding = Math.min(RADIAL_TOOLBOX_EDGE_PADDING, Math.max(16, window.innerWidth / 2 - 12));
+  const verticalPadding = Math.min(RADIAL_TOOLBOX_EDGE_PADDING, Math.max(16, window.innerHeight / 2 - 12));
+  return {
+    x: Math.min(window.innerWidth - horizontalPadding, Math.max(horizontalPadding, desiredX)),
+    y: Math.min(window.innerHeight - verticalPadding, Math.max(verticalPadding, desiredY)),
+  };
+}
+
+function RadialDrawingToolbox({
+  anchor,
+  favorites,
+  highlightedIndex,
+  onHighlight,
+  onSelect,
+}: {
+  anchor: { x: number; y: number };
+  favorites: FavoriteDrawingTool[];
+  highlightedIndex: number | null;
+  onHighlight: (index: number) => void;
+  onSelect: (tool: FavoriteDrawingTool) => void;
+}) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const highlightedTool = highlightedIndex == null ? null : favorites[highlightedIndex];
+  const highlightedDefinition = DRAWING_RAIL_TOOLS.find((item) => item.tool === highlightedTool);
+
+  return createPortal(
+    <div
+      aria-label="Circular drawing toolbox"
+      className="chart-radial-toolbox"
+      role="menu"
+      style={{ left: anchor.x, top: anchor.y }}
+    >
+      <div aria-hidden="true" className="chart-radial-toolbox-ring" />
+      {favorites.map((tool, index) => {
+        const definition = DRAWING_RAIL_TOOLS.find((item) => item.tool === tool);
+        if (!definition) {
+          return null;
+        }
+        const Icon = definition.icon;
+        const angle = -Math.PI / 2 + (Math.PI * 2 * index) / favorites.length;
+        return (
+          <button
+            aria-label={`${index + 1}. ${definition.label}`}
+            className={`chart-radial-toolbox-button ${highlightedIndex === index ? "chart-radial-toolbox-button-active" : ""}`}
+            key={tool}
+            onClick={() => onSelect(tool)}
+            onPointerEnter={() => onHighlight(index)}
+            role="menuitem"
+            style={{
+              left: Math.cos(angle) * RADIAL_TOOLBOX_RADIUS,
+              top: Math.sin(angle) * RADIAL_TOOLBOX_RADIUS,
+            }}
+            title={`${index + 1}. ${definition.label}`}
+            type="button"
+          >
+            <Icon size={18} />
+            <span>{index + 1}</span>
+          </button>
+        );
+      })}
+      <div aria-live="polite" className="chart-radial-toolbox-center">
+        <strong>{highlightedDefinition?.label ?? "Quick wheel"}</strong>
+        <span>{highlightedDefinition ? "Release to select" : "Move or use 1–8"}</span>
+      </div>
+      <span className="sr-only">
+        Use arrow keys and Enter, number keys 1 through 8, or move to a tool and release Alt or Option.
+      </span>
+    </div>,
+    document.body,
+  );
+}
+
 function DrawingRail({
   activeTool,
   canUndoDrawingChange,
@@ -2615,23 +2921,6 @@ function DrawingRail({
   onUndoDrawingChange: () => void;
   undoShortcutLabel: string;
 }) {
-  const tools: Array<{
-    icon: ChartToolIcon;
-    label: string;
-    tool: DrawingTool;
-  }> = [
-    { icon: TvCursorIcon, label: "Cursor: select and edit drawings", tool: "cursor" },
-    { icon: TvCrosshairIcon, label: "Crosshair: inspect candles", tool: "crosshair" },
-    { icon: TvTrendLineIcon, label: "Trendline", tool: "trendline" },
-    { icon: TvHorizontalLineIcon, label: "Horizontal level", tool: "horizontal" },
-    { icon: TvVerticalLineIcon, label: "Vertical level", tool: "vertical" },
-    { icon: TvRectangleIcon, label: "Rectangle zone", tool: "rectangle" },
-    { icon: TvFibIcon, label: "Fib retracement", tool: "fib" },
-    { icon: TvMeasureIcon, label: "Measure", tool: "measure" },
-    { icon: TvLongPositionIcon, label: "Long position", tool: "longPosition" },
-    { icon: TvShortPositionIcon, label: "Short position", tool: "shortPosition" },
-    { icon: TvTextIcon, label: "Text label", tool: "text" },
-  ];
   const nextMagnetMode: MagnetMode =
     magnetMode === "off" ? "weak" : magnetMode === "weak" ? "strong" : "off";
   const magnetLabel =
@@ -2643,7 +2932,7 @@ function DrawingRail({
 
   return (
     <aside className="drawing-rail">
-      {tools.slice(0, 2).map((item) => {
+      {DRAWING_RAIL_TOOLS.slice(0, 2).map((item) => {
         const Icon = item.icon;
         return (
           <button
@@ -2672,7 +2961,7 @@ function DrawingRail({
         )}
       </button>
       <div className="my-1 h-px w-8 bg-white/10" />
-      {tools.slice(2).map((item) => {
+      {DRAWING_RAIL_TOOLS.slice(2).map((item) => {
         const Icon = item.icon;
         return (
           <button

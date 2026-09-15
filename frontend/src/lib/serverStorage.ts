@@ -26,6 +26,7 @@ const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "chart-layouts.v1": "edgelab.chart-layouts.v1",
   "chart-settings-presets.v1": "edgelab.chart-settings-presets.v1",
   "drawing-presets.v1": "edgelab.drawing-presets.v1",
+  "drawing-tool-favorites.v1": "edgelab.drawing-tool-favorites.v1",
   "fib-presets.v1": "edgelab.fib-presets.v1",
   "finance-tracker.v1": "edgelab.finance-tracker.v1",
   "live-chart-layout.v1": "edgelab.live-chart-layout.v1",
