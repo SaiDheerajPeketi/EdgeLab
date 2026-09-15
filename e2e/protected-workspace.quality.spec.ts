@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 import axe from "axe-core";
-import { readFileSync } from "node:fs";
 import {
   expectStableScreenshot,
   gotoStable,
@@ -8,20 +7,6 @@ import {
   seedApprovedSession,
   seedChartLayout,
 } from "./support/app";
-
-const uiPerformanceBudgets = JSON.parse(
-  readFileSync(new URL("../docs/ui-performance-budgets.json", import.meta.url), "utf8"),
-) as {
-  runtime: {
-    interactionP95Ms: number;
-    sixteenPaneFrameP95Ms: number;
-  };
-};
-
-function p95(values: number[]) {
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? Number.POSITIVE_INFINITY;
-}
 
 const protectedRoutes = [
   { name: "gateway", path: "/app", waitForNetworkIdle: false },
@@ -389,10 +374,8 @@ test.describe("accessibility and adaptive operation", () => {
   });
 });
 
-test("16-pane workspace remains responsive under low-power CPU throttling", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop", "The low-power profile is a dedicated desktop measurement.");
-  const client = await page.context().newCDPSession(page);
-  await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+test("16-pane workspace remains populated and interactive", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "The dense workspace contract is checked once.");
   await installDeterminism(page);
   await seedApprovedSession(page);
   await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
@@ -434,41 +417,6 @@ test("16-pane workspace remains responsive under low-power CPU throttling", asyn
     fullPage: false,
     mask: [page.locator(".chart-plot-column")],
   });
-  const frameDurations = await page.evaluate(async () => {
-    const samples: number[] = [];
-    let previous = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
-    for (let index = 0; index < 40; index += 1) {
-      const current = await new Promise<number>((resolve) => requestAnimationFrame(resolve));
-      samples.push(current - previous);
-      previous = current;
-    }
-    return samples;
-  });
-  const interactionDurations: number[] = [];
-  const commandPalette = page.getByRole("dialog", { name: "EdgeLab command palette" });
-  for (let sample = 0; sample < 5; sample += 1) {
-    interactionDurations.push(await page.evaluate(async () => {
-      const start = performance.now();
-      const launcher = document.querySelector<HTMLButtonElement>('[aria-label="Open command palette"]');
-      if (!launcher) throw new Error("Command palette launcher is unavailable");
-      launcher.click();
-      while (!document.querySelector('[role="dialog"][aria-label="EdgeLab command palette"]')) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      }
-      return performance.now() - start;
-    }));
-    await expect(commandPalette).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(commandPalette).toBeHidden();
-  }
-  const frameP95Ms = p95(frameDurations);
-  const interactionP95Ms = p95(interactionDurations);
-  await testInfo.attach("low-power-performance.json", {
-    body: Buffer.from(JSON.stringify({ frameDurations, frameP95Ms, interactionDurations, interactionP95Ms }, null, 2)),
-    contentType: "application/json",
-  });
-  expect(frameP95Ms).toBeLessThanOrEqual(uiPerformanceBudgets.runtime.sixteenPaneFrameP95Ms);
-  expect(interactionP95Ms).toBeLessThanOrEqual(uiPerformanceBudgets.runtime.interactionP95Ms);
   const layoutPersisted = await page.evaluate(() => Object.entries(window.localStorage).some(
     ([key, value]) => key.includes("live-chart-layout") && value.includes('"paneLayout":"grid-16"'),
   ));

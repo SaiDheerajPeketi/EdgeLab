@@ -28,6 +28,8 @@ type UiRolloutSnapshot = {
   version: 1;
 };
 
+type UiRolloutSnapshotStorage = Pick<Storage, "removeItem" | "setItem">;
+
 export const UI_ROLLOUT_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const SHELL_DEPENDENTS: readonly UiRouteGroup[] = ["journal", "settings", "chart"];
 
@@ -91,6 +93,29 @@ export function serializeUiRolloutSnapshot(response: unknown, savedAt = Date.now
   const normalized = normalizeServerUiRollout(response);
   if (!normalized || !Number.isFinite(savedAt)) return null;
   return JSON.stringify({ response: normalized, savedAt, version: 1 } satisfies UiRolloutSnapshot);
+}
+
+/** A rejected response must evict an older enabled snapshot before the next reload. */
+export function persistUiRolloutSnapshot(
+  storage: UiRolloutSnapshotStorage,
+  response: unknown,
+  savedAt = Date.now(),
+) {
+  const key = rolloutStorageKey();
+  const snapshot = serializeUiRolloutSnapshot(response, savedAt);
+  if (!snapshot) {
+    try { storage.removeItem(key); } catch { /* Runtime fallback remains active. */ }
+    return false;
+  }
+  try {
+    storage.setItem(key, snapshot);
+    return true;
+  } catch {
+    // Do not leave an older enabled snapshot behind when the new policy could
+    // not be stored (for example because browser storage is full).
+    try { storage.removeItem(key); } catch { /* Runtime fallback remains active. */ }
+    return false;
+  }
 }
 
 export function parseUiRolloutSnapshot(

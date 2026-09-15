@@ -19,11 +19,11 @@ import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 import {
   normalizeServerUiRollout,
   parseUiRolloutSnapshot,
+  persistUiRolloutSnapshot,
   resolveServerUiRollout,
   resolveUiRollout,
   rolloutStorageKey,
   routeGroup,
-  serializeUiRolloutSnapshot,
 } from "../lib/uiRollout";
 
 const LandingPage = lazy(() =>
@@ -344,6 +344,9 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
         const response = await getUiRolloutConfig();
         if (!active) return;
         const next = rolloutRuntimeState(response, "server");
+        try { persistUiRolloutSnapshot(window.localStorage, response); } catch {
+          // The runtime policy still applies when browser storage is disabled.
+        }
         if (!next) {
           setRollout({
             flags: resolveUiRollout({ killSwitch: true }),
@@ -351,12 +354,6 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
             source: "fallback",
           });
           return;
-        }
-        const snapshot = serializeUiRolloutSnapshot(response);
-        if (snapshot) {
-          try { window.localStorage.setItem(UI_ROLLOUT_STORAGE_KEY, snapshot); } catch {
-            // Runtime enforcement remains authoritative when storage is blocked.
-          }
         }
         setRollout(next);
       } catch {

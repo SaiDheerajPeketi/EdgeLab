@@ -15,7 +15,7 @@ async function bundle(relativePath) {
   return { cleanup: () => fs.rmSync(directory, { force: true, recursive: true }), module: await import(`${pathToFileURL(output).href}?${Date.now()}`) };
 }
 
-test("rollout flags preserve deep links and provide a global reversible fallback", async () => {
+test("rollout flags preserve deep links and provide a global reversible fallback policy", async () => {
   const { cleanup, module } = await bundle("frontend/src/lib/uiRollout.ts");
   try {
     assert.equal(module.routeGroup("/app/journal/trades?trade=42"), "journal");
@@ -50,6 +50,22 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     assert.deepEqual(module.parseUiRolloutSnapshot(snapshot, 1_100, 200), response);
     assert.equal(module.parseUiRolloutSnapshot(snapshot, 1_201, 200), null);
     assert.equal(module.parseUiRolloutSnapshot("not-json", 1_100, 200), null);
+
+    const values = new Map();
+    const storage = {
+      removeItem: (key) => values.delete(key),
+      setItem: (key, value) => values.set(key, value),
+    };
+    assert.equal(module.persistUiRolloutSnapshot(storage, response, 1_000), true);
+    assert.ok(values.has(module.rolloutStorageKey()));
+    assert.equal(module.persistUiRolloutSnapshot(storage, { ...response, flags: {} }, 1_100), false);
+    assert.equal(values.has(module.rolloutStorageKey()), false);
+    const reloadResponse = module.parseUiRolloutSnapshot(values.get(module.rolloutStorageKey()) ?? null, 1_200);
+    assert.equal(reloadResponse, null);
+    const reloadFlags = reloadResponse
+      ? module.resolveServerUiRollout(reloadResponse)
+      : module.resolveUiRollout({ killSwitch: true });
+    assert.ok(Object.values(reloadFlags).every((value) => !value));
   } finally { cleanup(); }
 });
 

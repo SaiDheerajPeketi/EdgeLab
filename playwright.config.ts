@@ -151,6 +151,7 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
+      testIgnore: /chart-performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -159,6 +160,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
+      testIgnore: /chart-performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -168,12 +170,25 @@ export default defineConfig({
     },
     {
       name: "mobile",
+      testIgnore: /chart-performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
         hasTouch: true,
         isMobile: true,
         viewport: { height: 844, width: 390 },
+      },
+    },
+    {
+      name: "low-power",
+      testMatch: /chart-performance\.spec\.ts/,
+      use: {
+        ...commonUse,
+        deviceScaleFactor: 1,
+        screenshot: "off",
+        trace: "off",
+        video: "off",
+        viewport: { height: 1000, width: 1440 },
       },
     },
   ],
