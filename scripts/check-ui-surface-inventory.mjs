@@ -181,6 +181,18 @@ export function validateUiSurfaceInventory({
     if (!Array.isArray(route.states) || route.states.length === 0) {
       errors.push(`${prefix} has no state inventory.`);
     }
+    for (const [state, applicableViewports] of Object.entries(route.stateViewports ?? {})) {
+      if (!route.states?.includes(state)) errors.push(`${prefix} viewport applicability references undeclared state "${state}".`);
+      if (!Array.isArray(applicableViewports) || applicableViewports.length === 0) {
+        errors.push(`${prefix} state "${state}" has no applicable viewports.`);
+        continue;
+      }
+      for (const viewport of applicableViewports) {
+        if (!route.responsiveWidths?.includes(viewport)) {
+          errors.push(`${prefix} state "${state}" references inapplicable viewport "${viewport}".`);
+        }
+      }
+    }
     if (!Array.isArray(route.criticalStates) || route.criticalStates.length === 0) {
       errors.push(`${prefix} has no critical-state decision.`);
     } else {
@@ -216,6 +228,10 @@ export function validateUiSurfaceInventory({
 
   const visualCoverage = inventory.visualCoverage ?? {};
   const evidenceRoutes = visualEvidence.routes ?? {};
+  const defaultCaptureMode = visualEvidence.defaultCaptureMode;
+  if (!['viewport', 'full-page'].includes(defaultCaptureMode)) {
+    errors.push('Visual evidence must declare defaultCaptureMode as "viewport" or "full-page".');
+  }
   for (const key of [...Object.keys(visualCoverage.exemptions ?? {}), ...Object.keys(visualCoverage.gaps ?? {})]) {
     if (!uniqueRoutePaths.includes(key)) errors.push(`Visual coverage decision references unknown route: ${key}.`);
   }
@@ -234,7 +250,11 @@ export function validateUiSurfaceInventory({
       if (!route.states?.includes(state)) {
         errors.push(`Route "${route.path}" evidence uses undeclared state "${state}".`);
       }
-      for (const viewportName of route.responsiveWidths ?? []) {
+      const applicableViewports = route.stateViewports?.[state] ?? route.responsiveWidths ?? [];
+      const applicableProjects = applicableViewports
+        .map((viewportName) => viewports[viewportName]?.project)
+        .filter(Boolean);
+      for (const viewportName of applicableViewports) {
         const project = viewports[viewportName]?.project;
         if (project && !projectEvidence?.[project]) {
           errors.push(`Route "${route.path}" state "${state}" has no ${viewportName} project evidence.`);
@@ -246,8 +266,8 @@ export function validateUiSurfaceInventory({
           errors.push(`Route "${route.path}" state "${state}" references unknown project "${project}".`);
           continue;
         }
-        if (!route.responsiveWidths?.includes(project)) {
-          errors.push(`Route "${route.path}" state "${state}" uses project "${project}" outside its responsive contract.`);
+        if (!applicableProjects.includes(project)) {
+          errors.push(`Route "${route.path}" state "${state}" uses project "${project}" outside its applicable viewport contract.`);
         }
         const specPath = path.join(root, evidence.spec ?? "");
         if (!evidence.spec || !fs.existsSync(specPath)) {
@@ -266,21 +286,22 @@ export function validateUiSurfaceInventory({
         if (!snapshotExists) {
           errors.push(`Route "${route.path}" state "${state}" is missing exact ${project} snapshot "${evidence.snapshot ?? "(none)"}".`);
         }
-        if (evidence.captureMode != null && !["viewport", "full-page"].includes(evidence.captureMode)) {
+        const captureMode = evidence.captureMode ?? defaultCaptureMode;
+        if (!["viewport", "full-page", "element"].includes(captureMode)) {
           errors.push(`Route "${route.path}" state "${state}" uses unsupported capture mode "${evidence.captureMode}".`);
-        } else if (snapshotExists && evidence.captureMode) {
+        } else if (snapshotExists && captureMode !== "element") {
           const dimensions = readPngDimensions(expectedSnapshot);
           const expectedWidth = viewports[project].width;
           const expectedHeight = viewports[project].height;
           if (!dimensions) {
             errors.push(`Route "${route.path}" state "${state}" snapshot is not a readable PNG.`);
           } else {
-            const dimensionsMatch = evidence.captureMode === "viewport"
+            const dimensionsMatch = captureMode === "viewport"
               ? dimensions.width === expectedWidth && dimensions.height === expectedHeight
               : dimensions.width === expectedWidth && dimensions.height >= expectedHeight;
             if (!dimensionsMatch) {
               errors.push(
-                `Route "${route.path}" state "${state}" ${project} ${evidence.captureMode} capture is ${dimensions.width}x${dimensions.height}; expected ${evidence.captureMode === "viewport" ? `${expectedWidth}x${expectedHeight}` : `${expectedWidth}x${expectedHeight} or taller`}.`,
+                `Route "${route.path}" state "${state}" ${project} ${captureMode} capture is ${dimensions.width}x${dimensions.height}; expected ${captureMode === "viewport" ? `${expectedWidth}x${expectedHeight}` : `${expectedWidth}x${expectedHeight} or taller`}.`,
               );
             }
           }

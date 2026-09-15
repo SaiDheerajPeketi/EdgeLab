@@ -67,7 +67,7 @@ test.describe("landing critical-state visual baselines", () => {
   });
 
   test("mobile navigation menu baseline", async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile") await page.setViewportSize({ height: 844, width: 390 });
+    test.skip(testInfo.project.name !== "mobile", "The compact navigation menu is mobile-only.");
     await gotoStable(page, "/", { waitForNetworkIdle: false });
     await page.getByRole("button", { name: "Open navigation menu" }).click();
     const menu = page.getByRole("navigation", { name: "Mobile navigation" });

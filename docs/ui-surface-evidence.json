@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "platform": "darwin",
+  "defaultCaptureMode": "full-page",
   "routes": {
     "/": {
       "default": {
@@ -24,9 +25,7 @@
         "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" }
       },
       "mobile-menu": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png", "captureMode": "viewport" }
       }
     },
     "/pricing": {
@@ -182,24 +181,24 @@
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" }
       },
       "fullscreen": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" }
       },
       "two-pane": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" }
       },
       "four-pane": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" }
       },
       "sixteen-pane": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" }
       }
     },
     "/app/replay": {

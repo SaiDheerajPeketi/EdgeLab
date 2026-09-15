@@ -115,6 +115,31 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
       expected: /missing exact mobile snapshot "pricing-does-not-exist\.png"/,
     },
     {
+      name: "state viewport applicability",
+      mutate(fixture) {
+        fixture.visualEvidence.routes["/"]["mobile-menu"].tablet = {
+          spec: "e2e/public-critical.states.visual.spec.ts",
+          snapshot: "landing-mobile-menu.png",
+          captureMode: "viewport",
+        };
+      },
+      expected: /state "mobile-menu" uses project "tablet" outside its applicable viewport contract/,
+    },
+    {
+      name: "state viewport schema",
+      mutate(fixture) {
+        fixture.inventory.routes.find((route) => route.path === "/").stateViewports["mobile-menu"] = ["watch"];
+      },
+      expected: /state "mobile-menu" references inapplicable viewport "watch"/,
+    },
+    {
+      name: "default capture mode",
+      mutate(fixture) {
+        fixture.visualEvidence.defaultCaptureMode = undefined;
+      },
+      expected: /must declare defaultCaptureMode/,
+    },
+    {
       name: "capture mode",
       mutate(fixture) {
         fixture.visualEvidence.routes["/app"].error.mobile.captureMode = "cropped";
