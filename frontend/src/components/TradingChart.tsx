@@ -1162,16 +1162,14 @@ export function TradingChart({
     }
 
     let frameId: number | null = null;
-    let timerId: number | null = null;
+    let settleFramesRemaining = 2;
+    const interactionActive = dragState != null || draftDrawing != null;
 
     const watchPriceScale = () => {
       syncDrawingLayerToPriceScale();
-      if (dragState != null || draftDrawing != null) {
+      if (interactionActive || settleFramesRemaining > 0) {
+        settleFramesRemaining -= 1;
         frameId = window.requestAnimationFrame(watchPriceScale);
-      } else {
-        timerId = window.setTimeout(() => {
-          frameId = window.requestAnimationFrame(watchPriceScale);
-        }, 100);
       }
     };
 
@@ -1179,9 +1177,6 @@ export function TradingChart({
     return () => {
       if (frameId != null) {
         window.cancelAnimationFrame(frameId);
-      }
-      if (timerId != null) {
-        window.clearTimeout(timerId);
       }
     };
   }, [draftDrawing, dragState, shouldWatchPriceScale]);

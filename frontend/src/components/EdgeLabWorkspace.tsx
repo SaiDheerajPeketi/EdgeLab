@@ -2449,6 +2449,7 @@ function PositionSizeCalculatorPage() {
     quoteCurrency,
   });
   const riskTone = positionRiskTone(riskPercentValue);
+  const riskLevel = positionRiskLevel(riskPercentValue);
   const riskHeatWidth = Math.min(100, Math.max(3, riskPercentValue * 20));
 
   useEffect(() => {
@@ -2687,10 +2688,10 @@ function PositionSizeCalculatorPage() {
           <div className="p-4">
             <div className="flex items-center justify-between gap-3">
               <CardLabel icon={Gauge} label="Risk heat" />
-              <span className={`text-sm font-semibold tabular-nums ${riskTone}`}>{formatPositionDecimal(riskPercentValue, 2)}%</span>
+              <span className={`text-sm font-semibold tabular-nums ${riskTone}`}>{riskLevel} · {formatPositionDecimal(riskPercentValue, 2)}%</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
-              <div className={`h-full rounded-full ${positionRiskBarClass(riskPercentValue)}`} style={{ width: `${riskHeatWidth}%` }} />
+              <div aria-label="Risk heat" aria-valuemax={5} aria-valuemin={0} aria-valuenow={Math.min(5, riskPercentValue)} aria-valuetext={`${riskLevel} risk, ${formatPositionDecimal(riskPercentValue, 2)} percent`} className={`h-full rounded-full ${positionRiskBarClass(riskPercentValue)}`} role="progressbar" style={{ width: `${riskHeatWidth}%` }} />
             </div>
             <div className="mt-4 grid gap-2">
               {[
@@ -2846,6 +2847,12 @@ function positionRiskTone(value: number) {
     return "text-amber-200";
   }
   return "text-emerald-300";
+}
+
+function positionRiskLevel(value: number) {
+  if (value >= 3) return "High risk";
+  if (value >= 1.5) return "Moderate risk";
+  return "Low risk";
 }
 
 function positionRiskBarClass(value: number) {
