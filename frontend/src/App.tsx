@@ -127,6 +127,7 @@ import {
 import type { EdgeIndicatorInputValue } from "./lib/indicatorDsl";
 import {
   appendQuantAudit,
+  snapshotQuantChartContext,
   type QuantCaptureAttachment,
   type QuantChartContext,
   type QuantGeneratedIndicator,
@@ -2524,6 +2525,7 @@ export function WorkspaceApp() {
       setChartCapture({ message: "The chart is still loading. Try the attachment again.", status: "error" });
       return;
     }
+    const contextSnapshot = snapshotQuantChartContext(quantContext, region);
     setChartCapture({ message: region ? "Capturing the selected chart region…" : "Attaching the visible chart…", status: "capturing" });
     setChartCaptureMode(true);
     try {
@@ -2558,6 +2560,7 @@ export function WorkspaceApp() {
       }
       setQuantAttachment({
         ...capture,
+        contextSnapshot,
         id: `quant-capture-${Date.now().toString(36)}`,
         kind: region ? "region" : "chart",
         region,

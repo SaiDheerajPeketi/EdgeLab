@@ -36,6 +36,7 @@ import {
   persistQuantWorkspace,
   runReproducibleIndicatorBacktest,
   resolveQuantIndicatorFollowup,
+  resolveQuantRequestContext,
   transcribeQuantAudio,
   upsertQuantConversation,
   type QuantBacktestConfig,
@@ -200,8 +201,10 @@ export function QuantPanel({
     setPrompt("");
     setError(null);
     setJob({ content: "", id: "local", status: "queued" });
-    const sharedContext = preferences.allowStructuredContext ? context : null;
     const sharedAttachment = preferences.allowScreenshots ? attachment : null;
+    const sharedContext = preferences.allowStructuredContext
+      ? resolveQuantRequestContext(context, sharedAttachment)
+      : null;
     const followup = kind === "build" ? resolveQuantIndicatorFollowup(conversation, backtestResult) : { baseIndicator: null, operation: undefined, priorTestResult: null };
     const operation = options.operation ?? followup.operation;
     appendQuantAudit({ action: "generate", contextFields: sharedContext ? Object.keys(sharedContext) : [], modelId: selectedModel.id, status: "allowed" });

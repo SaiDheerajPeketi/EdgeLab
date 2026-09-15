@@ -157,6 +157,88 @@ test("Quant indicator follow-ups retain the server base version and prior test r
   assert.deepEqual(followup.priorTestResult, priorTestResult);
 });
 
+test("Quant indicator follow-ups skip failed and cancelled assistant responses", () => {
+  const priorTestResult = modules.runReproducibleIndicatorBacktest(bars, [], modules.DEFAULT_QUANT_BACKTEST_CONFIG, 4);
+  const unrelatedTestResult = modules.runReproducibleIndicatorBacktest(bars, [], modules.DEFAULT_QUANT_BACKTEST_CONFIG, 99);
+  const generatedIndicator = {
+    name: "Iterative signal",
+    remoteScriptId: 17,
+    remoteVersionId: 23,
+    source: 'indicator "Iterative signal" pane\nplot "Signal" = close color "#22d3ee"',
+  };
+  const conversation = modules.createQuantConversation("build");
+  conversation.messages.push(
+    {
+      backtest: priorTestResult,
+      content: "Created and tested the indicator.",
+      createdAt: new Date().toISOString(),
+      generatedIndicator,
+      id: "assistant-success",
+      role: "assistant",
+    },
+    {
+      content: "The edit request failed before an artifact was created.",
+      createdAt: new Date().toISOString(),
+      id: "assistant-failed",
+      role: "assistant",
+    },
+    {
+      content: "The next edit was cancelled.",
+      createdAt: new Date().toISOString(),
+      id: "assistant-cancelled",
+      role: "assistant",
+    },
+  );
+
+  const followup = modules.resolveQuantIndicatorFollowup(conversation, unrelatedTestResult);
+  assert.equal(followup.operation, "EDIT_INDICATOR");
+  assert.equal(followup.baseIndicator.remoteScriptId, 17);
+  assert.equal(followup.baseIndicator.remoteVersionId, 23);
+  assert.deepEqual(followup.priorTestResult, priorTestResult);
+});
+
+test("Quant capture keeps its chart context snapshot after the live chart changes", () => {
+  const selectedRegion = { heightRatio: 0.4, widthRatio: 0.5, xRatio: 0.1, yRatio: 0.2 };
+  const liveContext = {
+    activeIndicators: [{ id: "ema", kind: "ema20", settings: { color: "#22d3ee", period: 20 } }],
+    chartSettings: { backgroundColor: "#05070a", timeZone: "UTC" },
+    drawings: [{ color: "#ffffff", createdAt: "2026-09-15T00:00:00.000Z", id: "line-1", points: [{ price: 100, time: bars[0].time }], tool: "horizontal" }],
+    history: { barCount: 1, firstTimestamp: bars[0].timestamp, lastTimestamp: bars[0].timestamp, sampled: false },
+    provider: "backtest:1",
+    selectedObjectId: "line-1",
+    selectedRegion: null,
+    sessionMode: "regular",
+    symbol: "ES",
+    timeframe: "1m",
+    timezone: "UTC",
+    visibleBars: [{ ...bars[0] }],
+  };
+  const contextSnapshot = modules.snapshotQuantChartContext(liveContext, selectedRegion);
+  const attachment = {
+    contextSnapshot,
+    dataUrl: "data:image/png;base64,AA==",
+    height: 400,
+    id: "capture-1",
+    kind: "region",
+    region: selectedRegion,
+    width: 600,
+  };
+
+  liveContext.symbol = "NQ";
+  liveContext.timeframe = "5m";
+  liveContext.visibleBars[0].close = -1;
+  liveContext.drawings[0].points[0].price = 999;
+  liveContext.activeIndicators[0].settings.period = 50;
+
+  const submittedContext = modules.resolveQuantRequestContext(liveContext, attachment);
+  assert.equal(submittedContext.symbol, "ES");
+  assert.equal(submittedContext.timeframe, "1m");
+  assert.equal(submittedContext.visibleBars[0].close, bars[0].close);
+  assert.equal(submittedContext.drawings[0].points[0].price, 100);
+  assert.equal(submittedContext.activeIndicators[0].settings.period, 20);
+  assert.deepEqual(submittedContext.selectedRegion, selectedRegion);
+});
+
 test("analysis indicator semantics survive save and reach the live chart instance", () => {
   const source = [
     'indicator "Quant score" pane',

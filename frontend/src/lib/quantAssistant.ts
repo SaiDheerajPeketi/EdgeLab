@@ -130,6 +130,7 @@ export type QuantChartContext = {
 };
 
 export type QuantCaptureAttachment = {
+  contextSnapshot: QuantChartContext;
   dataUrl: string;
   height: number;
   id: string;
@@ -285,13 +286,54 @@ export function resolveQuantIndicatorFollowup(
   conversation: QuantConversation,
   fallbackTestResult: QuantBacktestResult | null,
 ) {
-  const priorAssistant = [...conversation.messages].reverse().find((message) => message.role === "assistant");
-  const baseIndicator = priorAssistant?.generatedIndicator ?? null;
+  const priorGeneration = [...conversation.messages].reverse().find((message) =>
+    message.role === "assistant" &&
+    message.generatedIndicator?.remoteScriptId != null &&
+    message.generatedIndicator.remoteVersionId != null,
+  );
+  const baseIndicator = priorGeneration?.generatedIndicator ?? null;
   return {
     baseIndicator,
     operation: baseIndicator?.remoteScriptId && baseIndicator.remoteVersionId ? "EDIT_INDICATOR" as const : undefined,
-    priorTestResult: priorAssistant?.backtest ?? fallbackTestResult,
+    priorTestResult: priorGeneration?.backtest ?? (baseIndicator ? null : fallbackTestResult),
   };
+}
+
+export function snapshotQuantChartContext(
+  context: QuantChartContext,
+  selectedRegion: QuantSelectedRegion | null = context.selectedRegion,
+): QuantChartContext {
+  return {
+    ...context,
+    activeIndicators: context.activeIndicators.map((indicator) => ({
+      ...indicator,
+      customQuantSemantics: indicator.customQuantSemantics
+        ? { ...indicator.customQuantSemantics }
+        : undefined,
+      settings: {
+        ...indicator.settings,
+        customInputs: indicator.settings.customInputs
+          ? { ...indicator.settings.customInputs }
+          : undefined,
+      },
+    })),
+    chartSettings: { ...context.chartSettings },
+    drawings: context.drawings.map((drawing) => ({
+      ...drawing,
+      fibLevels: drawing.fibLevels?.map((level) => ({ ...level })),
+      points: drawing.points.map((point) => ({ ...point })),
+    })),
+    history: { ...context.history },
+    selectedRegion: selectedRegion ? { ...selectedRegion } : null,
+    visibleBars: context.visibleBars.map((bar) => ({ ...bar })),
+  };
+}
+
+export function resolveQuantRequestContext(
+  currentContext: QuantChartContext,
+  attachment: QuantCaptureAttachment | null,
+) {
+  return attachment?.contextSnapshot ?? currentContext;
 }
 
 export function createQuantGenerationJob(
