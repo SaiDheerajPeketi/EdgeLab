@@ -26,6 +26,7 @@ import {
 import { createPortal } from "react-dom";
 import { OverlaySurface } from "../overlays/OverlaySurface";
 import { hasActiveOverlay } from "../overlays/useOverlayDismiss";
+import { formatLocaleNumber } from "../../lib/locale";
 
 type Tone = "neutral" | "info" | "success" | "warning" | "error";
 type ActionTone = "primary" | "secondary" | "quiet" | "destructive";
@@ -165,24 +166,30 @@ export function Combobox({
 }
 
 export function Toggle({ checked, disabled: isDisabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
-  return <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={isDisabled} onClick={() => onChange(!checked)} className={`relative h-7 w-12 rounded-full border transition-colors ${checked ? "border-cyan-200/60 bg-cyan-300/30" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"} ${focus} ${disabled}`}><span aria-hidden="true" className={`absolute top-1 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} /></button>;
+  return <button type="button" role="switch" aria-checked={checked} aria-label={toggleAccessibleLabel(label, checked)} disabled={isDisabled} onClick={() => onChange(!checked)} className={`grid min-h-[var(--control-height)] w-12 shrink-0 place-items-center rounded-[var(--radius-sm)] ${focus} ${disabled}`}><span aria-hidden="true" className={`relative block h-7 w-12 rounded-full border transition-colors ${checked ? "border-cyan-200/60 bg-cyan-300/30" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"}`}><span className={`absolute top-1 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${checked ? "translate-x-6" : "translate-x-1"}`} /></span></button>;
 }
+
+export function toggleAccessibleLabel(label: string, checked: boolean) { return `${label}: ${checked ? "on" : "off"}`; }
 
 export function Checkbox({ checked, disabled: isDisabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
   return <label className="inline-flex min-h-[var(--control-height)] cursor-pointer items-center gap-2 text-sm text-[var(--text-primary)]"><input type="checkbox" checked={checked} disabled={isDisabled} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" /><span aria-hidden="true" className={`grid h-5 w-5 place-items-center rounded border ${checked ? "border-cyan-200 bg-cyan-300 text-[var(--on-interaction)]" : "border-[var(--ui-border-strong)] bg-[var(--ui-inset)]"} peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--ui-focus)] peer-disabled:opacity-45`}>{checked ? <Check className="h-3.5 w-3.5" /> : null}</span><span>{label}</span></label>;
 }
 
 export function RadioGroup<T extends string>({ label, onChange, options, value }: { label: string; onChange: (value: T) => void; options: readonly { label: string; value: T; description?: string }[]; value: T }) {
-  return <fieldset><legend className="mb-2 text-xs font-medium text-[var(--text-secondary)]">{label}</legend><div className="grid gap-1">{options.map((option) => <label key={option.value} className="flex min-h-[var(--control-height)] cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2 hover:bg-white/[0.04]"><input type="radio" name={label} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} className="h-4 w-4 accent-cyan-300" /><span className="text-sm text-[var(--text-primary)]">{option.label}{option.description ? <span className="ms-2 text-xs text-[var(--text-secondary)]">{option.description}</span> : null}</span></label>)}</div></fieldset>;
+  const groupName = useId();
+  return <fieldset><legend className="mb-2 text-xs font-medium text-[var(--text-secondary)]">{label}</legend><div className="grid gap-1">{options.map((option) => <label key={option.value} className="flex min-h-[var(--control-height)] min-w-0 cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2 hover:bg-white/[0.04] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ui-focus)]"><input type="radio" name={groupName} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} className="h-4 w-4 shrink-0 accent-cyan-300" /><span className="min-w-0 break-words text-sm text-[var(--text-primary)]" dir="auto">{option.label}{option.description ? <span className="ms-2 text-xs text-[var(--text-secondary)]">{option.description}</span> : null}</span></label>)}</div></fieldset>;
 }
 
 export function Slider({ label, value, min, max, step = 1, unit = "", onChange }: { label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (value: number) => void }) {
   const id = useId();
-  return <label htmlFor={id} className="block text-xs font-medium text-[var(--text-secondary)]"><span className="flex justify-between gap-3"><span>{label}</span><output className="font-data tabular-nums text-[var(--text-primary)]">{value}{unit}</output></span><input id={id} type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} className="mt-2 h-10 w-full accent-cyan-300" /></label>;
+  const valueText = sliderValueText(value, unit);
+  return <label htmlFor={id} className="block min-w-0 text-xs font-medium text-[var(--text-secondary)]"><span className="flex min-w-0 flex-wrap justify-between gap-3"><span dir="auto">{label}</span><output htmlFor={id} className="font-data tabular-nums text-[var(--text-primary)]"><bdi>{valueText}</bdi></output></span><input id={id} type="range" value={value} min={min} max={max} step={step} aria-valuetext={valueText} onChange={(event) => onChange(Number(event.target.value))} className={`mt-2 min-h-[var(--control-height)] w-full accent-cyan-300 ${focus}`} /></label>;
 }
 
+export function sliderValueText(value: number, unit = "") { return `${formatLocaleNumber(value)}${unit}`; }
+
 export function SegmentedControl<T extends string>({ label, onChange, options, value }: { label: string; onChange: (value: T) => void; options: readonly { label: string; value: T }[]; value: T }) {
-  return <div role="group" aria-label={label} className="inline-flex max-w-full overflow-x-auto rounded-[var(--radius-sm)] bg-[var(--ui-inset)] p-1 ring-1 ring-inset ring-[var(--ui-border-subtle)]">{options.map((option) => <button key={option.value} type="button" aria-pressed={value === option.value} onClick={() => onChange(option.value)} className={`min-h-8 shrink-0 rounded px-3 text-xs font-semibold ${focus} ${value === option.value ? "bg-[var(--ui-selection)] text-cyan-100 shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}>{option.label}</button>)}</div>;
+  return <div role="group" aria-label={label} className="inline-flex max-w-full overflow-x-auto rounded-[var(--radius-sm)] bg-[var(--ui-inset)] p-1 ring-1 ring-inset ring-[var(--ui-border-subtle)]">{options.map((option) => <button key={option.value} type="button" aria-pressed={value === option.value} onClick={() => onChange(option.value)} className={`min-h-[var(--control-height)] shrink-0 rounded px-3 text-xs font-semibold ${focus} ${value === option.value ? "bg-[var(--ui-selection)] text-cyan-100 shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}><span dir="auto">{option.label}</span></button>)}</div>;
 }
 
 export function Tabs<T extends string>({ label, onChange, tabs, value }: { label: string; onChange: (value: T) => void; tabs: readonly { label: string; value: T; panelId?: string }[]; value: T }) {
