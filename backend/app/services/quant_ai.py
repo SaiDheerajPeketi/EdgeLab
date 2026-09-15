@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from base64 import b64decode
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING
@@ -8,7 +9,9 @@ from hashlib import sha256
 import json
 import logging
 import os
+from pathlib import Path
 import re
+from secrets import token_urlsafe
 from time import monotonic
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -42,6 +45,8 @@ from app.schemas import (
     AIBacktestRequest,
     AIConversationCreate,
     AIConversationRead,
+    AIChartImageMetadata,
+    AIChartImageUpload,
     AIGeneratedArtifactRead,
     AIGenerationJobRead,
     AIGenerationRequest,
@@ -431,6 +436,38 @@ def _decimal_text(value: Decimal) -> str:
 
 def _safe_json(value: Any) -> Any:
     return json.loads(json.dumps(value, sort_keys=True, default=str))
+
+
+def store_chart_capture(
+    user_id: int,
+    payload: AIChartImageUpload,
+    *,
+    root: Path,
+) -> AIChartImageMetadata:
+    prefix = "data:image/png;base64,"
+    if not payload.data_url.startswith(prefix):
+        raise AIConflictError("Chart captures must be PNG data URLs")
+    try:
+        content = b64decode(payload.data_url[len(prefix):], validate=True)
+    except (ValueError, TypeError) as exc:
+        raise AIConflictError("Chart capture encoding is invalid") from exc
+    if not content.startswith(b"\x89PNG\r\n\x1a\n") or len(content) > 4 * 1024 * 1024:
+        raise AIConflictError("Chart capture must be a valid PNG no larger than 4 MB")
+    digest = sha256(content).hexdigest()
+    reference = f"u{user_id}/{token_urlsafe(24)}.png"
+    target = root / reference
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.write_bytes(content)
+    target.chmod(0o600)
+    return AIChartImageMetadata(
+        storage_ref=reference,
+        sha256=digest,
+        mime_type="image/png",
+        width=payload.width,
+        height=payload.height,
+        byte_size=len(content),
+        selected_region=payload.selected_region,
+    )
 
 
 def _slug(value: str) -> str:
@@ -1237,6 +1274,18 @@ def create_generation_job(
     if conversation.deleted_at is not None or conversation.status != "ACTIVE":
         raise AIConflictError("AI conversation is not active")
     policy = router.policy(payload.model_id)
+    if policy.provider != "offline-ai-fixture":
+        has_history = bool(db.scalar(select(AIMessage.id).where(AIMessage.conversation_id == conversation.id).limit(1)))
+        required_consent = {"conversation_history"} if has_history else set()
+        if payload.chart_context is not None:
+            required_consent.add("chart_context")
+        if payload.image is not None:
+            required_consent.add("chart_image")
+        missing_consent = required_consent - set(payload.egress_consent)
+        if missing_consent:
+            raise AIConflictError(
+                f"Explicit external-provider consent is required for: {', '.join(sorted(missing_consent))}"
+            )
     if payload.operation not in policy.operations:
         raise AIConflictError(f"Model '{payload.model_id}' does not support {payload.operation}")
     if payload.max_output_tokens > policy.max_output_tokens:
@@ -1281,6 +1330,7 @@ def create_generation_job(
         now=current,
     )
     message_context = payload.chart_context.model_dump(mode="json") if payload.chart_context else {}
+    message_context["_egress_consent"] = sorted(payload.egress_consent)
     if payload.script_id is not None:
         message_context["script_id"] = payload.script_id
     if payload.base_version_id is not None:
@@ -1328,6 +1378,7 @@ def create_generation_job(
             "chart_context_digest": _hash(message.chart_context),
             "image_metadata_digest": _hash(message.image_metadata),
             "estimated_cost_micros": estimated_cost,
+            "egress_consent": sorted(payload.egress_consent),
         },
     )
     try:
@@ -1478,11 +1529,26 @@ def run_generation_job(
             "base_source": base_source,
             "max_output_tokens": job.max_output_tokens,
         }
-
-        buffered_events: list[tuple[str, dict[str, Any]]] = []
+        consent = set(dict(message.chart_context or {}).get("_egress_consent") or [])
+        if job.provider != "offline-ai-fixture" and "conversation_history" in consent:
+            prior_messages = db.scalars(
+                select(AIMessage)
+                .where(
+                    AIMessage.conversation_id == job.conversation_id,
+                    AIMessage.user_id == user_id,
+                    AIMessage.sequence < message.sequence,
+                    AIMessage.purged_at.is_(None),
+                )
+                .order_by(AIMessage.sequence.asc())
+            ).all()
+            provider_request["conversation_history"] = [
+                {"role": prior.role, "content": prior.content, "chart_context": dict(prior.chart_context or {})}
+                for prior in prior_messages[-40:]
+            ]
 
         def emit(event_type: str, event_payload: Mapping[str, Any]) -> None:
-            buffered_events.append((event_type[:32], _safe_json(event_payload)))
+            _job_event(db, job, event_type[:32], _safe_json(event_payload))
+            db.commit()
 
         def refresh_cancel_state() -> bool:
             refreshed = db.scalar(
@@ -1499,9 +1565,7 @@ def run_generation_job(
 
         def call(credentials: Mapping[str, str]) -> AIProviderResult:
             result = adapter.generate(credentials, provider_request, emit, cancelled)
-            serialized = json.dumps(
-                {"content": result.content, "events": buffered_events}, sort_keys=True, default=str
-            )
+            serialized = json.dumps({"content": result.content}, sort_keys=True, default=str)
             if any(secret and secret in serialized for secret in credentials.values()):
                 raise AISecurityError("Provider output contained credential material")
             return result
@@ -1518,8 +1582,6 @@ def run_generation_job(
             raise AIConflictError("Generation was cancelled")
         if result.input_tokens < 0 or result.output_tokens < 0 or result.output_tokens > job.max_output_tokens:
             raise AISecurityError("Provider returned invalid usage accounting")
-        for event_type, event_payload in buffered_events:
-            _job_event(db, job, event_type, event_payload)
         actual_cost = _estimate_cost(policy, result.input_tokens, result.output_tokens)
         current_usage = usage_summary(db, user_id)
         if actual_cost > job.hard_cost_ceiling_micros or current_usage.cost_micros + actual_cost > DAILY_COST_LIMIT_MICROS:

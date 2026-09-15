@@ -2146,6 +2146,15 @@ class AIChartImageMetadata(BaseModel):
         return value
 
 
+class AIChartImageUpload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data_url: str = Field(min_length=32, max_length=6_000_000)
+    width: int = Field(gt=0, le=16384)
+    height: int = Field(gt=0, le=16384)
+    selected_region: AIChartSelection | None = None
+
+
 class AIConversationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2228,6 +2237,7 @@ class AIGenerationRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=32000)
     chart_context: AIChartContext | None = None
     image: AIChartImageMetadata | None = None
+    egress_consent: list[Literal["chart_context", "conversation_history", "chart_image"]] = Field(default_factory=list)
     script_id: int | None = Field(default=None, gt=0)
     base_version_id: int | None = Field(default=None, gt=0)
     auto_backtest: AIAutoBacktestConfig | None = None

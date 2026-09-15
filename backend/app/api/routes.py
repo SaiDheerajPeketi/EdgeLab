@@ -82,6 +82,8 @@ from app.schemas import (
     AIBacktestRequest,
     AIConversationCreate,
     AIConversationRead,
+    AIChartImageMetadata,
+    AIChartImageUpload,
     AIGeneratedArtifactRead,
     AIGenerationJobRead,
     AIGenerationRequest,
@@ -3902,6 +3904,20 @@ def create_quant_conversation(
     return quant_ai.create_conversation(db, current_user.id, payload)
 
 
+@router.post("/quant/captures", response_model=AIChartImageMetadata, status_code=201)
+def upload_quant_capture(
+    payload: AIChartImageUpload,
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AIChartImageMetadata:
+    enforce_rate_limit("ai-write", current_user.id, AI_WRITE_RATE_LIMIT)
+    try:
+        return quant_ai.store_chart_capture(
+            current_user.id, payload, root=settings.quant_capture_root
+        )
+    except quant_ai.AIServiceError as exc:
+        raise quant_ai_error(exc) from exc
+
+
 @router.get("/quant/conversations", response_model=list[AIConversationRead])
 def list_quant_conversations(
     kind: str | None = Query(default=None, max_length=32),
@@ -4010,23 +4026,39 @@ def read_quant_job_events(
 @router.get("/quant/jobs/{job_id}/events/stream")
 def stream_quant_job_events(
     job_id: int,
+    request: Request,
     after_sequence: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> StreamingResponse:
     enforce_rate_limit("ai-read", current_user.id, AI_READ_RATE_LIMIT)
     try:
-        events = quant_ai.list_job_events(
-            db, current_user.id, job_id, after_sequence=after_sequence
-        )
+        quant_ai.get_generation_job(db, current_user.id, job_id)
     except quant_ai.AIServiceError as exc:
         raise quant_ai_error(exc) from exc
 
-    def payloads():
-        for event in events:
-            data = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
-            yield f"id: {event.sequence}\nevent: {event.event_type.lower()}\ndata: {data}\n\n"
-        yield "event: end\ndata: {}\n\n"
+    async def payloads():
+        sequence = after_sequence
+        idle_ticks = 0
+        while True:
+            if await request.is_disconnected():
+                return
+            with SessionLocal() as stream_db:
+                events = quant_ai.list_job_events(
+                    stream_db, current_user.id, job_id, after_sequence=sequence
+                )
+                job = quant_ai.get_generation_job(stream_db, current_user.id, job_id)
+            for event in events:
+                sequence = event.sequence
+                data = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
+                yield f"id: {event.sequence}\nevent: {event.event_type.lower()}\ndata: {data}\n\n"
+            if job.status in {"COMPLETED", "FAILED", "CANCELLED"} and not events:
+                yield f"event: end\ndata: {json.dumps({'status': job.status.lower()})}\n\n"
+                return
+            idle_ticks += 1
+            if idle_ticks % 15 == 0:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(
         payloads(),

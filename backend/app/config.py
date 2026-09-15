@@ -214,6 +214,9 @@ class Settings:
         "EDGELAB_MAX_REQUEST_BODY_BYTES",
         25 * 1024 * 1024,
     )
+    quant_capture_root: Path = Path(
+        os.getenv("EDGELAB_QUANT_CAPTURE_ROOT", BACKEND_ROOT / "data" / "quant-captures")
+    )
     max_app_data_rows: int = int_env("EDGELAB_MAX_APP_DATA_ROWS", 100_000)
     bootstrap_shell_cache_ttl_seconds: int = int_env(
         "EDGELAB_BOOTSTRAP_SHELL_CACHE_TTL_SECONDS",

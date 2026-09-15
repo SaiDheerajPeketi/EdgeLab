@@ -1,5 +1,5 @@
 import type { Candle } from "./api";
-import { apiRequest } from "./api";
+import { apiRequest, authenticatedApiFetch } from "./api";
 import type { ChartDrawing, ChartIndicatorInstance } from "./charting";
 import type { ChartVisualSettings } from "./chartSettings";
 import { adaptBackendIndicatorJson } from "./indicatorDsl";
@@ -57,6 +57,7 @@ export type QuantMessage = {
   content: string;
   createdAt: string;
   generatedIndicator?: QuantGeneratedIndicator;
+  backtest?: QuantBacktestResult;
   id: string;
   role: "assistant" | "user";
   usage?: QuantUsage;
@@ -66,6 +67,7 @@ export type QuantConversation = {
   createdAt: string;
   id: string;
   kind: QuantConversationKind;
+  remoteId?: number;
   messages: QuantMessage[];
   title: string;
   updatedAt: string;
@@ -119,6 +121,16 @@ export type QuantCaptureAttachment = {
   kind: "chart" | "region";
   region: QuantSelectedRegion | null;
   width: number;
+};
+
+export type QuantCaptureReference = {
+  storage_ref: string;
+  sha256: string;
+  mime_type: "image/png";
+  width: number;
+  height: number;
+  byte_size: number;
+  selected_region: { x: number; y: number; width: number; height: number } | null;
 };
 
 export type QuantAuditRecord = {
@@ -260,6 +272,9 @@ export function createQuantGenerationJob(
     kind: QuantConversationKind;
     modelId: string;
     prompt: string;
+    backtest?: QuantBacktestConfig;
+    operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "ANALYSIS_TO_INDICATOR";
+    egressConsent?: boolean;
   },
   onUpdate: (update: QuantJobUpdate) => void,
 ) {
@@ -267,21 +282,15 @@ export function createQuantGenerationJob(
   let remoteId: string | null = null;
   const localId = `quant-job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const promise = (async () => {
-    if (payload.attachment) {
-      throw new Error("This server has no opaque screenshot-upload endpoint yet. Remove the attachment before sending; inline image data is never transmitted.");
-    }
     if (payload.kind === "analysis" && !payload.context) {
       throw new Error("The server requires structured chart context for analysis. Enable that permission before sending.");
     }
-    const conversation = await apiRequest<unknown>("/quant/conversations", {
-      body: JSON.stringify({
-        kind: payload.kind === "analysis" ? "CHART_ANALYSIS" : "INDICATOR_BUILD",
-        retention_days: 30,
-        title: payload.conversation.title,
-      }),
+    const conversationId = payload.conversation.remoteId ?? numericField(await apiRequest<unknown>("/quant/conversations", {
+      body: JSON.stringify({ kind: payload.kind === "analysis" ? "CHART_ANALYSIS" : "INDICATOR_BUILD", retention_days: 30, title: payload.conversation.title }),
       method: "POST",
-    });
-    const conversationId = numericField(conversation, "id");
+    }), "id");
+    payload.conversation.remoteId = conversationId;
+    const image = payload.attachment ? await uploadQuantCapture(payload.attachment) : null;
     const created = await apiRequest<unknown>("/quant/jobs", {
       body: JSON.stringify({
         chart_context: payload.context ? toBackendChartContext(payload.context) : null,
@@ -290,8 +299,10 @@ export function createQuantGenerationJob(
         idempotency_key: localId,
         max_output_tokens: 2_048,
         model_id: payload.modelId,
-        operation: payload.kind === "analysis" ? "CHART_ANALYSIS" : "GENERATE_INDICATOR",
+        operation: payload.operation ?? (payload.kind === "analysis" ? "CHART_ANALYSIS" : "GENERATE_INDICATOR"),
         prompt: payload.prompt,
+        image,
+        egress_consent: payload.egressConsent ? ["chart_context", "conversation_history", ...(image ? ["chart_image"] : [])] : [],
       }),
       method: "POST",
     });
@@ -299,8 +310,9 @@ export function createQuantGenerationJob(
     remoteId = String(jobId);
     onUpdate({ content: "Request accepted by the server.", id: remoteId, status: "queued" });
     if (cancelled) return { content: "", id: remoteId, status: "cancelled" as const };
-    onUpdate({ content: "The configured provider is processing the request…", id: remoteId, status: "running" });
-    const completed = await apiRequest<unknown>(`/quant/jobs/${jobId}/run`, { method: "POST" });
+    const stream = streamQuantJobEvents(jobId, onUpdate);
+    const run = apiRequest<unknown>(`/quant/jobs/${jobId}/run`, { method: "POST" });
+    const [, completed] = await Promise.all([stream, run]);
     if (cancelled) return { content: "", id: remoteId, status: "cancelled" as const };
     const status = backendJobStatus(completed);
     if (status !== "completed") return backendFailureUpdate(completed, remoteId, status);
@@ -323,6 +335,53 @@ export function createQuantGenerationJob(
       onUpdate({ content: "", id: remoteId ?? localId, status: "cancelled" });
     },
   };
+}
+
+export async function uploadQuantCapture(attachment: QuantCaptureAttachment): Promise<QuantCaptureReference> {
+  return apiRequest<QuantCaptureReference>("/quant/captures", {
+    body: JSON.stringify({
+      data_url: attachment.dataUrl,
+      height: attachment.height,
+      selected_region: attachment.region ? { x: attachment.region.xRatio, y: attachment.region.yRatio, width: attachment.region.widthRatio, height: attachment.region.heightRatio } : null,
+      width: attachment.width,
+    }),
+    method: "POST",
+  });
+}
+
+export async function streamQuantJobEvents(jobId: number, onUpdate: (update: QuantJobUpdate) => void) {
+  const response = await authenticatedApiFetch(`/quant/jobs/${jobId}/events/stream`);
+  if (!response.ok || !response.body) throw new Error("The Quant event stream could not be opened.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const parsed = parseQuantEventFrame(frame);
+      if (!parsed) continue;
+      if (parsed.event === "delta" && typeof parsed.payload.delta === "string") content += parsed.payload.delta;
+      const status = typeof parsed.payload.status === "string" ? parsed.payload.status.toLowerCase() as QuantJobStatus : parsed.event === "progress" || parsed.event === "delta" ? "running" : undefined;
+      if (status || content) onUpdate({ content, id: String(jobId), status: status ?? "running" });
+    }
+    if (done) return;
+  }
+}
+
+export function parseQuantEventFrame(frame: string): { event: string; payload: Record<string, unknown> } | null {
+  const lines = frame.split(/\r?\n/);
+  const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+  if (!event || !data) return null;
+  try {
+    const decoded = JSON.parse(data);
+    const payload = isRecord(decoded) && isRecord(decoded.payload) ? decoded.payload : isRecord(decoded) ? decoded : {};
+    return { event, payload };
+  } catch { return null; }
 }
 
 export async function transcribeQuantAudio(data: string, mimeType: string) {
@@ -434,14 +493,19 @@ function sanitizeConversation(value: unknown): QuantConversation[] {
   const candidate = value as Partial<QuantConversation>;
   if (typeof candidate.id !== "string" || (candidate.kind !== "analysis" && candidate.kind !== "build")) return [];
   const messages = Array.isArray(candidate.messages) ? candidate.messages.flatMap(sanitizeMessage).slice(-200) : [];
-  return [{ createdAt: validDate(candidate.createdAt), id: candidate.id.slice(0, 96), kind: candidate.kind, messages, title: typeof candidate.title === "string" ? candidate.title.slice(0, 80) : "Quant conversation", updatedAt: validDate(candidate.updatedAt) }];
+  return [{ createdAt: validDate(candidate.createdAt), id: candidate.id.slice(0, 96), kind: candidate.kind, messages, remoteId: positive(candidate.remoteId) || undefined, title: typeof candidate.title === "string" ? candidate.title.slice(0, 80) : "Quant conversation", updatedAt: validDate(candidate.updatedAt) }];
 }
 
 function sanitizeMessage(value: unknown): QuantMessage[] {
   if (typeof value !== "object" || value == null) return [];
   const candidate = value as Partial<QuantMessage>;
   if (typeof candidate.id !== "string" || (candidate.role !== "user" && candidate.role !== "assistant") || typeof candidate.content !== "string") return [];
-  return [{ analysis: sanitizeQuantAnalysis(candidate.analysis), content: candidate.content.slice(0, 24_000), createdAt: validDate(candidate.createdAt), generatedIndicator: sanitizeGeneratedIndicator(candidate.generatedIndicator), id: candidate.id.slice(0, 96), role: candidate.role, usage: sanitizeUsage(candidate.usage) }];
+  return [{ analysis: sanitizeQuantAnalysis(candidate.analysis), backtest: sanitizeBacktestResult(candidate.backtest), content: candidate.content.slice(0, 24_000), createdAt: validDate(candidate.createdAt), generatedIndicator: sanitizeGeneratedIndicator(candidate.generatedIndicator), id: candidate.id.slice(0, 96), role: candidate.role, usage: sanitizeUsage(candidate.usage) }];
+}
+
+function sanitizeBacktestResult(value: unknown): QuantBacktestResult | undefined {
+  if (!isRecord(value) || !isRecord(value.sample) || !Array.isArray(value.assumptions) || !Array.isArray(value.warnings)) return undefined;
+  return value as QuantBacktestResult;
 }
 
 function sanitizeQuantPreferences(value: unknown): QuantPreferences {

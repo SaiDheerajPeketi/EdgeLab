@@ -779,6 +779,13 @@ export function apiRequest<T>(path: string, init?: RequestInit) {
   return request<T>(path, init);
 }
 
+export async function authenticatedApiFetch(path: string, init?: RequestInit) {
+  const headers = new Headers(init?.headers);
+  const token = getApiBearerToken();
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+}
+
 async function requestWithAuthorization<T>(
   path: string,
   token: string,

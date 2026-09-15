@@ -106,3 +106,11 @@ test("the 60-day backtest is reproducible and records costs and source version",
   assert.match(first.sample.hash, /^fnv1a-/);
   assert.ok(first.assumptions.some((item) => item.includes("commission")));
 });
+
+test("Quant SSE frames expose incremental deltas and terminal status", () => {
+  const delta = modules.parseQuantEventFrame('id: 2\nevent: delta\ndata: {"payload":{"delta":"live token"}}');
+  assert.deepEqual(delta, { event: "delta", payload: { delta: "live token" } });
+  const end = modules.parseQuantEventFrame('event: end\ndata: {"status":"completed"}');
+  assert.deepEqual(end, { event: "end", payload: { status: "completed" } });
+  assert.equal(modules.parseQuantEventFrame(": keep-alive"), null);
+});

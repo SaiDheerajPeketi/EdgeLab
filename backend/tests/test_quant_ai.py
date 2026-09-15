@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from base64 import urlsafe_b64encode
+from base64 import b64encode, urlsafe_b64encode
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
@@ -30,6 +30,7 @@ from app.schemas import (
     AIAutoBacktestConfig,
     AIChartContext,
     AIChartImageMetadata,
+    AIChartImageUpload,
     AIConversationCreate,
     AIGenerationRequest,
     IntegrationSecretCreate,
@@ -263,12 +264,58 @@ class CredentialAdapter:
     def __init__(self, *, echo_secret: bool = False) -> None:
         self.echo_secret = echo_secret
         self.seen: dict[str, str] = {}
+        self.requests = []
 
     def generate(self, credentials, request, emit, cancelled):
         self.seen.update(credentials)
+        self.requests.append(request)
         emit("DELTA", {"delta": "safe provider output"})
         content = {"text": credentials["api_key"] if self.echo_secret else "credential-backed response"}
         return quant.AIProviderResult(content=content, input_tokens=12, output_tokens=4, provider_request_id="req-private")
+
+
+def test_capture_storage_and_followup_egress_consent(db, tmp_path):
+    owner = seed_user(db, "consent-ai-owner@example.com")
+    png = b"\x89PNG\r\n\x1a\n" + b"safe-chart-pixels"
+    capture = quant.store_chart_capture(
+        owner.id,
+        AIChartImageUpload(
+            data_url=f"data:image/png;base64,{b64encode(png).decode()}", width=320, height=180
+        ),
+        root=tmp_path,
+    )
+    assert capture.storage_ref.startswith(f"u{owner.id}/")
+    assert capture.sha256 == __import__("hashlib").sha256(png).hexdigest()
+    assert (tmp_path / capture.storage_ref).read_bytes() == png
+
+    conversation = quant.create_conversation(
+        db, owner.id, AIConversationCreate(kind="CHART_ANALYSIS", title="Persistent follow-up")
+    )
+    adapter = CredentialAdapter()
+    router = external_router(adapter)
+    integration_secrets.create_integration_secret(
+        db, owner.id, IntegrationSecretCreate(
+            provider="external-ai", purpose="ai-provider", credentials={"api_key": "consent-key"}
+        )
+    )
+    first = quant.create_generation_job(db, owner.id, AIGenerationRequest(
+        conversation_id=conversation.id, operation="CHAT", model_id="external-standard",
+        prompt="first context", max_output_tokens=20, hard_cost_ceiling_micros=1000,
+    ), router=router)
+    quant.run_generation_job(db, owner.id, first.id, router=router)
+    with pytest.raises(quant.AIConflictError, match="conversation_history"):
+        quant.create_generation_job(db, owner.id, AIGenerationRequest(
+            conversation_id=conversation.id, operation="CHAT", model_id="external-standard",
+            prompt="follow up", max_output_tokens=20, hard_cost_ceiling_micros=1000,
+        ), router=router)
+    followup = quant.create_generation_job(db, owner.id, AIGenerationRequest(
+        conversation_id=conversation.id, operation="CHAT", model_id="external-standard",
+        prompt="follow up", egress_consent=["conversation_history"], max_output_tokens=20,
+        hard_cost_ceiling_micros=1000,
+    ), router=router)
+    quant.run_generation_job(db, owner.id, followup.id, router=router)
+    assert adapter.requests[-1]["conversation_history"][0]["content"] == "first context"
+    assert any(event.event_type == "DELTA" for event in quant.list_job_events(db, owner.id, followup.id))
 
 
 class CancellingAdapter:
