@@ -7,6 +7,7 @@ import {
   workspaceNavigationItemIsActive,
 } from "../lib/workspaceNavigation";
 import type { WorkspaceView } from "../lib/workspace";
+import { pushWorkspaceRoute } from "../lib/workspaceRoute";
 import { AccountSystemMenu } from "./AccountSystemMenu";
 import { Drawer, IconButton } from "./ui/Primitives";
 
@@ -33,10 +34,11 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
 
   function navigate(view: WorkspaceView) {
     setMoreOpen(false);
+    pushWorkspaceRoute(view);
     onNavigate(view);
-    window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
       document.getElementById("workspace-content")?.focus({ preventScroll: true });
-    });
+    }));
   }
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
                     : "text-[var(--text-secondary)] hover:bg-[var(--ui-navigation-hover)] hover:text-[var(--text-primary)]"
                 }`}
                 key={item.destination}
-                onClick={() => onNavigate(item.destination)}
+                onClick={() => navigate(item.destination)}
                 type="button"
               >
                 {active ? (

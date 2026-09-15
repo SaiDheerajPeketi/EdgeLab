@@ -238,7 +238,8 @@ export function ToastProvider({ children }: { children: ReactNode }) { const [to
 export function useToast() { return useContext(ToastContext); }
 
 export function shouldDismissModalOnEscape(event: Pick<KeyboardEvent, "defaultPrevented" | "key">, ownerDocument: Pick<Document, "documentElement">) {
-  return event.key === "Escape" && !event.defaultPrevented && ownerDocument.documentElement.dataset.overlayActive !== "true";
+  void ownerDocument;
+  return event.key === "Escape" && !event.defaultPrevented;
 }
 
 function trapFocus(event: KeyboardEvent, container: HTMLElement) { const elements = [...container.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]; const first = elements[0]; const last = elements.at(-1); if (!first || !last) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }

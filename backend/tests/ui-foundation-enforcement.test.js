@@ -85,6 +85,9 @@ test("Journal report and settings URLs resolve directly", async () => {
     assert.equal(module.workspaceViewFromPath("/app/journal/reports/weekly"), "journalReports");
     assert.equal(module.workspaceViewFromPath("/app/journal/settings"), "journalSettings");
     assert.equal(module.workspaceViewFromPath("/app/journal/settings/import"), "journalSettings");
+    assert.equal(module.workspacePathForView("journalTrades"), "/app/journal/trades");
+    assert.equal(module.workspacePathForView("journalDashboard"), "/app/journal/dashboard");
+    assert.equal(module.workspacePathForView("globalSettings"), "/app/settings/global");
   } finally { cleanup(); }
 });
 
