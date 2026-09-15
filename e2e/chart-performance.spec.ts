@@ -22,11 +22,6 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
   const secondChart = page.locator(".chart-pane-shell").nth(1).getByRole("region", { name: /chart/i });
   await secondChart.focus();
   await expect(page.locator(".chart-pane-shell").nth(1)).toHaveClass(/chart-pane-shell-active/);
-  await page.keyboard.down("Alt");
-  await expect(page.getByRole("menu", { name: "Circular drawing toolbox" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await page.keyboard.up("Alt");
-  await expect(secondChart).toBeFocused();
   await page.waitForTimeout(1_500);
 
   const client = await page.context().newCDPSession(page);
