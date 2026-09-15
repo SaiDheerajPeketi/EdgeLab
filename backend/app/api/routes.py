@@ -84,6 +84,16 @@ from app.schemas import (
     BarsResponse,
     BinanceInstrument,
     BinanceInstrumentsResponse,
+    BrokerAccountRead,
+    BrokerAuditRead,
+    BrokerConnectionCreate,
+    BrokerConnectionRead,
+    BrokerFillRead,
+    BrokerOrderRead,
+    BrokerPositionRead,
+    BrokerProviderRead,
+    BrokerSyncJobRead,
+    BrokerSyncRefreshRequest,
     DatasetAssetUpdate,
     DatasetCatalogResponse,
     DatasetMeta,
@@ -99,6 +109,10 @@ from app.schemas import (
     FeedbackCreate,
     FeedbackRead,
     GoogleAuthExchangeRequest,
+    IntegrationSecretConnectionRead,
+    IntegrationSecretCreate,
+    IntegrationSecretRead,
+    IntegrationSecretReplace,
     JournalUpdate,
     MetricsResponse,
     MetricsCurvesResponse,
@@ -118,7 +132,7 @@ from app.schemas import (
     WorkspaceShareOwnerRead,
     WorkspaceSharePublicRead,
 )
-from app.services import share_snapshots
+from app.services import broker_sync, integration_secrets, share_snapshots
 from app.services.backtester import BacktestService, list_latest_session
 from app.services.dashboard_summaries import load_user_dashboard_summary
 from app.services.datasets import DatasetCatalogService, DatasetRefreshInProgress
@@ -160,6 +174,12 @@ rate_limiter = build_rate_limiter(settings.redis_url)
 WORKSPACE_SHARE_CREATE_RATE_LIMIT = 30
 WORKSPACE_SHARE_MANAGEMENT_RATE_LIMIT = 120
 WORKSPACE_SHARE_OPEN_RATE_LIMIT = 240
+INTEGRATION_SECRET_WRITE_RATE_LIMIT = 30
+INTEGRATION_SECRET_READ_RATE_LIMIT = 120
+INTEGRATION_SECRET_CONNECT_RATE_LIMIT = 60
+BROKER_READ_RATE_LIMIT = 180
+BROKER_WRITE_RATE_LIMIT = 30
+BROKER_SYNC_RATE_LIMIT = 30
 
 
 def bootstrap_shell_cache_scope(user_id: int) -> str:
@@ -434,6 +454,16 @@ def enforce_rate_limit(bucket: str, user_id: int, limit: int) -> None:
         detail="Rate limit exceeded",
         headers={"Retry-After": str(decision.retry_after_seconds)},
     )
+
+
+def integration_secret_error(exc: integration_secrets.IntegrationSecretError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.public_message)
+
+
+def broker_service_error(
+    exc: broker_sync.BrokerServiceError | integration_secrets.IntegrationSecretError,
+) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.public_message)
 
 
 def default_market_data_reference(db: Session, user_id: int) -> tuple[Path, int]:
@@ -1452,6 +1482,435 @@ def delete_app_storage_item(
     db.delete(item)
     db.commit()
     return AppStorageRead(namespace=namespace, key=key, value=None, updated_at=None)
+
+
+@router.post(
+    "/integration-secrets",
+    response_model=IntegrationSecretRead,
+    status_code=201,
+)
+def create_integration_secret(
+    payload: IntegrationSecretCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> IntegrationSecretRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-write",
+        current_user.id,
+        INTEGRATION_SECRET_WRITE_RATE_LIMIT,
+    )
+    try:
+        return integration_secrets.create_integration_secret(
+            db,
+            current_user.id,
+            payload,
+        )
+    except integration_secrets.IntegrationSecretError as exc:
+        raise integration_secret_error(exc) from exc
+
+
+@router.get("/integration-secrets", response_model=list[IntegrationSecretRead])
+def list_integration_secrets(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[IntegrationSecretRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-read",
+        current_user.id,
+        INTEGRATION_SECRET_READ_RATE_LIMIT,
+    )
+    return integration_secrets.list_integration_secrets(db, current_user.id)
+
+
+@router.get(
+    "/integration-secrets/{secret_id}",
+    response_model=IntegrationSecretRead,
+)
+def read_integration_secret(
+    secret_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> IntegrationSecretRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-read",
+        current_user.id,
+        INTEGRATION_SECRET_READ_RATE_LIMIT,
+    )
+    try:
+        return integration_secrets.get_integration_secret(db, current_user.id, secret_id)
+    except integration_secrets.IntegrationSecretError as exc:
+        raise integration_secret_error(exc) from exc
+
+
+@router.put(
+    "/integration-secrets/{secret_id}",
+    response_model=IntegrationSecretRead,
+)
+def replace_integration_secret(
+    secret_id: int,
+    payload: IntegrationSecretReplace,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> IntegrationSecretRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-write",
+        current_user.id,
+        INTEGRATION_SECRET_WRITE_RATE_LIMIT,
+    )
+    try:
+        return integration_secrets.replace_integration_secret(
+            db,
+            current_user.id,
+            secret_id,
+            payload,
+        )
+    except integration_secrets.IntegrationSecretError as exc:
+        raise integration_secret_error(exc) from exc
+
+
+@router.post(
+    "/integration-secrets/{secret_id}/connect",
+    response_model=IntegrationSecretConnectionRead,
+)
+def connect_integration_secret(
+    secret_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> IntegrationSecretConnectionRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-connect",
+        current_user.id,
+        INTEGRATION_SECRET_CONNECT_RATE_LIMIT,
+    )
+    try:
+        return integration_secrets.connect_integration_secret(
+            db,
+            current_user.id,
+            secret_id,
+        )
+    except integration_secrets.IntegrationSecretError as exc:
+        raise integration_secret_error(exc) from exc
+
+
+@router.post(
+    "/integration-secrets/{secret_id}/rotate",
+    response_model=IntegrationSecretRead,
+)
+def rotate_integration_secret(
+    secret_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> IntegrationSecretRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-write",
+        current_user.id,
+        INTEGRATION_SECRET_WRITE_RATE_LIMIT,
+    )
+    try:
+        return integration_secrets.rotate_integration_secret(
+            db,
+            current_user.id,
+            secret_id,
+        )
+    except integration_secrets.IntegrationSecretError as exc:
+        raise integration_secret_error(exc) from exc
+
+
+@router.delete(
+    "/integration-secrets/{secret_id}",
+    response_model=IntegrationSecretRead,
+)
+def revoke_integration_secret(
+    secret_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> IntegrationSecretRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(
+        "integration-secret-write",
+        current_user.id,
+        INTEGRATION_SECRET_WRITE_RATE_LIMIT,
+    )
+    try:
+        return integration_secrets.revoke_integration_secret(
+            db,
+            current_user.id,
+            secret_id,
+        )
+    except integration_secrets.IntegrationSecretError as exc:
+        raise integration_secret_error(exc) from exc
+
+
+@router.get("/broker-providers", response_model=list[BrokerProviderRead])
+def list_broker_providers(
+    response: Response,
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerProviderRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    return broker_sync.list_provider_catalog()
+
+
+@router.post(
+    "/broker-connections",
+    response_model=BrokerConnectionRead,
+    status_code=201,
+)
+def create_broker_connection(
+    payload: BrokerConnectionCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BrokerConnectionRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-write", current_user.id, BROKER_WRITE_RATE_LIMIT)
+    try:
+        return broker_sync.create_connection(db, current_user.id, payload)
+    except (
+        broker_sync.BrokerServiceError,
+        integration_secrets.IntegrationSecretError,
+    ) as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get("/broker-connections", response_model=list[BrokerConnectionRead])
+def list_broker_connections(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerConnectionRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    return broker_sync.list_connections(db, current_user.id)
+
+
+@router.get(
+    "/broker-connections/{connection_id}",
+    response_model=BrokerConnectionRead,
+)
+def read_broker_connection(
+    connection_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BrokerConnectionRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.get_connection(db, current_user.id, connection_id)
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.delete(
+    "/broker-connections/{connection_id}",
+    response_model=BrokerConnectionRead,
+)
+def revoke_broker_connection(
+    connection_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BrokerConnectionRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-write", current_user.id, BROKER_WRITE_RATE_LIMIT)
+    try:
+        return broker_sync.revoke_connection(db, current_user.id, connection_id)
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.post(
+    "/broker-connections/{connection_id}/refresh",
+    response_model=BrokerSyncJobRead,
+)
+def refresh_broker_connection(
+    connection_id: int,
+    payload: BrokerSyncRefreshRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BrokerSyncJobRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-sync", current_user.id, BROKER_SYNC_RATE_LIMIT)
+    try:
+        return broker_sync.refresh_connection(
+            db,
+            current_user.id,
+            connection_id,
+            max_attempts=payload.max_attempts,
+        )
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.post(
+    "/broker-sync-jobs/{job_id}/retry",
+    response_model=BrokerSyncJobRead,
+)
+def retry_broker_sync_job(
+    job_id: int,
+    response: Response,
+    force: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> BrokerSyncJobRead:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-sync", current_user.id, BROKER_SYNC_RATE_LIMIT)
+    try:
+        return broker_sync.retry_sync_job(
+            db,
+            current_user.id,
+            job_id,
+            force=force,
+        )
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get(
+    "/broker-connections/{connection_id}/accounts",
+    response_model=list[BrokerAccountRead],
+)
+def list_broker_accounts(
+    connection_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerAccountRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.list_accounts(db, current_user.id, connection_id)
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get(
+    "/broker-connections/{connection_id}/orders",
+    response_model=list[BrokerOrderRead],
+)
+def list_broker_orders(
+    connection_id: int,
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerOrderRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.list_orders(
+            db,
+            current_user.id,
+            connection_id,
+            limit=limit,
+        )
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get(
+    "/broker-connections/{connection_id}/fills",
+    response_model=list[BrokerFillRead],
+)
+def list_broker_fills(
+    connection_id: int,
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerFillRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.list_fills(
+            db,
+            current_user.id,
+            connection_id,
+            limit=limit,
+        )
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get(
+    "/broker-connections/{connection_id}/positions",
+    response_model=list[BrokerPositionRead],
+)
+def list_broker_positions(
+    connection_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerPositionRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.list_positions(db, current_user.id, connection_id)
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get(
+    "/broker-connections/{connection_id}/sync-jobs",
+    response_model=list[BrokerSyncJobRead],
+)
+def list_broker_sync_jobs(
+    connection_id: int,
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerSyncJobRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.list_sync_jobs(
+            db,
+            current_user.id,
+            connection_id,
+            limit=limit,
+        )
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
+
+
+@router.get(
+    "/broker-connections/{connection_id}/audit-logs",
+    response_model=list[BrokerAuditRead],
+)
+def list_broker_audit_logs(
+    connection_id: int,
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> list[BrokerAuditRead]:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit("broker-read", current_user.id, BROKER_READ_RATE_LIMIT)
+    try:
+        return broker_sync.list_audit_logs(
+            db,
+            current_user.id,
+            connection_id,
+            limit=limit,
+        )
+    except broker_sync.BrokerServiceError as exc:
+        raise broker_service_error(exc) from exc
 
 
 @router.post(

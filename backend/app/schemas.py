@@ -1,8 +1,9 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -190,6 +191,213 @@ class AppStorageRead(BaseModel):
     updated_at: datetime | None = None
 
 
+class IntegrationSecretCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+    )
+    purpose: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+    )
+    credentials: dict[str, SecretStr] = Field(min_length=1, max_length=32)
+
+    @field_validator("provider", "purpose")
+    @classmethod
+    def normalize_identifier(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class IntegrationSecretReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    credentials: dict[str, SecretStr] = Field(min_length=1, max_length=32)
+
+
+class IntegrationSecretRead(BaseModel):
+    id: int
+    provider: str
+    purpose: str
+    key_id: str
+    cipher_version: int
+    version: int
+    state: Literal["active", "revoked"]
+    created_at: datetime
+    updated_at: datetime
+    rotated_at: datetime | None = None
+    last_connected_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class IntegrationSecretConnectionRead(IntegrationSecretRead):
+    connection_status: Literal["credentials-ready"] = "credentials-ready"
+
+
+class BrokerCapabilityRead(BaseModel):
+    accounts: bool = False
+    incremental_sync: bool = False
+    orders: bool = False
+    fills: bool = False
+    live_connectivity: bool = False
+
+
+class BrokerProviderRead(BaseModel):
+    provider_id: str
+    display_name: str
+    availability: Literal["offline-fixture", "planned"]
+    capabilities: BrokerCapabilityRead
+    requires_secret: bool
+    description: str
+
+
+class BrokerConnectionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+    )
+    display_name: str = Field(min_length=1, max_length=120)
+    secret_id: int = Field(gt=0)
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_provider(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Connection name cannot be empty")
+        return normalized
+
+
+class BrokerConnectionRead(BaseModel):
+    id: int
+    provider: str
+    display_name: str
+    secret_id: int
+    status: Literal["READY", "SYNCING", "HEALTHY", "DEGRADED", "ERROR", "REVOKED"]
+    health: Literal["UNKNOWN", "HEALTHY", "DEGRADED", "ERROR"]
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    last_sync_started_at: datetime | None = None
+    last_sync_completed_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    revoked_at: datetime | None = None
+
+
+class BrokerAccountRead(BaseModel):
+    id: int
+    connection_id: int
+    external_account_id: str
+    display_name: str
+    currency: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class BrokerOrderRead(BaseModel):
+    id: int
+    connection_id: int
+    account_id: int
+    external_order_id: str
+    symbol: str
+    side: Literal["BUY", "SELL"]
+    order_type: str
+    status: str
+    quantity: Decimal
+    filled_quantity: Decimal
+    average_fill_price: Decimal | None = None
+    commission_total: Decimal
+    fees_total: Decimal
+    source_revision: int
+    placed_at: datetime
+    provider_updated_at: datetime
+    cancelled_at: datetime | None = None
+
+
+class BrokerFillRead(BaseModel):
+    id: int
+    connection_id: int
+    account_id: int
+    order_id: int | None = None
+    external_fill_id: str
+    external_order_id: str
+    symbol: str
+    side: Literal["BUY", "SELL"]
+    quantity: Decimal
+    price: Decimal
+    commission: Decimal
+    fees: Decimal
+    source_revision: int
+    cancelled: bool
+    executed_at: datetime
+    provider_updated_at: datetime
+
+
+class BrokerPositionRead(BaseModel):
+    id: int
+    connection_id: int
+    account_id: int
+    symbol: str
+    signed_quantity: Decimal
+    average_entry_price: Decimal | None = None
+    open_costs: Decimal
+    realized_gross_pnl: Decimal
+    realized_costs: Decimal
+    realized_net_pnl: Decimal
+    fill_count: int
+    reconciliation_hash: str
+    last_fill_at: datetime | None = None
+    updated_at: datetime
+
+
+class BrokerSyncRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_attempts: int = Field(default=3, ge=1, le=5)
+
+
+class BrokerSyncJobRead(BaseModel):
+    id: int
+    connection_id: int
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "RETRYING", "DEAD_LETTER"]
+    attempt: int
+    max_attempts: int
+    cursor_before: str | None = None
+    cursor_after: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    stats: dict[str, int] = Field(default_factory=dict)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BrokerAuditRead(BaseModel):
+    id: int
+    connection_id: int | None = None
+    job_id: int | None = None
+    provider: str
+    action: str
+    outcome: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
 class FeedbackCreate(BaseModel):
     category: FeedbackCategory = "OTHER"
     message: str = Field(min_length=10, max_length=4000)
@@ -269,7 +477,9 @@ class WorkspaceShareIndicator(WorkspaceShareStrictModel):
     id: str = Field(min_length=1, max_length=96)
     kind: Literal[
         "atr",
+        "bar-delta",
         "bb",
+        "cumulative-delta",
         "dema",
         "donchian",
         "ema",
@@ -279,6 +489,7 @@ class WorkspaceShareIndicator(WorkspaceShareStrictModel):
         "keltner",
         "macd",
         "momentum",
+        "order-flow-imbalance",
         "rsi",
         "sma",
         "supertrend",
@@ -351,18 +562,38 @@ class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
     candle_down_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
     candle_up_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
     chart_values: bool = True
+    closed_session_shading: bool = True
     color_bars_by_previous_close: bool = False
     crosshair_color: str = Field(default="#748094", pattern=r"^#[0-9A-Fa-f]{6}$")
     crosshair_visible: bool = True
     date_format: Literal["dd MMM yy", "MMM dd yyyy", "yyyy-MM-dd"] = "dd MMM yy"
     day_of_week_labels: bool = True
+    footprint_alignment: Literal["left", "center", "right"] = "center"
+    footprint_ask_color: str = Field(default="#22C55E", pattern=r"^#[0-9A-Fa-f]{6}$")
+    footprint_bid_color: str = Field(default="#EF4444", pattern=r"^#[0-9A-Fa-f]{6}$")
+    footprint_display_mode: Literal[
+        "bid-ask", "volume-profile", "delta-profile", "absolute-delta"
+    ] = "bid-ask"
+    footprint_imbalance_ratio: int = Field(default=3, ge=2, le=10)
+    footprint_neutral_color: str = Field(default="#748094", pattern=r"^#[0-9A-Fa-f]{6}$")
+    footprint_show_average_trade_size: bool = False
+    footprint_show_imbalances: bool = True
+    footprint_show_stats: bool = True
+    footprint_show_unfinished_auctions: bool = True
+    footprint_stacked_imbalance_count: int = Field(default=3, ge=2, le=6)
+    footprint_stats_metric: Literal[
+        "volume", "delta", "trades", "average-size"
+    ] = "delta"
     grid_color: str = Field(default="#1E293B", pattern=r"^#[0-9A-Fa-f]{6}$")
     grid_mode: Literal["both", "horizontal", "none", "vertical"] = "both"
     high_low_labels: Literal["hidden", "value", "valueLine"] = "hidden"
     indicator_titles: bool = True
     indicator_values: bool = True
     no_overlapping_labels: bool = True
+    order_flow_template: Literal["classic", "delta", "high-contrast"] = "classic"
     previous_day_close: Literal["hidden", "value", "valueLine"] = "hidden"
+    post_market_shading: bool = True
+    pre_market_shading: bool = True
     price_precision: int = Field(default=5, ge=0, le=8)
     price_scale_border_visible: bool = True
     scale_placement: Literal["auto", "left", "right"] = "right"
@@ -370,6 +601,18 @@ class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
     session_break_line_style: Literal["solid", "dashed", "dotted"] = "dashed"
     session_break_line_width: int = Field(default=1, ge=1, le=8)
     session_breaks: bool = False
+    session_template: Literal[
+        "auto",
+        "always-open",
+        "crypto-24x7",
+        "forex-24x5",
+        "us-equity",
+        "cme-futures",
+        "eurex-futures",
+        "nse-equity",
+        "lse-equity",
+        "tse-equity",
+    ] = "auto"
     symbol_line: Literal["hidden", "value", "valueLine"] = "valueLine"
     text_color: str = Field(default="#F0F2F5", pattern=r"^#[0-9A-Fa-f]{6}$")
     text_size: int = Field(default=12, ge=10, le=18)
@@ -377,6 +620,11 @@ class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
     time_hours_format: Literal["12-hour", "24-hour"] = "24-hour"
     time_zone: str = Field(default="UTC", min_length=1, max_length=80)
     title: bool = True
+    tpo_bracket_minutes: int = Field(default=30, ge=5, le=240)
+    tpo_show_point_of_control: bool = True
+    tpo_show_value_area: bool = True
+    tpo_value_area_percent: int = Field(default=70, ge=50, le=95)
+    trading_hours_mode: Literal["regular", "extended"] = "extended"
     volume: bool = True
     watermark: Literal["hidden", "symbol", "text"] = "hidden"
     watermark_text: str = Field(default="EdgeLab", max_length=80)
@@ -398,7 +646,9 @@ class WorkspaceShareChartSettings(WorkspaceShareStrictModel):
 class WorkspaceShareChartPane(WorkspaceShareStrictModel):
     id: str = Field(min_length=1, max_length=80)
     timeframe: str = Field(min_length=1, max_length=20)
-    chart_style: Literal["area", "candles", "heikinAshi", "line"] = "candles"
+    chart_style: Literal[
+        "area", "candles", "footprint", "heikinAshi", "line", "tpo"
+    ] = "candles"
     chart_settings: WorkspaceShareChartSettings = Field(
         default_factory=WorkspaceShareChartSettings
     )

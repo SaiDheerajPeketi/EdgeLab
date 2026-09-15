@@ -197,7 +197,87 @@ def create_workspace_share_snapshots_table(engine: Engine) -> None:
         )
 
 
+def create_integration_secrets_table(engine: Engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS integration_secrets (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    provider VARCHAR(64) NOT NULL,
+                    purpose VARCHAR(64) NOT NULL,
+                    key_id VARCHAR(64) NOT NULL,
+                    cipher_version INTEGER NOT NULL DEFAULT 1,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    nonce BLOB NOT NULL,
+                    ciphertext BLOB NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    rotated_at DATETIME,
+                    last_connected_at DATETIME,
+                    revoked_at DATETIME,
+                    CONSTRAINT uq_integration_secrets_user_provider_purpose
+                        UNIQUE (user_id, provider, purpose),
+                    FOREIGN KEY(user_id) REFERENCES beta_users (id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_integration_secrets_user_updated_id
+                ON integration_secrets (user_id, updated_at, id)
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_integration_secrets_key_id
+                ON integration_secrets (key_id)
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_integration_secrets_revoked_at
+                ON integration_secrets (revoked_at)
+                """
+            )
+        )
+
+
+def create_broker_sync_tables(engine: Engine) -> None:
+    from app.models import (
+        BrokerAccount,
+        BrokerAuditLog,
+        BrokerConnection,
+        BrokerFill,
+        BrokerOrder,
+        BrokerPositionSnapshot,
+        BrokerSyncCursor,
+        BrokerSyncJob,
+    )
+
+    for model in (
+        BrokerConnection,
+        BrokerAccount,
+        BrokerSyncCursor,
+        BrokerOrder,
+        BrokerFill,
+        BrokerPositionSnapshot,
+        BrokerSyncJob,
+        BrokerAuditLog,
+    ):
+        model.__table__.create(bind=engine, checkfirst=True)
+
+
 MIGRATIONS = [
     Migration(1, "sqlite_compat_columns", migrate_sqlite_compat_columns),
     Migration(2, "workspace_share_snapshots", create_workspace_share_snapshots_table),
+    Migration(3, "integration_secrets", create_integration_secrets_table),
+    Migration(4, "broker_sync_foundation", create_broker_sync_tables),
 ]

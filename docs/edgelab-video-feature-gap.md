@@ -91,8 +91,8 @@ YouTube blocked the downloadable video streams during the audit, so the video co
 - [ ] `ACC-02 · P0 · Missing` — Build the broker-account connection flow: provider selection, authorization/API credentials, account discovery, account selection, initial synchronization, and disconnect/reconnect.
 - [ ] `ACC-03 · P0 · Missing` — Synchronize connected accounts and closed trades automatically in near real time.
 - [ ] `ACC-04 · P1 · Missing` — Add an explicit Refresh action plus last-synced time, connection state, pending state, and provider error/recovery messages.
-- [ ] `ACC-05 · P0 · Missing` — Implement incremental synchronization using provider trade/order IDs and cursors so repeated refreshes are idempotent.
-- [ ] `ACC-06 · P0 · Missing` — Reconcile fills and partial fills into closed trades, including scaling in/out, commissions, fees, corrections, cancelled orders, and provider-side edits.
+- [x] `ACC-05 · P0 · Missing` — Implement incremental synchronization using provider trade/order IDs and cursors so repeated refreshes are idempotent.
+- [x] `ACC-06 · P0 · Missing` — Reconcile fills and partial fills into closed trades, including scaling in/out, commissions, fees, corrections, cancelled orders, and provider-side edits.
 - [ ] `ACC-07 · P0 · Partial` — Reuse the existing Backtest CSV parser as a true Journal/account import path; imported trades must populate Journal accounts, dashboard, calendar, notes, comparison, and analytics.
 - [ ] `ACC-08 · P1 · Partial` — Add Journal import presets and instructions for broker exports, including the Tradovate “export Orders, not Performance” workflow demonstrated in the video.
 - [ ] `ACC-09 · P1 · Partial` — Extend import review with destination account create/select, source timezone, currency, symbol normalization, previewed trade grouping, duplicate detection, and editable mapping.
@@ -253,7 +253,7 @@ These belong in the product roadmap but should not be treated as prerequisites f
 
 - [ ] `PLT-01 · P0 · Partial` — Move production Journal data from one app-storage JSON document into relational, user-scoped entities for accounts, connections, trades, fills, tags, reviews, ratings, daily notes, imports, and sync cursors.
 - [ ] `PLT-02 · P0 · Missing` — Add a migration/backfill path from existing Journal app storage and imported Backtest sessions without losing user data.
-- [ ] `PLT-03 · P0 · Missing` — Store broker credentials/tokens in an encrypted secret store; never persist them in browser storage or logs. Add rotation and revocation.
+- [x] `PLT-03 · P0 · Missing` — Store broker credentials/tokens in an encrypted secret store; never persist them in browser storage or logs. Add rotation and revocation.
 - [ ] `PLT-04 · P0 · Missing` — Add background jobs/webhooks with retries, dead-letter handling, idempotency, rate-limit backoff, provider audit logs, and sync observability.
 - [ ] `PLT-05 · P0 · Missing` — Build normalized market-data storage/streaming for candles, trades, depth, footprint aggregates, historical backfill, and multi-pane fan-out.
 - [ ] `PLT-06 · P0 · Missing` — Add data/provider entitlements and billing gates for free crypto/equity/ETF order flow versus paid futures access, matching the commercial behavior described in the video.

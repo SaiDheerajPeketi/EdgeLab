@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
@@ -9,6 +10,8 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -290,6 +293,328 @@ class AppStorageItem(UserOwnedMixin, Base):
     value: Mapped[object | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class IntegrationSecret(UserOwnedMixin, Base):
+    __tablename__ = "integration_secrets"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "provider",
+            "purpose",
+            name="uq_integration_secrets_user_provider_purpose",
+        ),
+        Index(
+            "ix_integration_secrets_user_updated_id",
+            "user_id",
+            "updated_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    key_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    cipher_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary(12), nullable=False)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_connected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+
+@event.listens_for(IntegrationSecret, "before_update")
+def prevent_integration_secret_binding_mutation(_mapper, _connection, target) -> None:
+    state = sqlalchemy_inspect(target)
+    binding_fields = ("user_id", "provider", "purpose", "created_at")
+    if any(state.attrs[field].history.has_changes() for field in binding_fields):
+        raise ValueError("Integration secret ownership and purpose are immutable")
+
+
+class BrokerConnection(UserOwnedMixin, Base):
+    __tablename__ = "broker_connections"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "provider",
+            "display_name",
+            name="uq_broker_connections_user_provider_name",
+        ),
+        Index("ix_broker_connections_user_updated_id", "user_id", "updated_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    secret_id: Mapped[int] = mapped_column(
+        ForeignKey("integration_secrets.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(24), default="READY", nullable=False, index=True)
+    health: Mapped[str] = mapped_column(String(24), default="UNKNOWN", nullable=False, index=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    last_sync_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_sync_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+
+class BrokerAccount(UserOwnedMixin, Base):
+    __tablename__ = "broker_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "external_account_id",
+            name="uq_broker_accounts_connection_external",
+        ),
+        Index("ix_broker_accounts_user_connection", "user_id", "connection_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    external_account_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    currency: Mapped[str] = mapped_column(String(12), default="USD", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+
+
+class BrokerSyncCursor(UserOwnedMixin, Base):
+    __tablename__ = "broker_sync_cursors"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "stream",
+            "scope_key",
+            name="uq_broker_sync_cursors_connection_stream_scope",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("broker_accounts.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    stream: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(160), default="*", nullable=False)
+    cursor: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    high_watermark: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrokerOrder(UserOwnedMixin, Base):
+    __tablename__ = "broker_orders"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "external_order_id",
+            name="uq_broker_orders_connection_external",
+        ),
+        Index("ix_broker_orders_user_account_updated", "user_id", "account_id", "updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    external_order_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    order_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    filled_quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    average_fill_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    commission_total: Mapped[Decimal] = mapped_column(
+        Numeric(28, 10), default=Decimal("0"), nullable=False
+    )
+    fees_total: Mapped[Decimal] = mapped_column(
+        Numeric(28, 10), default=Decimal("0"), nullable=False
+    )
+    source_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    placed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    provider_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrokerFill(UserOwnedMixin, Base):
+    __tablename__ = "broker_fills"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "external_fill_id",
+            name="uq_broker_fills_connection_external",
+        ),
+        Index("ix_broker_fills_user_account_executed", "user_id", "account_id", "executed_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("broker_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    external_fill_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    external_order_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    commission: Mapped[Decimal] = mapped_column(
+        Numeric(28, 10), default=Decimal("0"), nullable=False
+    )
+    fees: Mapped[Decimal] = mapped_column(
+        Numeric(28, 10), default=Decimal("0"), nullable=False
+    )
+    source_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    provider_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrokerPositionSnapshot(UserOwnedMixin, Base):
+    __tablename__ = "broker_position_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "account_id",
+            "symbol",
+            name="uq_broker_positions_connection_account_symbol",
+        ),
+        Index("ix_broker_positions_user_account", "user_id", "account_id", "symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    symbol: Mapped[str] = mapped_column(String(80), nullable=False)
+    signed_quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    average_entry_price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    open_costs: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    realized_gross_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    realized_costs: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    realized_net_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 10), nullable=False)
+    fill_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    reconciliation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_fill_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrokerSyncJob(UserOwnedMixin, Base):
+    __tablename__ = "broker_sync_jobs"
+    __table_args__ = (
+        Index("ix_broker_sync_jobs_user_created_id", "user_id", "created_at", "id"),
+        Index("ix_broker_sync_jobs_status_retry", "status", "next_retry_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(24), default="QUEUED", nullable=False, index=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    cursor_before: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    cursor_after: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    stats: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrokerAuditLog(UserOwnedMixin, Base):
+    __tablename__ = "broker_audit_logs"
+    __table_args__ = (
+        Index("ix_broker_audit_logs_user_created_id", "user_id", "created_at", "id"),
+        Index("ix_broker_audit_logs_connection_created", "connection_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("broker_sync_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    details: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
 class WorkspaceShareSnapshot(UserOwnedMixin, Base):

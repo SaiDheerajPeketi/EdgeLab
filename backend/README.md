@@ -63,6 +63,8 @@ The FastAPI app provides a variety of routes mounted under `/api/`. (See `/docs/
 - `/api/market-data/*` - Fetch historical bars/metadata for replay
 - `/api/backtests/*` - Create, advance, and jump backtest sessions
 - `/api/playbooks/*`, `/api/journals/*` - Manage trading configuration and journals
+- `/api/integration-secrets/*` - Manage owner-scoped encrypted provider credentials
+- `/api/broker-providers`, `/api/broker-connections/*` - Inspect broker capabilities and offline sync state
 - `/api/metrics/*` - Compute equity curves and session summaries
 - `GET /api/observability/metrics` - Prometheus metrics exposition
 
@@ -72,6 +74,7 @@ The Legacy API (Express) provides:
 ## Dependencies
 - **FastAPI / Uvicorn / Gunicorn**: Web framework and servers
 - **SQLAlchemy / Alembic**: ORM and migrations
+- **cryptography**: AES-GCM authenticated encryption for integration credentials
 - **psycopg**: PostgreSQL adapter
 - **pandas**: Data manipulation for backfill and metrics processing
 - **opentelemetry-***: Tracing and metrics instrumentation
@@ -91,6 +94,18 @@ Run database migrations:
 ```bash
 alembic upgrade head
 ```
+
+Create a development-only vault key before using integration or broker-sync routes:
+```bash
+python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+export EDGELAB_ENVIRONMENT=development
+export EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID=local-v1
+export EDGELAB_SECRET_VAULT_KEYS='{"local-v1":"PASTE_GENERATED_KEY_HERE"}'
+```
+
+Production sets `EDGELAB_ENVIRONMENT=production` and fails startup unless both vault variables are valid. To rotate keys, retain the prior key in `EDGELAB_SECRET_VAULT_KEYS`, add the new key, change the active key ID, restart, then call each credential's rotate endpoint. Remove an old key only after no metadata row references its key ID. `alembic upgrade head` creates the encrypted vault and broker sync tables; ciphertext cannot be migrated without the keyring.
+
+The broker catalog currently exposes only `offline-fixture` as connectable. Tradovate and NinjaTrader are marked planned and have no live connectivity or adapter implementation.
 
 Run the backend server manually (outside of Docker):
 ```bash

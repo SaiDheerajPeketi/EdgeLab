@@ -1,6 +1,8 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -18,6 +20,7 @@ from app.observability import (
     configure_logging,
     configure_tracing,
 )
+from app.services.integration_secrets import validate_vault_startup
 
 
 configure_logging(
@@ -125,6 +128,31 @@ async def http_exception_handler(
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    request: Request,
+    exc: RequestValidationError,
+):
+    if not request.url.path.startswith("/api/integration-secrets"):
+        return await request_validation_exception_handler(request, exc)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": sanitize_secret_validation_errors(exc.errors())},
+    )
+
+
+def sanitize_secret_validation_errors(
+    validation_errors: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    errors = []
+    for error in validation_errors:
+        sanitized = dict(error)
+        sanitized.pop("input", None)
+        sanitized.pop("ctx", None)
+        errors.append(sanitized)
+    return errors
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled API error")
@@ -143,6 +171,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.on_event("startup")
 def on_startup() -> None:
+    validate_vault_startup(settings.environment)
     init_db()
     init_market_data_db()
     if tracing_status.enabled:

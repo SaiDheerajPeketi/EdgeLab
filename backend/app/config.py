@@ -131,6 +131,7 @@ GOOGLE_OAUTH_CREDENTIALS = load_google_oauth_credentials()
 
 @dataclass(frozen=True)
 class Settings:
+    environment: str = os.getenv("EDGELAB_ENVIRONMENT", "development").strip().lower()
     csv_path: Path | None = optional_path_env("EDGELAB_CSV_PATH")
     datasets_root: Path = Path(
         os.getenv(
@@ -273,6 +274,7 @@ settings = Settings()
 
 if not settings.google_redirect_uri and settings.public_origin:
     settings = Settings(
+        environment=settings.environment,
         csv_path=settings.csv_path,
         datasets_root=settings.datasets_root,
         database_url=settings.database_url,
