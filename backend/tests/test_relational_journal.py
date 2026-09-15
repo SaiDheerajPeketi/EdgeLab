@@ -488,4 +488,4 @@ def test_sqlite_migration_creates_journal_tables_idempotently(tmp_path):
         versions = connection.exec_driver_sql(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).scalars().all()
-    assert versions == [1, 2, 3, 4, 5]
+    assert versions == [1, 2, 3, 4, 5, 6, 7]
