@@ -1,338 +1,175 @@
-import {
-  Activity,
-  BadgeDollarSign,
-  BarChart3,
-  BookOpen,
-  CalendarDays,
-  Calculator,
-  MessageSquareQuote,
-  PlaySquare,
-  LogOut,
-  Settings,
-  Target,
-  WalletCards,
-} from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
-import { deleteAuthSession } from "../lib/api";
-import { EdgeLabMark, EdgeLabWordmark } from "./brand/EdgeLabBrand";
-import {
-  clearStoredAuthSession,
-  getStoredAuthSession,
-  initialsForName,
-  subscribeAuthSession,
-} from "../lib/authSession";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { WorkspaceView } from "../lib/workspace";
-
-type SidebarItem = {
-  id: WorkspaceView;
-  label: string;
-  icon: typeof BarChart3;
-};
-
-type SidebarGroup = {
-  children: Array<{
-    id: WorkspaceView;
-    label: string;
-  }>;
-  icon: typeof BarChart3;
-  label: string;
-  primaryId: WorkspaceView;
-};
-
-type SidebarEntry = SidebarItem | SidebarGroup;
-
-const sections: Array<{
-  label: "App" | "Backtesting" | "Journal" | "Live";
-  shortLabel: string;
-  items: SidebarEntry[];
-}> = [
-  {
-    label: "App",
-    shortLabel: "APP",
-    items: [
-      { id: "globalSettings", label: "Global Settings", icon: Settings },
-      { id: "feedback", label: "Feedback", icon: MessageSquareQuote },
-    ],
-  },
-  {
-    label: "Live",
-    shortLabel: "LV",
-    items: [
-      { id: "live", label: "Live Markets", icon: Activity },
-      { id: "positionSizeCalculator", label: "Position Size", icon: Calculator },
-      { id: "economicCalendar", label: "Economic Calendar", icon: CalendarDays },
-    ],
-  },
-  {
-    label: "Backtesting",
-    shortLabel: "BT",
-    items: [
-      { id: "sessions", label: "Sessions", icon: PlaySquare },
-      {
-        children: [
-          { id: "dashboard", label: "Overview" },
-          { id: "reports", label: "Metrics" },
-          { id: "dayView", label: "Day View" },
-          { id: "tradeView", label: "Trades" },
-          { id: "notebook", label: "Notes" },
-        ],
-        icon: BarChart3,
-        label: "Results",
-        primaryId: "reports",
-      },
-      { id: "strategies", label: "Strategies", icon: Target },
-      { id: "playbooks", label: "Playbooks", icon: BookOpen },
-      { id: "accounts", label: "Backtest Accounts", icon: WalletCards },
-      { id: "settings", label: "Backtest Settings", icon: Settings },
-    ],
-  },
-  {
-    label: "Journal",
-    shortLabel: "JR",
-    items: [
-      { id: "journalSessions", label: "Journal Sessions", icon: PlaySquare },
-      {
-        children: [
-          { id: "journalDashboard", label: "Overview" },
-          { id: "journalReports", label: "Metrics" },
-          { id: "journalDayView", label: "Day View" },
-          { id: "journalTrades", label: "Trades" },
-          { id: "journalNotes", label: "Notes" },
-        ],
-        icon: BarChart3,
-        label: "Journal Results",
-        primaryId: "journalDashboard",
-      },
-      { id: "journalStrategies", label: "Journal Strategies", icon: Target },
-      { id: "journalPlaybooks", label: "Journal Playbooks", icon: BookOpen },
-      { id: "journalAccounts", label: "Journal Accounts", icon: WalletCards },
-      { id: "financeTracker", label: "Income & Expenses", icon: BadgeDollarSign },
-      { id: "journalSettings", label: "Journal Settings", icon: Settings },
-    ],
-  },
-];
+import {
+  SIDEBAR_COLLAPSED_WIDTH,
+  SIDEBAR_EXPANDED_WIDTH,
+  WORKSPACE_NAVIGATION_SECTIONS,
+  isWorkspaceNavigationItem,
+  workspaceNavigationEntryIsActive,
+  workspaceNavigationItemIsActive,
+} from "../lib/workspaceNavigation";
+import { AccountSystemMenu } from "./AccountSystemMenu";
+import { EdgeLabMark, EdgeLabWordmark } from "./brand/EdgeLabBrand";
 
 const SIDEBAR_ICON_SIZE = 18;
-const LOGOUT_REDIRECT_TIMEOUT_MS = 800;
-
-function sidebarItemClass(compact: boolean, active: boolean) {
-  return `group relative flex h-11 items-center rounded-md border transition focus-visible:ring-1 focus-visible:ring-cyan-300/35 ${
-    compact ? "w-11 justify-center px-0" : "w-full justify-start gap-3 px-3"
-  } ${
-    active
-      ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
-      : compact
-        ? "border-white/[0.06] bg-white/[0.03] text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
-        : "border-transparent bg-transparent text-slate-400 hover:border-white/10 hover:bg-white/5 hover:text-white"
-  }`;
-}
 
 type Props = {
   activeView: WorkspaceView;
   collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
   onNavigate: (view: WorkspaceView) => void;
 };
 
-function useAuthSession() {
-  return useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, getStoredAuthSession);
+function sidebarItemClass(collapsed: boolean, active: boolean) {
+  return `group relative flex min-h-11 items-center rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/45 ${
+    collapsed ? "w-11 justify-center" : "w-full gap-3 px-3 text-left"
+  } ${
+    active
+      ? "bg-cyan-300/[0.11] font-semibold text-white ring-1 ring-inset ring-cyan-300/20"
+      : "text-slate-400 hover:bg-white/[0.05] hover:text-white"
+  }`;
 }
 
 export function Sidebar({
   activeView,
   collapsed,
+  onCollapsedChange,
   onNavigate,
 }: Props) {
-  const [hoverExpanded, setHoverExpanded] = useState(false);
-  const session = useAuthSession();
-  const compact = collapsed && !hoverExpanded;
-
-  async function handleSignOut() {
-    if (!session?.token) {
-      window.location.replace("/");
-      return;
-    }
-
-    const token = session.token;
-    clearStoredAuthSession({ notify: false });
-    await Promise.race([
-      deleteAuthSession(token).catch(() => undefined),
-      new Promise((resolve) => window.setTimeout(resolve, LOGOUT_REDIRECT_TIMEOUT_MS)),
-    ]);
-    window.location.replace("/");
-  }
-
   return (
     <aside
-      className={`edge-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen shrink-0 overflow-y-auto overscroll-contain border-r border-white/10 bg-[#05070a] px-3 py-4 text-slate-300 transition-[width] lg:flex lg:flex-col ${
-        compact ? "w-[76px] items-center" : "w-[244px]"
+      aria-label="Workspace navigation"
+      className={`edge-sidebar fixed inset-y-0 left-0 z-40 hidden h-screen shrink-0 border-r border-white/[0.08] bg-[#070a0f] text-slate-300 transition-[width] duration-200 ease-el-out lg:flex lg:flex-col ${
+        collapsed ? "items-center px-4 py-4" : "px-4 py-4"
       }`}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          setHoverExpanded(false);
-        }
-      }}
-      onFocus={() => setHoverExpanded(true)}
-      onMouseEnter={() => setHoverExpanded(true)}
-      onMouseLeave={() => setHoverExpanded(false)}
+      style={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH }}
     >
-      <div
-        className={`mb-5 flex w-full items-center gap-3 ${
-          compact ? "justify-center" : "justify-between"
-        }`}
-      >
-        {compact ? (
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-cyan-300/30 bg-cyan-300/10 text-cyan-200 shadow-[0_18px_35px_rgba(0,0,0,0.24)]">
+      <div className={`flex h-12 w-full items-center ${collapsed ? "justify-center" : "justify-between gap-3"}`}>
+        {collapsed ? (
+          <div
+            className="grid h-11 w-11 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/[0.08] text-cyan-100 outline-none transition hover:bg-cyan-300/[0.13] focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+            title="EdgeLab"
+          >
             <EdgeLabMark className="h-8 w-8" />
           </div>
         ) : (
-          <div className="min-w-0 flex-1 px-1">
-            <EdgeLabWordmark markFrame="bare" showTagline size="sm" />
-          </div>
+          <>
+            <div className="min-w-0 flex-1">
+              <EdgeLabWordmark markFrame="bare" showTagline={false} size="sm" />
+            </div>
+            <button
+              aria-label="Collapse workspace navigation"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 outline-none transition hover:bg-white/[0.06] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+              onClick={() => onCollapsedChange(true)}
+              title="Collapse navigation"
+              type="button"
+            >
+              <PanelLeftClose aria-hidden="true" size={19} />
+            </button>
+          </>
         )}
       </div>
 
-      <nav className="flex w-full flex-col gap-4">
-        {sections.map((section) => (
-          <div className="w-full" key={section.label}>
-            <div
-              className={`mb-2 flex h-6 items-center ${
-                compact ? "justify-center" : "justify-between px-2"
-              }`}
-            >
-              {compact ? (
-                <span
-                  className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-black text-slate-500"
-                  title={section.label}
-                >
-                  {section.shortLabel}
-                </span>
-              ) : (
-                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                  {section.label}
-                </span>
-              )}
-            </div>
-            <div className="flex w-full flex-col gap-1.5">
-              {section.items.map((item) => {
-                if ("children" in item) {
-                  const Icon = item.icon;
-                  const active = item.children.some((child) => child.id === activeView);
-                  return (
-                    <div className="min-w-0" key={item.label}>
-                      <button
-                        className={sidebarItemClass(compact, active)}
-                        onClick={() => onNavigate(item.primaryId)}
-                        title={`${section.label} / ${item.label}`}
-                        type="button"
-                      >
-                        <Icon size={SIDEBAR_ICON_SIZE} />
-                        {!compact && (
-                          <span className="truncate text-sm font-semibold">{item.label}</span>
-                        )}
-                        <span
-                          className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
-                            compact ? "hidden group-hover:block" : "hidden"
-                          }`}
+      {collapsed ? (
+        <button
+          aria-label="Expand workspace navigation"
+          className="mt-2 grid h-11 w-11 place-items-center rounded-xl text-slate-500 outline-none transition hover:bg-white/[0.05] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/50"
+          onClick={() => onCollapsedChange(false)}
+          title="Expand navigation"
+          type="button"
+        >
+          <PanelLeftOpen aria-hidden="true" size={18} />
+        </button>
+      ) : null}
+
+      <nav aria-label="Trading workspace" className="mt-4 min-h-0 w-full flex-1 overflow-y-auto overscroll-contain">
+        <div className="flex w-full flex-col gap-5 pb-4">
+          {WORKSPACE_NAVIGATION_SECTIONS.filter((section) => section.sidebar).map((section) => (
+            <section className="w-full" key={section.label}>
+              <h2
+                className={`mb-2 flex min-h-5 items-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 ${
+                  collapsed ? "justify-center" : "px-3"
+                }`}
+                title={collapsed ? section.label : undefined}
+              >
+                {collapsed ? section.shortLabel.slice(0, 2) : section.label}
+              </h2>
+              <div className="grid gap-1">
+                {section.entries.map((entry) => {
+                  const active = workspaceNavigationEntryIsActive(entry, activeView);
+                  if (!isWorkspaceNavigationItem(entry)) {
+                    const Icon = entry.icon;
+                    return (
+                      <div className="min-w-0" key={entry.label}>
+                        <button
+                          aria-current={active ? "page" : undefined}
+                          aria-label={collapsed ? `${section.label}: ${entry.label}` : undefined}
+                          className={sidebarItemClass(collapsed, active)}
+                          onClick={() => onNavigate(entry.primaryId)}
+                          title={collapsed ? entry.label : undefined}
+                          type="button"
                         >
-                          {section.label} / {item.label}
-                        </span>
-                      </button>
-                      {!compact && active && (
-                        <div className="mt-1 grid grid-cols-2 gap-1 pl-3">
-                          {item.children.map((child) => (
-                            <button
-                              className={`h-8 rounded border px-2 text-xs font-semibold transition ${
-                                child.id === activeView
-                                  ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
-                                  : "border-white/10 bg-white/[0.03] text-slate-500 hover:bg-white/10 hover:text-white"
-                              }`}
-                              key={child.id}
-                              onClick={() => onNavigate(child.id)}
-                              type="button"
-                            >
-                              {child.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                const Icon = item.icon;
-                const active = item.id === activeView || (item.id === "sessions" && activeView === "backtest");
-                return (
-                  <button
-                    key={item.label}
-                    className={sidebarItemClass(compact, active)}
-                    onClick={() => onNavigate(item.id)}
-                    title={`${section.label} / ${item.label}`}
-                    type="button"
-                  >
-                    <Icon size={SIDEBAR_ICON_SIZE} />
-                    {!compact && (
-                      <span className="truncate text-sm font-semibold">{item.label}</span>
-                    )}
-                    <span
-                      className={`pointer-events-none absolute left-14 z-20 rounded-md border border-white/10 bg-ink-900 px-2 py-1 text-xs text-white shadow-panel ${
-                        compact ? "hidden group-hover:block" : "hidden"
-                      }`}
+                          <span className="grid h-5 w-5 shrink-0 place-items-center">
+                            <Icon aria-hidden="true" size={SIDEBAR_ICON_SIZE} />
+                          </span>
+                          {!collapsed ? <span className="min-w-0 flex-1 truncate text-sm">{entry.label}</span> : null}
+                          {active ? <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-200" /> : null}
+                        </button>
+                        {!collapsed && active ? (
+                          <div className="mt-1 grid gap-1 pl-8">
+                            {entry.children.map((child) => {
+                              const childActive = workspaceNavigationItemIsActive(child.id, activeView);
+                              return (
+                                <button
+                                  aria-current={childActive ? "page" : undefined}
+                                  className={`flex min-h-9 items-center justify-between gap-2 rounded-lg px-3 text-left text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/45 ${
+                                    childActive
+                                      ? "bg-white/[0.07] font-semibold text-white"
+                                      : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200"
+                                  }`}
+                                  key={child.id}
+                                  onClick={() => onNavigate(child.id)}
+                                  type="button"
+                                >
+                                  <span className="truncate">{child.label}</span>
+                                  {childActive ? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cyan-200" /> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }
+
+                  const Icon = entry.icon;
+                  return (
+                    <button
+                      aria-current={active ? "page" : undefined}
+                      aria-label={collapsed ? `${section.label}: ${entry.label}` : undefined}
+                      className={sidebarItemClass(collapsed, active)}
+                      key={entry.id}
+                      onClick={() => onNavigate(entry.id)}
+                      title={collapsed ? `${entry.label} — ${entry.description}` : undefined}
+                      type="button"
                     >
-                      {section.label} / {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+                      <span className="grid h-5 w-5 shrink-0 place-items-center">
+                        <Icon aria-hidden="true" size={SIDEBAR_ICON_SIZE} />
+                      </span>
+                      {!collapsed ? <span className="min-w-0 flex-1 truncate text-sm">{entry.label}</span> : null}
+                      {active ? <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-200" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
       </nav>
 
-      {session ? (
-        <div className="mt-auto w-full pt-4">
-          <div
-            className={`rounded-[24px] border border-cyan-300/15 bg-[#08111a] shadow-card ${
-              compact ? "px-2 py-3" : "px-4 py-4"
-            }`}
-          >
-            <div className={`flex items-center gap-3 ${compact ? "justify-center" : ""}`}>
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-cyan-300 text-sm font-bold text-slate-950 shadow-glow">
-                {initialsForName(session.user.name)}
-              </div>
-              {!compact ? (
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-white">{session.user.name}</div>
-                  <div className="truncate text-xs text-slate-400">{session.user.email}</div>
-                </div>
-              ) : null}
-            </div>
-
-            {!compact ? (
-              <>
-                <div className="mt-4 rounded-[18px] border border-white/10 bg-white/[0.03] px-3 py-3 text-[11px] uppercase tracking-[0.18em] text-cyan-100/70">
-                  Beta user
-                </div>
-                <button
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
-                  onClick={() => void handleSignOut()}
-                  type="button"
-                >
-                  <LogOut size={14} />
-                  Sign out
-                </button>
-              </>
-            ) : (
-              <button
-                aria-label="Sign out"
-                className="mt-3 flex w-full items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-cyan-50 transition hover:border-cyan-300/35 hover:bg-cyan-300/16"
-                onClick={() => void handleSignOut()}
-                type="button"
-              >
-                <LogOut size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-      ) : null}
+      <div className="w-full border-t border-white/[0.07] pt-3">
+        <AccountSystemMenu collapsed={collapsed} onNavigate={onNavigate} />
+      </div>
     </aside>
   );
 }

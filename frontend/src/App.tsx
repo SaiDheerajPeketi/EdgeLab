@@ -36,6 +36,7 @@ import type {
 import { Sidebar } from "./components/Sidebar";
 import { SessionGateway } from "./components/SessionGateway";
 import { TradeDetailDrawer } from "./components/TradeDetailDrawer";
+import { WorkspaceMobileNav } from "./components/WorkspaceMobileNav";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import {
   getApiWebSocketUrl,
@@ -98,6 +99,12 @@ import { formatMarketSymbol } from "./lib/symbols";
 import { tradeStrategyName } from "./lib/strategy";
 import { trackDiagnosticWebSocket } from "./lib/browserDiagnostics";
 import type { WorkspaceView } from "./lib/workspace";
+import {
+  loadWorkspaceSidebarCollapsed,
+  saveWorkspaceSidebarCollapsed,
+  SIDEBAR_COLLAPSED_WIDTH,
+  SIDEBAR_EXPANDED_WIDTH,
+} from "./lib/workspaceNavigation";
 import { AppRoutes } from "./routes/AppRoutes";
 import { useBacktestStore } from "./store/backtestStore";
 import { shallow } from "zustand/shallow";
@@ -332,7 +339,7 @@ export function WorkspaceApp() {
   const [resultsPanelFilter, setResultsPanelFilter] = useState<ResultsTradeOutcomeFilter>("ALL");
   const [replayFocusTrade, setReplayFocusTrade] = useState<Trade | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("sessions");
-  const sidebarCollapsed = true;
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(loadWorkspaceSidebarCollapsed);
   const [sessionGateOpen, setSessionGateOpen] = useState(true);
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
@@ -525,6 +532,10 @@ export function WorkspaceApp() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    saveWorkspaceSidebarCollapsed(sidebarCollapsed);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (activeWorkspace === "sessions" || activeWorkspace === "backtest") {
@@ -1947,18 +1958,29 @@ export function WorkspaceApp() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#05070a] text-slate-100">
+      <a
+        className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-bold text-slate-950 shadow-panel outline-none transition focus:translate-y-0 focus:ring-2 focus:ring-white/70"
+        href="#workspace-content"
+      >
+        Skip to workspace
+      </a>
       <div className="flex min-h-screen max-w-full overflow-x-hidden">
         <Sidebar
           activeView={activeWorkspace}
           collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
           onNavigate={navigateWorkspace}
         />
         <div
           aria-hidden="true"
-          className="hidden shrink-0 lg:block"
-          style={{ width: sidebarCollapsed ? 76 : 244 }}
+          className="hidden shrink-0 transition-[width] duration-200 ease-el-out lg:block"
+          style={{ width: sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH }}
         />
-        <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-4 xl:p-5">
+        <main
+          className="min-w-0 flex-1 overflow-x-hidden p-3 pb-[calc(6.25rem+env(safe-area-inset-bottom))] outline-none sm:p-4 sm:pb-[calc(6.25rem+env(safe-area-inset-bottom))] lg:pb-4 xl:p-5 xl:pb-5"
+          id="workspace-content"
+          tabIndex={-1}
+        >
           {activeWorkspace !== "sessions" && activeWorkspace !== "backtest" ? (
             <Suspense fallback={<WorkspaceLoadingPanel />}>
               <EdgeLabWorkspace
@@ -2057,7 +2079,11 @@ export function WorkspaceApp() {
             {leftPaneOpen && (
               <aside
                 className="focus-side-drawer"
-                style={{ "--edge-sidebar-width": sidebarCollapsed ? "76px" : "244px" } as CSSProperties}
+                style={{
+                  "--edge-sidebar-width": `${
+                    sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH
+                  }px`,
+                } as CSSProperties}
               >
                 <section className="terminal-panel flex items-center justify-between gap-3 px-3 py-2">
                   <div className="min-w-0">
@@ -2374,6 +2400,10 @@ export function WorkspaceApp() {
           )}
         </main>
       </div>
+
+      {!isChartFullscreen && !editingTrade && !reviewTrade ? (
+        <WorkspaceMobileNav activeView={activeWorkspace} onNavigate={navigateWorkspace} />
+      ) : null}
 
       {editingTrade && (
         <JournalEntryModal

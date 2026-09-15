@@ -289,10 +289,10 @@ Use two expression levels inside one system:
 
 #### 14.2 App shell, navigation, and spatial continuity
 
-- [ ] `UIR-15 · P0 · Partial` — Rebuild the authenticated app around one modern shell shared by Live, Replay, Journal, Reports, settings, and future Quant/order-flow tools while preserving the active symbol, session, account scope, and working context.
-- [ ] `UIR-16 · P0 · Partial` — Simplify information architecture and navigation naming; group destinations by user job, remove duplicate routes to the same concept, and keep advanced tools discoverable without overwhelming the primary flow.
-- [ ] `UIR-17 · P1 · Partial` — Modernize the desktop sidebar with calmer grouping, unmistakable active state, intentional collapsed/expanded behavior, stable icon positions, useful hover labels, and no layout jump when it expands.
-- [ ] `UIR-18 · P1 · Missing` — Add a purpose-built tablet/mobile navigation pattern—compact rail, bottom navigation, or sheet as appropriate—instead of merely hiding the desktop sidebar below the large breakpoint.
+- [x] `UIR-15 · P0 · Partial` — Rebuild the authenticated app around one modern shell shared by Live, Replay, Journal, Reports, settings, and future Quant/order-flow tools while preserving the active symbol, session, account scope, and working context.
+- [x] `UIR-16 · P0 · Partial` — Simplify information architecture and navigation naming; group destinations by user job, remove duplicate routes to the same concept, and keep advanced tools discoverable without overwhelming the primary flow.
+- [x] `UIR-17 · P1 · Partial` — Modernize the desktop sidebar with calmer grouping, unmistakable active state, intentional collapsed/expanded behavior, stable icon positions, useful hover labels, and no layout jump when it expands.
+- [x] `UIR-18 · P1 · Missing` — Add a purpose-built tablet/mobile navigation pattern—compact rail, bottom navigation, or sheet as appropriate—instead of merely hiding the desktop sidebar below the large breakpoint.
 - [ ] `UIR-19 · P1 · Partial` — Create a contextual page/workspace header that consistently exposes location, title, active scope, connection/data status, primary actions, and a return path without duplicating giant page headers.
 - [ ] `UIR-20 · P1 · Missing` — Add a global command palette/search that can navigate screens, switch symbols/workspaces/accounts, find trades and notes, open settings, run safe actions, and surface keyboard shortcuts.
 - [ ] `UIR-21 · P1 · Partial` — Preserve scroll position, selected row, open panel, filters, chart viewport, and unsaved draft where appropriate when navigating between chart, Journal, reports, review, and settings; support shareable deep links.
