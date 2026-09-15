@@ -167,6 +167,7 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
+import { observeSharedChartSize } from "../lib/sharedChartResize";
 
 const DRAWING_PRESETS_KEY = "drawing-presets.v1";
 const FIB_PRESETS_KEY = "fib-presets.v1";
@@ -1344,7 +1345,8 @@ export function TradingChart({
       return;
     }
 
-    const chart = createChart(chartContainerRef.current, {
+    const chartContainer = chartContainerRef.current;
+    const chart = createChart(chartContainer, {
       layout: {
         background: { color: "#0d1117" },
         textColor: "#a8b3c7",
@@ -1374,7 +1376,9 @@ export function TradingChart({
       localization: {
         priceFormatter: (price: number) => formatPrice(price),
       },
-      autoSize: true,
+      autoSize: false,
+      height: Math.max(1, chartContainer.clientHeight),
+      width: Math.max(1, chartContainer.clientWidth),
     });
 
     const refreshDrawingLayer = () => {
@@ -1410,10 +1414,13 @@ export function TradingChart({
       });
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
-    window.addEventListener("resize", refreshDrawingLayer);
+    const stopObservingSize = observeSharedChartSize(chartContainer, ({ height, width }) => {
+      chart.resize(width, height);
+      refreshDrawingLayer();
+    });
 
     return () => {
-      window.removeEventListener("resize", refreshDrawingLayer);
+      stopObservingSize();
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
