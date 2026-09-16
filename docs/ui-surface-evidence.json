@@ -23,16 +23,36 @@
     "account menu": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Account menu visual evidence has not been captured." } } },
     "mobile navigation": { "states": { "open": { "viewports": ["mobile"], "gap": "Authenticated mobile navigation visual evidence has not been captured." } } },
     "trade review drawer": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Trade review drawer evidence is not registered as overlay-owned evidence." } } },
-    "add trade flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Add trade flow evidence is not registered as overlay-owned evidence." } } },
-    "journal import flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Journal import flow evidence is not registered as overlay-owned evidence." } } },
-    "broker connection flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Broker connection flow visual evidence has not been captured." } } },
-    "workspace sharing": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Workspace sharing visual evidence has not been captured." } } },
+    "add trade flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" }
+    } } } },
+    "journal import flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-import.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-import.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-import.png", "captureMode": "viewport" }
+    } } } },
+    "broker connection flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-broker-connection.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-broker-connection.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-broker-connection.png", "captureMode": "viewport" }
+    } } } },
+    "workspace sharing": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-workspace-sharing.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-workspace-sharing.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-workspace-sharing.png", "captureMode": "viewport" }
+    } } } },
     "chart settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Chart settings evidence is not registered as overlay-owned evidence." } } },
     "indicator settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Indicator settings visual evidence has not been captured." } } },
     "drawing settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Drawing settings visual evidence has not been captured." } } },
     "symbol search": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Symbol search visual evidence has not been captured." } } },
     "radial drawing toolbox": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Radial drawing toolbox visual evidence has not been captured." } } },
-    "confirmation dialog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Confirmation dialog visual evidence has not been captured." } } },
+    "confirmation dialog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" }
+    } } } },
     "toast": { "states": { "transient": { "viewports": ["mobile", "tablet", "desktop"], "exemption": { "kind": "behavioral-only", "reason": "Transient non-blocking feedback is not a stable route baseline.", "source": "frontend/src/components/ui/Primitives.tsx" } } } }
   },
   "routes": {
