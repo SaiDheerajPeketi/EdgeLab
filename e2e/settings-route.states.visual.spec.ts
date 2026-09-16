@@ -152,7 +152,7 @@ test.describe("settings route critical-state baselines", () => {
     confirmation = page.getByRole("region", { name: "Confirm revocation" });
     await expect(confirmation).toBeVisible();
     expect(deleteRequests).toBe(0);
-    await captureState(page, "settings-danger-confirmation", confirmation);
+    await captureState(page, "settings-danger-confirmation", confirmation, page.locator("#setting-credential-vault"));
   });
 });
 
@@ -164,14 +164,14 @@ async function jsonRoute(page: Page, pattern: string | RegExp, body: unknown, st
   }));
 }
 
-async function captureState(page: Page, name: string, state: Locator) {
+async function captureState(page: Page, name: string, state: Locator, interactiveScope = state) {
   await state.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center" }));
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await expectStateGeometry(page, state);
+  await expectStateGeometry(page, state, interactiveScope);
   await expectStableScreenshot(page, name, { fullPage: false });
 }
 
-async function expectStateGeometry(page: Page, state: Locator) {
+async function expectStateGeometry(page: Page, state: Locator, interactiveScope: Locator) {
   await expect(state).toBeInViewport();
   const viewport = page.viewportSize()!;
   const box = await state.boundingBox();
@@ -180,7 +180,21 @@ async function expectStateGeometry(page: Page, state: Locator) {
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
 
-  const controls = state.locator("button, input, select, textarea, a[href]");
+  const mobileNav = page.getByRole("navigation", { name: "Primary workspace" });
+  const navBox = await mobileNav.isVisible() ? await mobileNav.boundingBox() : null;
+  const contentBottom = navBox?.y ?? viewport.height;
+  await expectInteractiveGeometry(page, state, viewport, contentBottom, true);
+  if (interactiveScope !== state) {
+    await expectInteractiveGeometry(page, interactiveScope, viewport, contentBottom, false);
+  }
+
+  if (navBox) {
+    expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
+  }
+}
+
+async function expectInteractiveGeometry(page: Page, scope: Locator, viewport: { height: number; width: number }, contentBottom: number, requireTabletTargets: boolean) {
+  const controls = scope.locator("button, input, select, textarea, a[href]");
   for (let index = 0; index < await controls.count(); index += 1) {
     const control = controls.nth(index);
     if (!(await control.isVisible())) continue;
@@ -188,15 +202,14 @@ async function expectStateGeometry(page: Page, state: Locator) {
     expect(controlBox).not.toBeNull();
     expect(controlBox!.x).toBeGreaterThanOrEqual(0);
     expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(viewport.width);
-    if (viewport.width < 900 && await control.evaluate((element) => element.matches("button"))) {
+    if (viewport.width < 640) {
+      await expect(control).toBeInViewport();
+      expect(controlBox!.y).toBeGreaterThanOrEqual(0);
+      expect(controlBox!.y + controlBox!.height).toBeLessThanOrEqual(contentBottom);
+      expect(controlBox!.height).toBeGreaterThanOrEqual(44);
+      expect(controlBox!.width).toBeGreaterThanOrEqual(44);
+    } else if (requireTabletTargets && viewport.width < 900 && await control.evaluate((element) => element.matches("button"))) {
       expect(controlBox!.height).toBeGreaterThanOrEqual(40);
     }
-  }
-
-  const mobileNav = page.getByRole("navigation", { name: "Primary workspace" });
-  if (await mobileNav.isVisible()) {
-    const navBox = await mobileNav.boundingBox();
-    expect(navBox).not.toBeNull();
-    expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
   }
 }

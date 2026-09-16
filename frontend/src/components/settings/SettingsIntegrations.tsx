@@ -163,16 +163,16 @@ export function SettingsIntegrations() {
           {secrets.length === 0 && loadState === "ready" ? <p className="text-sm text-zinc-500">No credential records.</p> : null}
           {secrets.map((secret) => (
             <div key={secret.id} className="rounded-md border border-white/10 p-3">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-medium text-zinc-100"><ShieldCheck aria-hidden="true" className="h-4 w-4 text-cyan-300" />{secret.provider}</p>
                   <p className="mt-1 text-xs text-zinc-500">{secret.purpose} · v{secret.version} · key {secret.key_id} · {secret.state}</p>
                   <p className="mt-1 text-xs text-zinc-600">Last readiness check: {secret.last_connected_at ? formatDate(secret.last_connected_at) : "Never"}</p>
                 </div>
-                {secret.state === "active" ? <div className="flex flex-wrap justify-end gap-1.5">
-                  <button type="button" disabled={busy != null} onClick={() => void run(`verify-${secret.id}`, () => verifyIntegrationSecret(secret.id))} className="min-h-8 rounded px-2 text-xs text-zinc-300 hover:bg-white/5">Verify</button>
-                  <button type="button" disabled={busy != null} onClick={() => void run(`rotate-${secret.id}`, () => rotateIntegrationSecret(secret.id))} className="min-h-8 rounded px-2 text-xs text-zinc-300 hover:bg-white/5">Re-encrypt</button>
-                  <button type="button" disabled={busy != null} onClick={() => setConfirmAction(`secret-${secret.id}`)} className="grid h-8 w-8 place-items-center rounded text-rose-300 hover:bg-rose-400/10" aria-label={`Revoke ${secret.provider} credential`}><Trash2 aria-hidden="true" className="h-3.5 w-3.5" /></button>
+                {secret.state === "active" ? <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">
+                  <button type="button" disabled={busy != null} onClick={() => void run(`verify-${secret.id}`, () => verifyIntegrationSecret(secret.id))} className="min-h-11 rounded px-2 text-xs text-zinc-300 hover:bg-white/5 sm:min-h-8">Verify</button>
+                  <button type="button" disabled={busy != null} onClick={() => void run(`rotate-${secret.id}`, () => rotateIntegrationSecret(secret.id))} className="min-h-11 rounded px-2 text-xs text-zinc-300 hover:bg-white/5 sm:min-h-8">Re-encrypt</button>
+                  <button type="button" disabled={busy != null} onClick={() => setConfirmAction(`secret-${secret.id}`)} className="grid h-11 w-11 place-items-center rounded text-rose-300 hover:bg-rose-400/10 sm:h-8 sm:w-8" aria-label={`Revoke ${secret.provider} credential`}><Trash2 aria-hidden="true" className="h-3.5 w-3.5" /></button>
                 </div> : null}
               </div>
               {confirmAction === `secret-${secret.id}` ? <ConfirmDanger message="Connections using this credential will no longer be able to decrypt it." busy={busy === `revoke-secret-${secret.id}`} onCancel={() => setConfirmAction(null)} onConfirm={() => void run(`revoke-secret-${secret.id}`, () => revokeIntegrationSecret(secret.id))} /> : null}
