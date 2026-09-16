@@ -168,11 +168,69 @@ test.describe("Journal analytics critical states", () => {
   });
 });
 
+test.describe("Journal reports critical states", () => {
+  test.beforeEach(async ({ page }) => {
+    await installDeterminism(page);
+    await seedApprovedSession(page);
+  });
+
+  test("empty reports state", async ({ page }) => {
+    await openReports(page, [usdAccount], []);
+    const empty = page.locator(".ui-critical-state").filter({ hasText: "No data for this breakdown" });
+    await expect(empty).toBeVisible();
+    await captureState(page, "journal-reports-empty", empty);
+  });
+
+  test("low-sample reports state", async ({ page }) => {
+    await openReports(page, [usdAccount], [populatedTrades[0]]);
+    const notice = page.locator("[data-analytics-sample]");
+    await expect(notice).toContainText("Limited sample · 1 matching trade");
+    await captureState(page, "journal-reports-low-sample", notice);
+  });
+
+  test("filtered reports state", async ({ page }) => {
+    await openReports(page, [usdAccount], populatedTrades);
+    await page.getByText("Analytics filters", { exact: true }).click();
+    const filters = page.locator("details").filter({ hasText: "Analytics filters" });
+    await filters.locator("label").filter({ hasText: /^Symbol/ }).locator("select").selectOption("ETHUSDT");
+    await expect(filters).toContainText("1 active");
+    await expect(page.getByText("1 matching trades · 0% reviewed")).toBeVisible();
+    await captureState(page, "journal-reports-filtered", filters.locator("summary"));
+  });
+
+  test("selected segment reports state", async ({ page }) => {
+    await openReports(page, [usdAccount], populatedTrades);
+    const segment = page.getByRole("button", { name: "Open trades for Crypto" });
+    await segment.click();
+    await expect(segment).toHaveAttribute("aria-pressed", "true");
+    await expect(segment).toContainText("Selected");
+    await captureState(page, "journal-reports-segment-selected", segment);
+  });
+
+  test("reports drill-down state", async ({ page }) => {
+    await openReports(page, [usdAccount], populatedTrades);
+    await page.getByRole("button", { name: "Open trades for Crypto" }).click();
+    const drilldown = page.locator("section[aria-labelledby='drilldown-heading']");
+    await expect(drilldown).toContainText("Selected segment: Crypto");
+    await expect(drilldown.getByRole("button").filter({ hasText: "BTCUSDT" })).toBeVisible();
+    await expect(drilldown.getByRole("button").filter({ hasText: "ETHUSDT" })).toBeVisible();
+    await captureState(page, "journal-reports-drill-down", drilldown);
+  });
+});
+
 async function openAnalytics(page: Page, accounts: unknown[], trades: unknown[]) {
   await jsonRoute(page, /\/api\/journal\/accounts(?:\?.*)?$/, accounts);
   await jsonRoute(page, /\/api\/journal\/trades(?:\?.*)?$/, trades);
   await jsonRoute(page, /\/api\/journal\/tags(?:\?.*)?$/, [setupTag]);
   await gotoStable(page, route, { waitForNetworkIdle: false });
+  await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
+}
+
+async function openReports(page: Page, accounts: unknown[], trades: unknown[]) {
+  await jsonRoute(page, /\/api\/journal\/accounts(?:\?.*)?$/, accounts);
+  await jsonRoute(page, /\/api\/journal\/trades(?:\?.*)?$/, trades);
+  await jsonRoute(page, /\/api\/journal\/tags(?:\?.*)?$/, [setupTag]);
+  await gotoStable(page, "/app/journal/reports", { waitForNetworkIdle: false });
   await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
 }
 

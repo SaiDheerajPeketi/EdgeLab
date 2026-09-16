@@ -233,6 +233,11 @@
       }
     },
     "/app/journal/dashboard": {
+      "loading": {
+        "mobile": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-loading.png", "captureMode": "viewport" }
+      },
       "populated": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png", "captureMode": "viewport" },
@@ -385,10 +390,35 @@
       }
     },
     "/app/journal/reports": {
+      "empty": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-empty.png", "captureMode": "viewport" }
+      },
+      "low-sample": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-low-sample.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-low-sample.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-low-sample.png", "captureMode": "viewport" }
+      },
       "populated": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png", "captureMode": "viewport" }
+      },
+      "filtered": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-filtered.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-filtered.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-filtered.png", "captureMode": "viewport" }
+      },
+      "segment-selected": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-segment-selected.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-segment-selected.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-segment-selected.png", "captureMode": "viewport" }
+      },
+      "drill-down": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-drill-down.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-drill-down.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-reports-drill-down.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/settings": {

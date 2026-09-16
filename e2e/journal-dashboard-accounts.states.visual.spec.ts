@@ -48,6 +48,16 @@ test.describe("Journal dashboard and account critical states", () => {
     await seedApprovedSession(page);
   });
 
+  test("dashboard loading state", async ({ page }) => {
+    await page.route("**/api/journal/accounts**", () => new Promise(() => {}));
+    await gotoStable(page, "/app/journal/dashboard", { waitForNetworkIdle: false });
+    const loading = page.getByRole("status", { name: "Loading Journal" });
+    await expect(loading).toBeVisible();
+    await revealAboveFixedNavigation(page, loading);
+    await expectViewportSafe(page);
+    await expectStableScreenshot(page, "journal-dashboard-loading", { fullPage: false });
+  });
+
   test("dashboard partial state", async ({ page }, testInfo) => {
     await jsonRoute(page, "**/api/journal/accounts**", [account]);
     await jsonRoute(page, "**/api/journal/trades**", []);
