@@ -46,9 +46,17 @@ test("rollout flags preserve deep links and provide a global reversible fallback
       for (const route of paths) {
         const contract = module.compatibilityParityContract(route);
         assert.ok(contract, `${route} is missing a compatibility parity contract`);
-        assert.ok(contract.session && contract.draft && contract.savedData, `${route} has an incomplete compatibility parity contract`);
+        assert.ok(["read-only", "shared-domain", "writable"].includes(contract.kind), `${route} has an untyped parity exemption`);
+        assert.deepEqual(contract.requiredViewports, ["mobile", "desktop"]);
+        assert.ok(contract.sessionSource && contract.savedDataRead && contract.primaryAction && contract.testCaseId && contract.reasonSource);
+        if (contract.kind === "read-only") assert.equal(contract.draftKey, null, `${route} fabricates a draft for a read-only route`);
+        else assert.ok(contract.draftKey, `${route} must identify its real shared or writable draft key`);
       }
     }
+    assert.deepEqual(productRoutes.filter((route) => !module.UI_COMPATIBILITY_ROUTE_PARITY[route]), []);
+    assert.ok(Object.keys(module.UI_COMPATIBILITY_ROUTE_PARITY).every((route) => module.compatibilityRouteIsMapped(route)));
+    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "settings-draft-save", "chart-replay-layout"]);
+    assert.ok(Object.values(module.UI_COMPATIBILITY_ROUTE_PARITY).every((contract) => allowedCases.has(contract.testCaseId)));
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));
     assert.equal(module.resolveUiRollout({ overrides: { chart: false } }).chart, false);

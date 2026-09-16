@@ -41,7 +41,7 @@ assert.match(rollout, /killSwitch \? false/);
 assert.match(rollout, /UI_COMPATIBILITY_ROUTES/);
 assert.match(rollout, /UI_COMPATIBILITY_PATHS/);
 assert.match(rollout, /compatibilityRouteIsMapped/);
-assert.match(rollout, /UI_COMPATIBILITY_PARITY/);
+assert.match(rollout, /UI_COMPATIBILITY_ROUTE_PARITY/);
 assert.match(rollout, /compatibilityParityContract/);
 assert.ok(inventory.routes.length >= 18);
 assert.ok(inventory.routes.every((route) => route.disposition && route.states.length));

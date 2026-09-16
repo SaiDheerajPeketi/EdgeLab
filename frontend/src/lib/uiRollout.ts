@@ -3,19 +3,17 @@ export const UI_ROUTE_GROUPS = ["shell", "journal", "settings", "chart", "public
 export type UiRouteGroup = (typeof UI_ROUTE_GROUPS)[number];
 
 export type CompatibilityRoute = { href: string; label: string };
-export type CompatibilityParityContract = {
-  draft: string;
-  savedData: string;
-  session: string;
+export type CompatibilityParityKind = "read-only" | "shared-domain" | "writable";
+export type CompatibilityRouteParity = {
+  kind: CompatibilityParityKind;
+  sessionSource: "auth-session" | "route-session";
+  draftKey: string | null;
+  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "settings-preferences" | "replay-layout";
+  primaryAction: "navigate" | "refresh-journal" | "save-settings" | "restore-replay-layout";
+  requiredViewports: readonly ["mobile", "desktop"];
+  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "settings-draft-save" | "chart-replay-layout";
+  reasonSource: string;
 };
-
-export const UI_COMPATIBILITY_PARITY: Readonly<Record<UiRouteGroup, CompatibilityParityContract>> = Object.freeze({
-  public: { session: "anonymous-or-approved-session", draft: "active-deep-link", savedData: "public-route-content" },
-  shell: { session: "approved-auth-session", draft: "active-deep-link", savedData: "workspace-server-storage" },
-  journal: { session: "approved-auth-session", draft: "journal-route-context", savedData: "canonical-trades" },
-  settings: { session: "approved-auth-session", draft: "settings-preferences-draft", savedData: "settings-preferences" },
-  chart: { session: "approved-auth-session", draft: "active-chart-route-context", savedData: "replay-and-chart-layout" },
-});
 
 /** Every concrete product deep link that can be served by a compatibility renderer. */
 export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly string[]>> = Object.freeze({
@@ -33,6 +31,18 @@ export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly stri
   ],
   chart: ["/shared", "/app/live", "/app/replay", "/app/order-flow", "/app/quant"],
 });
+
+const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityRouteParity>> = Object.freeze({
+  public: { kind: "read-only", sessionSource: "route-session", draftKey: null, savedDataRead: "public-route", primaryAction: "navigate", requiredViewports: ["mobile", "desktop"], testCaseId: "public-read-continuity", reasonSource: "frontend/src/routes/AppRoutes.tsx" },
+  shell: { kind: "read-only", sessionSource: "auth-session", draftKey: null, savedDataRead: "workspace-storage", primaryAction: "navigate", requiredViewports: ["mobile", "desktop"], testCaseId: "shell-session-continuity", reasonSource: "frontend/src/components/compatibility/CompatibilityRouteRenderer.tsx#ShellCompatibility" },
+  journal: { kind: "shared-domain", sessionSource: "auth-session", draftKey: "journal-route-context", savedDataRead: "canonical-trades", primaryAction: "refresh-journal", requiredViewports: ["mobile", "desktop"], testCaseId: "journal-canonical-refresh", reasonSource: "frontend/src/lib/journalApi.ts#listCanonicalTrades" },
+  settings: { kind: "writable", sessionSource: "auth-session", draftKey: "edgelab.compatibility.settings-draft.v1", savedDataRead: "settings-preferences", primaryAction: "save-settings", requiredViewports: ["mobile", "desktop"], testCaseId: "settings-draft-save", reasonSource: "frontend/src/lib/settingsPreferences.ts#saveSettingsPreferences" },
+  chart: { kind: "shared-domain", sessionSource: "auth-session", draftKey: "active-live-chart-layout.v1", savedDataRead: "replay-layout", primaryAction: "restore-replay-layout", requiredViewports: ["mobile", "desktop"], testCaseId: "chart-replay-layout", reasonSource: "frontend/src/lib/api.ts#getLatestBacktest" },
+});
+
+export const UI_COMPATIBILITY_ROUTE_PARITY: Readonly<Record<string, CompatibilityRouteParity>> = Object.freeze(
+  Object.fromEntries(Object.entries(UI_COMPATIBILITY_PATHS).flatMap(([group, paths]) => paths.map((path) => [path, GROUP_PARITY[group as UiRouteGroup]]))),
+);
 
 export const UI_COMPATIBILITY_ROUTES: Readonly<Record<UiRouteGroup, readonly CompatibilityRoute[]>> = Object.freeze({
   public: [{ href: "/", label: "Home" }, { href: "/pricing", label: "Pricing" }, { href: "/auth/signin", label: "Sign in" }],
@@ -112,8 +122,8 @@ export function compatibilityRouteIsMapped(pathname: string) {
   return UI_COMPATIBILITY_PATHS[routeGroup(path)].includes(path);
 }
 
-export function compatibilityParityContract(pathname: string): CompatibilityParityContract | null {
-  return compatibilityRouteIsMapped(pathname) ? UI_COMPATIBILITY_PARITY[routeGroup(pathname)] : null;
+export function compatibilityParityContract(pathname: string): CompatibilityRouteParity | null {
+  return UI_COMPATIBILITY_ROUTE_PARITY[normalizedPathname(pathname)] ?? null;
 }
 
 /** Compatibility rendering changes presentation only; the active deep link remains authoritative. */
