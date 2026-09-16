@@ -25,6 +25,12 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     assert.equal(module.routeGroup("/application"), "public");
     assert.equal(module.routeGroup("/app/journalist"), "shell");
     assert.equal(module.routeGroup("/pricing"), "public");
+    assert.equal(module.compatibilityDeepLink({ pathname: "/app/journal/trades/", search: "?trade=42", hash: "#note-7" }), "/app/journal/trades?trade=42#note-7");
+    assert.deepEqual(Object.keys(module.UI_COMPATIBILITY_ROUTES).sort(), ["chart", "journal", "public", "settings", "shell"]);
+    for (const [group, routes] of Object.entries(module.UI_COMPATIBILITY_ROUTES)) {
+      assert.ok(routes.length >= 3, `${group} compatibility navigation is incomplete`);
+      assert.ok(routes.every((route) => route.href.startsWith("/") && route.label));
+    }
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));
     assert.equal(module.resolveUiRollout({ overrides: { chart: false } }).chart, false);

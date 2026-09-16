@@ -174,6 +174,8 @@ test.describe("critical states and rollout fallback", () => {
     await installDeterminism(page, { rollout: "fallback" });
     await gotoStable(page, "/app/settings/global");
     await expect(page.locator('[data-route-group="settings"]')).toHaveAttribute("data-ui-version", "fallback");
+    await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "settings compatibility navigation" })).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Compatibility interface active" })).toBeVisible();
     await expect(page.locator("#workspace-content")).toBeVisible();
     await expectStableScreenshot(page, "settings-rollout-fallback", { fullPage: false });
@@ -192,9 +194,40 @@ test.describe("critical states and rollout fallback", () => {
       await gotoStable(page, route.path, { waitForNetworkIdle: false });
       await expect(page).toHaveURL(new RegExp(`${route.path === "/" ? "/$" : `${route.path}$`}`));
       await expect(page.locator(`[data-route-group="${route.group}"]`)).toHaveAttribute("data-ui-version", "fallback");
+      await expect(page.locator(`[data-compatibility-renderer="${route.group}"]`)).toBeVisible();
       await expect(page.getByRole("main")).toBeVisible();
     });
   }
+
+  test("server rollback is reversible without changing the deep link or browser state", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Rollout contract is viewport-independent.");
+    let fallback = true;
+    await page.route("**/api/ui/rollout", (route) => route.fulfill({
+      body: JSON.stringify({
+        revision: fallback ? "rollback-1" : "recovery-2",
+        kill_switch: fallback,
+        flags: { shell: true, journal: true, settings: true, chart: true, public: true },
+      }),
+      contentType: "application/json",
+    }));
+    await page.addInitScript(() => localStorage.setItem("edgelab.rollback-parity", "preserve"));
+    await gotoStable(page, "/app/settings/chart?panel=appearance#axis", { waitForNetworkIdle: false });
+    const boundary = page.locator('[data-route-group="settings"]');
+    await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
+    await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
+
+    fallback = false;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(boundary).toHaveAttribute("data-ui-version", "v2");
+    await expect(page).toHaveURL(/\/app\/settings\/chart\?panel=appearance#axis$/);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("edgelab.rollback-parity"))).toBe("preserve");
+
+    fallback = true;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
+    await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/settings\/chart\?panel=appearance#axis$/);
+  });
 
   test("unavailable rollout service fails closed without losing the route", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Failure fallback is viewport-independent.");

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ComponentType, ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { getAuthSession, getUiRolloutConfig } from "../lib/api";
@@ -24,7 +24,9 @@ import {
   resolveUiRollout,
   rolloutStorageKey,
   routeGroup,
+  UI_COMPATIBILITY_ROUTES,
 } from "../lib/uiRollout";
+import type { UiRouteGroup } from "../lib/uiRollout";
 
 const LandingPage = lazy(() =>
   import("../pages/LandingPage").then((module) => ({ default: module.LandingPage })),
@@ -396,16 +398,34 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
       data-ui-version={modernUiEnabled ? "v2" : "fallback"}
       ref={boundaryRef}
     >
-      {!modernUiEnabled ? (
-        <div
-          aria-atomic="true"
-          className="fixed inset-x-0 top-0 z-[140] border-b border-amber-300/20 bg-[#151108f2] px-4 py-2 text-center text-xs font-medium text-amber-100 shadow-lg backdrop-blur"
-          role="status"
-        >
-          Compatibility interface active. Your route and saved workspace remain available while the updated interface is paused.
+      {modernUiEnabled ? children : (
+        <CompatibilityRouteShell group={group} revision={rollout.revision}>
+          {children}
+        </CompatibilityRouteShell>
+      )}
+    </div>
+  );
+}
+
+function CompatibilityRouteShell({ children, group, revision }: { children: ReactNode; group: UiRouteGroup; revision: string }) {
+  const location = useLocation();
+  return (
+    <div className="min-h-screen bg-[#11100d] text-stone-100" data-compatibility-renderer={group}>
+      <header className="sticky top-0 z-[140] border-b-2 border-amber-700 bg-[#221d14] shadow-md">
+        <div className="flex min-h-12 flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2">
+          <strong className="font-mono text-sm tracking-wide text-amber-200">EdgeLab compatibility</strong>
+          <nav aria-label={`${group} compatibility navigation`} className="flex flex-1 flex-wrap items-center gap-1">
+            {UI_COMPATIBILITY_ROUTES[group].map((item) => (
+              <Link className="inline-flex min-h-11 items-center border border-stone-600 bg-stone-900 px-3 text-sm font-medium text-stone-100 hover:border-amber-400 hover:text-amber-100" key={item.href} to={item.href}>{item.label}</Link>
+            ))}
+          </nav>
+          <span className="font-mono text-[11px] text-stone-400">policy {revision}</span>
         </div>
-      ) : null}
-      {children}
+        <div aria-atomic="true" className="border-t border-amber-800/70 bg-amber-950 px-4 py-1.5 text-xs text-amber-100" role="status">
+          Compatibility interface active for {group}. This view uses the same account, data, and saved workspace. Current deep link: <bdi>{location.pathname}{location.search}{location.hash}</bdi>
+        </div>
+      </header>
+      <div className="compatibility-route-content">{children}</div>
     </div>
   );
 }

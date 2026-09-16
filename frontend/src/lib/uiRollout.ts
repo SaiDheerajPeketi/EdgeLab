@@ -2,6 +2,16 @@ export const UI_ROUTE_GROUPS = ["shell", "journal", "settings", "chart", "public
 
 export type UiRouteGroup = (typeof UI_ROUTE_GROUPS)[number];
 
+export type CompatibilityRoute = { href: string; label: string };
+
+export const UI_COMPATIBILITY_ROUTES: Readonly<Record<UiRouteGroup, readonly CompatibilityRoute[]>> = Object.freeze({
+  public: [{ href: "/", label: "Home" }, { href: "/pricing", label: "Pricing" }, { href: "/auth/signin", label: "Sign in" }],
+  shell: [{ href: "/app", label: "Workspace" }, { href: "/app/live", label: "Live" }, { href: "/app/journal/dashboard", label: "Journal" }, { href: "/app/settings/global", label: "Settings" }],
+  journal: [{ href: "/app/journal/dashboard", label: "Overview" }, { href: "/app/journal/trades", label: "Trades" }, { href: "/app/reports", label: "Reports" }],
+  settings: [{ href: "/app/settings/global", label: "Global" }, { href: "/app/settings/chart", label: "Chart" }, { href: "/app/settings/broker", label: "Broker" }],
+  chart: [{ href: "/app/live", label: "Live" }, { href: "/app/replay", label: "Replay" }, { href: "/app/order-flow", label: "Order flow" }],
+});
+
 export const UI_ROLLOUT_FLAGS: Record<UiRouteGroup, string> = {
   shell: "ui.shell.v2",
   journal: "ui.journal.v2",
@@ -65,6 +75,12 @@ export function routeGroup(pathname: string): UiRouteGroup {
   if (section === "settings") return "settings";
   if (["live", "replay", "chart", "quant", "order-flow"].includes(section)) return "chart";
   return "shell";
+}
+
+/** Compatibility rendering changes presentation only; the active deep link remains authoritative. */
+export function compatibilityDeepLink(location: { pathname: string; search?: string; hash?: string }) {
+  const pathname = normalizedPathname(location.pathname);
+  return `${pathname}${location.search ?? ""}${location.hash ?? ""}`;
 }
 
 export function rolloutStorageKey(scope = "deployment") {

@@ -126,7 +126,8 @@ function installDocumentLocale(page: Page, locale: string, direction: "ltr" | "r
     const apply = () => {
       if (!document.documentElement) return;
       document.documentElement.lang = locale;
-      document.documentElement.dir = direction;
+      if (direction === "rtl") document.documentElement.dir = "rtl";
+      else document.documentElement.dir = "ltr";
     };
     new MutationObserver(apply).observe(document, { childList: true, subtree: true });
     apply();
