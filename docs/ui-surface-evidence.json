@@ -273,6 +273,12 @@
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" },
         "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" }
       },
+      "playing": {
+        "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" }
+      },
       "complete": {
         "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" },

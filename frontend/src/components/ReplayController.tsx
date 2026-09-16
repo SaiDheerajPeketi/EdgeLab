@@ -88,6 +88,7 @@ export function ReplayController({
   const currentOffset = state?.session.current_offset ?? 0;
   const minJumpOffset = state?.session.start_offset ?? 0;
   const maxJumpOffset = state?.session.end_offset ?? null;
+  const replayComplete = state?.session.status === "COMPLETE";
   const parsedJumpOffset = parseReplayOffset(jumpOffset);
   const clampedJumpOffset =
     parsedJumpOffset == null
@@ -145,7 +146,9 @@ export function ReplayController({
       return;
     }
     await jumpToOffset(clampedJumpOffset);
-    setJumpOffset("");
+    if (!useBacktestStore.getState().error) {
+      setJumpOffset("");
+    }
   }
 
   async function handleJumpToTimestamp() {
@@ -157,6 +160,28 @@ export function ReplayController({
 
   return (
     <section className="replay-controller-bar rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
+      {replayComplete ? (
+        <div
+          className="mb-3 flex flex-col gap-3 border-b border-emerald-300/15 pb-3 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+        >
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-emerald-300/12 text-emerald-200">
+              <Check aria-hidden="true" size={15} />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-emerald-100">Replay complete</div>
+              <p className="mt-0.5 text-xs leading-5 text-slate-400">
+                You reached the end of this session. Review the results above or start again from the first bar.
+              </p>
+            </div>
+          </div>
+          <button className="control-button shrink-0" onClick={() => void resetReplay()} type="button">
+            <RotateCcw size={16} />
+            Replay again
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           {showOrderToggle && (
@@ -172,7 +197,7 @@ export function ReplayController({
           )}
           <button
             className="control-button"
-            disabled={!state}
+            disabled={!state || replayComplete}
             onClick={() => setPlaying(!isPlaying)}
             type="button"
           >
@@ -181,7 +206,7 @@ export function ReplayController({
           </button>
           <button
             className="control-button"
-            disabled={!state || isStepping}
+            disabled={!state || replayComplete || isStepping}
             onClick={() => void stepForward(replayStepBars)}
             title={
               replayStepBars > 1
@@ -195,7 +220,7 @@ export function ReplayController({
           </button>
           <button
             className="control-button"
-            disabled={!state || isStepping}
+            disabled={!state || replayComplete || isStepping}
             onClick={() => void stepForward(replayStepBars * 10)}
             title={
               replayStepBars > 1

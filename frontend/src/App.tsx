@@ -493,7 +493,9 @@ export function WorkspaceApp() {
     trades: CanonicalTrade[];
   }>({ accounts: [], notes: [], trades: [] });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadWorkspaceSidebarCollapsed);
-  const [sessionGateOpen, setSessionGateOpen] = useState(true);
+  const [sessionGateOpen, setSessionGateOpen] = useState(
+    () => workspaceViewFromPath(window.location.pathname) !== "backtest",
+  );
   const [leftPaneOpen, setLeftPaneOpen] = useState(false);
   const [orderTicketSide, setOrderTicketSide] = useState<"BUY" | "SELL" | null>(null);
   const [chartToolsOpen, setChartToolsOpen] = useState(false);
@@ -868,11 +870,11 @@ export function WorkspaceApp() {
   }, [activeWorkspace, ensureResultTradesLoaded]);
 
   useEffect(() => {
-    if (activeWorkspace !== "backtest" || sessionGateOpen || state != null) {
+    if (activeWorkspace !== "backtest" || sessionGateOpen || state != null || isLoading) {
       return;
     }
     void ensureLatestReplayLoaded();
-  }, [activeWorkspace, ensureLatestReplayLoaded, sessionGateOpen, state]);
+  }, [activeWorkspace, ensureLatestReplayLoaded, isLoading, sessionGateOpen, state]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;

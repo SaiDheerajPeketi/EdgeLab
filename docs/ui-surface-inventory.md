@@ -11,7 +11,7 @@ This inventory is the release authority for route and state coverage. `retain` m
 | `/shared` | Operate | restructure | 1440, 834, 390 | loading, expired, revoked, forbidden, transport error, open-as-copy |
 | `/app` gateway | Operate | replace | 1440, 834, 390 | recent, empty, loading, sample data, error |
 | `/app/live`, `/app/order-flow` | Operate | restructure | 1920, 1440, 834, 390 covered | connecting, live, delayed, stale, offline, unsupported |
-| `/app/replay` | Operate | restructure | 1920 gap; 1440, 834, 390 covered | empty, loading, active, ended, save error |
+| `/app/replay` | Operate | restructure | 1920, 1440, 834, 390 covered | empty, loading, active, ended, save error |
 | `/app/journal/*` | Operate | replace | 1440, 834, 390 | onboarding, sample, empty, loading, partial, error, success |
 | `/app/reports` | Operate | restructure | 1440, 834, 390 | low sample, mixed currency, filtered empty |
 | `/app/settings/*` | Operate | replace | 1440, 834, 390 | pristine, dirty, saving, saved, conflict, retry, validation |
@@ -35,10 +35,10 @@ Overlays: command palette, account/system menu, symbol and indicator search, set
 
 ## Baseline matrix
 
-Desktop/tablet/mobile captures are required for every rendered route above. The maintained Playwright baselines are 1440×1000, 834×1112, and 390×844 at browser zoom 1; the planned 1920×1080 trading baseline is still an explicit gap. The separate 200% zoom assertion uses CDP page-scale emulation and is not misrepresented as the mobile project's baseline zoom. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. Stored files live under `e2e/__snapshots__`; an absent file must be recorded as a gap, never treated as implicit approval.
+Desktop/tablet/mobile captures are required for every rendered route above. The maintained Playwright baselines are 1440×1000, 834×1112, and 390×844 at browser zoom 1, with a dedicated 1920×1080 project for trading surfaces. The separate 200% zoom assertion uses CDP page-scale emulation and is not misrepresented as the mobile project's baseline zoom. Live additionally requires compact, full-screen, 2-pane, 4-pane, and 4×4 variants. Journal requires empty, populated, filtered, review-drawer, and docked variants. Settings requires dirty/conflict/validation variants. Stored files live under `e2e/__snapshots__`; an absent file must be recorded as a gap, never treated as implicit approval.
 
 ## Executable audit
 
 Run `npm run check:ui-inventory` to require exact bidirectional parity between router/workspace definitions, the inventory, and `docs/ui-foundation-contracts.json`; verify authoritative panel/overlay sources; confirm width, height, pointer, and baseline zoom against Playwright; and resolve the route → state → project records in `docs/ui-surface-evidence.json` to their exact spec and stored snapshot. `npm run check:ui-inventory -- --require-complete` additionally fails while any recorded viewport, assertion, or state-coverage gap remains.
 
-UIR-01 remains partial: the inventory is structurally enforced, but the recorded 1920px trading viewport and route-state gaps must be captured before the item can be closed.
+UIR-01 remains partial: the inventory is structurally enforced across all four maintained viewports and critical route states, while non-critical states and overlay variants still require complete evidence before the item can be closed.
