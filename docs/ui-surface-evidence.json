@@ -90,11 +90,21 @@
       "tablet": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-workspace-sharing.png", "captureMode": "viewport" },
       "desktop": { "spec": "e2e/consequential-overlays.visual.spec.ts", "snapshot": "overlay-workspace-sharing.png", "captureMode": "viewport" }
     } } } },
-    "chart settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Chart settings evidence is not registered as overlay-owned evidence." } } },
-    "indicator settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Indicator settings visual evidence has not been captured." } } },
-    "drawing settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Drawing settings visual evidence has not been captured." } } },
-    "symbol search": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Symbol search visual evidence has not been captured." } } },
-    "radial drawing toolbox": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Radial drawing toolbox visual evidence has not been captured." } } },
+    "chart settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-chart-settings.png", "captureMode": "element" }, "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-chart-settings.png", "captureMode": "element" }, "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-chart-settings.png", "captureMode": "element" }, "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-chart-settings.png", "captureMode": "element" }
+    } } } },
+    "indicator settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-indicator-settings.png", "captureMode": "element" }, "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-indicator-settings.png", "captureMode": "element" }, "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-indicator-settings.png", "captureMode": "element" }, "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-indicator-settings.png", "captureMode": "element" }
+    } } } },
+    "drawing settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-drawing-settings.png", "captureMode": "element" }, "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-drawing-settings.png", "captureMode": "element" }, "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-drawing-settings.png", "captureMode": "element" }, "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-drawing-settings.png", "captureMode": "element" }
+    } } } },
+    "symbol search": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-symbol-search.png", "captureMode": "element" }, "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-symbol-search.png", "captureMode": "element" }, "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-symbol-search.png", "captureMode": "element" }, "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-symbol-search.png", "captureMode": "element" }
+    } } } },
+    "radial drawing toolbox": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-radial-drawing-toolbox.png", "captureMode": "element" }, "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-radial-drawing-toolbox.png", "captureMode": "element" }, "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-radial-drawing-toolbox.png", "captureMode": "element" }, "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "overlay-radial-drawing-toolbox.png", "captureMode": "element" }
+    } } } },
     "confirmation dialog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
       "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" },
       "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" },

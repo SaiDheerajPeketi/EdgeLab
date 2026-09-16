@@ -5312,6 +5312,7 @@ function FloatingIndicatorToolbar({
 
   return (
     <div
+      aria-label="Indicator settings"
       className={`chart-object-floating-toolbar indicator-floating-toolbar ${isGapStudy ? "indicator-floating-toolbar-gap" : ""}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={stopToolbarEvent}
@@ -5804,6 +5805,7 @@ function FloatingDrawingToolbar({
 
   return (
     <div
+      aria-label="Drawing settings"
       className="chart-object-floating-toolbar"
       onClick={(event) => event.stopPropagation()}
       onMouseDown={stopToolbarEvent}

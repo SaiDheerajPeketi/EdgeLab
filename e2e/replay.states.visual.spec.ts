@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import {
   expectStableScreenshot,
   gotoStable,
@@ -127,6 +127,37 @@ async function prepare(page: Page) {
   await installDeterminism(page);
   await seedApprovedSession(page);
   await seedChartLayout(page, "single");
+}
+
+async function seedChartAuthoringObjects(page: Page) {
+  await page.addInitScript(({ candleTime }) => {
+    for (const key of ["edgelab.chart-layout.v1.user-7001", "edgelab.live-chart-layout.v1.user-7001"]) {
+      const layout = JSON.parse(window.localStorage.getItem(key) ?? "{}");
+      window.localStorage.setItem(key, JSON.stringify({
+        ...layout,
+        drawings: [{
+          id: "e2e-horizontal-line",
+          tool: "horizontal",
+          color: "#32d3ee",
+          createdAt: "2026-09-15T08:00:00.000Z",
+          lineStyle: "solid",
+          lineWidth: 2,
+          points: [{ price: 68_000, time: candleTime }],
+        }],
+        indicatorInstances: [{
+          id: "e2e-rsi-14",
+          kind: "rsi",
+          settings: { color: "#a78bfa", period: 14, lineStyle: "solid", lineWidth: 2 },
+          visible: true,
+          createdAt: "2026-09-15T08:00:00.000Z",
+        }],
+      }));
+    }
+  }, { candleTime: bars[96].time });
+}
+
+async function expectNoHorizontalOverflow(locator: Locator) {
+  expect(await locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 }
 
 async function expectReplayScreenshot(page: Page, name: string) {
@@ -292,6 +323,78 @@ test.describe("replay critical state baselines", () => {
     await expect(page.getByRole("button", { name: "Close indicator editor" })).toBeFocused();
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     await expect(panel).toHaveScreenshot("panel-indicator-editor.png");
+  });
+
+  test("chart-authoring overlays remain operable and contained", async ({ page }) => {
+    await seedChartAuthoringObjects(page);
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
+
+    const settingsTrigger = page.locator(".chart-studio-toolbar").getByRole("button", { name: "Settings", exact: true });
+    await settingsTrigger.click();
+    const chartSettings = page.getByRole("dialog", { name: "Chart settings" });
+    await expect(chartSettings).toBeVisible();
+    await expectNoHorizontalOverflow(chartSettings);
+    await expect(chartSettings).toHaveScreenshot("overlay-chart-settings.png");
+    const closeChartSettings = chartSettings.getByRole("button", { name: "Close chart settings" });
+    await closeChartSettings.focus();
+    await expect(closeChartSettings).toBeFocused();
+    await closeChartSettings.click();
+    await expect(chartSettings).toBeHidden();
+
+    const symbolSearch = page.getByRole("combobox", { name: "Chart symbol" });
+    await symbolSearch.focus();
+    await symbolSearch.fill("BTC");
+    await symbolSearch.press("ArrowDown");
+    const symbolResults = page.getByRole("listbox");
+    await expect(symbolResults).toBeVisible();
+    await expect(symbolSearch).toHaveAttribute("aria-activedescendant", /chart-symbol-option-/);
+    await expectNoHorizontalOverflow(symbolResults);
+    await symbolResults.evaluate((element) => {
+      Object.assign(element.style, {
+        left: "24px", maxHeight: "400px", overflowY: "auto", position: "fixed", top: "24px", width: "320px",
+      });
+    });
+    await expect(symbolResults).toHaveScreenshot("overlay-symbol-search.png");
+    await symbolSearch.press("Escape");
+    await expect(symbolResults).toBeHidden();
+    await expect(symbolSearch).toBeFocused();
+
+    const rsiTitle = page.locator(".indicator-pane-title").getByText("RSI 14", { exact: true });
+    await rsiTitle.scrollIntoViewIfNeeded();
+    await rsiTitle.click();
+    const indicatorSettings = page.getByRole("group", { name: "Indicator settings" });
+    await expect(indicatorSettings).toBeVisible();
+    await expectNoHorizontalOverflow(indicatorSettings);
+    await expect(indicatorSettings).toHaveScreenshot("overlay-indicator-settings.png");
+
+    await page.getByTitle("Horizontal level").click();
+    const chartPlot = page.locator(".chart-frame").first();
+    const chartBounds = await chartPlot.boundingBox();
+    expect(chartBounds).not.toBeNull();
+    await chartPlot.click({ position: { x: chartBounds!.width * 0.55, y: chartBounds!.height * 0.36 } });
+    const drawingSettings = page.getByRole("group", { name: "Drawing settings" });
+    await expect(drawingSettings).toBeVisible();
+    await expectNoHorizontalOverflow(drawingSettings);
+    await expect(drawingSettings).toHaveScreenshot("overlay-drawing-settings.png");
+    await page.keyboard.press("Escape");
+
+    const chart = page.getByRole("region", { name: /chart/i }).first();
+    await chart.focus();
+    await page.keyboard.down("Alt");
+    const radialToolbox = page.getByRole("menu", { name: "Circular drawing toolbox" });
+    await expect(radialToolbox).toBeVisible();
+    expect(await radialToolbox.getByRole("menuitem").count()).toBeGreaterThan(0);
+    await expectNoHorizontalOverflow(radialToolbox);
+    await expect(radialToolbox).toHaveScreenshot("overlay-radial-drawing-toolbox.png", {
+      maxDiffPixelRatio: 0.03,
+    });
+    await page.keyboard.press("1");
+    await expect(radialToolbox).toBeHidden();
+    await page.keyboard.up("Alt");
+    await expect(chart).toBeFocused();
   });
 
   test("failed progress save keeps the replay recoverable", async ({ page }) => {
