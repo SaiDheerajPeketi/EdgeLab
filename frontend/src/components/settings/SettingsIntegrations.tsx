@@ -137,7 +137,7 @@ export function SettingsIntegrations() {
           ) : null}
 
           {connections.length ? <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Configured connections</p>{connections.map((connection) => (
-            <div key={connection.id} className="rounded-md border border-white/10 p-3">
+            <div key={connection.id} aria-label={`${connection.display_name} connection`} className="rounded-md border border-white/10 p-3" role="group">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-zinc-100">{connection.display_name}</p>
@@ -147,8 +147,8 @@ export function SettingsIntegrations() {
                 </div>
                 {connection.revoked_at ? <span className="text-xs text-zinc-500">Revoked {formatDate(connection.revoked_at)}</span> : (
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => void run(`refresh-${connection.id}`, () => refreshBrokerConnection(connection.id))} disabled={busy != null} className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-white/10 px-2.5 text-xs font-medium text-zinc-200 hover:bg-white/5 disabled:opacity-45"><RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${busy === `refresh-${connection.id}` ? "animate-spin motion-reduce:animate-none" : ""}`} />Refresh</button>
-                    <button type="button" onClick={() => setConfirmAction(`connection-${connection.id}`)} disabled={busy != null} className="min-h-9 rounded-md px-2.5 text-xs font-medium text-rose-300 hover:bg-rose-400/10 disabled:opacity-45">Revoke</button>
+                    <button type="button" onClick={() => void run(`refresh-${connection.id}`, () => refreshBrokerConnection(connection.id))} disabled={busy != null} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-white/10 px-2.5 text-xs font-medium text-zinc-200 hover:bg-white/5 disabled:opacity-45 sm:min-h-9"><RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${busy === `refresh-${connection.id}` ? "animate-spin motion-reduce:animate-none" : ""}`} />Refresh</button>
+                    <button type="button" onClick={() => setConfirmAction(`connection-${connection.id}`)} disabled={busy != null} className="min-h-11 rounded-md px-2.5 text-xs font-medium text-rose-300 hover:bg-rose-400/10 disabled:opacity-45 sm:min-h-9">Revoke</button>
                   </div>
                 )}
               </div>
@@ -189,7 +189,7 @@ function Capability({ label, enabled }: { label: string; enabled: boolean }) {
 }
 
 function ConfirmDanger({ message, busy, onCancel, onConfirm }: { message: string; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="mt-3 border-t border-rose-400/20 pt-3"><p className="text-xs leading-5 text-rose-200">{message} This action is recorded by the service.</p><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="min-h-9 rounded px-3 text-xs text-white/80 hover:bg-white/5">Cancel</button><button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-9 items-center gap-1.5 rounded bg-rose-500 px-3 text-xs font-semibold text-white hover:bg-rose-400 disabled:opacity-45">{busy ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />}Confirm revoke</button></div></div>;
+  return <div aria-label="Confirm revocation" className="mt-3 border-t border-rose-400/20 pt-3" role="region"><p className="text-xs leading-5 text-rose-200">{message} This action is recorded by the service.</p><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="min-h-11 rounded px-3 text-xs text-white/80 hover:bg-white/5 sm:min-h-9">Cancel</button><button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-11 items-center gap-1.5 rounded bg-rose-500 px-3 text-xs font-semibold text-white hover:bg-rose-400 disabled:opacity-45 sm:min-h-9">{busy ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />}Confirm revoke</button></div></div>;
 }
 
 function formatDate(value: string) {

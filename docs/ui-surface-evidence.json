@@ -378,6 +378,26 @@
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png", "captureMode": "viewport" }
       },
+      "loading": {
+        "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-loading.png", "captureMode": "viewport" }
+      },
+      "dirty": {
+        "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-dirty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-dirty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-dirty.png", "captureMode": "viewport" }
+      },
+      "saving": {
+        "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-saving.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-saving.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-saving.png", "captureMode": "viewport" }
+      },
+      "saved": {
+        "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-saved.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-saved.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-saved.png", "captureMode": "viewport" }
+      },
       "validation-error": {
         "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png", "captureMode": "viewport" },
@@ -387,6 +407,11 @@
         "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png", "captureMode": "viewport" }
+      },
+      "danger-confirmation": {
+        "mobile": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-route.states.visual.spec.ts", "snapshot": "settings-danger-confirmation.png", "captureMode": "viewport" }
       }
     }
   },

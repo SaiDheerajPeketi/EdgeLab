@@ -89,8 +89,7 @@
       "/app/journal/analytics": "Empty, low-sample, selected-segment, and mixed-currency states remain uncaptured.",
       "/app/journal/reports": "Empty, low-sample, filtered, selected-segment, and drill-down states remain uncaptured.",
       "/app/reports": "Loading, empty, filtered, and selected-trade states remain uncaptured.",
-      "/app/quant": "Unavailable, empty, streaming, cancelled, error, retrying, and artifact states remain uncaptured.",
-      "/app/settings/:category": "Loading, saving, saved, and danger-confirmation states remain uncaptured."
+      "/app/quant": "Unavailable, empty, streaming, cancelled, error, retrying, and artifact states remain uncaptured."
     }
   },
   "requiredStateFamilies": ["empty", "loading", "skeleton", "partial", "offline", "stale", "permission-denied", "unsupported", "error", "retrying", "success"]
