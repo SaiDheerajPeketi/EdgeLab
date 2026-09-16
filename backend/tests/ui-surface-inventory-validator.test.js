@@ -25,8 +25,8 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
   const result = validateUiSurfaceInventory(fixtureInputs());
   assert.deepEqual(result.errors, []);
   assert.equal(result.stats.inventoriedRoutes, result.stats.discoveredRoutes);
-  assert.equal(result.gaps.length, 10);
-  assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:command palette:open:")));
+  assert.equal(result.gaps.length, 5);
+  assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:chart settings:open:")));
   assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:radial drawing toolbox:open:")));
 });
 
@@ -284,6 +284,6 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
 test("strict completion mode precisely rejects recorded evidence gaps", () => {
   assert.throws(
     () => runUiSurfaceInventoryCheck({ requireComplete: true, root }),
-    /overlay:command palette:open:[\s\S]*overlay:radial drawing toolbox:open:/,
+    /overlay:chart settings:open:[\s\S]*overlay:radial drawing toolbox:open:/,
   );
 });

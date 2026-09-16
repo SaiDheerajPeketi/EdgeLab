@@ -47,11 +47,29 @@
     } } } }
   },
   "overlays": {
-    "command palette": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Command palette visual evidence has not been captured." } } },
-    "shortcut catalog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Shortcut catalog visual evidence has not been captured." } } },
-    "account menu": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Account menu visual evidence has not been captured." } } },
-    "mobile navigation": { "states": { "open": { "viewports": ["mobile"], "gap": "Authenticated mobile navigation visual evidence has not been captured." } } },
-    "trade review drawer": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Trade review drawer evidence is not registered as overlay-owned evidence." } } },
+    "command palette": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-command-palette.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-command-palette.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-command-palette.png", "captureMode": "viewport" }
+    } } } },
+    "shortcut catalog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-shortcut-catalog.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-shortcut-catalog.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-shortcut-catalog.png", "captureMode": "viewport" }
+    } } } },
+    "account menu": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-account-menu.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-account-menu.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-account-menu.png", "captureMode": "viewport" }
+    } } } },
+    "mobile navigation": { "states": { "open": { "viewports": ["mobile"], "evidence": {
+      "mobile": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-mobile-navigation.png", "captureMode": "viewport" }
+    } } } },
+    "trade review drawer": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-trade-review-drawer.png", "captureMode": "viewport" },
+      "tablet": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-trade-review-drawer.png", "captureMode": "viewport" },
+      "desktop": { "spec": "e2e/navigation-productivity-overlays.visual.spec.ts", "snapshot": "overlay-trade-review-drawer.png", "captureMode": "viewport" }
+    } } } },
     "add trade flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
       "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" },
       "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" },

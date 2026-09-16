@@ -52,6 +52,17 @@ test.describe("consequential overlay evidence", () => {
 
   test("workspace sharing dialog traps focus, survives viewport constraints, and restores focus", async ({ page }) => {
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    let createPayload: Record<string, unknown> | null = null;
+    await page.route("**/api/workspace-shares", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      createPayload = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({ json: {
+        id: 901, workspace_key: "replay", snapshot_version: 1, schema_version: 1,
+        scope: "chart-plus-panels", title: "Replay workspace copy", recipient_email: null,
+        payload_available: true, public_token: "deterministic-share-token",
+        created_at: "2026-09-15T10:00:00Z", expires_at: "2026-09-22T10:00:00Z", revoked_at: null,
+      } });
+    }, { times: 1 });
     const trigger = page.getByRole("button", { name: "Share copy" });
     await trigger.scrollIntoViewIfNeeded();
     await trigger.click();
@@ -63,6 +74,11 @@ test.describe("consequential overlay evidence", () => {
     await assertContained(page, dialog);
     await expectStableScreenshot(page, "overlay-workspace-sharing", { fullPage: false });
     await assertFocusTrap(page, dialog);
+
+    await dialog.getByRole("button", { name: "Create secure link" }).click();
+    await expect(dialog.getByText("Snapshot v1 is ready")).toBeVisible();
+    await expect(dialog.getByLabel("Secure link")).toHaveValue(/deterministic-share-token/);
+    expect(createPayload).toMatchObject({ workspace_key: "backtest:draft", scope: "chart-plus-panels" });
 
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
