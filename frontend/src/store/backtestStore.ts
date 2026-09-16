@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { ResultTradesLoadLease } from "./resultTradesLoadLease.js";
 import {
   ApiError,
   BacktestReplayUpdate,
@@ -85,6 +86,7 @@ type BacktestStore = {
   resultTradesHasMore: boolean;
   resultTradesLoaded: boolean;
   resultTradesLoading: boolean;
+  resultTradesLoadingVersion: number | null;
   resultTradesLoadError: string | null;
   isLoading: boolean;
   isLoadingMoreSessions: boolean;
@@ -150,6 +152,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   resultTradesHasMore: false,
   resultTradesLoaded: false,
   resultTradesLoading: false,
+  resultTradesLoadingVersion: null,
   resultTradesLoadError: null,
   isLoading: false,
   isLoadingMoreSessions: false,
@@ -285,7 +288,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         return;
       } catch {
         try {
-          set({ resultTradesLoadError: null, resultTradesLoading: true });
+          const tradeLoadVersion = startResultTradesLoad(true);
           const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
             getDatasets(),
             getPlaybooks(),
@@ -300,7 +303,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             sessionsResult.status === "rejected" ? toErrorMessage(sessionsResult.reason) : null;
           const tradeSnapshot =
             tradesResult.status === "fulfilled" ? tradesResult.value : emptyTradeSnapshot();
-          const tradeLoadVersion = startResultTradesLoad();
           set({
             datasets,
             playbooks,
@@ -315,7 +317,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             resultTradesNextCursor: tradeSnapshot.resultTradesNextCursor,
             resultTradesHasMore: tradeSnapshot.resultTradesHasMore,
             resultTradesLoaded: tradesResult.status === "fulfilled",
-            resultTradesLoading: false,
             resultTradesLoadError: tradesResult.status === "rejected" ? toErrorMessage(tradesResult.reason) : null,
             error: firstRejectedMessage([
               datasetsResult,
@@ -325,6 +326,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             ]),
             isLoading: false,
           });
+          settleResultTradesLoading(tradeLoadVersion);
           if (tradeSnapshot.resultTradesHasMore) {
             void hydrateRemainingResultTrades(tradeLoadVersion);
           }
@@ -462,12 +464,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
     if ((get().resultTradesLoaded && !get().resultTradesLoadError) || get().resultTradesLoading) {
       return;
     }
-    const tradeLoadVersion = startResultTradesLoad();
-    set({ resultTradesLoadError: null, resultTradesLoading: true });
+    const tradeLoadVersion = startResultTradesLoad(true);
+    set({ resultTradesLoadError: null });
     try {
       const tradeSnapshot = await loadTradeSnapshot();
       if (!isCurrentResultTradesLoad(tradeLoadVersion)) {
-        set({ resultTradesLoading: false });
         return;
       }
       set({
@@ -476,7 +477,6 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultTradesNextCursor: tradeSnapshot.resultTradesNextCursor,
         resultTradesHasMore: tradeSnapshot.resultTradesHasMore,
         resultTradesLoaded: true,
-        resultTradesLoading: false,
         resultTradesLoadError: null,
         error: null,
       });
@@ -484,8 +484,11 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         void hydrateRemainingResultTrades(tradeLoadVersion);
       }
     } catch (error) {
+      if (!isCurrentResultTradesLoad(tradeLoadVersion)) return;
       const message = toErrorMessage(error);
-      set({ error: message, resultTradesLoadError: message, resultTradesLoading: false });
+      set({ error: message, resultTradesLoadError: message });
+    } finally {
+      settleResultTradesLoading(tradeLoadVersion);
     }
   },
 
@@ -1203,7 +1206,7 @@ type TradeSnapshot = {
   resultTradesHasMore: boolean;
 };
 
-let resultTradesLoadVersion = 0;
+const resultTradesLoadLease = new ResultTradesLoadLease();
 let replayHydrationVersion = 0;
 let replaySeekRequestVersion = 0;
 
@@ -1216,13 +1219,23 @@ function emptyTradeSnapshot(): TradeSnapshot {
   };
 }
 
-function startResultTradesLoad() {
-  resultTradesLoadVersion += 1;
-  return resultTradesLoadVersion;
+function startResultTradesLoad(ownsLoading = false) {
+  const { loadingOwner, version } = resultTradesLoadLease.begin(ownsLoading);
+  useBacktestStore.setState({
+    resultTradesLoading: ownsLoading,
+    resultTradesLoadingVersion: loadingOwner,
+  });
+  return version;
 }
 
 function isCurrentResultTradesLoad(version: number) {
-  return resultTradesLoadVersion === version;
+  return resultTradesLoadLease.isCurrent(version);
+}
+
+function settleResultTradesLoading(version: number) {
+  if (resultTradesLoadLease.settle(version)) {
+    useBacktestStore.setState({ resultTradesLoading: false, resultTradesLoadingVersion: null });
+  }
 }
 
 function startReplayHydration() {
