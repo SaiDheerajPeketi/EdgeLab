@@ -329,10 +329,30 @@
       }
     },
     "/app/journal/analytics": {
+      "empty": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-empty.png", "captureMode": "viewport" }
+      },
+      "low-sample": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-low-sample.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-low-sample.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-low-sample.png", "captureMode": "viewport" }
+      },
       "populated": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png", "captureMode": "viewport" }
+      },
+      "segment-selected": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-segment-selected.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-segment-selected.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-segment-selected.png", "captureMode": "viewport" }
+      },
+      "mixed-currency": {
+        "mobile": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-mixed-currency.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-mixed-currency.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-analytics.states.visual.spec.ts", "snapshot": "journal-analytics-mixed-currency.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/notes": {

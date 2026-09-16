@@ -108,7 +108,6 @@ const populatedTrades = [
 
 test.describe("Journal analytics critical states", () => {
   test.beforeEach(async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === "tablet", "Tablet breakdown overflow remains tracked in the UI surface inventory.");
     await installDeterminism(page);
     await seedApprovedSession(page);
   });
@@ -186,7 +185,8 @@ async function jsonRoute(page: Page, pattern: RegExp, body: unknown) {
 }
 
 async function captureState(page: Page, name: string, target: Locator) {
-  await target.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center" }));
+  await target.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" }));
+  await page.evaluate(() => window.scrollTo({ left: 0 }));
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(target).toBeInViewport();
   const viewport = page.viewportSize()!;
@@ -196,6 +196,7 @@ async function captureState(page: Page, name: string, target: Locator) {
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
   const horizontal = await page.evaluate(() => ({
     overflow: document.documentElement.scrollWidth - window.innerWidth,
+    scrollX: window.scrollX,
     offenders: [...document.querySelectorAll<HTMLElement>("body *")].flatMap((element) => {
       const box = element.getBoundingClientRect();
       if (box.width <= 0 || (box.left >= -1 && box.right <= window.innerWidth + 1)) return [];
@@ -209,12 +210,30 @@ async function captureState(page: Page, name: string, target: Locator) {
     }).slice(0, 8),
   }));
   expect(horizontal.overflow, JSON.stringify(horizontal.offenders)).toBeLessThanOrEqual(1);
+  expect(horizontal.scrollX).toBe(0);
+
+  const tableScroller = page.getByRole("table", { name: /performance breakdown/ }).locator("xpath=..");
+  const tableGeometry = await tableScroller.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return { clientWidth: element.clientWidth, left: box.left, right: box.right, scrollWidth: element.scrollWidth };
+  });
+  expect(tableGeometry.left).toBeGreaterThanOrEqual(-1);
+  expect(tableGeometry.right).toBeLessThanOrEqual(viewport.width + 1);
+  if (viewport.width < 1024) expect(tableGeometry.scrollWidth).toBeGreaterThan(tableGeometry.clientWidth);
 
   const mobileNav = page.getByRole("navigation", { name: "Primary workspace" });
   if (await mobileNav.isVisible()) {
     const navBox = await mobileNav.boundingBox();
     expect(navBox).not.toBeNull();
     expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
+    const navButtons = mobileNav.getByRole("button");
+    expect(await navButtons.count()).toBe(6);
+    for (let index = 0; index < 6; index += 1) {
+      const buttonBox = await navButtons.nth(index).boundingBox();
+      expect(buttonBox).not.toBeNull();
+      expect(buttonBox!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
+      expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 1);
+    }
   }
   await expectAnalyticsTouchTargets(page);
   await expectStableScreenshot(page, name, { fullPage: false });
