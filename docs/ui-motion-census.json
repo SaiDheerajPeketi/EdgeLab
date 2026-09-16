@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "proof": {
+    "public-storytelling": {
+      "spec": "e2e/motion-preference.interaction.spec.ts",
+      "assertions": ["compositor-properties", "offscreen-pause-resume", "observer-cleanup", "rapid-interruption-final-state", "layout-count-zero", "reduced-motion"]
+    },
+    "authenticated-radial-toolbox": {
+      "spec": "e2e/motion-preference.interaction.spec.ts",
+      "assertions": ["reduced-motion", "rapid-interruption-final-state", "focus-restoration"]
+    }
+  },
+  "routeGroups": {
+    "covered": ["public", "chart"],
+    "residual": ["shell", "journal", "settings"]
+  },
+  "panels": {
+    "covered": [],
+    "residual": ["Journal", "Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"]
+  },
+  "overlays": {
+    "covered": ["radial drawing toolbox"],
+    "residual": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "confirmation dialog", "toast"]
+  }
+}

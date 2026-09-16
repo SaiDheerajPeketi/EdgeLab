@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const census = JSON.parse(fs.readFileSync(path.join(root, "docs/ui-motion-census.json"), "utf8"));
+const evidence = JSON.parse(fs.readFileSync(path.join(root, "docs/ui-surface-evidence.json"), "utf8"));
 const sourceRoot = path.join(root, "frontend/src");
 const files = [];
 function visit(directory) {
@@ -54,4 +56,16 @@ assert.match(styles, /\.edgelab-marquee-paused[\s\S]*animation:[^;]+paused/);
 const shimmeringText = fs.readFileSync(path.join(sourceRoot, "components/shimmering-text.tsx"), "utf8");
 assert.match(shimmeringText, /opacity:\s*\[0\.48, 1, 0\.48\][\s\S]*repeat:\s*Number\.POSITIVE_INFINITY/);
 assert.doesNotMatch(shimmeringText, /color:\s*\[[^\]]+\][\s\S]*repeat:\s*Number\.POSITIVE_INFINITY/);
-console.log(`Motion policy passed across ${files.length} UI source files.`);
+const assertPartition = (label, actual, partition) => {
+  assert.equal(new Set([...partition.covered, ...partition.residual]).size, actual.length, `${label} census contains duplicates or omissions`);
+  assert.deepEqual([...new Set([...partition.covered, ...partition.residual])].sort(), [...actual].sort(), `${label} census must classify every inventoried surface`);
+};
+assertPartition("panel", Object.keys(evidence.panels), census.panels);
+assertPartition("overlay", Object.keys(evidence.overlays), census.overlays);
+assertPartition("route group", ["public", "shell", "journal", "settings", "chart"], census.routeGroups);
+const requiredAssertions = ["compositor-properties", "offscreen-pause-resume", "observer-cleanup", "rapid-interruption-final-state", "layout-count-zero", "reduced-motion"];
+const publicProof = census.proof["public-storytelling"];
+assert.equal(publicProof.spec, "e2e/motion-preference.interaction.spec.ts");
+for (const assertion of requiredAssertions) assert.ok(publicProof.assertions.includes(assertion), `Motion census is missing ${assertion}`);
+assert.ok(census.panels.residual.length > 0 && census.overlays.residual.length > 0, "UIR-72 must remain partial until authenticated surface coverage is exhaustive");
+console.log(`Motion policy passed across ${files.length} UI source files; census covers ${census.routeGroups.covered.length} route groups, ${census.panels.covered.length} panels, and ${census.overlays.covered.length} overlays with ${census.routeGroups.residual.length + census.panels.residual.length + census.overlays.residual.length} explicit residuals.`);
