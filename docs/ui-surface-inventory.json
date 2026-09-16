@@ -85,7 +85,6 @@
       "/app/order-flow": "No dedicated order-flow route baseline exists yet.",
       "/app/journal/dashboard": "The loading state remains uncaptured.",
       "/app/journal/accounts": "Syncing, provider-error, and comparison states remain uncaptured.",
-      "/app/journal/trades": "Loading, add-trade, import, and transport-error states remain uncaptured.",
       "/app/journal/analytics": "Empty, low-sample, selected-segment, and mixed-currency states remain uncaptured.",
       "/app/journal/reports": "Empty, low-sample, filtered, selected-segment, and drill-down states remain uncaptured.",
       "/app/reports": "Loading, empty, filtered, and selected-trade states remain uncaptured.",

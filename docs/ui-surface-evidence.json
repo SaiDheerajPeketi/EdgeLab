@@ -272,6 +272,16 @@
       }
     },
     "/app/journal/trades": {
+      "loading": {
+        "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-loading.png", "captureMode": "viewport" }
+      },
+      "empty": {
+        "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-empty.png", "captureMode": "viewport" }
+      },
       "populated": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png", "captureMode": "viewport" },
@@ -286,6 +296,21 @@
         "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png", "captureMode": "viewport" }
+      },
+      "add-trade": {
+        "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-add-trade.png", "captureMode": "viewport" }
+      },
+      "import": {
+        "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-import.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-import.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-import.png", "captureMode": "viewport" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-trades.states.visual.spec.ts", "snapshot": "journal-trades-error.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/analytics": {
