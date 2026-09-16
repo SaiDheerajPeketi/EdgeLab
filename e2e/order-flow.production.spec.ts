@@ -51,14 +51,48 @@ test.describe("order-flow production data path", () => {
     await prepare(page, async (route, url) => {
       if (url.pathname === "/api/market-data/instruments") return json(route, instruments);
       attempts += 1;
-      if (attempts <= 2) return route.fulfill({ body: JSON.stringify({ detail: "Provider timed out" }), contentType: "application/json", status: 503 });
+      if (attempts === 1) return route.fulfill({ body: JSON.stringify({ detail: "Provider timed out" }), contentType: "application/json", status: 503 });
       return json(route, [footprint(17, "2026-09-15T10:29:00.000Z", "300", "125")]);
     });
     await gotoStable(page, "/app/order-flow", { waitForNetworkIdle: false });
     await expect(page.getByRole("alert")).toContainText("Provider timed out");
     await page.getByRole("button", { name: "Try again" }).click();
     await expect(page.locator('[data-order-flow-source="persisted-provider-footprint"]')).toBeVisible();
-    expect(attempts).toBe(3);
+    expect(attempts).toBe(2);
+  });
+
+  test("latest controls own rendering when an older provider response arrives last", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "One desktop contract run is sufficient.");
+    const disjointCatalog = [
+      instruments[0],
+      { ...instruments[1], identifiers: [{ provider: "dxfeed", provider_symbol: "NQU26" }] },
+    ];
+    let releaseSlow: (() => void) | null = null;
+    const slowResponse = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    let slowRequested = false;
+    await prepare(page, async (route, url) => {
+      if (url.pathname === "/api/market-data/instruments") return json(route, disjointCatalog);
+      const instrumentId = Number(url.pathname.split("/")[4]);
+      if (instrumentId === 17 && url.searchParams.get("provider") === "licensed-futures") {
+        slowRequested = true;
+        await slowResponse;
+        if (route.request().isNavigationRequest()) return undefined;
+        return json(route, [footprint(17, "2026-09-15T10:29:30.000Z", "999", "1")]).catch(() => undefined);
+      }
+      return json(route, [footprint(instrumentId, "2026-09-15T10:29:00.000Z", instrumentId === 23 ? "333" : "100", "50")]);
+    });
+    await gotoStable(page, "/app/order-flow", { waitForNetworkIdle: false });
+    await page.getByRole("combobox", { name: "Provider" }).selectOption("licensed-futures");
+    await expect.poll(() => slowRequested).toBe(true);
+    await page.getByRole("combobox", { name: "Instrument" }).selectOption("23");
+    await expect(page.getByRole("cell", { name: "333" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Provider" })).toHaveValue("");
+    await expect(page.getByRole("combobox", { name: "Provider" }).getByRole("option", { name: "dxfeed" })).toHaveCount(1);
+    releaseSlow?.();
+    await page.waitForTimeout(100);
+    await expect(page.getByRole("cell", { name: "333" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "999" })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Instrument" })).toHaveValue("23");
   });
 });
 

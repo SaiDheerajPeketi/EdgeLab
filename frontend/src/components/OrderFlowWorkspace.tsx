@@ -15,7 +15,7 @@ const levels = [
 ] as const;
 
 export function OrderFlowWorkspace() {
-  const { detail, fixture, footprint, instruments, intervalSeconds, provider, refresh, selectedInstrumentId, setIntervalSeconds, setProvider, setSelectedInstrumentId, state } = useOrderFlowRouteState();
+  const { detail, fixture, footprint, instruments, intervalSeconds, provider, refresh, selectInstrument, selectedInstrumentId, setIntervalSeconds, setProvider, state } = useOrderFlowRouteState();
   const selectedInstrument = instruments.find((instrument) => instrument.id === selectedInstrumentId) ?? null;
   const providers = Array.from(new Set(selectedInstrument?.identifiers.map((identifier) => identifier.provider) ?? [])).sort();
 
@@ -36,7 +36,7 @@ export function OrderFlowWorkspace() {
         </div>
         <div aria-label="Order-flow source" className="flex flex-wrap items-center gap-2 text-xs tabular-nums text-slate-300">
           <label className="sr-only" htmlFor="order-flow-instrument">Instrument</label>
-          <select id="order-flow-instrument" aria-label="Instrument" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture || !instruments.length} onChange={(event) => setSelectedInstrumentId(Number(event.target.value))} value={selectedInstrumentId ?? ""}>
+          <select id="order-flow-instrument" aria-label="Instrument" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture || !instruments.length} onChange={(event) => selectInstrument(Number(event.target.value))} value={selectedInstrumentId ?? ""}>
             {!instruments.length ? <option value="">{fixture ? "BTCUSDT · E2E fixture" : "No normalized instruments"}</option> : instruments.map((instrument) => <option key={instrument.id} value={instrument.id}>{instrument.canonical_symbol}</option>)}
           </select>
           <label className="sr-only" htmlFor="order-flow-timeframe">Timeframe</label>
@@ -171,6 +171,7 @@ function useOrderFlowRouteState() {
   const [intervalSeconds, setIntervalSeconds] = useState(300);
   const [provider, setProvider] = useState("");
   const skipSelectionReloadRef = useRef(false);
+  const requestRef = useRef<{ controller: AbortController; generation: number } | null>(null);
   const [model, setModel] = useState<{ detail: string; footprint: MarketFootprint | null; state: OrderFlowRouteState }>(() => ({
     detail: fixtureState ? fixtureDetail(fixtureState) : "Resolving the normalized BTCUSDT instrument and persisted footprint aggregates.",
     footprint: null,
@@ -181,8 +182,13 @@ function useOrderFlowRouteState() {
       setModel({ detail: fixtureDetail(fixtureState), footprint: null, state: fixtureState });
       return;
     }
+    requestRef.current?.controller.abort();
+    const request = { controller: new AbortController(), generation: (requestRef.current?.generation ?? 0) + 1 };
+    requestRef.current = request;
+    const ownsRequest = () => requestRef.current?.generation === request.generation && !request.controller.signal.aborted;
     setModel((current) => ({ ...current, state: "loading" }));
-    void listMarketInstruments().then(async (catalog) => {
+    void listMarketInstruments("", { signal: request.controller.signal }).then(async (catalog) => {
+      if (!ownsRequest()) return;
       setInstruments(catalog);
       const instrument = catalog.find((item) => item.id === selectedInstrumentId) ?? catalog[0] ?? null;
       if (!instrument) {
@@ -194,7 +200,11 @@ function useOrderFlowRouteState() {
         skipSelectionReloadRef.current = true;
         setSelectedInstrumentId(instrument.id);
       }
-      const footprints = await listMarketFootprints(instrument.id, { intervalSeconds, limit: 500, provider: provider || null });
+      const instrumentProviders = new Set(instrument.identifiers.map((identifier) => identifier.provider));
+      const effectiveProvider = provider && instrumentProviders.has(provider) ? provider : "";
+      if (provider !== effectiveProvider) setProvider(effectiveProvider);
+      const footprints = await listMarketFootprints(instrument.id, { intervalSeconds, limit: 500, provider: effectiveProvider || null, signal: request.controller.signal });
+      if (!ownsRequest()) return;
       const footprint = footprints.reduce<MarketFootprint | null>((latest, item) => !latest || Date.parse(item.end_at) > Date.parse(latest.end_at) ? item : latest, null);
       if (!footprint) {
         setModel({ detail: `${instrument.canonical_symbol} has no persisted ${formatInterval(intervalSeconds)} footprints${provider ? ` from ${provider}` : ""}. Configure a trade-level provider with aggressor-side attribution, then backfill or stream trades.`, footprint: null, state: "unsupported" });
@@ -203,6 +213,7 @@ function useOrderFlowRouteState() {
       const stale = Date.now() - Date.parse(footprint.end_at) > 10 * 60_000;
       setModel({ detail: `${footprint.provider} · persisted ${formatInterval(footprint.interval_seconds)} aggregate · ${footprint.complete ? "complete" : "contains provider gaps"}`, footprint, state: stale ? "stale" : "available" });
     }).catch((error: unknown) => {
+      if (!ownsRequest() || (error instanceof DOMException && error.name === "AbortError")) return;
       const message = error instanceof Error ? error.message : "The footprint request failed.";
       const unavailable = /403|404|entitlement|not found|unavailable/i.test(message);
       setModel({ detail: unavailable ? `${message} Configure an entitled trade-level provider; EdgeLab will not infer aggressor side from OHLCV.` : `${message} No cached footprint is being presented as current market data.`, footprint: null, state: unavailable ? "unsupported" : "error" });
@@ -215,7 +226,14 @@ function useOrderFlowRouteState() {
     }
     refresh();
   }, [refresh]);
-  return { ...model, fixture: Boolean(fixtureState), instruments, intervalSeconds, provider, refresh, selectedInstrumentId, setIntervalSeconds, setProvider, setSelectedInstrumentId };
+  useEffect(() => () => requestRef.current?.controller.abort(), []);
+  const selectInstrument = useCallback((instrumentId: number) => {
+    const nextInstrument = instruments.find((instrument) => instrument.id === instrumentId);
+    const nextProviders = new Set(nextInstrument?.identifiers.map((identifier) => identifier.provider) ?? []);
+    if (provider && !nextProviders.has(provider)) setProvider("");
+    setSelectedInstrumentId(instrumentId);
+  }, [instruments, provider]);
+  return { ...model, fixture: Boolean(fixtureState), instruments, intervalSeconds, provider, refresh, selectInstrument, selectedInstrumentId, setIntervalSeconds, setProvider };
 }
 
 function fixtureDetail(state: OrderFlowRouteState) {

@@ -96,10 +96,10 @@ type NormalizedCandle = {
 
 export type MarketSubscription = { subscription_id: string; pane_id: string; instrument_id: number; channels: string[]; queued_events: number; dropped_events: number };
 
-export function listMarketInstruments(search = "") {
+export function listMarketInstruments(search = "", options: { signal?: AbortSignal } = {}) {
   const query = new URLSearchParams();
   if (search.trim()) query.set("search", search.trim());
-  return apiRequest<MarketInstrument[]>(`/market-data/instruments${query.toString() ? `?${query.toString()}` : ""}`);
+  return apiRequest<MarketInstrument[]>(`/market-data/instruments${query.toString() ? `?${query.toString()}` : ""}`, { signal: options.signal });
 }
 
 export async function resolveMarketInstrument(symbol: string) {
@@ -114,7 +114,7 @@ export function getOrderBook(instrumentId: number, options: { aggregationTicks?:
   return apiRequest<OrderBookSnapshot>(`/market-data/instruments/${instrumentId}/order-book?${query.toString()}`);
 }
 
-export function listMarketFootprints(instrumentId: number, options: { from?: Date; to?: Date; intervalSeconds?: number; provider?: string | null; limit?: number } = {}) {
+export function listMarketFootprints(instrumentId: number, options: { from?: Date; to?: Date; intervalSeconds?: number; provider?: string | null; limit?: number; signal?: AbortSignal } = {}) {
   const to = options.to ?? new Date();
   const from = options.from ?? new Date(to.getTime() - 24 * 60 * 60 * 1000);
   const query = new URLSearchParams({
@@ -124,7 +124,7 @@ export function listMarketFootprints(instrumentId: number, options: { from?: Dat
     limit: String(options.limit ?? 500),
   });
   if (options.provider) query.set("provider", options.provider);
-  return apiRequest<MarketFootprint[]>(`/market-data/instruments/${instrumentId}/footprints?${query.toString()}`);
+  return apiRequest<MarketFootprint[]>(`/market-data/instruments/${instrumentId}/footprints?${query.toString()}`, { signal: options.signal });
 }
 
 export function listMarketAlerts() { return apiRequest<MarketAlertRule[]>("/market-data/alerts"); }
