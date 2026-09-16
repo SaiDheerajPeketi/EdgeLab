@@ -743,19 +743,42 @@ export function SessionGateway({
         </div>
         <div className="session-form-grid">
           <div className="form-field">
-            <span>Existing Strategy</span>
+            <span className="flex min-w-0 items-center justify-between gap-3">
+              <span>Existing Strategy</span>
+              {sessionHistoryLoading ? (
+                <span
+                  aria-label="Loading strategies"
+                  className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-semibold normal-case tracking-normal text-cyan-200"
+                  role="status"
+                >
+                  <RefreshCw
+                    aria-hidden="true"
+                    className="animate-spin motion-reduce:animate-none"
+                    size={12}
+                  />
+                  Loading strategies…
+                </span>
+              ) : null}
+            </span>
             <div className="flex min-w-0 gap-2">
               <ThemedSelect
                 ariaLabel="Existing strategy"
                 className="h-11 min-w-0 flex-1"
-                disabled={strategySelectOptions.length === 0}
+                disabled={sessionHistoryLoading || strategySelectOptions.length === 0}
                 onChange={handleStrategySelect}
                 options={strategySelectOptions}
-                placeholder={strategySelectOptions.length === 0 ? "No saved strategies" : "Select strategy"}
+                placeholder={
+                  sessionHistoryLoading
+                    ? "Strategy history pending"
+                    : strategySelectOptions.length === 0
+                      ? "No saved strategies"
+                      : "Select strategy"
+                }
                 value={strategySelectValue}
               />
               <button
                 className="control-button h-11 shrink-0 px-3"
+                disabled={sessionHistoryLoading}
                 onClick={startNewStrategy}
                 type="button"
               >
@@ -769,6 +792,7 @@ export function SessionGateway({
             <input
               autoComplete="off"
               className="input-control h-11"
+              disabled={sessionHistoryLoading}
               name="strategy-name"
               onChange={(event) => handleStrategyNameChange(event.target.value)}
               placeholder="Type strategy name"

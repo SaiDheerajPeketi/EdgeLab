@@ -274,6 +274,13 @@ test.describe("session gateway critical states", () => {
     await expect(page.getByRole("button", { name: "New session" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Use sample setup" })).toHaveCount(0);
     await expect(page.getByText("1 markets ready", { exact: true })).toBeVisible();
+    const builder = page.locator("#new-session");
+    await expect(builder.getByRole("status", { name: "Loading strategies" })).toBeVisible();
+    await expect(builder.getByText("No saved strategies", { exact: true })).toHaveCount(0);
+    await expect(builder.getByRole("combobox", { name: "Existing strategy" })).toBeDisabled();
+    await expect(builder.getByRole("button", { name: "New", exact: true })).toBeDisabled();
+    await expect(builder.locator('input[name="strategy-name"]')).toBeDisabled();
+    await expect(builder.locator('button[type="submit"]')).toBeDisabled();
     await expectGatewayStateGeometry(page, page.locator(".session-gateway"), "gateway loading");
     await expectStableScreenshot(page, "gateway-loading", { fullPage: false });
   });
