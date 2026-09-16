@@ -31,6 +31,19 @@ test("rollout flags preserve deep links and provide a global reversible fallback
       assert.ok(routes.length >= 3, `${group} compatibility navigation is incomplete`);
       assert.ok(routes.every((route) => route.href.startsWith("/") && route.label));
     }
+    const inventory = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/ui-surface-inventory.json"), "utf8"));
+    const redirectedOrPatternRoutes = new Set(["/index.html", "/auth/callback/google", "/workspace", "*", "/app/*", "/app/settings/:category"]);
+    const productRoutes = inventory.routes.map((route) => route.path).filter((route) => !redirectedOrPatternRoutes.has(route));
+    assert.deepEqual(
+      productRoutes.filter((route) => !module.compatibilityRouteIsMapped(route)),
+      [],
+      "every concrete product route must select an explicit compatibility renderer",
+    );
+    for (const [group, paths] of Object.entries(module.UI_COMPATIBILITY_PATHS)) {
+      assert.ok(paths.length > 0);
+      assert.equal(new Set(paths).size, paths.length, `${group} contains a duplicate compatibility path`);
+      assert.ok(paths.every((route) => module.routeGroup(route) === group), `${group} contains a misclassified compatibility path`);
+    }
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));
     assert.equal(module.resolveUiRollout({ overrides: { chart: false } }).chart, false);

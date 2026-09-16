@@ -4,6 +4,23 @@ export type UiRouteGroup = (typeof UI_ROUTE_GROUPS)[number];
 
 export type CompatibilityRoute = { href: string; label: string };
 
+/** Every concrete product deep link that can be served by a compatibility renderer. */
+export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly string[]>> = Object.freeze({
+  public: ["/", "/pricing", "/privacy", "/terms", "/auth/signin"],
+  shell: ["/app"],
+  journal: [
+    "/app/journal", "/app/journal/dashboard", "/app/journal/accounts", "/app/journal/trades",
+    "/app/journal/analytics", "/app/journal/notes", "/app/journal/calendar",
+    "/app/journal/reports", "/app/journal/settings", "/app/reports",
+  ],
+  settings: [
+    "/app/settings", "/app/settings/global", "/app/settings/journal", "/app/settings/backtest",
+    "/app/settings/chart", "/app/settings/appearance", "/app/settings/data-providers",
+    "/app/settings/account", "/app/settings/ai", "/app/settings/privacy-security", "/app/settings/storage",
+  ],
+  chart: ["/shared", "/app/live", "/app/replay", "/app/order-flow", "/app/quant"],
+});
+
 export const UI_COMPATIBILITY_ROUTES: Readonly<Record<UiRouteGroup, readonly CompatibilityRoute[]>> = Object.freeze({
   public: [{ href: "/", label: "Home" }, { href: "/pricing", label: "Pricing" }, { href: "/auth/signin", label: "Sign in" }],
   shell: [{ href: "/app", label: "Workspace" }, { href: "/app/live", label: "Live" }, { href: "/app/journal/dashboard", label: "Journal" }, { href: "/app/settings/global", label: "Settings" }],
@@ -75,6 +92,11 @@ export function routeGroup(pathname: string): UiRouteGroup {
   if (section === "settings") return "settings";
   if (["live", "replay", "chart", "quant", "order-flow"].includes(section)) return "chart";
   return "shell";
+}
+
+export function compatibilityRouteIsMapped(pathname: string) {
+  const path = normalizedPathname(pathname);
+  return UI_COMPATIBILITY_PATHS[routeGroup(path)].includes(path);
 }
 
 /** Compatibility rendering changes presentation only; the active deep link remains authoritative. */
