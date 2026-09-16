@@ -298,6 +298,16 @@ test.describe("accessibility and adaptive operation", () => {
 
     const more = page.getByRole("button", { exact: true, name: "More" });
     await more.click();
+    const backdrop = page.locator('[data-modal-backdrop="true"]');
+    const portraitBackdropPadding = await backdrop.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return {
+        left: Number.parseFloat(styles.paddingLeft),
+        right: Number.parseFloat(styles.paddingRight),
+        top: Number.parseFloat(styles.paddingTop),
+      };
+    });
+    expect(portraitBackdropPadding).toEqual({ left: safeArea.left, right: safeArea.right, top: safeArea.top });
     const close = page.getByRole("button", { name: "Close more tools" });
     await expect(close).toBeVisible();
     const closeBounds = await close.boundingBox();
@@ -306,6 +316,55 @@ test.describe("accessibility and adaptive operation", () => {
     expect(closeBounds!.x + closeBounds!.width).toBeLessThanOrEqual(geometry.viewport.width - safeArea.right);
     await close.click();
     await expect(page.getByRole("dialog", { name: "More workspace tools" })).toBeHidden();
+    await expect(more).toBeFocused();
+
+    const landscapeSafeArea = { bottom: 21, left: 47, right: 47, top: 18 };
+    await page.setViewportSize({ height: 390, width: 844 });
+    await client.send("Emulation.setSafeAreaInsetsOverride", { insets: landscapeSafeArea });
+    const landscapeGeometry = await navigation.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      const controls = [...element.querySelectorAll<HTMLElement>("button")].map((control) => {
+        const rect = control.getBoundingClientRect();
+        return { bottom: rect.bottom, left: rect.left, right: rect.right };
+      });
+      return {
+        controls,
+        padding: {
+          bottom: Number.parseFloat(styles.paddingBottom),
+          left: Number.parseFloat(styles.paddingLeft),
+          right: Number.parseFloat(styles.paddingRight),
+        },
+        viewport: { height: window.innerHeight, width: window.innerWidth },
+      };
+    });
+    expect(landscapeGeometry.padding).toEqual({
+      bottom: landscapeSafeArea.bottom,
+      left: landscapeSafeArea.left,
+      right: landscapeSafeArea.right,
+    });
+    expect(landscapeGeometry.controls.every((control) => (
+      control.bottom <= landscapeGeometry.viewport.height - landscapeSafeArea.bottom
+      && control.left >= landscapeSafeArea.left
+      && control.right <= landscapeGeometry.viewport.width - landscapeSafeArea.right
+    ))).toBe(true);
+
+    await more.click();
+    const landscapeBackdropPadding = await backdrop.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return {
+        left: Number.parseFloat(styles.paddingLeft),
+        right: Number.parseFloat(styles.paddingRight),
+        top: Number.parseFloat(styles.paddingTop),
+      };
+    });
+    expect(landscapeBackdropPadding).toEqual({
+      left: landscapeSafeArea.left,
+      right: landscapeSafeArea.right,
+      top: landscapeSafeArea.top,
+    });
+    const landscapeClose = page.getByRole("button", { name: "Close more tools" });
+    await expect(landscapeClose).toBeVisible();
+    await landscapeClose.click();
     await expect(more).toBeFocused();
   });
 
