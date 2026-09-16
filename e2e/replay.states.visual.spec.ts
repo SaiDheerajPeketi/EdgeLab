@@ -229,6 +229,43 @@ test.describe("replay critical state baselines", () => {
     await expectReplayScreenshot(page, "replay-playing");
   });
 
+  test("transport remains usable without horizontal overflow", async ({ page }) => {
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+
+    const transport = page.getByRole("region", { name: "Replay transport" });
+    await expect(transport.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
+    await expect(transport.getByRole("button", { name: "Step", exact: true })).toBeEnabled();
+    await expect(transport).toHaveScreenshot("replay-transport.png");
+    expect(await transport.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  });
+
+  test("open order ticket preserves replay controls", async ({ page }) => {
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+
+    await page.getByRole("button", { name: "Ticket", exact: true }).first().click();
+    const ticket = page.getByRole("form", { name: "Order ticket" });
+    await expect(ticket).toBeVisible();
+    await expect(ticket.getByRole("button", { name: "Long / Buy" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Replay transport" })).toBeVisible();
+    expect(await ticket.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await expectReplayScreenshot(page, "replay-order-open");
+    await expect(ticket).toHaveScreenshot("order-ticket.png");
+  });
+
+  test("selected trade opens an accessible review drawer", async ({ page }) => {
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+
+    await page.getByRole("tab", { name: "Journal" }).click();
+    const panel = page.getByRole("tabpanel", { name: "Journal" });
+    await panel.getByRole("button").filter({ hasText: "BTCUSDT" }).first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("button", { name: /close/i })).toBeVisible();
+    await expectReplayScreenshot(page, "replay-trade-selected");
+  });
+
   test("failed progress save keeps the replay recoverable", async ({ page }) => {
     await fulfillReplayContext(page);
     const jumpOffsets: number[] = [];

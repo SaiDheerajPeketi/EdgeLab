@@ -25,9 +25,9 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
   const result = validateUiSurfaceInventory(fixtureInputs());
   assert.deepEqual(result.errors, []);
   assert.equal(result.stats.inventoriedRoutes, result.stats.discoveredRoutes);
-  assert.equal(result.gaps.length, 29);
+  assert.equal(result.gaps.length, 18);
   assert.ok(result.gaps.includes("route:/app/live:empty: Live empty-state baseline has not been captured."));
-  assert.ok(result.gaps.includes("route:/app/replay:trade-selected: Replay with a selected trade has not been captured."));
+  assert.ok(result.gaps.includes("route:/app/live:skeleton: Live skeleton baseline has not been captured."));
   assert.ok(result.gaps.some((gap) => gap.startsWith("panel:Journal:default:")));
   assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:command palette:open:")));
 });
@@ -89,7 +89,28 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
       mutate(fixture) {
         delete fixture.visualEvidence.overlays.toast.states.transient.exemption.source;
       },
-      expected: /exemption must declare kind, reason, and source/,
+      expected: /exemption must declare an allowed kind, nonblank reason, and source/,
+    },
+    {
+      name: "fabricated panel state",
+      mutate(fixture) {
+        fixture.visualEvidence.panels.Journal.states.fabricated = { viewports: ["mobile"], gap: "not real" };
+      },
+      expected: /Panel "Journal" evidence states must exactly match its intended-state catalog/,
+    },
+    {
+      name: "omitted overlay state",
+      mutate(fixture) {
+        delete fixture.visualEvidence.overlays.toast.states.transient;
+      },
+      expected: /Overlay "toast" evidence states must exactly match its intended-state catalog/,
+    },
+    {
+      name: "non-authoritative exemption source",
+      mutate(fixture) {
+        fixture.visualEvidence.overlays.toast.states.transient.exemption.source = "frontend/src/App.tsx";
+      },
+      expected: /exemption source is not authoritative for toast/,
     },
     {
       name: "route state gap parity",
@@ -248,6 +269,6 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
 test("strict completion mode precisely rejects recorded evidence gaps", () => {
   assert.throws(
     () => runUiSurfaceInventoryCheck({ requireComplete: true, root }),
-    /panel:Journal:default:[\s\S]*overlay:command palette:open:[\s\S]*route:\/app\/live:empty:[\s\S]*route:\/app\/replay:trade-selected:/,
+    /panel:Journal:default:[\s\S]*overlay:command palette:open:[\s\S]*route:\/app\/live:empty:[\s\S]*route:\/app\/live:skeleton:/,
   );
 });

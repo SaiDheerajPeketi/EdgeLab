@@ -39,6 +39,9 @@
     { "path": "/app/settings/:category", "surface": "Settings", "auth": true, "disposition": "replace", "responsiveWidths": ["mobile", "tablet", "desktop"], "states": ["loading", "default", "dirty", "saving", "saved", "validation-error", "conflict", "danger-confirmation"], "criticalStates": ["loading", "dirty", "saving", "validation-error", "conflict"] }
   ],
   "panels": ["Journal", "Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"],
+  "panelStates": {
+    "Journal": ["default"], "Watchlist": ["default"], "Quant assistant": ["default"], "Data Window": ["default"], "Objects": ["default"], "Indicator editor": ["default"], "Order Book": ["default"], "Alerts": ["default"], "Order ticket": ["default"], "Replay transport": ["default"]
+  },
   "panelDispositions": {
     "Journal": "replace",
     "Watchlist": "restructure",
@@ -52,6 +55,9 @@
     "Replay transport": "restructure"
   },
   "overlays": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "radial drawing toolbox", "confirmation dialog", "toast"],
+  "overlayStates": {
+    "command palette": ["open"], "shortcut catalog": ["open"], "account menu": ["open"], "mobile navigation": ["open"], "trade review drawer": ["open"], "add trade flow": ["open"], "journal import flow": ["open"], "broker connection flow": ["open"], "workspace sharing": ["open"], "chart settings": ["open"], "indicator settings": ["open"], "drawing settings": ["open"], "symbol search": ["open"], "radial drawing toolbox": ["open"], "confirmation dialog": ["open"], "toast": ["transient"]
+  },
   "overlayDispositions": {
     "command palette": "replace",
     "shortcut catalog": "replace",

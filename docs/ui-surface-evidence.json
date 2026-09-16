@@ -2,8 +2,7 @@
   "schemaVersion": 2,
   "platform": "darwin",
   "routeGaps": {
-    "/app/live": { "empty": "Live empty-state baseline has not been captured.", "skeleton": "Live skeleton baseline has not been captured." },
-    "/app/replay": { "order-open": "Replay with an open order ticket has not been captured.", "trade-selected": "Replay with a selected trade has not been captured." }
+    "/app/live": { "empty": "Live empty-state baseline has not been captured.", "skeleton": "Live skeleton baseline has not been captured." }
   },
   "panels": {
     "Journal": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Journal panel evidence has not been captured." } } },
@@ -12,10 +11,26 @@
     "Data Window": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Data Window panel evidence has not been captured." } } },
     "Objects": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Objects panel evidence has not been captured." } } },
     "Indicator editor": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Indicator editor panel evidence has not been captured." } } },
-    "Order Book": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Order Book panel evidence has not been captured." } } },
-    "Alerts": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Alerts panel evidence has not been captured." } } },
-    "Order ticket": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Order ticket panel evidence has not been captured." } } },
-    "Replay transport": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Replay transport panel evidence has not been captured." } } }
+    "Order Book": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" },
+      "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" },
+      "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" }
+    } } } },
+    "Alerts": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" },
+      "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" },
+      "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" }
+    } } } },
+    "Order ticket": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" },
+      "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" },
+      "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" }
+    } } } },
+    "Replay transport": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+      "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" },
+      "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" },
+      "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" }
+    } } } }
   },
   "overlays": {
     "command palette": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Command palette visual evidence has not been captured." } } },
@@ -338,6 +353,18 @@
         "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" },
         "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-playing.png", "captureMode": "viewport" }
+      },
+      "order-open": {
+        "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-order-open.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-order-open.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-order-open.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-order-open.png", "captureMode": "viewport" }
+      },
+      "trade-selected": {
+        "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-trade-selected.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-trade-selected.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-trade-selected.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-trade-selected.png", "captureMode": "viewport" }
       },
       "complete": {
         "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" },

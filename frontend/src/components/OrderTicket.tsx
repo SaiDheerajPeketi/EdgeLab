@@ -245,7 +245,9 @@ export function OrderTicket({
 
   return (
     <form
+      aria-label="Order ticket"
       className="min-w-0 rounded-xl bg-[#080c11] p-4 shadow-panel ring-1 ring-inset ring-white/10"
+      data-ui-panel="order-ticket"
       onSubmit={handleSubmit}
     >
       <div className="mb-4 flex items-center justify-between">

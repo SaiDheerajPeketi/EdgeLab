@@ -87,12 +87,15 @@ function validateNamedSurfaceFamily({
   }
 }
 
-function validateSurfaceVisualEvidence({ evidenceFamily, errors, family, gaps, names, projects, root, platform, viewports }) {
+function validateSurfaceVisualEvidence({ evidenceFamily, errors, family, gaps, names, projects, root, platform, sources, stateCatalog, viewports }) {
   const expected = [...names].sort();
   const actual = Object.keys(evidenceFamily ?? {}).sort();
   if (!sameKeys(expected, actual)) errors.push(`${family} visual-evidence keys must exactly match the inventoried ${family} names.`);
   for (const name of names) {
     const states = evidenceFamily?.[name]?.states;
+    const intendedStates = stateCatalog?.[name];
+    if (!Array.isArray(intendedStates) || intendedStates.length === 0) errors.push(`${family} "${name}" has no intended-state catalog.`);
+    else if (!sameKeys([...intendedStates].sort(), Object.keys(states ?? {}).sort())) errors.push(`${family} "${name}" evidence states must exactly match its intended-state catalog.`);
     if (!states || Object.keys(states).length === 0) {
       errors.push(`${family} "${name}" has no visual-evidence states.`);
       continue;
@@ -116,8 +119,9 @@ function validateSurfaceVisualEvidence({ evidenceFamily, errors, family, gaps, n
       }
       if (contract.exemption) {
         const exemption = contract.exemption;
-        if (!exemption.kind || !exemption.reason || !exemption.source) errors.push(`${prefix} exemption must declare kind, reason, and source.`);
+        if (exemption.kind !== "behavioral-only" || typeof exemption.reason !== "string" || !exemption.reason.trim() || !exemption.source) errors.push(`${prefix} exemption must declare an allowed kind, nonblank reason, and source.`);
         else if (!fs.existsSync(path.join(root, exemption.source))) errors.push(`${prefix} exemption source does not exist: ${exemption.source}.`);
+        else if (!(sources?.[name] ?? []).includes(exemption.source)) errors.push(`${prefix} exemption source is not authoritative for ${name}: ${exemption.source}.`);
         continue;
       }
       const applicableProjects = contract.viewports.map((viewport) => viewports[viewport]?.project).filter(Boolean);
@@ -278,8 +282,8 @@ export function validateUiSurfaceInventory({
   });
 
   if (visualEvidence.schemaVersion !== 2) errors.push("UI surface evidence schemaVersion must be 2.");
-  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.panels, errors, family: "Panel", gaps, names: inventory.panels ?? [], projects, root, platform: visualEvidence.platform, viewports });
-  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.overlays, errors, family: "Overlay", gaps, names: inventory.overlays ?? [], projects, root, platform: visualEvidence.platform, viewports });
+  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.panels, errors, family: "Panel", gaps, names: inventory.panels ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.panels, stateCatalog: inventory.panelStates, viewports });
+  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.overlays, errors, family: "Overlay", gaps, names: inventory.overlays ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.overlays, stateCatalog: inventory.overlayStates, viewports });
   validateNamedSurfaceFamily({
     dispositions: inventory.overlayDispositions,
     errors,

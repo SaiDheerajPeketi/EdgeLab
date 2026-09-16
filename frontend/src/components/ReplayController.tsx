@@ -160,7 +160,7 @@ export function ReplayController({
   }
 
   return (
-    <section className="replay-controller-bar rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
+    <section aria-label="Replay transport" data-ui-panel="replay-transport" className="replay-controller-bar rounded-md border border-white/10 bg-ink-850 px-4 py-3 shadow-panel">
       {replayComplete ? (
         <div
           className="mb-3 flex flex-col gap-3 border-b border-emerald-300/15 pb-3 sm:flex-row sm:items-center sm:justify-between"
