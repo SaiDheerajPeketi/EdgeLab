@@ -15887,6 +15887,7 @@ function ReportsPage({
   closedTrades,
   currency,
   datasets,
+  onInspectTrade,
   sessionById,
   sessions,
   strategies,
@@ -16053,6 +16054,13 @@ function ReportsPage({
         </div>
       </section>
 
+      {closedTrades.length === 0 && (
+        <section aria-labelledby="reports-empty-title" className="terminal-panel p-4" role="status">
+          <h2 className="text-base font-semibold text-white" id="reports-empty-title">No closed backtest trades yet</h2>
+          <p className="mt-1 text-sm text-slate-400">Complete and close a replay trade to populate performance, risk, calendar, and recap reports.</p>
+        </section>
+      )}
+
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, reportCurrency)} />
         <ResultMetricCard icon={BadgeDollarSign} label="Gross P&L" tone={toneForNumber(filteredAggregate.grossPnl)} value={formatMoney(filteredAggregate.grossPnl, reportCurrency)} />
@@ -16111,7 +16119,7 @@ function ReportsPage({
               <ResultsDayTable currency={reportCurrency} datasets={datasets} days={filteredDays} sessionById={sessionById} />
             )}
             {performanceDetailTab === "trades" && (
-              <ResultsTradeTable currency={reportCurrency} datasets={datasets} sessionById={sessionById} trades={filteredClosedTrades} />
+              <ResultsTradeTable currency={reportCurrency} datasets={datasets} onInspectTrade={onInspectTrade} sessionById={sessionById} trades={filteredClosedTrades} />
             )}
           </FeatureCard>
         </div>
@@ -16241,7 +16249,7 @@ function ReportsPage({
           <FeatureCard className="xl:col-span-2">
             <CardLabel icon={ClipboardList} label="Matched trade outcomes" />
             <div className="mt-4">
-              <ResultsTradeTable currency={reportCurrency} datasets={datasets} sessionById={sessionById} trades={filteredClosedTrades} />
+              <ResultsTradeTable currency={reportCurrency} datasets={datasets} onInspectTrade={onInspectTrade} sessionById={sessionById} trades={filteredClosedTrades} />
             </div>
           </FeatureCard>
         </div>
@@ -18428,11 +18436,13 @@ function ResultsDayTable({
 function ResultsTradeTable({
   currency,
   datasets,
+  onInspectTrade,
   sessionById,
   trades,
 }: {
   currency: string;
   datasets: DatasetCatalog | null;
+  onInspectTrade: (trade: Trade) => void;
   sessionById: Map<number, BacktestSession>;
   trades: Trade[];
 }) {
@@ -18460,7 +18470,7 @@ function ResultsTradeTable({
             const rowCurrency = session ? currencyForSession(session, datasets) : currency;
             return (
               <tr className="border-t border-white/10 text-slate-300" key={trade.id}>
-                <td className="px-3 py-3 font-semibold text-white">#{trade.id}</td>
+                <td className="px-3 py-3 font-semibold text-white"><button className="min-h-10 text-cyan-100 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" onClick={() => onInspectTrade(trade)} type="button">Inspect trade #{trade.id}</button></td>
                 <td className="px-3 py-3">{tradeInstrumentLabel(trade, session)}</td>
                 <td className="px-3 py-3">{tradeStrategyName(trade, session)}</td>
                 <td className="px-3 py-3 text-slate-500">{formatDateTime(trade.exit_time ?? trade.entry_time)}</td>

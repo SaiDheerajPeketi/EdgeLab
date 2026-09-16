@@ -419,10 +419,30 @@
       }
     },
     "/app/reports": {
+      "loading": {
+        "mobile": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-loading.png", "captureMode": "viewport" }
+      },
+      "empty": {
+        "mobile": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-empty.png", "captureMode": "viewport" }
+      },
       "populated": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png", "captureMode": "viewport" }
+      },
+      "filtered": {
+        "mobile": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-filtered.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-filtered.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-filtered.png", "captureMode": "viewport" }
+      },
+      "trade-selected": {
+        "mobile": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-selected-trade.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-selected-trade.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-selected-trade.png", "captureMode": "viewport" }
       }
     },
     "/app/quant": {

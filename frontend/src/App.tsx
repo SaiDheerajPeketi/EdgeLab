@@ -3095,9 +3095,12 @@ export function WorkspaceApp() {
               symbol={activeChartPane.symbol}
             >
           {error && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100" role="alert">
               <AlertTriangle size={18} />
-              {error}
+              <span className="min-w-0 flex-1">{error}</span>
+              <button className="control-button h-9 px-3 text-xs" disabled={isLoading} onClick={() => void loadInitial()} type="button">
+                Retry
+              </button>
             </div>
           )}
           {isLoading && <BacktestLoadingPanel />}
