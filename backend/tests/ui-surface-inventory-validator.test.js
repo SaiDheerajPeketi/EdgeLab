@@ -28,13 +28,13 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
   assert.deepEqual(result.gaps, []);
 });
 
-test("panel evidence resolves an authoritative source, spec, and exact snapshot", () => {
+test("panel interaction proof remains bound to its certified evidence spec", () => {
   const fixture = fixtureInputs();
   fixture.visualEvidence.panels.Journal.states.default = {
     viewports: ["mobile", "tablet", "desktop"],
     evidence: structuredClone(fixture.visualEvidence.routes["/pricing"].default),
   };
-  assert.deepEqual(validateUiSurfaceInventory(fixture).errors, []);
+  assert.deepEqual(validateUiSurfaceInventory(fixture).errors, ["Panel Journal interaction proof is not bound to its visual evidence spec."]);
 });
 
 test("surface inventory validator rejects omitted evidence contracts", async (t) => {

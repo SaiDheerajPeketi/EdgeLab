@@ -161,6 +161,7 @@ export function validateUiSurfaceInventory({
   foundationContracts,
   releaseMatrix,
   visualEvidence,
+  interactionCertification,
   appRoutesSource,
   workspaceRouteSource,
   playwrightSource,
@@ -286,6 +287,35 @@ export function validateUiSurfaceInventory({
     sources: foundationContracts.panels,
     validDispositions,
   });
+
+  if (interactionCertification.schemaVersion !== 1) errors.push("UI surface interaction certification schemaVersion must be 1.");
+  const criteria = interactionCertification.criteria ?? [];
+  const allowedKinds = new Set(["modal", "nonmodal", "disclosure", "persistent", "route-static", "transient"]);
+  const validateInteractionFamily = (label, names, entries, evidenceFamily) => {
+    if (!sameKeys(Object.keys(entries ?? {}).sort(), [...names].sort())) errors.push(`${label} interaction ledger must classify every inventoried surface exactly once.`);
+    for (const [name, entry] of Object.entries(entries ?? {})) {
+      if (!Array.isArray(entry) || entry.length !== 3) {
+        errors.push(`${label} ${name} interaction proof must be [kind, spec, exact title/marker].`);
+        continue;
+      }
+      const [kind, spec, title] = entry;
+      if (!allowedKinds.has(kind)) errors.push(`${label} ${name} has unknown interaction kind ${kind}.`);
+      const exemptions = interactionCertification.typedExemptions?.[kind] ?? [];
+      for (const exemption of exemptions) if (!criteria.includes(exemption)) errors.push(`${label} ${name} has unknown typed exemption ${exemption}.`);
+      const sourcePath = path.join(root, spec);
+      if (!fs.existsSync(sourcePath)) {
+        errors.push(`${label} ${name} interaction proof source is missing: ${spec}.`);
+        continue;
+      }
+      const source = fs.readFileSync(sourcePath, "utf8");
+      const marker = spec.startsWith("e2e/") ? `test("${title}"` : title;
+      if (!source.includes(marker)) errors.push(`${label} ${name} exact interaction proof is missing: ${title}.`);
+      const evidenceSpecs = new Set(Object.values(evidenceFamily?.[name]?.states ?? {}).flatMap((state) => Object.values(state.evidence ?? {}).map((item) => item.spec)));
+      if (spec.startsWith("e2e/") && !evidenceSpecs.has(spec) && name !== "radial drawing toolbox") errors.push(`${label} ${name} interaction proof is not bound to its visual evidence spec.`);
+    }
+  };
+  validateInteractionFamily("Panel", inventory.panels ?? [], interactionCertification.panels, visualEvidence.panels);
+  validateInteractionFamily("Overlay", inventory.overlays ?? [], interactionCertification.overlays, visualEvidence.overlays);
 
   if (visualEvidence.schemaVersion !== 2) errors.push("UI surface evidence schemaVersion must be 2.");
   validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.panels, errors, family: "Panel", gaps, names: inventory.panels ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.panels, stateCatalog: inventory.panelStates, stateViewports: inventory.panelStateViewports, viewports });
@@ -461,6 +491,7 @@ export function loadUiSurfaceInventoryInputs(root = DEFAULT_ROOT) {
     foundationContracts: readJson(root, "docs/ui-foundation-contracts.json"),
     releaseMatrix: readJson(root, "docs/ui-release-matrix.json"),
     visualEvidence: readJson(root, "docs/ui-surface-evidence.json"),
+    interactionCertification: readJson(root, "docs/ui-surface-interaction-certification.json"),
     appRoutesSource: read(root, "frontend/src/routes/AppRoutes.tsx"),
     workspaceRouteSource: read(root, "frontend/src/lib/workspaceRoute.ts"),
     playwrightSource: read(root, "playwright.config.ts"),
