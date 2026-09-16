@@ -102,6 +102,7 @@ import {
 import { ChartTooltip as BacklitChartTooltip } from "@/components/charts/tooltip";
 import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
 import { Dialog, DialogHeader } from "@/components/ui/Primitives";
+import { LiveFeedHealthSurface } from "@/components/live/LiveFeedHealthSurface";
 import {
   exportAppDataBundle,
   getAngelOneInstruments,
@@ -2352,6 +2353,15 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
               <div className={`text-right text-2xl font-semibold tabular-nums ${toneForNumber(selectedTicker?.change ?? 0)}`}>
                 {selectedTicker ? formatLivePrice(selectedTicker.last) : "--"}
               </div>
+            </div>
+            <div className="px-4 pt-3">
+              <LiveFeedHealthSurface
+                connectionStatus={connectionStatus}
+                feedError={feedError}
+                onRetry={() => window.location.reload()}
+                sourceLabel={selectedSourceLabel}
+                tickerUpdatedAt={selectedTicker?.updatedAt}
+              />
             </div>
             <LiveChartStudio
               bars={liveBars}

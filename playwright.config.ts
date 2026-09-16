@@ -181,6 +181,15 @@ export default defineConfig({
       },
     },
     {
+      name: "tradingDesktop",
+      testMatch: /(?:live-feed|order-flow)\.states\.visual\.spec\.ts|protected-workspace\.quality\.spec\.ts/,
+      use: {
+        ...commonUse,
+        deviceScaleFactor: 1,
+        viewport: { height: 1080, width: 1920 },
+      },
+    },
+    {
       name: "low-power",
       testMatch: /chart-performance\.spec\.ts/,
       use: {

@@ -6,6 +6,7 @@ export const AUTH_SESSION_KEY = "edgelab.auth.session.v1";
 
 type DeterminismOptions = {
   devAuth?: boolean;
+  liveFeedState?: "connecting" | "live" | "offline" | "stale" | "unsupported";
   motionLock?: boolean;
   seatsRemaining?: number;
   rollout?: "enabled" | "fallback" | "unavailable";
@@ -31,10 +32,10 @@ export const betaSessionResponse = {
 
 export async function installDeterminism(
   page: Page,
-  { devAuth = false, motionLock = true, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
+  { devAuth = false, liveFeedState = "live", motionLock = true, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
 ) {
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await page.addInitScript(({ datasetCatalog, frozenEpoch, lockMotion }) => {
+  await page.addInitScript(({ datasetCatalog, frozenEpoch, liveState, lockMotion }) => {
     const NativeDate = Date;
     class FrozenDate extends NativeDate {
       constructor(...args: ConstructorParameters<typeof Date>) {
@@ -85,6 +86,13 @@ export async function installDeterminism(
         this.url = resolved;
         queueMicrotask(() => {
           if (this.readyState !== NativeWebSocket.CONNECTING) return;
+          if (isBinanceStream && liveState === "connecting") return;
+          if (isBinanceStream && liveState === "offline") {
+            const failed = new Event("error");
+            this.dispatchEvent(failed);
+            this.onerror?.call(this as unknown as WebSocket, failed);
+            return;
+          }
           this.readyState = NativeWebSocket.OPEN;
           const opened = new Event("open");
           this.dispatchEvent(opened);
@@ -92,6 +100,12 @@ export async function installDeterminism(
           if (isDatasetStream) {
             const message = new MessageEvent("message", {
               data: JSON.stringify({ catalog: datasetCatalog, type: "catalog" }),
+            });
+            this.dispatchEvent(message);
+            this.onmessage?.call(this as unknown as WebSocket, message);
+          } else if (liveState === "stale") {
+            const message = new MessageEvent("message", {
+              data: JSON.stringify({ data: { E: frozenEpoch - 10 * 60_000, P: "1.82", c: "68124.50", h: "69000", l: "67000", p: "1218", q: "42000000", s: "BTCUSDT", v: "615" } }),
             });
             this.dispatchEvent(message);
             this.onmessage?.call(this as unknown as WebSocket, message);
@@ -152,7 +166,7 @@ export async function installDeterminism(
       if (document.head) installStyle();
       else document.addEventListener("DOMContentLoaded", installStyle, { once: true });
     }
-  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), lockMotion: motionLock });
+  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), liveState: liveFeedState, lockMotion: motionLock });
 
   const total = 500;
   const remaining = Math.max(0, seatsRemaining);
@@ -212,6 +226,10 @@ export async function installDeterminism(
   for (const marketHost of ["api.binance.com", "data-api.binance.vision"]) {
     await page.route(`https://${marketHost}/**`, async (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (liveFeedState === "unsupported") return route.fulfill({ body: JSON.stringify({ code: -1121, msg: "Invalid symbol." }), contentType: "application/json", status: 400 });
+      if (liveFeedState === "stale" && path.endsWith("/ticker/24hr")) {
+        return fulfillJson(route, { closeTime: Date.parse(FROZEN_TIME) - 10 * 60_000, lastPrice: "68124.50", priceChangePercent: "1.82", symbol: "BTCUSDT" });
+      }
       if (path.endsWith("/ticker/24hr")) return fulfillJson(route, { lastPrice: "68124.50", priceChangePercent: "1.82" });
       return fulfillJson(route, seedKlines);
     });
