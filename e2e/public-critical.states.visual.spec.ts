@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   expectStableScreenshot,
   gotoStable,
@@ -24,10 +24,17 @@ async function expectNoHorizontalOverflow(page: Page) {
 async function revealProductionAccessColumn(page: Page) {
   const comparison = page.getByLabel("Scrollable access comparison");
   if (!(await comparison.isVisible())) return;
-  await comparison.scrollIntoViewIfNeeded();
   await comparison.evaluate((element) => {
     element.scrollLeft = element.scrollWidth;
   });
+}
+
+async function positionPricingBoundary(page: Page, boundary: Locator) {
+  await boundary.evaluate((element) => {
+    const targetTop = element.getBoundingClientRect().top + window.scrollY - 180;
+    window.scrollTo(0, Math.max(0, targetTop));
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 test.describe("landing critical-state visual baselines", () => {
@@ -87,7 +94,7 @@ test.describe("pricing disclosure visual baselines", () => {
     await gotoStable(page, "/pricing", { waitForNetworkIdle: false });
     const annualBoundary = page.locator(testInfo.project.name === "mobile" ? "[data-access-comparison-mobile] dd" : "td:visible").filter({ hasText: /Monthly and annual options not confirmed/ });
     await revealProductionAccessColumn(page);
-    await annualBoundary.scrollIntoViewIfNeeded();
+    await positionPricingBoundary(page, annualBoundary);
     await expect(annualBoundary).toBeInViewport();
     await expectNoHorizontalOverflow(page);
     await expectStableScreenshot(page, "pricing-annual-unconfirmed", { fullPage: false });
@@ -97,7 +104,7 @@ test.describe("pricing disclosure visual baselines", () => {
     await gotoStable(page, "/pricing", { waitForNetworkIdle: false });
     const providerBoundary = page.locator(testInfo.project.name === "mobile" ? "[data-access-comparison-mobile] dd" : "td:visible").filter({ hasText: /Provider entitlements not announced/ });
     await revealProductionAccessColumn(page);
-    await providerBoundary.scrollIntoViewIfNeeded();
+    await positionPricingBoundary(page, providerBoundary);
     await expect(providerBoundary).toBeInViewport();
     await expectNoHorizontalOverflow(page);
     await expectStableScreenshot(page, "pricing-provider-limited", { fullPage: false });

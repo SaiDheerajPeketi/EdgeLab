@@ -1,28 +1,27 @@
 {
   "schemaVersion": 1,
   "platform": "darwin",
-  "defaultCaptureMode": "full-page",
   "routes": {
     "/": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png", "captureMode": "full-page" }
       },
       "availability-pending": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png", "captureMode": "viewport" }
       },
       "beta-open": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png", "captureMode": "viewport" }
       },
       "availability-error": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" }
       },
       "mobile-menu": {
         "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png", "captureMode": "viewport" }
@@ -30,50 +29,50 @@
     },
     "/pricing": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png", "captureMode": "full-page" }
       },
       "annual": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png", "captureMode": "viewport" }
       },
       "provider-limited": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "viewport" }
       },
       "faq-open": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png" }
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png", "captureMode": "viewport" }
       }
     },
     "/privacy": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png", "captureMode": "full-page" }
       }
     },
     "/terms": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" }
       }
     },
     "/auth/signin": {
       "signin": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png", "captureMode": "viewport" }
       },
       "waitlist": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "waitlist.png", "captureMode": "viewport" }
       },
       "capacity": {
         "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-capacity.png", "captureMode": "viewport" },
@@ -81,31 +80,31 @@
         "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-capacity.png", "captureMode": "viewport" }
       },
       "expired": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-expired.png", "captureMode": "viewport" }
       },
       "denied": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-denied.png", "captureMode": "viewport" }
       },
       "cancelled": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-cancelled.png", "captureMode": "viewport" }
       },
       "retryable": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png", "captureMode": "viewport" }
       }
     },
     "/auth/callback/google": {
       "exchanging": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-callback.png", "captureMode": "viewport" }
       },
       "success": {
         "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "auth-callback-success.png", "captureMode": "viewport" },
@@ -120,48 +119,48 @@
     },
     "/shared": {
       "available": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-ready.png", "captureMode": "viewport" }
       },
       "loading": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-loading.png", "captureMode": "viewport" }
       },
       "expired": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "shared-expired.png", "captureMode": "viewport" }
       },
       "revoked": {
-        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png" },
-        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png" },
-        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png" }
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-revoked.png", "captureMode": "viewport" }
       },
       "permission-denied": {
-        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png" },
-        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png" },
-        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png" }
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png", "captureMode": "viewport" }
       },
       "open-as-copy": {
-        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png" },
-        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png" },
-        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png" }
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png", "captureMode": "viewport" }
       }
     },
     "*": {
       "not-found": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png" }
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "not-found.png", "captureMode": "full-page" }
       }
     },
     "/app": {
       "recent": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "gateway.png", "captureMode": "viewport" }
       },
       "empty": {
         "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png", "captureMode": "viewport" },
@@ -176,9 +175,9 @@
     },
     "/app/live": {
       "one-pane": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" }
       },
       "fullscreen": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" },
@@ -203,131 +202,131 @@
     },
     "/app/replay": {
       "paused": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/dashboard": {
       "populated": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-dashboard.png", "captureMode": "viewport" }
       },
       "empty": {
-        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png" },
-        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png" },
-        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png" }
+        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/accounts": {
       "connected": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/trades": {
       "populated": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-trades.png", "captureMode": "viewport" }
       },
       "filtered": {
-        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png" },
-        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png" },
-        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png" }
+        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-filtered-empty.png", "captureMode": "viewport" }
       },
       "review-drawer": {
-        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png" },
-        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png" },
-        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png" }
+        "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-review-drawer.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/analytics": {
       "populated": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-analytics.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/notes": {
       "daily-note": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/calendar": {
       "dashboard": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-calendar.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/reports": {
       "populated": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-reports.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/settings": {
       "default": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-settings.png", "captureMode": "viewport" }
       },
       "dirty": {
-        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png" },
-        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png" },
-        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png" }
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-dirty.png", "captureMode": "viewport" }
       },
       "saving": {
-        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png" },
-        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png" },
-        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png" }
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saving.png", "captureMode": "viewport" }
       },
       "saved": {
-        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png" },
-        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png" },
-        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png" }
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-saved.png", "captureMode": "viewport" }
       },
       "validation-error": {
-        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png" },
-        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png" },
-        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png" }
+        "mobile": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-settings.states.visual.spec.ts", "snapshot": "journal-settings-validation-error.png", "captureMode": "viewport" }
       }
     },
     "/app/reports": {
       "populated": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "reports.png", "captureMode": "viewport" }
       }
     },
     "/app/quant": {
       "empty": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png", "captureMode": "viewport" }
       }
     },
     "/app/settings/:category": {
       "default": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png" }
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "settings.png", "captureMode": "viewport" }
       },
       "validation-error": {
-        "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png" },
-        "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png" },
-        "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png" }
+        "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-dirty-validation.png", "captureMode": "viewport" }
       },
       "conflict": {
-        "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png" },
-        "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png" },
-        "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png" }
+        "mobile": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/settings-critical.visual.spec.ts", "snapshot": "settings-conflict.png", "captureMode": "viewport" }
       }
     }
   },

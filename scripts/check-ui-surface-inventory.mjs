@@ -228,10 +228,6 @@ export function validateUiSurfaceInventory({
 
   const visualCoverage = inventory.visualCoverage ?? {};
   const evidenceRoutes = visualEvidence.routes ?? {};
-  const defaultCaptureMode = visualEvidence.defaultCaptureMode;
-  if (!['viewport', 'full-page'].includes(defaultCaptureMode)) {
-    errors.push('Visual evidence must declare defaultCaptureMode as "viewport" or "full-page".');
-  }
   for (const key of [...Object.keys(visualCoverage.exemptions ?? {}), ...Object.keys(visualCoverage.gaps ?? {})]) {
     if (!uniqueRoutePaths.includes(key)) errors.push(`Visual coverage decision references unknown route: ${key}.`);
   }
@@ -286,7 +282,11 @@ export function validateUiSurfaceInventory({
         if (!snapshotExists) {
           errors.push(`Route "${route.path}" state "${state}" is missing exact ${project} snapshot "${evidence.snapshot ?? "(none)"}".`);
         }
-        const captureMode = evidence.captureMode ?? defaultCaptureMode;
+        const captureMode = evidence.captureMode;
+        if (captureMode == null) {
+          errors.push(`Route "${route.path}" state "${state}" ${project} evidence has ambiguous capture semantics.`);
+          continue;
+        }
         if (!["viewport", "full-page", "element"].includes(captureMode)) {
           errors.push(`Route "${route.path}" state "${state}" uses unsupported capture mode "${evidence.captureMode}".`);
         } else if (snapshotExists && captureMode !== "element") {

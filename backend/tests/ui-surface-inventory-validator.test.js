@@ -133,11 +133,11 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
       expected: /state "mobile-menu" references inapplicable viewport "watch"/,
     },
     {
-      name: "default capture mode",
+      name: "ambiguous capture semantics",
       mutate(fixture) {
-        fixture.visualEvidence.defaultCaptureMode = undefined;
+        delete fixture.visualEvidence.routes["/pricing"].annual.mobile.captureMode;
       },
-      expected: /must declare defaultCaptureMode/,
+      expected: /state "annual" mobile evidence has ambiguous capture semantics/,
     },
     {
       name: "capture mode",
