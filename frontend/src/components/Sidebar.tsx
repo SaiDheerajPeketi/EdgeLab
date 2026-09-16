@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Command, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { WorkspaceView } from "../lib/workspace";
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -163,6 +163,18 @@ export function Sidebar({
       </nav>
 
       <div className="w-full border-t border-[var(--ui-divider)] pt-3">
+        <button
+          aria-label={collapsed ? "Open command palette" : undefined}
+          className={`${sidebarItemClass(collapsed, false)} mb-2`}
+          onClick={() => window.dispatchEvent(new Event("edgelab:open-command-palette"))}
+          title={collapsed ? "Open command palette" : undefined}
+          type="button"
+        >
+          <span className="grid h-5 w-5 shrink-0 place-items-center">
+            <Command aria-hidden="true" size={SIDEBAR_ICON_SIZE} />
+          </span>
+          {!collapsed ? <><span className="min-w-0 flex-1 truncate text-sm">Commands</span><kbd className="text-[10px] text-[var(--text-muted)]">⌘K</kbd></> : null}
+        </button>
         <AccountSystemMenu collapsed={collapsed} onNavigate={onNavigate} />
       </div>
     </aside>

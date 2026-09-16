@@ -37,7 +37,7 @@ test.describe("journal settings state baselines", () => {
     const apply = page.getByRole("button", { name: "Apply journal defaults" });
     await expect(apply).toBeEnabled();
     await expectControlGeometry(page, apply);
-    await expectCommandLauncherClear(page, apply);
+    await expectCommandLauncherClearOfInteractiveControls(page);
     await expectStateScreenshot(page, "journal-settings-dirty");
   });
 
@@ -49,7 +49,7 @@ test.describe("journal settings state baselines", () => {
     await expect(page.getByRole("status").filter({ hasText: "Applying locally…" })).toBeVisible();
     await expect(apply).toBeDisabled();
     await expectControlGeometry(page, apply);
-    await expectCommandLauncherClear(page, apply);
+    await expectCommandLauncherClearOfInteractiveControls(page);
     await expectStateScreenshot(page, "journal-settings-saving");
   });
 
@@ -62,7 +62,7 @@ test.describe("journal settings state baselines", () => {
     await expect(page.getByRole("status").filter({ hasText: "Applied locally" })).toBeVisible();
     await expect(page.getByText("All explicit changes applied")).toBeVisible();
     await expect(apply).toBeDisabled();
-    await expectCommandLauncherClear(page, apply);
+    await expectCommandLauncherClearOfInteractiveControls(page);
     await expectStateScreenshot(page, "journal-settings-saved");
   });
 
@@ -83,7 +83,7 @@ test.describe("journal settings state baselines", () => {
     await gotoStable(page, "/app/settings/global", { waitForNetworkIdle: false });
     const regional = page.getByRole("heading", { name: "Language, time zone, and number format" });
     await expect(regional).toBeVisible();
-    await expectCommandLauncherClear(page, regional);
+    await expectCommandLauncherClearOfInteractiveControls(page);
   });
 });
 
@@ -92,8 +92,8 @@ async function expectStateScreenshot(page: Page, name: string) {
     animations: "disabled",
     caret: "hide",
     fullPage: false,
-    maxDiffPixelRatio: 0.003,
-    threshold: 0.1,
+    maxDiffPixelRatio: 0.0001,
+    threshold: 0.05,
   });
 }
 
@@ -109,15 +109,21 @@ async function expectControlGeometry(page: Page, control: Locator) {
   expect(overflow).toBeLessThanOrEqual(1);
 }
 
-async function expectCommandLauncherClear(page: Page, control: Locator) {
+async function expectCommandLauncherClearOfInteractiveControls(page: Page) {
   const launcher = page.getByRole("button", { name: "Open command palette" });
-  if (!(await launcher.isVisible())) return;
-  const [controlBox, launcherBox] = await Promise.all([control.boundingBox(), launcher.boundingBox()]);
-  expect(controlBox).not.toBeNull();
+  await expect(launcher).toBeVisible();
+  const launcherBox = await launcher.boundingBox();
   expect(launcherBox).not.toBeNull();
-  const intersects = controlBox!.x < launcherBox!.x + launcherBox!.width
-    && controlBox!.x + controlBox!.width > launcherBox!.x
-    && controlBox!.y < launcherBox!.y + launcherBox!.height
-    && controlBox!.y + controlBox!.height > launcherBox!.y;
-  expect(intersects).toBe(false);
+  const controls = page.locator("main button, main input, main select, main textarea, main a[href]");
+  for (let index = 0; index < await controls.count(); index += 1) {
+    const control = controls.nth(index);
+    if (!(await control.isVisible())) continue;
+    const controlBox = await control.boundingBox();
+    if (!controlBox) continue;
+    const intersects = controlBox.x < launcherBox!.x + launcherBox!.width
+      && controlBox.x + controlBox.width > launcherBox!.x
+      && controlBox.y < launcherBox!.y + launcherBox!.height
+      && controlBox.y + controlBox.height > launcherBox!.y;
+    expect(intersects, `Commands overlaps ${await control.getAttribute("aria-label") ?? await control.textContent() ?? control.evaluate((element) => element.tagName)}`).toBe(false);
+  }
 }
