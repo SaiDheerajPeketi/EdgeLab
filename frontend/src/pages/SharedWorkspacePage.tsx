@@ -17,8 +17,9 @@ export function SharedWorkspacePage() {
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<WorkspaceShareOpen | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "copying">("loading");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ message: string; retryable: boolean } | null>(null);
   const [copyError, setCopyError] = useState("");
+  const [requestVersion, setRequestVersion] = useState(0);
   const token = useMemo(() => {
     try {
       return decodeURIComponent(location.hash.replace(/^#/, ""));
@@ -50,7 +51,7 @@ export function SharedWorkspacePage() {
     let active = true;
     setSnapshot(null);
     setStatus("loading");
-    setError("");
+    setError(null);
     setCopyError("");
     void openWorkspaceShare(token)
       .then((response) => {
@@ -61,17 +62,27 @@ export function SharedWorkspacePage() {
       .catch((cause) => {
         if (!active) return;
         setSnapshot(null);
-        setError(
-          cause instanceof ApiError && cause.status === 410
-            ? "This workspace link has expired or was revoked. Ask the owner for a new snapshot."
-            : "This snapshot is unavailable to your EdgeLab account. Check the link or ask the owner to share it with your sign-in email.",
-        );
+        const isAccessFailure = cause instanceof ApiError && [401, 403, 404].includes(cause.status);
+        setError(cause instanceof ApiError && cause.status === 410
+          ? {
+              message: "This workspace link has expired or was revoked. Ask the owner for a new snapshot.",
+              retryable: false,
+            }
+          : isAccessFailure
+            ? {
+                message: "This snapshot is unavailable to your EdgeLab account. Check the link or ask the owner to share it with your sign-in email.",
+                retryable: false,
+              }
+            : {
+                message: "The sharing service did not respond, so this snapshot could not be opened. Check your connection and try again.",
+                retryable: true,
+              });
         setStatus("error");
       });
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [requestVersion, token]);
 
   async function openAsCopy() {
     if (!snapshot) return;
@@ -109,7 +120,12 @@ export function SharedWorkspacePage() {
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12 lg:px-8" id="shared-workspace-content" tabIndex={-1}>
         {status === "loading" ? <SnapshotLoading /> : null}
-        {status === "error" ? <SnapshotError message={error} /> : null}
+        {status === "error" && error ? (
+          <SnapshotError
+            message={error.message}
+            onRetry={error.retryable ? () => setRequestVersion((version) => version + 1) : undefined}
+          />
+        ) : null}
         {snapshot && (status === "ready" || status === "copying") ? (
           <div className="space-y-7">
             <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -189,8 +205,25 @@ function SnapshotLoading() {
   return <div aria-live="polite" className="grid min-h-[60vh] place-items-center" role="status"><div className="text-center"><RefreshCw className="mx-auto animate-spin text-cyan-300 motion-reduce:animate-none" size={24} /><p className="mt-4 text-sm text-slate-400">Opening secure snapshot…</p></div></div>;
 }
 
-function SnapshotError({ message }: { message: string }) {
-  return <section className="mx-auto flex min-h-[60vh] max-w-2xl flex-col justify-center"><div className="grid h-12 w-12 place-items-center rounded-xl bg-rose-400/10 text-rose-200"><LockKeyhole size={21} /></div><h1 className="mt-5 text-2xl font-semibold text-white">Snapshot unavailable</h1><p className="mt-3 max-w-xl text-sm leading-6 text-slate-400" role="alert">{message}</p><Link className="mt-6 inline-flex min-h-11 w-fit items-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-[#041217] outline-none hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-100" to="/app">Open your workspace</Link></section>;
+function SnapshotError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const workspaceLinkClass = onRetry
+    ? "inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-semibold text-slate-200 outline-none hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-cyan-100"
+    : "inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-[#041217] outline-none hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-100";
+  return (
+    <section aria-labelledby="shared-snapshot-error-title" className="mx-auto flex min-h-[60vh] max-w-2xl flex-col justify-center">
+      <div className="grid h-12 w-12 place-items-center rounded-xl bg-rose-400/10 text-rose-200"><LockKeyhole size={21} /></div>
+      <h1 className="mt-5 text-2xl font-semibold text-white" id="shared-snapshot-error-title">Snapshot unavailable</h1>
+      <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400" role="alert">{message}</p>
+      <div className="mt-6 flex flex-wrap gap-3">
+        {onRetry ? (
+          <button className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-[#041217] outline-none hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-100" onClick={onRetry} type="button">
+            <RefreshCw aria-hidden="true" size={16} />Try opening again
+          </button>
+        ) : null}
+        <Link className={workspaceLinkClass} to="/app">Open your workspace</Link>
+      </div>
+    </section>
+  );
 }
 
 function CandlestickPreview({ candles }: { candles: WorkspaceShareCandle[] }) {

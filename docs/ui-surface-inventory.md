@@ -8,7 +8,8 @@ This inventory is the release authority for route and state coverage. `retain` m
 | `/pricing` | Persuade | restructure | 1440, 834, 390 | monthly/annual, entitlement unavailable |
 | `/privacy`, `/terms`, `*` | Read | restyle | 1440, 834, 390 | not found, maintenance |
 | `/auth/signin`, callback | Operate | replace | 1440, 834, 390 | loading, denied, full beta, expired, retry |
-| `/shared` | Operate | restructure | 1440, 834, 390 | loading, expired, revoked, forbidden, open-as-copy |
+| `/shared` | Operate | restructure | 1440, 834, 390 | loading, expired, revoked, forbidden, transport error, open-as-copy |
+| `/app` gateway | Operate | replace | 1440, 834, 390 | recent, empty, loading, sample data, error |
 | `/app/live`, `/app/order-flow` | Operate | restructure | 1920 gap; 1440, 834, 390 covered | connecting, live, delayed, stale, offline, unsupported |
 | `/app/replay` | Operate | restructure | 1920 gap; 1440, 834, 390 covered | empty, loading, active, ended, save error |
 | `/app/journal/*` | Operate | replace | 1440, 834, 390 | onboarding, sample, empty, loading, partial, error, success |

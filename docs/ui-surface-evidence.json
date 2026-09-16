@@ -153,6 +153,11 @@
         "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-forbidden.png", "captureMode": "viewport" }
       },
+      "error": {
+        "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-transport-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-transport-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-transport-error.png", "captureMode": "viewport" }
+      },
       "open-as-copy": {
         "mobile": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/shared-workspace.states.visual.spec.ts", "snapshot": "shared-open-as-copy-error.png", "captureMode": "viewport" },
@@ -176,6 +181,16 @@
         "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-empty.png", "captureMode": "viewport" }
+      },
+      "loading": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-loading.png", "captureMode": "viewport" }
+      },
+      "sample-data": {
+        "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-sample-data.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-sample-data.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-sample-data.png", "captureMode": "viewport" }
       },
       "error": {
         "mobile": { "spec": "e2e/auth-gateway.states.visual.spec.ts", "snapshot": "gateway-error.png", "captureMode": "viewport" },

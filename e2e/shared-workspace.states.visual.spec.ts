@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   expectStableScreenshot,
   gotoStable,
@@ -18,6 +18,33 @@ const sharedSnapshot = {
   snapshot_version: 1,
   title: "Opening range review",
 } as const;
+
+async function expectStateGeometry(page: Page, surface: Locator, label: string) {
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+
+  const [surfaceBox, controlBoxes, overflow] = await Promise.all([
+    surface.boundingBox(),
+    surface.locator(":is(button, a[href]):visible").evaluateAll((elements) => elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right };
+    })),
+    page.evaluate(() => ({
+      body: document.body.scrollWidth - window.innerWidth,
+      document: document.documentElement.scrollWidth - window.innerWidth,
+    })),
+  ]);
+
+  expect(surfaceBox, `${label} surface box`).not.toBeNull();
+  expect(surfaceBox!.x, `${label} left edge`).toBeGreaterThanOrEqual(-1);
+  expect(surfaceBox!.x + surfaceBox!.width, `${label} right edge`).toBeLessThanOrEqual(viewport!.width + 1);
+  expect(overflow.body, `${label} body overflow`).toBeLessThanOrEqual(1);
+  expect(overflow.document, `${label} document overflow`).toBeLessThanOrEqual(1);
+  for (const [index, box] of controlBoxes.entries()) {
+    expect(box.left, `${label} control ${index + 1} left edge`).toBeGreaterThanOrEqual(-1);
+    expect(box.right, `${label} control ${index + 1} right edge`).toBeLessThanOrEqual(viewport!.width + 1);
+  }
+}
 
 test.describe("shared workspace access-state visual baselines", () => {
   test.beforeEach(async ({ page }) => {
@@ -62,5 +89,31 @@ test.describe("shared workspace access-state visual baselines", () => {
     await expect(page.getByRole("alert")).toContainText("The copy could not be saved on this device or to your account.");
     await expect(page.getByRole("button", { name: "Retry copy" })).toBeVisible();
     await expectStableScreenshot(page, "shared-open-as-copy-error", { fullPage: false });
+  });
+
+  test("transport error baseline and retry recovery", async ({ page }) => {
+    let serviceAvailable = false;
+    await page.route("**/api/workspace-shares/open", (route) => route.fulfill({
+      body: JSON.stringify(serviceAvailable ? sharedSnapshot : { detail: "sharing service unavailable" }),
+      contentType: "application/json",
+      status: serviceAvailable ? 200 : 503,
+    }));
+
+    await gotoStable(page, "/shared#transport-error-share", { waitForNetworkIdle: false });
+    const errorSurface = page.locator('section[aria-labelledby="shared-snapshot-error-title"]');
+    await expect(page.getByRole("heading", { name: "Snapshot unavailable" })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveText(
+      "The sharing service did not respond, so this snapshot could not be opened. Check your connection and try again.",
+    );
+    await expect(page.getByText("This snapshot is unavailable to your EdgeLab account.", { exact: false })).toHaveCount(0);
+    const retry = page.getByRole("button", { name: "Try opening again" });
+    await expect(retry).toBeEnabled();
+    await expectStateGeometry(page, errorSurface, "shared transport error");
+    await expectStableScreenshot(page, "shared-transport-error", { fullPage: false });
+
+    serviceAvailable = true;
+    await retry.click();
+    await expect(page.getByRole("heading", { name: "Opening range review" })).toBeVisible();
+    await expect(errorSurface).toHaveCount(0);
   });
 });

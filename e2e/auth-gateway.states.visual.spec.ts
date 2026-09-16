@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import {
   expectStableScreenshot,
   gotoStable,
@@ -58,6 +58,52 @@ function expectBoxInsideViewport(
   expect(box.y, `${label} top edge`).toBeGreaterThanOrEqual(-1);
   expect(box.x + box.width, `${label} right edge`).toBeLessThanOrEqual(viewport.width + 1);
   expect(box.y + box.height, `${label} bottom edge`).toBeLessThanOrEqual(viewport.height + 1);
+}
+
+async function expectGatewayStateGeometry(page: Page, surface: Locator, label: string) {
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+
+  const controls = surface.locator(
+    ":is(button, a[href], input, select, textarea, [role='button']):visible",
+  );
+  const [surfaceBox, controlBoxes, overflow] = await Promise.all([
+    surface.boundingBox(),
+    controls.evaluateAll((elements) => elements
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { height: rect.height, width: rect.width, x: rect.x, y: rect.y };
+      })
+      .filter((box) => box.y + box.height > 0 && box.y < window.innerHeight)),
+    page.evaluate(() => ({
+      body: document.body.scrollWidth - window.innerWidth,
+      document: document.documentElement.scrollWidth - window.innerWidth,
+    })),
+  ]);
+
+  expect(surfaceBox, `${label} surface box`).not.toBeNull();
+  expect(surfaceBox!.x, `${label} left edge`).toBeGreaterThanOrEqual(-1);
+  expect(surfaceBox!.x + surfaceBox!.width, `${label} right edge`).toBeLessThanOrEqual(viewport!.width + 1);
+  expect(overflow.body, `${label} body overflow`).toBeLessThanOrEqual(1);
+  expect(overflow.document, `${label} document overflow`).toBeLessThanOrEqual(1);
+
+  for (const [index, box] of controlBoxes.entries()) {
+    expect(box.x, `${label} control ${index + 1} left edge`).toBeGreaterThanOrEqual(-1);
+    expect(box.x + box.width, `${label} control ${index + 1} right edge`).toBeLessThanOrEqual(viewport!.width + 1);
+  }
+
+  if (viewport!.width >= 1024) return;
+  const mobileNav = page.getByRole("navigation", { name: "Primary workspace" });
+  const commands = mobileNav.getByRole("button", { name: "Open command palette" });
+  const [navBox, commandBox] = await Promise.all([mobileNav.boundingBox(), commands.boundingBox()]);
+  expect(navBox).not.toBeNull();
+  expect(commandBox).not.toBeNull();
+  expectBoxInsideViewport(navBox!, viewport!, "mobile navigation");
+  expectBoxInsideViewport(commandBox!, viewport!, "Commands control");
+  const workspaceBottomPadding = await page.locator("#workspace-content").evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).paddingBottom),
+  );
+  expect(workspaceBottomPadding, `${label} mobile navigation scroll clearance`).toBeGreaterThanOrEqual(navBox!.height);
 }
 
 async function expectGatewayErrorGeometry(page: Page) {
@@ -222,6 +268,25 @@ test.describe("session gateway critical states", () => {
     await expect(page.getByRole("status", { name: "Opening session" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Create your first session/ })).toBeDisabled();
     await expect(page.getByText("1 markets ready", { exact: true })).toBeVisible();
+    await expectGatewayStateGeometry(page, page.locator(".session-gateway"), "gateway loading");
+    await expectStableScreenshot(page, "gateway-loading", { fullPage: false });
+  });
+
+  test("gateway sample-data setup baseline", async ({ page }) => {
+    await page.route(/\/api\/bootstrap-shell(?:\?|$)/, (route) => fulfillJson(route, emptyShell));
+    await gotoStable(page, "/app", { waitForNetworkIdle: false });
+
+    await page.getByRole("button", { name: "Use sample setup" }).click();
+    const builder = page.locator("#new-session");
+    const strategyName = page.locator('input[name="strategy-name"]');
+    await expect(strategyName).toHaveValue("Sample replay review");
+    await expect(page.getByRole("combobox", { name: "Instrument" })).toHaveValue(/BTCUSDT/);
+    await expect(page.getByRole("button", { name: "5m", exact: true })).toHaveClass(/timeframe-button-active/);
+    await builder.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "start" }));
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(builder).toBeInViewport();
+    await expectGatewayStateGeometry(page, builder, "gateway sample-data setup");
+    await expectStableScreenshot(page, "gateway-sample-data", { fullPage: false });
   });
 
   test("gateway error baseline", async ({ page }) => {
