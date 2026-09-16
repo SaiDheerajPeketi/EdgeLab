@@ -27,6 +27,37 @@ export type OrderBookSnapshot = {
   message: string | null;
 };
 
+export type FootprintLevel = {
+  price: number | string;
+  bid_volume: number | string;
+  ask_volume: number | string;
+  unknown_volume: number | string;
+  total_volume: number | string;
+  delta: number | string;
+  trade_count: number;
+  average_trade_size: number | string;
+};
+
+export type MarketFootprint = {
+  id: number;
+  instrument_id: number;
+  contract_id: number | null;
+  provider: string;
+  interval_seconds: number;
+  start_at: string;
+  end_at: string;
+  tick_size: number | string;
+  bid_volume: number | string;
+  ask_volume: number | string;
+  unknown_volume: number | string;
+  total_volume: number | string;
+  delta: number | string;
+  trade_count: number;
+  average_trade_size: number | string;
+  complete: boolean;
+  levels: FootprintLevel[];
+};
+
 export type MarketAlertType = "PRICE_ABOVE" | "PRICE_BELOW" | "PRICE_CROSSES_ABOVE" | "PRICE_CROSSES_BELOW" | "VOLUME_ABOVE" | "DELTA_ABOVE" | "DELTA_BELOW" | "PROVIDER_STALE" | "SEQUENCE_GAP";
 export type MarketAlertRule = {
   id: number;
@@ -81,6 +112,19 @@ export function getOrderBook(instrumentId: number, options: { aggregationTicks?:
   const query = new URLSearchParams({ aggregation_ticks: String(options.aggregationTicks ?? 1), depth: String(options.depth ?? 20) });
   if (options.provider) query.set("provider", options.provider);
   return apiRequest<OrderBookSnapshot>(`/market-data/instruments/${instrumentId}/order-book?${query.toString()}`);
+}
+
+export function listMarketFootprints(instrumentId: number, options: { from?: Date; to?: Date; intervalSeconds?: number; provider?: string | null; limit?: number } = {}) {
+  const to = options.to ?? new Date();
+  const from = options.from ?? new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  const query = new URLSearchParams({
+    from_at: from.toISOString(),
+    to_at: to.toISOString(),
+    interval_seconds: String(options.intervalSeconds ?? 300),
+    limit: String(options.limit ?? 500),
+  });
+  if (options.provider) query.set("provider", options.provider);
+  return apiRequest<MarketFootprint[]>(`/market-data/instruments/${instrumentId}/footprints?${query.toString()}`);
 }
 
 export function listMarketAlerts() { return apiRequest<MarketAlertRule[]>("/market-data/alerts"); }

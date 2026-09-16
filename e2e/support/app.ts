@@ -6,7 +6,7 @@ export const AUTH_SESSION_KEY = "edgelab.auth.session.v1";
 
 type DeterminismOptions = {
   devAuth?: boolean;
-  liveFeedState?: "connecting" | "live" | "offline" | "stale" | "unsupported";
+  liveFeedState?: "connecting" | "delayed" | "live" | "offline" | "stale" | "unsupported";
   motionLock?: boolean;
   seatsRemaining?: number;
   rollout?: "enabled" | "fallback" | "unavailable";
@@ -103,9 +103,9 @@ export async function installDeterminism(
             });
             this.dispatchEvent(message);
             this.onmessage?.call(this as unknown as WebSocket, message);
-          } else if (liveState === "stale") {
+          } else if (liveState === "stale" || liveState === "delayed") {
             const message = new MessageEvent("message", {
-              data: JSON.stringify({ data: { E: frozenEpoch - 10 * 60_000, P: "1.82", c: "68124.50", h: "69000", l: "67000", p: "1218", q: "42000000", s: "BTCUSDT", v: "615" } }),
+              data: JSON.stringify({ data: { E: frozenEpoch - (liveState === "stale" ? 10 * 60_000 : 30_000), P: "1.82", c: "68124.50", h: "69000", l: "67000", p: "1218", q: "42000000", s: "BTCUSDT", v: "615" } }),
             });
             this.dispatchEvent(message);
             this.onmessage?.call(this as unknown as WebSocket, message);
@@ -227,8 +227,8 @@ export async function installDeterminism(
     await page.route(`https://${marketHost}/**`, async (route) => {
       const path = new URL(route.request().url()).pathname;
       if (liveFeedState === "unsupported") return route.fulfill({ body: JSON.stringify({ code: -1121, msg: "Invalid symbol." }), contentType: "application/json", status: 400 });
-      if (liveFeedState === "stale" && path.endsWith("/ticker/24hr")) {
-        return fulfillJson(route, { closeTime: Date.parse(FROZEN_TIME) - 10 * 60_000, lastPrice: "68124.50", priceChangePercent: "1.82", symbol: "BTCUSDT" });
+      if ((liveFeedState === "stale" || liveFeedState === "delayed") && path.endsWith("/ticker/24hr")) {
+        return fulfillJson(route, { closeTime: Date.parse(FROZEN_TIME) - (liveFeedState === "stale" ? 10 * 60_000 : 30_000), lastPrice: "68124.50", priceChangePercent: "1.82", symbol: "BTCUSDT" });
       }
       if (path.endsWith("/ticker/24hr")) return fulfillJson(route, { lastPrice: "68124.50", priceChangePercent: "1.82" });
       return fulfillJson(route, seedKlines);

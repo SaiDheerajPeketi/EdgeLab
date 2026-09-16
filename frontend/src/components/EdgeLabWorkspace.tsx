@@ -103,7 +103,7 @@ import { ChartTooltip as BacklitChartTooltip } from "@/components/charts/tooltip
 import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
 import { Dialog, DialogHeader } from "@/components/ui/Primitives";
 import { OrderFlowWorkspace } from "@/components/OrderFlowWorkspace";
-import { LiveFeedHealthSurface } from "@/components/live/LiveFeedHealthSurface";
+import { LiveFeedHealthSurface, type LiveFeedIssue } from "@/components/live/LiveFeedHealthSurface";
 import {
   exportAppDataBundle,
   getAngelOneInstruments,
@@ -1357,6 +1357,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
   const [activeJournalFocus, setActiveJournalFocus] = useState<JournalChartFocusRequest | null>(journalChartFocus ?? null);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>("idle");
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [feedIssue, setFeedIssue] = useState<LiveFeedIssue>(null);
   const watchlistNameInputRef = useRef<HTMLInputElement | null>(null);
   const cachedBarsBySymbolRef = useRef(cachedBarsBySymbol);
   const selectedTicker = selectedLiveSymbol ? tickers[liveSymbolKey(selectedLiveSymbol)] ?? null : null;
@@ -1903,7 +1904,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className={`status-pill h-9 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
-            {connectionStatus === "live" ? "Live feed" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Feed offline" : "No symbols"}
+            {feedIssue === "stale" ? "Feed stale" : feedIssue === "delayed" ? "Feed delayed" : feedIssue === "unsupported" ? "Unsupported" : connectionStatus === "live" ? "Live feed" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Feed offline" : "No symbols"}
           </span>
         </div>
       }
@@ -2354,13 +2355,15 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
                 </p>
               </div>
               <div className={`text-right text-2xl font-semibold tabular-nums ${toneForNumber(selectedTicker?.change ?? 0)}`}>
-                {selectedTicker ? formatLivePrice(selectedTicker.last) : "--"}
+                {selectedTicker ? `${formatLivePrice(selectedTicker.last)}${feedIssue ? " · last verified" : ""}` : "--"}
               </div>
             </div>
             <div className="px-4 pt-3">
               <LiveFeedHealthSurface
                 connectionStatus={connectionStatus}
                 feedError={feedError}
+                onChooseProvider={() => window.location.assign("/app/settings/data-providers#settings/data-providers/broker-connections")}
+                onIssueChange={setFeedIssue}
                 onRetry={() => window.location.reload()}
                 sourceLabel={selectedSourceLabel}
                 tickerUpdatedAt={selectedTicker?.updatedAt}
@@ -2369,6 +2372,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
             <LiveChartStudio
               bars={liveBars}
               connectionStatus={connectionStatus}
+              feedIssue={feedIssue}
               journalChartFocus={activeJournalFocus}
               selectedSourceLabel={selectedSourceLabel}
               symbol={selectedLiveSymbol?.label ?? selectedSymbol}
@@ -2378,10 +2382,10 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
           </FeatureCard>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <ResultMetricCard icon={BadgeDollarSign} label="Last price" value={selectedTicker ? formatLivePrice(selectedTicker.last) : "--"} tone={toneForNumber(selectedTicker?.change ?? 0)} />
-            <ResultMetricCard icon={TrendingUp} label={selectedFeed === "binance" ? "24h high" : "Range high"} value={selectedTicker ? formatLivePrice(selectedTicker.high) : "--"} />
-            <ResultMetricCard icon={TrendingDown} label={selectedFeed === "binance" ? "24h low" : "Range low"} value={selectedTicker ? formatLivePrice(selectedTicker.low) : "--"} />
-            <ResultMetricCard icon={BarChart3} label={selectedFeed === "binance" ? "Quote volume" : "Volume"} value={selectedTicker ? formatCompactNumber(selectedFeed === "binance" ? selectedTicker.quoteVolume : selectedTicker.volume) : "--"} />
+            <ResultMetricCard icon={BadgeDollarSign} label={feedIssue ? "Last verified price" : "Last price"} value={selectedTicker ? formatLivePrice(selectedTicker.last) : "--"} tone={toneForNumber(selectedTicker?.change ?? 0)} />
+            <ResultMetricCard icon={TrendingUp} label={selectedFeed === "binance" ? "24h high" : "Range high"} value={selectedTicker && !feedIssue ? formatLivePrice(selectedTicker.high) : "--"} />
+            <ResultMetricCard icon={TrendingDown} label={selectedFeed === "binance" ? "24h low" : "Range low"} value={selectedTicker && !feedIssue ? formatLivePrice(selectedTicker.low) : "--"} />
+            <ResultMetricCard icon={BarChart3} label={selectedFeed === "binance" ? "Quote volume" : "Volume"} value={selectedTicker && !feedIssue ? formatCompactNumber(selectedFeed === "binance" ? selectedTicker.quoteVolume : selectedTicker.volume) : "--"} />
           </div>
 
           {feedError && (
@@ -4045,6 +4049,7 @@ function useProgressiveChartEngines(paneIds: string[], activePaneId: string) {
 const LiveChartStudio = memo(function LiveChartStudio({
   bars,
   connectionStatus,
+  feedIssue,
   journalChartFocus,
   selectedSourceLabel,
   symbol,
@@ -4053,6 +4058,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
 }: {
   bars: Candle[];
   connectionStatus: LiveConnectionStatus;
+  feedIssue: LiveFeedIssue;
   journalChartFocus: JournalChartFocusRequest | null;
   selectedSourceLabel: string;
   symbol: string;
@@ -4658,7 +4664,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="flex flex-wrap gap-2">
           <span className={`status-pill h-8 px-2 text-[11px] ${connectionStatus === "live" ? "text-emerald-100" : connectionStatus === "error" ? "text-rose-100" : ""}`}>
-            {connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
+            {feedIssue === "stale" ? "Stale · review only" : feedIssue === "delayed" ? "Delayed" : feedIssue === "unsupported" ? "Unsupported" : connectionStatus === "live" ? "Streaming" : connectionStatus === "connecting" ? "Connecting" : connectionStatus === "error" ? "Offline" : "Idle"}
           </span>
           <span className={`status-pill h-8 px-2 text-[11px] ${changeTone}`}>
             {tickerChangeLabel}

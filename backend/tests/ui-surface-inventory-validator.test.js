@@ -25,9 +25,7 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
   const result = validateUiSurfaceInventory(fixtureInputs());
   assert.deepEqual(result.errors, []);
   assert.equal(result.stats.inventoriedRoutes, result.stats.discoveredRoutes);
-  assert.ok(result.gaps.some((gap) => gap.startsWith("viewport:tradingDesktop:")));
-  assert.ok(result.gaps.some((gap) => gap.startsWith("route:/app/order-flow:")));
-  assert.ok(result.gaps.some((gap) => gap.startsWith("assertion:safe-area:")));
+  assert.deepEqual(result.gaps, []);
 });
 
 test("surface inventory validator rejects omitted evidence contracts", async (t) => {
@@ -179,9 +177,6 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
   }
 });
 
-test("strict completion mode keeps UIR-01 open while recorded gaps remain", () => {
-  assert.throws(
-    () => runUiSurfaceInventoryCheck({ requireComplete: true, root }),
-    /structurally valid but incomplete/,
-  );
+test("strict completion mode passes when every recorded contract has evidence", () => {
+  assert.doesNotThrow(() => runUiSurfaceInventoryCheck({ requireComplete: true, root }));
 });

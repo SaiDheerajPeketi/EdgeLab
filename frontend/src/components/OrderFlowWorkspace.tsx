@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
 import { Clock3, Database, RefreshCw, ShieldAlert, type LucideIcon } from "lucide-react";
+import { listMarketFootprints, resolveMarketInstrument, type MarketFootprint } from "@/lib/marketInfrastructure";
 
 type OrderFlowRouteState = "loading" | "available" | "stale" | "unsupported" | "error";
 
@@ -13,7 +15,7 @@ const levels = [
 ] as const;
 
 export function OrderFlowWorkspace() {
-  const state = resolveOrderFlowRouteState();
+  const { detail, fixture, footprint, refresh, state } = useOrderFlowRouteState();
 
   return (
     <section
@@ -38,10 +40,10 @@ export function OrderFlowWorkspace() {
 
       <div className={`flex min-h-0 flex-1 justify-center p-4 sm:p-6 ${state === "available" ? "items-start" : "items-center"}`}>
         {state === "loading" ? <LoadingState /> : null}
-        {state === "available" ? <AvailableState /> : null}
-        {state === "stale" ? <StaleState /> : null}
-        {state === "unsupported" ? <UnsupportedState /> : null}
-        {state === "error" ? <ErrorState /> : null}
+        {state === "available" ? <AvailableState detail={detail} fixture={fixture} footprint={footprint} /> : null}
+        {state === "stale" ? <StaleState detail={detail} onRetry={refresh} /> : null}
+        {state === "unsupported" ? <UnsupportedState detail={detail} /> : null}
+        {state === "error" ? <ErrorState detail={detail} onRetry={refresh} /> : null}
       </div>
     </section>
   );
@@ -66,16 +68,21 @@ function LoadingState() {
   );
 }
 
-function AvailableState() {
+function AvailableState({ detail, fixture, footprint }: { detail: string; fixture: boolean; footprint: MarketFootprint | null }) {
+  const displayedLevels = footprint?.levels.length ? footprint.levels : levels.map((level) => ({ ask_volume: level.ask, bid_volume: level.bid, price: level.price }));
+  const bid = Number(footprint?.bid_volume ?? 518);
+  const ask = Number(footprint?.ask_volume ?? 412);
+  const delta = Number(footprint?.delta ?? ask - bid);
+  const total = Number(footprint?.total_volume ?? bid + ask);
   return (
-    <div className="grid w-full max-w-5xl gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]" data-order-flow-source="deterministic-evidence-fixture">
+    <div className="grid w-full max-w-6xl gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]" data-order-flow-source={fixture ? "e2e-deterministic-fixture" : "persisted-provider-footprint"}>
       <div className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#0b1118]">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
           <div>
             <h2 className="font-semibold text-white">Bid × ask footprint</h2>
-            <p className="mt-0.5 text-xs text-slate-400">Deterministic evidence fixture · not a live market feed</p>
+            <p className="mt-0.5 text-xs text-slate-400">{fixture ? "E2E deterministic fixture · never used in production" : detail}</p>
           </div>
-          <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-200">Available</span>
+          <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-200">{fixture ? "Test fixture" : footprint?.complete ? "Provider aggregate" : "Partial aggregate"}</span>
         </div>
         <div className="overflow-x-auto p-3 sm:p-5">
           <table className="w-full border-separate border-spacing-y-1 font-mono text-[11px] tabular-nums sm:text-xs" aria-label="Order-flow price levels">
@@ -83,11 +90,11 @@ function AvailableState() {
               <tr><th className="px-3 py-2 text-right font-medium">Bid volume</th><th className="px-3 py-2 text-center font-medium">Price</th><th className="px-3 py-2 text-left font-medium">Ask volume</th></tr>
             </thead>
             <tbody>
-              {levels.map((level) => (
-                <tr key={level.price}>
-                  <td className="rounded-l-md bg-rose-300/10 px-3 py-3 text-right text-rose-100">{level.bid}</td>
-                  <th scope="row" className="bg-white/[0.035] px-3 py-3 text-center font-medium text-slate-200">{level.price}</th>
-                  <td className="rounded-r-md bg-cyan-300/10 px-3 py-3 text-left text-cyan-100">{level.ask}</td>
+              {displayedLevels.map((level) => (
+                <tr key={String(level.price)}>
+                  <td className="rounded-l-md bg-rose-300/10 px-3 py-3 text-right text-rose-100">{formatNumber(level.bid_volume)}</td>
+                  <th scope="row" className="bg-white/[0.035] px-3 py-3 text-center font-medium text-slate-200">{formatNumber(level.price, 8)}</th>
+                  <td className="rounded-r-md bg-cyan-300/10 px-3 py-3 text-left text-cyan-100">{formatNumber(level.ask_volume)}</td>
                 </tr>
               ))}
             </tbody>
@@ -95,9 +102,9 @@ function AvailableState() {
         </div>
       </div>
       <aside aria-label="Order-flow summary" className="grid content-start gap-3 sm:grid-cols-3 lg:grid-cols-1">
-        <Metric label="Bar delta" value="−126" detail="Sell volume exceeds buy volume" />
-        <Metric label="Total volume" value="930" detail="Attributed trades in the selected bar" />
-        <Metric label="Imbalances" value="2 sell" detail="Diagonal ratio at or above 3:1" />
+        <Metric label="Bar delta" value={`${delta >= 0 ? "+" : "−"}${formatNumber(Math.abs(delta))}`} detail="Ask-attributed minus bid-attributed volume" />
+        <Metric label="Total volume" value={formatNumber(total)} detail="Attributed and unknown trades in this aggregate" />
+        <Metric label="Provenance" value={fixture ? "E2E only" : footprint?.provider ?? "Provider"} detail={fixture ? "Synthetic values for visual regression" : `Ended ${new Date(footprint!.end_at).toLocaleString()}`} />
       </aside>
     </div>
   );
@@ -107,16 +114,16 @@ function Metric({ detail, label, value }: { detail: string; label: string; value
   return <div className="rounded-xl bg-white/[0.045] p-4"><div className="text-xs text-slate-400">{label}</div><div className="mt-2 text-2xl font-semibold tabular-nums text-white">{value}</div><p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p></div>;
 }
 
-function StaleState() {
-  return <StatePanel icon={Clock3} role="status" title="Order-flow data is stale" detail="The last attributed trade update arrived 4m 32s ago. Values remain visible for review, but they are not current." action="Reconnect feed" onAction={() => window.location.reload()} tone="amber" />;
+function StaleState({ detail, onRetry }: { detail: string; onRetry: () => void }) {
+  return <StatePanel icon={Clock3} role="status" title="Order-flow data is stale" detail={detail} action="Refresh aggregates" onAction={onRetry} tone="amber" />;
 }
 
-function UnsupportedState() {
-  return <StatePanel icon={Database} role="status" title="This feed does not support order flow" detail="The current BTCUSDT feed provides candles and volume, not trade-level bid and ask attribution. EdgeLab will not infer footprint, delta, or imbalance values from OHLCV." action="Choose a compatible feed" onAction={() => window.location.assign("/app/live")} tone="slate" />;
+function UnsupportedState({ detail }: { detail: string }) {
+  return <StatePanel icon={Database} role="status" title="Order flow is unavailable" detail={detail} action="Configure data provider" onAction={openProviderSettings} tone="slate" />;
 }
 
-function ErrorState() {
-  return <StatePanel icon={ShieldAlert} role="alert" title="Order-flow data could not be loaded" detail="The provider rejected the latest aggregate request. No cached values are being presented as current market data." action="Try again" onAction={() => window.location.reload()} tone="rose" />;
+function ErrorState({ detail, onRetry }: { detail: string; onRetry: () => void }) {
+  return <StatePanel icon={ShieldAlert} role="alert" title="Order-flow data could not be loaded" detail={detail} action="Try again" onAction={onRetry} tone="rose" />;
 }
 
 function StatePanel({ action, detail, icon: Icon, onAction, role, title, tone }: { action: string; detail: string; icon: LucideIcon; onAction: () => void; role: "alert" | "status"; title: string; tone: "amber" | "rose" | "slate" }) {
@@ -137,10 +144,56 @@ function StatePanel({ action, detail, icon: Icon, onAction, role, title, tone }:
   );
 }
 
-function resolveOrderFlowRouteState(): OrderFlowRouteState {
+function resolveOrderFlowFixtureState(): OrderFlowRouteState | null {
   if (import.meta.env.VITE_E2E_STATE_FIXTURES === "1" && typeof window !== "undefined") {
     const testState = window.localStorage.getItem(TEST_STATE_KEY);
     if (testState === "loading" || testState === "available" || testState === "stale" || testState === "unsupported" || testState === "error") return testState;
   }
-  return "unsupported";
+  return null;
 }
+
+function useOrderFlowRouteState() {
+  const fixtureState = resolveOrderFlowFixtureState();
+  const [model, setModel] = useState<{ detail: string; footprint: MarketFootprint | null; state: OrderFlowRouteState }>(() => ({
+    detail: fixtureState ? fixtureDetail(fixtureState) : "Resolving the normalized BTCUSDT instrument and persisted footprint aggregates.",
+    footprint: null,
+    state: fixtureState ?? "loading",
+  }));
+  const refresh = useCallback(() => {
+    if (fixtureState) {
+      setModel({ detail: fixtureDetail(fixtureState), footprint: null, state: fixtureState });
+      return;
+    }
+    setModel((current) => ({ ...current, state: "loading" }));
+    void resolveMarketInstrument("BTCUSDT").then(async (instrument) => {
+      if (!instrument) {
+        setModel({ detail: "BTCUSDT is not configured in the normalized catalog. Add an entitled provider and map its instrument before requesting footprints.", footprint: null, state: "unsupported" });
+        return;
+      }
+      const footprints = await listMarketFootprints(instrument.id, { intervalSeconds: 300, limit: 500 });
+      const footprint = footprints.at(-1) ?? null;
+      if (!footprint) {
+        setModel({ detail: `${instrument.canonical_symbol} has no persisted 5-minute footprints. Configure a trade-level provider with aggressor-side attribution, then backfill or stream trades.`, footprint: null, state: "unsupported" });
+        return;
+      }
+      const stale = Date.now() - Date.parse(footprint.end_at) > 10 * 60_000;
+      setModel({ detail: `${footprint.provider} · persisted 5m aggregate · ${footprint.complete ? "complete" : "contains provider gaps"}`, footprint, state: stale ? "stale" : "available" });
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "The footprint request failed.";
+      const unavailable = /403|404|entitlement|not found|unavailable/i.test(message);
+      setModel({ detail: unavailable ? `${message} Configure an entitled trade-level provider; EdgeLab will not infer aggressor side from OHLCV.` : `${message} No cached footprint is being presented as current market data.`, footprint: null, state: unavailable ? "unsupported" : "error" });
+    });
+  }, [fixtureState]);
+  useEffect(() => { refresh(); }, [refresh]);
+  return { ...model, fixture: Boolean(fixtureState), refresh };
+}
+
+function fixtureDetail(state: OrderFlowRouteState) {
+  if (state === "stale") return "E2E fixture: the attributed trade update stopped 4m 32s ago. Values are not current.";
+  if (state === "unsupported") return "The E2E candle-only feed has no aggressor-side attribution. EdgeLab will not infer footprint, delta, or imbalance values from OHLCV.";
+  if (state === "error") return "The E2E provider rejected the aggregate request. No cached values are being presented as current market data.";
+  return "E2E-only deterministic visual evidence.";
+}
+
+function openProviderSettings() { window.location.assign("/app/settings/data-providers#settings/data-providers/broker-connections"); }
+function formatNumber(value: number | string, maximumFractionDigits = 2) { return Number(value).toLocaleString(undefined, { maximumFractionDigits }); }

@@ -3,11 +3,11 @@ import axe from "axe-core";
 import { gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const stateProjects = {
-  loading: ["mobile"],
+  loading: ["mobile", "tablet", "desktop", "tradingDesktop"],
   available: ["mobile", "tablet", "desktop", "tradingDesktop"],
-  stale: ["desktop", "tradingDesktop"],
-  unsupported: ["tablet"],
-  error: ["mobile", "desktop"],
+  stale: ["mobile", "tablet", "desktop", "tradingDesktop"],
+  unsupported: ["mobile", "tablet", "desktop", "tradingDesktop"],
+  error: ["mobile", "tablet", "desktop", "tradingDesktop"],
 } as const;
 
 for (const [state, projects] of Object.entries(stateProjects)) {
@@ -25,12 +25,13 @@ for (const [state, projects] of Object.entries(stateProjects)) {
     await expectContained(page, workspace);
 
     if (state === "available") {
-      await expect(workspace.locator('[data-order-flow-source="deterministic-evidence-fixture"]')).toBeVisible();
-      await expect(page.getByText("not a live market feed")).toBeVisible();
+      await expect(workspace.locator('[data-order-flow-source="e2e-deterministic-fixture"]')).toBeVisible();
+      await expect(page.getByText(/never used in production/i)).toBeVisible();
       await expect(page.getByRole("table", { name: "Order-flow price levels" })).toBeVisible();
     }
     if (state === "unsupported") {
       await expect(page.getByText(/will not infer footprint, delta, or imbalance values from OHLCV/i)).toBeVisible();
+      await expect(page.getByRole("button", { name: "Configure data provider" })).toBeVisible();
     }
     if (state === "error") {
       await expect(page.getByRole("alert")).toContainText("No cached values are being presented as current market data.");

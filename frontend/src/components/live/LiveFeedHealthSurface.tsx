@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CriticalStateSurface } from "@/components/ui/CriticalStateSurface";
 
 const STALE_AFTER_MS = 2 * 60 * 1000;
+const DELAYED_AFTER_MS = 15 * 1000;
 
 type LiveFeedHealthSurfaceProps = {
   connectionStatus: "connecting" | "error" | "idle" | "live";
@@ -9,9 +10,11 @@ type LiveFeedHealthSurfaceProps = {
   sourceLabel: string;
   tickerUpdatedAt?: number | null;
   onRetry: () => void;
+  onIssueChange?: (issue: LiveFeedIssue) => void;
+  onChooseProvider?: () => void;
 };
 
-type LiveFeedIssue = "connecting" | "offline" | "stale" | "unsupported" | null;
+export type LiveFeedIssue = "connecting" | "delayed" | "offline" | "stale" | "unsupported" | null;
 
 function resolveLiveFeedIssue(
   connectionStatus: LiveFeedHealthSurfaceProps["connectionStatus"],
@@ -23,6 +26,7 @@ function resolveLiveFeedIssue(
   if (feedError && /not supported|unsupported|\b400\b|\b404\b|\b451\b/i.test(feedError)) return "unsupported";
   if (connectionStatus === "error") return "offline";
   if (connectionStatus === "live" && tickerUpdatedAt && now - tickerUpdatedAt > STALE_AFTER_MS) return "stale";
+  if (connectionStatus === "live" && tickerUpdatedAt && now - tickerUpdatedAt > DELAYED_AFTER_MS) return "delayed";
   return null;
 }
 
@@ -32,6 +36,8 @@ export function LiveFeedHealthSurface({
   sourceLabel,
   tickerUpdatedAt,
   onRetry,
+  onIssueChange,
+  onChooseProvider,
 }: LiveFeedHealthSurfaceProps) {
   const [now, setNow] = useState(() => Date.now());
 
@@ -45,6 +51,8 @@ export function LiveFeedHealthSurface({
     () => resolveLiveFeedIssue(connectionStatus, feedError, tickerUpdatedAt, now),
     [connectionStatus, feedError, now, tickerUpdatedAt],
   );
+
+  useEffect(() => { onIssueChange?.(issue); }, [issue, onIssueChange]);
 
   if (!issue) return null;
   if (issue === "connecting") {
@@ -61,9 +69,21 @@ export function LiveFeedHealthSurface({
     return (
       <CriticalStateSurface
         detail={`${sourceLabel} cannot stream this instrument. Choose a supported market; existing chart history has not been replaced.`}
-        onAction={onRetry}
+        onAction={onChooseProvider ?? onRetry}
         state="unsupported"
         title="Instrument not supported"
+      />
+    );
+  }
+  if (issue === "delayed") {
+    return (
+      <CriticalStateSurface
+        actionLabel="Reconnect"
+        detail={`The latest ${sourceLabel} update is more than 15 seconds old. Prices remain visible as delayed context, not as a current executable quote.`}
+        onAction={onRetry}
+        state="partial"
+        timestamp={new Date(tickerUpdatedAt ?? now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        title="Market data is delayed"
       />
     );
   }

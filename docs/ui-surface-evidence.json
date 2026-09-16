@@ -205,6 +205,12 @@
         "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-connecting.png", "captureMode": "viewport" },
         "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-connecting.png", "captureMode": "viewport" }
       },
+      "delayed": {
+        "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-delayed.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-delayed.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-delayed.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-delayed.png", "captureMode": "viewport" }
+      },
       "stale": {
         "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-stale.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-stale.png", "captureMode": "viewport" },
@@ -294,7 +300,10 @@
     },
     "/app/order-flow": {
       "loading": {
-        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-loading.png", "captureMode": "viewport" }
+        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-loading.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-loading.png", "captureMode": "viewport" }
       },
       "available": {
         "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-available.png", "captureMode": "viewport" },
@@ -303,15 +312,22 @@
         "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-available.png", "captureMode": "viewport" }
       },
       "stale": {
+        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-stale.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-stale.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-stale.png", "captureMode": "viewport" },
         "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-stale.png", "captureMode": "viewport" }
       },
       "unsupported": {
-        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-unsupported.png", "captureMode": "viewport" }
+        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-unsupported.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-unsupported.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-unsupported.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-unsupported.png", "captureMode": "viewport" }
       },
       "error": {
         "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" }
+        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/dashboard": {
