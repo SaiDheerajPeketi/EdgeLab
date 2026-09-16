@@ -78,6 +78,42 @@ test.describe("shared workspace access-state visual baselines", () => {
     await expectStableScreenshot(page, "shared-forbidden", { fullPage: false });
   });
 
+  test("expired session preserves a safe sign-in return", async ({ page }) => {
+    await page.route("**/api/workspace-shares/open", (route) => route.fulfill({ body: JSON.stringify({ detail: "expired" }), contentType: "application/json", status: 401 }));
+    await gotoStable(page, "/shared#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN", { waitForNetworkIdle: false });
+    await expect(page.getByRole("alert")).toContainText("session expired");
+    const signIn = page.getByRole("link", { name: "Sign in again" });
+    await expect(signIn).toHaveAttribute("href", "/auth/signin?reason=expired");
+    await page.evaluate(() => window.localStorage.clear());
+    await signIn.click();
+    await expect(page).toHaveURL(/\/auth\/signin\?reason=expired$/);
+    await expect.poll(() => page.evaluate(() => window.history.state?.usr?.fromPath)).toBe("/shared#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN");
+    await expect(page.getByRole("heading", { name: "Your sign-in expired." })).toBeVisible();
+  });
+
+  for (const status of [403, 404]) {
+    test(`${status} remains a non-retryable access denial`, async ({ page }) => {
+      await page.route("**/api/workspace-shares/open", (route) => route.fulfill({ body: JSON.stringify({ detail: "denied" }), contentType: "application/json", status }));
+      await gotoStable(page, `/shared#access-denied-${status}`, { waitForNetworkIdle: false });
+      await expect(page.getByRole("alert")).toContainText("unavailable to your EdgeLab account");
+      await expect(page.getByRole("button", { name: "Try opening again" })).toHaveCount(0);
+    });
+  }
+
+  test("rate limiting gives accurate retry guidance", async ({ page }) => {
+    await page.route("**/api/workspace-shares/open", (route) => route.fulfill({ body: JSON.stringify({ detail: "rate limited" }), contentType: "application/json", status: 429 }));
+    await gotoStable(page, "/shared#rate-limited", { waitForNetworkIdle: false });
+    await expect(page.getByRole("alert")).toContainText("Too many snapshot requests");
+    await expect(page.getByRole("button", { name: "Try opening again" })).toBeEnabled();
+  });
+
+  test("network failure names the connection boundary", async ({ page }) => {
+    await page.route("**/api/workspace-shares/open", (route) => route.abort("failed"));
+    await gotoStable(page, "/shared#network-failure", { waitForNetworkIdle: false });
+    await expect(page.getByRole("alert")).toContainText("could not reach the sharing service");
+    await expect(page.getByRole("button", { name: "Try opening again" })).toBeEnabled();
+  });
+
   test("open as copy recovery baseline", async ({ page }) => {
     await page.route("**/api/workspace-shares/open", (route) => route.fulfill({
       body: JSON.stringify(sharedSnapshot),
@@ -103,7 +139,7 @@ test.describe("shared workspace access-state visual baselines", () => {
     const errorSurface = page.locator('section[aria-labelledby="shared-snapshot-error-title"]');
     await expect(page.getByRole("heading", { name: "Snapshot unavailable" })).toBeVisible();
     await expect(page.getByRole("alert")).toHaveText(
-      "The sharing service did not respond, so this snapshot could not be opened. Check your connection and try again.",
+      "The sharing service is temporarily unavailable, so this snapshot could not be opened. Try again shortly.",
     );
     await expect(page.getByText("This snapshot is unavailable to your EdgeLab account.", { exact: false })).toHaveCount(0);
     const retry = page.getByRole("button", { name: "Try opening again" });

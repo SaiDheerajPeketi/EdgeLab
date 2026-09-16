@@ -17,7 +17,7 @@ export function SharedWorkspacePage() {
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<WorkspaceShareOpen | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "copying">("loading");
-  const [error, setError] = useState<{ message: string; retryable: boolean } | null>(null);
+  const [error, setError] = useState<{ kind: "access" | "expired-session" | "revoked" | "temporary"; message: string; retryable: boolean } | null>(null);
   const [copyError, setCopyError] = useState("");
   const [requestVersion, setRequestVersion] = useState(0);
   const token = useMemo(() => {
@@ -62,19 +62,45 @@ export function SharedWorkspacePage() {
       .catch((cause) => {
         if (!active) return;
         setSnapshot(null);
-        const isAccessFailure = cause instanceof ApiError && [401, 403, 404].includes(cause.status);
-        setError(cause instanceof ApiError && cause.status === 410
+        setError(cause instanceof ApiError && cause.status === 401
           ? {
-              message: "This workspace link has expired or was revoked. Ask the owner for a new snapshot.",
+              kind: "expired-session",
+              message: "Your EdgeLab session expired before this snapshot could open. Sign in again to return safely to this shared link.",
               retryable: false,
             }
-          : isAccessFailure
+          : cause instanceof ApiError && [403, 404].includes(cause.status)
             ? {
+                kind: "access",
                 message: "This snapshot is unavailable to your EdgeLab account. Check the link or ask the owner to share it with your sign-in email.",
                 retryable: false,
               }
+          : cause instanceof ApiError && cause.status === 410
+          ? {
+              kind: "revoked",
+              message: "This workspace link has expired or was revoked. Ask the owner for a new snapshot.",
+              retryable: false,
+            }
+          : cause instanceof ApiError && cause.status === 429
+            ? {
+                kind: "temporary",
+                message: "Too many snapshot requests were made in a short time. Wait a moment, then try opening the link again.",
+                retryable: true,
+              }
+          : cause instanceof ApiError && cause.status >= 500
+            ? {
+                kind: "temporary",
+                message: "The sharing service is temporarily unavailable, so this snapshot could not be opened. Try again shortly.",
+                retryable: true,
+              }
+          : cause instanceof ApiError
+            ? {
+                kind: "access",
+                message: "This shared link could not be opened. Check that the link is complete or ask the owner for a new snapshot.",
+                retryable: false,
+              }
             : {
-                message: "The sharing service did not respond, so this snapshot could not be opened. Check your connection and try again.",
+                kind: "temporary",
+                message: "EdgeLab could not reach the sharing service. Check your connection, then try opening the link again.",
                 retryable: true,
               });
         setStatus("error");
@@ -122,8 +148,10 @@ export function SharedWorkspacePage() {
         {status === "loading" ? <SnapshotLoading /> : null}
         {status === "error" && error ? (
           <SnapshotError
+            kind={error.kind}
             message={error.message}
             onRetry={error.retryable ? () => setRequestVersion((version) => version + 1) : undefined}
+            returnPath={`/shared#${token}`}
           />
         ) : null}
         {snapshot && (status === "ready" || status === "copying") ? (
@@ -205,7 +233,7 @@ function SnapshotLoading() {
   return <div aria-live="polite" className="grid min-h-[60vh] place-items-center" role="status"><div className="text-center"><RefreshCw className="mx-auto animate-spin text-cyan-300 motion-reduce:animate-none" size={24} /><p className="mt-4 text-sm text-slate-400">Opening secure snapshot…</p></div></div>;
 }
 
-function SnapshotError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+function SnapshotError({ kind, message, onRetry, returnPath }: { kind: "access" | "expired-session" | "revoked" | "temporary"; message: string; onRetry?: () => void; returnPath: string }) {
   const workspaceLinkClass = onRetry
     ? "inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-semibold text-slate-200 outline-none hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-cyan-100"
     : "inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-[#041217] outline-none hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-100";
@@ -215,12 +243,17 @@ function SnapshotError({ message, onRetry }: { message: string; onRetry?: () => 
       <h1 className="mt-5 text-2xl font-semibold text-white" id="shared-snapshot-error-title">Snapshot unavailable</h1>
       <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400" role="alert">{message}</p>
       <div className="mt-6 flex flex-wrap gap-3">
+        {kind === "expired-session" ? (
+          <Link className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-[#041217] outline-none hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-100" state={{ fromPath: returnPath }} to="/auth/signin?reason=expired">
+            Sign in again
+          </Link>
+        ) : null}
         {onRetry ? (
           <button className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-semibold text-[#041217] outline-none hover:bg-cyan-200 focus-visible:ring-2 focus-visible:ring-cyan-100" onClick={onRetry} type="button">
             <RefreshCw aria-hidden="true" size={16} />Try opening again
           </button>
         ) : null}
-        <Link className={workspaceLinkClass} to="/app">Open your workspace</Link>
+        <Link className={kind === "expired-session" ? "inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-semibold text-slate-200 outline-none hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-cyan-100" : workspaceLinkClass} to="/app">Open your workspace</Link>
       </div>
     </section>
   );
