@@ -219,7 +219,7 @@ test.describe("Journal reports critical states", () => {
     await expect(drilldown).toContainText("Selected segment: Crypto");
     await expect(drilldown.getByRole("button").filter({ hasText: "BTCUSDT" })).toBeVisible();
     await expect(drilldown.getByRole("button").filter({ hasText: "ETHUSDT" })).toBeVisible();
-    await captureState(page, "journal-reports-drill-down", drilldown);
+    await captureState(page, "journal-reports-drill-down", drilldown.locator(":scope > div").first());
   });
 });
 
@@ -250,14 +250,23 @@ async function jsonRoute(page: Page, pattern: RegExp, body: unknown) {
 async function captureState(page: Page, name: string, target: Locator) {
   const mobile = page.viewportSize()!.width < 640;
   if (mobile) {
-    const routeHeading = page.getByRole("heading", { name: "Analytics", exact: true });
-    await routeHeading.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" }));
+    await target.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" }));
+    await target.evaluate((state) => {
+      const journalHeader = document.querySelector<HTMLElement>('[data-ui-surface="journal"] > header');
+      const navigation = document.querySelector<HTMLElement>('[aria-label="Primary workspace"]');
+      if (!journalHeader || !navigation || !state) return;
+      const headerBottom = journalHeader.getBoundingClientRect().bottom + 12;
+      const navigationTop = navigation.getBoundingClientRect().top - 12;
+      const box = state.getBoundingClientRect();
+      if (box.top < headerBottom) window.scrollBy(0, box.top - headerBottom);
+      else if (box.bottom > navigationTop) window.scrollBy(0, box.bottom - navigationTop);
+    });
   } else {
     await target.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" }));
   }
   await page.evaluate(() => window.scrollTo({ left: 0 }));
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  if (!mobile) await expect(target).toBeInViewport();
+  await expect(target).toBeInViewport();
   const viewport = page.viewportSize()!;
   const box = await target.boundingBox();
   expect(box).not.toBeNull();
@@ -292,13 +301,18 @@ async function captureState(page: Page, name: string, target: Locator) {
 
   const mobileNav = page.getByRole("navigation", { name: "Primary workspace" });
   if (await mobileNav.isVisible()) {
+    const routeHeader = page.locator('[data-ui-surface="journal"] > header');
+    await expect(routeHeader).toBeVisible();
+    await expect(routeHeader).toContainText(/Journal \/ (Analytics|Reports)/);
+    await expect(mobileNav.getByRole("button", { name: /Journal/ })).toHaveAttribute("aria-current", "page");
     const navBox = await mobileNav.boundingBox();
     expect(navBox).not.toBeNull();
     expect(navBox!.x).toBeGreaterThanOrEqual(-1);
     expect(navBox!.x + navBox!.width).toBeLessThanOrEqual(viewport.width + 1);
     expect(navBox!.y).toBeGreaterThanOrEqual(-1);
     expect(navBox!.y + navBox!.height).toBeLessThanOrEqual(viewport.height + 1);
-    if (box!.y < viewport.height && box!.y + box!.height > 0) expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
     const navButtons = mobileNav.getByRole("button");
     expect(await navButtons.count()).toBe(6);
     const buttonBoxes = [];
@@ -313,7 +327,7 @@ async function captureState(page: Page, name: string, target: Locator) {
     expect(buttonBoxes[5].x + buttonBoxes[5].width).toBeGreaterThanOrEqual(navBox!.x + (navBox!.width * 5) / 6 - 1);
   }
   await expectAnalyticsTouchTargets(page);
-  await expectStableScreenshot(page, name, { fullPage: mobile });
+  await expectStableScreenshot(page, name, { fullPage: false });
 }
 
 async function expectAnalyticsTouchTargets(page: Page) {
