@@ -124,7 +124,9 @@ test("quality manifests inventory routes, critical states, and measurable budget
 test("low-power chart budget drives and proves representative pane work", () => {
   const source = fs.readFileSync(path.join(ROOT, "e2e/chart-performance.spec.ts"), "utf8");
   assert.match(source, /page\.mouse\.move\(/);
-  assert.match(source, /allFrames\.push\(observation\.current - previous\)/);
+  assert.match(source, /__edgePerfFrames\?\.push\(performance\.now\(\) - startedAt\)/);
+  assert.match(source, /deliveredInputs:\s*frameWorkload\.deliveredInputs/);
+  assert.match(source, /processedCrosshairUpdates:\s*frameWorkload\.processedCrosshairUpdates/);
   assert.match(source, /calc\(100% - 16px\)/);
   assert.match(source, /tv-lightweight-charts canvas/);
   assert.match(source, /const failures = \[/);
