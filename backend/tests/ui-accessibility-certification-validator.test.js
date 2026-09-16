@@ -1,0 +1,7 @@
+import assert from "node:assert/strict"; import fs from "node:fs"; import path from "node:path"; import test from "node:test"; import {fileURLToPath} from "node:url";
+import {validateAccessibilityCertification} from "../../scripts/check-ui-accessibility-certification.mjs";
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"../.."); const read=file=>JSON.parse(fs.readFileSync(path.join(root,file),"utf8"));
+const inputs=()=>({certification:read("docs/ui-accessibility-certification.json"),inventory:read("docs/ui-surface-inventory.json"),evidence:read("docs/ui-surface-evidence.json"),root});
+test("accepts the inventory-linked representative certification",()=>assert.deepEqual(validateAccessibilityCertification(inputs()).errors,[]));
+test("rejects invented surfaces and overstated completion",()=>{const value=inputs(); value.certification.representatives.panels.push("Invented panel"); value.certification.workItems["UIR-78"].status="Complete"; const errors=validateAccessibilityCertification(value).errors.join("\n"); assert.match(errors,/Unknown panels representative/); assert.match(errors,/UIR-78 must be Partial/);});
+test("rejects count drift and missing gaps",()=>{const value=inputs(); value.certification.surfaceCounts.routes=27; value.certification.gaps=[]; const errors=validateAccessibilityCertification(value).errors.join("\n"); assert.match(errors,/routes count must match inventory/); assert.match(errors,/enumerate nonblank residual gaps/);});
