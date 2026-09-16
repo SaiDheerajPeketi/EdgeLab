@@ -51,11 +51,14 @@ test.describe("consequential overlay evidence", () => {
   });
 
   test("workspace sharing dialog traps focus, survives viewport constraints, and restores focus", async ({ page }) => {
-    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
     let createPayload: Record<string, unknown> | null = null;
     let createRequests = 0;
-    await page.route("**/api/workspace-shares", async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
+    const shareRequests: Array<{ method: string; url: string }> = [];
+    await page.route(/\/api\/workspace-shares(?:\?.*)?$/, async (route) => {
+      const method = route.request().method();
+      shareRequests.push({ method, url: route.request().url() });
+      if (method === "GET") return route.fulfill({ json: [] });
+      if (method !== "POST") return route.fallback();
       createRequests += 1;
       createPayload = route.request().postDataJSON() as Record<string, unknown>;
       await route.fulfill({ json: {
@@ -65,6 +68,7 @@ test.describe("consequential overlay evidence", () => {
         created_at: "2026-09-15T10:00:00Z", expires_at: "2026-09-22T10:00:00Z", revoked_at: null,
       } });
     });
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
     const trigger = page.getByRole("button", { name: "Share copy" });
     await trigger.scrollIntoViewIfNeeded();
     await trigger.click();
@@ -79,8 +83,11 @@ test.describe("consequential overlay evidence", () => {
 
     await dialog.getByRole("button", { name: "Create secure link" }).click();
     await expect(dialog.getByText("Snapshot v1 is ready")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Done" })).toBeEnabled();
     await expect(dialog.getByLabel("Secure link")).toHaveValue(/deterministic-share-token/);
     expect(createRequests).toBe(1);
+    expect(shareRequests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect(shareRequests.every((request) => /\/api\/workspace-shares(?:\?.*)?$/.test(request.url))).toBe(true);
     expect(createPayload).toMatchObject({ workspace_key: "backtest:draft", scope: "chart-plus-panels" });
 
     await page.keyboard.press("Escape");
