@@ -28,6 +28,9 @@ Every major surface implements: empty, loading/skeleton, partial data, offline, 
 | Public initial JS, gzip | ≤ 180 KB |
 | Authenticated shell initial JS, gzip | ≤ 260 KB |
 | Lazy route/tool chunk, gzip | ≤ 180 KB |
+| Chart workspace dependency graph, gzip | ≤ 550 KB |
+| Stylesheets, aggregate gzip | ≤ 70 KB |
+| Fonts, aggregate raw / request count | ≤ 360 KB / 30 files |
 | LCP / CLS on representative mid-tier device | ≤ 2.5s / ≤ 0.1 |
 | INP | ≤ 200ms |
 | Route transition visible response | ≤ 100ms |

@@ -1,9 +1,11 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "gzipBytes": {
     "publicInitial": 184320,
     "authenticatedInitial": 266240,
-    "routeChunk": 184320
+    "routeChunk": 184320,
+    "chartWorkspaceGraph": 563200,
+    "stylesheetTotal": 71680
   },
   "rawBytes": {
     "initialEntry": 600000,
@@ -11,6 +13,8 @@
     "chartChunk": 1050000,
     "stylesheet": 300000,
     "font": 180000,
+    "fontTotal": 368640,
+    "fontCount": 30,
     "image": 500000,
     "productDemoMediaTotal": 1000000
   },

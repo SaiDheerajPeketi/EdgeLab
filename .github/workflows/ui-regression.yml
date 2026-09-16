@@ -46,6 +46,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Enforce UI size and motion budgets
+        run: npm run check:ui-performance && npm run check:ui-motion
+
       - name: Run deterministic UI gate
         run: npm run test:ui
 

@@ -33,29 +33,54 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
 
     const surface = page.locator(".chart-pane-shell").nth(1).locator(".tv-lightweight-charts").first();
     const bounds = await surface.boundingBox();
-    const observedTimes = (await page.locator(".chart-ohlcv-time").allTextContents()).map((value) => new Set([value]));
-    const allFrames: number[] = [];
+    let frameWorkload: { frames: number[]; panesWithChangingOhlc: number } = { frames: [], panesWithChangingOhlc: 0 };
     if (bounds) {
-      let previous = await page.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(resolve)));
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __edgePerfFrames?: number[];
+          __edgePerfFrameDone?: boolean;
+          __edgePerfOhlc?: string[][];
+        };
+        const nodes = [...document.querySelectorAll<HTMLElement>(".chart-ohlcv-time")];
+        target.__edgePerfFrames = [];
+        target.__edgePerfFrameDone = false;
+        target.__edgePerfOhlc = nodes.map((node) => [node.textContent ?? ""]);
+        const observer = new MutationObserver(() => nodes.forEach((node, index) => {
+          const value = node.textContent ?? "";
+          const seen = target.__edgePerfOhlc?.[index];
+          if (seen && !seen.includes(value)) seen.push(value);
+        }));
+        nodes.forEach((node) => observer.observe(node, { characterData: true, childList: true, subtree: true }));
+        let previous: number | null = null;
+        const collect = (current: number) => {
+          if (previous != null) target.__edgePerfFrames?.push(current - previous);
+          previous = current;
+          if ((target.__edgePerfFrames?.length ?? 0) < 140) requestAnimationFrame(collect);
+          else {
+            observer.disconnect();
+            target.__edgePerfFrameDone = true;
+          }
+        };
+        requestAnimationFrame(collect);
+      });
       for (let index = 0; index < 120; index += 1) {
         await page.mouse.move(bounds.x + bounds.width * ([0.2, 0.5, 0.8][index % 3] ?? 0.5), bounds.y + bounds.height * 0.45);
-        const observation = await page.evaluate(() => new Promise<{ current: number; times: string[] }>((resolve) => {
-          requestAnimationFrame((current) => resolve({
-            current,
-            times: [...document.querySelectorAll<HTMLElement>(".chart-ohlcv-time")].map((node) => node.textContent ?? ""),
-          }));
-        }));
-        allFrames.push(observation.current - previous);
-        observation.times.forEach((value, paneIndex) => observedTimes[paneIndex]?.add(value));
-        previous = observation.current;
       }
+      await expect.poll(() => page.evaluate(() => Boolean((window as typeof window & { __edgePerfFrameDone?: boolean }).__edgePerfFrameDone))).toBe(true);
+      frameWorkload = await page.evaluate(() => {
+        const target = window as typeof window & { __edgePerfFrames?: number[]; __edgePerfOhlc?: string[][] };
+        return {
+          frames: target.__edgePerfFrames ?? [],
+          panesWithChangingOhlc: (target.__edgePerfOhlc ?? []).filter((values) => values.length >= 2).length,
+        };
+      });
     }
-    const frames = allFrames.slice(20);
+    const frames = frameWorkload.frames.slice(20);
     report.frameP95Ms = p95(frames);
     report.frames = frames;
     report.representativeWorkload = {
-      dispatchedCrosshairUpdates: allFrames.length,
-      panesWithChangingOhlc: observedTimes.filter((times) => times.size >= 2).length,
+      dispatchedCrosshairUpdates: 120,
+      panesWithChangingOhlc: frameWorkload.panesWithChangingOhlc,
     };
 
     const resizeStress = await page.evaluate(async () => {
@@ -65,7 +90,7 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
       const snapshot = () => stages.map((stage) => {
         const canvases = [...stage.querySelectorAll<HTMLCanvasElement>(".tv-lightweight-charts canvas")];
         return {
-          canvasSignature: canvases.map((canvas) => `${canvas.width}x${canvas.height}`).join("|"),
+          canvasSignature: canvases.map((canvas) => `${canvas.width}x${canvas.height}@${canvas.style.width}x${canvas.style.height}`).join("|"),
           canvasCount: canvases.length,
           containerWidth: stage.getBoundingClientRect().width,
           validCanvases: canvases.length > 0 && canvases.every((canvas) => canvas.width > 0 && canvas.height > 0),

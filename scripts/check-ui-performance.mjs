@@ -29,8 +29,9 @@ for (const asset of assets) {
 }
 
 function moduleForSource(fragment) {
+  const requestedName = path.basename(fragment, path.extname(fragment));
   const matches = Object.entries(manifest).filter(([source, item]) =>
-    source.endsWith(fragment) || item.src?.endsWith(fragment) || item.name === fragment,
+    source.endsWith(fragment) || item.src?.endsWith(fragment) || item.name === fragment || item.name === requestedName,
   );
   assert.equal(matches.length, 1, `Expected exactly one manifest module ending in ${fragment}.`);
   return matches[0];
@@ -67,11 +68,16 @@ const publicInitialGzip = gzipGraphBytes([entrySource, landingSource]);
 // The authenticated shell is the eagerly loaded router/auth/fallback graph. The workspace
 // is a separately enforced lazy route chunk and does not block the shell transition screen.
 const authenticatedInitialGzip = gzipGraphBytes([entrySource]);
+const [chartSource] = moduleForSource("src/components/TradingChart.tsx");
+const chartWorkspaceGzip = gzipGraphBytes([entrySource, chartSource]);
 if (publicInitialGzip > budget.gzipBytes.publicInitial) {
   failures.push(`public initial graph: ${publicInitialGzip} > ${budget.gzipBytes.publicInitial} gzip bytes`);
 }
 if (authenticatedInitialGzip > budget.gzipBytes.authenticatedInitial) {
   failures.push(`authenticated initial graph: ${authenticatedInitialGzip} > ${budget.gzipBytes.authenticatedInitial} gzip bytes`);
+}
+if (chartWorkspaceGzip > budget.gzipBytes.chartWorkspaceGraph) {
+  failures.push(`chart workspace graph: ${chartWorkspaceGzip} > ${budget.gzipBytes.chartWorkspaceGraph} gzip bytes`);
 }
 
 for (const [source, item] of Object.entries(manifest)) {
@@ -100,6 +106,12 @@ const demoMediaBytes = demoMedia.reduce((total, asset) => total + asset.bytes, 0
 if (demoMediaBytes > budget.rawBytes.productDemoMediaTotal) {
   failures.push(`product-demo media total: ${demoMediaBytes} > ${budget.rawBytes.productDemoMediaTotal} raw bytes`);
 }
+const fonts = assets.filter(({ name }) => /\.woff2?$/i.test(name));
+const fontBytes = fonts.reduce((total, asset) => total + asset.bytes, 0);
+if (fontBytes > budget.rawBytes.fontTotal) failures.push(`font total: ${fontBytes} > ${budget.rawBytes.fontTotal} raw bytes`);
+if (fonts.length > budget.rawBytes.fontCount) failures.push(`font count: ${fonts.length} > ${budget.rawBytes.fontCount}`);
+const stylesheetGzip = assets.filter(({ name }) => /\.css$/i.test(name)).reduce((total, asset) => total + asset.gzipBytes, 0);
+if (stylesheetGzip > budget.gzipBytes.stylesheetTotal) failures.push(`stylesheet total: ${stylesheetGzip} > ${budget.gzipBytes.stylesheetTotal} gzip bytes`);
 
 const journalTradesSource = fs.readFileSync(path.join(root, "frontend/src/components/journal/JournalTradesSurface.tsx"), "utf8");
 assert.match(journalTradesSource, /useState\(100\)/, "Journal long lists must start below the 200-row render budget.");
@@ -108,4 +120,4 @@ assert.ok(budget.runtime.longListInitialRows <= budget.runtime.longListRows, "Lo
 
 assert.equal(failures.length, 0, `UI performance budget exceeded:\n${failures.join("\n")}`);
 const heaviest = assets.sort((a, b) => b.bytes - a.bytes).slice(0, 5);
-console.log(`UI performance budgets passed for ${assets.length} assets. Public initial=${publicInitialGzip} gzip bytes; authenticated initial=${authenticatedInitialGzip} gzip bytes; demo media=${demoMediaBytes} raw bytes. Heaviest: ${heaviest.map((item) => `${item.name}=${item.bytes}`).join(", ")}`);
+console.log(`UI performance budgets passed for ${assets.length} assets. Public initial=${publicInitialGzip} gzip bytes; authenticated initial=${authenticatedInitialGzip} gzip bytes; chart workspace=${chartWorkspaceGzip} gzip bytes; styles=${stylesheetGzip} gzip bytes; fonts=${fonts.length}/${fontBytes} raw bytes; demo media=${demoMediaBytes} raw bytes. Heaviest: ${heaviest.map((item) => `${item.name}=${item.bytes}`).join(", ")}`);
