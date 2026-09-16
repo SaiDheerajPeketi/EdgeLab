@@ -30,6 +30,7 @@ type Props = {
 export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimension = "market", onOpenTrade }: Props) {
   const [filters, setFilters] = useState<JournalFilters>(DEFAULT_JOURNAL_FILTERS);
   const [dimension, setDimension] = useState<JournalBreakdownDimension>(initialDimension);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [drillIds, setDrillIds] = useState<number[] | null>(null);
   const filtered = useMemo(() => filterJournalTrades(trades, filters), [filters, trades]);
   const rows = useMemo(() => buildJournalBreakdown(filtered, dimension, accounts), [accounts, dimension, filtered]);
@@ -37,7 +38,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
   const weak = useMemo(() => weakSpots(filtered, accounts), [accounts, filtered]);
   const currency = useMemo(() => scopedCurrency(accounts, [...new Set(filtered.map((trade) => trade.account_id))]), [accounts, filtered]);
   const drillTrades = drillIds ? filtered.filter((trade) => drillIds.includes(trade.id)) : [];
-  const selectedRow = drillIds ? (rows.find((row) => row.tradeIds.length === drillIds.length && row.tradeIds.every((tradeId) => drillIds.includes(tradeId))) ?? null) : null;
+  const selectedRow = selectedKey ? (rows.find((row) => row.key === selectedKey) ?? null) : null;
 
   return (
     <div className="min-w-0 w-[calc(100vw-3rem)] max-w-full space-y-6 overflow-x-hidden sm:w-[calc(100vw-4.5rem)] lg:w-full">
@@ -61,6 +62,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
         trades={trades}
         onChange={(next) => {
           setFilters(next);
+          setSelectedKey(null);
           setDrillIds(null);
         }}
       />
@@ -105,6 +107,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
                 aria-selected={dimension === item.id}
                 onClick={() => {
                   setDimension(item.id);
+                  setSelectedKey(null);
                   setDrillIds(null);
                 }}
                 className={breakdownTabClass(dimension === item.id)}
@@ -133,7 +136,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
             </thead>
             <tbody className="divide-y divide-white/8">
               {rows.map((row) => {
-                const selected = drillIds?.length === row.tradeIds.length && row.tradeIds.every((tradeId) => drillIds.includes(tradeId));
+                const selected = selectedKey === row.key;
                 return (
                   <tr key={row.key} data-selected={selected || undefined} className={selected ? "bg-white/[0.045] ring-1 ring-inset ring-cyan-300/20" : "hover:bg-white/[0.035]"}>
                     <th scope="row" className="px-3 py-3 font-medium text-white">
@@ -147,8 +150,8 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
                     <MoneyCell value={row.expectancy} currency={currency.currency} combinable={currency.combinable} />
                     <td className="px-3 py-3 text-right tabular-nums text-slate-300">{row.profitFactor == null ? "∞" : row.profitFactor.toFixed(2)}</td>
                     <td className="px-3 py-3 text-right">
-                      <button type="button" onClick={() => setDrillIds(row.tradeIds)} aria-label={`Open trades for ${row.label}`} aria-pressed={selected} className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline sm:min-h-8">
-                        {selected ? "Selected" : "Drill in"} <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+                      <button type="button" onClick={() => { setSelectedKey(row.key); setDrillIds(null); }} aria-label={`Select ${row.label} segment`} aria-pressed={selected} className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline sm:min-h-8">
+                        {selected ? "Selected" : "Select"} <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
                       </button>
                     </td>
                   </tr>
@@ -158,6 +161,12 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
           </table>
           {!rows.length ? <JournalEmpty title="No data for this breakdown" detail="Adjust filters or add trades with the fields required by this dimension." /> : null}
         </div>
+        {selectedRow ? (
+          <div data-selected-segment role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-3 text-sm text-cyan-50">
+            <p className="min-w-0"><span className="text-xs font-medium uppercase tracking-wide text-cyan-200">Selected segment</span><span className="ml-2 font-semibold">{selectedRow.label}</span><span className="ml-2 text-xs text-slate-300">{selectedRow.totalTrades} {selectedRow.totalTrades === 1 ? "trade" : "trades"}</span></p>
+            <JournalButton onClick={() => setDrillIds(selectedRow.tradeIds)}>View underlying trades</JournalButton>
+          </div>
+        ) : null}
       </section>
 
       <section aria-labelledby="weak-spots-heading" className="border-t border-white/10 pt-5">
@@ -176,6 +185,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
                 key={weakDimension}
                 onClick={() => {
                   setDimension(weakDimension);
+                  setSelectedKey(worst.key);
                   setDrillIds(worst.tradeIds);
                 }}
                 className="min-h-11 rounded-lg border border-white/10 bg-[#0d1117] p-3 text-left outline-none hover:bg-white/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300"

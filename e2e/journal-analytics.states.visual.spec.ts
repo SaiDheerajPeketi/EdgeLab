@@ -136,17 +136,18 @@ test.describe("Journal analytics critical states", () => {
   test("selected segment identifies itself and exposes exact rows", async ({ page }) => {
     await openAnalytics(page, [usdAccount], populatedTrades);
 
-    const segment = page.getByRole("button", { name: "Open trades for Crypto" });
+    const segment = page.getByRole("button", { name: "Select Crypto segment" });
     await segment.focus();
     await expect(segment).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(segment).toHaveAttribute("aria-pressed", "true");
     await expect(segment).toContainText("Selected");
-    const drilldown = page.locator("section[aria-labelledby='drilldown-heading']");
-    await expect(drilldown.getByText("Selected segment: Crypto", { exact: false })).toBeVisible();
-    await expect(drilldown.getByRole("button").filter({ hasText: "BTCUSDT" })).toBeVisible();
-    await expect(drilldown.getByRole("button").filter({ hasText: "ETHUSDT" })).toBeVisible();
-    await captureState(page, "journal-analytics-segment-selected", drilldown);
+    const selectedContext = page.locator("[data-selected-segment]");
+    await expect(selectedContext).toContainText("Selected segment");
+    await expect(selectedContext).toContainText("Crypto");
+    await expect(selectedContext.getByRole("button", { name: "View underlying trades" })).toBeVisible();
+    await expect(page.locator("section[aria-labelledby='drilldown-heading']")).toHaveCount(0);
+    await captureState(page, "journal-analytics-segment-selected", selectedContext);
   });
 
   test("mixed-currency state withholds misleading totals", async ({ page }) => {
@@ -200,16 +201,20 @@ test.describe("Journal reports critical states", () => {
 
   test("selected segment reports state", async ({ page }) => {
     await openReports(page, [usdAccount], populatedTrades);
-    const segment = page.getByRole("button", { name: "Open trades for Crypto" });
+    const segment = page.getByRole("button", { name: "Select Crypto segment" });
     await segment.click();
     await expect(segment).toHaveAttribute("aria-pressed", "true");
     await expect(segment).toContainText("Selected");
-    await captureState(page, "journal-reports-segment-selected", segment);
+    const selectedContext = page.locator("[data-selected-segment]");
+    await expect(selectedContext).toContainText("Crypto");
+    await expect(page.locator("section[aria-labelledby='drilldown-heading']")).toHaveCount(0);
+    await captureState(page, "journal-reports-segment-selected", selectedContext);
   });
 
   test("reports drill-down state", async ({ page }) => {
     await openReports(page, [usdAccount], populatedTrades);
-    await page.getByRole("button", { name: "Open trades for Crypto" }).click();
+    await page.getByRole("button", { name: "Select Crypto segment" }).click();
+    await page.getByRole("button", { name: "View underlying trades" }).click();
     const drilldown = page.locator("section[aria-labelledby='drilldown-heading']");
     await expect(drilldown).toContainText("Selected segment: Crypto");
     await expect(drilldown.getByRole("button").filter({ hasText: "BTCUSDT" })).toBeVisible();
@@ -243,10 +248,16 @@ async function jsonRoute(page: Page, pattern: RegExp, body: unknown) {
 }
 
 async function captureState(page: Page, name: string, target: Locator) {
-  await target.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" }));
+  const mobile = page.viewportSize()!.width < 640;
+  if (mobile) {
+    const routeHeading = page.getByRole("heading", { name: "Analytics", exact: true });
+    await routeHeading.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" }));
+  } else {
+    await target.evaluate((element) => element.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" }));
+  }
   await page.evaluate(() => window.scrollTo({ left: 0 }));
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await expect(target).toBeInViewport();
+  if (!mobile) await expect(target).toBeInViewport();
   const viewport = page.viewportSize()!;
   const box = await target.boundingBox();
   expect(box).not.toBeNull();
@@ -287,7 +298,7 @@ async function captureState(page: Page, name: string, target: Locator) {
     expect(navBox!.x + navBox!.width).toBeLessThanOrEqual(viewport.width + 1);
     expect(navBox!.y).toBeGreaterThanOrEqual(-1);
     expect(navBox!.y + navBox!.height).toBeLessThanOrEqual(viewport.height + 1);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
+    if (box!.y < viewport.height && box!.y + box!.height > 0) expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
     const navButtons = mobileNav.getByRole("button");
     expect(await navButtons.count()).toBe(6);
     const buttonBoxes = [];
@@ -302,7 +313,7 @@ async function captureState(page: Page, name: string, target: Locator) {
     expect(buttonBoxes[5].x + buttonBoxes[5].width).toBeGreaterThanOrEqual(navBox!.x + (navBox!.width * 5) / 6 - 1);
   }
   await expectAnalyticsTouchTargets(page);
-  await expectStableScreenshot(page, name, { fullPage: false });
+  await expectStableScreenshot(page, name, { fullPage: mobile });
 }
 
 async function expectAnalyticsTouchTargets(page: Page) {

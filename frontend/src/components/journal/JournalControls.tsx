@@ -53,7 +53,7 @@ export function JournalError({ message, onRetry, onDismiss }: { message: string;
 }
 
 export function JournalSkeleton({ rows = 6 }: { rows?: number }) {
-  return <div className="animate-pulse space-y-3 p-4 motion-reduce:animate-none" aria-label="Loading Journal" role="status"><div className="h-7 w-48 rounded bg-white/8" />{Array.from({ length: rows }, (_, index) => <div key={index} className="grid grid-cols-[4rem_1fr_7rem] gap-3 border-b border-white/5 py-3"><span className="h-4 rounded bg-white/6" /><span className="h-4 rounded bg-white/6" /><span className="h-4 rounded bg-white/6" /></div>)}</div>;
+  return <div className="space-y-4 p-4 sm:p-5" aria-label="Loading Journal" aria-live="polite" role="status"><div className="flex items-center gap-3 border-b border-white/10 pb-4"><RefreshCw aria-hidden="true" className="h-5 w-5 animate-spin text-cyan-300 motion-reduce:animate-none" /><div><p className="font-semibold text-white">Loading Journal</p><p className="mt-0.5 text-sm text-slate-300">Preparing accounts, trades, and review context…</p></div></div><div className="animate-pulse space-y-3 motion-reduce:animate-none" aria-hidden="true">{Array.from({ length: rows }, (_, index) => <div key={index} className="grid grid-cols-[4rem_1fr_7rem] gap-3 border-b border-white/5 py-3"><span className="h-4 rounded bg-white/10" /><span className="h-4 rounded bg-white/10" /><span className="h-4 rounded bg-white/10" /></div>)}</div></div>;
 }
 
 export function JournalEmpty({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {

@@ -53,6 +53,7 @@ test.describe("Journal dashboard and account critical states", () => {
     await gotoStable(page, "/app/journal/dashboard", { waitForNetworkIdle: false });
     const loading = page.getByRole("status", { name: "Loading Journal" });
     await expect(loading).toBeVisible();
+    await expect(loading).toContainText("Preparing accounts, trades, and review context");
     await revealAboveFixedNavigation(page, loading);
     await expectViewportSafe(page);
     await expectStableScreenshot(page, "journal-dashboard-loading", { fullPage: false });
