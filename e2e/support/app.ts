@@ -129,16 +129,48 @@ export async function installDeterminism(
       value: DeterministicFixtureWebSocket as unknown as typeof WebSocket,
     });
 
-    (globalThis as typeof globalThis & { __edgeLayoutShifts?: number[] }).__edgeLayoutShifts = [];
+    (globalThis as typeof globalThis & { __edgeLayoutShiftDetails?: unknown[]; __edgeLayoutShifts?: number[] }).__edgeLayoutShifts = [];
+    (globalThis as typeof globalThis & { __edgeLayoutShiftDetails?: unknown[] }).__edgeLayoutShiftDetails = [];
     if ("PerformanceObserver" in globalThis && PerformanceObserver.supportedEntryTypes.includes("layout-shift")) {
       new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
           const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
           if (!shift.hadRecentInput && typeof shift.value === "number") {
             (globalThis as typeof globalThis & { __edgeLayoutShifts: number[] }).__edgeLayoutShifts.push(shift.value);
+            const sources = (shift as typeof shift & { sources?: Array<{ node?: Node | null }> }).sources ?? [];
+            (globalThis as typeof globalThis & { __edgeLayoutShiftDetails: unknown[] }).__edgeLayoutShiftDetails.push({
+              sources: sources.map(({ node }) => node instanceof Element ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${node.classList.length ? `.${[...node.classList].slice(0, 3).join(".")}` : ""}` : null),
+              startTime: shift.startTime,
+              value: shift.value,
+            });
           }
         }
       }).observe({ buffered: true, type: "layout-shift" });
+    }
+    (globalThis as typeof globalThis & { __edgeLargestContentfulPaint?: number }).__edgeLargestContentfulPaint = 0;
+    if ("PerformanceObserver" in globalThis && PerformanceObserver.supportedEntryTypes.includes("largest-contentful-paint")) {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          (globalThis as typeof globalThis & { __edgeLargestContentfulPaint: number }).__edgeLargestContentfulPaint = Math.max(
+            (globalThis as typeof globalThis & { __edgeLargestContentfulPaint: number }).__edgeLargestContentfulPaint,
+            entry.startTime,
+          );
+        }
+      }).observe({ buffered: true, type: "largest-contentful-paint" });
+    }
+    (globalThis as typeof globalThis & { __edgeInteractions?: Array<{ duration: number; interactionId: number }> }).__edgeInteractions = [];
+    if ("PerformanceObserver" in globalThis && PerformanceObserver.supportedEntryTypes.includes("event")) {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          const event = entry as PerformanceEntry & { duration?: number; interactionId?: number };
+          if (event.interactionId && typeof event.duration === "number") {
+            (globalThis as typeof globalThis & { __edgeInteractions: Array<{ duration: number; interactionId: number }> }).__edgeInteractions.push({
+              duration: event.duration,
+              interactionId: event.interactionId,
+            });
+          }
+        }
+      }).observe({ buffered: true, durationThreshold: 16, type: "event" });
     }
 
     let seed = 0x2f6e2b1;
@@ -289,6 +321,19 @@ const seedTags = [{ id: 91, category: "SETUP", name: "Opening range retest", col
 const seedTrades = [{
   id: 101, account_id: 81, import_run_id: null, source_type: "MANUAL", source_ref: "visual-trade-101", duplicate_key: "visual-101", entry_type: "TAKEN", status: "CLOSED", symbol: "BTCUSDT", source_symbol: "BTCUSDT", currency: "USD", source_timezone: "Europe/Berlin", side: "LONG", entry_time: "2026-09-15T09:05:00Z", exit_time: "2026-09-15T09:42:00Z", entry_price: "67920.25", exit_price: "68118.50", quantity: "2", remaining_quantity: "0", gross_pnl: "396.50", net_pnl: "384.75", commission: "5", fees: "6.75", stop_loss: "67840", take_profit: "68120", planned_entry_price: "67900", planned_exit_price: "68120", planned_stop_loss: "67830", planned_take_profit: "68120", r_multiple: "2.35", strategy_name: "Opening range", emotional_state: "Patient", missed_reason: null, rating: 5, setup_grade: "A", reviewed: true, reviewed_at: FROZEN_TIME, created_at: FROZEN_TIME, updated_at: FROZEN_TIME, tags: seedTags, notes: [{ id: 111, kind: "REVIEW", body: "Held the retest and followed the planned exit.", created_at: FROZEN_TIME }], screenshots: [], executions: [],
 }];
+export function buildJournalTradeFixtures(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...seedTrades[0],
+    id: 10_000 + index,
+    duplicate_key: `performance-${index}`,
+    source_ref: `performance-${index}`,
+    entry_time: new Date(Date.parse("2026-09-15T09:05:00Z") - index * 60_000).toISOString(),
+    exit_time: new Date(Date.parse("2026-09-15T09:42:00Z") - index * 60_000).toISOString(),
+    notes: [],
+    reviewed: index % 3 !== 0,
+    tags: [],
+  }));
+}
 const seedNotes = [{ id: 121, account_id: 81, note_date: "2026-09-15", body: "Wait for confirmation at the opening range before adding risk.", created_at: FROZEN_TIME, updated_at: FROZEN_TIME }];
 const seedKlines = Array.from({ length: 120 }, (_, index) => {
   const open = 67500 + index * 5 + Math.sin(index / 5) * 80;

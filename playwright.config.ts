@@ -152,7 +152,7 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testIgnore: /chart-performance\.spec\.ts/,
+      testIgnore: /performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -161,7 +161,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
-      testIgnore: /chart-performance\.spec\.ts/,
+      testIgnore: /performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -171,7 +171,7 @@ export default defineConfig({
     },
     {
       name: "mobile",
-      testIgnore: /chart-performance\.spec\.ts/,
+      testIgnore: /performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,
@@ -191,7 +191,7 @@ export default defineConfig({
     },
     {
       name: "low-power",
-      testMatch: /chart-performance\.spec\.ts/,
+      testMatch: /(?:chart|page)-performance\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,

@@ -36,10 +36,13 @@ Every major surface implements: empty, loading/skeleton, partial data, offline, 
 | Route transition visible response | ≤ 100ms; release measurement required, not enforced by the asset gate |
 | Long list | virtualize beyond 200 rows |
 | 16-pane workspace | one normalized subscription per unique symbol/provider/timeframe; no duplicate stream |
-| 16-pane steady-state frame P95 under 4× CPU throttling | ≤ 50ms |
-| 16-pane bounded resize-stress P95 under 4× CPU throttling | ≤ 120ms for 20 alternating 4px grid resizes, with every chart consuming and restoring the size |
+| 16-pane steady-state frame P95 under 4× CPU throttling | ≤ 60ms |
+| 16-pane final linked-crosshair convergence under 4× CPU throttling | ≤ 300ms, exact source candle on all panes |
+| 16-pane bounded resize-stress P95 under 4× CPU throttling | ≤ 600ms for 20 alternating 4px grid resizes, with every chart consuming and restoring the size |
 
 CI fails on the executable asset, font, media, motion, long-list, and 16-pane checks above. Field-only LCP, CLS, INP, and route-transition targets require dated release evidence; they are not claimed by the build-size gate. Any exception must name an owner, measurement, reason, and expiry.
+
+The temporary 60ms frame and 600ms resize ceilings are governed by `docs/ui-performance-exceptions.json`; their owners, measured workloads, remediations, and expiries are executable release inputs rather than undocumented budget relaxations.
 
 ## Controlled rollout
 

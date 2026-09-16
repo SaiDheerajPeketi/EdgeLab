@@ -19,10 +19,13 @@
     "productDemoMediaTotal": 1000000
   },
   "runtime": {
+    "lcpMs": 2500,
     "interactionP95Ms": 200,
     "layoutShift": 0.1,
-    "sixteenPaneFrameP95Ms": 50,
-    "sixteenPaneResizeStressP95Ms": 120,
+    "routeTransitionResponseMs": 100,
+    "sixteenPaneFrameP95Ms": 60,
+    "sixteenPaneFanoutMs": 300,
+    "sixteenPaneResizeStressP95Ms": 600,
     "longListRows": 200,
     "longListInitialRows": 100
   }

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { buildJournalTradeFixtures, expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const route = "/app/journal/trades";
 
@@ -92,6 +92,28 @@ test.describe("journal trades missing state baselines", () => {
     await error.getByRole("button", { name: "Retry" }).click();
     await expect(page.getByRole("heading", { name: "Trades" })).toBeVisible();
     await expect(error).toHaveCount(0);
+  });
+
+  test("large trade histories keep a bounded 100-row DOM window", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "The long-list runtime budget uses one stable desktop profile.");
+    await page.route("**/api/journal/trades**", (request) => request.fulfill({ json: buildJournalTradeFixtures(350) }));
+    await openTrades(page);
+    const table = page.getByRole("table", { name: "Journal trades" });
+    await expect(table.getByRole("row")).toHaveCount(101);
+    await expect(page.getByText("Showing 1–100 of 350 filtered trades")).toBeVisible();
+    const durations: number[] = [];
+    for (let iteration = 0; iteration < 5; iteration += 1) {
+      const label = iteration % 2 === 0 ? "Next 100" : "Previous 100";
+      durations.push(await page.getByRole("button", { name: label }).evaluate(async (button: HTMLButtonElement) => {
+        const startedAt = performance.now();
+        button.click();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        return performance.now() - startedAt;
+      }));
+      await expect(table.getByRole("row")).toHaveCount(101);
+    }
+    const p95 = [...durations].sort((left, right) => left - right)[Math.ceil(durations.length * 0.95) - 1] ?? Infinity;
+    expect(p95).toBeLessThanOrEqual(200);
   });
 });
 

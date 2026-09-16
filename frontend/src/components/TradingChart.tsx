@@ -174,6 +174,7 @@ import { ThemedSelect } from "./ThemedSelect";
 import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
+import { paneSubscriptionKey } from "../lib/paneSubscriptions";
 
 const DRAWING_PRESETS_KEY = "drawing-presets.v1";
 const FIB_PRESETS_KEY = "fib-presets.v1";
@@ -570,6 +571,7 @@ export function TradingChart({
   const previousReplaySeekVersionRef = useRef(replaySeekVersion);
   const previousChartStyleRef = useRef(chartStyle);
   const syncApplyingRef = useRef(false);
+  const localPointerActiveRef = useRef(false);
   const linkedCrosshairAppliedRef = useRef(false);
   const crosshairSyncRevisionRef = useRef(-1);
   const rangeSyncRevisionRef = useRef(-1);
@@ -1396,14 +1398,23 @@ export function TradingChart({
     };
 
     chartRef.current = chart;
+    const handlePointerEnter = () => {
+      localPointerActiveRef.current = true;
+    };
+    const handlePointerLeave = () => {
+      localPointerActiveRef.current = false;
+    };
+    chartContainer.addEventListener("pointerenter", handlePointerEnter);
+    chartContainer.addEventListener("pointerleave", handlePointerLeave);
 
     chart.subscribeCrosshairMove((param) => {
+      const time = typeof param.time === "number" ? Number(param.time) : null;
       candleSnapshotStore.setSnapshot(resolveCandleAtTime(param.time, barsByTimeRef.current));
       if (
         syncApplyingRef.current ||
+        !localPointerActiveRef.current ||
         (!crosshairSyncBusRef.current && !onCrosshairSyncRef.current)
       ) return;
-      const time = typeof param.time === "number" ? Number(param.time) : null;
       const price = param.point
         ? primarySeriesRef.current?.coordinateToPrice(param.point.y) ?? null
         : null;
@@ -1439,6 +1450,8 @@ export function TradingChart({
 
     return () => {
       stopObservingSize();
+      chartContainer.removeEventListener("pointerenter", handlePointerEnter);
+      chartContainer.removeEventListener("pointerleave", handlePointerLeave);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
@@ -2882,6 +2895,8 @@ export function TradingChart({
       aria-label={`${formatMarketSymbol(symbol)} ${formatChartTimeframeLabel(timeframe)} chart`}
       className="chart-stage"
       data-chart-capture-mode={captureMode ? "true" : undefined}
+      data-market-pane-id={paneId}
+      data-market-subscription-key={paneSubscriptionKey({ id: paneId, symbol, timeframe })}
       onPointerDownCapture={(event) => {
         const target = event.target as HTMLElement;
         if (!isEditableTarget(target) && !target.closest("button, [role='button'], a")) {

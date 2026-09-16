@@ -16,9 +16,10 @@ let scheduledFrame: number | null = null;
 let windowFallbackActive = false;
 
 /**
- * Shares one ResizeObserver across every mounted chart pane and batches all
- * chart.resize calls into one animation frame. Dense 4x4 grids therefore do
- * not create sixteen independent observers or resize bursts.
+ * Shares one ResizeObserver across every mounted chart pane. Observer entries
+ * are already delivered as one pre-paint batch, so dense 4x4 grids resize in
+ * that callback without adding a full frame of input latency. Initial and
+ * fallback measurements still share one animation-frame batch.
  */
 export function observeSharedChartSize(
   element: HTMLElement,
@@ -53,11 +54,16 @@ function ensureObserver() {
   observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
       if (!(entry.target instanceof HTMLElement)) continue;
-      enqueueSize(entry.target, {
+      pendingSizes.set(entry.target, {
         height: normalizeDimension(entry.contentRect.height),
         width: normalizeDimension(entry.contentRect.width),
       });
     }
+    if (scheduledFrame != null) {
+      cancelAnimationFrame(scheduledFrame);
+      scheduledFrame = null;
+    }
+    flushSizes();
   });
   return observer;
 }

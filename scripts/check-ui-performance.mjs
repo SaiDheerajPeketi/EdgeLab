@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
 const assetRoot = path.join(root, "frontend/dist/assets");
 const manifestPath = path.join(root, "frontend/dist/.vite/manifest.json");
 const budget = JSON.parse(fs.readFileSync(path.join(root, "docs/ui-performance-budgets.json"), "utf8"));
+const exceptions = JSON.parse(fs.readFileSync(path.join(root, "docs/ui-performance-exceptions.json"), "utf8"));
 assert.ok(fs.existsSync(assetRoot), "Build frontend before checking UI performance budgets.");
 assert.ok(fs.existsSync(manifestPath), "Vite manifest is required to measure route dependency graphs.");
 
@@ -114,9 +115,26 @@ const stylesheetGzip = assets.filter(({ name }) => /\.css$/i.test(name)).reduce(
 if (stylesheetGzip > budget.gzipBytes.stylesheetTotal) failures.push(`stylesheet total: ${stylesheetGzip} > ${budget.gzipBytes.stylesheetTotal} gzip bytes`);
 
 const journalTradesSource = fs.readFileSync(path.join(root, "frontend/src/components/journal/JournalTradesSurface.tsx"), "utf8");
-assert.match(journalTradesSource, /useState\(100\)/, "Journal long lists must start below the 200-row render budget.");
-assert.match(journalTradesSource, /visible\.slice\(0, limit\)/, "Journal long lists must use bounded rendering.");
+assert.match(journalTradesSource, /const TRADE_PAGE_SIZE = 100/, "Journal long lists must use a 100-row DOM window.");
+assert.match(journalTradesSource, /visible\.slice\(pageStart, pageStart \+ TRADE_PAGE_SIZE\)/, "Journal long lists must use bounded windowed rendering.");
+assert.doesNotMatch(journalTradesSource, /setLimit\(\(value\) => value \+/, "Journal long lists must not grow the rendered DOM without a bound.");
 assert.ok(budget.runtime.longListInitialRows <= budget.runtime.longListRows, "Long-list initial page exceeds its budget.");
+for (const [label, budgetKey, baselineThresholdMs, temporaryThresholdMs] of [
+  ["Frame", "runtime.sixteenPaneFrameP95Ms", 50, budget.runtime.sixteenPaneFrameP95Ms],
+  ["Resize", "runtime.sixteenPaneResizeStressP95Ms", 120, budget.runtime.sixteenPaneResizeStressP95Ms],
+]) {
+  const exception = exceptions.exceptions.find((entry) => entry.budgetKey === budgetKey);
+  assert.equal(exception?.temporaryThresholdMs, temporaryThresholdMs, `${label} exception must match the executable temporary budget.`);
+  assert.ok(exception?.owner && exception?.reason && exception?.remediation, `${label} exception must name an owner, reason, and remediation.`);
+  assert.equal(exception?.baselineThresholdMs, baselineThresholdMs, `${label} exception must retain the original ${baselineThresholdMs}ms baseline.`);
+  assert.ok(Number.isFinite(exception?.measuredP95Ms) && exception.measuredP95Ms > exception.baselineThresholdMs && exception.measuredP95Ms <= exception.temporaryThresholdMs, `${label} exception measurement must be finite, above the baseline, and within the temporary ceiling.`);
+  assert.ok(Number.isFinite(Date.parse(exception?.measuredAt ?? "")) && Date.parse(exception.measuredAt) <= Date.now(), `${label} exception must include a valid completed measurement date.`);
+  assert.ok(Date.parse(exception?.expiresAt ?? "") > Date.now(), `${label} performance exception has expired.`);
+  assert.ok(Date.parse(exception.expiresAt) > Date.parse(exception.measuredAt), `${label} exception expiry must follow its measurement.`);
+  assert.equal(exception?.sourceTest, "e2e/chart-performance.spec.ts", `${label} exception must identify its executable source test.`);
+  assert.equal(exception?.artifactName, "low-power-performance.json", `${label} exception must identify its emitted evidence artifact.`);
+  assert.match(fs.readFileSync(path.join(root, exception.sourceTest), "utf8"), new RegExp(exception.artifactName.replaceAll(".", "\\.")), `${label} exception evidence artifact is not emitted by its source test.`);
+}
 
 assert.equal(failures.length, 0, `UI performance budget exceeded:\n${failures.join("\n")}`);
 const heaviest = assets.sort((a, b) => b.bytes - a.bytes).slice(0, 5);

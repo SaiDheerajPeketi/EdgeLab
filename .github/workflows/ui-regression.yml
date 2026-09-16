@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "1"
+      EDGELAB_BUILD_SHA: ${{ github.sha }}
       EDGELAB_E2E_PYTHON: python
       TZ: UTC
     steps:
@@ -72,6 +73,18 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             printf '## Low-power chart performance\n\nNo metrics file was produced.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          page_metrics_path="$(find .artifacts/ui-results -name page-performance.json -print -quit)"
+          if [[ -n "$page_metrics_path" ]]; then
+            {
+              echo "## Page performance"
+              echo '```json'
+              cat "$page_metrics_path"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '## Page performance\n\nNo metrics file was produced.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload failure artifacts

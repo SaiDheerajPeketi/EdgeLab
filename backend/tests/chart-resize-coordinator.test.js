@@ -15,7 +15,7 @@ async function bundle(relativePath) {
   return { cleanup: () => fs.rmSync(directory, { force: true, recursive: true }), module: await import(`${pathToFileURL(output).href}?${Date.now()}`) };
 }
 
-test("dense chart panes share one observer and one resize frame", async () => {
+test("dense chart panes share one observer and flush its pre-paint batch immediately", async () => {
   const originalElement = globalThis.Element;
   const originalHTMLElement = globalThis.HTMLElement;
   const originalObserver = globalThis.ResizeObserver;
@@ -61,8 +61,7 @@ test("dense chart panes share one observer and one resize frame", async () => {
     observers[0].emit(
       panes.map((pane) => ({ target: pane, contentRect: { width: 400, height: 220 } })),
     );
-    assert.equal(frames.length, 1);
-    frames.shift()(16);
+    assert.equal(frames.length, 0);
     assert.deepEqual(
       sizes.map((paneSizes) => paneSizes.at(-1)),
       panes.map(() => ({ width: 400, height: 220 })),
@@ -125,8 +124,7 @@ test("suppresses duplicate and zero sizes while unregistering panes independentl
       { target: first, contentRect: { width: 320, height: 180 } },
       { target: second, contentRect: { width: 0, height: 0 } },
     ]);
-    assert.equal(frames.length, 1);
-    frames.shift()(16);
+    assert.equal(frames.length, 0);
     assert.equal(firstSizes.length, 1);
     assert.equal(secondSizes.length, 1);
 
@@ -139,7 +137,6 @@ test("suppresses duplicate and zero sizes while unregistering panes independentl
       { target: first, contentRect: { width: 640, height: 360 } },
       { target: second, contentRect: { width: 640, height: 360 } },
     ]);
-    frames.shift()(32);
     assert.equal(firstSizes.length, 1);
     assert.deepEqual(secondSizes.at(-1), { width: 640, height: 360 });
 

@@ -83,6 +83,8 @@ test("live crosshair updates bypass workspace React state and use indexed candle
   assert.match(workspace, /crosshairSyncBus=\{crosshairSyncBus\}/);
   assert.doesNotMatch(workspace, /setSyncedCrosshair|useState<SyncedChartCrosshair/);
   assert.match(chart, /useSyncExternalStore/);
+  assert.match(chart, /localPointerActiveRef\.current/);
+  assert.match(chart, /addEventListener\("pointerenter"/);
   assert.match(chart, /barsByTimeRef\.current\.get|barsByTime\.get/);
   assert.doesNotMatch(chart, /bars\.find\(\(bar\) => bar\.time === time\)/);
   assert.match(chart, /if \(!linkedCrosshairAppliedRef\.current\) return/);

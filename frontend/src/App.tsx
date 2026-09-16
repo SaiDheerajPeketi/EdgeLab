@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import {
   AlertTriangle,
@@ -498,6 +499,8 @@ export function WorkspaceApp() {
     notes: JournalDailyNote[];
     trades: CanonicalTrade[];
   }>({ accounts: [], notes: [], trades: [] });
+  const commandJournalLoadedAtRef = useRef(0);
+  const commandJournalLoadRef = useRef<Promise<void> | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadWorkspaceSidebarCollapsed);
   const [sessionGateOpen, setSessionGateOpen] = useState(
     () => workspaceViewFromPath(window.location.pathname) !== "backtest",
@@ -1525,14 +1528,20 @@ export function WorkspaceApp() {
   useEffect(() => {
     let cancelled = false;
     const loadCommandJournalData = () => {
-      void Promise.all([
+      if (commandJournalLoadRef.current || Date.now() - commandJournalLoadedAtRef.current < 60_000) return;
+      commandJournalLoadRef.current = Promise.all([
         listJournalAccounts(),
         listCanonicalTrades({ limit: 200 }),
         listJournalDailyNotes(),
       ]).then(([accounts, canonicalTrades, notes]) => {
-        if (!cancelled) setCommandJournalData({ accounts, notes, trades: canonicalTrades });
+        if (!cancelled) {
+          setCommandJournalData({ accounts, notes, trades: canonicalTrades });
+          commandJournalLoadedAtRef.current = Date.now();
+        }
       }).catch(() => {
         // The public/auth routes share this root. Journal commands appear after authentication succeeds.
+      }).finally(() => {
+        commandJournalLoadRef.current = null;
       });
     };
     loadCommandJournalData();
@@ -1637,7 +1646,7 @@ export function WorkspaceApp() {
   function navigateWorkspace(view: WorkspaceView) {
     rememberWindowScroll(activeWorkspace);
     setNotebookReturnTarget(null);
-    setActiveWorkspace(view);
+    flushSync(() => setActiveWorkspace(view));
     if (view === "sessions") {
       setPlaying(false);
       setReplayFocusTrade(null);

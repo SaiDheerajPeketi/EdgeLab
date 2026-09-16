@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { AlertTriangle, Check, CircleHelp, CornerDownLeft, LoaderCircle, Search, X } from "lucide-react";
 import type { WorkspaceView } from "../lib/workspace";
 import { WORKSPACE_NAVIGATION_SECTIONS, isWorkspaceNavigationItem } from "../lib/workspaceNavigation";
@@ -7,6 +8,7 @@ import { pushWorkspaceRoute } from "../lib/workspaceRoute";
 import { Dialog, IconButton } from "./ui/Primitives";
 
 type CommandItem = { id: string; label: string; detail: string; keywords: string; group: string; run: () => void };
+const COMMAND_RESULT_LIMIT = 8;
 
 function isCommandPaletteShortcut(event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "repeat">) {
   return !event.altKey
@@ -24,8 +26,10 @@ export function GlobalCommandPalette({ commandEntities = [], onNavigate, onSelec
 
   const close = () => { setOpen(false); setQuery(""); setMode("commands"); };
   const openPalette = (nextMode: "commands" | "shortcuts" = "commands") => {
-    setOpen(true);
-    setMode(nextMode);
+    flushSync(() => {
+      setOpen(true);
+      setMode(nextMode);
+    });
     window.dispatchEvent(new Event("edgelab:command-palette-open"));
   };
   const commands = useMemo<CommandItem[]>(() => {
@@ -38,7 +42,7 @@ export function GlobalCommandPalette({ commandEntities = [], onNavigate, onSelec
     const contextual = commandEntities.map<CommandItem>((entity) => ({ id: `${entity.kind}-${entity.id}`, label: entity.label, detail: entity.detail, keywords: `${entity.kind} ${entity.keywords ?? ""}`, group: ({ account: "Accounts", trade: "Trades", note: "Notes", workspace: "Workspaces", "safe-action": "Actions" } as const)[entity.kind], run: () => { entity.run(); close(); } }));
     return [...navigation, ...symbolCommands, ...contextual, { id: "shortcuts", label: "Keyboard shortcut reference", detail: "Replay, chart, navigation, Journal, and panel keys", keywords: "help keyboard shortcuts question", group: "Help", run: () => { setMode("shortcuts"); setQuery(""); } }, { id: "components", label: "Component state catalog", detail: "Browse the shared interaction and feedback states", keywords: "ui design system states components accessibility", group: "System", run: () => { setMode("components"); setQuery(""); } }];
   }, [commandEntities, onNavigate, onSelectSymbol, symbols]);
-  const matchingCommands = (value: string) => commands.map((item) => ({ item, score: commandSearchScore(item, value) })).filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label)).slice(0, 80).map(({ item }) => item);
+  const matchingCommands = (value: string) => commands.map((item) => ({ item, score: commandSearchScore(item, value) })).filter(({ score }) => score > 0).sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label)).slice(0, COMMAND_RESULT_LIMIT).map(({ item }) => item);
   const filtered = useMemo(() => matchingCommands(query), [commands, query]);
 
   useLayoutEffect(() => {

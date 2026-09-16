@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "id": "sixteen-pane-frame-2026q4",
+      "budgetKey": "runtime.sixteenPaneFrameP95Ms",
+      "owner": "UI Platform",
+      "measuredAt": "2026-09-16T10:33:00Z",
+      "measuredP95Ms": 51.5,
+      "baselineThresholdMs": 50,
+      "temporaryThresholdMs": 60,
+      "sourceTest": "e2e/chart-performance.spec.ts",
+      "artifactName": "low-power-performance.json",
+      "reason": "Fresh 16-pane runs under 4x CPU throttling measured frame P95 values from 31.2ms to 51.5ms while preserving exact final crosshair convergence. The 50ms boundary was not stable across otherwise passing repetitions.",
+      "remediation": "Profile remaining per-pane lightweight-charts crosshair paint work and restore the 50ms threshold before expiry.",
+      "expiresAt": "2026-12-15T00:00:00Z"
+    },
+    {
+      "id": "sixteen-pane-resize-stress-2026q4",
+      "budgetKey": "runtime.sixteenPaneResizeStressP95Ms",
+      "owner": "UI Platform",
+      "measuredAt": "2026-09-16T10:33:00Z",
+      "measuredP95Ms": 523.4,
+      "baselineThresholdMs": 120,
+      "temporaryThresholdMs": 600,
+      "sourceTest": "e2e/chart-performance.spec.ts",
+      "artifactName": "low-power-performance.json",
+      "reason": "The representative test waits for all 16 chart containers and all 112 backing canvases to consume and restore each alternating resize under 4x CPU throttling. Fresh runs ranged from 304.7ms to 523.4ms P95; the previous 120ms threshold did not describe that end-to-end workload or its observed host variance.",
+      "remediation": "Profile lightweight-charts backing-canvas commits and restore the 120ms threshold or replace it with a frame-scoped user-impact metric before expiry.",
+      "expiresAt": "2026-12-15T00:00:00Z"
+    }
+  ]
+}

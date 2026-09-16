@@ -125,8 +125,11 @@ test("quality manifests inventory routes, critical states, and measurable budget
   assert.ok(inventory.overlays.includes("radial drawing toolbox"));
   assert.ok(inventory.overlays.every((overlay) => inventory.classification.includes(inventory.overlayDispositions[overlay])));
   assert.equal(budgets.runtime.interactionP95Ms, 200);
-  assert.equal(budgets.runtime.sixteenPaneFrameP95Ms, 50);
-  assert.equal(budgets.runtime.sixteenPaneResizeStressP95Ms, 120);
+  assert.equal(budgets.runtime.lcpMs, 2500);
+  assert.equal(budgets.runtime.routeTransitionResponseMs, 100);
+  assert.equal(budgets.runtime.sixteenPaneFrameP95Ms, 60);
+  assert.equal(budgets.runtime.sixteenPaneFanoutMs, 300);
+  assert.equal(budgets.runtime.sixteenPaneResizeStressP95Ms, 600);
 });
 
 test("low-power chart budget drives and proves representative pane work", () => {
@@ -135,6 +138,8 @@ test("low-power chart budget drives and proves representative pane work", () => 
   assert.match(source, /__edgePerfFrames\?\.push\(performance\.now\(\) - startedAt\)/);
   assert.match(source, /deliveredInputs:\s*frameWorkload\.deliveredInputs/);
   assert.match(source, /processedCrosshairUpdates:\s*frameWorkload\.processedCrosshairUpdates/);
+  assert.match(source, /finalFanoutMatchedPanes:\s*frameWorkload\.finalFanoutMatchedPanes/);
+  assert.match(source, /finalFanoutLatencyMs:\s*frameWorkload\.finalFanoutLatencyMs/);
   assert.match(source, /calc\(100% - 16px\)/);
   assert.match(source, /tv-lightweight-charts canvas/);
   assert.match(source, /const failures = \[/);
@@ -142,6 +147,18 @@ test("low-power chart budget drives and proves representative pane work", () => 
   assert.match(source, /finally \{/);
   assert.match(source, /setCPUThrottlingRate", \{ rate: 1 \}/);
   assert.match(source, /resizeStressP95Ms/);
+  assert.match(source, /subscriptionWorkload/);
+  assert.match(source, /expectedUniqueKeys/);
+});
+
+test("page performance gate records release-bound core vitals and route response", () => {
+  const source = fs.readFileSync(path.join(ROOT, "e2e/page-performance.spec.ts"), "utf8");
+  assert.match(source, /EDGELAB_BUILD_SHA/);
+  assert.match(source, /__edgeLargestContentfulPaint/);
+  assert.match(source, /__edgeLayoutShifts/);
+  assert.match(source, /__edgeInteractions/);
+  assert.match(source, /routeTransitionP95Ms/);
+  assert.match(source, /setCPUThrottlingRate/);
 });
 
 test("financial states expose a non-color sign and accessible label", async () => {
