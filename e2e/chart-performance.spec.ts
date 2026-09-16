@@ -133,7 +133,8 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
       for (let index = 0; index < 20; index += 1) {
         const shrink = index % 2 === 0;
         const start = performance.now();
-        grid.style.width = shrink ? "calc(100% - 16px)" : "100%";
+        if (shrink) grid.style.width = "calc(100% - 16px)";
+        else grid.style.removeProperty("width");
         for (let attempt = 0; attempt < 8; attempt += 1) {
           await settle();
           const current = snapshot();
@@ -142,7 +143,8 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
             if (Math.abs(size.containerWidth - initial[paneIndex].containerWidth) >= 4) changedContainers.add(paneIndex);
           });
           const targetReached = shrink
-            ? changedCanvases.size === 16 && changedContainers.size === 16
+            ? current.every((size, paneIndex) => size.canvasSignature !== initial[paneIndex].canvasSignature
+              && Math.abs(size.containerWidth - initial[paneIndex].containerWidth) >= 4)
             : current.every((size, paneIndex) => size.canvasSignature === initial[paneIndex].canvasSignature
               && Math.abs(size.containerWidth - initial[paneIndex].containerWidth) < 0.5);
           if (targetReached) break;
@@ -172,6 +174,8 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
     });
     report.resizeStress = resizeStress;
     report.resizeStressP95Ms = p95(resizeStress.durations);
+    report.resizeShrinkP95Ms = p95(resizeStress.durations.filter((_duration, index) => index % 2 === 0));
+    report.resizeRestoreP95Ms = p95(resizeStress.durations.filter((_duration, index) => index % 2 === 1));
 
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const interactions: number[] = [];
