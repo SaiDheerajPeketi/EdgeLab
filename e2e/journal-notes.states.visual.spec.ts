@@ -14,9 +14,10 @@ test.describe("journal notes state baselines", () => {
     await page.route("**/api/journal/trades**", (request) => request.fulfill({ json: [] }));
     await openNotes(page);
 
-    await expect(page.getByRole("status", { name: "" }).filter({ hasText: "No saved notes yet." })).toBeVisible();
+    const emptyStatus = page.getByRole("status", { name: "" }).filter({ hasText: "No saved notes yet." });
+    await expect(emptyStatus).toBeVisible();
     await expect(page.getByText("No trades on this date")).toBeVisible();
-    await expectRouteGeometry(page, page.getByRole("complementary", { name: "Daily note library" }));
+    await revealAndExpectRouteGeometry(page, emptyStatus);
     await expectStateScreenshot(page, "journal-notes-empty");
   });
 
@@ -29,7 +30,7 @@ test.describe("journal notes state baselines", () => {
     await result.click();
     await expect(result).toHaveAttribute("aria-current", "true");
     await expect(page.getByRole("status")).toHaveCount(0);
-    await expectRouteGeometry(page, result);
+    await revealAndExpectRouteGeometry(page, result);
     await expectStateScreenshot(page, "journal-notes-search-results");
   });
 
@@ -40,7 +41,7 @@ test.describe("journal notes state baselines", () => {
     const drawer = page.locator("[data-journal-review-drawer]");
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole("heading", { name: "Review BTCUSDT" })).toBeVisible();
-    await expectRouteGeometry(page, drawer);
+    await revealAndExpectRouteGeometry(page, drawer.getByRole("heading", { name: "Review BTCUSDT" }));
     await expectStateScreenshot(page, "journal-notes-trade-note");
   });
 });
@@ -51,15 +52,33 @@ async function openNotes(page: Page) {
   await expect(page.getByLabel("Search notes")).toBeVisible();
 }
 
-async function expectRouteGeometry(page: Page, subject: Locator) {
+async function revealAndExpectRouteGeometry(page: Page, subject: Locator) {
+  await subject.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   const box = await subject.boundingBox();
   const viewport = page.viewportSize();
   expect(box).not.toBeNull();
   expect(viewport).not.toBeNull();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  const fixedBottomBoundary = await getFixedBottomBoundary(page, viewport!.height);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(fixedBottomBoundary - 8);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function getFixedBottomBoundary(page: Page, viewportHeight: number) {
+  let boundary = viewportHeight;
+  const obstacles = [
+    page.getByRole("navigation", { name: "Primary workspace" }),
+    page.getByRole("button", { name: "Open command palette" }),
+  ];
+  for (const obstacle of obstacles) {
+    if (!(await obstacle.isVisible())) continue;
+    const box = await obstacle.boundingBox();
+    if (box && box.y > viewportHeight / 2) boundary = Math.min(boundary, box.y);
+  }
+  return boundary;
 }
 
 async function expectStateScreenshot(page: Page, name: string) {
