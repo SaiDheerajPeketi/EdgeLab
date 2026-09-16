@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { expectStableScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const account = {
@@ -9,6 +9,12 @@ const account = {
   created_at: "2026-09-15T10:30:00.000Z", updated_at: "2026-09-15T10:30:00.000Z",
 };
 const euroAccount = { ...account, id: 82, source_key: "visual-euro", name: "DAX Swing — München", currency: "EUR", initial_balance: "18000", color: "#60a5fa" };
+const connection = {
+  id: 401, provider: "offline-fixture", display_name: "Verified offline fixture", secret_id: 301,
+  status: "SYNCING", health: "HEALTHY", last_error_code: null, last_error_message: null,
+  last_sync_started_at: "2026-09-15T10:29:00.000Z", last_sync_completed_at: null,
+  next_retry_at: null, created_at: "2026-09-15T10:00:00.000Z", updated_at: "2026-09-15T10:30:00.000Z", revoked_at: null,
+};
 
 async function jsonRoute(page: Page, pattern: string, body: unknown, status = 200) {
   await page.route(pattern, (route) => route.fulfill({ body: JSON.stringify(body), contentType: "application/json", status }));
@@ -17,6 +23,23 @@ async function jsonRoute(page: Page, pattern: string, body: unknown, status = 20
 async function expectViewportSafe(page: Page) {
   const geometry = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, viewport: window.innerWidth }));
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport + 1);
+}
+
+async function revealAboveFixedNavigation(page: Page, target: Locator) {
+  await target.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  const geometry = await target.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const navigation = document.querySelector<HTMLElement>('[aria-label="Primary workspace"]');
+    const navigationBox = navigation?.getBoundingClientRect();
+    return {
+      bottom: box.bottom,
+      navigationTop: navigationBox && navigationBox.height > 0 ? navigationBox.top : window.innerHeight,
+      top: box.top,
+    };
+  });
+  expect(geometry.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.bottom).toBeLessThanOrEqual(geometry.navigationTop - 8);
 }
 
 test.describe("Journal dashboard and account critical states", () => {
@@ -84,6 +107,46 @@ test.describe("Journal dashboard and account critical states", () => {
     await expect(page.getByRole("button", { name: "Create or connect account" })).toBeVisible();
     await expectViewportSafe(page);
     await expectStableScreenshot(page, "journal-accounts-empty", { fullPage: false });
+  });
+
+  test("accounts provider syncing state", async ({ page }) => {
+    await jsonRoute(page, "**/api/broker-connections", [connection]);
+    await jsonRoute(page, "**/api/broker-connections/*/accounts", []);
+    await gotoStable(page, "/app/journal/accounts", { waitForNetworkIdle: false });
+    await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
+    const syncConnection = page.getByText("Verified offline fixture", { exact: true });
+    const syncDetails = syncConnection.locator("xpath=..");
+    await expect(syncDetails).toContainText("Syncing…");
+    await expect(syncDetails).toContainText("health Healthy");
+    await revealAboveFixedNavigation(page, syncConnection);
+    await expect(page.getByRole("button", { name: "Refresh" }).last()).toBeEnabled();
+    await expectViewportSafe(page);
+    await expectStableScreenshot(page, "journal-accounts-syncing", { fullPage: false });
+  });
+
+  test("accounts provider error state", async ({ page }) => {
+    await jsonRoute(page, "**/api/broker-connections", [{ ...connection, status: "ERROR", health: "ERROR", last_error_code: "TOKEN_EXPIRED", last_error_message: "Provider token expired.", next_retry_at: "2026-09-15T10:45:00.000Z" }]);
+    await jsonRoute(page, "**/api/broker-connections/*/accounts", []);
+    await gotoStable(page, "/app/journal/accounts", { waitForNetworkIdle: false });
+    const providerError = page.getByText("Provider token expired.", { exact: false });
+    await expect(providerError).toContainText("Next retry");
+    await expect(providerError).toContainText("Provider token expired.");
+    await revealAboveFixedNavigation(page, providerError);
+    await expect(page.getByRole("button", { name: "Refresh" }).last()).toBeEnabled();
+    await expectViewportSafe(page);
+    await expectStableScreenshot(page, "journal-accounts-provider-error", { fullPage: false });
+  });
+
+  test("accounts comparison state", async ({ page }) => {
+    await jsonRoute(page, "**/api/journal/accounts**", [account, euroAccount]);
+    await gotoStable(page, "/app/journal/accounts", { waitForNetworkIdle: false });
+    await expect(page.getByText(account.name, { exact: true })).toBeVisible();
+    const comparisonAccount = page.getByText(euroAccount.name, { exact: true });
+    await expect(comparisonAccount).toBeVisible();
+    await revealAboveFixedNavigation(page, comparisonAccount);
+    await expect(page.getByText("Cross-currency totals stay separated.")).toBeVisible();
+    await expectViewportSafe(page);
+    await expectStableScreenshot(page, "journal-accounts-comparison", { fullPage: false });
   });
 
 });
