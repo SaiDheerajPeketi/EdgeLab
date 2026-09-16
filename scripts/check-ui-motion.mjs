@@ -56,9 +56,16 @@ assert.match(styles, /\.edgelab-marquee-paused[\s\S]*animation:[^;]+paused/);
 const shimmeringText = fs.readFileSync(path.join(sourceRoot, "components/shimmering-text.tsx"), "utf8");
 assert.match(shimmeringText, /opacity:\s*\[0\.48, 1, 0\.48\][\s\S]*repeat:\s*Number\.POSITIVE_INFINITY/);
 assert.doesNotMatch(shimmeringText, /color:\s*\[[^\]]+\][\s\S]*repeat:\s*Number\.POSITIVE_INFINITY/);
+assert.equal(census.schemaVersion, 1, "Unsupported motion census schema");
+assert.deepEqual(Object.keys(census.proof).sort(), ["authenticated-radial-toolbox", "public-storytelling"]);
 const assertPartition = (label, actual, partition) => {
-  assert.equal(new Set([...partition.covered, ...partition.residual]).size, actual.length, `${label} census contains duplicates or omissions`);
-  assert.deepEqual([...new Set([...partition.covered, ...partition.residual])].sort(), [...actual].sort(), `${label} census must classify every inventoried surface`);
+  const covered = Object.keys(partition.covered);
+  assert.equal(new Set([...covered, ...partition.residual]).size, actual.length, `${label} census contains duplicates or omissions`);
+  assert.deepEqual([...new Set([...covered, ...partition.residual])].sort(), [...actual].sort(), `${label} census must classify every inventoried surface`);
+  for (const [surface, proofIds] of Object.entries(partition.covered)) {
+    assert.ok(proofIds.length > 0, `${label} ${surface} has no proof binding`);
+    for (const proofId of proofIds) assert.ok(census.proof[proofId], `${label} ${surface} references unknown proof ${proofId}`);
+  }
 };
 assertPartition("panel", Object.keys(evidence.panels), census.panels);
 assertPartition("overlay", Object.keys(evidence.overlays), census.overlays);
@@ -67,5 +74,26 @@ const requiredAssertions = ["compositor-properties", "offscreen-pause-resume", "
 const publicProof = census.proof["public-storytelling"];
 assert.equal(publicProof.spec, "e2e/motion-preference.interaction.spec.ts");
 for (const assertion of requiredAssertions) assert.ok(publicProof.assertions.includes(assertion), `Motion census is missing ${assertion}`);
+const assertionMarkers = {
+  "compositor-properties": "unsafeProperties",
+  "offscreen-pause-resume": "pausedMotionCounts",
+  "observer-cleanup": "__edgelabIntersectionDisconnects",
+  "rapid-interruption-final-state": "stableStageStyle",
+  "layout-count-zero": "LayoutCount",
+  "reduced-motion": "prefers-reduced-motion: reduce",
+  "focus-restoration": "toBeFocused",
+};
+const referencedProofs = new Set(Object.values(census.routeGroups.covered).flat().concat(Object.values(census.panels.covered).flat(), Object.values(census.overlays.covered).flat()));
+assert.deepEqual([...referencedProofs].sort(), Object.keys(census.proof).sort(), "Every proof must be referenced by a covered surface and vice versa");
+for (const [proofId, proof] of Object.entries(census.proof)) {
+  const proofPath = path.join(root, proof.spec);
+  assert.ok(fs.existsSync(proofPath), `${proofId} spec does not exist`);
+  const source = fs.readFileSync(proofPath, "utf8");
+  assert.ok(source.includes(`test("${proof.testTitle}"`), `${proofId} test title is missing`);
+  for (const assertionId of proof.assertions) {
+    assert.ok(assertionMarkers[assertionId], `${proofId} has unknown assertion ${assertionId}`);
+    assert.ok(source.includes(assertionMarkers[assertionId]), `${proofId} does not contain assertion marker ${assertionMarkers[assertionId]}`);
+  }
+}
 assert.ok(census.panels.residual.length > 0 && census.overlays.residual.length > 0, "UIR-72 must remain partial until authenticated surface coverage is exhaustive");
-console.log(`Motion policy passed across ${files.length} UI source files; census covers ${census.routeGroups.covered.length} route groups, ${census.panels.covered.length} panels, and ${census.overlays.covered.length} overlays with ${census.routeGroups.residual.length + census.panels.residual.length + census.overlays.residual.length} explicit residuals.`);
+console.log(`Motion policy passed across ${files.length} UI source files; census covers ${Object.keys(census.routeGroups.covered).length} route groups, ${Object.keys(census.panels.covered).length} panels, and ${Object.keys(census.overlays.covered).length} overlays with ${census.routeGroups.residual.length + census.panels.residual.length + census.overlays.residual.length} explicit residuals.`);

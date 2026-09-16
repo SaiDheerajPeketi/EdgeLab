@@ -3,23 +3,25 @@
   "proof": {
     "public-storytelling": {
       "spec": "e2e/motion-preference.interaction.spec.ts",
+      "testTitle": "a live reduced-motion preference stops repeated landing work",
       "assertions": ["compositor-properties", "offscreen-pause-resume", "observer-cleanup", "rapid-interruption-final-state", "layout-count-zero", "reduced-motion"]
     },
     "authenticated-radial-toolbox": {
       "spec": "e2e/motion-preference.interaction.spec.ts",
-      "assertions": ["reduced-motion", "rapid-interruption-final-state", "focus-restoration"]
+      "testTitle": "the reduced-motion circular toolbox remains keyboard-usable and restores focus",
+      "assertions": ["reduced-motion", "focus-restoration"]
     }
   },
   "routeGroups": {
-    "covered": ["public", "chart"],
-    "residual": ["shell", "journal", "settings"]
+    "covered": { "public": ["public-storytelling"] },
+    "residual": ["shell", "journal", "settings", "chart"]
   },
   "panels": {
-    "covered": [],
+    "covered": {},
     "residual": ["Journal", "Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"]
   },
   "overlays": {
-    "covered": ["radial drawing toolbox"],
+    "covered": { "radial drawing toolbox": ["authenticated-radial-toolbox"] },
     "residual": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "confirmation dialog", "toast"]
   }
 }

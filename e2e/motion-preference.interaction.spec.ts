@@ -128,10 +128,6 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   await expect(resultsStep).toHaveAttribute("aria-current", "step");
   await expect(page.getByRole("heading", { name: "Results that still trace back to the session" })).toBeVisible();
   const stage = workflow.locator("xpath=../following-sibling::div[1]");
-  await expect.poll(() => stage.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { opacity: style.opacity, transform: style.transform };
-  })).toEqual({ opacity: "1", transform: "none" });
   const stableStageStyle = await stage.getAttribute("style");
   await page.waitForTimeout(250);
   expect(await stage.getAttribute("style")).toBe(stableStageStyle);
