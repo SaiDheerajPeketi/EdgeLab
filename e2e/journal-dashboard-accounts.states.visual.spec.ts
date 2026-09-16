@@ -25,12 +25,31 @@ test.describe("Journal dashboard and account critical states", () => {
     await seedApprovedSession(page);
   });
 
-  test("dashboard partial state", async ({ page }) => {
+  test("dashboard partial state", async ({ page }, testInfo) => {
     await jsonRoute(page, "**/api/journal/accounts**", [account]);
     await jsonRoute(page, "**/api/journal/trades**", []);
     await gotoStable(page, "/app/journal/dashboard", { waitForNetworkIdle: false });
     await expect(page.getByRole("heading", { name: "Trading overview" })).toBeVisible();
-    await expect(page.getByText("Close trades to build the equity curve.")).toBeVisible();
+    const partialMessage = page.getByText("Close trades to build the equity curve.");
+    await expect(partialMessage).toBeVisible();
+    if (testInfo.project.name !== "desktop") {
+      await partialMessage.scrollIntoViewIfNeeded();
+      await partialMessage.evaluate((element) => {
+        const navigation = document.querySelector<HTMLElement>('[aria-label="Primary workspace"]');
+        const navigationTop = navigation?.getBoundingClientRect().top ?? window.innerHeight;
+        const overlap = element.getBoundingClientRect().bottom - navigationTop + 16;
+        if (overlap > 0) window.scrollBy(0, overlap);
+      });
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      const clearance = await partialMessage.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const navigation = document.querySelector<HTMLElement>('[aria-label="Primary workspace"]');
+        const navigationTop = navigation?.getBoundingClientRect().top ?? window.innerHeight;
+        return { bottom: box.bottom, navigationTop, top: box.top };
+      });
+      expect(clearance.top).toBeGreaterThanOrEqual(0);
+      expect(clearance.bottom).toBeLessThanOrEqual(clearance.navigationTop - 8);
+    }
     await expectViewportSafe(page);
     await expectStableScreenshot(page, "journal-dashboard-partial", { fullPage: false });
   });
@@ -51,6 +70,8 @@ test.describe("Journal dashboard and account critical states", () => {
     const alert = page.getByRole("alert");
     await expect(alert).toContainText("Journal accounts unavailable");
     await expect(alert.getByRole("button", { name: "Retry" })).toBeVisible();
+    await expect(page.getByText("Build your relational Journal", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create or connect account" })).toHaveCount(0);
     await expectViewportSafe(page);
     await expectStableScreenshot(page, "journal-dashboard-error", { fullPage: false });
   });
