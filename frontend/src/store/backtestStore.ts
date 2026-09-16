@@ -95,6 +95,7 @@ type BacktestStore = {
   pendingReplaySyncOffset: number | null;
   speedMs: number;
   error: string | null;
+  failedReplayAction: { type: "jumpToOffset"; offset: number } | { type: "jumpToTimestamp"; timestamp: string } | null;
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
   deletePlaybook: (playbookId: number) => Promise<void>;
@@ -122,6 +123,7 @@ type BacktestStore = {
   resetReplay: () => Promise<void>;
   jumpToOffset: (offset: number) => Promise<void>;
   jumpToTimestamp: (timestamp: string) => Promise<void>;
+  retryFailedReplayAction: () => Promise<void>;
   setPlaying: (value: boolean) => void;
   setSpeed: (value: number) => void;
   placeOrder: (payload: OrderPayload) => Promise<boolean>;
@@ -161,6 +163,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   pendingReplaySyncOffset: null,
   speedMs: 200,
   error: null,
+  failedReplayAction: null,
 
   createPlaybook: async (payload) => {
     const playbook = await postPlaybook(payload);
@@ -831,7 +834,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
     const requestVersion = ++replaySeekRequestVersion;
-    set({ isLoading: true, isPlaying: false, error: null });
+    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null });
     try {
       const state = await jumpBacktest(sessionId, { offset });
       const { bars, barOffset } = await loadWindow(
@@ -849,13 +852,14 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         barOffset,
         pendingReplaySyncOffset: null,
         isLoading: false,
+        failedReplayAction: null,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
     } catch (error) {
       if (requestVersion !== replaySeekRequestVersion) {
         return;
       }
-      set({ error: toErrorMessage(error), isLoading: false });
+      set({ error: toErrorMessage(error), isLoading: false, failedReplayAction: { type: "jumpToOffset", offset } });
     }
   },
 
@@ -865,7 +869,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
     const requestVersion = ++replaySeekRequestVersion;
-    set({ isLoading: true, isPlaying: false, error: null });
+    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null });
     try {
       const state = await jumpBacktest(sessionId, { timestamp });
       const { bars, barOffset } = await loadWindow(
@@ -883,13 +887,23 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         barOffset,
         pendingReplaySyncOffset: null,
         isLoading: false,
+        failedReplayAction: null,
         replaySeekVersion: current.replaySeekVersion + 1,
       }));
     } catch (error) {
       if (requestVersion !== replaySeekRequestVersion) {
         return;
       }
-      set({ error: toErrorMessage(error), isLoading: false });
+      set({ error: toErrorMessage(error), isLoading: false, failedReplayAction: { type: "jumpToTimestamp", timestamp } });
+    }
+  },
+
+  retryFailedReplayAction: async () => {
+    const action = get().failedReplayAction;
+    if (action?.type === "jumpToOffset") {
+      await get().jumpToOffset(action.offset);
+    } else if (action?.type === "jumpToTimestamp") {
+      await get().jumpToTimestamp(action.timestamp);
     }
   },
 

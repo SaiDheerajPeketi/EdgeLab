@@ -403,6 +403,7 @@ export function WorkspaceApp() {
     ensureResultTradesLoaded,
     ensureLatestReplayLoaded,
     error,
+    failedReplayAction,
     isLoading,
     isLoadingMoreSessions,
     isPlaying,
@@ -422,6 +423,7 @@ export function WorkspaceApp() {
     updateDatasetSettings,
     loadMoreSessions,
     jumpToOffset,
+    retryFailedReplayAction,
     amendOrder,
     placeOrder,
     setPlaying,
@@ -447,6 +449,7 @@ export function WorkspaceApp() {
       ensureResultTradesLoaded: store.ensureResultTradesLoaded,
       ensureLatestReplayLoaded: store.ensureLatestReplayLoaded,
       error: store.error,
+      failedReplayAction: store.failedReplayAction,
       isLoading: store.isLoading,
       isLoadingMoreSessions: store.isLoadingMoreSessions,
       isPlaying: store.isPlaying,
@@ -466,6 +469,7 @@ export function WorkspaceApp() {
       updateDatasetSettings: store.updateDatasetSettings,
       loadMoreSessions: store.loadMoreSessions,
       jumpToOffset: store.jumpToOffset,
+      retryFailedReplayAction: store.retryFailedReplayAction,
       amendOrder: store.amendOrder,
       placeOrder: store.placeOrder,
       setPlaying: store.setPlaying,
@@ -3107,9 +3111,11 @@ export function WorkspaceApp() {
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100" role="alert">
               <AlertTriangle size={18} />
               <span className="min-w-0 flex-1">{error}</span>
-              <button className="control-button h-9 px-3 text-xs" disabled={isLoading} onClick={() => void loadInitial()} type="button">
-                Retry
-              </button>
+              {failedReplayAction ? (
+                <button className="control-button h-9 px-3 text-xs" disabled={isLoading} onClick={() => void retryFailedReplayAction()} type="button">
+                  Retry replay action
+                </button>
+              ) : null}
             </div>
           )}
           {isLoading && <BacktestLoadingPanel />}

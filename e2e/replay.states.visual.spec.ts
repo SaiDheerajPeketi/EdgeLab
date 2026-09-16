@@ -155,12 +155,36 @@ test.describe("replay critical state baselines", () => {
 
   test("completion names the terminal state and recovery", async ({ page }) => {
     await fulfillReplayContext(page, "COMPLETE");
+    let restartedSession: Record<string, unknown> | null = null;
+    await page.route("**/api/backtests", async (route) => {
+      restartedSession = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        body: JSON.stringify({
+          ...replayState(),
+          session: { ...session, current_offset: 0, status: "ACTIVE" },
+          current_candle: bars[0],
+        }),
+        contentType: "application/json",
+        status: 200,
+      });
+    });
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
 
     await expect(page.getByText("Replay complete", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Replay again" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Play", exact: true })).toBeDisabled();
     await expectReplayScreenshot(page, "replay-complete");
+
+    await page.getByRole("button", { name: "Replay again" }).click();
+    await expect(page.getByText("Replay complete", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
+    await expect(page.getByText("Bar 0", { exact: true })).toBeVisible();
+    expect(restartedSession).toMatchObject({
+      name: session.name,
+      symbol: session.symbol,
+      start_timestamp: session.start_at,
+      end_timestamp: session.end_at,
+    });
   });
 
   test("playing exposes an unambiguous transport state", async ({ page }) => {
@@ -175,11 +199,24 @@ test.describe("replay critical state baselines", () => {
 
   test("failed progress save keeps the replay recoverable", async ({ page }) => {
     await fulfillReplayContext(page);
-    await page.route("**/api/backtests/4101/jump", (route) => route.fulfill({
-      body: JSON.stringify({ detail: "Replay progress could not be saved. Your session is still open; retry when the connection recovers." }),
-      contentType: "application/json",
-      status: 503,
-    }));
+    const jumpOffsets: number[] = [];
+    await page.route("**/api/backtests/4101/jump", async (route) => {
+      const payload = route.request().postDataJSON() as { offset: number };
+      jumpOffsets.push(payload.offset);
+      if (jumpOffsets.length === 1) {
+        await route.fulfill({
+          body: JSON.stringify({ detail: "Replay progress could not be saved. Your session is still open; retry when the connection recovers." }),
+          contentType: "application/json",
+          status: 503,
+        });
+        return;
+      }
+      await route.fulfill({
+        body: JSON.stringify({ ...replayState(), session: { ...session, current_offset: payload.offset }, current_candle: bars[payload.offset] }),
+        contentType: "application/json",
+        status: 200,
+      });
+    });
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
 
     const offset = page.getByPlaceholder("Offset");
@@ -187,7 +224,14 @@ test.describe("replay critical state baselines", () => {
     await page.getByRole("button", { name: "Go", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Replay progress could not be saved");
     await expect(offset).toHaveValue("104");
-    await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+    const retry = page.getByRole("button", { name: "Retry replay action", exact: true });
+    await expect(retry).toBeVisible();
     await expectReplayScreenshot(page, "replay-save-error");
+
+    await retry.click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByText("Bar 104", { exact: true })).toBeVisible();
+    await expect(offset).toHaveValue("104");
+    expect(jumpOffsets).toEqual([104, 104]);
   });
 });
