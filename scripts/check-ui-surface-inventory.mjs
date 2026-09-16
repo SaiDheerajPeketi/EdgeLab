@@ -288,9 +288,9 @@ export function validateUiSurfaceInventory({
     validDispositions,
   });
 
-  if (interactionCertification.schemaVersion !== 1) errors.push("UI surface interaction certification schemaVersion must be 1.");
+  if (interactionCertification.schemaVersion !== 2) errors.push("UI surface interaction certification schemaVersion must be 2.");
   const criteria = interactionCertification.criteria ?? [];
-  const allowedKinds = new Set(["modal", "nonmodal", "disclosure", "persistent", "route-static", "transient"]);
+  const allowedKinds = new Set(["modal", "nonmodal", "keyboard-only", "disclosure", "persistent", "route-static", "transient"]);
   const validateInteractionFamily = (label, names, entries, evidenceFamily) => {
     if (!sameKeys(Object.keys(entries ?? {}).sort(), [...names].sort())) errors.push(`${label} interaction ledger must classify every inventoried surface exactly once.`);
     for (const [name, entry] of Object.entries(entries ?? {})) {
@@ -302,6 +302,10 @@ export function validateUiSurfaceInventory({
       if (!allowedKinds.has(kind)) errors.push(`${label} ${name} has unknown interaction kind ${kind}.`);
       const exemptions = interactionCertification.typedExemptions?.[kind] ?? [];
       for (const exemption of exemptions) if (!criteria.includes(exemption)) errors.push(`${label} ${name} has unknown typed exemption ${exemption}.`);
+      const family = label === "Panel" ? "panels" : "overlays";
+      const requiredProofs = criteria.filter((criterion) => !exemptions.includes(criterion)).sort();
+      const declaredProofs = [...(interactionCertification.proofs?.[family]?.[name] ?? [])].sort();
+      if (!sameKeys(requiredProofs, declaredProofs)) errors.push(`${label} ${name} must prove every non-exempt interaction criterion exactly once.`);
       const sourcePath = path.join(root, spec);
       if (!fs.existsSync(sourcePath)) {
         errors.push(`${label} ${name} interaction proof source is missing: ${spec}.`);

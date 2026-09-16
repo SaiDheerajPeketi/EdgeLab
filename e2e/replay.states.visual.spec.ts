@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import {
+  expectCertifiedScreenshot,
   expectStableScreenshot,
   gotoStable,
   installDeterminism,
@@ -160,6 +161,15 @@ async function expectNoHorizontalOverflow(locator: Locator) {
   expect(await locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 }
 
+async function assertFocusTrap(page: Page, dialog: Locator) {
+  const focusable = dialog.locator('button:not([disabled]):visible, [href]:visible, input:not([disabled]):visible, select:not([disabled]):visible, textarea:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible');
+  await focusable.first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(focusable.last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(focusable.first()).toBeFocused();
+}
+
 async function expectReplayScreenshot(page: Page, name: string) {
   await expectStableScreenshot(page, name, {
     fullPage: false,
@@ -267,7 +277,7 @@ test.describe("replay critical state baselines", () => {
     const transport = page.getByRole("region", { name: "Replay transport" });
     await expect(transport.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
     await expect(transport.getByRole("button", { name: "Step", exact: true })).toBeEnabled();
-    await expect(transport).toHaveScreenshot("replay-transport.png");
+    await expectCertifiedScreenshot(page, transport, "replay-transport.png");
     expect(await transport.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   });
 
@@ -275,14 +285,16 @@ test.describe("replay critical state baselines", () => {
     await fulfillReplayContext(page);
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
 
-    await page.getByRole("button", { name: "Ticket", exact: true }).first().click();
+    const trigger = page.getByRole("button", { name: "Ticket", exact: true }).first();
+    await trigger.focus();
+    await trigger.press("Enter");
     const ticket = page.getByRole("form", { name: "Order ticket" });
     await expect(ticket).toBeVisible();
     await expect(ticket.getByRole("button", { name: "Long / Buy" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Replay transport" })).toBeVisible();
     expect(await ticket.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     await expectReplayScreenshot(page, "replay-order-open");
-    await expect(ticket).toHaveScreenshot("order-ticket.png");
+    await expectCertifiedScreenshot(page, ticket, "order-ticket.png");
   });
 
   test("selected trade opens an accessible review drawer", async ({ page }) => {
@@ -300,7 +312,9 @@ test.describe("replay critical state baselines", () => {
   test("Objects panel supports keyboard resize", async ({ page }, testInfo) => {
     await fulfillReplayContext(page);
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
-    await page.getByRole("button", { name: "Objects", exact: true }).first().click();
+    const trigger = page.getByRole("button", { name: "Objects", exact: true }).first();
+    await trigger.focus();
+    await trigger.press("Enter");
     const panel = page.getByRole("complementary", { name: "Chart objects" });
     await expect(panel).toBeVisible();
     const resize = panel.getByRole("separator", { name: "Resize Chart objects" });
@@ -309,41 +323,51 @@ test.describe("replay critical state baselines", () => {
       await resize.press("ArrowLeft");
     } else await expect(resize).toBeHidden();
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    await expect(panel).toHaveScreenshot("panel-objects.png");
+    await expectCertifiedScreenshot(page, panel, "panel-objects.png");
   });
 
   test("Indicator editor traps focus and closes predictably", async ({ page }) => {
     await fulfillReplayContext(page);
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
-    await page.getByRole("button", { name: "Tools", exact: true }).click();
-    await page.getByRole("button", { name: "Editor", exact: true }).click();
+    const tools = page.getByRole("button", { name: "Tools", exact: true });
+    await tools.focus();
+    await tools.press("Enter");
+    const editorTrigger = page.getByRole("button", { name: "Editor", exact: true });
+    await editorTrigger.focus();
+    await editorTrigger.press("Enter");
     const panel = page.getByRole("dialog", { name: "EdgeLab indicator editor" });
     await expect(panel).toBeVisible();
-    await page.getByRole("button", { name: "Close indicator editor" }).focus();
-    await expect(page.getByRole("button", { name: "Close indicator editor" })).toBeFocused();
+    await expect(panel.locator(":focus")).toHaveCount(1);
+    await assertFocusTrap(page, panel);
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    await expect(panel).toHaveScreenshot("panel-indicator-editor.png");
+    await expectCertifiedScreenshot(page, panel, "panel-indicator-editor.png");
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(editorTrigger).toBeFocused();
   });
 
-  test("chart-authoring overlays remain operable and contained", async ({ page }) => {
+  test("chart settings opens and closes from its keyboard trigger", async ({ page }) => {
     await seedChartAuthoringObjects(page);
     await fulfillReplayContext(page);
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
-
     await page.getByRole("button", { name: "Tools", exact: true }).click();
-
     const settingsTrigger = page.locator(".chart-studio-toolbar").getByRole("button", { name: "Settings", exact: true });
-    await settingsTrigger.click();
+    await settingsTrigger.focus();
+    await settingsTrigger.press("Enter");
     const chartSettings = page.getByRole("dialog", { name: "Chart settings" });
     await expect(chartSettings).toBeVisible();
     await expectNoHorizontalOverflow(chartSettings);
-    await expect(chartSettings).toHaveScreenshot("overlay-chart-settings.png");
-    const closeChartSettings = chartSettings.getByRole("button", { name: "Close chart settings" });
-    await closeChartSettings.focus();
-    await expect(closeChartSettings).toBeFocused();
-    await closeChartSettings.click();
+    await expectCertifiedScreenshot(page, chartSettings, "overlay-chart-settings.png");
+    await page.keyboard.press("Escape");
     await expect(chartSettings).toBeHidden();
+    await expect(settingsTrigger).toBeFocused();
+  });
 
+  test("symbol search opens and closes from the keyboard", async ({ page }) => {
+    await seedChartAuthoringObjects(page);
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
     const symbolSearch = page.getByRole("combobox", { name: "Chart symbol" });
     await symbolSearch.focus();
     await symbolSearch.fill("BTC");
@@ -360,39 +384,63 @@ test.describe("replay critical state baselines", () => {
     expect(symbolBounds!.y).toBeGreaterThanOrEqual(0);
     expect(symbolBounds!.x + symbolBounds!.width).toBeLessThanOrEqual(viewport!.width + 1);
     expect(symbolBounds!.y + symbolBounds!.height).toBeLessThanOrEqual(viewport!.height + 1);
-    const symbolCapture = await page.screenshot({ clip: symbolBounds! });
-    expect(symbolCapture).toMatchSnapshot("overlay-symbol-search.png");
+    await expectCertifiedScreenshot(page, symbolResults, "overlay-symbol-search.png");
     await symbolSearch.press("Escape");
     await expect(symbolResults).toBeHidden();
     await expect(symbolSearch).toBeFocused();
+  });
 
+  test("indicator settings opens and closes from its keyboard trigger", async ({ page }) => {
+    await seedChartAuthoringObjects(page);
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
     const rsiTitle = page.locator(".indicator-pane-title").getByText("RSI 14", { exact: true });
     await rsiTitle.scrollIntoViewIfNeeded();
-    await rsiTitle.click();
+    await rsiTitle.focus();
+    await rsiTitle.press("Enter");
     const indicatorSettings = page.getByRole("group", { name: "Indicator settings" });
     await expect(indicatorSettings).toBeVisible();
     await expectNoHorizontalOverflow(indicatorSettings);
-    await expect(indicatorSettings).toHaveScreenshot("overlay-indicator-settings.png");
+    await expectCertifiedScreenshot(page, indicatorSettings, "overlay-indicator-settings.png");
+    await page.keyboard.press("Escape");
+    await expect(indicatorSettings).toBeHidden();
+    await expect(rsiTitle).toBeFocused();
+  });
 
-    await page.getByTitle("Horizontal level").click();
-    const chartPlot = page.locator(".chart-frame").first();
-    const chartBounds = await chartPlot.boundingBox();
-    expect(chartBounds).not.toBeNull();
-    await chartPlot.click({ position: { x: chartBounds!.width * 0.55, y: chartBounds!.height * 0.36 } });
+  test("drawing settings opens and closes from keyboard placement", async ({ page }) => {
+    await seedChartAuthoringObjects(page);
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
+    const horizontalLevel = page.getByTitle("Horizontal level");
+    await horizontalLevel.focus();
+    await horizontalLevel.press("Enter");
+    const chart = page.getByRole("region", { name: /chart/i }).first();
+    await chart.focus();
+    await chart.press("Enter");
     const drawingSettings = page.getByRole("group", { name: "Drawing settings" });
     await expect(drawingSettings).toBeVisible();
     await expectNoHorizontalOverflow(drawingSettings);
-    await expect(drawingSettings).toHaveScreenshot("overlay-drawing-settings.png");
+    await expectCertifiedScreenshot(page, drawingSettings, "overlay-drawing-settings.png");
     await page.keyboard.press("Escape");
+    await expect(drawingSettings).toBeHidden();
+    await expect(chart).toBeFocused();
+  });
 
+  test("radial drawing toolbox remains keyboard operable and contained", async ({ page }) => {
+    await seedChartAuthoringObjects(page);
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
     const chart = page.getByRole("region", { name: /chart/i }).first();
     await chart.focus();
     await page.keyboard.down("Alt");
-    const radialToolbox = page.getByRole("menu", { name: "Circular drawing toolbox" });
+    const radialToolbox = page.getByRole("toolbar", { name: "Circular drawing toolbox" });
     await expect(radialToolbox).toBeVisible();
-    expect(await radialToolbox.getByRole("menuitem").count()).toBeGreaterThan(0);
+    expect(await radialToolbox.getByRole("button").count()).toBeGreaterThan(0);
     await expectNoHorizontalOverflow(radialToolbox);
-    await expect(radialToolbox).toHaveScreenshot("overlay-radial-drawing-toolbox.png", {
+    await expectCertifiedScreenshot(page, radialToolbox, "overlay-radial-drawing-toolbox.png", {
       maxDiffPixelRatio: 0.03,
     });
     await page.keyboard.press("1");

@@ -234,6 +234,11 @@ function ModalFrame({ ariaDescribedBy, ariaLabelledBy, children, className = "",
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const overflow = document.body.style.overflow;
+    const modalRoot = frameRef.current?.parentElement;
+    const inertSiblings = [...document.body.children]
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== modalRoot)
+      .map((element) => ({ element, wasInert: element.hasAttribute("inert") }));
+    inertSiblings.forEach(({ element }) => element.setAttribute("inert", ""));
     document.body.style.overflow = "hidden";
     const focusFrame = window.requestAnimationFrame(() => (
       initialFocusRef?.current
@@ -250,6 +255,7 @@ function ModalFrame({ ariaDescribedBy, ariaLabelledBy, children, className = "",
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.body.style.overflow = overflow;
+      inertSiblings.forEach(({ element, wasInert }) => { if (!wasInert) element.removeAttribute("inert"); });
       document.removeEventListener("keydown", key);
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
@@ -278,4 +284,4 @@ export function shouldDismissModalOnEscape(event: Pick<KeyboardEvent, "defaultPr
   return event.key === "Escape" && !event.defaultPrevented && !hasActiveOverlay(ownerDocument);
 }
 
-function trapFocus(event: KeyboardEvent, container: HTMLElement) { const elements = [...container.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]; const first = elements[0]; const last = elements.at(-1); if (!first || !last) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }
+function trapFocus(event: KeyboardEvent, container: HTMLElement) { const elements = [...container.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((element) => element.getClientRects().length > 0 && element.getAttribute("aria-hidden") !== "true"); const first = elements[0]; const last = elements.at(-1); if (!first || !last) return; if (!container.contains(document.activeElement)) { event.preventDefault(); first.focus(); } else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }

@@ -293,7 +293,7 @@ function MenuAction({
       type="button"
     >
       <Icon aria-hidden="true" size={17} />
-      <span className="min-w-0 flex-1"><span className="block truncate">{label}</span>{detail ? <span className="mt-0.5 block truncate text-[11px] font-normal text-slate-500">{detail}</span> : null}</span>
+      <span className="min-w-0 flex-1"><span className="block truncate">{label}</span>{detail ? <span className="mt-0.5 block truncate text-[11px] font-normal text-slate-300">{detail}</span> : null}</span>
     </button>
   );
 }

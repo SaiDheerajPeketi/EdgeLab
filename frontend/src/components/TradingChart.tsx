@@ -547,8 +547,10 @@ export function TradingChart({
   const chartContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
+  const indicatorToolbarReturnFocusRef = useRef<HTMLElement | null>(null);
   const renderedSelectedIndicatorId = captureMode ? null : selectedIndicatorId;
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
+  const drawingToolbarReturnFocusRef = useRef<HTMLElement | null>(null);
   const [favoriteDrawingTools, setFavoriteDrawingTools] = useState<FavoriteDrawingTool[]>(() =>
     drawingControlsActive ? loadCachedDrawingToolFavorites() : [],
   );
@@ -2059,6 +2061,31 @@ export function TradingChart({
     setIndicatorToolbarPosition(null);
   }
 
+  function handleChartStageKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    if (drawingTool === "cursor" || drawingTool === "crosshair" || drawingTool === "eraser") return;
+    if (drawingRequiredPoints(drawingTool) !== 1) return;
+    const frame = chartFrameRef.current;
+    if (!frame) return;
+    const bounds = frame.getBoundingClientRect();
+    const point = pointFromClient(
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2,
+      frame,
+      chartRef.current,
+      primarySeriesRef.current,
+      barsRef.current,
+      magnetMode,
+    );
+    if (!point) return;
+    event.preventDefault();
+    drawingToolbarReturnFocusRef.current = event.currentTarget;
+    addDrawingAndMaybeOpenToolbar(
+      makeDrawing(drawingTool, [point], drawingTool === "text" ? "Text" : undefined, drawingTool === "icon" || drawingTool === "flag" ? drawingMarker : undefined),
+    );
+    if (!keepDrawingAfterPlacement) onDrawingToolChange(neutralDrawingTool);
+  }
+
   function handleDrawingClick(event: MouseEvent<HTMLDivElement>) {
     event.stopPropagation();
     if (event.button !== 0) {
@@ -2659,6 +2686,7 @@ export function TradingChart({
     if (!stage) {
       return;
     }
+    indicatorToolbarReturnFocusRef.current = event.currentTarget;
     const stageRect = stage.getBoundingClientRect();
     const triggerRect = event.currentTarget.getBoundingClientRect();
     const x = triggerRect.left - stageRect.left;
@@ -2796,6 +2824,14 @@ export function TradingChart({
       return;
     }
 
+    function closeIndicatorToolbarOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setSelectedIndicatorId(null);
+      setIndicatorToolbarPosition(null);
+      indicatorToolbarReturnFocusRef.current?.focus({ preventScroll: true });
+    }
+
     function closeIndicatorToolbarOnOutsideClick(event: globalThis.PointerEvent) {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) {
@@ -2815,9 +2851,22 @@ export function TradingChart({
     }
 
     document.addEventListener("pointerdown", closeIndicatorToolbarOnOutsideClick);
+    document.addEventListener("keydown", closeIndicatorToolbarOnEscape);
     return () =>
-      document.removeEventListener("pointerdown", closeIndicatorToolbarOnOutsideClick);
+      { document.removeEventListener("pointerdown", closeIndicatorToolbarOnOutsideClick); document.removeEventListener("keydown", closeIndicatorToolbarOnEscape); };
   }, [selectedIndicatorId]);
+
+  useEffect(() => {
+    if (!drawingToolbarOpen || !selectedDrawing) return;
+    function closeDrawingToolbarOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDrawingToolbarOpen(false);
+      drawingToolbarReturnFocusRef.current?.focus({ preventScroll: true });
+    }
+    document.addEventListener("keydown", closeDrawingToolbarOnEscape);
+    return () => document.removeEventListener("keydown", closeDrawingToolbarOnEscape);
+  }, [drawingToolbarOpen, selectedDrawing]);
 
   const unlockedDrawingsCount = removableDrawingsCount;
   const chartSummaryId = useId();
@@ -2839,6 +2888,7 @@ export function TradingChart({
           stageRef.current?.focus({ preventScroll: true });
         }
       }}
+      onKeyDown={handleChartStageKeyDown}
       onPointerMoveCapture={(event) => {
         lastChartPointerRef.current = { x: event.clientX, y: event.clientY };
       }}
@@ -3900,7 +3950,7 @@ function RadialDrawingToolbox({
   const highlightedTool = highlightedIndex == null ? null : favorites[highlightedIndex];
   const highlightedDefinition = DRAWING_RAIL_TOOLS.find((item) => item.tool === highlightedTool);
 
-  return <PointOverlaySurface label="Circular drawing toolbox" className="chart-radial-toolbox" x={anchor.x} y={anchor.y}>
+  return <PointOverlaySurface label="Circular drawing toolbox" role="toolbar" className="chart-radial-toolbox" x={anchor.x} y={anchor.y}>
       <div aria-hidden="true" className="chart-radial-toolbox-ring" />
       {favorites.map((tool, index) => {
         const definition = DRAWING_RAIL_TOOLS.find((item) => item.tool === tool);
@@ -3916,7 +3966,6 @@ function RadialDrawingToolbox({
             key={tool}
             onClick={() => onSelect(tool)}
             onPointerEnter={() => onHighlight(index)}
-            role="menuitem"
             style={{
               left: RADIAL_TOOLBOX_RADIUS + Math.cos(angle) * RADIAL_TOOLBOX_RADIUS,
               top: RADIAL_TOOLBOX_RADIUS + Math.sin(angle) * RADIAL_TOOLBOX_RADIUS,

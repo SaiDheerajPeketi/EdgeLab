@@ -140,7 +140,9 @@ test.describe("settings route critical-state baselines", () => {
 
     const connectionCard = page.getByRole("group", { name: "Verified offline fixture connection" });
     await expect(connectionCard).toBeVisible();
-    await connectionCard.getByRole("button", { name: "Revoke" }).click();
+    const revoke = connectionCard.getByRole("button", { name: "Revoke" });
+    await revoke.focus();
+    await revoke.press("Enter");
     let confirmation = page.getByRole("region", { name: "Confirm revocation" });
     await expect(confirmation).toContainText("This stops future refreshes. Imported journal data remains. This action is recorded by the service.");
     await expect(confirmation.getByRole("button", { name: "Confirm revoke" })).toBeEnabled();
@@ -148,7 +150,8 @@ test.describe("settings route critical-state baselines", () => {
     await expect(confirmation).toHaveCount(0);
     expect(deleteRequests).toBe(0);
 
-    await connectionCard.getByRole("button", { name: "Revoke" }).click();
+    await revoke.focus();
+    await revoke.press("Enter");
     confirmation = page.getByRole("region", { name: "Confirm revocation" });
     await expect(confirmation).toBeVisible();
     expect(deleteRequests).toBe(0);

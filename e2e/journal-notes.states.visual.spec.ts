@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const route = "/app/journal/notes";
 
@@ -82,7 +82,7 @@ async function getFixedBottomBoundary(page: Page, viewportHeight: number) {
 }
 
 async function expectStateScreenshot(page: Page, name: string) {
-  await expect(page).toHaveScreenshot(`${name}.png`, {
+  await expectCertifiedScreenshot(page, page, `${name}.png`, {
     animations: "disabled",
     caret: "hide",
     fullPage: false,

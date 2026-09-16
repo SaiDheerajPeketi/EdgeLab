@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const route = "/app/journal/trades";
 
@@ -32,7 +32,9 @@ test.describe("journal trades missing state baselines", () => {
 
   test("add trade flow exposes an accessible first step", async ({ page }) => {
     await openTrades(page);
-    await page.getByRole("button", { name: "Add trade" }).click();
+    const trigger = page.getByRole("button", { name: "Add trade" });
+    await trigger.focus();
+    await trigger.press("Enter");
 
     const flow = page.getByRole("region", { name: "Add trade" });
     await expect(flow.getByText("Step 1 of 3 · Destination")).toBeVisible();
@@ -52,11 +54,15 @@ test.describe("journal trades missing state baselines", () => {
 
   test("import shortcut opens the staged CSV flow", async ({ page }) => {
     await openTrades(page);
-    await page.getByRole("button", { name: "Import CSV" }).click();
+    const shortcut = page.getByRole("button", { name: "Import CSV" });
+    await shortcut.focus();
+    await shortcut.press("Enter");
 
     const imports = page.getByRole("region", { name: "CSV imports" });
     await expect(imports).toBeVisible();
-    await imports.getByRole("button", { name: "Import CSV" }).click();
+    const trigger = imports.getByRole("button", { name: "Import CSV" });
+    await trigger.focus();
+    await trigger.press("Enter");
     await expect(imports.getByText("Step 1 of 4 · Choose export")).toBeVisible();
     await expect(imports.getByRole("button", { name: "Choose CSV export" })).toBeVisible();
     await revealAndExpectRouteGeometry(page, imports.getByRole("heading", { name: "CSV imports" }));
@@ -123,7 +129,7 @@ async function getFixedBottomBoundary(page: Page, viewportHeight: number) {
 }
 
 async function expectStateScreenshot(page: Page, name: string) {
-  await expect(page).toHaveScreenshot(`${name}.png`, {
+  await expectCertifiedScreenshot(page, page, `${name}.png`, {
     animations: "disabled",
     caret: "hide",
     fullPage: false,

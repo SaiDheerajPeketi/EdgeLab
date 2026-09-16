@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { gotoStable, installDeterminism, seedApprovedSession, seedChartLayout } from "./support/app";
+import { expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession, seedChartLayout } from "./support/app";
 
 test.describe("remaining operating panel evidence", () => {
   test.beforeEach(async ({ page }) => {
@@ -14,7 +14,7 @@ test.describe("remaining operating panel evidence", () => {
     const panel = page.getByRole("tabpanel", { name: "Journal" });
     await expect(panel.getByRole("heading", { name: "Journal beside chart" })).toBeVisible();
     await expectOverflowSafe(panel);
-    await expect(panel).toHaveScreenshot("panel-journal.png");
+    await expectCertifiedScreenshot(page, panel, "panel-journal.png");
   });
 
   test("Watchlist exposes its primary controls without overflow", async ({ page }) => {
@@ -23,7 +23,7 @@ test.describe("remaining operating panel evidence", () => {
     const panel = label.locator("xpath=ancestor::section[1]");
     await expect(page.getByRole("button", { name: "Create watchlist" })).toBeVisible();
     await expectOverflowSafe(panel);
-    await expect(panel).toHaveScreenshot("panel-watchlist.png");
+    await expectCertifiedScreenshot(page, panel, "panel-watchlist.png");
   });
 
   test("Quant assistant keeps its composer reachable", async ({ page }) => {
@@ -33,7 +33,7 @@ test.describe("remaining operating panel evidence", () => {
     await panel.getByLabel("Message Quant").focus();
     await expect(panel.getByLabel("Message Quant")).toBeFocused();
     await expectOverflowSafe(panel);
-    await expect(panel).toHaveScreenshot("panel-quant.png");
+    await expectCertifiedScreenshot(page, panel, "panel-quant.png");
   });
 
   test("Data Window exposes deterministic OHLC values", async ({ page }) => {
@@ -42,7 +42,7 @@ test.describe("remaining operating panel evidence", () => {
     await expect(panel).toContainText("O");
     await expect(panel).toContainText("C");
     await expectOverflowSafe(panel);
-    await expect(panel).toHaveScreenshot("panel-data-window.png");
+    await expectCertifiedScreenshot(page, panel, "panel-data-window.png");
   });
 
 });

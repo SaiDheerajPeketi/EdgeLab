@@ -16,7 +16,7 @@ test.describe("inventory default-state route accessibility sweep",()=>{
   const main=mains.first(); await expect(main).toBeVisible();
   expect(await main.locator('h1,h2,[aria-label]').count()).toBeGreaterThan(0);
   await page.addScriptTag({content:axe.source});
-  const severe=await page.evaluate(async()=> (await window.axe.run(document,{resultTypes:["violations"]})).violations.filter(item=>item.impact==="critical"||item.impact==="serious").map(item=>`${item.id}: ${item.nodes.map(node=>node.target.join(" ")).join(", ")}`)); expect(severe).toEqual([]);
+  const violations=await page.evaluate(async()=> (await window.axe.run(document,{resultTypes:["violations"],runOnly:{type:"tag",values:["wcag2a","wcag2aa","wcag21aa","wcag22aa"]}})).violations.map(item=>`${item.id}: ${item.nodes.map(node=>node.target.join(" ")).join(", ")}`)); expect(violations).toEqual([]);
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
   const skip=page.locator('a[href^="#"]').first(); await expect(skip).toHaveCount(1); const skipTarget=await skip.getAttribute("href"); expect(skipTarget).toMatch(/^#.+/); await skip.focus(); await skip.press("Enter"); await expect(page.locator(skipTarget!)).toBeFocused();
  });

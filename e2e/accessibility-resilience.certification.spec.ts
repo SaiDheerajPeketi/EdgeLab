@@ -23,7 +23,7 @@ test.describe("UIR-73 through UIR-78 representative certification", () => {
       await client.send("Emulation.setPageScaleFactor", { pageScaleFactor: 2 });
       await page.setViewportSize({ width: 720, height: 500 });
       await expect(page.getByRole("main")).toHaveCount(1);
-      await expectNoSeriousViolations(page);
+      await expectNoWcagAaViolations(page);
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
       const keyControl = surface.name === "public" ? page.getByRole("button", { name: "Open navigation menu" }) : surface.name === "settings" ? page.getByRole("combobox", { name: "Search settings" }) : page.getByRole("button", { name: "Tools", exact: true });
       await keyControl.scrollIntoViewIfNeeded();
@@ -169,9 +169,9 @@ test.describe("UIR-73 through UIR-78 representative certification", () => {
   });
 });
 
-async function expectNoSeriousViolations(page: Page) {
+async function expectNoWcagAaViolations(page: Page) {
   await page.addScriptTag({ content: axe.source });
-  const violations = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ["violations"], rules: { "color-contrast": { enabled: true } } })).violations.filter((item) => item.impact === "critical" || item.impact === "serious").map((item) => item.id));
+  const violations = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ["violations"], runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"] } })).violations.map((item) => item.id));
   expect(violations).toEqual([]);
 }
 

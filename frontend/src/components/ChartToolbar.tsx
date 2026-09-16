@@ -846,7 +846,7 @@ export function ChartToolbar({
   }
 
   const settingsPanel = settingsOpen ? (
-    <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={() => setSettingsOpen(false)} align="right" preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
+    <OverlaySurface anchorRef={toolsOpen ? settingsTriggerRef : settingsAnchorRef} surfaceRef={settingsRef} triggerRef={settingsTriggerRef} open onDismiss={(reason) => { setSettingsOpen(false); if (reason === "escape") settingsTriggerRef.current?.focus({ preventScroll: true }); }} align="right" preferredWidth={860} minWidth={320} estimatedHeight={680} id={settingsOverlayId} role="dialog" ariaLabel="Chart settings" className="chart-settings-overlay z-[var(--layer-popover)]">
     <ChartSettingsPanel
       indicatorInstances={indicatorInstances}
       onClose={() => setSettingsOpen(false)}
@@ -987,10 +987,12 @@ export function ChartToolbar({
         >
           <Command size={15} className="text-cyan-200" />
           <input
+            aria-autocomplete="list"
             aria-controls={commandMenuId}
             aria-expanded={commandOpen}
             aria-haspopup="dialog"
             aria-label="Search chart commands"
+            role="combobox"
             ref={commandInputRef}
             onChange={(event) => {
               setCommandQuery(event.target.value);

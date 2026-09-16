@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  expectCertifiedScreenshot,
   gotoStable,
   installDeterminism,
   seedApprovedSession,
@@ -88,7 +89,7 @@ test.describe("journal settings state baselines", () => {
 });
 
 async function expectStateScreenshot(page: Page, name: string) {
-  await expect(page).toHaveScreenshot(`${name}.png`, {
+  await expectCertifiedScreenshot(page, page, `${name}.png`, {
     animations: "disabled",
     caret: "hide",
     fullPage: false,

@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import axe from "axe-core";
-import { gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const stateProjects = {
   loading: ["mobile", "tablet", "desktop", "tradingDesktop"],
@@ -37,7 +37,7 @@ for (const [state, projects] of Object.entries(stateProjects)) {
       await expect(page.getByRole("alert")).toContainText("No cached values are being presented as current market data.");
     }
 
-    await expect(page).toHaveScreenshot(`order-flow-${state}.png`, { fullPage: false });
+    await expectCertifiedScreenshot(page, page, `order-flow-${state}.png`, { fullPage: false });
   });
 }
 

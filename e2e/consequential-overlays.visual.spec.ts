@@ -71,7 +71,8 @@ test.describe("consequential overlay evidence", () => {
     await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
     const trigger = page.getByRole("button", { name: "Share copy" });
     await trigger.scrollIntoViewIfNeeded();
-    await trigger.click();
+    await trigger.focus();
+    await trigger.press("Enter");
 
     const dialog = page.getByRole("dialog", { name: "Share a workspace copy" });
     await expect(dialog).toBeVisible();
@@ -121,10 +122,12 @@ async function tabUntilFocused(page: Page, target: Locator) {
 }
 
 async function assertFocusTrap(page: Page, dialog: Locator) {
-  const focusable = dialog.locator('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
-  const count = await focusable.count();
-  for (let index = 0; index <= count; index += 1) { await page.keyboard.press("Tab"); await expect(dialog.locator(":focus")).toHaveCount(1); }
-  for (let index = 0; index <= count; index += 1) { await page.keyboard.press("Shift+Tab"); await expect(dialog.locator(":focus")).toHaveCount(1); }
+  const focusable = dialog.locator('button:not([disabled]):visible, [href]:visible, input:not([disabled]):visible, select:not([disabled]):visible, textarea:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible');
+  await focusable.first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(focusable.last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(focusable.first()).toBeFocused();
 }
 
 function secret() { return { id: 301, provider: "offline-fixture", purpose: "broker-sync", key_id: "e2e-key", cipher_version: 1, version: 1, state: "active", created_at: "2026-09-15T10:00:00Z", updated_at: "2026-09-15T10:00:00Z", rotated_at: null, last_connected_at: "2026-09-15T10:00:00Z", revoked_at: null }; }

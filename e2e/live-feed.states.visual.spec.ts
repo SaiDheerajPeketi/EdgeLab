@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import {
+  expectCertifiedScreenshot,
   expectStableScreenshot,
   gotoStable,
   installDeterminism,
@@ -70,7 +71,7 @@ test.describe("live financial data panels", () => {
       await expect(resize).toBeHidden();
     }
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    await expect(panel).toHaveScreenshot("order-book.png");
+    await expectCertifiedScreenshot(page, panel, "order-book.png");
   });
 
   test("alerts supports validation and remains overflow-safe", async ({ page }) => {
@@ -84,7 +85,7 @@ test.describe("live financial data panels", () => {
     await expect(panel.getByRole("alert")).toContainText("Name the alert");
     await expect(panel.getByRole("button", { name: "Sound off" })).toHaveAttribute("aria-pressed", "false");
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    await expect(panel).toHaveScreenshot("alerts.png");
+    await expectCertifiedScreenshot(page, panel, "alerts.png");
   });
 });
 

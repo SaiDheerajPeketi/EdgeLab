@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import {
+  expectCertifiedScreenshot,
   expectStableScreenshot,
   gotoStable,
   installDeterminism,
@@ -326,7 +327,7 @@ test.describe("session gateway critical states", () => {
     const retry = page.getByRole("button", { name: "Retry saved sessions" });
     await expect(retry).toBeEnabled();
     await expectGatewayErrorGeometry(page);
-    await expect(page).toHaveScreenshot("gateway-error.png", {
+    await expectCertifiedScreenshot(page, page, "gateway-error.png", {
       fullPage: false,
       maxDiffPixelRatio: 0.001,
       threshold: 0.1,

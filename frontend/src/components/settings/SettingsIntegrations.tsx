@@ -105,7 +105,7 @@ export function SettingsIntegrations() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-zinc-100">{provider.display_name}</p>
-                  <p className="mt-1 text-xs leading-5 text-zinc-500">{provider.description}</p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-400">{provider.description}</p>
                 </div>
                 <span className="text-xs text-zinc-400">{provider.availability === "available" ? "Available" : provider.availability === "offline-fixture" ? "Local test environment" : provider.availability === "unconfigured" ? "Server setup required" : "Planned — unavailable"}</span>
               </div>
@@ -115,7 +115,7 @@ export function SettingsIntegrations() {
                 <Capability label="Fills" enabled={provider.capabilities.fills} />
                 <Capability label="Incremental sync" enabled={provider.capabilities.incremental_sync} />
                 <Capability label="Live connectivity" enabled={provider.capabilities.live_connectivity} />
-                <div><dt className="text-zinc-600">Permissions</dt><dd className="text-zinc-300">{provider.requires_secret ? "Credential required" : "None"}</dd></div>
+                <div><dt className="text-zinc-400">Permissions</dt><dd className="text-zinc-300">{provider.requires_secret ? "Credential required" : "None"}</dd></div>
               </dl>
             </div>
           ))}
@@ -123,7 +123,7 @@ export function SettingsIntegrations() {
           {providers.some((provider) => provider.availability === "available" || provider.availability === "offline-fixture") ? (
             <form className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.03] p-3" onSubmit={(event) => { event.preventDefault(); void addConnection(); }}>
               <p className="text-sm font-medium text-zinc-100">Create broker connection</p>
-              <p className="mt-1 text-xs leading-5 text-zinc-500">Credentials are encrypted server-side and never returned. The first refresh verifies provider connectivity and discovers accounts.</p>
+              <p className="mt-1 text-xs leading-5 text-zinc-400">Credentials are encrypted server-side and never returned. The first refresh verifies provider connectivity and discovers accounts.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <label className="text-xs font-medium text-zinc-300">Provider<select value={selectedProvider} onChange={(event) => { setSelectedProvider(event.target.value); setConnectionName(providers.find((provider) => provider.provider_id === event.target.value)?.display_name ?? "Broker"); }} className={`${fieldClassName} mt-1`}>{providers.filter((provider) => provider.availability === "available" || provider.availability === "offline-fixture").map((provider) => <option key={provider.provider_id} value={provider.provider_id}>{provider.display_name}</option>)}</select></label>
                 <label className="text-xs font-medium text-zinc-300">Connection name<input value={connectionName} onChange={(event) => setConnectionName(event.target.value)} maxLength={120} className={`${fieldClassName} mt-1`} /></label>
@@ -136,16 +136,16 @@ export function SettingsIntegrations() {
             </form>
           ) : null}
 
-          {connections.length ? <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Configured connections</p>{connections.map((connection) => (
+          {connections.length ? <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">Configured connections</p>{connections.map((connection) => (
             <div key={connection.id} aria-label={`${connection.display_name} connection`} className="rounded-md border border-white/10 p-3" role="group">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-zinc-100">{connection.display_name}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{connection.provider} · {connection.status} · health {connection.health.toLowerCase()}</p>
-                  <p className="mt-1 text-xs text-zinc-500">Last sync: {connection.last_sync_completed_at ? formatDate(connection.last_sync_completed_at) : "Never"} · Latency: not measured</p>
+                  <p className="mt-1 text-xs text-zinc-400">{connection.provider} · {connection.status} · health {connection.health.toLowerCase()}</p>
+                  <p className="mt-1 text-xs text-zinc-400">Last sync: {connection.last_sync_completed_at ? formatDate(connection.last_sync_completed_at) : "Never"} · Latency: not measured</p>
                   {connection.last_error_message ? <p className="mt-2 flex gap-1.5 text-xs text-rose-300"><AlertCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />{connection.last_error_message}</p> : null}
                 </div>
-                {connection.revoked_at ? <span className="text-xs text-zinc-500">Revoked {formatDate(connection.revoked_at)}</span> : (
+                {connection.revoked_at ? <span className="text-xs text-zinc-400">Revoked {formatDate(connection.revoked_at)}</span> : (
                   <div className="flex gap-2">
                     <button type="button" onClick={() => void run(`refresh-${connection.id}`, () => refreshBrokerConnection(connection.id))} disabled={busy != null} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-white/10 px-2.5 text-xs font-medium text-zinc-200 hover:bg-white/5 disabled:opacity-45 sm:min-h-9"><RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${busy === `refresh-${connection.id}` ? "animate-spin motion-reduce:animate-none" : ""}`} />Refresh</button>
                     <button type="button" onClick={() => setConfirmAction(`connection-${connection.id}`)} disabled={busy != null} className="min-h-11 rounded-md px-2.5 text-xs font-medium text-rose-300 hover:bg-rose-400/10 disabled:opacity-45 sm:min-h-9">Revoke</button>
@@ -160,14 +160,14 @@ export function SettingsIntegrations() {
 
       <SettingRow controlId="credential-vault" label="Credential vault" description="Inspect metadata, test decryptability, re-encrypt with the active vault key, or revoke access." effective={`${activeSecrets.length} active credential record${activeSecrets.length === 1 ? "" : "s"}`} scope="Personal">
         <div className="space-y-2">
-          {secrets.length === 0 && loadState === "ready" ? <p className="text-sm text-zinc-500">No credential records.</p> : null}
+          {secrets.length === 0 && loadState === "ready" ? <p className="text-sm text-zinc-400">No credential records.</p> : null}
           {secrets.map((secret) => (
             <div key={secret.id} className="rounded-md border border-white/10 p-3">
               <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-medium text-zinc-100"><ShieldCheck aria-hidden="true" className="h-4 w-4 text-cyan-300" />{secret.provider}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{secret.purpose} · v{secret.version} · key {secret.key_id} · {secret.state}</p>
-                  <p className="mt-1 text-xs text-zinc-600">Last readiness check: {secret.last_connected_at ? formatDate(secret.last_connected_at) : "Never"}</p>
+                  <p className="mt-1 text-xs text-zinc-400">{secret.purpose} · v{secret.version} · key {secret.key_id} · {secret.state}</p>
+                  <p className="mt-1 text-xs text-zinc-400">Last readiness check: {secret.last_connected_at ? formatDate(secret.last_connected_at) : "Never"}</p>
                 </div>
                 {secret.state === "active" ? <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">
                   <button type="button" disabled={busy != null} onClick={() => void run(`verify-${secret.id}`, () => verifyIntegrationSecret(secret.id))} className="min-h-11 rounded px-2 text-xs text-zinc-300 hover:bg-white/5 sm:min-h-8">Verify</button>
@@ -185,11 +185,11 @@ export function SettingsIntegrations() {
 }
 
 function Capability({ label, enabled }: { label: string; enabled: boolean }) {
-  return <div><dt className="text-zinc-600">{label}</dt><dd className={enabled ? "text-emerald-300" : "text-zinc-500"}>{enabled ? "Supported" : "Unavailable"}</dd></div>;
+  return <div><dt className="text-zinc-400">{label}</dt><dd className={enabled ? "text-emerald-300" : "text-zinc-400"}>{enabled ? "Supported" : "Unavailable"}</dd></div>;
 }
 
 function ConfirmDanger({ message, busy, onCancel, onConfirm }: { message: string; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return <div aria-label="Confirm revocation" className="mt-3 border-t border-rose-400/20 pt-3" role="region"><p className="text-xs leading-5 text-rose-200">{message} This action is recorded by the service.</p><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="min-h-11 rounded px-3 text-xs text-white/80 hover:bg-white/5 sm:min-h-9">Cancel</button><button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-11 items-center gap-1.5 rounded bg-rose-500 px-3 text-xs font-semibold text-white hover:bg-rose-400 disabled:opacity-45 sm:min-h-9">{busy ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />}Confirm revoke</button></div></div>;
+  return <div aria-label="Confirm revocation" className="mt-3 border-t border-rose-400/20 pt-3" role="region"><p className="text-xs leading-5 text-rose-200">{message} This action is recorded by the service.</p><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="min-h-11 rounded px-3 text-xs text-white/80 hover:bg-white/5 sm:min-h-9">Cancel</button><button type="button" onClick={onConfirm} disabled={busy} className="inline-flex min-h-11 items-center gap-1.5 rounded bg-rose-700 px-3 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-45 sm:min-h-9">{busy ? <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />}Confirm revoke</button></div></div>;
 }
 
 function formatDate(value: string) {

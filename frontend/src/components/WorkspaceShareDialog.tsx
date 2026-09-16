@@ -287,9 +287,6 @@ export function WorkspaceShareDialog({
   return (
     <Dialog open label="Share a workspace copy" onClose={onClose} dismissBlocked={busy} initialFocusRef={titleInputRef} className="max-w-2xl max-sm:mb-[calc(4.5rem+env(safe-area-inset-bottom))] max-sm:max-h-[calc(100dvh-6rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]">
       <div
-        aria-describedby={descriptionId}
-        aria-labelledby={titleId}
-        aria-modal="true"
         className="max-h-[94dvh] w-full overflow-y-auto rounded-t-2xl bg-[#0b1017] text-slate-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)] sm:max-w-2xl sm:rounded-2xl"
         tabIndex={-1}
       >
@@ -312,7 +309,7 @@ export function WorkspaceShareDialog({
           <button
             aria-controls={createPanelId}
             aria-selected={view === "create"}
-            className={`min-h-11 border-b-2 px-3 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/50 ${view === "create" ? "border-cyan-300 text-white" : "border-transparent text-slate-500 hover:text-slate-200"}`}
+            className={`min-h-11 border-b-2 px-3 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/50 ${view === "create" ? "border-cyan-300 text-white" : "border-transparent text-slate-300 hover:text-white"}`}
             disabled={busy}
             onClick={() => setView("create")}
             role="tab"
@@ -323,7 +320,7 @@ export function WorkspaceShareDialog({
           <button
             aria-controls={managePanelId}
             aria-selected={view === "manage"}
-            className={`min-h-11 border-b-2 px-3 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/50 ${view === "manage" ? "border-cyan-300 text-white" : "border-transparent text-slate-500 hover:text-slate-200"}`}
+            className={`min-h-11 border-b-2 px-3 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/50 ${view === "manage" ? "border-cyan-300 text-white" : "border-transparent text-slate-300 hover:text-white"}`}
             disabled={busy}
             onClick={() => setView("manage")}
             role="tab"
@@ -393,7 +390,7 @@ export function WorkspaceShareDialog({
                   {copyStatus === "copied" ? "Copied" : "Copy link"}
                 </button>
               </div>
-              <p aria-live="polite" className={`mt-2 text-xs ${copyStatus === "failed" ? "text-rose-200" : "text-slate-500"}`}>
+              <p aria-live="polite" className={`mt-2 text-xs ${copyStatus === "failed" ? "text-rose-200" : "text-slate-300"}`}>
                 {copyStatus === "failed"
                   ? "Clipboard access was blocked. Select the link and copy it manually."
                   : createdShare.recipient_email
@@ -500,7 +497,7 @@ export function WorkspaceShareDialog({
                   type="email"
                   value={recipientEmail}
                 />
-                <span className="mt-2 block text-xs leading-5 text-slate-500">Leave blank for an owner-only cross-device copy.</span>
+                <span className="mt-2 block text-xs leading-5 text-slate-300">Leave blank for an owner-only cross-device copy.</span>
               </label>
               <label className="block">
                 <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-200"><LockKeyhole size={15} />Expires</span>
@@ -670,11 +667,11 @@ function ManageWorkspaceShares({
                       Snapshot v{share.snapshot_version} · {workspaceShareScopeLabel(share.scope)}
                     </p>
                     {share.recipient_email ? (
-                      <p className="mt-1 break-all text-sm text-slate-500">For {share.recipient_email}</p>
+                      <p className="mt-1 break-all text-sm text-slate-300">For {share.recipient_email}</p>
                     ) : (
-                      <p className="mt-1 text-sm text-slate-500">Owner-only access</p>
+                      <p className="mt-1 text-sm text-slate-300">Owner-only access</p>
                     )}
-                    <dl className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                    <dl className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-2">
                       <div className="flex items-center gap-2">
                         <Clock3 aria-hidden="true" className="shrink-0" size={14} />
                         <dt className="sr-only">Created</dt>

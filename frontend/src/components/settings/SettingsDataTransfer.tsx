@@ -98,7 +98,7 @@ export function SettingsDataTransfer() {
           {draft ? (
             <div className="rounded-md border border-white/10 bg-black/20 p-3" aria-live="polite">
               <p className="flex items-center gap-2 text-sm font-medium text-zinc-100"><FileJson aria-hidden="true" className="h-4 w-4 text-cyan-300" />{draft.fileName}</p>
-              <p className="mt-1 text-xs text-zinc-500">Validated bundle v{draft.bundle.version} · {draft.tables.length} tables · {draft.rows} rows</p>
+              <p className="mt-1 text-xs text-zinc-400">Validated bundle v{draft.bundle.version} · {draft.tables.length} tables · {draft.rows} rows</p>
               <ul className="mt-3 grid gap-1 text-xs text-zinc-400 sm:grid-cols-2">
                 {draft.tables.map((table) => <li key={table.name} className="flex justify-between gap-3"><span className="truncate">{table.name}</span><span>{table.rows}</span></li>)}
               </ul>
@@ -107,7 +107,7 @@ export function SettingsDataTransfer() {
                 <label className="mt-3 block text-xs font-medium text-zinc-300">Type IMPORT to confirm
                   <input value={confirmation} onChange={(event) => setConfirmation(event.target.value.toUpperCase())} className={`${fieldClassName} mt-1`} autoComplete="off" />
                 </label>
-                <button type="button" onClick={() => void importData()} disabled={confirmation !== "IMPORT" || importState === "working"} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-rose-500 px-4 text-sm font-semibold text-white hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-45">
+                <button type="button" onClick={() => void importData()} disabled={confirmation !== "IMPORT" || importState === "working"} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-rose-700 px-4 text-sm font-semibold text-white hover:bg-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-45">
                   {importState === "working" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
                   {importState === "working" ? "Importing…" : importState === "error" ? "Retry import" : "Replace data"}
                 </button>

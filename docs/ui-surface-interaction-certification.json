@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "criteria": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
   "panels": {
     "Journal": ["persistent", "e2e/remaining-panels.states.visual.spec.ts", "Journal panel is keyboard reachable and overflow safe"],
@@ -16,26 +16,59 @@
   "overlays": {
     "command palette": ["modal", "e2e/navigation-productivity-overlays.visual.spec.ts", "command palette and shortcut catalog are keyboard operable and contained"],
     "shortcut catalog": ["modal", "e2e/navigation-productivity-overlays.visual.spec.ts", "command palette and shortcut catalog are keyboard operable and contained"],
-    "account menu": ["modal", "e2e/navigation-productivity-overlays.visual.spec.ts", "account menu is focusable, dismissible, and viewport-contained"],
+    "account menu": ["nonmodal", "e2e/navigation-productivity-overlays.visual.spec.ts", "account menu is focusable, dismissible, and viewport-contained"],
     "mobile navigation": ["modal", "e2e/navigation-productivity-overlays.visual.spec.ts", "mobile navigation owns focus and remains above the fixed navigation"],
     "trade review drawer": ["modal", "e2e/navigation-productivity-overlays.visual.spec.ts", "trade review drawer is actionable and dismissible without overflow"],
-    "add trade flow": ["modal", "e2e/journal-trades.states.visual.spec.ts", "add trade flow exposes an accessible first step"],
-    "journal import flow": ["modal", "e2e/journal-trades.states.visual.spec.ts", "import shortcut opens the staged CSV flow"],
-    "broker connection flow": ["modal", "e2e/consequential-overlays.visual.spec.ts", "broker connection flow is actionable, keyboard reachable, and contained"],
+    "add trade flow": ["disclosure", "e2e/journal-trades.states.visual.spec.ts", "add trade flow exposes an accessible first step"],
+    "journal import flow": ["disclosure", "e2e/journal-trades.states.visual.spec.ts", "import shortcut opens the staged CSV flow"],
+    "broker connection flow": ["route-static", "e2e/consequential-overlays.visual.spec.ts", "broker connection flow is actionable, keyboard reachable, and contained"],
     "workspace sharing": ["modal", "e2e/consequential-overlays.visual.spec.ts", "workspace sharing dialog traps focus, survives viewport constraints, and restores focus"],
-    "chart settings": ["modal", "e2e/replay.states.visual.spec.ts", "chart-authoring overlays remain operable and contained"],
-    "indicator settings": ["modal", "e2e/replay.states.visual.spec.ts", "chart-authoring overlays remain operable and contained"],
-    "drawing settings": ["modal", "e2e/replay.states.visual.spec.ts", "chart-authoring overlays remain operable and contained"],
-    "symbol search": ["modal", "e2e/replay.states.visual.spec.ts", "chart-authoring overlays remain operable and contained"],
-    "radial drawing toolbox": ["nonmodal", "e2e/motion-preference.interaction.spec.ts", "the reduced-motion circular toolbox remains keyboard-usable and restores focus"],
-    "confirmation dialog": ["modal", "e2e/settings-route.states.visual.spec.ts", "danger confirmation explains impact and remains cancellable"],
+    "chart settings": ["nonmodal", "e2e/replay.states.visual.spec.ts", "chart settings opens and closes from its keyboard trigger"],
+    "indicator settings": ["nonmodal", "e2e/replay.states.visual.spec.ts", "indicator settings opens and closes from its keyboard trigger"],
+    "drawing settings": ["nonmodal", "e2e/replay.states.visual.spec.ts", "drawing settings opens and closes from keyboard placement"],
+    "symbol search": ["nonmodal", "e2e/replay.states.visual.spec.ts", "symbol search opens and closes from the keyboard"],
+    "radial drawing toolbox": ["keyboard-only", "e2e/motion-preference.interaction.spec.ts", "the reduced-motion circular toolbox remains keyboard-usable and restores focus"],
+    "confirmation dialog": ["disclosure", "e2e/settings-route.states.visual.spec.ts", "danger confirmation explains impact and remains cancellable"],
     "toast": ["transient", "frontend/src/components/ui/Primitives.tsx", "aria-live=\"polite\""]
   },
   "typedExemptions": {
     "persistent": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return"],
     "route-static": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return"],
-    "disclosure": ["tab-containment"],
-    "nonmodal": ["tab-containment"],
+    "disclosure": ["initial-focus", "tab-containment", "escape-dismiss", "focus-return"],
+    "nonmodal": ["initial-focus", "tab-containment"],
+    "keyboard-only": ["initial-focus", "tab-containment", "coarse-target"],
     "transient": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "coarse-target"]
+  },
+  "proofs": {
+    "panels": {
+      "Journal": ["role-name", "coarse-target", "viewport-containment"],
+      "Watchlist": ["role-name", "coarse-target", "viewport-containment"],
+      "Quant assistant": ["role-name", "coarse-target", "viewport-containment"],
+      "Data Window": ["role-name", "coarse-target", "viewport-containment"],
+      "Objects": ["keyboard-open", "role-name", "coarse-target", "viewport-containment"],
+      "Indicator editor": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "Order Book": ["role-name", "coarse-target", "viewport-containment"],
+      "Alerts": ["role-name", "coarse-target", "viewport-containment"],
+      "Order ticket": ["keyboard-open", "role-name", "coarse-target", "viewport-containment"],
+      "Replay transport": ["role-name", "coarse-target", "viewport-containment"]
+    },
+    "overlays": {
+      "command palette": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "shortcut catalog": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "account menu": ["keyboard-open", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "mobile navigation": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "trade review drawer": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "add trade flow": ["keyboard-open", "role-name", "coarse-target", "viewport-containment"],
+      "journal import flow": ["keyboard-open", "role-name", "coarse-target", "viewport-containment"],
+      "broker connection flow": ["role-name", "coarse-target", "viewport-containment"],
+      "workspace sharing": ["keyboard-open", "initial-focus", "tab-containment", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "chart settings": ["keyboard-open", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "indicator settings": ["keyboard-open", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "drawing settings": ["keyboard-open", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "symbol search": ["keyboard-open", "escape-dismiss", "focus-return", "role-name", "coarse-target", "viewport-containment"],
+      "radial drawing toolbox": ["keyboard-open", "escape-dismiss", "focus-return", "role-name", "viewport-containment"],
+      "confirmation dialog": ["keyboard-open", "role-name", "coarse-target", "viewport-containment"],
+      "toast": ["role-name", "viewport-containment"]
+    }
   }
 }

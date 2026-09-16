@@ -244,7 +244,7 @@ export function IndicatorEditorPanel({
 
         <div className="grid min-h-0 flex-1 lg:grid-cols-[230px_minmax(0,1fr)_280px]">
           <aside className="min-h-0 overflow-y-auto border-b border-white/10 p-3 lg:border-b-0 lg:border-r">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="edge-script-library">Script library</label>
+            <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300" htmlFor="edge-script-library">Script library</label>
             <select className="input-control mt-2 h-9 w-full text-xs" id="edge-script-library" onChange={(event) => selectScript(event.target.value)} value={selectedId}>
               <option value="">Unsaved draft</option>
               <optgroup label="First-party">
@@ -254,10 +254,10 @@ export function IndicatorEditorPanel({
                 {userScripts.map((script) => <option key={script.id} value={script.id}>{script.name} · v{script.revision}</option>)}
               </optgroup>
             </select>
-            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="edge-script-name">Name</label>
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300" htmlFor="edge-script-name">Name</label>
             <input className="input-control mt-2 h-9 w-full text-xs" id="edge-script-name" onChange={(event) => rename(event.target.value)} value={parsed.program?.name ?? ""} />
-            <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500"><History size={13} /> Version history</div>
-            <select className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setRevisionSource(version.source); setSource(version.source); } }} value={revisionSource ? history.find((item) => item.source === revisionSource)?.revision ?? "" : ""}>
+            <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
+            <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setRevisionSource(version.source); setSource(version.source); } }} value={revisionSource ? history.find((item) => item.source === revisionSource)?.revision ?? "" : ""}>
               <option value="">Current source</option>
               {[...history].reverse().map((version) => <option key={`${version.revision}-${version.createdAt}`} value={version.revision}>v{version.revision} · {new Date(version.createdAt).toLocaleDateString()}</option>)}
             </select>
@@ -297,9 +297,9 @@ export function IndicatorEditorPanel({
             </div>
             <h3 className="mt-5 text-sm font-semibold text-white">Generated settings</h3>
             <div className="mt-2 grid gap-3">
-              {parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => setInputs((current) => ({ ...current, [input.name]: value }))} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-500">Valid input declarations appear here.</p>}
+              {parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => setInputs((current) => ({ ...current, [input.name]: value }))} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
             </div>
-            <p className="mt-5 text-[11px] leading-5 text-slate-500">Ctrl+Space opens completion. Tab inserts two spaces. Runtime permits no network, storage, DOM, imports, or arbitrary JavaScript.</p>
+            <p className="mt-5 text-[11px] leading-5 text-slate-300">Ctrl+Space opens completion. Tab inserts two spaces. Runtime permits no network, storage, DOM, imports, or arbitrary JavaScript.</p>
           </aside>
         </div>
     </Dialog>
@@ -313,7 +313,7 @@ function GeneratedInput({ definition, onChange, value }: { definition: NonNullab
 function highlightSource(source: string) {
   const pattern = /(\/\/.*$|"[^"]*"|#[0-9a-fA-F]{6}\b|\b(?:indicator|input|plot|overlay|pane|number|boolean|source|min|max)\b|\b(?:sma|ema|wma|highest|lowest|change|roc|rsi|atr|stdev|linreg|cci|adx|obv|mfi|cmf|force_index|histvol|choppiness|abs)\b|\b\d+(?:\.\d+)?\b)/gm;
   return source.split(pattern).map((token, index) => {
-    const className = token.startsWith("//") ? "text-slate-600" : token.startsWith('"') ? "text-amber-200" : token.startsWith("#") ? "text-rose-300" : /^\d/.test(token) ? "text-violet-300" : /^(indicator|input|plot|overlay|pane|number|boolean|source|min|max)$/.test(token) ? "text-cyan-300" : /\w+/.test(token) ? "text-emerald-300" : "";
+    const className = token.startsWith("//") ? "text-slate-400" : token.startsWith('"') ? "text-amber-200" : token.startsWith("#") ? "text-rose-300" : /^\d/.test(token) ? "text-violet-300" : /^(indicator|input|plot|overlay|pane|number|boolean|source|min|max)$/.test(token) ? "text-cyan-300" : /\w+/.test(token) ? "text-emerald-300" : "";
     return <span className={className} key={index}>{token}</span>;
   });
 }

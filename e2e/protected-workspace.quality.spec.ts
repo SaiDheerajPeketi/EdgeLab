@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import axe from "axe-core";
 import {
+  expectCertifiedScreenshot,
   expectStableScreenshot,
   gotoStable,
   installDeterminism,
@@ -110,7 +111,7 @@ test.describe("authenticated route visual baselines", () => {
     await expect(page.getByRole("button", { exact: true, name: "Exit" })).toBeVisible();
     await expectChartPanesPopulated(page, 16);
     await expectChartPaneGeometry(page, 16, testInfo.project.name === "mobile" ? 1 : 4);
-    await expect(page.locator(".chart-pane-grid")).toHaveScreenshot("chart-fullscreen.png", {
+    await expectCertifiedScreenshot(page, page.locator(".chart-pane-grid"), "chart-fullscreen.png", {
       mask: [page.locator(".chart-plot-column")],
       maskColor: "#0B1118",
     });
@@ -134,7 +135,7 @@ test.describe("authenticated route visual baselines", () => {
           : 2;
       await expectChartPanesPopulated(page, layout.panes);
       await expectChartPaneGeometry(page, layout.panes, columns);
-      await expect(page.locator(".chart-pane-grid")).toHaveScreenshot(`${layout.name}.png`, {
+      await expectCertifiedScreenshot(page, page.locator(".chart-pane-grid"), `${layout.name}.png`, {
         mask: [page.locator(".chart-plot-column")],
         maskColor: "#0B1118",
       });
@@ -451,7 +452,7 @@ test.describe("accessibility and adaptive operation", () => {
     const chart = page.getByRole("region", { name: /chart/i }).first();
     await chart.focus();
     await page.keyboard.down("Alt");
-    await expect(page.getByRole("menu", { name: "Circular drawing toolbox" })).toBeVisible();
+    await expect(page.getByRole("toolbar", { name: "Circular drawing toolbox" })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.keyboard.up("Alt");
     await expect(chart).toBeFocused();
@@ -573,7 +574,7 @@ test("16-pane workspace remains populated and interactive", async ({ page }, tes
   await expect(paneShells.nth(1)).toHaveClass(/chart-pane-shell-active/);
   await expect(paneShells.nth(1).locator(".drawing-rail")).toHaveCount(1);
   await page.keyboard.down("Alt");
-  await expect(page.getByRole("menu", { name: "Circular drawing toolbox" })).toBeVisible();
+  await expect(page.getByRole("toolbar", { name: "Circular drawing toolbox" })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.keyboard.up("Alt");
   await expect(secondChart).toBeFocused();

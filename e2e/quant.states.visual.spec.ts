@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
-import { gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { expectCertifiedScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
 const route = "/app/quant";
 const frozenTime = "2026-09-15T10:00:00.000Z";
@@ -255,7 +255,7 @@ async function revealAndExpectQuantGeometry(page: Page, subject: Locator) {
 }
 
 async function expectStateScreenshot(page: Page, name: string) {
-  await expect(page).toHaveScreenshot(`${name}.png`, {
+  await expectCertifiedScreenshot(page, page, `${name}.png`, {
     animations: "disabled",
     caret: "hide",
     fullPage: false,

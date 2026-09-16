@@ -10,10 +10,12 @@ test.describe("navigation and productivity overlay evidence", () => {
   test("command palette and shortcut catalog are keyboard operable and contained", async ({ page }) => {
     await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     const trigger = page.getByRole("button", { name: "Open command palette" }).first();
-    await trigger.click();
+    await trigger.focus();
+    await trigger.press("Enter");
     const dialog = page.getByRole("dialog", { name: "EdgeLab command palette" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("combobox")).toBeFocused();
+    await assertFocusTrap(page, dialog);
     await expectContained(page, dialog);
     await expectStableScreenshot(page, "overlay-command-palette", { fullPage: false });
 
@@ -31,7 +33,8 @@ test.describe("navigation and productivity overlay evidence", () => {
     await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     if (testInfo.project.name !== "desktop") {
       const more = page.getByRole("button", { name: "More", exact: true });
-      await more.click();
+      await more.focus();
+      await more.press("Enter");
       const drawer = page.getByRole("dialog", { name: "More workspace tools" });
       await expect(drawer).toBeVisible();
       await expect(drawer.getByText("Visual Reviewer", { exact: true })).toBeVisible();
@@ -43,7 +46,8 @@ test.describe("navigation and productivity overlay evidence", () => {
     }
 
     const trigger = page.getByRole("button", { name: "Open account menu for Visual Reviewer" });
-    await trigger.click();
+    await trigger.focus();
+    await trigger.press("Enter");
     const menu = page.getByRole("dialog", { name: "Visual Reviewer" });
     await expect(menu).toBeVisible();
     await expect(menu.getByRole("button", { name: "Workspace settings" })).toBeFocused();
@@ -58,9 +62,11 @@ test.describe("navigation and productivity overlay evidence", () => {
     test.skip(testInfo.project.name !== "mobile", "The authenticated navigation drawer is mobile-only.");
     await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
     const trigger = page.getByRole("button", { name: "More", exact: true });
-    await trigger.click();
+    await trigger.focus();
+    await trigger.press("Enter");
     const drawer = page.getByRole("dialog", { name: "More workspace tools" });
     await expect(drawer.getByRole("button", { name: "Close more tools" })).toBeFocused();
+    await assertFocusTrap(page, drawer);
     await expectContained(page, drawer);
     await expectStableScreenshot(page, "overlay-mobile-navigation", { fullPage: false });
     await page.keyboard.press("Escape");
@@ -70,11 +76,13 @@ test.describe("navigation and productivity overlay evidence", () => {
   test("trade review drawer is actionable and dismissible without overflow", async ({ page }) => {
     await gotoStable(page, "/app/journal/trades", { waitForNetworkIdle: false });
     const trigger = page.getByRole("table", { name: "Journal trades" }).getByRole("button", { name: "BTCUSDT", exact: true }).first();
-    await trigger.click({ force: true });
+    await trigger.focus();
+    await trigger.press("Enter");
     const drawer = page.getByRole("dialog", { name: "Review BTCUSDT" });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole("heading", { name: "Review BTCUSDT" })).toBeVisible();
     await expect(drawer.getByRole("button", { name: /Close review/ })).toBeFocused();
+    await assertFocusTrap(page, drawer);
     await expectContained(page, drawer);
     await expectStableScreenshot(page, "overlay-trade-review-drawer", { fullPage: false });
     await page.keyboard.press("Escape");
@@ -93,4 +101,13 @@ async function expectContained(page: Page, surface: Locator) {
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
   expect(await surface.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+}
+
+async function assertFocusTrap(page: Page, dialog: Locator) {
+  const focusable = dialog.locator('button:not([disabled]):visible, [href]:visible, input:not([disabled]):visible, select:not([disabled]):visible, textarea:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible');
+  await focusable.first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(focusable.last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(focusable.first()).toBeFocused();
 }

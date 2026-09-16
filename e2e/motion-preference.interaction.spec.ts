@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  certifyUiState,
   gotoStable,
   installDeterminism,
   seedApprovedSession,
@@ -171,10 +172,10 @@ test("the reduced-motion circular toolbox remains keyboard-usable and restores f
   const chart = page.getByRole("region", { name: /chart/i }).first();
   await chart.focus();
   await page.keyboard.down("Alt");
-  const toolbox = page.getByRole("menu", { name: "Circular drawing toolbox" });
+  const toolbox = page.getByRole("toolbar", { name: "Circular drawing toolbox" });
   await expect(toolbox).toBeVisible();
   await expect(toolbox).toHaveCSS("animation-name", "none");
-  const tools = toolbox.getByRole("menuitem");
+  const tools = toolbox.getByRole("button");
   expect(await tools.count()).toBeGreaterThan(0);
   await expect(tools.first()).toHaveCSS("transition-duration", "0s");
   await page.keyboard.press("1");
@@ -184,6 +185,7 @@ test("the reduced-motion circular toolbox remains keyboard-usable and restores f
 
   await page.keyboard.down("Alt");
   await expect(toolbox).toBeVisible();
+  await certifyUiState(page);
   await page.keyboard.press("Escape");
   await page.keyboard.up("Alt");
   await expect(toolbox).toBeHidden();

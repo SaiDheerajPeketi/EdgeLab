@@ -2475,7 +2475,9 @@ export function WorkspaceApp() {
   }
 
   function handleChartSettingsClose() {
+    const restoreHeaderFocus = chartSettingsPanelOpen;
     setChartSettingsPanelOpen(false);
+    if (!restoreHeaderFocus) return;
     window.requestAnimationFrame(() => {
       document
         .querySelector<HTMLElement>('[data-chart-header-control="settings"]')

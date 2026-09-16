@@ -53,7 +53,7 @@ export function SettingsSearch({
     <div className="relative">
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="relative">
-          <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
           <input
             type="search"
             value={query}
@@ -88,7 +88,7 @@ export function SettingsSearch({
               <li key={`${result.category}-${result.id}`} id={`${listboxId}-${index}`} role="option" aria-selected={index === activeIndex}>
                 <button type="button" onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(result)} className={`w-full rounded px-3 py-2.5 text-start ${index === activeIndex ? "bg-white/10" : "hover:bg-white/5"}`}>
                   <span className="ui-resilient-text block text-sm font-medium text-zinc-100" dir="auto">{highlight(result.label, query)}</span>
-                  <span className="ui-resilient-text mt-0.5 block text-xs text-zinc-500" dir="auto">{category?.label} · {result.description}</span>
+                  <span className="ui-resilient-text mt-0.5 block text-xs text-zinc-400" dir="auto">{category?.label} · {result.description}</span>
                 </button>
               </li>
             );

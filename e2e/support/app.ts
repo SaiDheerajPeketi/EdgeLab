@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test";
+import axe from "axe-core";
 
 export const FROZEN_TIME = "2026-09-15T10:30:00.000Z";
 export const GOOGLE_STATE_KEY = "edgelab.google-auth.state.v1";
@@ -376,11 +377,56 @@ export async function seedGoogleCallback(page: Page, fromPath = "/app") {
 export async function expectStableScreenshot(
   page: Page,
   name: string,
-  options: { fullPage?: boolean; mask?: Locator[] } = {},
+  options: CertifiedScreenshotOptions = {},
 ) {
-  await expect(page).toHaveScreenshot(`${name}.png`, {
+  await expectCertifiedScreenshot(page, page, `${name}.png`, {
     fullPage: options.fullPage ?? true,
-    mask: options.mask,
+    ...options,
     maskColor: "#0B1118",
   });
 }
+
+type CertifiedScreenshotOptions = {
+  animations?: "allow" | "disabled";
+  caret?: "hide" | "initial";
+  fullPage?: boolean;
+  mask?: Locator[];
+  maskColor?: string;
+  maxDiffPixelRatio?: number;
+  threshold?: number;
+};
+
+export async function expectCertifiedScreenshot(page: Page, target: Page | Locator, name: string, options: CertifiedScreenshotOptions = {}) {
+  await certifyUiState(page);
+  await expect(target as Page).toHaveScreenshot(name, options);
+}
+
+export async function certifyUiState(page: Page) {
+  if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ content: axe.source });
+  const originalDensity = await page.evaluate(() => document.documentElement.dataset.density);
+  try {
+    for (const density of ["comfortable", "compact"] as const) {
+      await page.evaluate((value) => { document.documentElement.dataset.density = value; }, density);
+      const violations = await page.evaluate(async () => (await window.axe.run(document, {
+        resultTypes: ["violations"],
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"] },
+      })).violations.map((item) => `${item.id}: ${item.nodes.map((node) => node.target.join(" ")).join(", ")}`));
+      expect(violations, `${density} density WCAG 2.2 AA violations`).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${density} density horizontal overflow`).toBeLessThanOrEqual(1);
+      if (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) {
+        const undersized = await page.locator('button:visible, a[href]:visible, input:visible, select:visible, textarea:visible, [role="button"]:visible, [role="option"]:visible').evaluateAll((nodes) => nodes.filter((node) => !node.closest("[inert]")).map((node) => {
+          const rect = node.getBoundingClientRect();
+          return { height: rect.height, label: node.getAttribute("aria-label") || node.textContent?.trim()?.slice(0, 60), width: rect.width };
+        }).filter((item) => item.height < 44 || item.width < 44));
+        expect(undersized, `${density} density coarse-pointer targets below 44px`).toEqual([]);
+      }
+    }
+  } finally {
+    await page.evaluate((value) => {
+      if (value) document.documentElement.dataset.density = value;
+      else delete document.documentElement.dataset.density;
+    }, originalDensity);
+  }
+}
+
+declare global { interface Window { axe: typeof axe } }

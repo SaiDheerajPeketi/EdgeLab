@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "bindings": {
-    "UIR-73:axe-all-impacts": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "axe.run", "severity": "critical-serious", "surface": { "family": "routes", "name": "/app/live", "state": "connecting", "viewports": ["desktop"] } },
+    "UIR-73:axe-all-impacts": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "wcag22aa", "severity": "all-wcag-aa", "surface": { "family": "routes", "name": "/app/live", "state": "connecting", "viewports": ["desktop"] } },
     "UIR-73:focus": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "public and app skip links", "surface": { "family": "routes", "name": "/", "state": "default", "viewports": ["desktop"] } },
     "UIR-73:disabled": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:contrast-states]", "surface": { "family": "panels", "name": "Replay transport", "state": "default", "viewports": ["desktop"] } },
     "UIR-73:canvas-contrast": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:contrast-states]", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["desktop"] } },

@@ -18,19 +18,19 @@ export function useFocusReturn({
 
     const ownerDocument = triggerRef.current?.ownerDocument ?? document;
     const ownerWindow = ownerDocument.defaultView ?? window;
+    const openedSurface = surfaceRef.current;
     const previousFocus = ownerDocument.activeElement instanceof HTMLElement
       ? ownerDocument.activeElement
       : null;
 
     ownerWindow.cancelAnimationFrame(restoreFrameRef.current);
     return () => {
-      const surface = surfaceRef.current;
       restoreFrameRef.current = ownerWindow.requestAnimationFrame(() => {
         const activeElement = ownerDocument.activeElement;
         const focusStayedInOverlay =
           activeElement === ownerDocument.body ||
           activeElement === ownerDocument.documentElement ||
-          (activeElement instanceof Node && surface?.contains(activeElement));
+          (activeElement instanceof Node && openedSurface?.contains(activeElement));
         if (!focusStayedInOverlay) {
           return;
         }

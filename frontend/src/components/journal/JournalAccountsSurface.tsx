@@ -109,6 +109,6 @@ export function JournalAccountsSurface({ accounts, trades, imports, onAddAccount
 }
 
 function Field({ label, value, onChange, inputMode }: { label: string; value: string; onChange: (value: string) => void; inputMode?: "decimal" }) { return <label className="text-xs text-slate-500">{label}<input value={value} onChange={(event) => onChange(event.target.value)} inputMode={inputMode} className={`${journalFieldClass} mt-1`} /></label>; }
-function AccountStat({ label, value, tone }: { label: string; value: string; tone?: number }) { return <div className="sm:text-right"><dt className="text-[11px] text-slate-600">{label}</dt><dd className={`mt-1 text-sm font-medium tabular-nums ${tone == null ? "text-slate-200" : tone >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{value}</dd></div>; }
+function AccountStat({ label, value, tone }: { label: string; value: string; tone?: number }) { return <dl className="sm:text-right"><dt className="text-[11px] text-slate-600">{label}</dt><dd className={`mt-1 text-sm font-medium tabular-nums ${tone == null ? "text-slate-200" : tone >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{value}</dd></dl>; }
 function yesNo(value: boolean) { return value ? "supported" : "unavailable"; }
 function money(value: number, currency: string) { return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(value); }
