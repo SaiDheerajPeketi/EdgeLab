@@ -157,12 +157,25 @@ test.describe("replay critical state baselines", () => {
     await fulfillReplayContext(page, "COMPLETE");
     let restartedSession: Record<string, unknown> | null = null;
     let restartRequests = 0;
+    let activeSessionReloads = 0;
     let releaseRestart!: () => void;
     const restartGate = new Promise<void>((resolve) => { releaseRestart = resolve; });
+    await page.route("**/api/backtests/4101", async (route) => {
+      activeSessionReloads += 1;
+      await route.fulfill({ body: JSON.stringify(replayState("COMPLETE")), contentType: "application/json", status: 200 });
+    });
     await page.route("**/api/backtests", async (route) => {
       restartRequests += 1;
       restartedSession = route.request().postDataJSON() as Record<string, unknown>;
-      await restartGate;
+      if (restartRequests === 1) {
+        await restartGate;
+        await route.fulfill({
+          body: JSON.stringify({ detail: "Replay session could not be restarted." }),
+          contentType: "application/json",
+          status: 503,
+        });
+        return;
+      }
       await route.fulfill({
         body: JSON.stringify({
           ...replayState(),
@@ -185,6 +198,14 @@ test.describe("replay critical state baselines", () => {
     await expect(replayAgain).toBeDisabled();
     await expect.poll(() => restartRequests).toBe(1);
     releaseRestart();
+    const reloadActiveSession = page.getByRole("button", { name: "Reload active session", exact: true });
+    await expect(reloadActiveSession).toBeVisible();
+    await reloadActiveSession.click();
+    await expect.poll(() => activeSessionReloads).toBe(1);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByText("Replay complete", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Replay again" }).click();
     await expect(page.getByText("Replay complete", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
     await expect(page.getByText("Bar 0", { exact: true })).toBeVisible();
@@ -194,7 +215,8 @@ test.describe("replay critical state baselines", () => {
       start_timestamp: session.start_at,
       end_timestamp: session.end_at,
     });
-    expect(restartRequests).toBe(1);
+    expect(restartRequests).toBe(2);
+    expect(activeSessionReloads).toBe(1);
   });
 
   test("playing exposes an unambiguous transport state", async ({ page }) => {
