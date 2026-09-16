@@ -4819,7 +4819,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     position={null}
                     pnlMultiplier={1}
                     replayFocusTrade={null}
-                    dataState={paneUsesPrimaryFeed ? { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "Waiting for live candles." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
+                    dataState={paneUsesPrimaryFeed ? connectionStatus === "connecting" && !paneBars.length ? undefined : { status: paneBars.length ? "available" : "empty", detail: paneBars.length ? "Live provider candles." : "No candles were returned for this symbol and timeframe." } : { status: normalizedPane?.status === "available" ? "available" : normalizedPane?.status === "empty" ? "empty" : "unavailable", detail: normalizedPane?.detail ?? `Subscribing ${pane.symbol} through normalized market data.` }}
                     selectedDrawingId={paneActive ? selectedDrawingId : null}
                     drawingControlsActive={paneDrawingControlsActive}
                     showOrderOverlays={pane.showOrderOverlays}
@@ -4834,11 +4834,18 @@ const LiveChartStudio = memo(function LiveChartStudio({
               );
             })}
           </div>
-          {bars.length === 0 && (
-            <div className="mt-3 rounded-md border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-400">
-              {symbol ? "Loading live chart data..." : "Select a symbol to load the chart."}
+          {bars.length === 0 && connectionStatus === "connecting" ? (
+            <div aria-label="Live chart skeleton" className="mt-3 space-y-2 rounded-md border border-white/10 bg-black/30 px-4 py-3" role="status">
+              <span className="sr-only">Loading live chart data</span>
+              <div className="h-3 w-40 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+              <div className="h-3 w-64 max-w-full animate-pulse rounded bg-white/[0.06] motion-reduce:animate-none" />
             </div>
-          )}
+          ) : bars.length === 0 ? (
+            <div aria-label="Live chart empty state" className="mt-3 rounded-md border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-400" role="status">
+              <strong className="block text-slate-200">{symbol ? "No live chart data" : "No symbol selected"}</strong>
+              <span className="mt-1 block text-xs">{symbol ? "No candles were returned for this symbol and timeframe." : "Select a symbol to load the chart."}</span>
+            </div>
+          ) : null}
         </div>
         {layersPanelOpen && (
           <ChartObjectsPanel

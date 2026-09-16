@@ -285,7 +285,7 @@ export function WorkspaceShareDialog({
   const shareUrl = createdShare ? workspaceShareUrl(createdShare.public_token) : "";
 
   return (
-    <Dialog open label="Share a workspace copy" onClose={onClose} dismissBlocked={busy} initialFocusRef={titleInputRef} className="max-w-2xl">
+    <Dialog open label="Share a workspace copy" onClose={onClose} dismissBlocked={busy} initialFocusRef={titleInputRef} className="max-w-2xl max-sm:mb-[calc(4.5rem+env(safe-area-inset-bottom))] max-sm:max-h-[calc(100dvh-6rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]">
       <div
         aria-describedby={descriptionId}
         aria-labelledby={titleId}
