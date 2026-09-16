@@ -17,6 +17,8 @@
     "check:ui-inventory": "node scripts/check-ui-surface-inventory.mjs",
     "check:ui-motion": "node scripts/check-ui-motion.mjs",
     "check:ui-performance": "node scripts/check-ui-performance.mjs",
+    "check:ui-release": "node scripts/check-ui-release.mjs",
+    "quality:ui": "npm run check:ui-release && npm run check:ui-inventory -- --require-complete && npm run check:ui-performance && npm run check:ui-motion",
     "test": "node --test \"backend/tests/*.test.js\"",
     "test:ui": "playwright test",
     "test:ui:update": "playwright test --update-snapshots",

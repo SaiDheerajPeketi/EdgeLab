@@ -8,7 +8,7 @@ export const UI_COMPATIBILITY_ROUTES: Readonly<Record<UiRouteGroup, readonly Com
   public: [{ href: "/", label: "Home" }, { href: "/pricing", label: "Pricing" }, { href: "/auth/signin", label: "Sign in" }],
   shell: [{ href: "/app", label: "Workspace" }, { href: "/app/live", label: "Live" }, { href: "/app/journal/dashboard", label: "Journal" }, { href: "/app/settings/global", label: "Settings" }],
   journal: [{ href: "/app/journal/dashboard", label: "Overview" }, { href: "/app/journal/trades", label: "Trades" }, { href: "/app/reports", label: "Reports" }],
-  settings: [{ href: "/app/settings/global", label: "Global" }, { href: "/app/settings/chart", label: "Chart" }, { href: "/app/settings/broker", label: "Broker" }],
+  settings: [{ href: "/app/settings/global", label: "Global" }, { href: "/app/settings/chart", label: "Chart" }, { href: "/app/settings/data-providers#settings/data-providers/broker-connections", label: "Data & providers" }],
   chart: [{ href: "/app/live", label: "Live" }, { href: "/app/replay", label: "Replay" }, { href: "/app/order-flow", label: "Order flow" }],
 });
 

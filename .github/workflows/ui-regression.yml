@@ -44,7 +44,7 @@ jobs:
         run: npx playwright install chromium
 
       - name: Build frontend
-        run: npm run build
+        run: npm run check:ui-release && npm run build
 
       - name: Enforce UI size and motion budgets
         run: npm run check:ui-performance && npm run check:ui-motion

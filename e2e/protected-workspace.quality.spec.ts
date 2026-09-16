@@ -177,7 +177,8 @@ test.describe("critical states and rollout fallback", () => {
     await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
     await expect(page.getByRole("navigation", { name: "settings compatibility navigation" })).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Compatibility interface active" })).toBeVisible();
-    await expect(page.locator("#workspace-content")).toBeVisible();
+    await expect(page.locator("#compatibility-content")).toBeVisible();
+    await expect(page.locator("#workspace-content")).toHaveCount(0);
     await expectStableScreenshot(page, "settings-rollout-fallback", { fullPage: false });
   });
 
@@ -195,7 +196,8 @@ test.describe("critical states and rollout fallback", () => {
       await expect(page).toHaveURL(new RegExp(`${route.path === "/" ? "/$" : `${route.path}$`}`));
       await expect(page.locator(`[data-route-group="${route.group}"]`)).toHaveAttribute("data-ui-version", "fallback");
       await expect(page.locator(`[data-compatibility-renderer="${route.group}"]`)).toBeVisible();
-      await expect(page.getByRole("main")).toBeVisible();
+      await expect(page.locator("#compatibility-content")).toBeVisible();
+      await expect(page.locator("#workspace-content")).toHaveCount(0);
     });
   }
 
@@ -215,6 +217,8 @@ test.describe("critical states and rollout fallback", () => {
     const boundary = page.locator('[data-route-group="settings"]');
     await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
     await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
+    await page.getByLabel("Workspace density").selectOption("compact");
+    await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
 
     fallback = false;
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -226,7 +230,29 @@ test.describe("critical states and rollout fallback", () => {
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
     await expect(page.locator('[data-compatibility-renderer="settings"]')).toBeVisible();
+    await expect(page.getByLabel("Workspace density")).toHaveValue("compact");
+    await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();
     await expect(page).toHaveURL(/\/app\/settings\/chart\?panel=appearance#axis$/);
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.density)).toBe("compact");
+  });
+
+  test("compatibility renderers restore authenticated replay, chart, and journal state without mounting v2", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Rollout contract is viewport-independent.");
+    await installDeterminism(page, { rollout: "fallback" });
+    await gotoStable(page, "/app", { waitForNetworkIdle: false });
+    await expect(page.getByText(/Session restored for/)).toBeVisible();
+    await expect(page.locator("#workspace-content")).toHaveCount(0);
+
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await expect(page.locator("[data-compatibility-replay]")).not.toHaveText("Loading active replay…");
+    await expect(page.locator("[data-compatibility-chart]")).not.toHaveText("Loading chart layout…");
+    await expect(page.locator("#workspace-content")).toHaveCount(0);
+
+    await gotoStable(page, "/app/journal/trades", { waitForNetworkIdle: false });
+    await expect(page.getByRole("status").filter({ hasText: /recent trades available/ })).toBeVisible();
+    await expect(page.locator("#workspace-content")).toHaveCount(0);
   });
 
   test("unavailable rollout service fails closed without losing the route", async ({ page }, testInfo) => {
@@ -235,7 +261,7 @@ test.describe("critical states and rollout fallback", () => {
     await gotoStable(page, "/app/journal/dashboard");
     await expect(page).toHaveURL(/\/app\/journal\/dashboard$/);
     await expect(page.locator('[data-route-group="journal"]')).toHaveAttribute("data-ui-version", "fallback");
-    await expect(page.getByRole("main")).toBeVisible();
+    await expect(page.locator("#compatibility-content")).toBeVisible();
   });
 });
 
