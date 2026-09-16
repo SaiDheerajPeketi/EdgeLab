@@ -9,32 +9,82 @@
     "authenticated-radial-toolbox": {
       "spec": "e2e/motion-preference.interaction.spec.ts",
       "testTitle": "the reduced-motion circular toolbox remains keyboard-usable and restores focus",
-      "assertions": ["reduced-motion", "focus-restoration"]
+      "assertions": ["reduced-motion-css", "focus-restoration"]
     },
     "authenticated-navigation-motion": {
       "spec": "e2e/motion-preference.interaction.spec.ts",
       "testTitle": "authenticated shell journal settings and command palette motion remain bounded",
-      "assertions": ["compositor-properties", "overlay-unmount-cleanup", "rapid-interruption-final-state", "layout-count-zero", "reduced-motion", "focus-restoration"]
+      "assertions": ["compositor-repeated", "overlay-unmount-cleanup", "rapid-overlay-cycle", "layout-count-zero", "reduced-motion", "focus-restoration"]
     }
   },
+  "routeGroupSources": {
+    "public": ["frontend/src/pages/LandingPage.tsx", "frontend/src/components/marketing/HeroDemo.tsx", "frontend/src/components/marketing/MarketingShell.tsx"],
+    "shell": ["frontend/src/App.tsx", "frontend/src/routes/AppRoutes.tsx"],
+    "journal": ["frontend/src/components/journal/JournalPanelManager.tsx", "frontend/src/components/journal/JournalTradesSurface.tsx"],
+    "settings": ["frontend/src/components/settings/SettingsCenter.tsx"],
+    "chart": ["frontend/src/components/TradingChart.tsx", "frontend/src/components/EdgeLabWorkspace.tsx"]
+  },
+  "repeatedMotion": [
+    {
+      "source": "frontend/src/components/charts/loading-sweep.tsx",
+      "adapter": "declarative-motion",
+      "property": "x"
+    },
+    {
+      "source": "frontend/src/components/charts/use-grid-shimmer.ts",
+      "adapter": "motion-value-transform",
+      "property": "transform"
+    },
+    {
+      "source": "frontend/src/components/shimmering-text.tsx",
+      "adapter": "variant-motion",
+      "property": "opacity"
+    }
+  ],
   "routeGroups": {
     "covered": {
-      "public": ["public-storytelling"],
-      "shell": ["authenticated-navigation-motion"],
-      "journal": ["authenticated-navigation-motion"],
-      "settings": ["authenticated-navigation-motion"]
+      "public": ["source-audit", "public-storytelling"],
+      "shell": ["source-audit", "authenticated-navigation-motion"],
+      "journal": ["source-audit", "authenticated-navigation-motion"],
+      "settings": ["source-audit", "authenticated-navigation-motion"],
+      "chart": ["source-audit", "authenticated-radial-toolbox"]
     },
-    "residual": ["chart"]
+    "residual": []
   },
   "panels": {
-    "covered": { "Journal": ["authenticated-navigation-motion"] },
-    "residual": ["Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"]
+    "covered": {
+      "Journal": ["source-audit", "authenticated-navigation-motion"],
+      "Watchlist": ["source-audit"],
+      "Quant assistant": ["source-audit"],
+      "Data Window": ["source-audit"],
+      "Objects": ["source-audit"],
+      "Indicator editor": ["source-audit"],
+      "Order Book": ["source-audit"],
+      "Alerts": ["source-audit"],
+      "Order ticket": ["source-audit"],
+      "Replay transport": ["source-audit"]
+    },
+    "residual": []
   },
   "overlays": {
     "covered": {
-      "radial drawing toolbox": ["authenticated-radial-toolbox"],
-      "command palette": ["authenticated-navigation-motion"]
+      "command palette": ["source-audit", "authenticated-navigation-motion"],
+      "shortcut catalog": ["source-audit"],
+      "account menu": ["source-audit"],
+      "mobile navigation": ["source-audit"],
+      "trade review drawer": ["source-audit"],
+      "add trade flow": ["source-audit"],
+      "journal import flow": ["source-audit"],
+      "broker connection flow": ["source-audit"],
+      "workspace sharing": ["source-audit"],
+      "chart settings": ["source-audit"],
+      "indicator settings": ["source-audit"],
+      "drawing settings": ["source-audit"],
+      "symbol search": ["source-audit"],
+      "radial drawing toolbox": ["source-audit", "authenticated-radial-toolbox"],
+      "confirmation dialog": ["source-audit"],
+      "toast": ["source-audit"]
     },
-    "residual": ["shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "confirmation dialog", "toast"]
+    "residual": []
   }
 }
