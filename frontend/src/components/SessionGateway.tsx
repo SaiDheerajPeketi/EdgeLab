@@ -479,6 +479,8 @@ export function SessionGateway({
     startFreshSession();
   }
 
+  const sessionHistoryLoading = isLoading && !resumeSession && sessions.length === 0;
+
   return (
     <section className="session-gateway">
       <div className="session-gateway-hero">
@@ -498,42 +500,62 @@ export function SessionGateway({
           </div>
         </div>
 
-        <div className="session-resume-card">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Resume
+        <div aria-busy={sessionHistoryLoading} className="session-resume-card">
+          {sessionHistoryLoading ? (
+            <div aria-label="Loading saved sessions" role="status">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Recent work</div>
+                  <div className="mt-2 text-lg font-semibold text-white">Checking saved sessions</div>
+                  <div className="mt-1 text-sm text-slate-400">Loading your latest replay and session history.</div>
+                </div>
+                <div aria-hidden="true" className="h-10 w-10 shrink-0 animate-pulse rounded-md bg-white/[0.08] motion-reduce:animate-none" />
               </div>
-              <div className="mt-2 text-lg font-semibold text-white">
-                {resumeSession ? resumeSession.name : "No saved session yet"}
-              </div>
-              <div className="mt-1 text-sm text-slate-400">
-                {resumeSession
-                  ? `${formatMarketSymbol(resumeSession.symbol)} ${resumeSession.timeframe ?? ""} / ${resumeSession.strategy_name ?? "No strategy"}`
-                  : "Create a session to unlock replay."}
+              <div aria-hidden="true" className="mt-5 h-11 animate-pulse rounded-md bg-white/[0.08] motion-reduce:animate-none" />
+              <div aria-hidden="true" className="mt-2 grid grid-cols-2 gap-2">
+                <div className="h-11 animate-pulse rounded-md bg-white/[0.05] motion-reduce:animate-none" />
+                <div className="h-11 animate-pulse rounded-md bg-white/[0.05] motion-reduce:animate-none" />
               </div>
             </div>
-            <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-xs font-black text-ink-950">
-              {resumeSession ? symbolBadge(resumeSession.symbol) : "NEW"}
-            </div>
-          </div>
-          <button
-            className="control-button mt-5 w-full border-cyan-200/40 bg-cyan-200 px-4 text-ink-950 hover:bg-cyan-100"
-            disabled={isLoading || resumingSessionId != null}
-            onClick={() => resumeSession ? void handleResumeSession(resumeSession.id) : startFreshSession()}
-            type="button"
-          >
-            {resumingSessionId != null || isLoading ? (
-              <EdgePulseLoader label="Opening session" size="sm" />
-            ) : (
-              <RotateCcw size={16} />
-            )}
-            {resumeSession ? "Resume latest session" : "Create your first session"}
-          </button>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button className="control-button justify-center" onClick={startFreshSession} type="button"><Plus size={15} />New session</button>
-            <button className="control-button justify-center" disabled={!instruments.length} onClick={useSampleSetup} type="button"><Database size={15} />Use sample setup</button>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                    Resume
+                  </div>
+                  <div className="mt-2 text-lg font-semibold text-white">
+                    {resumeSession ? resumeSession.name : "No saved session yet"}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-400">
+                    {resumeSession
+                      ? `${formatMarketSymbol(resumeSession.symbol)} ${resumeSession.timeframe ?? ""} / ${resumeSession.strategy_name ?? "No strategy"}`
+                      : "Create a session to unlock replay."}
+                  </div>
+                </div>
+                <div className="grid h-10 w-10 place-items-center rounded-md bg-white text-xs font-black text-ink-950">
+                  {resumeSession ? symbolBadge(resumeSession.symbol) : "NEW"}
+                </div>
+              </div>
+              <button
+                className="control-button mt-5 w-full border-cyan-200/40 bg-cyan-200 px-4 text-ink-950 hover:bg-cyan-100"
+                disabled={isLoading || resumingSessionId != null}
+                onClick={() => resumeSession ? void handleResumeSession(resumeSession.id) : startFreshSession()}
+                type="button"
+              >
+                {resumingSessionId != null || isLoading ? (
+                  <EdgePulseLoader label="Opening session" size="sm" />
+                ) : (
+                  <RotateCcw size={16} />
+                )}
+                {resumeSession ? "Resume latest session" : "Create your first session"}
+              </button>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button className="control-button justify-center" onClick={startFreshSession} type="button"><Plus size={15} />New session</button>
+                <button className="control-button justify-center" disabled={!instruments.length} onClick={useSampleSetup} type="button"><Database size={15} />Use sample setup</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -541,14 +563,15 @@ export function SessionGateway({
         <button
           aria-expanded={showHistory}
           className="flex min-h-14 w-full items-center gap-3 px-4 text-left outline-none hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 xl:px-5"
+          disabled={sessionHistoryLoading}
           onClick={() => setShowHistory((visible) => !visible)}
           type="button"
         >
           <BarChart3 className="text-cyan-200" size={16} />
-          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Recent work</span><span className="block truncate text-xs text-slate-500">{sessions.length ? `${sessions.length} saved sessions across ${strategyGroups.length} strategies` : "Saved sessions will appear here"}</span></span>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Recent work</span><span className="block truncate text-xs text-slate-500">{sessionHistoryLoading ? "Loading saved sessions…" : sessions.length ? `${sessions.length} saved sessions across ${strategyGroups.length} strategies` : "Saved sessions will appear here"}</span></span>
           <ChevronDown className={`text-slate-500 transition-transform motion-reduce:transition-none ${showHistory ? "rotate-180" : ""}`} size={17} />
         </button>
-        {showHistory ? <div className="border-t border-white/10 p-4 xl:p-5">
+        {showHistory && !sessionHistoryLoading ? <div className="border-t border-white/10 p-4 xl:p-5">
         <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">

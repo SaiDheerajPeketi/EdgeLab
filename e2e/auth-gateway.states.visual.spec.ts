@@ -265,8 +265,14 @@ test.describe("session gateway critical states", () => {
     await gotoStable(page, "/app", { waitForNetworkIdle: false });
 
     await expect(page.getByRole("heading", { level: 1, name: "Continue where the market left you." })).toBeVisible();
-    await expect(page.getByRole("status", { name: "Opening session" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Create your first session/ })).toBeDisabled();
+    await expect(page.getByRole("status", { name: "Loading saved sessions" })).toBeVisible();
+    await expect(page.getByText("Checking saved sessions", { exact: true })).toBeVisible();
+    await expect(page.getByText("Loading saved sessions…", { exact: true })).toBeVisible();
+    await expect(page.getByText("No saved session yet", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Saved sessions will appear here", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create your first session" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "New session" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Use sample setup" })).toHaveCount(0);
     await expect(page.getByText("1 markets ready", { exact: true })).toBeVisible();
     await expectGatewayStateGeometry(page, page.locator(".session-gateway"), "gateway loading");
     await expectStableScreenshot(page, "gateway-loading", { fullPage: false });
