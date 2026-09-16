@@ -126,6 +126,14 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
       expected: /state "mobile-menu" uses project "tablet" outside its applicable viewport contract/,
     },
     {
+      name: "route-owned state evidence",
+      mutate(fixture) {
+        fixture.visualEvidence.routes["/"]["dev-bypass-error"] =
+          fixture.visualEvidence.routes["/auth/signin"]["dev-bypass-error"];
+      },
+      expected: /Route "\/" evidence uses undeclared state "dev-bypass-error"/,
+    },
+    {
       name: "state viewport schema",
       mutate(fixture) {
         fixture.inventory.routes.find((route) => route.path === "/").stateViewports["mobile-menu"] = ["watch"];

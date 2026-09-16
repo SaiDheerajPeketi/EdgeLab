@@ -23,11 +23,6 @@
         "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-beta-full.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-beta-full.png", "captureMode": "viewport" }
       },
-      "submission-error": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-submission-error.png", "captureMode": "viewport" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-submission-error.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-submission-error.png", "captureMode": "viewport" }
-      },
       "availability-error": {
         "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" },
@@ -108,6 +103,11 @@
         "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png", "captureMode": "full-page" },
         "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png", "captureMode": "full-page" },
         "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "auth-error-retryable.png", "captureMode": "viewport" }
+      },
+      "dev-bypass-error": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "auth-signin-dev-bypass-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "auth-signin-dev-bypass-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "auth-signin-dev-bypass-error.png", "captureMode": "viewport" }
       }
     },
     "/auth/callback/google": {

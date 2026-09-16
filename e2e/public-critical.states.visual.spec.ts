@@ -92,7 +92,7 @@ test.describe("landing critical-state visual baselines", () => {
     await expectStableScreenshot(page, "landing-beta-full", { fullPage: false });
   });
 
-  test("CTA submission failure remains recoverable", async ({ page }) => {
+  test("landing journey exposes a recoverable sign-in failure", async ({ page }) => {
     await page.route("**/api/auth/config", (route) => route.fulfill({
       body: JSON.stringify({ dev_auth_bypass_enabled: true, google_client_id: "visual-client.apps.googleusercontent.com", google_enabled: true, google_redirect_uri: "http://127.0.0.1/auth/callback/google", manual_access_enabled: false }),
       contentType: "application/json",
@@ -101,6 +101,7 @@ test.describe("landing critical-state visual baselines", () => {
     await page.route("**/api/auth/dev/bypass", (route) => route.fulfill({ body: JSON.stringify({ detail: "fixture submission failure" }), contentType: "application/json", status: 503 }));
     await gotoStable(page, "/", { waitForNetworkIdle: false });
     await page.getByRole("link", { name: "Join beta" }).first().click();
+    await expect(page).toHaveURL(/\/auth\/signin/);
     const submit = page.getByRole("button", { name: "Local development sign-in" });
     await expect(submit).toBeEnabled();
     await submit.click();
@@ -108,7 +109,7 @@ test.describe("landing critical-state visual baselines", () => {
     await expect(submit).toBeEnabled();
     await expectInteractiveGeometry(page, submit);
     await expectNoHorizontalOverflow(page);
-    await expectStableScreenshot(page, "landing-cta-submission-error", { fullPage: false });
+    await expectStableScreenshot(page, "auth-signin-dev-bypass-error", { fullPage: false });
   });
 
   test("mobile navigation menu baseline", async ({ page }, testInfo) => {
