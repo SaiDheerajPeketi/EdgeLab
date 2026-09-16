@@ -158,7 +158,14 @@
 /* Touch sizing must follow generated utility rules so fixed h-8/h-10 controls
    cannot override the coarse-pointer accessibility contract. */
 @media (pointer: coarse) {
-  :where(a, button, [role="button"], [role="menuitem"], [role="option"], input, select, textarea) {
+  :where(a, button, [role="button"], [role="menuitem"], [role="option"], input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Native choices keep their platform-sized visual affordance. The label is
+     the coarse-pointer hit target, so enlarging the input never distorts it. */
+  :where(label:has(input[type="checkbox"]), label:has(input[type="radio"])) {
     min-height: 44px !important;
     min-width: 44px !important;
   }
@@ -185,7 +192,7 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 }
 
 @media (pointer: coarse) {
-  :where(button, [role="button"], input, select, textarea) { min-height: var(--density-touch); }
+  :where(button, [role="button"], input:not([type="checkbox"]):not([type="radio"]), select, textarea) { min-height: var(--density-touch); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -274,11 +281,13 @@ body { min-width: 320px; background: var(--ui-canvas); color: var(--text-primary
 }
 
 @media (pointer: coarse) {
-  :where(a, button, [role="button"], [role="menuitem"], [role="option"], input, select, textarea) {
+  :where(a, button, [role="button"], [role="menuitem"], [role="option"], input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
     min-height: var(--density-touch);
     min-width: var(--density-touch);
     touch-action: manipulation;
   }
+
+  :where(input[type="checkbox"], input[type="radio"]) { touch-action: manipulation; }
 }
 
 [dir="rtl"] :where(.ui-critical-state, [data-overlay-surface="true"]) { text-align: start; }

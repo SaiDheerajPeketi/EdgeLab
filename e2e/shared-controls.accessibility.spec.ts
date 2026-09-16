@@ -58,7 +58,7 @@ test.describe("shared controls rendered accessibility contract", () => {
     expect(box?.height).toBeGreaterThanOrEqual(44);
   });
 
-  test("repeated radio labels remain separate keyboard groups", async ({ page }) => {
+  test("repeated radio labels remain separate keyboard groups without oversized native controls", async ({ page }, testInfo) => {
     const groups = page.getByRole("group", { name: "Order type" });
     await expect(groups).toHaveCount(2);
     const firstNames = await groups.nth(0).getByRole("radio").evaluateAll((nodes) => nodes.map((node) => (node as HTMLInputElement).name));
@@ -67,6 +67,14 @@ test.describe("shared controls rendered accessibility contract", () => {
     expect(new Set(secondNames).size).toBe(1);
     expect(firstNames[0]).not.toBe(secondNames[0]);
     const firstMarket = groups.nth(0).getByRole("radio", { name: "Market" });
+    const inputBox = await firstMarket.boundingBox();
+    const labelBox = await firstMarket.locator("xpath=ancestor::label").boundingBox();
+    expect(inputBox).not.toBeNull();
+    expect(labelBox).not.toBeNull();
+    expect(inputBox!.width).toBeLessThanOrEqual(24);
+    expect(inputBox!.height).toBeLessThanOrEqual(24);
+    expect(labelBox!.height).toBeGreaterThanOrEqual(testInfo.project.name === "desktop" ? 40 : 44);
+    expect(labelBox!.width).toBeGreaterThanOrEqual(44);
     await firstMarket.focus();
     await page.keyboard.press("ArrowDown");
     await expect(groups.nth(0).getByRole("radio", { name: "Limit" })).toBeChecked();
