@@ -18,6 +18,16 @@
         "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-success.png", "captureMode": "viewport" }
       },
+      "beta-full": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-beta-full.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-beta-full.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-beta-full.png", "captureMode": "viewport" }
+      },
+      "submission-error": {
+        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-submission-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-submission-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-submission-error.png", "captureMode": "viewport" }
+      },
       "availability-error": {
         "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-error-fallback.png", "captureMode": "viewport" },

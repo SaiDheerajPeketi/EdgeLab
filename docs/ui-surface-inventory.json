@@ -80,7 +80,6 @@
       "/app/settings": "Alias that resolves to the default settings category."
     },
     "gaps": {
-      "/": "Beta-full and CTA submission-error states remain without dedicated stored baselines; availability pending/open/error and mobile navigation are covered.",
       "/shared": "The generic transport-error state is not yet isolated from access and copy failures.",
       "/app": "The loading and sample-data gateway states remain without dedicated stored baselines; loading behavior is exercised across all three Playwright projects.",
       "/app/live": "Connecting, stale, offline, unsupported, and dedicated 1920px states remain uncaptured.",

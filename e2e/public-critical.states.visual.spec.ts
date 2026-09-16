@@ -13,6 +13,13 @@ const openBetaProgram = {
   waitlist_count: 27,
 };
 
+const fullBetaProgram = {
+  ...openBetaProgram,
+  seats_remaining: 0,
+  seats_taken: 500,
+  waitlist_count: 84,
+};
+
 async function expectNoHorizontalOverflow(page: Page) {
   const geometry = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -73,6 +80,37 @@ test.describe("landing critical-state visual baselines", () => {
     await expectStableScreenshot(page, "landing-cta-error-fallback", { fullPage: false });
   });
 
+  test("beta capacity routes the primary CTA to the waitlist", async ({ page }) => {
+    await page.route("**/api/auth/beta/status", (route) => route.fulfill({ body: JSON.stringify(fullBetaProgram), contentType: "application/json", status: 200 }));
+    await gotoStable(page, "/", { waitForNetworkIdle: false });
+    await expect(page.getByText("waitlist live", { exact: true })).toBeVisible();
+    await expect(page.getByText("Waitlist open", { exact: true })).toBeVisible();
+    const cta = page.getByRole("link", { name: "Join waitlist" }).first();
+    await expect(cta).toHaveAttribute("href", /waitlist=1/);
+    await expectInteractiveGeometry(page, cta);
+    await expectNoHorizontalOverflow(page);
+    await expectStableScreenshot(page, "landing-beta-full", { fullPage: false });
+  });
+
+  test("CTA submission failure remains recoverable", async ({ page }) => {
+    await page.route("**/api/auth/config", (route) => route.fulfill({
+      body: JSON.stringify({ dev_auth_bypass_enabled: true, google_client_id: "visual-client.apps.googleusercontent.com", google_enabled: true, google_redirect_uri: "http://127.0.0.1/auth/callback/google", manual_access_enabled: false }),
+      contentType: "application/json",
+      status: 200,
+    }));
+    await page.route("**/api/auth/dev/bypass", (route) => route.fulfill({ body: JSON.stringify({ detail: "fixture submission failure" }), contentType: "application/json", status: 503 }));
+    await gotoStable(page, "/", { waitForNetworkIdle: false });
+    await page.getByRole("link", { name: "Join beta" }).first().click();
+    const submit = page.getByRole("button", { name: "Local development sign-in" });
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect(page.getByRole("alert").filter({ hasText: "Local development sign-in is unavailable for this origin." })).toBeVisible();
+    await expect(submit).toBeEnabled();
+    await expectInteractiveGeometry(page, submit);
+    await expectNoHorizontalOverflow(page);
+    await expectStableScreenshot(page, "landing-cta-submission-error", { fullPage: false });
+  });
+
   test("mobile navigation menu baseline", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "mobile", "The compact navigation menu is mobile-only.");
     await gotoStable(page, "/", { waitForNetworkIdle: false });
@@ -84,6 +122,14 @@ test.describe("landing critical-state visual baselines", () => {
     await expectStableScreenshot(page, "landing-mobile-menu", { fullPage: false });
   });
 });
+
+async function expectInteractiveGeometry(page: Page, control: Locator) {
+  const box = await control.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual((await page.viewportSize())!.width);
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+}
 
 test.describe("pricing disclosure visual baselines", () => {
   test.beforeEach(async ({ page }) => {
