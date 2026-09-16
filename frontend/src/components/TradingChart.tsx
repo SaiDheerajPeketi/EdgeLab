@@ -3663,7 +3663,7 @@ function OhlcvStrip({
   const hasVolume = hasRenderableVolume(candle);
 
   return (
-    <div className="chart-ohlcv-row">
+    <div aria-label="Data Window" className="chart-ohlcv-row" data-ui-panel="data-window" role="region">
       <span className="chart-ohlcv-time">
         {candle ? formatChartDateTime(candle.timestamp, chartSettings) : "No candle"}
       </span>

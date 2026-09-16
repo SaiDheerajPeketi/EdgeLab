@@ -25,11 +25,9 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
   const result = validateUiSurfaceInventory(fixtureInputs());
   assert.deepEqual(result.errors, []);
   assert.equal(result.stats.inventoriedRoutes, result.stats.discoveredRoutes);
-  assert.equal(result.gaps.length, 18);
-  assert.ok(result.gaps.includes("route:/app/live:empty: Live empty-state baseline has not been captured."));
-  assert.ok(result.gaps.includes("route:/app/live:skeleton: Live skeleton baseline has not been captured."));
-  assert.ok(result.gaps.some((gap) => gap.startsWith("panel:Journal:default:")));
+  assert.equal(result.gaps.length, 10);
   assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:command palette:open:")));
+  assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:radial drawing toolbox:open:")));
 });
 
 test("panel evidence resolves an authoritative source, spec, and exact snapshot", () => {
@@ -132,7 +130,7 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
     {
       name: "route state gap parity",
       mutate(fixture) {
-        fixture.visualEvidence.routeGaps["/app/live"].fabricated = "not real";
+        fixture.visualEvidence.routeGaps["/app/live"] = { fabricated: "not real" };
       },
       expected: /Route-state gap references undeclared state "fabricated"/,
     },
@@ -286,6 +284,6 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
 test("strict completion mode precisely rejects recorded evidence gaps", () => {
   assert.throws(
     () => runUiSurfaceInventoryCheck({ requireComplete: true, root }),
-    /panel:Journal:default:[\s\S]*overlay:command palette:open:[\s\S]*route:\/app\/live:empty:[\s\S]*route:\/app\/live:skeleton:/,
+    /overlay:command palette:open:[\s\S]*overlay:radial drawing toolbox:open:/,
   );
 });

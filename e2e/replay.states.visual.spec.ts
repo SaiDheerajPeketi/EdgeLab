@@ -266,6 +266,34 @@ test.describe("replay critical state baselines", () => {
     await expectReplayScreenshot(page, "replay-trade-selected");
   });
 
+  test("Objects panel supports keyboard resize", async ({ page }, testInfo) => {
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await page.getByRole("button", { name: "Objects", exact: true }).first().click();
+    const panel = page.getByRole("complementary", { name: "Chart objects" });
+    await expect(panel).toBeVisible();
+    const resize = panel.getByRole("separator", { name: "Resize Chart objects" });
+    if (["desktop", "tradingDesktop"].includes(testInfo.project.name)) {
+      await resize.focus();
+      await resize.press("ArrowLeft");
+    } else await expect(resize).toBeHidden();
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await expect(panel).toHaveScreenshot("panel-objects.png");
+  });
+
+  test("Indicator editor traps focus and closes predictably", async ({ page }) => {
+    await fulfillReplayContext(page);
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
+    await page.getByRole("button", { name: "Editor", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "EdgeLab indicator editor" });
+    await expect(panel).toBeVisible();
+    await page.getByRole("button", { name: "Close indicator editor" }).focus();
+    await expect(page.getByRole("button", { name: "Close indicator editor" })).toBeFocused();
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await expect(panel).toHaveScreenshot("panel-indicator-editor.png");
+  });
+
   test("failed progress save keeps the replay recoverable", async ({ page }) => {
     await fulfillReplayContext(page);
     const jumpOffsets: number[] = [];
