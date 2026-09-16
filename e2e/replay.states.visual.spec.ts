@@ -352,12 +352,16 @@ test.describe("replay critical state baselines", () => {
     await expect(symbolResults).toBeVisible();
     await expect(symbolSearch).toHaveAttribute("aria-activedescendant", /chart-symbol-option-/);
     await expectNoHorizontalOverflow(symbolResults);
-    await symbolResults.evaluate((element) => {
-      Object.assign(element.style, {
-        left: "24px", maxHeight: "400px", overflowY: "auto", position: "fixed", top: "24px", width: "320px",
-      });
-    });
-    await expect(symbolResults).toHaveScreenshot("overlay-symbol-search.png");
+    const symbolBounds = await symbolResults.boundingBox();
+    const viewport = page.viewportSize();
+    expect(symbolBounds).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    expect(symbolBounds!.x).toBeGreaterThanOrEqual(0);
+    expect(symbolBounds!.y).toBeGreaterThanOrEqual(0);
+    expect(symbolBounds!.x + symbolBounds!.width).toBeLessThanOrEqual(viewport!.width + 1);
+    expect(symbolBounds!.y + symbolBounds!.height).toBeLessThanOrEqual(viewport!.height + 1);
+    const symbolCapture = await page.screenshot({ clip: symbolBounds! });
+    expect(symbolCapture).toMatchSnapshot("overlay-symbol-search.png");
     await symbolSearch.press("Escape");
     await expect(symbolResults).toBeHidden();
     await expect(symbolSearch).toBeFocused();
