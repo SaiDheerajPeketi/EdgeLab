@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "bindings": {
+    "UIR-73:axe-all-impacts": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "axe.run", "severity": "critical-serious", "surface": { "family": "routes", "name": "/app/live", "state": "connecting", "viewports": ["desktop"] } },
+    "UIR-73:focus": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "public and app skip links", "surface": { "family": "routes", "name": "/", "state": "default", "viewports": ["desktop"] } },
+    "UIR-73:disabled": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:contrast-states]", "surface": { "family": "panels", "name": "Replay transport", "state": "default", "viewports": ["desktop"] } },
+    "UIR-73:canvas-contrast": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:contrast-states]", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["desktop"] } },
+    "UIR-74:primary-keyboard-journey": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "settings combobox supports arrows", "surface": { "family": "routes", "name": "/app/settings/:category", "state": "default", "viewports": ["desktop"] } },
+    "UIR-74:shortcut-collision": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:shortcut-collision]", "surface": { "family": "routes", "name": "/app/settings/:category", "state": "default", "viewports": ["desktop"] } },
+    "UIR-74:focus-return": { "spec": "e2e/protected-workspace.quality.spec.ts", "marker": "restore keyboard focus", "surface": { "family": "overlays", "name": "command palette", "state": "open", "viewports": ["desktop"] } },
+    "UIR-75:landmarks": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "getByRole(\"main\")", "surface": { "family": "routes", "name": "/", "state": "default", "viewports": ["desktop"] } },
+    "UIR-75:headings": { "spec": "e2e/protected-workspace.quality.spec.ts", "marker": "axe, landmarks, keyboard", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["desktop"] } },
+    "UIR-75:names": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "Search settings", "surface": { "family": "routes", "name": "/app/settings/:category", "state": "default", "viewports": ["desktop"] } },
+    "UIR-75:live-regions": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "aria-live", "surface": { "family": "routes", "name": "/app/live", "state": "connecting", "viewports": ["desktop"] } },
+    "UIR-75:textual-chart-alternative": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "recent price bars", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["desktop"] } },
+    "UIR-76:non-color-semantics": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "Connecting live feed", "surface": { "family": "routes", "name": "/app/live", "state": "connecting", "viewports": ["desktop"] } },
+    "UIR-76:cvd-filters": { "spec": "e2e/protected-workspace.quality.spec.ts", "marker": "CVD redundancy", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["desktop"] } },
+    "UIR-77:zoom-200": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "pageScaleFactor", "surface": { "family": "routes", "name": "/", "state": "default", "viewports": ["desktop"] } },
+    "UIR-77:coarse-pointer": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "pointer: coarse", "surface": { "family": "routes", "name": "/", "state": "mobile-menu", "viewports": ["mobile"] } },
+    "UIR-77:safe-area": { "spec": "e2e/protected-workspace.quality.spec.ts", "marker": "safe-area insets", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["mobile"] } },
+    "UIR-77:software-keyboard-shrink": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:software-keyboard]", "surface": { "family": "routes", "name": "/app/settings/:category", "state": "default", "viewports": ["mobile"] } },
+    "UIR-77:touch-target-44px": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "44px target floor", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["mobile"] } },
+    "UIR-78:de-DE": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:de-locale]", "surface": { "family": "routes", "name": "/app/settings/:category", "state": "default", "viewports": ["desktop"] } },
+    "UIR-78:ar-SA": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "installDocumentLocale(page, \"ar-SA\"", "surface": { "family": "routes", "name": "/app/journal/trades", "state": "populated", "viewports": ["desktop"] } },
+    "UIR-78:long-content": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "long RTL content", "surface": { "family": "routes", "name": "/app/journal/trades", "state": "populated", "viewports": ["desktop"] } },
+    "UIR-78:currency-date-number": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "Intl.NumberFormat", "surface": { "family": "routes", "name": "/app/journal/trades", "state": "populated", "viewports": ["desktop"] } },
+    "UIR-78:user-content-overflow": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "horizontalOverflow", "surface": { "family": "routes", "name": "/app/journal/trades", "state": "populated", "viewports": ["desktop"] } },
+    "viewport:tablet": { "spec": "e2e/accessibility-resilience.certification.spec.ts", "marker": "[cert:tablet-layout]", "surface": { "family": "routes", "name": "/app/live", "state": "live", "viewports": ["tablet"] } }
+  }
+}

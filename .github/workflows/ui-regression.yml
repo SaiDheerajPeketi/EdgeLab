@@ -47,7 +47,10 @@ jobs:
         run: npm run check:ui-release && npm run build
 
       - name: Validate UI surface inventory
-        run: npm run check:ui-inventory && npm run test:ui-inventory
+        run: npm run check:ui-inventory && npm run test:ui-inventory && npm run check:ui-certification && npm run test:ui-certification
+
+      - name: Run focused accessibility certification
+        run: npm run test:ui-certification:runtime
 
       - name: Enforce UI size and motion budgets
         run: npm run check:ui-performance && npm run check:ui-motion

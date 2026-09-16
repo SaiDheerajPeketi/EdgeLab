@@ -18,6 +18,7 @@
     "test:ui-inventory": "node --test backend/tests/ui-surface-inventory-validator.test.js",
     "check:ui-certification": "node scripts/check-ui-accessibility-certification.mjs",
     "test:ui-certification": "node --test backend/tests/ui-accessibility-certification-validator.test.js",
+    "test:ui-certification:runtime": "node scripts/run-ui-accessibility-certification.mjs",
     "check:ui-motion": "node scripts/check-ui-motion.mjs",
     "check:ui-performance": "node scripts/check-ui-performance.mjs",
     "check:ui-release": "node scripts/check-ui-release.mjs",

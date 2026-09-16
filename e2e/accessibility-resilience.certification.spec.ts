@@ -111,6 +111,62 @@ test.describe("UIR-73 through UIR-78 representative certification", () => {
     await expect(chart.locator(".sr-only").first()).toContainText(/Latest bar|No bars are currently available/);
     await expect(chart.getByRole("table", { name: /recent price bars/i })).toHaveCount(1);
   });
+
+  test("[cert:tablet-layout] tablet settings and chart preserve focusable controls without overflow", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "tablet", "Tablet project supplies the intermediate viewport.");
+    for (const route of ["/app/settings/global", "/app/live"]) {
+      await gotoStable(page, route, { waitForNetworkIdle: false });
+      await expect(page.getByRole("main")).toBeVisible();
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("[cert:contrast-states] disabled controls and chart canvas retain explicit nontransparent contrast", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Contrast sampling is deterministic on desktop.");
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+    const canvas = page.locator("canvas").first();
+    await expect(canvas).toBeVisible();
+    const canvasBackground = await canvas.evaluate((node) => { let current: HTMLElement | null = node; while (current && getComputedStyle(current).backgroundColor === "rgba(0, 0, 0, 0)") current = current.parentElement; return current ? getComputedStyle(current).backgroundColor : "rgba(0, 0, 0, 0)"; });
+    expect(canvasBackground).not.toBe("rgba(0, 0, 0, 0)");
+    await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+    const disabled = page.locator("button:disabled").first();
+    await expect(disabled).toBeVisible();
+    const colors = await disabled.evaluate((node) => ({ background: getComputedStyle(node).backgroundColor, foreground: getComputedStyle(node).color }));
+    expect(colors.foreground).not.toBe(colors.background);
+  });
+
+  test("[cert:shortcut-collision] text inputs retain editing keys without opening workspace shortcuts", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Keyboard collision is viewport-independent.");
+    await gotoStable(page, "/app/settings/global");
+    const search = page.getByRole("combobox", { name: "Search settings" });
+    await search.fill("risk");
+    await search.press("g");
+    await expect(search).toBeFocused();
+    await expect(search).toHaveValue("riskg");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("[cert:software-keyboard] focused mobile input remains visible after keyboard-sized viewport shrink", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile", "Mobile project supplies touch and viewport shrink semantics.");
+    await gotoStable(page, "/app/settings/global");
+    const search = page.getByRole("combobox", { name: "Search settings" });
+    await search.focus();
+    await page.setViewportSize({ width: 390, height: 500 });
+    await search.scrollIntoViewIfNeeded();
+    expect(await search.evaluate((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight; })).toBe(true);
+  });
+
+  test("[cert:de-locale] German long labels, dates, currency, and numbers remain contained", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Locale formatting is audited once.");
+    await installDocumentLocale(page, "de-DE", "ltr");
+    await gotoStable(page, "/app/settings/global");
+    const expected = await page.evaluate(() => ({ currency: new Intl.NumberFormat("de-DE", { currency: "EUR", style: "currency" }).format(1234567.89), date: new Intl.DateTimeFormat("de-DE").format(new Date("2026-09-15T09:05:00Z")) }));
+    expect(expected.currency).toMatch(/1\.234\.567,89/);
+    expect(expected.date).toMatch(/15\.9\.2026/);
+    const category = page.getByRole("navigation", { name: "Settings categories" }).getByRole("button").first();
+    await category.evaluate((node) => { const label = node.querySelector("span"); if (label) label.textContent = "Außergewöhnlich lange Arbeitsbereichseinstellungen und Risikokonfiguration"; });
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+  });
 });
 
 async function expectNoSeriousViolations(page: Page) {
