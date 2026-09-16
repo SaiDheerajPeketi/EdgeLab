@@ -225,15 +225,23 @@ async function captureState(page: Page, name: string, target: Locator) {
   if (await mobileNav.isVisible()) {
     const navBox = await mobileNav.boundingBox();
     expect(navBox).not.toBeNull();
+    expect(navBox!.x).toBeGreaterThanOrEqual(-1);
+    expect(navBox!.x + navBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+    expect(navBox!.y).toBeGreaterThanOrEqual(-1);
+    expect(navBox!.y + navBox!.height).toBeLessThanOrEqual(viewport.height + 1);
     expect(box!.y + box!.height).toBeLessThanOrEqual(navBox!.y);
     const navButtons = mobileNav.getByRole("button");
     expect(await navButtons.count()).toBe(6);
+    const buttonBoxes = [];
     for (let index = 0; index < 6; index += 1) {
       const buttonBox = await navButtons.nth(index).boundingBox();
       expect(buttonBox).not.toBeNull();
       expect(buttonBox!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
       expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 1);
+      buttonBoxes.push(buttonBox!);
     }
+    expect(buttonBoxes[0].x).toBeLessThanOrEqual(navBox!.x + navBox!.width / 6 + 1);
+    expect(buttonBoxes[5].x + buttonBoxes[5].width).toBeGreaterThanOrEqual(navBox!.x + (navBox!.width * 5) / 6 - 1);
   }
   await expectAnalyticsTouchTargets(page);
   await expectStableScreenshot(page, name, { fullPage: false });

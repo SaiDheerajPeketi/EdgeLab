@@ -62,9 +62,9 @@ export function WorkspaceMobileNav({ activeView, onNavigate }: Props) {
     <>
       <nav
         aria-label="Primary workspace"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--ui-divider)] bg-[var(--ui-navigation-mobile)] ps-[max(0.35rem,env(safe-area-inset-left))] pe-[max(0.35rem,env(safe-area-inset-right))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[var(--elevation-floating)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 w-screen max-w-[100vw] overflow-x-clip border-t border-[var(--ui-divider)] bg-[var(--ui-navigation-mobile)] ps-[max(0.35rem,env(safe-area-inset-left))] pe-[max(0.35rem,env(safe-area-inset-right))] pb-[max(0.45rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[var(--elevation-floating)] lg:hidden"
       >
-        <div className="mx-auto grid max-w-xl grid-cols-6 gap-1">
+        <div className="mx-auto grid w-full min-w-0 max-w-xl grid-cols-6 gap-1">
           {MOBILE_PRIMARY_NAVIGATION.map((item) => {
             const Icon = item.icon;
             const active = mobilePrimaryItemIsActive(item.matches, activeView);
