@@ -242,6 +242,21 @@
         "mobile": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/journal-critical.states.visual.spec.ts", "snapshot": "journal-empty-onboarding.png", "captureMode": "viewport" }
+      },
+      "partial": {
+        "mobile": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-partial.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-partial.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-partial.png", "captureMode": "viewport" }
+      },
+      "mixed-currency": {
+        "mobile": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-mixed-currency.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-mixed-currency.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-mixed-currency.png", "captureMode": "viewport" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-dashboard-error.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/accounts": {
@@ -249,6 +264,11 @@
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-accounts.png", "captureMode": "viewport" }
+      },
+      "empty": {
+        "mobile": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-accounts-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-accounts-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-dashboard-accounts.states.visual.spec.ts", "snapshot": "journal-accounts-empty.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/trades": {
