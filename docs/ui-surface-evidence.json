@@ -276,10 +276,25 @@
       }
     },
     "/app/journal/notes": {
+      "empty": {
+        "mobile": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-empty.png", "captureMode": "viewport" }
+      },
       "daily-note": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "journal-notes.png", "captureMode": "viewport" }
+      },
+      "trade-note": {
+        "mobile": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-trade-note.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-trade-note.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-trade-note.png", "captureMode": "viewport" }
+      },
+      "search-results": {
+        "mobile": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-search-results.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-search-results.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/journal-notes.states.visual.spec.ts", "snapshot": "journal-notes-search-results.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/calendar": {
