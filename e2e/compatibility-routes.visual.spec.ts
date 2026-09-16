@@ -1,83 +1,85 @@
 import { expect, test, type Page } from "@playwright/test";
-import { UI_COMPATIBILITY_PATHS, UI_COMPATIBILITY_ROUTE_PARITY, type CompatibilityRouteParity, type UiRouteGroup } from "../frontend/src/lib/uiRollout";
-import { expectStableScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
+import { UI_COMPATIBILITY_PATHS, UI_COMPATIBILITY_ROUTE_PARITY, UI_COMPATIBILITY_VIEWPORTS, type CompatibilityRouteParity, type UiRouteGroup } from "../frontend/src/lib/uiRollout";
+import { expectStableScreenshot, installDeterminism, seedApprovedSession } from "./support/app";
 
 const groups = Object.entries(UI_COMPATIBILITY_PATHS) as Array<[UiRouteGroup, readonly string[]]>;
 
 test.describe("exhaustive compatibility route parity", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page, { rollout: "fallback" });
-    await seedApprovedSession(page);
   });
 
   for (const [group, paths] of groups) {
-    test(`${group} maps every nested route and survives fallback round trips`, async ({ page }) => {
+    test(`${group} maps every nested route and survives fallback round trips`, async ({ page }, testInfo) => {
+      test.setTimeout(120_000);
+      if (group !== "public") await seedApprovedSession(page);
+      let fallback = true;
+      await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
+        revision: fallback ? "compatibility-route" : "modern-route", kill_switch: fallback,
+        flags: { shell: true, journal: true, settings: true, chart: true, public: true },
+      } }));
       for (const path of paths) {
         const contract = UI_COMPATIBILITY_ROUTE_PARITY[path];
         expect(contract).toBeTruthy();
-        expect(contract.requiredViewports).toEqual(["mobile", "tablet", "desktop"]);
-        await gotoStable(page, path, { waitForNetworkIdle: false });
+        expect(contract.routePath).toBe(path);
+        expect(contract.requiredViewports).toEqual(UI_COMPATIBILITY_VIEWPORTS);
+        expect(contract.requiredViewports).toContain(testInfo.project.name);
+        fallback = true;
+        await page.goto(path, { waitUntil: "domcontentloaded" });
         await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
-        await expect(page.locator(`[data-route-group="${group}"]`)).toHaveAttribute("data-ui-version", "fallback");
+        let boundary = page.locator(`[data-route-group="${group}"]`);
+        await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
         await expect(page.locator(`[data-compatibility-renderer="${group}"]`)).toBeVisible();
         await expect(page.locator("#workspace-content")).toHaveCount(0);
         if (contract.kind === "read-only") expect(contract.draftKey).toBeNull();
         await expectCompatibilityDomainState(page, group);
         await executeCompatibilityPrimaryAction(page, contract);
+        if (path === representativePath(group, paths)) await expectStableScreenshot(page, `compatibility-${group}`, { fullPage: false });
+        const settingsDraft = group === "settings" ? await createUnsavedSettingsDraft(page) : null;
+
+        fallback = false;
+        await page.reload({ waitUntil: "domcontentloaded" });
+        boundary = page.locator(`[data-route-group="${group}"]`);
+        await expect(boundary).toHaveAttribute("data-ui-version", "v2");
+        await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
+
+        fallback = true;
+        await page.reload({ waitUntil: "domcontentloaded" });
+        boundary = page.locator(`[data-route-group="${group}"]`);
+        await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
+        await expect(page.locator(`[data-compatibility-renderer="${group}"]`)).toBeVisible();
+        await expectCompatibilityDomainState(page, group);
+        if (settingsDraft) {
+          await expect.poll(() => page.evaluate((key) => sessionStorage.getItem(key), contract.draftKey!)).toBe(settingsDraft);
+          await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
+        }
       }
-
-      const path = representativePath(group, paths);
-      let fallback = true;
-      await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
-        revision: fallback ? "compatibility-a" : "modern-b", kill_switch: fallback,
-        flags: { shell: true, journal: true, settings: true, chart: true, public: true },
-      } }));
-      await page.addInitScript(({ groupName }) => {
-        localStorage.setItem(`edgelab.compatibility.${groupName}.data`, "preserved");
-        sessionStorage.setItem(`edgelab.compatibility.${groupName}.draft`, "unsaved");
-      }, { groupName: group });
-      await gotoStable(page, path, { waitForNetworkIdle: false });
-      const boundary = page.locator(`[data-route-group="${group}"]`);
-      await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
-      await expectCompatibilityDomainState(page, group);
-      await executeCompatibilityPrimaryAction(page, UI_COMPATIBILITY_ROUTE_PARITY[path]);
-      await expectStableScreenshot(page, `compatibility-${group}`, { fullPage: false });
-
-      fallback = false;
-      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(boundary).toHaveAttribute("data-ui-version", "v2");
-      await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
-
-      fallback = true;
-      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
-      await expect(page.locator(`[data-compatibility-renderer="${group}"]`)).toBeVisible();
-      await expect.poll(() => page.evaluate(({ groupName }) => ({
-        data: localStorage.getItem(`edgelab.compatibility.${groupName}.data`),
-        draft: sessionStorage.getItem(`edgelab.compatibility.${groupName}.draft`),
-      }), { groupName: group })).toEqual({ data: "preserved", draft: "unsaved" });
-      await expectCompatibilityDomainState(page, group);
     });
 
     test(`${group} preserves its active domain state from modern to fallback and back`, async ({ page }) => {
+      test.setTimeout(120_000);
+      if (group !== "public") await seedApprovedSession(page);
       let fallback = false;
       await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
         revision: fallback ? "rollback-domain" : "modern-domain", kill_switch: fallback,
         flags: { shell: true, journal: true, settings: true, chart: true, public: true },
       } }));
-      const path = representativePath(group, paths);
-      await gotoStable(page, path, { waitForNetworkIdle: false });
-      let boundary = page.locator(`[data-route-group="${group}"]`);
-      await expect(boundary).toHaveAttribute("data-ui-version", "v2");
-      fallback = true;
-      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
-      await expectCompatibilityDomainState(page, group);
-      fallback = false;
-      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      boundary = page.locator(`[data-route-group="${group}"]`);
-      await expect(boundary).toHaveAttribute("data-ui-version", "v2");
-      await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
+      for (const path of paths) {
+        fallback = false;
+        await page.goto(path, { waitUntil: "domcontentloaded" });
+        let boundary = page.locator(`[data-route-group="${group}"]`);
+        await expect(boundary).toHaveAttribute("data-ui-version", "v2");
+        fallback = true;
+        await page.reload({ waitUntil: "domcontentloaded" });
+        boundary = page.locator(`[data-route-group="${group}"]`);
+        await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
+        await expectCompatibilityDomainState(page, group);
+        fallback = false;
+        await page.reload({ waitUntil: "domcontentloaded" });
+        boundary = page.locator(`[data-route-group="${group}"]`);
+        await expect(boundary).toHaveAttribute("data-ui-version", "v2");
+        await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
+      }
     });
   }
 });
@@ -91,6 +93,13 @@ async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup) {
     await expect(page.locator("[data-compatibility-replay]")).not.toHaveText("Loading active replay…");
     await expect(page.locator("[data-compatibility-chart]")).not.toHaveText("Loading chart layout…");
   }
+}
+
+async function createUnsavedSettingsDraft(page: Page) {
+  const density = page.getByLabel("Workspace density");
+  await density.selectOption((await density.inputValue()) === "compact" ? "comfortable" : "compact");
+  await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
+  return page.evaluate(() => sessionStorage.getItem("edgelab.compatibility.settings-draft.v1"));
 }
 
 async function executeCompatibilityPrimaryAction(page: Page, contract: CompatibilityRouteParity) {

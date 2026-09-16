@@ -46,17 +46,25 @@ test("rollout flags preserve deep links and provide a global reversible fallback
       for (const route of paths) {
         const contract = module.compatibilityParityContract(route);
         assert.ok(contract, `${route} is missing a compatibility parity contract`);
+        assert.equal(contract.routePath, route, `${route} reuses another route's parity identity`);
         assert.ok(["read-only", "shared-domain", "writable"].includes(contract.kind), `${route} has an untyped parity exemption`);
-        assert.deepEqual(contract.requiredViewports, ["mobile", "tablet", "desktop"]);
+        assert.deepEqual(contract.requiredViewports, ["mobile", "tablet", "desktop", "tradingDesktop"]);
         assert.ok(contract.sessionSource && contract.savedDataRead && contract.primaryAction && contract.testCaseId && contract.reasonSource);
-        if (contract.kind === "read-only") assert.equal(contract.draftKey, null, `${route} fabricates a draft for a read-only route`);
-        else assert.ok(contract.draftKey, `${route} must identify its real shared or writable draft key`);
+        if (contract.kind === "read-only") {
+          assert.equal(contract.draftKey, null, `${route} fabricates a draft for a read-only route`);
+          assert.ok(contract.actionExemption, `${route} must explain why it has no mutating action`);
+        } else {
+          assert.equal(contract.actionExemption, null, `${route} cannot exempt a mutating action`);
+        }
+        if (contract.kind === "writable") assert.ok(contract.draftKey, `${route} must identify its real writable draft key`);
       }
     }
     assert.deepEqual(productRoutes.filter((route) => !module.UI_COMPATIBILITY_ROUTE_PARITY[route]), []);
     assert.ok(Object.keys(module.UI_COMPATIBILITY_ROUTE_PARITY).every((route) => module.compatibilityRouteIsMapped(route)));
     const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "settings-draft-save", "chart-replay-layout"]);
     assert.ok(Object.values(module.UI_COMPATIBILITY_ROUTE_PARITY).every((contract) => allowedCases.has(contract.testCaseId)));
+    const playwrightConfig = fs.readFileSync(path.join(ROOT, "playwright.config.ts"), "utf8");
+    assert.match(playwrightConfig, /name: "tradingDesktop"[\s\S]*compatibility-routes\\\.visual\\\.spec\\\.ts/);
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));
     assert.equal(module.resolveUiRollout({ overrides: { chart: false } }).chart, false);
