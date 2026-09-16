@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock3, Database, RefreshCw, ShieldAlert, type LucideIcon } from "lucide-react";
-import { listMarketFootprints, resolveMarketInstrument, type MarketFootprint } from "@/lib/marketInfrastructure";
+import { listMarketFootprints, listMarketInstruments, type MarketFootprint, type MarketInstrument } from "@/lib/marketInfrastructure";
 
 type OrderFlowRouteState = "loading" | "available" | "stale" | "unsupported" | "error";
 
@@ -15,7 +15,9 @@ const levels = [
 ] as const;
 
 export function OrderFlowWorkspace() {
-  const { detail, fixture, footprint, refresh, state } = useOrderFlowRouteState();
+  const { detail, fixture, footprint, instruments, intervalSeconds, provider, refresh, selectedInstrumentId, setIntervalSeconds, setProvider, setSelectedInstrumentId, state } = useOrderFlowRouteState();
+  const selectedInstrument = instruments.find((instrument) => instrument.id === selectedInstrumentId) ?? null;
+  const providers = Array.from(new Set(selectedInstrument?.identifiers.map((identifier) => identifier.provider) ?? [])).sort();
 
   return (
     <section
@@ -32,9 +34,19 @@ export function OrderFlowWorkspace() {
             Footprint data appears only when the selected feed supplies trade-level bid and ask attribution.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs tabular-nums text-slate-300">
-          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5">BTCUSDT</span>
-          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5">5m</span>
+        <div aria-label="Order-flow source" className="flex flex-wrap items-center gap-2 text-xs tabular-nums text-slate-300">
+          <label className="sr-only" htmlFor="order-flow-instrument">Instrument</label>
+          <select id="order-flow-instrument" aria-label="Instrument" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture || !instruments.length} onChange={(event) => setSelectedInstrumentId(Number(event.target.value))} value={selectedInstrumentId ?? ""}>
+            {!instruments.length ? <option value="">{fixture ? "BTCUSDT · E2E fixture" : "No normalized instruments"}</option> : instruments.map((instrument) => <option key={instrument.id} value={instrument.id}>{instrument.canonical_symbol}</option>)}
+          </select>
+          <label className="sr-only" htmlFor="order-flow-timeframe">Timeframe</label>
+          <select id="order-flow-timeframe" aria-label="Timeframe" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture} onChange={(event) => setIntervalSeconds(Number(event.target.value))} value={intervalSeconds}>
+            <option value={60}>1m</option><option value={300}>5m</option><option value={900}>15m</option><option value={3600}>1h</option>
+          </select>
+          <label className="sr-only" htmlFor="order-flow-provider">Provider</label>
+          <select id="order-flow-provider" aria-label="Provider" className="min-h-10 rounded-md border border-white/10 bg-[#0b1118] px-2.5" disabled={fixture || !providers.length} onChange={(event) => setProvider(event.target.value)} value={provider}>
+            <option value="">All providers</option>{providers.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
         </div>
       </header>
 
@@ -154,6 +166,11 @@ function resolveOrderFlowFixtureState(): OrderFlowRouteState | null {
 
 function useOrderFlowRouteState() {
   const fixtureState = resolveOrderFlowFixtureState();
+  const [instruments, setInstruments] = useState<MarketInstrument[]>([]);
+  const [selectedInstrumentId, setSelectedInstrumentId] = useState<number | null>(null);
+  const [intervalSeconds, setIntervalSeconds] = useState(300);
+  const [provider, setProvider] = useState("");
+  const skipSelectionReloadRef = useRef(false);
   const [model, setModel] = useState<{ detail: string; footprint: MarketFootprint | null; state: OrderFlowRouteState }>(() => ({
     detail: fixtureState ? fixtureDetail(fixtureState) : "Resolving the normalized BTCUSDT instrument and persisted footprint aggregates.",
     footprint: null,
@@ -165,27 +182,40 @@ function useOrderFlowRouteState() {
       return;
     }
     setModel((current) => ({ ...current, state: "loading" }));
-    void resolveMarketInstrument("BTCUSDT").then(async (instrument) => {
+    void listMarketInstruments().then(async (catalog) => {
+      setInstruments(catalog);
+      const instrument = catalog.find((item) => item.id === selectedInstrumentId) ?? catalog[0] ?? null;
       if (!instrument) {
-        setModel({ detail: "BTCUSDT is not configured in the normalized catalog. Add an entitled provider and map its instrument before requesting footprints.", footprint: null, state: "unsupported" });
+        setSelectedInstrumentId(null);
+        setModel({ detail: "No instrument is configured in the normalized catalog. Add an entitled provider and map an instrument before requesting footprints.", footprint: null, state: "unsupported" });
         return;
       }
-      const footprints = await listMarketFootprints(instrument.id, { intervalSeconds: 300, limit: 500 });
-      const footprint = footprints.at(-1) ?? null;
+      if (selectedInstrumentId !== instrument.id) {
+        skipSelectionReloadRef.current = true;
+        setSelectedInstrumentId(instrument.id);
+      }
+      const footprints = await listMarketFootprints(instrument.id, { intervalSeconds, limit: 500, provider: provider || null });
+      const footprint = footprints.reduce<MarketFootprint | null>((latest, item) => !latest || Date.parse(item.end_at) > Date.parse(latest.end_at) ? item : latest, null);
       if (!footprint) {
-        setModel({ detail: `${instrument.canonical_symbol} has no persisted 5-minute footprints. Configure a trade-level provider with aggressor-side attribution, then backfill or stream trades.`, footprint: null, state: "unsupported" });
+        setModel({ detail: `${instrument.canonical_symbol} has no persisted ${formatInterval(intervalSeconds)} footprints${provider ? ` from ${provider}` : ""}. Configure a trade-level provider with aggressor-side attribution, then backfill or stream trades.`, footprint: null, state: "unsupported" });
         return;
       }
       const stale = Date.now() - Date.parse(footprint.end_at) > 10 * 60_000;
-      setModel({ detail: `${footprint.provider} · persisted 5m aggregate · ${footprint.complete ? "complete" : "contains provider gaps"}`, footprint, state: stale ? "stale" : "available" });
+      setModel({ detail: `${footprint.provider} · persisted ${formatInterval(footprint.interval_seconds)} aggregate · ${footprint.complete ? "complete" : "contains provider gaps"}`, footprint, state: stale ? "stale" : "available" });
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "The footprint request failed.";
       const unavailable = /403|404|entitlement|not found|unavailable/i.test(message);
       setModel({ detail: unavailable ? `${message} Configure an entitled trade-level provider; EdgeLab will not infer aggressor side from OHLCV.` : `${message} No cached footprint is being presented as current market data.`, footprint: null, state: unavailable ? "unsupported" : "error" });
     });
-  }, [fixtureState]);
-  useEffect(() => { refresh(); }, [refresh]);
-  return { ...model, fixture: Boolean(fixtureState), refresh };
+  }, [fixtureState, intervalSeconds, provider, selectedInstrumentId]);
+  useEffect(() => {
+    if (skipSelectionReloadRef.current) {
+      skipSelectionReloadRef.current = false;
+      return;
+    }
+    refresh();
+  }, [refresh]);
+  return { ...model, fixture: Boolean(fixtureState), instruments, intervalSeconds, provider, refresh, selectedInstrumentId, setIntervalSeconds, setProvider, setSelectedInstrumentId };
 }
 
 function fixtureDetail(state: OrderFlowRouteState) {
@@ -197,3 +227,4 @@ function fixtureDetail(state: OrderFlowRouteState) {
 
 function openProviderSettings() { window.location.assign("/app/settings/data-providers#settings/data-providers/broker-connections"); }
 function formatNumber(value: number | string, maximumFractionDigits = 2) { return Number(value).toLocaleString(undefined, { maximumFractionDigits }); }
+function formatInterval(seconds: number) { return seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds / 60}m`; }
