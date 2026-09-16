@@ -42,6 +42,37 @@ test.describe("standalone reports state baselines", () => {
     await expectStateScreenshot(page, "reports-empty");
   });
 
+  test("loading resolves when report data arrives", async ({ page }) => {
+    await page.unroute("**/api/**");
+    let releaseRequest: (() => void) | undefined;
+    await page.route("**/api/trades/page**", async (request) => {
+      await new Promise<void>((resolve) => { releaseRequest = resolve; });
+      await request.fulfill({ json: { items: [], offset: 0, limit: 200, next_offset: 0, next_cursor: null, has_more: false } });
+    });
+    await gotoStable(page, route, { waitForNetworkIdle: false });
+    await expect(page.getByRole("status", { name: "Loading report data" })).toBeVisible();
+    releaseRequest?.();
+    await expect(page.getByRole("status").filter({ hasText: "No closed backtest trades yet" })).toBeVisible();
+  });
+
+  test("report error can retry into populated state", async ({ page }) => {
+    await page.unroute("**/api/**");
+    await page.route("**/api/trades/page**", (request) => request.abort("failed"));
+    await openReports(page);
+
+    const error = page.getByRole("alert").filter({ hasText: "Reports could not be loaded" });
+    await expect(error.getByRole("button", { name: "Retry reports" })).toBeVisible();
+    await revealAndExpectRouteGeometry(page, error);
+    await expectStateScreenshot(page, "reports-error");
+    await page.unroute("**/api/trades/page**");
+    await page.route("**/api/trades/page**", (request) => request.fulfill({
+      json: { items: [trade], offset: 0, limit: 200, next_offset: 1, next_cursor: null, has_more: false },
+    }));
+    await error.getByRole("button", { name: "Retry reports" }).click();
+    await expect(page.getByText("1/1 trades", { exact: true })).toBeVisible();
+    await expect(error).toBeHidden();
+  });
+
   test("applied search filter is visible and reversible", async ({ page }) => {
     await installTrades(page, [trade]);
     await openReports(page);
@@ -57,19 +88,26 @@ test.describe("standalone reports state baselines", () => {
     await expect(page.getByRole("button", { name: "Reset", exact: true })).toBeVisible();
     await revealAndExpectRouteGeometry(page, count);
     await expectStateScreenshot(page, "reports-filtered");
+    await empty.getByRole("button", { name: "Reset filters" }).click();
+    await expect(page.getByText("1/1 trades", { exact: true })).toBeVisible();
+    await expect(empty).toBeHidden();
   });
 
   test("report trade opens the inspectable detail drawer", async ({ page }) => {
     await installTrades(page, [trade]);
     await openReports(page);
     await page.getByRole("button", { name: "Trades", exact: true }).click();
-    await page.getByRole("button", { name: "Inspect trade #7301" }).click();
+    const inspect = page.getByRole("button", { name: "Inspect trade #7301" });
+    await inspect.click();
 
     const drawer = page.getByRole("dialog", { name: "Trade 7301 details" });
     await expect(drawer.getByRole("heading", { name: "Trade #7301" })).toBeVisible();
     await expect(drawer.getByRole("button", { name: "Close trade details" })).toBeVisible();
     await revealAndExpectRouteGeometry(page, drawer.getByRole("heading", { name: "Trade #7301" }));
     await expectStateScreenshot(page, "reports-selected-trade");
+    await drawer.getByRole("button", { name: "Close trade details" }).click();
+    await expect(drawer).toBeHidden();
+    await expect(inspect).toBeFocused();
   });
 });
 

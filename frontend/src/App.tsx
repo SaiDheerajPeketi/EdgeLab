@@ -399,6 +399,7 @@ export function WorkspaceApp() {
     strategySummaries,
     resultTrades,
     resultTradesLoading,
+    resultTradesLoadError,
     ensureResultTradesLoaded,
     ensureLatestReplayLoaded,
     error,
@@ -442,6 +443,7 @@ export function WorkspaceApp() {
       strategySummaries: store.strategySummaries,
       resultTrades: store.resultTrades,
       resultTradesLoading: store.resultTradesLoading,
+      resultTradesLoadError: store.resultTradesLoadError,
       ensureResultTradesLoaded: store.ensureResultTradesLoaded,
       ensureLatestReplayLoaded: store.ensureLatestReplayLoaded,
       error: store.error,
@@ -3038,6 +3040,8 @@ export function WorkspaceApp() {
                 sessions={resultSessions}
                 trades={resultTrades}
                 reportsLoading={resultTradesLoading}
+                reportsError={resultTradesLoadError}
+                onRetryReports={() => void ensureResultTradesLoaded()}
                 view={activeWorkspace}
                 notebookFocusTradeId={notebookFocusTradeId}
                 notebookReturnToBacktestPanel={

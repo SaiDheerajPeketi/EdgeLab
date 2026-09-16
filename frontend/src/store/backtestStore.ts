@@ -85,6 +85,7 @@ type BacktestStore = {
   resultTradesHasMore: boolean;
   resultTradesLoaded: boolean;
   resultTradesLoading: boolean;
+  resultTradesLoadError: string | null;
   isLoading: boolean;
   isLoadingMoreSessions: boolean;
   isStepping: boolean;
@@ -149,6 +150,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   resultTradesHasMore: false,
   resultTradesLoaded: false,
   resultTradesLoading: false,
+  resultTradesLoadError: null,
   isLoading: false,
   isLoadingMoreSessions: false,
   isStepping: false,
@@ -283,6 +285,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         return;
       } catch {
         try {
+          set({ resultTradesLoadError: null, resultTradesLoading: true });
           const [datasetsResult, playbooksResult, sessionsResult, tradesResult] = await Promise.allSettled([
             getDatasets(),
             getPlaybooks(),
@@ -311,7 +314,9 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
             resultTradesNextOffset: tradeSnapshot.resultTradesNextOffset,
             resultTradesNextCursor: tradeSnapshot.resultTradesNextCursor,
             resultTradesHasMore: tradeSnapshot.resultTradesHasMore,
-            resultTradesLoaded: true,
+            resultTradesLoaded: tradesResult.status === "fulfilled",
+            resultTradesLoading: false,
+            resultTradesLoadError: tradesResult.status === "rejected" ? toErrorMessage(tradesResult.reason) : null,
             error: firstRejectedMessage([
               datasetsResult,
               playbooksResult,
@@ -454,14 +459,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   ensureResultTradesLoaded: async () => {
-    if (get().resultTradesLoaded || get().resultTradesLoading) {
+    if ((get().resultTradesLoaded && !get().resultTradesLoadError) || get().resultTradesLoading) {
       return;
     }
     const tradeLoadVersion = startResultTradesLoad();
-    set({ resultTradesLoading: true });
+    set({ resultTradesLoadError: null, resultTradesLoading: true });
     try {
       const tradeSnapshot = await loadTradeSnapshot();
       if (!isCurrentResultTradesLoad(tradeLoadVersion)) {
+        set({ resultTradesLoading: false });
         return;
       }
       set({
@@ -471,13 +477,15 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
         resultTradesHasMore: tradeSnapshot.resultTradesHasMore,
         resultTradesLoaded: true,
         resultTradesLoading: false,
+        resultTradesLoadError: null,
         error: null,
       });
       if (tradeSnapshot.resultTradesHasMore) {
         void hydrateRemainingResultTrades(tradeLoadVersion);
       }
     } catch (error) {
-      set({ error: toErrorMessage(error), resultTradesLoading: false });
+      const message = toErrorMessage(error);
+      set({ error: message, resultTradesLoadError: message, resultTradesLoading: false });
     }
   },
 

@@ -473,6 +473,11 @@
         "mobile": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-selected-trade.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-selected-trade.png", "captureMode": "viewport" },
         "desktop": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-selected-trade.png", "captureMode": "viewport" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/reports.states.visual.spec.ts", "snapshot": "reports-error.png", "captureMode": "viewport" }
       }
     },
     "/app/quant": {

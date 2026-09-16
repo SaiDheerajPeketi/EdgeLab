@@ -321,6 +321,8 @@ type Props = {
   sessions: BacktestSession[];
   trades: Trade[];
   reportsLoading: boolean;
+  reportsError: string | null;
+  onRetryReports: () => void;
   view: WorkspacePageView;
   notebookFocusTradeId: number | null;
   notebookReturnToBacktestPanel: "review" | "results" | null;
@@ -755,6 +757,8 @@ export function EdgeLabWorkspace({
   sessions,
   trades,
   reportsLoading,
+  reportsError,
+  onRetryReports,
   view,
   notebookFocusTradeId,
   notebookReturnToBacktestPanel,
@@ -861,6 +865,8 @@ export function EdgeLabWorkspace({
     strategies,
     trades,
     reportsLoading,
+    reportsError,
+    onRetryReports,
     notebookFocusTradeId,
     notebookReturnToBacktestPanel,
     notebookReturnToDayView,
@@ -982,6 +988,8 @@ type SharedPageProps = {
   strategies: StrategyGroup[];
   trades: Trade[];
   reportsLoading: boolean;
+  reportsError: string | null;
+  onRetryReports: () => void;
   notebookFocusTradeId: number | null;
   notebookReturnToBacktestPanel: "review" | "results" | null;
   notebookReturnToDayView: boolean;
@@ -15892,6 +15900,8 @@ function ReportsPage({
   currency,
   datasets,
   onInspectTrade,
+  onRetryReports,
+  reportsError,
   reportsLoading,
   sessionById,
   sessions,
@@ -15995,14 +16005,33 @@ function ReportsPage({
       >
         <section aria-label="Loading report data" className="terminal-panel p-5" role="status">
           <div className="flex items-center gap-3 text-sm text-slate-300">
-            <RefreshCw aria-hidden="true" className="animate-spin text-cyan-300" size={18} />
+            <RefreshCw aria-hidden="true" className="motion-safe:animate-spin text-cyan-300" size={18} />
             Loading report data…
           </div>
           <div aria-hidden="true" className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[0, 1, 2, 3].map((item) => (
-              <div className="h-20 animate-pulse rounded-md border border-white/10 bg-white/[0.03]" key={item} />
+              <div className="h-20 rounded-md border border-white/10 bg-white/[0.03] motion-safe:animate-pulse" key={item} />
             ))}
           </div>
+        </section>
+      </PageScaffold>
+    );
+  }
+
+  if (reportsError) {
+    return (
+      <PageScaffold
+        eyebrow="Backtest Reports"
+        title="Backtest Performance Reports"
+        description="Performance, overview, day/time, risk, tags, calendar, and recaps from replay/backtest trades only."
+      >
+        <section aria-labelledby="reports-error-title" className="terminal-panel p-5" role="alert">
+          <h2 className="text-base font-semibold text-white" id="reports-error-title">Reports could not be loaded</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-400">{reportsError}</p>
+          <button className="control-button mt-4" onClick={onRetryReports} type="button">
+            <RefreshCw size={14} />
+            Retry reports
+          </button>
         </section>
       </PageScaffold>
     );
