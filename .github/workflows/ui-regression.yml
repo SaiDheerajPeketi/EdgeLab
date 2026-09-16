@@ -50,7 +50,7 @@ jobs:
         run: npm run check:ui-inventory && npm run test:ui-inventory && npm run check:ui-certification && npm run test:ui-certification
 
       - name: Run focused accessibility certification
-        run: npm run test:ui-certification:runtime
+        run: npm run test:ui-certification:runtime && npm run check:ui-route-accessibility && npm run test:ui-route-accessibility
 
       - name: Enforce UI size and motion budgets
         run: npm run check:ui-performance && npm run check:ui-motion

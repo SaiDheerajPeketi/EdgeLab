@@ -19,6 +19,8 @@
     "check:ui-certification": "node scripts/check-ui-accessibility-certification.mjs",
     "test:ui-certification": "node --test backend/tests/ui-accessibility-certification-validator.test.js",
     "test:ui-certification:runtime": "node scripts/run-ui-accessibility-certification.mjs",
+    "check:ui-route-accessibility": "node scripts/check-ui-route-accessibility-sweep.mjs",
+    "test:ui-route-accessibility": "playwright test e2e/route-accessibility-sweep.spec.ts",
     "check:ui-motion": "node scripts/check-ui-motion.mjs",
     "check:ui-performance": "node scripts/check-ui-performance.mjs",
     "check:ui-release": "node scripts/check-ui-release.mjs",

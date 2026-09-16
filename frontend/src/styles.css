@@ -2288,7 +2288,7 @@ button:disabled {
   }
 
   .chart-ohlcv-item span {
-    @apply text-[10px] font-bold uppercase text-slate-600;
+    @apply text-[10px] font-bold uppercase text-slate-400;
   }
 
   .chart-ohlcv-item strong,
