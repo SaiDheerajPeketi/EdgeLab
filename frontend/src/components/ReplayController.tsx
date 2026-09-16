@@ -66,6 +66,7 @@ export function ReplayController({
 }: Props) {
   const {
     state,
+    isLoading,
     isPlaying,
     isStepping,
     speedMs,
@@ -176,7 +177,7 @@ export function ReplayController({
               </p>
             </div>
           </div>
-          <button className="control-button shrink-0" onClick={() => void resetReplay()} type="button">
+          <button className="control-button shrink-0" disabled={isLoading} onClick={() => void resetReplay()} type="button">
             <RotateCcw size={16} />
             Replay again
           </button>

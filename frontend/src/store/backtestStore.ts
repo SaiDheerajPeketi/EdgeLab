@@ -95,7 +95,10 @@ type BacktestStore = {
   pendingReplaySyncOffset: number | null;
   speedMs: number;
   error: string | null;
-  failedReplayAction: { type: "jumpToOffset"; offset: number } | { type: "jumpToTimestamp"; timestamp: string } | null;
+  failedReplayAction: (
+    | { type: "jumpToOffset"; offset: number }
+    | { type: "jumpToTimestamp"; timestamp: string }
+  ) & { error: string } | null;
   createPlaybook: (payload: PlaybookPayload) => Promise<Playbook>;
   updatePlaybook: (playbookId: number, payload: PlaybookUpdatePayload) => Promise<Playbook>;
   deletePlaybook: (playbookId: number) => Promise<void>;
@@ -243,7 +246,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       });
     };
 
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, failedReplayAction: null });
     try {
       const shell = await getBootstrapShell();
       set({
@@ -557,7 +560,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   loadSession: async (sessionId) => {
-    set({ isLoading: true, isPlaying: false, error: null });
+    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null });
     try {
       const initialState = await getBacktest(sessionId);
       const hydrationVersion = startReplayHydration();
@@ -583,7 +586,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
   },
 
   newSession: async (payload = {}) => {
-    set({ isLoading: true, isPlaying: false, error: null });
+    set({ isLoading: true, isPlaying: false, error: null, failedReplayAction: null });
     try {
       const initialState = await createBacktest(payload);
       const hydrationVersion = startReplayHydration();
@@ -671,7 +674,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
 
-    set({ isStepping: true });
+    set({ isStepping: true, failedReplayAction: null });
     try {
       if (
         steps > 0 &&
@@ -774,7 +777,7 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       return;
     }
 
-    set({ isStepping: true, isPlaying: false, error: null });
+    set({ isStepping: true, isPlaying: false, error: null, failedReplayAction: null });
     try {
       const bars = await ensureBarsForOffset(
         get().bars,
@@ -859,7 +862,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       if (requestVersion !== replaySeekRequestVersion) {
         return;
       }
-      set({ error: toErrorMessage(error), isLoading: false, failedReplayAction: { type: "jumpToOffset", offset } });
+      const message = toErrorMessage(error);
+      set({ error: message, isLoading: false, failedReplayAction: { type: "jumpToOffset", offset, error: message } });
     }
   },
 
@@ -894,7 +898,8 @@ export const useBacktestStore = create<BacktestStore>((set, get) => ({
       if (requestVersion !== replaySeekRequestVersion) {
         return;
       }
-      set({ error: toErrorMessage(error), isLoading: false, failedReplayAction: { type: "jumpToTimestamp", timestamp } });
+      const message = toErrorMessage(error);
+      set({ error: message, isLoading: false, failedReplayAction: { type: "jumpToTimestamp", timestamp, error: message } });
     }
   },
 
