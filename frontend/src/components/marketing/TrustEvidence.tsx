@@ -41,7 +41,7 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
           <p className="text-sm leading-7 text-edgelab-text-secondary lg:border-l lg:border-edgelab-border lg:pl-8">
             These statements are grounded in the current product and public beta policy. Read the{" "}
             <Link
-              className="font-medium text-cyan-100 underline decoration-cyan-300/40 underline-offset-4 hover:decoration-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+              className="inline-flex min-h-11 items-center align-middle font-medium text-cyan-100 underline decoration-cyan-300/40 underline-offset-4 hover:decoration-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
               to="/privacy"
             >
               privacy summary

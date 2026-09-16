@@ -53,7 +53,7 @@ export function SettingsSearch({
     <div className="relative">
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
         <div className="relative">
-          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
           <input
             type="search"
             value={query}
@@ -66,10 +66,10 @@ export function SettingsSearch({
             aria-expanded={open}
             aria-activedescendant={open ? `${listboxId}-${activeIndex}` : undefined}
             role="combobox"
-            className={`${fieldClassName} pl-9 pr-9`}
+            className={`${fieldClassName} ps-9 pe-9`}
           />
           {query ? (
-            <button type="button" onClick={() => setQuery("")} aria-label="Clear settings search" className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded text-zinc-400 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+            <button type="button" onClick={() => setQuery("")} aria-label="Clear settings search" className="absolute end-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded text-zinc-400 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
               <X aria-hidden="true" className="h-4 w-4" />
             </button>
           ) : null}
@@ -86,9 +86,9 @@ export function SettingsSearch({
             const category = SETTINGS_CATEGORIES.find((item) => item.id === result.category);
             return (
               <li key={`${result.category}-${result.id}`} id={`${listboxId}-${index}`} role="option" aria-selected={index === activeIndex}>
-                <button type="button" onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(result)} className={`w-full rounded px-3 py-2.5 text-left ${index === activeIndex ? "bg-white/10" : "hover:bg-white/5"}`}>
-                  <span className="block text-sm font-medium text-zinc-100">{highlight(result.label, query)}</span>
-                  <span className="mt-0.5 block text-xs text-zinc-500">{category?.label} · {result.description}</span>
+                <button type="button" onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(result)} className={`w-full rounded px-3 py-2.5 text-start ${index === activeIndex ? "bg-white/10" : "hover:bg-white/5"}`}>
+                  <span className="ui-resilient-text block text-sm font-medium text-zinc-100" dir="auto">{highlight(result.label, query)}</span>
+                  <span className="ui-resilient-text mt-0.5 block text-xs text-zinc-500" dir="auto">{category?.label} · {result.description}</span>
                 </button>
               </li>
             );

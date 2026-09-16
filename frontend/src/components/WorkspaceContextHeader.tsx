@@ -32,12 +32,12 @@ export function WorkspaceContextHeader({
   return <header className="mb-4 flex min-w-0 flex-wrap items-center gap-3 border-b border-[var(--ui-border-subtle)] pb-3" aria-label="Workspace context">
     {onBack ? <Button tone="quiet" onClick={onBack} aria-label="Return to replay sessions" className="px-2"><ArrowLeft aria-hidden="true" className="h-4 w-4" />Back</Button> : null}
     <div className="min-w-[12rem] flex-1">
-      <p className="truncate text-xs text-[var(--text-secondary)]">{context.section}</p>
+      <p className="ui-resilient-text text-xs text-[var(--text-secondary)]" dir="auto">{context.section}</p>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="truncate text-lg font-semibold text-[var(--text-primary)]">{context.label}</h1>
-        {scope ? <span className="max-w-full truncate font-data text-xs text-cyan-100">{scope}</span> : null}
+        <h1 className="ui-resilient-text text-lg font-semibold text-[var(--text-primary)]" dir="auto">{context.label}</h1>
+        {scope ? <span className="ui-resilient-text max-w-full font-data text-xs text-cyan-100" dir="auto">{scope}</span> : null}
       </div>
-      <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">{context.description}</p>
+      <p className="ui-resilient-text mt-0.5 text-xs text-[var(--text-secondary)]" dir="auto">{context.description}</p>
     </div>
     <div className="flex min-w-0 items-center gap-2" title={state.detail}>
       <CircleDot aria-hidden="true" className={`h-4 w-4 ${state.className}`} />
