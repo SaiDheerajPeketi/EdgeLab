@@ -1857,8 +1857,6 @@ button:disabled {
   .chart-pane-layout-grid-12 .chart-pane-shell,
   .chart-pane-layout-grid-16 .chart-pane-shell {
     contain: layout paint style;
-    contain-intrinsic-size: auto 312px;
-    content-visibility: auto;
   }
 
   .chart-pane-layout-grid-12 .chart-frame,
