@@ -257,6 +257,58 @@ test.describe("accessibility and adaptive operation", () => {
     expect(targets.filter((target) => target.width < 44 || target.height < 44), JSON.stringify(targets)).toEqual([]);
   });
 
+  test("non-zero safe-area insets preserve mobile navigation and controls", async ({ context, page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile", "Mobile project supplies the fixed bottom navigation.");
+    const safeArea = { bottom: 34, left: 12, right: 12, top: 47 };
+    const client = await context.newCDPSession(page);
+    await client.send("Emulation.setSafeAreaInsetsOverride", { insets: safeArea });
+    await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+
+    const navigation = page.getByRole("navigation", { name: "Primary workspace" });
+    await expect(navigation).toBeVisible();
+    const geometry = await navigation.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      const controls = [...element.querySelectorAll<HTMLElement>("button")].map((control) => {
+        const rect = control.getBoundingClientRect();
+        return { bottom: rect.bottom, left: rect.left, right: rect.right, top: rect.top };
+      });
+      return {
+        bounds: { bottom: bounds.bottom, left: bounds.left, right: bounds.right, top: bounds.top },
+        controls,
+        padding: {
+          bottom: Number.parseFloat(styles.paddingBottom),
+          left: Number.parseFloat(styles.paddingLeft),
+          right: Number.parseFloat(styles.paddingRight),
+        },
+        viewport: { height: window.innerHeight, width: window.innerWidth },
+      };
+    });
+    expect(geometry.padding.bottom).toBeGreaterThanOrEqual(safeArea.bottom);
+    expect(geometry.padding.left).toBeGreaterThanOrEqual(safeArea.left);
+    expect(geometry.padding.right).toBeGreaterThanOrEqual(safeArea.right);
+    expect(geometry.bounds.bottom).toBeLessThanOrEqual(geometry.viewport.height);
+    expect(geometry.bounds.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.bounds.right).toBeLessThanOrEqual(geometry.viewport.width);
+    expect(geometry.controls.every((control) => (
+      control.bottom <= geometry.viewport.height - safeArea.bottom
+      && control.left >= safeArea.left
+      && control.right <= geometry.viewport.width - safeArea.right
+    ))).toBe(true);
+
+    const more = page.getByRole("button", { exact: true, name: "More" });
+    await more.click();
+    const close = page.getByRole("button", { name: "Close more tools" });
+    await expect(close).toBeVisible();
+    const closeBounds = await close.boundingBox();
+    expect(closeBounds).not.toBeNull();
+    expect(closeBounds!.y).toBeGreaterThanOrEqual(safeArea.top);
+    expect(closeBounds!.x + closeBounds!.width).toBeLessThanOrEqual(geometry.viewport.width - safeArea.right);
+    await close.click();
+    await expect(page.getByRole("dialog", { name: "More workspace tools" })).toBeHidden();
+    await expect(more).toBeFocused();
+  });
+
   test("financial meaning survives common color-vision filters", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "CVD redundancy is checked once.");
     await gotoStable(page, "/app/journal/dashboard");

@@ -658,7 +658,7 @@
     "no-horizontal-overflow": { "source": "e2e/protected-workspace.quality.spec.ts", "patterns": ["scrollWidth", "innerWidth"] },
     "zoom-200": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["Emulation.setPageScaleFactor", "pageScaleFactor: 2"] },
     "coarse-pointer": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["(pointer: coarse)", "toBe(true)"] },
-    "safe-area": { "source": "frontend/src/components/WorkspaceMobileNav.tsx", "patterns": ["env(safe-area-inset-bottom)"] },
+    "safe-area": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["Emulation.setSafeAreaInsetsOverride", "non-zero safe-area insets preserve mobile navigation and controls"] },
     "rtl": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["document.documentElement.dir = \"rtl\""] },
     "long-content": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["edgelab.ui-test.long-label"] },
     "touch-targets": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "mobile", "patterns": ["target.width < 44", "target.height < 44"] },
@@ -667,7 +667,5 @@
     "performance-budget": { "source": "scripts/check-ui-performance.mjs", "patterns": ["ui-performance-budgets.json", "failures.length"] },
     "server-rollout-fallback": { "source": "e2e/protected-workspace.quality.spec.ts", "project": "desktop", "patterns": ["server kill switch", "data-ui-version"] }
   },
-  "assertionGaps": {
-    "safe-area": "CSS safe-area consumption is present, but no browser test currently emulates a non-zero safe-area inset."
-  }
+  "assertionGaps": {}
 }
