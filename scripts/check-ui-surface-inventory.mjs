@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const MODULE_PATH = fileURLToPath(import.meta.url);
 const DEFAULT_ROOT = path.resolve(path.dirname(MODULE_PATH), "..");
 const REQUIRED_VIEWPORTS = ["mobile", "tablet", "desktop"];
+const CAPTURE_MODES = new Set(["viewport", "full-page", "element"]);
 
 function readJson(root, relativePath) {
   return JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8"));
@@ -81,6 +82,65 @@ function validateNamedSurfaceFamily({
     for (const source of sources[name]) {
       if (!fs.existsSync(path.join(root, source))) {
         errors.push(`${family} "${name}" source does not exist: ${source}.`);
+      }
+    }
+  }
+}
+
+function validateSurfaceVisualEvidence({ evidenceFamily, errors, family, gaps, names, projects, root, platform, viewports }) {
+  const expected = [...names].sort();
+  const actual = Object.keys(evidenceFamily ?? {}).sort();
+  if (!sameKeys(expected, actual)) errors.push(`${family} visual-evidence keys must exactly match the inventoried ${family} names.`);
+  for (const name of names) {
+    const states = evidenceFamily?.[name]?.states;
+    if (!states || Object.keys(states).length === 0) {
+      errors.push(`${family} "${name}" has no visual-evidence states.`);
+      continue;
+    }
+    for (const [state, contract] of Object.entries(states)) {
+      const prefix = `${family} "${name}" state "${state}"`;
+      if (!Array.isArray(contract.viewports) || contract.viewports.length === 0) {
+        errors.push(`${prefix} has no viewport applicability.`);
+        continue;
+      }
+      for (const viewport of contract.viewports) if (!viewports[viewport]) errors.push(`${prefix} references unknown viewport "${viewport}".`);
+      const decisions = [contract.evidence, contract.gap, contract.exemption].filter(Boolean);
+      if (decisions.length !== 1) {
+        errors.push(`${prefix} must declare exactly one of evidence, gap, or exemption.`);
+        continue;
+      }
+      if (contract.gap) {
+        if (typeof contract.gap !== "string") errors.push(`${prefix} gap must be a reason string.`);
+        else gaps.push(`${family.toLowerCase()}:${name}:${state}: ${contract.gap}`);
+        continue;
+      }
+      if (contract.exemption) {
+        const exemption = contract.exemption;
+        if (!exemption.kind || !exemption.reason || !exemption.source) errors.push(`${prefix} exemption must declare kind, reason, and source.`);
+        else if (!fs.existsSync(path.join(root, exemption.source))) errors.push(`${prefix} exemption source does not exist: ${exemption.source}.`);
+        continue;
+      }
+      const applicableProjects = contract.viewports.map((viewport) => viewports[viewport]?.project).filter(Boolean);
+      for (const viewport of contract.viewports) {
+        const project = viewports[viewport]?.project;
+        if (project && !contract.evidence?.[project]) errors.push(`${prefix} has no ${viewport} project evidence.`);
+      }
+      for (const [project, evidence] of Object.entries(contract.evidence ?? {})) {
+        if (!projects.has(project) || !applicableProjects.includes(project)) {
+          errors.push(`${prefix} uses project "${project}" outside its viewport applicability.`);
+          continue;
+        }
+        const specPath = path.join(root, evidence.spec ?? "");
+        if (!evidence.spec || !fs.existsSync(specPath)) {
+          errors.push(`${prefix} references missing spec "${evidence.spec ?? "(none)"}".`);
+          continue;
+        }
+        const snapshotPath = path.join(root, "e2e/__snapshots__", path.basename(evidence.spec), platform, project, evidence.snapshot ?? "");
+        if (!evidence.snapshot || !fs.existsSync(snapshotPath)) errors.push(`${prefix} is missing exact ${project} snapshot "${evidence.snapshot ?? "(none)"}".`);
+        if (!CAPTURE_MODES.has(evidence.captureMode)) errors.push(`${prefix} uses unsupported capture mode "${evidence.captureMode ?? "(none)"}".`);
+        const source = fs.readFileSync(specPath, "utf8");
+        const stem = path.basename(evidence.snapshot ?? "", ".png");
+        if (stem && !source.includes(stem)) errors.push(`${prefix} snapshot is not referenced by ${evidence.spec}.`);
       }
     }
   }
@@ -216,6 +276,10 @@ export function validateUiSurfaceInventory({
     sources: foundationContracts.panels,
     validDispositions,
   });
+
+  if (visualEvidence.schemaVersion !== 2) errors.push("UI surface evidence schemaVersion must be 2.");
+  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.panels, errors, family: "Panel", gaps, names: inventory.panels ?? [], projects, root, platform: visualEvidence.platform, viewports });
+  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.overlays, errors, family: "Overlay", gaps, names: inventory.overlays ?? [], projects, root, platform: visualEvidence.platform, viewports });
   validateNamedSurfaceFamily({
     dispositions: inventory.overlayDispositions,
     errors,
@@ -228,6 +292,18 @@ export function validateUiSurfaceInventory({
 
   const visualCoverage = inventory.visualCoverage ?? {};
   const evidenceRoutes = visualEvidence.routes ?? {};
+  for (const [routePath, stateGaps] of Object.entries(visualEvidence.routeGaps ?? {})) {
+    const route = routes.find((candidate) => candidate.path === routePath);
+    if (!route) {
+      errors.push(`Route-state gap references unknown route: ${routePath}.`);
+      continue;
+    }
+    for (const [state, reason] of Object.entries(stateGaps)) {
+      if (!route.states?.includes(state)) errors.push(`Route-state gap references undeclared state "${state}" on ${routePath}.`);
+      if (typeof reason !== "string" || !reason.trim()) errors.push(`Route-state gap ${routePath}:${state} must declare a reason.`);
+      if (evidenceRoutes[routePath]?.[state]) errors.push(`Route state ${routePath}:${state} cannot have both evidence and a gap.`);
+    }
+  }
   for (const key of [...Object.keys(visualCoverage.exemptions ?? {}), ...Object.keys(visualCoverage.gaps ?? {})]) {
     if (!uniqueRoutePaths.includes(key)) errors.push(`Visual coverage decision references unknown route: ${key}.`);
   }
@@ -287,7 +363,7 @@ export function validateUiSurfaceInventory({
           errors.push(`Route "${route.path}" state "${state}" ${project} evidence has ambiguous capture semantics.`);
           continue;
         }
-        if (!["viewport", "full-page", "element"].includes(captureMode)) {
+        if (!CAPTURE_MODES.has(captureMode)) {
           errors.push(`Route "${route.path}" state "${state}" uses unsupported capture mode "${evidence.captureMode}".`);
         } else if (snapshotExists && captureMode !== "element") {
           const dimensions = readPngDimensions(expectedSnapshot);
@@ -317,8 +393,10 @@ export function validateUiSurfaceInventory({
       }
     }
     const missingCriticalEvidence = (route.criticalStates ?? []).filter((state) => !stateEvidence[state]);
-    if (missingCriticalEvidence.length > 0 && !gap && !exemption) {
-      errors.push(`Route "${route.path}" lacks evidence or a gap for critical states: ${missingCriticalEvidence.join(", ")}.`);
+    for (const state of missingCriticalEvidence) {
+      const stateGap = visualEvidence.routeGaps?.[route.path]?.[state];
+      if (stateGap) gaps.push(`route:${route.path}:${state}: ${stateGap}`);
+      else if (!gap && !exemption) errors.push(`Route "${route.path}" lacks evidence or a gap for critical state: ${state}.`);
     }
     if (gap) gaps.push(`route:${route.path}: ${gap}`);
   }

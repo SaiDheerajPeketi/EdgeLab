@@ -25,11 +25,79 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
   const result = validateUiSurfaceInventory(fixtureInputs());
   assert.deepEqual(result.errors, []);
   assert.equal(result.stats.inventoriedRoutes, result.stats.discoveredRoutes);
-  assert.deepEqual(result.gaps, []);
+  assert.equal(result.gaps.length, 29);
+  assert.ok(result.gaps.includes("route:/app/live:empty: Live empty-state baseline has not been captured."));
+  assert.ok(result.gaps.includes("route:/app/replay:trade-selected: Replay with a selected trade has not been captured."));
+  assert.ok(result.gaps.some((gap) => gap.startsWith("panel:Journal:default:")));
+  assert.ok(result.gaps.some((gap) => gap.startsWith("overlay:command palette:open:")));
+});
+
+test("panel evidence resolves an authoritative source, spec, and exact snapshot", () => {
+  const fixture = fixtureInputs();
+  fixture.visualEvidence.panels.Journal.states.default = {
+    viewports: ["mobile"],
+    evidence: { mobile: structuredClone(fixture.visualEvidence.routes["/pricing"].default.mobile) },
+  };
+  assert.deepEqual(validateUiSurfaceInventory(fixture).errors, []);
 });
 
 test("surface inventory validator rejects omitted evidence contracts", async (t) => {
   const cases = [
+    {
+      name: "missing panel visual evidence",
+      mutate(fixture) {
+        delete fixture.visualEvidence.panels.Journal;
+      },
+      expected: /Panel visual-evidence keys must exactly match/,
+    },
+    {
+      name: "fabricated overlay visual evidence",
+      mutate(fixture) {
+        fixture.visualEvidence.overlays.fabricated = { states: { open: { viewports: ["mobile"], gap: "not real" } } };
+      },
+      expected: /Overlay visual-evidence keys must exactly match/,
+    },
+    {
+      name: "surface viewport applicability",
+      mutate(fixture) {
+        fixture.visualEvidence.panels.Journal.states.default.viewports = ["watch"];
+      },
+      expected: /Panel "Journal" state "default" references unknown viewport "watch"/,
+    },
+    {
+      name: "surface evidence missing spec",
+      mutate(fixture) {
+        fixture.visualEvidence.panels.Journal.states.default = {
+          viewports: ["mobile"],
+          evidence: { mobile: { spec: "e2e/does-not-exist.spec.ts", snapshot: "journal.png", captureMode: "element" } },
+        };
+      },
+      expected: /Panel "Journal" state "default" references missing spec/,
+    },
+    {
+      name: "surface evidence missing exact snapshot",
+      mutate(fixture) {
+        fixture.visualEvidence.panels.Journal.states.default = {
+          viewports: ["mobile"],
+          evidence: { mobile: { spec: "e2e/public-auth.visual.spec.ts", snapshot: "missing-panel.png", captureMode: "element" } },
+        };
+      },
+      expected: /Panel "Journal" state "default" is missing exact mobile snapshot "missing-panel\.png"/,
+    },
+    {
+      name: "surface exemption contract",
+      mutate(fixture) {
+        delete fixture.visualEvidence.overlays.toast.states.transient.exemption.source;
+      },
+      expected: /exemption must declare kind, reason, and source/,
+    },
+    {
+      name: "route state gap parity",
+      mutate(fixture) {
+        fixture.visualEvidence.routeGaps["/app/live"].fabricated = "not real";
+      },
+      expected: /Route-state gap references undeclared state "fabricated"/,
+    },
     {
       name: "missing route",
       mutate(fixture) {
@@ -177,6 +245,9 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
   }
 });
 
-test("strict completion mode passes when every recorded contract has evidence", () => {
-  assert.doesNotThrow(() => runUiSurfaceInventoryCheck({ requireComplete: true, root }));
+test("strict completion mode precisely rejects recorded evidence gaps", () => {
+  assert.throws(
+    () => runUiSurfaceInventoryCheck({ requireComplete: true, root }),
+    /panel:Journal:default:[\s\S]*overlay:command palette:open:[\s\S]*route:\/app\/live:empty:[\s\S]*route:\/app\/replay:trade-selected:/,
+  );
 });

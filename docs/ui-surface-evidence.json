@@ -1,6 +1,40 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "platform": "darwin",
+  "routeGaps": {
+    "/app/live": { "empty": "Live empty-state baseline has not been captured.", "skeleton": "Live skeleton baseline has not been captured." },
+    "/app/replay": { "order-open": "Replay with an open order ticket has not been captured.", "trade-selected": "Replay with a selected trade has not been captured." }
+  },
+  "panels": {
+    "Journal": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Journal panel evidence has not been captured." } } },
+    "Watchlist": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Watchlist panel evidence has not been captured." } } },
+    "Quant assistant": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Quant assistant panel evidence has not been captured." } } },
+    "Data Window": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Data Window panel evidence has not been captured." } } },
+    "Objects": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Objects panel evidence has not been captured." } } },
+    "Indicator editor": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Indicator editor panel evidence has not been captured." } } },
+    "Order Book": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Order Book panel evidence has not been captured." } } },
+    "Alerts": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Alerts panel evidence has not been captured." } } },
+    "Order ticket": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Order ticket panel evidence has not been captured." } } },
+    "Replay transport": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Replay transport panel evidence has not been captured." } } }
+  },
+  "overlays": {
+    "command palette": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Command palette visual evidence has not been captured." } } },
+    "shortcut catalog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Shortcut catalog visual evidence has not been captured." } } },
+    "account menu": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Account menu visual evidence has not been captured." } } },
+    "mobile navigation": { "states": { "open": { "viewports": ["mobile"], "gap": "Authenticated mobile navigation visual evidence has not been captured." } } },
+    "trade review drawer": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Trade review drawer evidence is not registered as overlay-owned evidence." } } },
+    "add trade flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Add trade flow evidence is not registered as overlay-owned evidence." } } },
+    "journal import flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Journal import flow evidence is not registered as overlay-owned evidence." } } },
+    "broker connection flow": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Broker connection flow visual evidence has not been captured." } } },
+    "workspace sharing": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Workspace sharing visual evidence has not been captured." } } },
+    "chart settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Chart settings evidence is not registered as overlay-owned evidence." } } },
+    "indicator settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Indicator settings visual evidence has not been captured." } } },
+    "drawing settings": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Drawing settings visual evidence has not been captured." } } },
+    "symbol search": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Symbol search visual evidence has not been captured." } } },
+    "radial drawing toolbox": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Radial drawing toolbox visual evidence has not been captured." } } },
+    "confirmation dialog": { "states": { "open": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Confirmation dialog visual evidence has not been captured." } } },
+    "toast": { "states": { "transient": { "viewports": ["mobile", "tablet", "desktop"], "exemption": { "kind": "behavioral-only", "reason": "Transient non-blocking feedback is not a stable route baseline.", "source": "frontend/src/components/ui/Primitives.tsx" } } } }
+  },
   "routes": {
     "/": {
       "default": {
