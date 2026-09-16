@@ -21,11 +21,12 @@ test.describe("standalone reports state baselines", () => {
     await seedApprovedSession(page);
   });
 
-  test("loading state is announced", async ({ page }) => {
-    await page.route("**/src/components/EdgeLabWorkspace.tsx**", () => new Promise(() => {}));
+  test("report data loading state is announced", async ({ page }) => {
+    await page.unroute("**/api/**");
+    await page.route("**/api/trades/page**", () => new Promise(() => {}));
     await gotoStable(page, route, { waitForNetworkIdle: false });
 
-    const loading = page.getByRole("status", { name: "Opening workspace" }).nth(1);
+    const loading = page.getByRole("status", { name: "Loading report data" });
     await expect(loading).toBeVisible();
     await revealAndExpectRouteGeometry(page, loading);
     await expectStateScreenshot(page, "reports-loading");
@@ -48,9 +49,12 @@ test.describe("standalone reports state baselines", () => {
     await page.getByLabel("Search").fill("no-match-symbol");
     await page.getByRole("button", { name: "Apply filters" }).click();
 
+    const empty = page.getByRole("status").filter({ hasText: "No trades match these filters" });
+    await expect(empty).toContainText("see all 1 closed trades");
+    await expect(empty.getByRole("button", { name: "Reset filters" })).toBeVisible();
     const count = page.getByText("0/1 trades", { exact: true });
     await expect(count).toBeVisible();
-    await expect(page.getByRole("button", { name: "Reset" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reset", exact: true })).toBeVisible();
     await revealAndExpectRouteGeometry(page, count);
     await expectStateScreenshot(page, "reports-filtered");
   });
@@ -70,6 +74,7 @@ test.describe("standalone reports state baselines", () => {
 });
 
 async function installTrades(page: Page, items: unknown[]) {
+  await page.unroute("**/api/**");
   await page.route("**/api/trades/page**", (request) => request.fulfill({
     json: { items, offset: 0, limit: 200, next_offset: items.length, next_cursor: null, has_more: false },
   }));

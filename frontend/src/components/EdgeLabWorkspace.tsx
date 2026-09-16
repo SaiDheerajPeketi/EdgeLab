@@ -320,6 +320,7 @@ type Props = {
   playbooks: Playbook[];
   sessions: BacktestSession[];
   trades: Trade[];
+  reportsLoading: boolean;
   view: WorkspacePageView;
   notebookFocusTradeId: number | null;
   notebookReturnToBacktestPanel: "review" | "results" | null;
@@ -753,6 +754,7 @@ export function EdgeLabWorkspace({
   playbooks,
   sessions,
   trades,
+  reportsLoading,
   view,
   notebookFocusTradeId,
   notebookReturnToBacktestPanel,
@@ -858,6 +860,7 @@ export function EdgeLabWorkspace({
     sessions,
     strategies,
     trades,
+    reportsLoading,
     notebookFocusTradeId,
     notebookReturnToBacktestPanel,
     notebookReturnToDayView,
@@ -978,6 +981,7 @@ type SharedPageProps = {
   sessions: BacktestSession[];
   strategies: StrategyGroup[];
   trades: Trade[];
+  reportsLoading: boolean;
   notebookFocusTradeId: number | null;
   notebookReturnToBacktestPanel: "review" | "results" | null;
   notebookReturnToDayView: boolean;
@@ -15888,6 +15892,7 @@ function ReportsPage({
   currency,
   datasets,
   onInspectTrade,
+  reportsLoading,
   sessionById,
   sessions,
   strategies,
@@ -15981,6 +15986,43 @@ function ReportsPage({
     });
   }
 
+  if (reportsLoading) {
+    return (
+      <PageScaffold
+        eyebrow="Backtest Reports"
+        title="Backtest Performance Reports"
+        description="Loading performance, risk, calendar, and recap data from your closed replay trades."
+      >
+        <section aria-label="Loading report data" className="terminal-panel p-5" role="status">
+          <div className="flex items-center gap-3 text-sm text-slate-300">
+            <RefreshCw aria-hidden="true" className="animate-spin text-cyan-300" size={18} />
+            Loading report data…
+          </div>
+          <div aria-hidden="true" className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((item) => (
+              <div className="h-20 animate-pulse rounded-md border border-white/10 bg-white/[0.03]" key={item} />
+            ))}
+          </div>
+        </section>
+      </PageScaffold>
+    );
+  }
+
+  if (closedTrades.length === 0) {
+    return (
+      <PageScaffold
+        eyebrow="Backtest Reports"
+        title="Backtest Performance Reports"
+        description="Performance, overview, day/time, risk, tags, calendar, and recaps from replay/backtest trades only."
+      >
+        <section aria-labelledby="reports-empty-title" className="terminal-panel p-5" role="status">
+          <h2 className="text-base font-semibold text-white" id="reports-empty-title">No closed backtest trades yet</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-400">Complete and close a replay trade to populate performance, risk, calendar, and recap reports.</p>
+        </section>
+      </PageScaffold>
+    );
+  }
+
   return (
     <PageScaffold
       eyebrow="Backtest Reports"
@@ -16054,13 +16096,16 @@ function ReportsPage({
         </div>
       </section>
 
-      {closedTrades.length === 0 && (
-        <section aria-labelledby="reports-empty-title" className="terminal-panel p-4" role="status">
-          <h2 className="text-base font-semibold text-white" id="reports-empty-title">No closed backtest trades yet</h2>
-          <p className="mt-1 text-sm text-slate-400">Complete and close a replay trade to populate performance, risk, calendar, and recap reports.</p>
+      {filteredClosedTrades.length === 0 ? (
+        <section aria-labelledby="reports-filtered-empty-title" className="terminal-panel p-5" role="status">
+          <h2 className="text-base font-semibold text-white" id="reports-filtered-empty-title">No trades match these filters</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-400">Adjust the filters or reset them to see all {closedTrades.length} closed trades.</p>
+          <button className="control-button mt-4" onClick={() => setFilters(DEFAULT_RESULT_FILTERS)} type="button">
+            <RefreshCw size={14} />
+            Reset filters
+          </button>
         </section>
-      )}
-
+      ) : <>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         <ResultMetricCard icon={BadgeDollarSign} label="Net P&L" tone={toneForNumber(filteredAggregate.netPnl)} value={formatMoney(filteredAggregate.netPnl, reportCurrency)} />
         <ResultMetricCard icon={BadgeDollarSign} label="Gross P&L" tone={toneForNumber(filteredAggregate.grossPnl)} value={formatMoney(filteredAggregate.grossPnl, reportCurrency)} />
@@ -16287,6 +16332,7 @@ function ReportsPage({
           />
         </div>
       )}
+      </>}
     </PageScaffold>
   );
 }
