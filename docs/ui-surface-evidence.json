@@ -199,37 +199,113 @@
       }
     },
     "/app/live": {
+      "connecting": {
+        "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-connecting.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-connecting.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-connecting.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-connecting.png", "captureMode": "viewport" }
+      },
+      "stale": {
+        "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-stale.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-stale.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-stale.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-stale.png", "captureMode": "viewport" }
+      },
+      "offline": {
+        "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-offline.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-offline.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-offline.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-offline.png", "captureMode": "viewport" }
+      },
+      "unsupported": {
+        "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-unsupported.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-unsupported.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-unsupported.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "live-unsupported.png", "captureMode": "viewport" }
+      },
       "one-pane": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" }
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" }
+      },
+      "live": {
+        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-compact.png", "captureMode": "viewport" }
       },
       "fullscreen": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" }
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-fullscreen.png", "captureMode": "element" }
       },
       "two-pane": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" }
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-2-pane.png", "captureMode": "element" }
       },
       "four-pane": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" }
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-4-pane.png", "captureMode": "element" }
       },
       "sixteen-pane": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" }
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "chart-16-pane.png", "captureMode": "element" }
       }
     },
     "/app/replay": {
+      "loading": {
+        "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-loading.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-loading.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-loading.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-loading.png", "captureMode": "viewport" }
+      },
       "paused": {
         "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" },
         "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" }
+        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "replay.png", "captureMode": "viewport" }
+      },
+      "complete": {
+        "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-complete.png", "captureMode": "viewport" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-save-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-save-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-save-error.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-save-error.png", "captureMode": "viewport" }
+      }
+    },
+    "/app/order-flow": {
+      "loading": {
+        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-loading.png", "captureMode": "viewport" }
+      },
+      "available": {
+        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-available.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-available.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-available.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-available.png", "captureMode": "viewport" }
+      },
+      "stale": {
+        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-stale.png", "captureMode": "viewport" },
+        "tradingDesktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-stale.png", "captureMode": "viewport" }
+      },
+      "unsupported": {
+        "tablet": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-unsupported.png", "captureMode": "viewport" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/order-flow.states.visual.spec.ts", "snapshot": "order-flow-error.png", "captureMode": "viewport" }
       }
     },
     "/app/journal/dashboard": {

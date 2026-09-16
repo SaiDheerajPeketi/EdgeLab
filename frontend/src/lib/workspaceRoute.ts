@@ -19,7 +19,7 @@ export const WORKSPACE_ROUTE_DEFINITIONS: ReadonlyArray<{
   { path: "/app/replay", view: "backtest" },
   { path: "/app/live", view: "live" },
   { path: "/app/quant", view: "live" },
-  { path: "/app/order-flow", view: "live" },
+  { path: "/app/order-flow", view: "orderFlow" },
   { path: "/app", view: "sessions" },
 ];
 
@@ -38,6 +38,7 @@ export function workspaceViewFromPath(pathname: string): WorkspaceView {
 
 export function workspacePathForView(view: WorkspaceView): string {
   if (view === "live") return "/app/live";
+  if (view === "orderFlow") return "/app/order-flow";
   if (view === "backtest") return "/app/replay";
   if (view === "globalSettings") return "/app/settings/global";
   if (view === "journalAccounts") return "/app/journal/accounts";

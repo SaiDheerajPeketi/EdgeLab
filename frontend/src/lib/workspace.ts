@@ -9,6 +9,7 @@ export type WorkspaceView =
   | "dayView"
   | "journal"
   | "live"
+  | "orderFlow"
   | "positionSizeCalculator"
   | "journalAccounts"
   | "journalDashboard"

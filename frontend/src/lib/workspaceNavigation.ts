@@ -66,6 +66,7 @@ export const WORKSPACE_NAVIGATION_SECTIONS = [
     sidebar: true,
     entries: [
       { id: "live", label: "Live markets", description: "Watch markets and live structure", icon: Activity },
+      { id: "orderFlow", label: "Order flow", description: "Inspect attributed bid and ask activity", icon: Activity },
       { id: "positionSizeCalculator", label: "Position size", description: "Size a trade before entry", icon: Calculator },
       { id: "economicCalendar", label: "Economic calendar", description: "Track scheduled market events", icon: CalendarDays },
     ],

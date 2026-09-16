@@ -6,7 +6,7 @@
     "mobile": { "width": 390, "height": 844, "pointer": "coarse", "zoom": 1, "project": "mobile", "status": "covered" },
     "tablet": { "width": 834, "height": 1112, "pointer": "coarse", "zoom": 1, "project": "tablet", "status": "covered" },
     "desktop": { "width": 1440, "height": 1000, "pointer": "fine", "zoom": 1, "project": "desktop", "status": "covered" },
-    "tradingDesktop": { "width": 1920, "height": 1080, "pointer": "fine", "zoom": 1, "project": null, "status": "gap", "reason": "The 1920px trading viewport is specified in the release matrix but has no dedicated Playwright project or stored baseline yet." }
+    "tradingDesktop": { "width": 1920, "height": 1080, "pointer": "fine", "zoom": 1, "project": "tradingDesktop", "status": "covered" }
   },
   "routes": [
     { "path": "/", "surface": "Landing", "auth": false, "disposition": "restructure", "responsiveWidths": ["mobile", "tablet", "desktop"], "states": ["default", "availability-pending", "beta-open", "availability-error", "beta-full", "mobile-menu"], "stateViewports": { "mobile-menu": ["mobile"] }, "criticalStates": ["default", "availability-error", "beta-full"] },
@@ -23,7 +23,7 @@
     { "path": "/app/*", "surface": "Protected workspace route boundary", "auth": true, "kind": "boundary", "disposition": "retain", "responsiveWidths": ["mobile", "tablet", "desktop"], "states": ["route-resolution", "auth-redirect", "fallback"], "criticalStates": ["auth-redirect", "fallback"] },
     { "path": "/app/live", "surface": "Live chart workspace", "auth": true, "disposition": "restructure", "responsiveWidths": ["mobile", "tablet", "desktop", "tradingDesktop"], "states": ["empty", "connecting", "live", "stale", "offline", "unsupported", "fullscreen", "one-pane", "two-pane", "four-pane", "sixteen-pane", "skeleton"], "criticalStates": ["connecting", "live", "stale", "offline", "unsupported", "sixteen-pane"] },
     { "path": "/app/replay", "surface": "Replay workspace", "auth": true, "disposition": "restructure", "responsiveWidths": ["mobile", "tablet", "desktop", "tradingDesktop"], "states": ["loading", "paused", "playing", "order-open", "trade-selected", "complete", "error"], "criticalStates": ["loading", "paused", "playing", "complete", "error"] },
-    { "path": "/app/order-flow", "surface": "Order-flow workspace", "auth": true, "disposition": "restructure", "responsiveWidths": ["mobile", "tablet", "desktop", "tradingDesktop"], "states": ["loading", "available", "stale", "unsupported", "error"], "criticalStates": ["loading", "available", "stale", "unsupported", "error"] },
+    { "path": "/app/order-flow", "surface": "Order-flow workspace", "auth": true, "disposition": "restructure", "responsiveWidths": ["mobile", "tablet", "desktop", "tradingDesktop"], "states": ["loading", "available", "stale", "unsupported", "error"], "stateViewports": { "loading": ["mobile"], "available": ["mobile", "tablet", "desktop", "tradingDesktop"], "stale": ["desktop", "tradingDesktop"], "unsupported": ["tablet"], "error": ["mobile", "desktop"] }, "criticalStates": ["loading", "available", "stale", "unsupported", "error"] },
     { "path": "/app/journal", "surface": "Journal dashboard alias", "auth": true, "kind": "alias", "disposition": "retain", "responsiveWidths": ["mobile", "tablet", "desktop"], "states": ["dashboard"], "criticalStates": ["dashboard"] },
     { "path": "/app/journal/dashboard", "surface": "Journal dashboard", "auth": true, "disposition": "replace", "responsiveWidths": ["mobile", "tablet", "desktop"], "states": ["loading", "empty", "partial", "populated", "mixed-currency", "error"], "criticalStates": ["loading", "empty", "partial", "error"] },
     { "path": "/app/journal/accounts", "surface": "Journal accounts", "auth": true, "disposition": "replace", "responsiveWidths": ["mobile", "tablet", "desktop"], "states": ["empty", "connected", "syncing", "provider-error", "comparison"], "criticalStates": ["empty", "syncing", "provider-error"] },
@@ -79,11 +79,7 @@
       "/app/journal": "Alias of the Journal dashboard surface.",
       "/app/settings": "Alias that resolves to the default settings category."
     },
-    "gaps": {
-      "/app/live": "Connecting, stale, offline, unsupported, and dedicated 1920px states remain uncaptured.",
-      "/app/replay": "Loading, completion, and save-error states remain uncaptured.",
-      "/app/order-flow": "No dedicated order-flow route baseline exists yet."
-    }
+    "gaps": {}
   },
   "requiredStateFamilies": ["empty", "loading", "skeleton", "partial", "offline", "stale", "permission-denied", "unsupported", "error", "retrying", "success"]
 }

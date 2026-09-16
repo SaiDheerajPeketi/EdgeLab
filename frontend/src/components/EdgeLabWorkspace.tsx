@@ -102,6 +102,7 @@ import {
 import { ChartTooltip as BacklitChartTooltip } from "@/components/charts/tooltip";
 import { YAxis as BacklitYAxis } from "@/components/charts/y-axis";
 import { Dialog, DialogHeader } from "@/components/ui/Primitives";
+import { OrderFlowWorkspace } from "@/components/OrderFlowWorkspace";
 import { LiveFeedHealthSurface } from "@/components/live/LiveFeedHealthSurface";
 import {
   exportAppDataBundle,
@@ -922,6 +923,8 @@ export function EdgeLabWorkspace({
       return <RelationalJournalWorkspace view={view} />;
     case "live":
       return <LiveMarketsPage journalChartFocus={journalChartFocus} />;
+    case "orderFlow":
+      return <OrderFlowWorkspace />;
     case "positionSizeCalculator":
       return <PositionSizeCalculatorPage />;
     case "journalAccounts":
