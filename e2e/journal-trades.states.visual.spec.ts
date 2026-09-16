@@ -38,8 +38,16 @@ test.describe("journal trades missing state baselines", () => {
     await expect(flow.getByText("Step 1 of 3 · Destination")).toBeVisible();
     await expect(flow.getByLabel("Account")).toBeVisible();
     await expect(flow.getByRole("button", { name: "Close add trade flow" })).toBeVisible();
+    const continueButton = flow.getByRole("button", { name: "Continue" });
+    await expect(continueButton).toBeEnabled();
+    await expect(flow.getByRole("alert")).toHaveCount(0);
     await revealAndExpectRouteGeometry(page, flow.getByRole("heading", { name: "Add trade" }));
     await expectStateScreenshot(page, "journal-trades-add-trade");
+
+    await continueButton.click();
+    const validation = flow.getByRole("alert");
+    await expect(validation).toHaveText("Choose an account and provide a symbol, currency, and source time zone.");
+    await expect(flow.getByText("Step 1 of 3 · Destination")).toBeVisible();
   });
 
   test("import shortcut opens the staged CSV flow", async ({ page }) => {
