@@ -84,7 +84,7 @@
       "/app/replay": "Loading, completion, and save-error states remain uncaptured.",
       "/app/order-flow": "No dedicated order-flow route baseline exists yet.",
       "/app/journal/dashboard": "The loading state remains uncaptured.",
-      "/app/journal/analytics": "Empty, low-sample, selected-segment, and mixed-currency states remain uncaptured.",
+      "/app/journal/analytics": "Empty, low-sample, selected-segment, and mixed-currency states are covered on desktop and mobile; tablet evidence remains blocked by breakdown-table overflow.",
       "/app/journal/reports": "Empty, low-sample, filtered, selected-segment, and drill-down states remain uncaptured.",
       "/app/reports": "Loading, empty, filtered, and selected-trade states remain uncaptured.",
       "/app/quant": "Unavailable, empty, streaming, cancelled, error, retrying, and artifact states remain uncaptured."
