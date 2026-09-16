@@ -3,6 +3,19 @@ export const UI_ROUTE_GROUPS = ["shell", "journal", "settings", "chart", "public
 export type UiRouteGroup = (typeof UI_ROUTE_GROUPS)[number];
 
 export type CompatibilityRoute = { href: string; label: string };
+export type CompatibilityParityContract = {
+  draft: string;
+  savedData: string;
+  session: string;
+};
+
+export const UI_COMPATIBILITY_PARITY: Readonly<Record<UiRouteGroup, CompatibilityParityContract>> = Object.freeze({
+  public: { session: "anonymous-or-approved-session", draft: "active-deep-link", savedData: "public-route-content" },
+  shell: { session: "approved-auth-session", draft: "active-deep-link", savedData: "workspace-server-storage" },
+  journal: { session: "approved-auth-session", draft: "journal-route-context", savedData: "canonical-trades" },
+  settings: { session: "approved-auth-session", draft: "settings-preferences-draft", savedData: "settings-preferences" },
+  chart: { session: "approved-auth-session", draft: "active-chart-route-context", savedData: "replay-and-chart-layout" },
+});
 
 /** Every concrete product deep link that can be served by a compatibility renderer. */
 export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly string[]>> = Object.freeze({
@@ -97,6 +110,10 @@ export function routeGroup(pathname: string): UiRouteGroup {
 export function compatibilityRouteIsMapped(pathname: string) {
   const path = normalizedPathname(pathname);
   return UI_COMPATIBILITY_PATHS[routeGroup(path)].includes(path);
+}
+
+export function compatibilityParityContract(pathname: string): CompatibilityParityContract | null {
+  return compatibilityRouteIsMapped(pathname) ? UI_COMPATIBILITY_PARITY[routeGroup(pathname)] : null;
 }
 
 /** Compatibility rendering changes presentation only; the active deep link remains authoritative. */

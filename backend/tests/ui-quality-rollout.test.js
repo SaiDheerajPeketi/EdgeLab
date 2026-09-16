@@ -43,6 +43,11 @@ test("rollout flags preserve deep links and provide a global reversible fallback
       assert.ok(paths.length > 0);
       assert.equal(new Set(paths).size, paths.length, `${group} contains a duplicate compatibility path`);
       assert.ok(paths.every((route) => module.routeGroup(route) === group), `${group} contains a misclassified compatibility path`);
+      for (const route of paths) {
+        const contract = module.compatibilityParityContract(route);
+        assert.ok(contract, `${route} is missing a compatibility parity contract`);
+        assert.ok(contract.session && contract.draft && contract.savedData, `${route} has an incomplete compatibility parity contract`);
+      }
     }
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));
     assert.ok(Object.values(module.resolveUiRollout({ killSwitch: true })).every((value) => !value));

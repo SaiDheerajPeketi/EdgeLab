@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { UI_COMPATIBILITY_PATHS, type UiRouteGroup } from "../frontend/src/lib/uiRollout";
 import { expectStableScreenshot, gotoStable, installDeterminism, seedApprovedSession } from "./support/app";
 
@@ -20,7 +20,7 @@ test.describe("exhaustive compatibility route parity", () => {
         await expect(page.locator("#workspace-content")).toHaveCount(0);
       }
 
-      const path = paths[0];
+      const path = representativePath(group, paths);
       let fallback = true;
       await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
         revision: fallback ? "compatibility-a" : "modern-b", kill_switch: fallback,
@@ -33,6 +33,7 @@ test.describe("exhaustive compatibility route parity", () => {
       await gotoStable(page, path, { waitForNetworkIdle: false });
       const boundary = page.locator(`[data-route-group="${group}"]`);
       await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
+      await expectCompatibilityDomainState(page, group);
       await expectStableScreenshot(page, `compatibility-${group}`, { fullPage: false });
 
       fallback = false;
@@ -48,10 +49,51 @@ test.describe("exhaustive compatibility route parity", () => {
         data: localStorage.getItem(`edgelab.compatibility.${groupName}.data`),
         draft: sessionStorage.getItem(`edgelab.compatibility.${groupName}.draft`),
       }), { groupName: group })).toEqual({ data: "preserved", draft: "unsaved" });
+      await expectCompatibilityDomainState(page, group);
+    });
+
+    test(`${group} preserves its active domain state from modern to fallback and back`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name === "tablet", "Bidirectional domain parity is sampled at mobile and desktop widths.");
+      let fallback = false;
+      await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
+        revision: fallback ? "rollback-domain" : "modern-domain", kill_switch: fallback,
+        flags: { shell: true, journal: true, settings: true, chart: true, public: true },
+      } }));
+      const path = representativePath(group, paths);
+      await gotoStable(page, path, { waitForNetworkIdle: false });
+      let boundary = page.locator(`[data-route-group="${group}"]`);
+      await expect(boundary).toHaveAttribute("data-ui-version", "v2");
+      fallback = true;
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await expect(boundary).toHaveAttribute("data-ui-version", "fallback");
+      await expectCompatibilityDomainState(page, group);
+      fallback = false;
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      boundary = page.locator(`[data-route-group="${group}"]`);
+      await expect(boundary).toHaveAttribute("data-ui-version", "v2");
+      await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
     });
   }
 });
 
+async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup) {
+  if (group === "public") await expect(page.getByRole("heading", { name: "Trade replay without losing your work" })).toBeVisible();
+  else if (group === "shell") await expect(page.getByText(/Session restored for/)).toBeVisible();
+  else if (group === "journal") await expect(page.getByRole("status").filter({ hasText: /recent trades available|temporarily unavailable/ })).toBeVisible();
+  else if (group === "settings") await expect(page.getByLabel("Workspace density")).toBeVisible();
+  else {
+    await expect(page.locator("[data-compatibility-replay]")).not.toHaveText("Loading active replay…");
+    await expect(page.locator("[data-compatibility-chart]")).not.toHaveText("Loading chart layout…");
+  }
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function representativePath(group: UiRouteGroup, paths: readonly string[]) {
+  if (group === "chart") return "/app/live";
+  if (group === "settings") return "/app/settings/global";
+  if (group === "journal") return "/app/journal/trades";
+  return paths[0];
 }
