@@ -11,25 +11,29 @@
     "Data Window": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Data Window panel evidence has not been captured." } } },
     "Objects": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Objects panel evidence has not been captured." } } },
     "Indicator editor": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "gap": "Dedicated Indicator editor panel evidence has not been captured." } } },
-    "Order Book": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+    "Order Book": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
       "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" },
       "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" },
-      "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" }
+      "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" },
+      "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "order-book.png", "captureMode": "element" }
     } } } },
-    "Alerts": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+    "Alerts": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
       "mobile": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" },
       "tablet": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" },
-      "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" }
+      "desktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" },
+      "tradingDesktop": { "spec": "e2e/live-feed.states.visual.spec.ts", "snapshot": "alerts.png", "captureMode": "element" }
     } } } },
-    "Order ticket": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+    "Order ticket": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
       "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" },
       "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" },
-      "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" }
+      "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" },
+      "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "order-ticket.png", "captureMode": "element" }
     } } } },
-    "Replay transport": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop"], "evidence": {
+    "Replay transport": { "states": { "default": { "viewports": ["mobile", "tablet", "desktop", "tradingDesktop"], "evidence": {
       "mobile": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" },
       "tablet": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" },
-      "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" }
+      "desktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" },
+      "tradingDesktop": { "spec": "e2e/replay.states.visual.spec.ts", "snapshot": "replay-transport.png", "captureMode": "element" }
     } } } }
   },
   "overlays": {

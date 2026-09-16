@@ -87,21 +87,27 @@ function validateNamedSurfaceFamily({
   }
 }
 
-function validateSurfaceVisualEvidence({ evidenceFamily, errors, family, gaps, names, projects, root, platform, sources, stateCatalog, viewports }) {
+function validateSurfaceVisualEvidence({ evidenceFamily, errors, family, gaps, names, projects, root, platform, sources, stateCatalog, stateViewports, viewports }) {
   const expected = [...names].sort();
   const actual = Object.keys(evidenceFamily ?? {}).sort();
   if (!sameKeys(expected, actual)) errors.push(`${family} visual-evidence keys must exactly match the inventoried ${family} names.`);
+  if (!sameKeys(expected, Object.keys(stateCatalog ?? {}).sort())) errors.push(`${family} intended-state catalog keys must exactly match the inventoried ${family} names.`);
+  if (!sameKeys(expected, Object.keys(stateViewports ?? {}).sort())) errors.push(`${family} state-viewport catalog keys must exactly match the inventoried ${family} names.`);
   for (const name of names) {
     const states = evidenceFamily?.[name]?.states;
     const intendedStates = stateCatalog?.[name];
     if (!Array.isArray(intendedStates) || intendedStates.length === 0) errors.push(`${family} "${name}" has no intended-state catalog.`);
     else if (!sameKeys([...intendedStates].sort(), Object.keys(states ?? {}).sort())) errors.push(`${family} "${name}" evidence states must exactly match its intended-state catalog.`);
+    if (Array.isArray(intendedStates) && !sameKeys([...intendedStates].sort(), Object.keys(stateViewports?.[name] ?? {}).sort())) errors.push(`${family} "${name}" state-viewport keys must exactly match its intended-state catalog.`);
     if (!states || Object.keys(states).length === 0) {
       errors.push(`${family} "${name}" has no visual-evidence states.`);
       continue;
     }
     for (const [state, contract] of Object.entries(states)) {
       const prefix = `${family} "${name}" state "${state}"`;
+      const requiredViewports = stateViewports?.[name]?.[state];
+      if (!Array.isArray(requiredViewports) || requiredViewports.length === 0) errors.push(`${prefix} has no canonical viewport applicability.`);
+      else if (!sameKeys([...requiredViewports].sort(), [...(contract.viewports ?? [])].sort())) errors.push(`${prefix} viewports must exactly match its canonical viewport applicability.`);
       if (!Array.isArray(contract.viewports) || contract.viewports.length === 0) {
         errors.push(`${prefix} has no viewport applicability.`);
         continue;
@@ -282,8 +288,8 @@ export function validateUiSurfaceInventory({
   });
 
   if (visualEvidence.schemaVersion !== 2) errors.push("UI surface evidence schemaVersion must be 2.");
-  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.panels, errors, family: "Panel", gaps, names: inventory.panels ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.panels, stateCatalog: inventory.panelStates, viewports });
-  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.overlays, errors, family: "Overlay", gaps, names: inventory.overlays ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.overlays, stateCatalog: inventory.overlayStates, viewports });
+  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.panels, errors, family: "Panel", gaps, names: inventory.panels ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.panels, stateCatalog: inventory.panelStates, stateViewports: inventory.panelStateViewports, viewports });
+  validateSurfaceVisualEvidence({ evidenceFamily: visualEvidence.overlays, errors, family: "Overlay", gaps, names: inventory.overlays ?? [], projects, root, platform: visualEvidence.platform, sources: foundationContracts.overlays, stateCatalog: inventory.overlayStates, stateViewports: inventory.overlayStateViewports, viewports });
   validateNamedSurfaceFamily({
     dispositions: inventory.overlayDispositions,
     errors,

@@ -35,8 +35,8 @@ test("surface inventory matches routes, decisions, responsive widths, sources, a
 test("panel evidence resolves an authoritative source, spec, and exact snapshot", () => {
   const fixture = fixtureInputs();
   fixture.visualEvidence.panels.Journal.states.default = {
-    viewports: ["mobile"],
-    evidence: { mobile: structuredClone(fixture.visualEvidence.routes["/pricing"].default.mobile) },
+    viewports: ["mobile", "tablet", "desktop"],
+    evidence: structuredClone(fixture.visualEvidence.routes["/pricing"].default),
   };
   assert.deepEqual(validateUiSurfaceInventory(fixture).errors, []);
 });
@@ -63,6 +63,23 @@ test("surface inventory validator rejects omitted evidence contracts", async (t)
         fixture.visualEvidence.panels.Journal.states.default.viewports = ["watch"];
       },
       expected: /Panel "Journal" state "default" references unknown viewport "watch"/,
+    },
+    {
+      name: "required panel viewports cannot be omitted",
+      mutate(fixture) {
+        fixture.visualEvidence.panels["Order Book"].states.default.viewports = ["mobile"];
+        fixture.visualEvidence.panels["Order Book"].states.default.evidence = {
+          mobile: fixture.visualEvidence.panels["Order Book"].states.default.evidence.mobile,
+        };
+      },
+      expected: /Panel "Order Book" state "default" viewports must exactly match its canonical viewport applicability/,
+    },
+    {
+      name: "extra overlay viewports are rejected",
+      mutate(fixture) {
+        fixture.visualEvidence.overlays["mobile navigation"].states.open.viewports.push("tablet");
+      },
+      expected: /Overlay "mobile navigation" state "open" viewports must exactly match its canonical viewport applicability/,
     },
     {
       name: "surface evidence missing spec",

@@ -42,6 +42,10 @@
   "panelStates": {
     "Journal": ["default"], "Watchlist": ["default"], "Quant assistant": ["default"], "Data Window": ["default"], "Objects": ["default"], "Indicator editor": ["default"], "Order Book": ["default"], "Alerts": ["default"], "Order ticket": ["default"], "Replay transport": ["default"]
   },
+  "panelStateViewports": {
+    "Journal": { "default": ["mobile", "tablet", "desktop"] }, "Watchlist": { "default": ["mobile", "tablet", "desktop"] }, "Quant assistant": { "default": ["mobile", "tablet", "desktop"] }, "Data Window": { "default": ["mobile", "tablet", "desktop"] }, "Objects": { "default": ["mobile", "tablet", "desktop"] }, "Indicator editor": { "default": ["mobile", "tablet", "desktop"] },
+    "Order Book": { "default": ["mobile", "tablet", "desktop", "tradingDesktop"] }, "Alerts": { "default": ["mobile", "tablet", "desktop", "tradingDesktop"] }, "Order ticket": { "default": ["mobile", "tablet", "desktop", "tradingDesktop"] }, "Replay transport": { "default": ["mobile", "tablet", "desktop", "tradingDesktop"] }
+  },
   "panelDispositions": {
     "Journal": "replace",
     "Watchlist": "restructure",
@@ -57,6 +61,9 @@
   "overlays": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "radial drawing toolbox", "confirmation dialog", "toast"],
   "overlayStates": {
     "command palette": ["open"], "shortcut catalog": ["open"], "account menu": ["open"], "mobile navigation": ["open"], "trade review drawer": ["open"], "add trade flow": ["open"], "journal import flow": ["open"], "broker connection flow": ["open"], "workspace sharing": ["open"], "chart settings": ["open"], "indicator settings": ["open"], "drawing settings": ["open"], "symbol search": ["open"], "radial drawing toolbox": ["open"], "confirmation dialog": ["open"], "toast": ["transient"]
+  },
+  "overlayStateViewports": {
+    "command palette": { "open": ["mobile", "tablet", "desktop"] }, "shortcut catalog": { "open": ["mobile", "tablet", "desktop"] }, "account menu": { "open": ["mobile", "tablet", "desktop"] }, "mobile navigation": { "open": ["mobile"] }, "trade review drawer": { "open": ["mobile", "tablet", "desktop"] }, "add trade flow": { "open": ["mobile", "tablet", "desktop"] }, "journal import flow": { "open": ["mobile", "tablet", "desktop"] }, "broker connection flow": { "open": ["mobile", "tablet", "desktop"] }, "workspace sharing": { "open": ["mobile", "tablet", "desktop"] }, "chart settings": { "open": ["mobile", "tablet", "desktop"] }, "indicator settings": { "open": ["mobile", "tablet", "desktop"] }, "drawing settings": { "open": ["mobile", "tablet", "desktop"] }, "symbol search": { "open": ["mobile", "tablet", "desktop"] }, "radial drawing toolbox": { "open": ["mobile", "tablet", "desktop"] }, "confirmation dialog": { "open": ["mobile", "tablet", "desktop"] }, "toast": { "transient": ["mobile", "tablet", "desktop"] }
   },
   "overlayDispositions": {
     "command palette": "replace",
