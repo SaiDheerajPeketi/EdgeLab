@@ -10,7 +10,7 @@ export type CompatibilityRouteParity = {
   draftKey: string | null;
   savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "settings-preferences" | "replay-layout";
   primaryAction: "navigate" | "refresh-journal" | "save-settings" | "restore-replay-layout";
-  requiredViewports: readonly ["mobile", "desktop"];
+  requiredViewports: readonly ["mobile", "tablet", "desktop"];
   testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "settings-draft-save" | "chart-replay-layout";
   reasonSource: string;
 };
@@ -33,11 +33,11 @@ export const UI_COMPATIBILITY_PATHS: Readonly<Record<UiRouteGroup, readonly stri
 });
 
 const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityRouteParity>> = Object.freeze({
-  public: { kind: "read-only", sessionSource: "route-session", draftKey: null, savedDataRead: "public-route", primaryAction: "navigate", requiredViewports: ["mobile", "desktop"], testCaseId: "public-read-continuity", reasonSource: "frontend/src/routes/AppRoutes.tsx" },
-  shell: { kind: "read-only", sessionSource: "auth-session", draftKey: null, savedDataRead: "workspace-storage", primaryAction: "navigate", requiredViewports: ["mobile", "desktop"], testCaseId: "shell-session-continuity", reasonSource: "frontend/src/components/compatibility/CompatibilityRouteRenderer.tsx#ShellCompatibility" },
-  journal: { kind: "shared-domain", sessionSource: "auth-session", draftKey: "journal-route-context", savedDataRead: "canonical-trades", primaryAction: "refresh-journal", requiredViewports: ["mobile", "desktop"], testCaseId: "journal-canonical-refresh", reasonSource: "frontend/src/lib/journalApi.ts#listCanonicalTrades" },
-  settings: { kind: "writable", sessionSource: "auth-session", draftKey: "edgelab.compatibility.settings-draft.v1", savedDataRead: "settings-preferences", primaryAction: "save-settings", requiredViewports: ["mobile", "desktop"], testCaseId: "settings-draft-save", reasonSource: "frontend/src/lib/settingsPreferences.ts#saveSettingsPreferences" },
-  chart: { kind: "shared-domain", sessionSource: "auth-session", draftKey: "active-live-chart-layout.v1", savedDataRead: "replay-layout", primaryAction: "restore-replay-layout", requiredViewports: ["mobile", "desktop"], testCaseId: "chart-replay-layout", reasonSource: "frontend/src/lib/api.ts#getLatestBacktest" },
+  public: { kind: "read-only", sessionSource: "route-session", draftKey: null, savedDataRead: "public-route", primaryAction: "navigate", requiredViewports: ["mobile", "tablet", "desktop"], testCaseId: "public-read-continuity", reasonSource: "frontend/src/routes/AppRoutes.tsx" },
+  shell: { kind: "read-only", sessionSource: "auth-session", draftKey: null, savedDataRead: "workspace-storage", primaryAction: "navigate", requiredViewports: ["mobile", "tablet", "desktop"], testCaseId: "shell-session-continuity", reasonSource: "frontend/src/components/compatibility/CompatibilityRouteRenderer.tsx#ShellCompatibility" },
+  journal: { kind: "shared-domain", sessionSource: "auth-session", draftKey: "journal-route-context", savedDataRead: "canonical-trades", primaryAction: "refresh-journal", requiredViewports: ["mobile", "tablet", "desktop"], testCaseId: "journal-canonical-refresh", reasonSource: "frontend/src/lib/journalApi.ts#listCanonicalTrades" },
+  settings: { kind: "writable", sessionSource: "auth-session", draftKey: "edgelab.compatibility.settings-draft.v1", savedDataRead: "settings-preferences", primaryAction: "save-settings", requiredViewports: ["mobile", "tablet", "desktop"], testCaseId: "settings-draft-save", reasonSource: "frontend/src/lib/settingsPreferences.ts#saveSettingsPreferences" },
+  chart: { kind: "shared-domain", sessionSource: "auth-session", draftKey: "active-live-chart-layout.v1", savedDataRead: "replay-layout", primaryAction: "restore-replay-layout", requiredViewports: ["mobile", "tablet", "desktop"], testCaseId: "chart-replay-layout", reasonSource: "frontend/src/lib/api.ts#getLatestBacktest" },
 });
 
 export const UI_COMPATIBILITY_ROUTE_PARITY: Readonly<Record<string, CompatibilityRouteParity>> = Object.freeze(

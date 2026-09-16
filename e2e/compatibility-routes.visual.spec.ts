@@ -15,13 +15,15 @@ test.describe("exhaustive compatibility route parity", () => {
       for (const path of paths) {
         const contract = UI_COMPATIBILITY_ROUTE_PARITY[path];
         expect(contract).toBeTruthy();
-        expect(contract.requiredViewports).toEqual(["mobile", "desktop"]);
+        expect(contract.requiredViewports).toEqual(["mobile", "tablet", "desktop"]);
         await gotoStable(page, path, { waitForNetworkIdle: false });
         await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(?:[?#]|$)`));
         await expect(page.locator(`[data-route-group="${group}"]`)).toHaveAttribute("data-ui-version", "fallback");
         await expect(page.locator(`[data-compatibility-renderer="${group}"]`)).toBeVisible();
         await expect(page.locator("#workspace-content")).toHaveCount(0);
         if (contract.kind === "read-only") expect(contract.draftKey).toBeNull();
+        await expectCompatibilityDomainState(page, group);
+        await executeCompatibilityPrimaryAction(page, contract);
       }
 
       const path = representativePath(group, paths);
@@ -57,8 +59,7 @@ test.describe("exhaustive compatibility route parity", () => {
       await expectCompatibilityDomainState(page, group);
     });
 
-    test(`${group} preserves its active domain state from modern to fallback and back`, async ({ page }, testInfo) => {
-      test.skip(testInfo.project.name === "tablet", "Bidirectional domain parity is sampled at mobile and desktop widths.");
+    test(`${group} preserves its active domain state from modern to fallback and back`, async ({ page }) => {
       let fallback = false;
       await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
         revision: fallback ? "rollback-domain" : "modern-domain", kill_switch: fallback,
@@ -97,7 +98,8 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await page.getByRole("button", { name: "Refresh journal" }).click();
     await expect(page.getByRole("status").filter({ hasText: /recent trades available/ })).toBeVisible();
   } else if (contract.primaryAction === "save-settings") {
-    await page.getByLabel("Workspace density").selectOption("compact");
+    const density = page.getByLabel("Workspace density");
+    await density.selectOption((await density.inputValue()) === "compact" ? "comfortable" : "compact");
     await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved" })).toBeVisible();

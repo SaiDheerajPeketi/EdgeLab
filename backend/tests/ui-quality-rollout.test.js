@@ -47,7 +47,7 @@ test("rollout flags preserve deep links and provide a global reversible fallback
         const contract = module.compatibilityParityContract(route);
         assert.ok(contract, `${route} is missing a compatibility parity contract`);
         assert.ok(["read-only", "shared-domain", "writable"].includes(contract.kind), `${route} has an untyped parity exemption`);
-        assert.deepEqual(contract.requiredViewports, ["mobile", "desktop"]);
+        assert.deepEqual(contract.requiredViewports, ["mobile", "tablet", "desktop"]);
         assert.ok(contract.sessionSource && contract.savedDataRead && contract.primaryAction && contract.testCaseId && contract.reasonSource);
         if (contract.kind === "read-only") assert.equal(contract.draftKey, null, `${route} fabricates a draft for a read-only route`);
         else assert.ok(contract.draftKey, `${route} must identify its real shared or writable draft key`);
