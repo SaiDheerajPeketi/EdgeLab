@@ -67,6 +67,11 @@ type Props = {
 };
 
 type MicrophoneState = "not-requested" | "requesting" | "recording" | "transcribing" | "denied" | "error";
+type QuantSendRequest = {
+  operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "EDIT_INDICATOR" | "ANALYSIS_TO_INDICATOR";
+  retry?: boolean;
+  text?: string;
+};
 
 export function QuantPanel({
   attachment,
@@ -83,6 +88,7 @@ export function QuantPanel({
   const [workspace, setWorkspace] = useState<QuantWorkspace>(loadCachedQuantWorkspace);
   const [preferences, setPreferences] = useState<QuantPreferences>(loadCachedQuantPreferences);
   const [provider, setProvider] = useState<QuantProviderStatus>({ available: false, detail: "Checking configured AI providers…", models: [] });
+  const [providerLoading, setProviderLoading] = useState(true);
   const [kind, setKind] = useState<QuantConversationKind>("analysis");
   const [modelId, setModelId] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -95,7 +101,9 @@ export function QuantPanel({
   const [backtestStatus, setBacktestStatus] = useState<"idle" | "running" | "error">("idle");
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [externalEgressConsent, setExternalEgressConsent] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const jobCancelRef = useRef<(() => Promise<void>) | null>(null);
+  const lastRequestRef = useRef<Omit<QuantSendRequest, "retry"> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
@@ -117,6 +125,7 @@ export function QuantPanel({
       setPreferences(nextPreferences);
       setProvider(nextProvider);
       setModelId(nextProvider.models[0]?.id ?? "");
+      setProviderLoading(false);
     });
     return () => {
       active = false;
@@ -160,6 +169,7 @@ export function QuantPanel({
     commitWorkspace(upsertQuantConversation(workspace, conversation));
     setJob(null);
     setError(null);
+    setRetrying(false);
   }
 
   function deleteConversation() {
@@ -169,7 +179,7 @@ export function QuantPanel({
     commitWorkspace({ activeConversationByKind: { ...workspace.activeConversationByKind, [kind]: fallback?.id }, conversations: remaining, revision: workspace.revision + 1 });
   }
 
-  async function sendPrompt(options: { operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "EDIT_INDICATOR" | "ANALYSIS_TO_INDICATOR"; text?: string } = {}) {
+  async function sendPrompt(options: QuantSendRequest = {}) {
     const text = (options.text ?? prompt).trim();
     if (!text || busy) return;
     if (!provider.available || !selectedModel) {
@@ -195,11 +205,18 @@ export function QuantPanel({
       return;
     }
     const conversation = activeConversation ?? createQuantConversation(kind);
-    const userMessage = { content: text, createdAt: new Date().toISOString(), id: `quant-message-${Date.now().toString(36)}`, role: "user" as const };
-    const pendingConversation = { ...conversation, messages: [...conversation.messages, userMessage], title: conversation.messages.length === 0 ? text.slice(0, 60) : conversation.title, updatedAt: userMessage.createdAt };
+    const lastMessage = conversation.messages.at(-1);
+    const reuseFailedRequest = options.retry === true && lastMessage?.role === "user" && lastMessage.content === text;
+    const userMessage = reuseFailedRequest
+      ? lastMessage
+      : { content: text, createdAt: new Date().toISOString(), id: `quant-message-${Date.now().toString(36)}`, role: "user" as const };
+    const pendingConversation = reuseFailedRequest
+      ? conversation
+      : { ...conversation, messages: [...conversation.messages, userMessage], title: conversation.messages.length === 0 ? text.slice(0, 60) : conversation.title, updatedAt: userMessage.createdAt };
     commitWorkspace(upsertQuantConversation(workspace, pendingConversation));
     setPrompt("");
     setError(null);
+    setRetrying(options.retry === true);
     setJob({ content: "", id: "local", status: "queued" });
     const sharedAttachment = preferences.allowScreenshots ? attachment : null;
     const sharedContext = preferences.allowStructuredContext
@@ -207,13 +224,19 @@ export function QuantPanel({
       : null;
     const followup = kind === "build" ? resolveQuantIndicatorFollowup(conversation, backtestResult) : { baseIndicator: null, operation: undefined, priorTestResult: null };
     const operation = options.operation ?? followup.operation;
+    lastRequestRef.current = { operation, text };
     appendQuantAudit({ action: "generate", contextFields: sharedContext ? Object.keys(sharedContext) : [], modelId: selectedModel.id, status: "allowed" });
-    const generation = createQuantGenerationJob({ attachment: sharedAttachment, baseIndicator: followup.baseIndicator, context: sharedContext, conversation: pendingConversation, egressConsent: externalEgressConsent, kind, modelId: selectedModel.id, operation, priorTestResult: followup.priorTestResult, prompt: text }, (update) => setJob({ content: update.content, id: update.id, status: update.status, usage: update.usage }));
+    const generation = createQuantGenerationJob({ attachment: sharedAttachment, baseIndicator: followup.baseIndicator, context: sharedContext, conversation: pendingConversation, egressConsent: externalEgressConsent, kind, modelId: selectedModel.id, operation, priorTestResult: followup.priorTestResult, prompt: text }, (update) => {
+      setRetrying(false);
+      setJob({ content: update.content, id: update.id, status: update.status, usage: update.usage });
+    });
     setExternalEgressConsent(false);
     jobCancelRef.current = generation.cancel;
     void generation.promise.then(async (result) => {
       jobCancelRef.current = null;
+      setRetrying(false);
       if (result.status !== "completed") {
+        setJob(result);
         if (result.status === "failed") setError(result.content || "The Quant job failed without a provider response.");
         return;
       }
@@ -233,6 +256,7 @@ export function QuantPanel({
       appendQuantAudit({ action: "generate", contextFields: sharedContext ? Object.keys(sharedContext) : [], modelId: selectedModel.id, status: "completed" });
     }).catch((failure) => {
       jobCancelRef.current = null;
+      setRetrying(false);
       setJob((current) => current ? { ...current, status: "failed" } : null);
       setError(failure instanceof Error ? failure.message : "The Quant request failed.");
       appendQuantAudit({ action: "generate", contextFields: sharedContext ? Object.keys(sharedContext) : [], modelId: selectedModel.id, status: "failed" });
@@ -262,6 +286,11 @@ export function QuantPanel({
     await jobCancelRef.current?.();
     jobCancelRef.current = null;
     appendQuantAudit({ action: "cancel", contextFields: [], modelId: selectedModel?.id ?? null, status: "completed" });
+  }
+
+  function retryJob() {
+    if (!lastRequestRef.current || busy) return;
+    void sendPrompt({ ...lastRequestRef.current, retry: true });
   }
 
   async function startRecording() {
@@ -363,11 +392,11 @@ export function QuantPanel({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {!provider.available ? <div className="m-3 flex gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100"><AlertTriangle className="mt-0.5 shrink-0" size={14} /><div><strong className="block">Quant provider unavailable</strong><span className="text-amber-100/70">{provider.detail} Conversations, scripts, captures, and deterministic backtests remain local; no AI output is fabricated.</span></div></div> : null}
+          {providerLoading ? <div aria-label="Quant provider status" className="m-3 flex gap-2 rounded-lg border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-300" data-quant-state="provider-loading" role="status"><Bot className="mt-0.5 shrink-0" size={14} /><div><strong className="block text-slate-100">Checking Quant provider</strong><span className="text-slate-400">Confirming the models and permissions available to this workspace…</span></div></div> : !provider.available ? <div aria-label="Quant provider status" className="m-3 flex gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100" data-quant-state="unavailable" role="status"><AlertTriangle className="mt-0.5 shrink-0" size={14} /><div><strong className="block">Quant provider unavailable</strong><span className="text-amber-100/70">{provider.detail} Conversations, scripts, captures, and deterministic backtests remain local; no AI output is fabricated.</span></div></div> : null}
           <div className="space-y-3 p-3">
-            {activeConversation?.messages.length ? activeConversation.messages.map((message) => <Message key={message.id} message={message} onAddGeneratedIndicator={onAddGeneratedIndicator} onOpenIndicatorEditor={onOpenIndicatorEditor} onTurnAnalysisIntoIndicator={turnAnalysisIntoIndicator} />) : <div className="grid min-h-36 place-items-center rounded-lg border border-dashed border-white/10 px-5 text-center"><div><Bot className="mx-auto text-slate-600" size={22} /><h3 className="mt-2 text-sm font-semibold text-slate-200">{kind === "analysis" ? "Ask about the visible chart" : "Describe an indicator to build"}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{kind === "analysis" ? "Quant can use structured context or an explicitly shared capture when a provider is configured." : "Generated source must compile as EdgeLab DSL before it can run or reach the chart."}</p></div></div>}
-            {busy || job?.content ? <div className="rounded-lg bg-white/[0.04] p-3 text-xs leading-5 text-slate-300"><div className="mb-2 flex items-center justify-between"><span className="font-semibold text-cyan-100">{job?.status === "queued" ? "Queued" : job?.status === "running" ? "Generating" : job?.status}</span>{busy ? <button className="studio-tool-button" onClick={() => void cancelJob()} type="button"><Square size={11} /> Cancel</button> : null}</div>{job?.content || "Waiting for the configured provider…"}</div> : null}
-            {error ? <p className="rounded-lg bg-rose-400/10 p-3 text-xs leading-5 text-rose-200" role="alert">{error}</p> : null}
+            {activeConversation?.messages.length ? activeConversation.messages.map((message) => <Message key={message.id} message={message} onAddGeneratedIndicator={onAddGeneratedIndicator} onOpenIndicatorEditor={onOpenIndicatorEditor} onTurnAnalysisIntoIndicator={turnAnalysisIntoIndicator} />) : <div aria-label="Quant conversation empty state" className="grid min-h-36 place-items-center rounded-lg border border-dashed border-white/10 px-5 text-center" data-quant-state="empty" role="status"><div><Bot className="mx-auto text-slate-600" size={22} /><h3 className="mt-2 text-sm font-semibold text-slate-200">{kind === "analysis" ? "Ask about the visible chart" : "Describe an indicator to build"}</h3><p className="mt-1 text-xs leading-5 text-slate-500">{kind === "analysis" ? "Quant can use structured context or an explicitly shared capture when a provider is configured." : "Generated source must compile as EdgeLab DSL before it can run or reach the chart."}</p></div></div>}
+            {job ? <div aria-label="Quant request status" aria-live="polite" className="rounded-lg bg-white/[0.04] p-3 text-xs leading-5 text-slate-300" data-quant-state={retrying ? "retrying" : job.status} role="status"><div className="mb-2 flex items-center justify-between gap-3"><span className="font-semibold text-cyan-100">{quantJobLabel(job.status, retrying)}</span>{busy ? <button className="studio-tool-button" onClick={() => void cancelJob()} type="button"><Square size={11} /> Cancel</button> : job.status === "cancelled" && lastRequestRef.current ? <button className="studio-tool-button studio-tool-button-active" onClick={retryJob} type="button">Retry request</button> : null}</div>{quantJobContent(job, retrying)}</div> : null}
+            {error ? <div className="rounded-lg bg-rose-400/10 p-3 text-xs leading-5 text-rose-200" data-quant-state="error" role="alert"><p>{error}</p>{lastRequestRef.current ? <button className="studio-tool-button studio-tool-button-active mt-2" onClick={retryJob} type="button">Retry request</button> : null}</div> : null}
           </div>
 
           {kind === "build" ? <BacktestControls config={backtestConfig} error={backtestError} onChange={setBacktestConfig} onRun={() => void runBacktest()} result={backtestResult} scripts={scripts} selectedScriptId={selectedScript?.id ?? ""} setSelectedScriptId={setSelectedScriptId} status={backtestStatus} /> : null}
@@ -382,9 +411,9 @@ export function QuantPanel({
             </div>
           </div>
           {selectedModel ? <p className="mb-2 text-[10px] leading-4 text-slate-500">Before use: {selectedModel.policy.costLabel} · retention {selectedModel.policy.dataRetention}{selectedModel.policy.maxContextTokens ? ` · ${selectedModel.policy.maxContextTokens.toLocaleString()} token context` : ""}</p> : null}
-          {!selectedModel?.offline ? <label className="mb-2 flex items-start gap-2 rounded-md border border-amber-300/20 bg-amber-300/[0.05] p-2 text-[11px] leading-4 text-amber-100"><input checked={externalEgressConsent} className="mt-0.5 h-4 w-4 accent-amber-300" onChange={(event) => setExternalEgressConsent(event.target.checked)} type="checkbox" /><span>For this request only, send chart context and prior conversation to <strong>{selectedModel?.label}</strong> via {selectedModel?.provider}. This resets after send.</span></label> : null}
+          {selectedModel && !selectedModel.offline ? <label className="mb-2 flex items-start gap-2 rounded-md border border-amber-300/20 bg-amber-300/[0.05] p-2 text-[11px] leading-4 text-amber-100"><input checked={externalEgressConsent} className="mt-0.5 h-4 w-4 accent-amber-300" onChange={(event) => setExternalEgressConsent(event.target.checked)} type="checkbox" /><span>For this request only, send chart context and prior conversation to <strong>{selectedModel.label}</strong> via {selectedModel.provider}. This resets after send.</span></label> : null}
           {attachment ? <div className="mb-2 flex items-center justify-between rounded-md bg-cyan-300/[0.06] px-2 py-1.5 text-[11px] text-cyan-100"><span>{attachment.kind === "region" ? "Selected region" : "Full chart"} attached · {attachment.width}×{attachment.height}</span><button aria-label="Remove chart attachment" onClick={onClearAttachment} type="button"><X size={12} /></button></div> : null}
-          <textarea aria-label="Message Quant" className="input-control min-h-20 w-full resize-y text-sm" disabled={busy} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void sendPrompt(); }} placeholder={provider.available ? "Ask Quant…" : "Provider unavailable — draft remains editable"} value={prompt} />
+          <textarea aria-label="Message Quant" className="input-control min-h-20 w-full resize-y text-sm" disabled={busy} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void sendPrompt(); }} placeholder={providerLoading ? "Checking provider…" : provider.available ? "Ask Quant…" : "Provider unavailable — draft remains editable"} value={prompt} />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               {microphone === "recording" ? <><button className="studio-tool-button studio-tool-button-active" onClick={() => mediaRecorderRef.current?.stop()} type="button"><Square size={11} /> Stop & transcribe</button><button className="studio-tool-button" onClick={cancelRecording} type="button">Cancel</button></> : <button className="studio-tool-button" disabled={!provider.available || microphone === "requesting" || microphone === "transcribing"} onClick={() => void startRecording()} type="button"><Mic size={12} />{microphone === "requesting" ? "Requesting…" : microphone === "transcribing" ? "Transcribing…" : "Dictate"}</button>}
@@ -396,13 +425,27 @@ export function QuantPanel({
           {job?.usage ? <p className="mt-2 text-[10px] text-slate-500">Actual usage: {formatUsage(job.usage)}</p> : null}
         </div>
       </div>
-      <style>{`@media (max-width: 640px) { aside[aria-label="Quant assistant"] { inset: 8px !important; height: auto !important; width: auto !important; } }`}</style>
+      <style>{`@media (max-width: 1023px) { aside[aria-label="Quant assistant"] { bottom: calc(4rem + env(safe-area-inset-bottom)) !important; } } @media (max-width: 640px) { aside[aria-label="Quant assistant"] { left: 8px !important; right: 8px !important; top: 8px !important; height: auto !important; width: auto !important; } }`}</style>
     </FloatingWorkspacePanel>
   );
 }
 
 function Message({ message, onAddGeneratedIndicator, onOpenIndicatorEditor, onTurnAnalysisIntoIndicator }: { message: QuantConversation["messages"][number]; onAddGeneratedIndicator: (artifact: QuantGeneratedIndicator) => void; onOpenIndicatorEditor: (artifact: QuantGeneratedIndicator) => void; onTurnAnalysisIntoIndicator: (message: QuantConversation["messages"][number]) => void }) {
-  return <article className={`rounded-lg p-3 text-xs leading-5 ${message.role === "user" ? "ml-8 bg-cyan-300/10 text-cyan-50" : "mr-5 bg-white/[0.04] text-slate-300"}`}><div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{message.role === "user" ? "You" : "Quant"}</div><p className="whitespace-pre-wrap">{message.content}</p>{message.analysis ? <><AnalysisPresentation analysis={message.analysis} /><button className="studio-tool-button mt-3" onClick={() => onTurnAnalysisIntoIndicator(message)} type="button"><Code2 size={12} /> Turn analysis into indicator</button></> : null}{message.generatedIndicator ? <><IndicatorSemantics artifact={message.generatedIndicator} /><div className="mt-3 flex flex-wrap gap-2"><button className="studio-tool-button" onClick={() => onOpenIndicatorEditor(message.generatedIndicator!)} type="button"><Code2 size={12} /> Open source</button><button className="studio-tool-button studio-tool-button-active" onClick={() => onAddGeneratedIndicator(message.generatedIndicator!)} type="button"><Plus size={12} /> Add to chart</button></div></> : null}{message.backtest ? <p className="mt-3 rounded-md border border-white/10 p-2 text-slate-400">Automatic {DEFAULT_QUANT_BACKTEST_CONFIG.windowDays}-day test · {message.backtest.trades} trades · {message.backtest.netReturnPercent.toFixed(2)}% net · sample {message.backtest.sample.hash}</p> : null}{message.usage ? <p className="mt-2 text-[10px] text-slate-500">Usage: {formatUsage(message.usage)}</p> : null}</article>;
+  return <article aria-label={`${message.role === "user" ? "User" : "Quant"} message${message.generatedIndicator ? " with generated indicator" : ""}`} className={`rounded-lg p-3 text-xs leading-5 ${message.role === "user" ? "ml-8 bg-cyan-300/10 text-cyan-50" : "mr-5 bg-white/[0.04] text-slate-300"}`} data-quant-artifact={message.generatedIndicator ? "true" : undefined}><div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{message.role === "user" ? "You" : "Quant"}</div><p className="whitespace-pre-wrap">{message.content}</p>{message.analysis ? <><AnalysisPresentation analysis={message.analysis} /><button className="studio-tool-button mt-3" onClick={() => onTurnAnalysisIntoIndicator(message)} type="button"><Code2 size={12} /> Turn analysis into indicator</button></> : null}{message.generatedIndicator ? <><IndicatorSemantics artifact={message.generatedIndicator} /><div className="mt-3 flex flex-wrap gap-2"><button className="studio-tool-button" onClick={() => onOpenIndicatorEditor(message.generatedIndicator!)} type="button"><Code2 size={12} /> Open source</button><button className="studio-tool-button studio-tool-button-active" onClick={() => onAddGeneratedIndicator(message.generatedIndicator!)} type="button"><Plus size={12} /> Add to chart</button></div></> : null}{message.backtest ? <p className="mt-3 rounded-md border border-white/10 p-2 text-slate-400">Automatic {DEFAULT_QUANT_BACKTEST_CONFIG.windowDays}-day test · {message.backtest.trades} trades · {message.backtest.netReturnPercent.toFixed(2)}% net · sample {message.backtest.sample.hash}</p> : null}{message.usage ? <p className="mt-2 text-[10px] text-slate-500">Usage: {formatUsage(message.usage)}</p> : null}</article>;
+}
+
+function quantJobLabel(status: QuantJobStatus, retrying: boolean) {
+  if (retrying) return "Retrying";
+  return { cancelled: "Cancelled", completed: "Completed", failed: "Failed", queued: "Queued", running: "Generating" }[status];
+}
+
+function quantJobContent(job: { content: string; status: QuantJobStatus }, retrying: boolean) {
+  if (retrying) return "Reconnecting to the configured provider for the previous request…";
+  if (job.status === "failed") return "The request stopped. Review the recovery message below.";
+  if (job.content) return job.content;
+  if (job.status === "cancelled") return "Request cancelled. No new assistant response was saved.";
+  if (job.status === "completed") return "The provider completed without additional response text.";
+  return "Waiting for the configured provider…";
 }
 
 function AnalysisPresentation({ analysis }: { analysis: NonNullable<QuantConversation["messages"][number]["analysis"]> }) {

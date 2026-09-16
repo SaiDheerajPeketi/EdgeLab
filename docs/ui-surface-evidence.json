@@ -426,10 +426,40 @@
       }
     },
     "/app/quant": {
+      "unavailable": {
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-unavailable.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-unavailable.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-unavailable.png", "captureMode": "viewport" }
+      },
       "empty": {
-        "mobile": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png", "captureMode": "viewport" },
-        "tablet": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/protected-workspace.quality.spec.ts", "snapshot": "quant.png", "captureMode": "viewport" }
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-empty.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-empty.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-empty.png", "captureMode": "viewport" }
+      },
+      "streaming": {
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-streaming.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-streaming.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-streaming.png", "captureMode": "viewport" }
+      },
+      "cancelled": {
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-cancelled.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-cancelled.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-cancelled.png", "captureMode": "viewport" }
+      },
+      "error": {
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-error.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-error.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-error.png", "captureMode": "viewport" }
+      },
+      "retrying": {
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-retrying.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-retrying.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-retrying.png", "captureMode": "viewport" }
+      },
+      "artifact": {
+        "mobile": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-artifact.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-artifact.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/quant.states.visual.spec.ts", "snapshot": "quant-artifact.png", "captureMode": "viewport" }
       }
     },
     "/app/settings/:category": {
