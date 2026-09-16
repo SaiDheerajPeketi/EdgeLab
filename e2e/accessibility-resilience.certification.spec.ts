@@ -47,7 +47,7 @@ test.describe("UIR-73 through UIR-78 representative certification", () => {
 
   test("settings combobox supports arrows, active option, Escape, and long bidirectional text", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Keyboard and bidi behavior are viewport-independent.");
-    await page.addInitScript(() => { document.documentElement.dir = "rtl"; document.documentElement.lang = "ar-SA"; });
+    await installDocumentLocale(page, "ar-SA", "rtl");
     await gotoStable(page, "/app/settings/global");
     const search = page.getByRole("combobox", { name: "Search settings" });
     await search.fill("a");
@@ -79,7 +79,7 @@ test.describe("UIR-73 through UIR-78 representative certification", () => {
 
   test("journal trade table renders real long RTL content with locale-aware date, quantity, and JPY currency", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Locale/content stress is audited once.");
-    await page.addInitScript(() => { document.documentElement.dir = "rtl"; document.documentElement.lang = "ar-SA"; });
+    await installDocumentLocale(page, "ar-SA", "rtl");
     await page.route("**/api/**", (route) => {
       const path = new URL(route.request().url()).pathname;
       if (path === "/api/journal/accounts") return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 501, broker_account_id: null, source_type: "MANUAL", source_key: "rtl-account", name: "حساب العقود الآجلة طويل الاسم — مكتب فرانكفورت", provider: "يدوي", currency: "JPY", timezone: "Asia/Tokyo", initial_balance: "999999999.99", color: "#22d3ee", notes: "", status: "ACTIVE", created_at: "2026-09-15T10:00:00Z", updated_at: "2026-09-15T10:00:00Z" }]) });
@@ -121,5 +121,16 @@ async function expectNoSeriousViolations(page: Page) {
 
 function horizontalOverflow(page: Page) { return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth); }
 function undersizedTargets(page: Page) { return page.locator('button:visible, a[href]:visible, input:visible, select:visible, [role="button"]:visible, [role="option"]:visible').evaluateAll((nodes) => nodes.map((node) => { const rect = node.getBoundingClientRect(); return { height: rect.height, label: node.getAttribute("aria-label") || node.textContent?.trim()?.slice(0, 60), width: rect.width }; }).filter((item) => item.height < 44 || item.width < 44)); }
+function installDocumentLocale(page: Page, locale: string, direction: "ltr" | "rtl") {
+  return page.addInitScript(({ locale, direction }) => {
+    const apply = () => {
+      if (!document.documentElement) return;
+      document.documentElement.lang = locale;
+      document.documentElement.dir = direction;
+    };
+    new MutationObserver(apply).observe(document, { childList: true, subtree: true });
+    apply();
+  }, { locale, direction });
+}
 
 declare global { interface Window { axe: typeof axe } }
