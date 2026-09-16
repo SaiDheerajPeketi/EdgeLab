@@ -9,6 +9,7 @@ declare global {
   interface Window {
     __edgelabMotionIntervalCounts?: Record<string, number>;
     __edgelabMotionIntervalIds?: Record<string, number[]>;
+    __edgelabIntersectionDisconnects?: number;
   }
 }
 
@@ -37,6 +38,16 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
       window.__edgelabMotionIntervalIds = intervalIds;
       return intervalId;
     }) as typeof window.setInterval;
+  });
+  await page.addInitScript(() => {
+    const NativeIntersectionObserver = window.IntersectionObserver;
+    window.__edgelabIntersectionDisconnects = 0;
+    window.IntersectionObserver = class extends NativeIntersectionObserver {
+      disconnect() {
+        window.__edgelabIntersectionDisconnects = (window.__edgelabIntersectionDisconnects ?? 0) + 1;
+        super.disconnect();
+      }
+    };
   });
   await gotoStable(page, "/");
 
@@ -146,6 +157,13 @@ test("a live reduced-motion preference stops repeated landing work", async ({ pa
   const journalStep = page.locator('[data-scenario-pill="true"]').filter({ hasText: "02 · Journal" });
   await journalStep.click();
   await expect(journalStep).toHaveAttribute("aria-current", "step");
+
+  await page.evaluate(() => {
+    history.pushState({}, "", "/pricing");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page).toHaveURL(/\/pricing$/);
+  await expect.poll(() => page.evaluate(() => window.__edgelabIntersectionDisconnects ?? 0)).toBeGreaterThan(0);
 });
 
 test("the reduced-motion circular toolbox remains keyboard-usable and restores focus", async ({ page }, testInfo) => {

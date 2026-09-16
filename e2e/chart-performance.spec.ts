@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { gotoStable, installDeterminism, seedApprovedSession, seedChartLayout } from "./support/app";
 
 const budgets = JSON.parse(readFileSync(new URL("../docs/ui-performance-budgets.json", import.meta.url), "utf8")) as {
@@ -31,56 +32,84 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
     await client.send("Emulation.setCPUThrottlingRate", { rate: 4 });
     throttled = true;
 
-    const surface = page.locator(".chart-pane-shell").nth(1).locator(".tv-lightweight-charts").first();
+    const surface = page.locator(".chart-pane-shell").first().locator(".tv-lightweight-charts").first();
+    await surface.scrollIntoViewIfNeeded();
     const bounds = await surface.boundingBox();
-    let frameWorkload: { frames: number[]; panesWithChangingOhlc: number } = { frames: [], panesWithChangingOhlc: 0 };
+    let frameWorkload: { deliveredInputs: number; frames: number[]; panesWithChangingOhlc: number; processedCrosshairUpdates: number } = {
+      deliveredInputs: 0,
+      frames: [],
+      panesWithChangingOhlc: 0,
+      processedCrosshairUpdates: 0,
+    };
     if (bounds) {
       await page.evaluate(() => {
         const target = window as typeof window & {
+          __edgePerfCleanup?: () => void;
+          __edgePerfDelivered?: number;
           __edgePerfFrames?: number[];
-          __edgePerfFrameDone?: boolean;
           __edgePerfOhlc?: string[][];
+          __edgePerfProcessed?: number;
         };
         const nodes = [...document.querySelectorAll<HTMLElement>(".chart-ohlcv-time")];
+        target.__edgePerfDelivered = 0;
         target.__edgePerfFrames = [];
-        target.__edgePerfFrameDone = false;
         target.__edgePerfOhlc = nodes.map((node) => [node.textContent ?? ""]);
+        target.__edgePerfProcessed = 0;
         const observer = new MutationObserver(() => nodes.forEach((node, index) => {
           const value = node.textContent ?? "";
           const seen = target.__edgePerfOhlc?.[index];
-          if (seen && !seen.includes(value)) seen.push(value);
+          if (seen && !seen.includes(value)) {
+            seen.push(value);
+            target.__edgePerfProcessed = (target.__edgePerfProcessed ?? 0) + 1;
+          }
         }));
         nodes.forEach((node) => observer.observe(node, { characterData: true, childList: true, subtree: true }));
-        let previous: number | null = null;
-        const collect = (current: number) => {
-          if (previous != null) target.__edgePerfFrames?.push(current - previous);
-          previous = current;
-          if ((target.__edgePerfFrames?.length ?? 0) < 140) requestAnimationFrame(collect);
-          else {
-            observer.disconnect();
-            target.__edgePerfFrameDone = true;
-          }
+        const recordInput = () => {
+          target.__edgePerfDelivered = (target.__edgePerfDelivered ?? 0) + 1;
+          const startedAt = performance.now();
+          requestAnimationFrame(() => target.__edgePerfFrames?.push(performance.now() - startedAt));
         };
-        requestAnimationFrame(collect);
+        document.addEventListener("mousemove", recordInput, true);
+        target.__edgePerfCleanup = () => {
+          document.removeEventListener("mousemove", recordInput, true);
+          observer.disconnect();
+        };
       });
       for (let index = 0; index < 120; index += 1) {
         await page.mouse.move(bounds.x + bounds.width * ([0.2, 0.5, 0.8][index % 3] ?? 0.5), bounds.y + bounds.height * 0.45);
+        await page.evaluate((expected) => new Promise<void>((resolve) => {
+          const waitForPaint = () => {
+            const frames = (window as typeof window & { __edgePerfFrames?: number[] }).__edgePerfFrames ?? [];
+            if (frames.length >= expected) resolve();
+            else requestAnimationFrame(waitForPaint);
+          };
+          waitForPaint();
+        }), index + 1);
       }
-      await expect.poll(() => page.evaluate(() => Boolean((window as typeof window & { __edgePerfFrameDone?: boolean }).__edgePerfFrameDone))).toBe(true);
       frameWorkload = await page.evaluate(() => {
-        const target = window as typeof window & { __edgePerfFrames?: number[]; __edgePerfOhlc?: string[][] };
+        const target = window as typeof window & {
+          __edgePerfCleanup?: () => void;
+          __edgePerfDelivered?: number;
+          __edgePerfFrames?: number[];
+          __edgePerfOhlc?: string[][];
+          __edgePerfProcessed?: number;
+        };
+        target.__edgePerfCleanup?.();
         return {
+          deliveredInputs: target.__edgePerfDelivered ?? 0,
           frames: target.__edgePerfFrames ?? [],
           panesWithChangingOhlc: (target.__edgePerfOhlc ?? []).filter((values) => values.length >= 2).length,
+          processedCrosshairUpdates: target.__edgePerfProcessed ?? 0,
         };
       });
     }
-    const frames = frameWorkload.frames.slice(20);
+    const frames = frameWorkload.frames;
     report.frameP95Ms = p95(frames);
     report.frames = frames;
     report.representativeWorkload = {
-      dispatchedCrosshairUpdates: 120,
+      deliveredInputs: frameWorkload.deliveredInputs,
       panesWithChangingOhlc: frameWorkload.panesWithChangingOhlc,
+      processedCrosshairUpdates: frameWorkload.processedCrosshairUpdates,
     };
 
     const resizeStress = await page.evaluate(async () => {
@@ -173,6 +202,7 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
       }
     }
     report.phase = "complete";
+    mkdirSync(dirname(metricsPath), { recursive: true });
     writeFileSync(metricsPath, `${JSON.stringify(report, null, 2)}\n`);
     console.log(`[low-power-performance] ${JSON.stringify(report)}`);
     await testInfo.attach("low-power-performance.json", { contentType: "application/json", path: metricsPath });
@@ -180,11 +210,12 @@ test("populated 16-pane workspace meets low-power budgets", async ({ page }, tes
     await client.detach().catch(() => undefined);
   }
 
-  const workload = report.representativeWorkload as { dispatchedCrosshairUpdates: number; panesWithChangingOhlc: number } | undefined;
+  const workload = report.representativeWorkload as { deliveredInputs: number; panesWithChangingOhlc: number; processedCrosshairUpdates: number } | undefined;
   const resize = report.resizeStress as { changedCanvases?: number; changedContainers?: number; initialValidCanvases?: number; iterations?: number; restoredCanvases?: number; restoredContainers?: number } | undefined;
   const failures = [
     report.collectionError ? `collection: ${report.collectionError}` : null,
-    workload?.dispatchedCrosshairUpdates === 120 ? null : `crosshair updates: ${workload?.dispatchedCrosshairUpdates ?? 0} !== 120`,
+    workload?.deliveredInputs === 120 ? null : `delivered chart inputs: ${workload?.deliveredInputs ?? 0} !== 120`,
+    Number(workload?.processedCrosshairUpdates) > 0 ? null : "processed crosshair updates: 0",
     workload?.panesWithChangingOhlc === 16 ? null : `OHLC panes: ${workload?.panesWithChangingOhlc ?? 0} !== 16`,
     resize?.iterations === 20 ? null : `resize iterations: ${resize?.iterations ?? 0} !== 20`,
     resize?.initialValidCanvases === 16 ? null : `valid backing canvases: ${resize?.initialValidCanvases ?? 0} !== 16`,
