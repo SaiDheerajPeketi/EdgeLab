@@ -189,3 +189,56 @@ test("the reduced-motion circular toolbox remains keyboard-usable and restores f
   await expect(toolbox).toBeHidden();
   await expect(chart).toBeFocused();
 });
+
+test("authenticated shell journal settings and command palette motion remain bounded", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Representative authenticated motion census runs once.");
+  await installDeterminism(page, { motionLock: false });
+  await seedApprovedSession(page);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  for (const path of ["/app", "/app/journal/trades", "/app/settings/global"]) {
+    await gotoStable(page, path, { waitForNetworkIdle: false });
+    const unsafeRepeated = await page.evaluate(() => {
+      const metadata = new Set(["composite", "computedOffset", "easing", "offset"]);
+      return document.getAnimations().flatMap((animation) => {
+        const effect = animation.effect;
+        if (!(effect instanceof KeyframeEffect) || effect.getTiming().iterations !== Infinity) return [];
+        return [...new Set(effect.getKeyframes().flatMap((frame) => Object.keys(frame)))]
+          .filter((property) => !metadata.has(property) && property !== "opacity" && property !== "transform");
+      });
+    });
+    expect(unsafeRepeated).toEqual([]);
+  }
+
+  await gotoStable(page, "/app/live", { waitForNetworkIdle: false });
+  await page.getByRole("tab", { name: "Journal" }).click();
+  const journalPanel = page.getByRole("tabpanel", { name: "Journal" });
+  await expect(journalPanel).toBeVisible();
+  expect(await journalPanel.evaluate((panel) => panel.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running").length)).toBe(0);
+
+  const trigger = page.getByRole("button", { name: "Open command palette" }).first();
+  for (let index = 0; index < 4; index += 1) {
+    await trigger.click();
+    await expect(page.getByRole("dialog", { name: "EdgeLab command palette" })).toBeVisible();
+    await page.keyboard.press("Escape");
+  }
+  await expect(page.getByRole("dialog", { name: "EdgeLab command palette" })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && (animation.effect.target as Element | null)?.closest('[role="dialog"]')).length)).toBe(0);
+
+  const client = await page.context().newCDPSession(page);
+  await client.send("Performance.enable");
+  const layoutCount = async () => (await client.send("Performance.getMetrics")).metrics.find((metric) => metric.name === "LayoutCount")?.value ?? NaN;
+  const before = await layoutCount();
+  await page.waitForTimeout(500);
+  expect((await layoutCount()) - before).toBe(0);
+  await client.detach();
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "EdgeLab command palette" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCSS("transition-duration", "0s");
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+});

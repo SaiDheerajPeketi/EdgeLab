@@ -57,7 +57,7 @@ const shimmeringText = fs.readFileSync(path.join(sourceRoot, "components/shimmer
 assert.match(shimmeringText, /opacity:\s*\[0\.48, 1, 0\.48\][\s\S]*repeat:\s*Number\.POSITIVE_INFINITY/);
 assert.doesNotMatch(shimmeringText, /color:\s*\[[^\]]+\][\s\S]*repeat:\s*Number\.POSITIVE_INFINITY/);
 assert.equal(census.schemaVersion, 1, "Unsupported motion census schema");
-assert.deepEqual(Object.keys(census.proof).sort(), ["authenticated-radial-toolbox", "public-storytelling"]);
+assert.deepEqual(Object.keys(census.proof).sort(), ["authenticated-navigation-motion", "authenticated-radial-toolbox", "public-storytelling"]);
 const assertPartition = (label, actual, partition) => {
   const covered = Object.keys(partition.covered);
   assert.equal(new Set([...covered, ...partition.residual]).size, actual.length, `${label} census contains duplicates or omissions`);
@@ -82,6 +82,7 @@ const assertionMarkers = {
   "layout-count-zero": "LayoutCount",
   "reduced-motion": "prefers-reduced-motion: reduce",
   "focus-restoration": "toBeFocused",
+  "overlay-unmount-cleanup": "closest('[role=\"dialog\"]')",
 };
 const referencedProofs = new Set(Object.values(census.routeGroups.covered).flat().concat(Object.values(census.panels.covered).flat(), Object.values(census.overlays.covered).flat()));
 assert.deepEqual([...referencedProofs].sort(), Object.keys(census.proof).sort(), "Every proof must be referenced by a covered surface and vice versa");

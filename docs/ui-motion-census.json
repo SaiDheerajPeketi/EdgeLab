@@ -10,18 +10,31 @@
       "spec": "e2e/motion-preference.interaction.spec.ts",
       "testTitle": "the reduced-motion circular toolbox remains keyboard-usable and restores focus",
       "assertions": ["reduced-motion", "focus-restoration"]
+    },
+    "authenticated-navigation-motion": {
+      "spec": "e2e/motion-preference.interaction.spec.ts",
+      "testTitle": "authenticated shell journal settings and command palette motion remain bounded",
+      "assertions": ["compositor-properties", "overlay-unmount-cleanup", "rapid-interruption-final-state", "layout-count-zero", "reduced-motion", "focus-restoration"]
     }
   },
   "routeGroups": {
-    "covered": { "public": ["public-storytelling"] },
-    "residual": ["shell", "journal", "settings", "chart"]
+    "covered": {
+      "public": ["public-storytelling"],
+      "shell": ["authenticated-navigation-motion"],
+      "journal": ["authenticated-navigation-motion"],
+      "settings": ["authenticated-navigation-motion"]
+    },
+    "residual": ["chart"]
   },
   "panels": {
-    "covered": {},
-    "residual": ["Journal", "Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"]
+    "covered": { "Journal": ["authenticated-navigation-motion"] },
+    "residual": ["Watchlist", "Quant assistant", "Data Window", "Objects", "Indicator editor", "Order Book", "Alerts", "Order ticket", "Replay transport"]
   },
   "overlays": {
-    "covered": { "radial drawing toolbox": ["authenticated-radial-toolbox"] },
-    "residual": ["command palette", "shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "confirmation dialog", "toast"]
+    "covered": {
+      "radial drawing toolbox": ["authenticated-radial-toolbox"],
+      "command palette": ["authenticated-navigation-motion"]
+    },
+    "residual": ["shortcut catalog", "account menu", "mobile navigation", "trade review drawer", "add trade flow", "journal import flow", "broker connection flow", "workspace sharing", "chart settings", "indicator settings", "drawing settings", "symbol search", "confirmation dialog", "toast"]
   }
 }
