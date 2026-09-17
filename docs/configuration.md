@@ -63,4 +63,4 @@ Set `EDGELAB_EXTERNAL_AI_BASE_URL` and `EDGELAB_EXTERNAL_AI_MODEL` to enable the
 
 ## Observability
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable trace export. Logging is controlled by `EDGELAB_OBSERVABILITY_LOG_LEVEL` and `EDGELAB_OBSERVABILITY_JSON_LOGS`. The full `benchmark` profile supplies the bundled Prometheus, Grafana, Loki, and Tempo stack.
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable trace export. Production samples 10% of traces by default through `EDGELAB_OTEL_TRACE_SAMPLE_RATIO`; increase it temporarily for incident diagnosis instead of paying full-time export and storage costs. Logging is controlled by `EDGELAB_OBSERVABILITY_LOG_LEVEL` and `EDGELAB_OBSERVABILITY_JSON_LOGS`. The full `benchmark` profile supplies the bundled Prometheus, Grafana, Loki, and Tempo stack.

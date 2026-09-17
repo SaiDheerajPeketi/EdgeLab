@@ -260,7 +260,7 @@ class Settings:
     ).strip()
     otel_trace_sample_ratio: float = float_env(
         "EDGELAB_OTEL_TRACE_SAMPLE_RATIO",
-        1.0,
+        0.1,
     )
     beta_seats_total: int = int_env("EDGELAB_BETA_SEATS_TOTAL", 500)
     beta_manual_access_enabled: bool = bool_env(

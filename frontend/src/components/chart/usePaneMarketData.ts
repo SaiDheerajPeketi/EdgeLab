@@ -9,6 +9,7 @@ export type PaneMarketData = { bars: Candle[]; detail: string; instrument: Marke
 
 type SharedSubscription = { leases: number; subscriptionId: Promise<string | null> };
 const sharedSubscriptions = new Map<string, SharedSubscription>();
+const PANE_MARKET_REFRESH_MS = 5_000;
 
 function acquireMarketSubscription(key: string, payload: { pane_id: string; instrument_id: number }) {
   const existing = sharedSubscriptions.get(key);
@@ -42,8 +43,17 @@ export function usePaneMarketData(panes: PaneMarketDescriptor[], enabled = true)
     if (!enabled || !panes.length) return undefined;
     let active = true;
     const subscriptionKeys: string[] = [];
-    const timers: number[] = [];
+    const refreshers = new Set<() => Promise<void>>();
     const groups = planPaneSubscriptions(panes);
+
+    const refreshVisibleGroups = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshers.forEach((refresh) => void refresh());
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshVisibleGroups();
+    };
 
     const loadGroup = async ({ key, leader: pane, paneIds }: ReturnType<typeof planPaneSubscriptions>[number]) => {
       setData((current) => Object.fromEntries(Object.entries(current).concat(paneIds.map((paneId) => [paneId, current[paneId]?.status === "available" ? current[paneId] : { bars: [], instrument: null, status: "loading", detail: `Resolving ${pane.symbol}…`, updatedAt: null }]))));
@@ -56,7 +66,10 @@ export function usePaneMarketData(panes: PaneMarketDescriptor[], enabled = true)
         }
         subscriptionKeys.push(key);
         await acquireMarketSubscription(key, { pane_id: pane.id, instrument_id: instrument.id });
+        let requestInFlight = false;
         const refresh = async () => {
+          if (requestInFlight) return;
+          requestInFlight = true;
           try {
             const requestedFrom = pane.fromAt ? new Date(pane.fromAt) : null;
             const requestedTo = pane.toAt ? new Date(pane.toAt) : null;
@@ -77,19 +90,25 @@ export function usePaneMarketData(panes: PaneMarketDescriptor[], enabled = true)
           } catch (error) {
             if (!active) return;
             setData((current) => ({ ...current, ...Object.fromEntries(paneIds.map((paneId) => [paneId, { bars: current[paneId]?.bars ?? [], instrument, status: "error", detail: error instanceof Error ? error.message : `Could not load ${pane.symbol}.`, updatedAt: current[paneId]?.updatedAt ?? null }])) }));
+          } finally {
+            requestInFlight = false;
           }
         };
         await refresh();
-        if (active) timers.push(window.setInterval(() => void refresh(), 5_000));
+        if (active) refreshers.add(refresh);
       } catch (error) {
         if (active) setData((current) => ({ ...current, ...Object.fromEntries(paneIds.map((paneId) => [paneId, { bars: [], instrument: null, status: "error", detail: error instanceof Error ? error.message : `Could not resolve ${pane.symbol}.`, updatedAt: null }])) }));
       }
     };
 
     groups.forEach((group) => void loadGroup(group));
+    const pollTimer = window.setInterval(refreshVisibleGroups, PANE_MARKET_REFRESH_MS);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       active = false;
-      timers.forEach((timer) => window.clearInterval(timer));
+      window.clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      refreshers.clear();
       subscriptionKeys.forEach(releaseMarketSubscription);
     };
   // `signature` intentionally represents the complete subscription identity.

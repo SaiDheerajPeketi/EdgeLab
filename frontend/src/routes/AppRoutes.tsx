@@ -45,12 +45,20 @@ const AuthSignInPage = lazy(() =>
 const SharedWorkspacePage = lazy(() =>
   import("../pages/SharedWorkspacePage").then((module) => ({ default: module.SharedWorkspacePage })),
 );
+const loadWorkspaceModule = () => import("../App");
 const WorkspaceApp = lazy(() =>
-  import("../App").then((module) => ({ default: module.WorkspaceApp })),
+  loadWorkspaceModule().then((module) => ({ default: module.WorkspaceApp })),
 );
 const NotFoundPage = lazy(() =>
-  import("../App").then((module) => ({ default: module.NotFoundPage })),
+  loadWorkspaceModule().then((module) => ({ default: module.NotFoundPage })),
 );
+
+function preloadWorkspaceSurface() {
+  return Promise.all([
+    loadWorkspaceModule(),
+    import("../components/EdgeLabWorkspace"),
+  ]).catch(() => undefined);
+}
 
 function AppRouteFallback() {
   const location = useLocation();
@@ -220,6 +228,12 @@ function WorkspaceBetaNotice() {
 function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   const session = useAuthSession();
   const location = useLocation();
+
+  useEffect(() => {
+    if (session?.user.approved && location.pathname.startsWith("/app")) {
+      void preloadWorkspaceSurface();
+    }
+  }, [location.pathname, session?.user.approved]);
 
   if (!session) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
