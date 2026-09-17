@@ -21,11 +21,14 @@ RUN npm install -g npm@11.16.0
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
 RUN npm ci --no-audit --no-fund \
-    && ROLLUP_LINUX_X64_GNU_VERSION="$(node -p 'require("./frontend/node_modules/rollup/package.json").optionalDependencies["@rollup/rollup-linux-x64-gnu"]')" \
-    && ESBUILD_LINUX_X64_VERSION="$(node -p 'require("./node_modules/esbuild/package.json").optionalDependencies["@esbuild/linux-x64"]')" \
+    && NODE_ARCH="$(node -p 'process.arch')" \
+    && ROLLUP_PACKAGE="@rollup/rollup-linux-${NODE_ARCH}-gnu" \
+    && ESBUILD_PACKAGE="@esbuild/linux-${NODE_ARCH}" \
+    && ROLLUP_VERSION="$(node -p "require('./frontend/node_modules/rollup/package.json').optionalDependencies['${ROLLUP_PACKAGE}']")" \
+    && ESBUILD_VERSION="$(node -p "require('./node_modules/esbuild/package.json').optionalDependencies['${ESBUILD_PACKAGE}']")" \
     && npm install --no-save --ignore-scripts \
-        "@rollup/rollup-linux-x64-gnu@${ROLLUP_LINUX_X64_GNU_VERSION}" \
-        "@esbuild/linux-x64@${ESBUILD_LINUX_X64_VERSION}"
+        "${ROLLUP_PACKAGE}@${ROLLUP_VERSION}" \
+        "${ESBUILD_PACKAGE}@${ESBUILD_VERSION}"
 
 WORKDIR /app/frontend
 
