@@ -20,6 +20,8 @@ docker compose -f docker-compose.local.yml up --build -d
 
 Open <http://localhost:8080>. This mode uses a single FastAPI container, SQLite, local developer sign-in, and the CSV files under `datasets/`. Application data lives in a Docker volume and survives normal container restarts.
 
+Production images keep test-only Python packages out of the runtime, precompress browser assets during the build, and reuse one backend image across the API and worker services.
+
 Add datasets beneath `datasets/`, then refresh the catalog from the application. Generated market data is intentionally not committed.
 
 ## Development

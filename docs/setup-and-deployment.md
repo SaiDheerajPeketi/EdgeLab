@@ -60,6 +60,8 @@ At minimum, replace `POSTGRES_PASSWORD` and `EDGELAB_JWT_SECRET`. A production e
 
 The full stack exposes the frontend on `FRONTEND_PORT` (8080 by default). PostgreSQL, TimescaleDB, Redis, PgBouncer, the API services, the data populator, and the analytics worker start by default.
 
+The four Python services share `EDGELAB_BACKEND_IMAGE` (default `edgelab-backend:local`), so a clean Compose build produces the backend once and reuses it. Set a registry tag when a deployment pipeline pushes or pulls a prebuilt image.
+
 Add the benchmark profile for the bundled monitoring stack and k6 service:
 
 ```bash

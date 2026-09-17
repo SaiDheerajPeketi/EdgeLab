@@ -99,9 +99,6 @@ pipeline {
                           pgbouncer-postgres \
                           pgbouncer-timescaledb \
                           api \
-                          market-api \
-                          analytics-worker \
-                          data-populator \
                           frontend
                         ${compose_cmd} up -d --remove-orphans
                         docker image prune -f

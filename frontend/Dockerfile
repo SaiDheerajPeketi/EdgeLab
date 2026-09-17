@@ -16,8 +16,6 @@ ENV NPM_CONFIG_REPLACE_REGISTRY_HOST=always
 
 WORKDIR /app
 
-RUN npm install -g npm@11.16.0
-
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
 RUN npm ci --no-audit --no-fund \
@@ -34,7 +32,9 @@ WORKDIR /app/frontend
 
 COPY frontend ./
 COPY scripts /app/scripts
-RUN npm run build
+RUN npm run build \
+    && find dist -type f \( -name '*.css' -o -name '*.html' -o -name '*.js' -o -name '*.json' -o -name '*.svg' \) \
+        -exec gzip -9 -k {} \;
 
 FROM nginx:1.27-alpine
 

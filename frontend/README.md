@@ -39,6 +39,8 @@ Workspace URLs are stable and deep-linkable. The main groups are `/app/live`, `/
 
 These values are compiled into the bundle. Rebuild the frontend after changing them.
 
+The production image precompresses JavaScript, CSS, HTML, JSON, and SVG output once at build time. Nginx serves those files directly and keeps fingerprinted assets cached for one year.
+
 ## Checks
 
 From the repository root:

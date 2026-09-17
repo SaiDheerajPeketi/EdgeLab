@@ -1,3 +1,9 @@
+x-backend-image: &backend-image
+  image: ${EDGELAB_BACKEND_IMAGE:-edgelab-backend:local}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -295,9 +301,7 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    <<: *backend-image
     depends_on:
       pgbouncer-postgres:
         condition: service_healthy
@@ -381,9 +385,7 @@ services:
         read_only: true
 
   market-api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    <<: *backend-image
     depends_on:
       pgbouncer-postgres:
         condition: service_healthy
@@ -456,9 +458,7 @@ services:
         read_only: true
 
   data-populator:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    <<: *backend-image
     command: ["python", "-m", "app.data_populator"]
     depends_on:
       pgbouncer-postgres:
@@ -501,9 +501,7 @@ services:
         target: /datasets
 
   analytics-worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    <<: *backend-image
     command: ["python", "-m", "app.analytics_worker"]
     depends_on:
       pgbouncer-postgres:

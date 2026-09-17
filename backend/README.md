@@ -52,3 +52,5 @@ npm test
 ```
 
 The first command covers the FastAPI application and services. The second runs the repository's Node-based contract tests.
+
+`requirements.txt` is production-only. Keep test and audit tooling in `requirements-dev.txt` so container installs remain small and fast.
