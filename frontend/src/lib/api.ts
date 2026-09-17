@@ -733,9 +733,9 @@ export type GoogleAuthExchangePayload = {
 };
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "/api";
+  import.meta.env?.VITE_API_BASE_URL ?? "/api";
 const API_BEARER_TOKEN =
-  import.meta.env.VITE_API_BEARER_TOKEN ?? "";
+  import.meta.env?.VITE_API_BEARER_TOKEN ?? "";
 const AUTH_STORAGE_KEY = "edgelab.auth.session.v1";
 
 export class ApiError extends Error {
@@ -818,8 +818,7 @@ export function getApiWebSocketUrl(path: string) {
   const prefix = base.pathname.replace(/\/$/, "");
   const suffix = path.startsWith("/") ? path : `/${path}`;
   base.pathname = `${prefix}${suffix}`;
-  const authToken = readStoredAuthToken();
-  base.search = authToken ? `authToken=${encodeURIComponent(authToken)}` : "";
+  base.search = "";
   base.hash = "";
   return base.toString();
 }

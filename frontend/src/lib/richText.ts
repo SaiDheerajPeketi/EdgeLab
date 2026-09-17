@@ -55,11 +55,7 @@ export function sanitizeRichTextHtml(value: string | null | undefined) {
     return "";
   }
   if (typeof document === "undefined") {
-    return note
-      .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
-      .replace(/\son\w+="[^"]*"/gi, "")
-      .replace(/\son\w+='[^']*'/gi, "");
+    return textToRichHtml(note);
   }
 
   const allowedTags = new Set([
@@ -101,23 +97,23 @@ export function sanitizeRichTextHtml(value: string | null | undefined) {
       const isSafeHref =
         element.tagName === "A" &&
         name === "href" &&
-        /^(https?:|mailto:|tel:|#|\/)/i.test(value);
+        isSafeRichTextHref(value);
       if (isSafeHref) {
         element.setAttribute("target", "_blank");
-        element.setAttribute("rel", "noreferrer");
+        element.setAttribute("rel", "noopener noreferrer");
         return;
       }
       if (name === "style") {
         const safeDeclarations = value
           .split(";")
           .map((part) => part.trim())
-          .filter((part) => /^(color|text-align)\s*:/i.test(part));
+          .filter(isSafeRichTextStyleDeclaration);
         if (safeDeclarations.length > 0) {
           element.setAttribute("style", safeDeclarations.join("; "));
           return;
         }
       }
-      if (element.tagName === "FONT" && name === "color") {
+      if (element.tagName === "FONT" && name === "color" && isSafeCssColor(value)) {
         return;
       }
       if (name === "target" || name === "rel") {
@@ -127,4 +123,42 @@ export function sanitizeRichTextHtml(value: string | null | undefined) {
     });
   });
   return container.innerHTML;
+}
+
+export function isSafeRichTextHref(value: string) {
+  const href = value.trim();
+  if (!href || /[\u0000-\u001f\u007f\\]/.test(href)) {
+    return false;
+  }
+  if (href.startsWith("#")) {
+    return true;
+  }
+  if (href.startsWith("/")) {
+    return !href.startsWith("//");
+  }
+  try {
+    return ["http:", "https:", "mailto:", "tel:"].includes(new URL(href).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function isSafeRichTextStyleDeclaration(declaration: string) {
+  const separator = declaration.indexOf(":");
+  if (separator <= 0) {
+    return false;
+  }
+  const property = declaration.slice(0, separator).trim().toLowerCase();
+  const value = declaration.slice(separator + 1).trim();
+  if (property === "text-align") {
+    return ["left", "right", "center", "justify", "start", "end"].includes(value.toLowerCase());
+  }
+  return property === "color" && isSafeCssColor(value);
+}
+
+function isSafeCssColor(value: string) {
+  if (!value || /[\\;]|(?:url|var|expression)\s*\(/i.test(value)) {
+    return false;
+  }
+  return typeof CSS !== "undefined" && CSS.supports("color", value);
 }

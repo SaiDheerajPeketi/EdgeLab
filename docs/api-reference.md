@@ -24,7 +24,7 @@ Operational endpoints:
 
 - `GET /api/health` checks the application database.
 - `GET /api/ready` checks the database and reports the visible dataset catalog.
-- `GET /api/observability/metrics` exposes Prometheus metrics.
+- `GET /api/observability/metrics` exposes Prometheus metrics on the private service network; the public Nginx entry point blocks it.
 - `GET /api/ui/rollout` returns the active UI rollout policy without exposing secrets.
 
 ## Authentication
@@ -32,6 +32,8 @@ Operational endpoints:
 User routes expect the EdgeLab bearer token returned by the auth flow. `EDGELAB_API_TOKEN`, when configured, protects non-user operational routes. The browser can send the same value through `VITE_API_BEARER_TOKEN`, although production deployments should prefer user-scoped sessions.
 
 The development bypass is accepted only when `EDGELAB_DEV_AUTH_BYPASS=1` and the request is loopback-local. Do not expose it through a public reverse proxy.
+
+Authenticated WebSocket routes receive the user session token in their first message. Tokens are never placed in WebSocket query strings, which keeps them out of proxy access logs and browser URL diagnostics.
 
 ## Compatibility API
 

@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from secrets import token_urlsafe
+from secrets import compare_digest, token_urlsafe
 import struct
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -33,8 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import (
     AuthenticatedUser,
-    api_token_is_valid,
-    authenticate_websocket,
+    authenticate_token,
     create_session_token,
     require_auth,
 )
@@ -226,6 +225,7 @@ from app.services.trade_imports import import_trade_csv
 router = APIRouter()
 logger = logging.getLogger(__name__)
 DATASET_STREAM_INTERVAL_SECONDS = 3
+WEBSOCKET_AUTH_TIMEOUT_SECONDS = 5
 BOOTSTRAP_SESSION_LIMIT = 25
 BOOTSTRAP_TRADE_LIMIT = 100
 SESSION_SUMMARIES_LIMIT = 50
@@ -768,6 +768,10 @@ def local_dev_request_allowed(request: Request) -> bool:
 def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object]:
     if not google_oauth_enabled():
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
+    expected_redirect_uri = settings.google_redirect_uri.strip()
+    supplied_redirect_uri = redirect_uri.strip()
+    if not expected_redirect_uri or not compare_digest(supplied_redirect_uri, expected_redirect_uri):
+        raise HTTPException(status_code=400, detail="Invalid OAuth redirect URI")
 
     payload = urlencode(
         {
@@ -775,7 +779,7 @@ def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object
             "client_secret": settings.google_client_secret,
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
+            "redirect_uri": expected_redirect_uri,
         }
     ).encode("utf-8")
     request = UrlRequest(
@@ -1162,7 +1166,6 @@ def ready(db: Session = Depends(get_db)) -> dict[str, str]:
     return {
         "status": "ok",
         "database": "ok",
-        "datasets_root": str(datasets_root),
         "dataset_assets": str(len(asset_dirs)),
         "dataset_timeframes": str(timeframes),
     }
@@ -1443,15 +1446,21 @@ def dataset_refresh_status(
 
 @router.websocket("/datasets/stream")
 async def dataset_stream(websocket: WebSocket) -> None:
+    await websocket.accept()
     db = SessionLocal()
     try:
-        current_user = authenticate_websocket(websocket, db)
-    except HTTPException:
-        db.close()
+        initial = await asyncio.wait_for(
+            websocket.receive_json(),
+            timeout=WEBSOCKET_AUTH_TIMEOUT_SECONDS,
+        )
+        token = clean_text(initial.get("authToken")) if isinstance(initial, dict) else ""
+        current_user = authenticate_token(db, token)
+    except (HTTPException, asyncio.TimeoutError, ValueError, TypeError, json.JSONDecodeError):
         await websocket.close(code=4401)
         return
+    finally:
+        db.close()
 
-    await websocket.accept()
     last_signature: str | None = None
     try:
         while True:
@@ -1469,8 +1478,6 @@ async def dataset_stream(websocket: WebSocket) -> None:
                 continue
     except WebSocketDisconnect:
         return
-    finally:
-        db.close()
 
 
 def dataset_catalog_stream_payload(user_id: int) -> dict[str, object]:
@@ -2526,7 +2533,9 @@ def market_data_bars(
 def dukascopy_instruments(
     search: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=120, ge=1, le=5000),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DukascopyInstrumentsResponse:
+    enforce_rate_limit("live-instruments", current_user.id, settings.market_data_meta_rate_limit)
     data = fetch_dukascopy_json("common/instruments", {})
     if not isinstance(data, dict) or not isinstance(data.get("instruments"), dict):
         raise HTTPException(status_code=502, detail="Dukascopy instrument catalog is unavailable")
@@ -2562,7 +2571,9 @@ def dukascopy_instruments(
 def binance_instruments(
     search: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=3000, ge=1, le=5000),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> BinanceInstrumentsResponse:
+    enforce_rate_limit("live-instruments", current_user.id, settings.market_data_meta_rate_limit)
     data = fetch_binance_exchange_info()
     if not isinstance(data, dict) or not isinstance(data.get("symbols"), list):
         raise HTTPException(status_code=502, detail="Binance instrument catalog is unavailable")
@@ -2616,7 +2627,9 @@ def angelone_instruments(
     search: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=12000, ge=1, le=50000),
     refresh: bool = Query(default=False),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AngelOneInstrumentsResponse:
+    enforce_rate_limit("live-instruments", current_user.id, settings.market_data_meta_rate_limit)
     instruments = fetch_angelone_instrument_catalog(refresh=refresh)
     words = [word for word in re.split(r"\s+", (search or "").strip().lower()) if word]
     if words:
@@ -2648,7 +2661,9 @@ def dukascopy_candles(
     interval: str = Query(default="1HOUR", max_length=12),
     limit: int = Query(default=260, ge=1, le=1000),
     before: int | None = Query(default=None, ge=0),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> DukascopyCandlesResponse:
+    enforce_rate_limit("live-candles", current_user.id, settings.market_data_bars_rate_limit)
     normalized_interval = interval.upper()
     if normalized_interval not in DUKASCOPY_INTERVALS:
         raise HTTPException(status_code=400, detail="Unsupported Dukascopy interval")
@@ -2683,12 +2698,15 @@ def dukascopy_candles(
 async def angelone_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
-        initial = await websocket.receive_json()
+        initial = await asyncio.wait_for(
+            websocket.receive_json(),
+            timeout=WEBSOCKET_AUTH_TIMEOUT_SECONDS,
+        )
     except WebSocketDisconnect:
         return
-    except Exception:
+    except (asyncio.TimeoutError, ValueError, TypeError, json.JSONDecodeError):
         await websocket.send_json({"type": "error", "message": "Invalid Angel One stream request"})
-        await websocket.close()
+        await websocket.close(code=4401)
         return
 
     if not isinstance(initial, dict):
@@ -2696,10 +2714,15 @@ async def angelone_stream(websocket: WebSocket) -> None:
         await websocket.close()
         return
 
-    if not api_token_is_valid(clean_text(initial.get("apiToken"))):
-        await websocket.send_json({"type": "error", "message": "Valid API token required"})
-        await websocket.close()
+    db = SessionLocal()
+    try:
+        authenticate_token(db, clean_text(initial.get("apiToken")))
+    except HTTPException:
+        await websocket.send_json({"type": "error", "message": "Valid session required"})
+        await websocket.close(code=4401)
         return
+    finally:
+        db.close()
 
     credentials = initial.get("credentials") if isinstance(initial.get("credentials"), dict) else {}
     client_code = clean_text(credentials.get("clientCode"))
@@ -2809,8 +2832,11 @@ async def angelone_stream(websocket: WebSocket) -> None:
 @router.get("/economic-calendar/forex-factory", response_model=EconomicCalendarResponse)
 def forex_factory_calendar(
     refresh: bool = Query(default=False),
+    current_user: AuthenticatedUser = Depends(require_auth),
 ) -> EconomicCalendarResponse:
     global forex_factory_calendar_cache
+
+    enforce_rate_limit("economic-calendar", current_user.id, settings.market_data_meta_rate_limit)
 
     now = datetime.now(tz=timezone.utc)
     if forex_factory_calendar_cache is not None and not refresh:

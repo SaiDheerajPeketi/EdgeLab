@@ -43,6 +43,7 @@ The frontend runs at <http://127.0.0.1:5173>, FastAPI at <http://127.0.0.1:8000>
 npm run build
 PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
 npm test
+sh scripts/audit-dependencies.sh
 docker compose config
 docker compose -f docker-compose.local.yml config
 ```
@@ -69,5 +70,6 @@ docker compose -f docker-compose.local.yml config
 - [Backend development](backend/README.md)
 - [Frontend development](frontend/README.md)
 - [Deployment utilities](deployment/README.md)
+- [Security policy](SECURITY.md)
 
 Machine-readable UI inventories and certification records under `docs/` are test inputs. Keep them in sync with UI changes; they are not end-user documentation.

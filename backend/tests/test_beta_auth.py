@@ -133,6 +133,27 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
     assert response.dev_auth_bypass_enabled is False
 
 
+def test_google_token_exchange_rejects_unconfigured_redirect_uri(monkeypatch):
+    monkeypatch.setattr(
+        routes,
+        "settings",
+        SimpleNamespace(
+            google_client_id="client-id",
+            google_client_secret="client-secret",
+            google_redirect_uri="https://edgelab.co.in/auth/callback/google",
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        routes.fetch_google_token_payload(
+            "authorization-code",
+            "https://attacker.example/callback",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Invalid OAuth redirect URI"
+
+
 def test_fetch_google_userinfo_builds_urllib_request(monkeypatch):
     captured = {}
 

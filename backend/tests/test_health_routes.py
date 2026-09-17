@@ -89,7 +89,6 @@ def test_ready_reports_dataset_catalog_counts(monkeypatch, tmp_path):
         assert routes.ready(db) == {
             "status": "ok",
             "database": "ok",
-            "datasets_root": str(datasets_root),
             "dataset_assets": "2",
             "dataset_timeframes": "2",
         }

@@ -22,9 +22,9 @@ RUN npm ci --no-audit --no-fund \
     && NODE_ARCH="$(node -p 'process.arch')" \
     && ROLLUP_PACKAGE="@rollup/rollup-linux-${NODE_ARCH}-gnu" \
     && ESBUILD_PACKAGE="@esbuild/linux-${NODE_ARCH}" \
-    && ROLLUP_VERSION="$(node -p "require('./frontend/node_modules/rollup/package.json').optionalDependencies['${ROLLUP_PACKAGE}']")" \
-    && ESBUILD_VERSION="$(node -p "require('./node_modules/esbuild/package.json').optionalDependencies['${ESBUILD_PACKAGE}']")" \
-    && npm install --no-save --ignore-scripts \
+    && ROLLUP_VERSION="$(node -p "require(require.resolve('rollup/package.json', { paths: ['./frontend'] })).optionalDependencies['${ROLLUP_PACKAGE}']")" \
+    && ESBUILD_VERSION="$(node -p "require(require.resolve('esbuild/package.json', { paths: ['.'] })).optionalDependencies['${ESBUILD_PACKAGE}']")" \
+    && npm install --no-save --ignore-scripts --no-audit --no-fund \
         "${ROLLUP_PACKAGE}@${ROLLUP_VERSION}" \
         "${ESBUILD_PACKAGE}@${ESBUILD_VERSION}"
 

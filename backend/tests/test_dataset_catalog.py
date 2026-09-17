@@ -125,8 +125,7 @@ def test_refresh_catalog_imports_market_data_when_enabled(tmp_path):
 
 def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):
     first_root = tmp_path / "first"
-    second_root = tmp_path / "second"
-    first_root.mkdir()
+    second_root = first_root / "second"
     asset_dir = second_root / "ES"
     asset_dir.mkdir(parents=True)
     (asset_dir / "ES_M1.csv").write_text(
@@ -156,6 +155,27 @@ def test_dataset_root_can_be_persisted_and_used_for_refresh(tmp_path):
         assert refreshed.summary.assets == 1
         assert refreshed.catalog.root == str(second_root)
         assert refreshed.catalog.instruments[0].id == "ES"
+
+
+def test_dataset_root_rejects_paths_outside_configured_directory(tmp_path):
+    root = tmp_path / "datasets"
+    root.mkdir()
+    outside_root = tmp_path / "private"
+    outside_root.mkdir()
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        with pytest.raises(ValueError, match="configured dataset directory"):
+            service.update_settings(
+                db,
+                user_id,
+                DatasetSettingsUpdate(root_path=str(outside_root)),
+            )
 
 
 def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
@@ -629,6 +649,19 @@ def test_refresh_catalog_prefers_manifest_metadata_without_reading_csv(tmp_path,
         assert timeframe.last_timestamp is not None
         assert stored.file_size == csv_path.stat().st_size
         assert stored.file_mtime_ns == csv_path.stat().st_mtime_ns
+
+
+@pytest.mark.parametrize("csv_path", ["../private.csv", "/etc/passwd.csv", "BTC_USDT/data.json"])
+def test_manifest_rejects_csv_paths_outside_dataset_root(tmp_path, csv_path):
+    root = tmp_path / "datasets"
+    root.mkdir()
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with pytest.raises(ValueError, match="must stay within the dataset root"):
+        service._manifest_csv_path(root, {"csv_path": csv_path})
 
 
 def test_refresh_catalog_marks_dataset_asset_session_ready_without_session_csv_path(tmp_path):

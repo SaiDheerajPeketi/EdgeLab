@@ -49,6 +49,7 @@ import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
 import { usePaneMarketData } from "./components/chart/usePaneMarketData";
 import type { JournalChartFocusRequest } from "./components/journal/JournalReviewDrawer";
 import {
+  getApiBearerToken,
   getApiWebSocketUrl,
   type BacktestCreatePayload,
   type BacktestSessionUpdatePayload,
@@ -838,6 +839,9 @@ export function WorkspaceApp() {
       const socketUrl = getApiWebSocketUrl("/datasets/stream");
       socket = new WebSocket(socketUrl);
       trackDiagnosticWebSocket(socket, socketUrl);
+      socket.onopen = () => {
+        socket?.send(JSON.stringify({ authToken: getApiBearerToken() }));
+      };
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data as string) as {

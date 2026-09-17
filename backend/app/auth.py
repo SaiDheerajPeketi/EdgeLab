@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from secrets import compare_digest
 
-from fastapi import Depends, Header, HTTPException, WebSocket
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -67,13 +67,6 @@ def require_auth(
     db: Session = Depends(get_db),
 ) -> AuthenticatedUser:
     token = bearer_token(authorization)
-    if not token:
-        raise _auth_error()
-    return authenticate_token(db, token)
-
-
-def authenticate_websocket(websocket: WebSocket, db: Session) -> AuthenticatedUser:
-    token = (websocket.query_params.get("authToken") or "").strip()
     if not token:
         raise _auth_error()
     return authenticate_token(db, token)

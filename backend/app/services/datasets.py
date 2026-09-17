@@ -165,6 +165,10 @@ class DatasetCatalogService:
         root_path = Path(payload.root_path).expanduser()
         if not root_path.is_absolute():
             raise ValueError("Dataset root path must be absolute")
+        root_path = root_path.resolve(strict=False)
+        allowed_root = self.default_root.resolve(strict=False)
+        if not root_path.is_relative_to(allowed_root):
+            raise ValueError("Dataset root path must stay within the configured dataset directory")
         settings = self._settings_row(db, user_id)
         settings.root_path = str(root_path)
         settings.updated_at = utcnow()
@@ -548,7 +552,11 @@ class DatasetCatalogService:
     def _manifest_csv_path(self, root: Path, entry: dict[str, object]) -> Path:
         raw_path = str(entry.get("csv_path") or "")
         path = Path(raw_path)
-        return path if path.is_absolute() else root / path
+        resolved_root = root.resolve(strict=False)
+        resolved_path = path.resolve(strict=False) if path.is_absolute() else (root / path).resolve(strict=False)
+        if resolved_path.suffix.lower() != ".csv" or not resolved_path.is_relative_to(resolved_root):
+            raise ValueError("Dataset manifest CSV path must stay within the dataset root")
+        return resolved_path
 
     def _index_manifest_timeframe(
         self,

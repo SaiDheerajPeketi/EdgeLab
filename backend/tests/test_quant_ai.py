@@ -847,7 +847,9 @@ def test_reproducible_backtest_retention_and_routes(db):
     assert db.scalar(select(AIUsageLedger).where(AIUsageLedger.job_id == job.id)) is not None
     assert db.get(QuantScriptVersion, script.versions[0].id).source == threshold_source()
 
-    quant_paths = {route.path for route in main.app.routes if route.path.startswith("/api/quant")}
+    quant_paths = {
+        path for path in main.app.openapi()["paths"] if path.startswith("/api/quant")
+    }
     assert {
         "/api/quant/models",
         "/api/quant/scripts",

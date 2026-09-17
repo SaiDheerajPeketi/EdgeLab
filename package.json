@@ -40,8 +40,8 @@
     "analytics:refresh-read-models": "PYTHONPATH=backend backend/.venv/bin/python backend/scripts/refresh_session_summaries.py"
   },
   "devDependencies": {
-    "@playwright/test": "1.55.0",
+    "@playwright/test": "1.63.0",
     "axe-core": "^4.10.3",
-    "esbuild": "^0.21.5"
+    "esbuild": "0.28.2"
   }
 }
