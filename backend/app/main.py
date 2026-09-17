@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -30,6 +31,21 @@ configure_logging(
 )
 logger = logging.getLogger(__name__)
 http_metrics = HttpMetricsRegistry()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    validate_vault_startup(settings.environment)
+    init_db()
+    init_market_data_db()
+    if tracing_status.enabled:
+        logger.info(
+            "OpenTelemetry tracing enabled for %s",
+            tracing_status.exporter_endpoint,
+        )
+    else:
+        logger.info("OpenTelemetry tracing disabled: %s", tracing_status.reason)
+    yield
 
 
 class RequestBodyTooLarge(Exception):
@@ -78,6 +94,7 @@ app = FastAPI(
     title="EdgeLab API",
     description="Find your edge with CSV-powered backtesting, trade journaling, and performance metrics.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -167,20 +184,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
             },
         },
     )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    validate_vault_startup(settings.environment)
-    init_db()
-    init_market_data_db()
-    if tracing_status.enabled:
-        logger.info(
-            "OpenTelemetry tracing enabled for %s",
-            tracing_status.exporter_endpoint,
-        )
-    else:
-        logger.info("OpenTelemetry tracing disabled: %s", tracing_status.reason)
 
 
 @app.get("/api/observability/metrics", include_in_schema=False)
