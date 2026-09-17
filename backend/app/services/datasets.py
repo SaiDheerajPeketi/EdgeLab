@@ -165,10 +165,7 @@ class DatasetCatalogService:
         root_path = Path(payload.root_path).expanduser()
         if not root_path.is_absolute():
             raise ValueError("Dataset root path must be absolute")
-        root_path = root_path.resolve(strict=False)
-        allowed_root = self.default_root.resolve(strict=False)
-        if not root_path.is_relative_to(allowed_root):
-            raise ValueError("Dataset root path must stay within the configured dataset directory")
+        root_path = self._validated_root_path(root_path)
         settings = self._settings_row(db, user_id)
         settings.root_path = str(root_path)
         settings.updated_at = utcnow()
@@ -913,7 +910,14 @@ class DatasetCatalogService:
         return DatasetCatalogResponse(root=str(self._root_path(db, user_id)), instruments=instruments)
 
     def _root_path(self, db: Session, user_id: int) -> Path:
-        return Path(self._settings_row(db, user_id).root_path)
+        return self._validated_root_path(Path(self._settings_row(db, user_id).root_path))
+
+    def _validated_root_path(self, root_path: Path) -> Path:
+        resolved_root = root_path.expanduser().resolve(strict=False)
+        allowed_root = self.default_root.expanduser().resolve(strict=False)
+        if not resolved_root.is_relative_to(allowed_root):
+            raise ValueError("Dataset root path must stay within the configured dataset directory")
+        return resolved_root
 
     def _settings_row(self, db: Session, user_id: int) -> DatasetSettings:
         settings_row = db.scalar(

@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe, MarketCandle
+from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetSettings, DatasetTimeframe, MarketCandle
 from app.schemas import DatasetAssetUpdate
 from app.schemas import DatasetSettingsUpdate
 from app.services.data_populator import MANIFEST_FILENAME
@@ -176,6 +176,26 @@ def test_dataset_root_rejects_paths_outside_configured_directory(tmp_path):
                 user_id,
                 DatasetSettingsUpdate(root_path=str(outside_root)),
             )
+
+
+def test_dataset_root_rejects_unsafe_stored_settings(tmp_path):
+    root = tmp_path / "datasets"
+    root.mkdir()
+    outside_root = tmp_path / "private"
+    outside_root.mkdir()
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    service = DatasetCatalogService(root, session_factory)
+
+    with session_factory() as db:
+        user_id = seed_user(db)
+        db.add(DatasetSettings(user_id=user_id, root_path=str(outside_root)))
+        db.commit()
+
+        with pytest.raises(ValueError, match="configured dataset directory"):
+            service.get_settings(db, user_id)
 
 
 def test_list_catalog_discovers_files_without_importing_candles(tmp_path):
