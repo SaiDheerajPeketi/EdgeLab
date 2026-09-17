@@ -11,7 +11,6 @@
     "dev:backend": "node backend/index.js",
     "dev:python": "PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
     "dev:frontend": "npm --prefix frontend run dev -- --port 5173",
-    "export:screens": "node scripts/export-app-screens.mjs",
     "start:backend": "node backend/index.js",
     "build": "npm --prefix frontend run build",
     "check:ui-inventory": "node scripts/check-ui-surface-inventory.mjs",
@@ -43,8 +42,6 @@
   "devDependencies": {
     "@playwright/test": "1.55.0",
     "axe-core": "^4.10.3",
-    "dom-to-svg": "^0.12.2",
-    "esbuild": "^0.21.5",
-    "playwright-core": "^1.55.0"
+    "esbuild": "^0.21.5"
   }
 }

@@ -2,6 +2,9 @@
 .claude/
 .codex/
 .serena/
+.artifacts/
+artifacts/
+e2e/
 .pytest_cache/
 .DS_Store
 

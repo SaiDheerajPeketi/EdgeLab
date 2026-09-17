@@ -19,6 +19,13 @@ frontend/dist/
 frontend/*.tsbuildinfo
 benchmark/results/
 .artifacts/
+/artifacts/
+.codex/
+.serena/
+/docs/after-effects-vector-export.md
+/docs/edgelab-video-feature-gap.md
+/docs/screen_and_feature_guide_beta_launch.md
+/scripts/export-app-screens.mjs
 playwright-report/
 test-results/
 frontend/vite.config.js
