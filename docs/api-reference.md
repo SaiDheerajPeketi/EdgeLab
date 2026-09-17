@@ -1,118 +1,38 @@
-# API Reference
+# API guide
 
-## Overview
-EdgeLab exposes two sets of APIs:
-1. **Primary API (FastAPI)**: Serves all modern components, available under `/api/*` and optionally `/api/live/*`.
-2. **Legacy API (Node.js/Express)**: Maintained for backward compatibility for some legacy components, available via port 3001 or the `legacy-node-api` Docker profile.
+FastAPI's OpenAPI document is the authoritative endpoint reference. Run the backend directly and open <http://127.0.0.1:8000/docs> for searchable schemas and request examples, or fetch `/openapi.json` from the API service.
 
----
+All product routes use the `/api` prefix. The main route families are:
 
-## Primary API (FastAPI)
+| Prefix | Responsibility |
+| --- | --- |
+| `/api/auth` | Beta access, Google OAuth, development sign-in, and sessions |
+| `/api/datasets` | Dataset catalog, settings, refresh, and refresh streaming |
+| `/api/market-data` | Historical bars and dataset metadata |
+| `/api/live` | Provider-backed live instruments, candles, and streams |
+| `/api/backtests` | Replay sessions, orders, positions, imports, and advancement |
+| `/api/journal` | Accounts, canonical trades, tags, notes, imports, and analytics |
+| `/api/broker-*` | Provider catalog, connections, synchronization, and health |
+| `/api/integration-secrets` | Encrypted provider credentials and rotation |
+| `/api/playbooks` | Trading playbooks and strategy metadata |
+| `/api/metrics` | Summary and curve data |
+| `/api/app-storage` | User-scoped application state |
+| `/api/workspace-shares` | Read-only workspace sharing |
+| `/api/quant` | Quant conversations, captures, and generated artifacts |
 
-These endpoints are handled by the modern Python backend.
+Operational endpoints:
 
-### Observability & Health
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/health` | Liveness probe returning basic system health. |
-| `GET` | `/api/ready` | Readiness probe; validates dataset catalog connectivity. |
-| `GET` | `/api/observability/metrics` | Prometheus-formatted metrics output. |
+- `GET /api/health` checks the application database.
+- `GET /api/ready` checks the database and reports the visible dataset catalog.
+- `GET /api/observability/metrics` exposes Prometheus metrics.
+- `GET /api/ui/rollout` returns the active UI rollout policy without exposing secrets.
 
-### Authentication (Beta Program)
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/auth/beta/status` | Returns total seats and waitlist counts. |
-| `GET` | `/api/auth/config` | Exposes public Google OAuth client ID and redirect URI. |
-| `POST` | `/api/auth/beta/access` | Manual beta access/waitlist entry (if enabled). |
-| `POST` | `/api/auth/google/exchange` | Exchanges a Google OAuth code for an EdgeLab session. |
-| `GET` | `/api/auth/session` | Validates and returns current session details. |
-| `DELETE`| `/api/auth/session` | Revokes the current session. |
+## Authentication
 
-### Market Data & Datasets
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/datasets` | Lists available dataset assets and timeframes. |
-| `GET` | `/api/datasets/settings` | Gets current dataset catalog config. |
-| `PATCH` | `/api/datasets/settings` | Updates dataset catalog config. |
-| `PATCH` | `/api/datasets/assets/{asset_id}` | Updates visibility/metadata for a specific asset. |
-| `POST` | `/api/datasets/refresh` | Triggers a scan/refresh of the dataset filesystem. |
-| `GET` | `/api/datasets/refresh/status` | Polling endpoint for refresh progress. |
-| `WS` | `/api/datasets/stream` | WebSocket for streaming refresh progress. |
-| `GET` | `/api/market-data/meta` | Retrieves metadata (start/end dates) for a specific dataset. |
-| `GET` | `/api/market-data/bars` | Retrieves candlestick data for a given backtest session or timeframe. |
+User routes expect the EdgeLab bearer token returned by the auth flow. `EDGELAB_API_TOKEN`, when configured, protects non-user operational routes. The browser can send the same value through `VITE_API_BEARER_TOKEN`, although production deployments should prefer user-scoped sessions.
 
-### Live Feeds (Proxy)
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/live/dukascopy/instruments` | Proxy to fetch Dukascopy available instruments. |
-| `GET` | `/api/live/dukascopy/candles` | Proxy to fetch raw Dukascopy historical candles. |
-| `GET` | `/api/live/binance/instruments` | Proxy to fetch Binance exchange info. |
-| `GET` | `/api/live/angelone/instruments` | Proxy to fetch Angel One instrument master. |
-| `WS` | `/api/live/angelone/stream` | WebSocket for streaming Angel One live ticks. |
+The development bypass is accepted only when `EDGELAB_DEV_AUTH_BYPASS=1` and the request is loopback-local. Do not expose it through a public reverse proxy.
 
-### Replay & Backtesting
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/backtests` | Lists all backtest sessions. |
-| `GET` | `/api/backtests/summaries` | Paginated cursor for session summaries. |
-| `GET` | `/api/backtests/strategy-summaries`| Aggregated metrics per strategy. |
-| `GET` | `/api/backtests/latest` | Gets the most recently modified backtest state. |
-| `POST` | `/api/backtests` | Creates a new backtest replay session. |
-| `GET` | `/api/backtests/{session_id}` | Gets full state of a specific session. |
-| `PATCH` | `/api/backtests/{session_id}` | Updates metadata of a session. |
-| `DELETE`| `/api/backtests/{session_id}` | Deletes a session. |
-| `POST` | `/api/backtests/{session_id}/advance`| Submits new orders and advances to the next candle. |
-| `POST` | `/api/backtests/{session_id}/advance-compact` | Lightweight advance returning only deltas. |
-| `POST` | `/api/backtests/{session_id}/jump`| Fast-forwards the replay to a specific timestamp. |
-| `POST` | `/api/backtests/import-trades` | Imports historical trades from a CSV. |
+## Compatibility API
 
-### Trading Actions
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/backtests/{session_id}/orders` | Places a limit or stop order. |
-| `PATCH` | `/api/backtests/{session_id}/orders/{order_id}` | Modifies an existing pending order. |
-| `DELETE`| `/api/backtests/{session_id}/orders/{order_id}` | Cancels a pending order. |
-| `PATCH` | `/api/backtests/{session_id}/position` | Modifies stop-loss or take-profit of an open position. |
-
-### Journaling & Playbooks
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/playbooks` | Lists user-defined strategies/playbooks. |
-| `POST` | `/api/playbooks` | Creates a new playbook. |
-| `PATCH` | `/api/playbooks/{playbook_id}`| Updates a playbook. |
-| `DELETE`| `/api/playbooks/{playbook_id}`| Deletes a playbook. |
-| `GET` | `/api/trades` | Lists historical trades (Legacy UI fallback). |
-| `GET` | `/api/trades/page` | Cursor-based pagination for historical trades. |
-| `GET` | `/api/trades/{trade_id}` | Gets details of a specific trade. |
-| `PATCH` | `/api/trades/{trade_id}/strategy` | Assigns/updates a playbook strategy for a trade. |
-| `PATCH` | `/api/journals/{trade_id}` | Updates subjective journal notes for a trade. |
-
-### Analytics & Metrics
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/metrics` | Combined metrics payload (deprecated). |
-| `GET` | `/api/metrics/summary` | Lightweight card-level aggregate metrics. |
-| `GET` | `/api/metrics/curves` | Heavy equity/drawdown curve arrays. |
-
-### Bootstrap & Sync
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/bootstrap-shell` | High-priority cacheable data for initial UI render. |
-| `GET` | `/api/bootstrap` | Full payload including recent sessions/trades. |
-| `GET` | `/api/app-data/export` | Generates a full JSON bundle of the user's data. |
-| `POST` | `/api/app-data/import` | Imports a JSON bundle of user data. |
-| `GET` | `/api/app-storage/{namespace}/{key}`| Reads arbitrary key-value app state (e.g. chart drawings). |
-| `PUT` | `/api/app-storage/{namespace}/{key}`| Writes arbitrary key-value app state. |
-| `DELETE`| `/api/app-storage/{namespace}/{key}`| Deletes arbitrary key-value app state. |
-
----
-
-## Legacy Node.js API
-*(Served via `backend/index.js` on port 3001 if enabled)*
-- `GET /api/health`
-- `/api/instruments`
-- `/api/sessions`
-- `/api/trades`
-- `/api/analytics`
-- `/api/playbooks`
-- `/api/drawings`
+The Express API in `backend/index.js` exists for older clients and is available only when started directly or with the `legacy-node-api` Compose profile. New integrations should use FastAPI.

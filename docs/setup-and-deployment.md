@@ -1,114 +1,88 @@
-# Setup and Deployment
+# Setup and deployment
 
-This document outlines the workflows for developing locally and deploying EdgeLab to production.
+## Choose a mode
 
-## Local Development (Without Docker)
+- Use `docker-compose.local.yml` for one person on one machine. It is the shortest path and stores data in SQLite.
+- Use native development when editing the frontend or backend.
+- Use `docker-compose.yml` when you need the production service split, PostgreSQL, TimescaleDB, Redis, workers, or observability.
 
-For rapid iteration, you can run the backend and frontend separately without spinning up the entire Docker stack. 
+## Single-user Docker installation
 
-### 1. Database Setup
-You will need a database to store EdgeLab data. EdgeLab defaults to looking for PostgreSQL, but can fallback to a local SQLite file for development if `DATABASE_URL` is set to a SQLite path (e.g., `sqlite:///./trade_journal.db`).
-
-### 2. Backend Setup
-The backend requires Python 3.10+.
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-
-# Run migrations to initialize the schema
-alembic upgrade head
-
-# Start the FastAPI server
-PYTHONPATH=. python -m uvicorn app.main:app --reload
-```
-
-### 3. Frontend Setup
-The frontend requires Node.js 18+.
-```bash
-cd frontend
-npm install
-
-# Start the Vite dev server
-npm run dev
-```
-The Vite configuration automatically proxies `/api` requests to `localhost:8000`.
-
-### Alternative: The Orchestrator Script
-Instead of running these in separate terminals, use the provided orchestrator from the project root:
-```bash
-node scripts/dev.js
-```
-This script will boot up the Python API, the Legacy Node API, and the Vite frontend concurrently.
-
----
-
-## Lightweight Single-User Deployment
-
-For a persistent local installation without PostgreSQL, TimescaleDB, PgBouncer, Redis, or background workers, use the dedicated two-container Compose file:
+Requirements: Docker Engine or Docker Desktop with Compose v2.
 
 ```bash
 docker compose -f docker-compose.local.yml up --build -d
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The deployment binds the web UI to loopback only and enables the loopback-only developer sign-in, so Google OAuth is not required. To use another port, set `FRONTEND_PORT` before starting Compose.
+Open <http://localhost:8080>. The web port is bound to loopback, and sign-in uses the loopback-only development bypass. Set `FRONTEND_PORT` to choose another port and `EDGELAB_DATASETS_ROOT` to mount a different dataset directory.
 
-The FastAPI container uses one worker and two SQLite files in the `edgelab-local_local-api-data` named volume. Transactional application data and optional imported market data therefore persist through container replacement, restarts, and ordinary `docker compose down` operations. Dataset CSVs are read directly from the host `./datasets` folder (or `EDGELAB_DATASETS_ROOT`) and are not copied into the container.
+Useful lifecycle commands:
 
 ```bash
-# Stop without deleting data
+docker compose -f docker-compose.local.yml logs -f
 docker compose -f docker-compose.local.yml down
-
-# Back up both SQLite databases to the current directory
 docker compose -f docker-compose.local.yml cp api:/var/lib/edgelab ./edgelab-local-backup
-
-# Permanently remove containers and the named database volume
-docker compose -f docker-compose.local.yml down --volumes
 ```
 
-The local file intentionally omits scheduled data population and analytics workers. Add CSV datasets under `./datasets` and refresh the dataset catalog in the app when needed.
+Normal `down` operations keep the `edgelab-local_local-api-data` volume. Adding `--volumes` permanently deletes the SQLite data.
 
----
+## Native development
 
-## Production-Shaped Local Development (With Docker Compose)
+Requirements: Node.js 20+, npm, Python 3.12, and a C/C++ toolchain if a Python dependency needs compilation.
 
-The easiest way to get an environment identical to production is to run the Docker Compose stack.
+```bash
+npm install
+python3.12 -m venv backend/.venv
+backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+EDGELAB_DEV_AUTH_BYPASS=1 EDGELAB_JWT_SECRET=local-dev-secret npm run dev
+```
+
+This starts FastAPI on port 8000, Vite on 5173, and the compatibility Node API on 3001. Place CSV datasets beneath `datasets/`; the folder contents are ignored by Git.
+
+To run only one service:
+
+```bash
+npm run dev:python
+npm run dev:frontend
+npm run dev:backend
+```
+
+## Full Compose stack
+
+Copy the template and review every security-sensitive value:
 
 ```bash
 cp .env.example .env
-# Edit .env to set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET if you want auth to work
-docker compose up --build
+docker compose up --build -d
 ```
-This boots:
-- Postgres
-- TimescaleDB
-- Redis
-- PgBouncers
-- Nginx (Frontend static + Proxy)
-- FastAPI (api + market-api)
-- Background workers
 
----
+At minimum, replace `POSTGRES_PASSWORD` and `EDGELAB_JWT_SECRET`. A production environment also requires `EDGELAB_SECRET_VAULT_KEYS` and `EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID`; configure Google OAuth unless you intentionally enable another beta access path.
 
-## Production Deployment (Jenkins CI/CD)
+The full stack exposes the frontend on `FRONTEND_PORT` (8080 by default). PostgreSQL, TimescaleDB, Redis, PgBouncer, the API services, the data populator, and the analytics worker start by default.
 
-The primary production deployment strategy uses Jenkins to build and execute `docker-compose up` on a remote Ubuntu instance.
+Add the benchmark profile for the bundled monitoring stack and k6 service:
 
-### Deployment Workflow
-1. Code is merged to the main branch.
-2. The `Jenkinsfile` defines the CI/CD pipeline which pulls the latest code.
-3. The pipeline stops the active containers, prunes dangling images, and rebuilds the `frontend` and `backend` images.
-4. The pipeline restarts the Compose stack.
-
-### Managing OAuth Secrets on the Host
-EdgeLab relies on Google OAuth for beta access, but we do not commit the client secrets to version control.
-Instead, a local script pushes the secret JSON to the remote host:
 ```bash
-bash deployment/push-google-oauth-secret.sh
+docker compose --profile benchmark up --build -d
 ```
-This places the file at `/opt/edgelab/deployment/google-oauth-client.json` on the host, which `docker-compose.yml` mounts directly into the FastAPI containers at runtime.
 
-### Data Persistence
-Docker named volumes (`postgres-data`, `timescaledb-data`, `api-data`) are used to persist database state across Jenkins deployments. The CI/CD script deliberately skips pruning volumes to avoid wiping user data.
+Use the legacy API only for compatibility testing:
+
+```bash
+docker compose --profile legacy-node-api up --build -d
+```
+
+## Production notes
+
+The checked-in `Jenkinsfile` deploys the full Compose stack into an existing checkout. It fetches the requested revision, rebuilds the application services, and preserves named volumes.
+
+Before exposing EdgeLab publicly:
+
+- use unique database, JWT, Grafana, and vault secrets;
+- configure `EDGELAB_PUBLIC_ORIGIN`, CORS, and the Google callback URI;
+- leave `EDGELAB_DEV_AUTH_BYPASS=0`;
+- use HTTPS for the public origin and any NinjaTrader connector;
+- back up PostgreSQL, TimescaleDB, the API data volume, and the dataset directory;
+- test `docker compose config` and the application health endpoints.
+
+See [deployment utilities](../deployment/README.md) for the host-capture and OAuth upload scripts.

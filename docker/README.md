@@ -1,52 +1,41 @@
-# EdgeLab Docker Infrastructure
+# Docker infrastructure
 
-## Overview
-The `docker` directory contains the infrastructure configuration for the EdgeLab Docker Compose deployment. It includes the Nginx reverse proxy configuration, connection pooling via PgBouncer, and an extensive observability stack.
+EdgeLab ships two Compose files.
 
-## Responsibilities
-- **Routing & Proxying**: Nginx acts as the single entry point, routing requests to the frontend static files and backend FastAPI services (`api` and `market-api`).
-- **Connection Pooling**: PgBouncer sits in front of PostgreSQL and TimescaleDB to manage database connection limits effectively for the transactional and market-data workloads.
-- **Observability**: Prometheus, Grafana, Loki, and Tempo gather and visualize metrics, logs, and distributed traces.
+## Single-user stack
 
-## Architecture / How it fits into the system
-When EdgeLab is launched via `docker-compose up`, these configuration files define how the containers interact:
-- `nginx.conf` maps `/api/market-data/*` and `/api/datasets/*` to the `market-api` container, while mapping all other `/api/*` traffic to the primary `api` container. It also serves compiled React assets.
-- `pgbouncer` runs a custom entrypoint script to point pool connections at either the `postgres` or `timescaledb` containers dynamically based on environment variables.
-- The `benchmark` Docker Compose profile spins up the entire observability stack alongside the application, pre-configuring Grafana dashboards and datasources via YAML files.
+`docker-compose.local.yml` runs two containers:
 
-## Directory Structure (brief)
-- `nginx.conf` - Main Nginx configuration file for the proxy and static asset delivery.
-- `/pgbouncer/` - Dockerfile and custom entrypoint script (`entrypoint.sh`) for the PgBouncer service.
-- `/observability/`
-  - `prometheus.yml` - Prometheus scraping configuration.
-  - `loki-config.yml`, `promtail.yml` - Log aggregation configuration.
-  - `tempo.yml` - Distributed tracing receiver configuration.
-  - `/grafana/` - Pre-configured datasources and starter dashboards.
-  - `/postgres/` - Initialization scripts (e.g., enabling `pg_stat_statements`).
+- `api`: FastAPI with SQLite and local developer sign-in.
+- `frontend`: the built React application served by Nginx.
 
-## Configuration
-> ⚠️ Note: Variables are injected from the root `docker-compose.yml`.
+The API database files live in a named volume. The host dataset directory is mounted read-only at `/datasets`.
 
-| Environment Variable | Purpose |
+## Full stack
+
+`docker-compose.yml` runs PostgreSQL, TimescaleDB, two PgBouncer instances, Redis, two FastAPI service roles, the data populator, the analytics worker, and the Nginx frontend.
+
+Nginx sends dataset and market-data requests to `market-api` and other API requests to `api`. Both roles use `backend/Dockerfile`; only the main API runs migrations.
+
+Optional profiles:
+
+- `benchmark`: Prometheus, Grafana, Loki, Promtail, Tempo, database exporters, MinIO, and k6.
+- `legacy-node-api`: the compatibility Node/SQLite API.
+
+## Files
+
+| Path | Purpose |
 | --- | --- |
-| `EDGELAB_PGBOUNCER_TARGET_HOST` | Target database container (e.g., `postgres` or `timescaledb`) |
-| `EDGELAB_PGBOUNCER_LISTEN_PORT` | Port PgBouncer listens on internally |
-| `EDGELAB_PGBOUNCER_MAX_CLIENT_CONN` | Max client connections PgBouncer will accept |
-| `EDGELAB_GRAFANA_ADMIN_USER` | Admin username for Grafana |
-| `EDGELAB_GRAFANA_ADMIN_PASSWORD` | Admin password for Grafana |
+| `nginx.conf` | SPA hosting, API proxy rules, and WebSocket forwarding |
+| `pgbouncer/` | PgBouncer image and generated runtime configuration |
+| `observability/` | Prometheus, Grafana, Loki, Promtail, Tempo, and database setup |
 
-## Dependencies
-- **Nginx** (Base image from `frontend/Dockerfile` runtime stage)
-- **PgBouncer** (Alpine based)
-- **Prometheus / Grafana / Loki / Promtail / Tempo**
-- **TimescaleDB / PostgreSQL**
+## Validate changes
 
-## Local Development
-To test changes to Nginx or PgBouncer, a full rebuild of the Compose stack is recommended:
 ```bash
-docker compose up --build
+docker compose -f docker-compose.local.yml config
+docker compose config
+docker compose build
 ```
-For observability testing, launch the benchmark profile:
-```bash
-docker compose --profile benchmark up -d
-```
+
+Deployment variables and required secrets are described in [configuration](../docs/configuration.md).

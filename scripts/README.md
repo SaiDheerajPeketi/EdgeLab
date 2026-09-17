@@ -1,21 +1,30 @@
-# EdgeLab Scripts
+# Repository scripts
 
-## Overview
-The `scripts` directory contains utility Node.js and Bash scripts for local development workflows and maintenance tasks.
+The scripts in this directory fall into three groups.
 
-## Responsibilities
-- **Local Dev Orchestration**: The `dev.js` script provides a convenient way to launch the Node API, Python API, and Vite frontend in a single terminal.
-- **Dependency Auditing**: Provides a shell script to run pip and npm vulnerability audits.
-- **Cache Management**: A post-build script clears legacy Vite build caches.
+## Development
 
-## Directory Structure
-- `dev.js` - A Node script that concurrently spawns `node backend/index.js`, `uvicorn app.main:app`, and `npm run dev` for the frontend.
-- `audit-dependencies.sh` - Shell script running `pip-audit` and `npm audit`.
-- `purge-vite-cache.js` - Script to clear stale Vite caches in `node_modules/.vite` during frontend builds.
+- `dev.js` starts FastAPI, Vite, and the compatibility Node API, reusing healthy services that are already running.
+- `purge-vite-cache.js` removes stale generated Vite configuration and cache files after builds.
+- `audit-dependencies.sh` runs the Python and npm dependency audits.
 
-## Local Development
-To use the dev orchestrator:
+## UI contracts
+
+- `check-ui-surface-inventory.mjs` validates the route, panel, and overlay inventory.
+- `check-ui-release.mjs` checks rollout coverage and release evidence.
+- `check-ui-accessibility-certification.mjs` validates accessibility certification records.
+- `check-ui-route-accessibility-sweep.mjs` validates route-sweep evidence.
+- `check-ui-performance.mjs` enforces UI performance budgets.
+- `check-ui-motion.mjs` checks motion inventory and reduced-motion coverage.
+- `run-ui-accessibility-certification.mjs` runs the bounded Playwright accessibility certification.
+
+Use the package scripts instead of invoking these files directly:
+
 ```bash
-node scripts/dev.js
+npm run quality:ui
+npm run check:ui-inventory
+npm run check:ui-certification
+npm run test:ui-certification:runtime
 ```
-*Note: Make sure your Python virtual environment has installed the required dependencies.*
+
+The JSON and Markdown records under `docs/` are inputs to these checks. Update them only alongside the corresponding UI behavior and tests.

@@ -1,80 +1,66 @@
-# Configuration Reference
+# Configuration
 
-This document consolidates all environment variables and configuration settings used across the EdgeLab codebase. These variables are typically defined in `.env` and consumed by `docker-compose.yml` or the application code directly.
+`.env.example` is the complete, executable template for Docker Compose. Copy it to `.env`, then replace development defaults and secrets before using the full stack.
 
-## General & Backend
+```bash
+cp .env.example .env
+```
 
-| Environment Variable | Purpose | Default / Example |
+The settings below are the ones most people need to understand. Less common tuning controls are documented inline in `.env.example`.
+
+## Storage and datasets
+
+| Variable | Meaning | Local default |
 | --- | --- | --- |
-| `DATABASE_URL` | Explicit PostgreSQL/SQLite connection string | (Derived from POSTGRES_*) |
-| `EDGELAB_POSTGRES_HOST` | Hostname for the Postgres DB or PgBouncer | `127.0.0.1` / `pgbouncer-postgres` |
-| `EDGELAB_POSTGRES_CONNECT_PORT` | Port for the Postgres DB or PgBouncer | `5432` / `6432` |
-| `EDGELAB_MARKET_DATA_DATABASE_URL`| Connection string for TimescaleDB | (Falls back to `DATABASE_URL`) |
-| `EDGELAB_CSV_PATH` | Explicit legacy single-file replay path | `None` |
-| `EDGELAB_DATASETS_ROOT` | Path to the directory containing dataset CSVs | `/datasets` |
-| `EDGELAB_API_TOKEN` | Bearer token required for non-user routes | `""` |
-| `EDGELAB_JWT_SECRET` | Secret key for signing session JWTs | `""` |
-| `EDGELAB_API_WORKERS` | Number of Uvicorn workers (blank=auto) | `""` |
-| `EDGELAB_API_TIMEOUT_SECONDS` | Timeout for FastAPI workers | `120` |
-| `EDGELAB_RUN_MIGRATIONS` | Whether to run Alembic migrations on boot | `1` |
-| `EDGELAB_REDIS_URL` | Redis connection string for caching/rate limiting | `redis://redis:6379/0` |
-| `EDGELAB_MAX_REQUEST_BODY_BYTES` | Maximum allowed HTTP request body size | `26214400` (25MB) |
-| `EDGELAB_MAX_APP_DATA_ROWS` | Maximum rows allowed during JSON app-data import | `100000` |
+| `DATABASE_URL` | Application database URL | SQLite when unset outside full Compose |
+| `EDGELAB_MARKET_DATA_DATABASE_URL` | Candle database URL | falls back to the application database |
+| `EDGELAB_DATASETS_ROOT` | Host dataset directory | `./datasets` |
+| `EDGELAB_CSV_PATH` | Optional legacy single-file dataset | unset |
+| `EDGELAB_MARKET_DATA_IMPORT_ENABLED` | Import discovered CSV candles into the market-data database | `1` |
+| `EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED` | Scan the filesystem automatically | `1` in the local stack, `0` in the full stack |
 
-## Beta Authentication (Google OAuth)
+The local Compose file stores both SQLite databases in `local-api-data`. The full stack uses `postgres-data`, `timescaledb-data`, and `api-data` volumes.
 
-| Environment Variable | Purpose | Default |
+## Authentication and secrets
+
+| Variable | Meaning |
+| --- | --- |
+| `EDGELAB_JWT_SECRET` | Signs EdgeLab user sessions |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Direct Google OAuth credentials |
+| `GOOGLE_CLIENT_SECRETS_FILE` | Alternative OAuth JSON file mounted into the API |
+| `EDGELAB_PUBLIC_ORIGIN` | Public browser origin used for callbacks |
+| `GOOGLE_REDIRECT_URI` | Explicit callback override |
+| `EDGELAB_DEV_AUTH_BYPASS` | Loopback-only development sign-in |
+| `EDGELAB_SECRET_VAULT_KEYS` | JSON map of key IDs to URL-safe base64 AES keys |
+| `EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID` | Key used for newly stored integration secrets |
+
+Production startup fails if the vault keyring is missing or invalid. Never commit `.env`, OAuth JSON, or generated keys.
+
+## Services and performance
+
+| Variable | Meaning | Default |
 | --- | --- | --- |
-| `GOOGLE_CLIENT_ID` | OAuth2 Client ID for beta sign-in | `""` |
-| `GOOGLE_CLIENT_SECRET` | OAuth2 Client Secret for beta sign-in | `""` |
-| `GOOGLE_CLIENT_SECRETS_FILE` | Path to JSON file containing Google credentials | `/opt/edgelab/deployment/google-oauth-client.json` |
-| `GOOGLE_REDIRECT_URI` | The authorized callback URI | (Derived from `EDGELAB_PUBLIC_ORIGIN`) |
-| `EDGELAB_PUBLIC_ORIGIN` | Public domain of the application (e.g. https://edgelab.co.in) | `""` |
-| `EDGELAB_BETA_SEATS_TOTAL` | Total number of beta seats allowed | `500` |
-| `EDGELAB_BETA_MANUAL_ACCESS_ENABLED`| Allow users to bypass Google OAuth manually | `0` |
+| `EDGELAB_API_WORKERS` | API worker count; blank enables automatic sizing | blank |
+| `EDGELAB_REDIS_URL` | Shared cache and rate-limit store | blank outside full Compose |
+| `EDGELAB_ANALYTICS_INTERVAL_SECONDS` | Summary refresh cadence | `60` |
+| `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS` | Dataset update cadence | `3600` |
+| `EDGELAB_MAX_REQUEST_BODY_BYTES` | Request-size limit | `26214400` |
+| `EDGELAB_MAX_APP_DATA_ROWS` | Import/export row limit | `100000` |
 
-## Data Populator
+The populator symbol lists, backfill window, derived timeframes, batching, and provider timeouts are all configurable in `.env.example`.
 
-| Environment Variable | Purpose | Default |
-| --- | --- | --- |
-| `EDGELAB_DATA_POPULATOR_USER` | Host UID:GID for the populator container | `0:0` |
-| `EDGELAB_DATA_POPULATOR_INTERVAL_SECONDS` | Time between backfill synchronization loops | `3600` |
-| `EDGELAB_DATA_POPULATOR_BACKFILL_MODE` | Backfill strategy (`max` or `lookback`) | `max` |
-| `EDGELAB_DATA_POPULATOR_LOOKBACK_DAYS` | Days to look back if mode is `lookback` | `30` |
-| `EDGELAB_DATA_POPULATOR_DERIVED_TIMEFRAMES`| Comma-separated timeframes to generate from M1 | `M5,M15,M30,H1,H4,Daily` |
-| `EDGELAB_DATA_POPULATOR_FOREX_SYMBOLS` | Comma-separated Forex pairs to fetch | `EUR/USD,GBP/USD...` |
-| `EDGELAB_DATA_POPULATOR_CRYPTO_SYMBOLS` | Comma-separated Crypto pairs to fetch | `BTCUSDT,ETHUSDT...` |
-| `EDGELAB_DATA_POPULATOR_FOREX_START_DATE` | Default start date for Forex max backfill | `2003-01-01` |
-| `EDGELAB_DATA_POPULATOR_CRYPTO_START_DATE` | Default start date for Crypto max backfill | `2017-08-17` |
+## UI rollout controls
 
-## Observability & Telemetry
+`EDGELAB_UI_KILL_SWITCH=1` places every route group in compatibility mode. The individual `EDGELAB_UI_SHELL_V2`, `EDGELAB_UI_JOURNAL_V2`, `EDGELAB_UI_SETTINGS_V2`, `EDGELAB_UI_CHART_V2`, and `EDGELAB_UI_PUBLIC_V2` flags control smaller groups. `EDGELAB_UI_REVISION` is an operator-visible label. Invalid values fail closed.
 
-| Environment Variable | Purpose | Default |
-| --- | --- | --- |
-| `EDGELAB_OBSERVABILITY_LOG_LEVEL`| Python logging level (e.g., INFO, DEBUG) | `INFO` |
-| `EDGELAB_OBSERVABILITY_JSON_LOGS`| Whether to output logs in JSON format | `1` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Destination for OTLP traces (e.g., Tempo) | `""` |
-| `OTEL_SERVICE_NAME` | OpenTelemetry Service Name | (Varies by container) |
-| `EDGELAB_OTEL_TRACE_SAMPLE_RATIO`| Percentage of traces to sample (0.0 to 1.0) | `1.0` |
+## Frontend build values
 
-## Frontend Config (Build Time)
+`VITE_API_BASE_URL`, `VITE_API_BEARER_TOKEN`, `VITE_DEPLOYMENT_MODE`, `VITE_BETA_SEATS_TOTAL`, and `VITE_BETA_SEATS_TAKEN` are compiled into the frontend. Changing them requires a rebuild.
 
-These variables are consumed by the Vite build process.
+## Quant provider
 
-| Environment Variable | Purpose | Default |
-| --- | --- | --- |
-| `VITE_API_BASE_URL` | Base path for frontend API calls | `/api` |
-| `VITE_API_BEARER_TOKEN` | Hardcoded bearer token for frontend requests (rarely used) | `""` |
-| `VITE_DEPLOYMENT_MODE` | Controls UI Layout (`beta` vs `public`) | `beta` |
-| `VITE_BETA_SEATS_TOTAL` | Static display of total seats (hydrated by backend later) | `500` |
+Set `EDGELAB_EXTERNAL_AI_BASE_URL` and `EDGELAB_EXTERNAL_AI_MODEL` to enable the OpenAI-compatible Quant adapter. Its provider key is stored through the encrypted integration-secret API, not in `.env`. `EDGELAB_QUANT_CAPTURE_ROOT` controls where chart captures are retained; Compose defaults it to the persistent API data volume.
 
-## PgBouncer & Database Containers
+## Observability
 
-| Environment Variable | Purpose | Default |
-| --- | --- | --- |
-| `POSTGRES_DB` | Name of the primary database | `edgelab` |
-| `POSTGRES_USER` | Postgres Username | `edgelab` |
-| `POSTGRES_PASSWORD` | Postgres Password | `edgelab` |
-| `EDGELAB_PGBOUNCER_MAX_CLIENT_CONN` | Max allowed connections to PgBouncer | `400` |
-| `EDGELAB_PGBOUNCER_DEFAULT_POOL_SIZE` | Default PgBouncer pool size per user/db | `25` |
-| `EDGELAB_PGBOUNCER_SERVER_IDLE_TIMEOUT_SECONDS` | When to disconnect idle server connections | `600` |
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable trace export. Logging is controlled by `EDGELAB_OBSERVABILITY_LOG_LEVEL` and `EDGELAB_OBSERVABILITY_JSON_LOGS`. The full `benchmark` profile supplies the bundled Prometheus, Grafana, Loki, and Tempo stack.

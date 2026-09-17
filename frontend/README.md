@@ -1,77 +1,52 @@
-# EdgeLab Frontend
+# EdgeLab frontend
 
-## Overview
-The EdgeLab frontend is a single-page application (SPA) built with React and Vite. It serves as the primary user interface for traders, offering features like manual bar replay, risk sizing, trade journaling, session analytics, and visual market data rendering.
+The frontend is a React 18 and Vite application. It provides the public site, authentication flow, chart and replay workspaces, journal, reports, order flow, Quant assistant, settings, and shared-workspace views.
 
-## Responsibilities
-- **Authentication**: Handles Google OAuth beta sign-in flows and session management.
-- **Market Data Visualization**: Renders interactive candlestick charts and technical drawings using `lightweight-charts` and `@visx`.
-- **Replay State**: Maintains local simulation state (orders, open positions, equity, current candle) and synchronizes with the backend.
-- **Journaling**: Provides forms and views to review historical trades, strategies, and session outcomes.
-- **Routing**: Client-side routing for public marketing/pricing surfaces and the protected `/app` workspace.
+## Run it
 
-## Architecture / How it fits into the system
-The frontend communicates entirely with the FastAPI backend over REST APIs and WebSockets.
-- In production, it is statically built into `frontend/dist` and served by Nginx.
-- Nginx proxies all `/api/*` calls from the SPA to the backend, mitigating CORS complexities in production.
-- Global client state is managed by `zustand`.
+Install the root workspace dependencies, then start the frontend:
 
-## Directory Structure (brief)
-- `/public/` - Static assets, uncompiled files, and vendor assets.
-- `/src/`
-  - `/components/` - Reusable UI components (buttons, charts, dialogs).
-  - `/lib/` - Shared utilities, hooks, and API client wrappers.
-  - `/pages/` - Top-level page views (e.g., Marketing, Sign-in, Workspace).
-  - `/routes/` - React Router definitions.
-  - `/store/` - Zustand global state stores (backtest, playback, auth).
-  - `styles.css` - Global Tailwind CSS definitions.
-  - `main.tsx` - Application entry point.
-- `package.json` - Node dependencies and scripts.
-- `vite.config.ts` - Vite build, proxy, and chunking configuration.
-
-## Configuration
-> ⚠️ Note: For Docker builds, these are passed as build arguments in `docker-compose.yml`.
-
-| Environment Variable | Purpose | Default |
-| --- | --- | --- |
-| `VITE_API_BASE_URL` | Base path for backend API requests | `/api` |
-| `VITE_API_BEARER_TOKEN` | Hardcoded bearer token for restricted routes (if needed) | `""` |
-| `VITE_DEPLOYMENT_MODE` | Controls UI layout (e.g., `beta` vs `public`) | `beta` |
-| `VITE_BETA_SEATS_TOTAL`| Display total available beta seats | `500` |
-| `VITE_BETA_SEATS_TAKEN`| Display currently taken beta seats | `0` |
-
-## Dependencies
-- **React (`react`, `react-dom`)**: UI library.
-- **Vite (`vite`, `@vitejs/plugin-react`)**: Build tool and dev server.
-- **React Router (`react-router-dom`)**: Client-side routing.
-- **Zustand (`zustand`)**: Global state management.
-- **Tailwind CSS (`tailwindcss`, `autoprefixer`, `postcss`)**: Utility-first styling.
-- **Lightweight Charts (`lightweight-charts`)**: High-performance financial charts.
-- **Visx (`@visx/*`)**: Low-level visualization primitives (heatmaps, curves, etc.).
-- **Framer Motion (`motion`)**: Fluid UI animations.
-- **Base UI (`@base-ui/react`)**: Unstyled headless accessible UI components.
-- **Lucide (`lucide-react`)**: SVG icons.
-
-## Local Development
-Install dependencies:
 ```bash
 npm install
+npm run dev:frontend
 ```
 
-Start the Vite development server:
-```bash
-npm run dev
-```
-> This will start the server on `http://127.0.0.1:5173`. The Vite config automatically proxies `/api` calls to `http://127.0.0.1:8000`.
+Vite listens on <http://127.0.0.1:5173> and proxies `/api` to FastAPI on port 8000. For the complete local development stack, use `npm run dev` from the repository root.
 
-Build for production:
+## Layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/pages/` | Public, legal, auth, and shared-workspace pages |
+| `src/routes/` | Browser routes and protected-route handling |
+| `src/components/` | Workspace surfaces and reusable UI |
+| `src/lib/` | API clients and domain helpers |
+| `src/store/` | Replay and workspace state |
+| `src/workers/` | Browser workers for indicator execution |
+| `public/vendor/` | Vendored browser assets required at runtime |
+
+Workspace URLs are stable and deep-linkable. The main groups are `/app/live`, `/app/replay`, `/app/order-flow`, `/app/quant`, `/app/journal/*`, `/app/reports`, and `/app/settings/*`.
+
+## Build-time configuration
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | API prefix used by the browser | `/api` |
+| `VITE_API_BEARER_TOKEN` | Optional token for protected non-user routes | empty |
+| `VITE_DEPLOYMENT_MODE` | `beta` or `production` marketing mode | `beta` |
+| `VITE_BETA_SEATS_TOTAL` | Fallback beta capacity shown before API hydration | `500` |
+| `VITE_BETA_SEATS_TAKEN` | Fallback occupied-seat count | `0` |
+
+These values are compiled into the bundle. Rebuild the frontend after changing them.
+
+## Checks
+
+From the repository root:
+
 ```bash
 npm run build
+npm run quality:ui
+npm run test:ui
 ```
 
-Preview production build:
-```bash
-npm run preview
-```
-
-For the lightweight single-user deployment, run `docker compose -f docker-compose.local.yml up --build -d` from the repository root. The production frontend image is served on `http://localhost:8080` and proxies all API traffic to the single local FastAPI container.
+`test:ui` is the full Playwright suite and is much slower than the build and contract checks. Update visual snapshots only after reviewing the changed images.

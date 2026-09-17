@@ -1,68 +1,71 @@
 # EdgeLab
 
-> *Find your edge.*
+EdgeLab is a local-first trading workspace for market replay, charting, trade journaling, and performance review. It combines a React client with a FastAPI backend and can run as a small SQLite installation or as a multi-service PostgreSQL/TimescaleDB stack.
 
-EdgeLab is a local trading research workspace built with FastAPI, Pandas, PostgreSQL, React, Tailwind, Zustand, Lucide icons, and Lightweight Charts.
+## What is here
 
-The platform focuses on manual bar replay, providing tools for long/short orders, market/limit/stop entries, TP/SL brackets, risk-percent sizing, breakeven stops, partial exits, session metrics, strategy breakdowns, a calendar heatmap, and a trade review drawer.
+- Live and historical charts, multi-pane layouts, indicators, drawings, and order-flow views.
+- Manual replay with market, limit, and stop orders, risk controls, partial exits, and session reports.
+- A trade journal with accounts, imports, broker synchronization, notes, reviews, and analytics.
+- Dataset discovery and scheduled market-data population for forex and crypto.
+- Optional Redis caching, background analytics, telemetry, and a legacy Node API.
 
-## Documentation Overview
+## Quick start
 
-The documentation for EdgeLab has been modularized. Please refer to the specific guides below:
-
-### High-Level Concepts & Architecture
-- [**System Architecture**](docs/architecture.md) - Learn how the frontend, FastAPI services, PostgreSQL, TimescaleDB, and background workers communicate.
-- [**Glossary**](docs/glossary.md) - A cheat-sheet mapping trading domain concepts (Playbooks, Timeframes, Replay Candles) to EdgeLab's business logic.
-
-### Setup & Operations
-- [**Setup and Deployment**](docs/setup-and-deployment.md) - Instructions for running EdgeLab locally via Node/Python, via Docker Compose, and deploying to Jenkins.
-- [**Configuration Reference**](docs/configuration.md) - Exhaustive list of `.env` configurations (OAuth, database URLs, Beta access logic, Populator tuning).
-- [**Deployment Scripts**](deployment/README.md) - Details on capturing remote instance state and injecting secrets securely.
-
-### Development References
-- [**API Reference**](docs/api-reference.md) - REST API routes for authentication, datasets, market data, and backtesting.
-- [**Backend Service**](backend/README.md) - Details on the FastAPI and Node APIs, database schema, and migration workflows.
-- [**Frontend SPA**](frontend/README.md) - Overview of the React/Vite client, Zustand stores, and UI component stack.
-- [**Docker & Infrastructure**](docker/README.md) - Overview of the Nginx proxy, PgBouncer pooling, and observability containers.
-- [**Scripts & Tooling**](scripts/README.md) - Local development orchestrators and dependency auditing.
-
-### Performance & Testing
-- [**Benchmarks**](benchmark/README.md) - The k6 load testing harness and e2e capacity sweep documentation.
-- [**Python Micro-Benchmarks**](benchmarks/README.md) - Local Python load testing and query read-model validation tools.
-
----
-
-## Quick Start (Docker Compose)
-
-For a lightweight single-user installation, run the local Compose file. It starts only the frontend and one FastAPI container, uses SQLite instead of PostgreSQL, and does not require Redis:
+The smallest supported installation needs only Docker:
 
 ```bash
 docker compose -f docker-compose.local.yml up --build -d
 ```
 
-Open [http://localhost:8080](http://localhost:8080). Application state is stored in the `edgelab-local_local-api-data` Docker volume and datasets remain in `./datasets`, so both survive restarts and `docker compose down`. See [Setup and Deployment](docs/setup-and-deployment.md#lightweight-single-user-deployment) for backup and removal commands.
+Open <http://localhost:8080>. This mode uses a single FastAPI container, SQLite, local developer sign-in, and the CSV files under `datasets/`. Application data lives in a Docker volume and survives normal container restarts.
 
-The full Docker Compose stack is the production-shaped option. It stands up the React frontend, Nginx, FastAPI services, PostgreSQL, TimescaleDB, and Redis.
+Add datasets beneath `datasets/`, then refresh the catalog from the application. Generated market data is intentionally not committed.
+
+## Development
+
+Use Node.js 20 or newer and Python 3.12:
 
 ```bash
-cp .env.example .env
-docker compose up --build
+npm install
+python3.12 -m venv backend/.venv
+backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+EDGELAB_DEV_AUTH_BYPASS=1 EDGELAB_JWT_SECRET=local-dev-secret npm run dev
 ```
-> The application will be available at [http://localhost:8080](http://localhost:8080).
+
+The frontend runs at <http://127.0.0.1:5173>, FastAPI at <http://127.0.0.1:8000>, and the optional compatibility API at <http://127.0.0.1:3001>.
 
 ## Verification
 
-To ensure your local environment is sound, run the following test suites:
-
 ```bash
-# Backend Python tests
-PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
-
-# Frontend Vite build & tests
-cd frontend
 npm run build
+PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests
 npm test
-
-# Docker configuration check
 docker compose config
+docker compose -f docker-compose.local.yml config
 ```
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `frontend/` | React/Vite application |
+| `backend/app/` | FastAPI application and services |
+| `backend/alembic/` | Database migrations |
+| `datasets/` | Local CSV dataset root; contents are ignored |
+| `docker/` | Nginx, PgBouncer, and observability configuration |
+| `e2e/` | Playwright tests and their reviewed visual baselines |
+| `benchmark/` | k6 capacity tests |
+| `scripts/` | Development and UI-quality tooling |
+
+## Documentation
+
+- [Setup and deployment](docs/setup-and-deployment.md)
+- [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [API guide](docs/api-reference.md)
+- [Backend development](backend/README.md)
+- [Frontend development](frontend/README.md)
+- [Deployment utilities](deployment/README.md)
+
+Machine-readable UI inventories and certification records under `docs/` are test inputs. Keep them in sync with UI changes; they are not end-user documentation.
