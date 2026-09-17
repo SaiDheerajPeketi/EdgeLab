@@ -93,6 +93,7 @@ for (const [source, item] of Object.entries(manifest)) {
 for (const requiredLazyModule of [
   "src/pages/LandingPage.tsx",
   "src/pages/PricingPage.tsx",
+  "src/pages/NotFoundPage.tsx",
   "App",
   "src/components/TradingChart.tsx",
   "src/components/IndicatorEditorPanel.tsx",

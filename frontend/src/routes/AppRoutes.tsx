@@ -50,7 +50,7 @@ const WorkspaceApp = lazy(() =>
   loadWorkspaceModule().then((module) => ({ default: module.WorkspaceApp })),
 );
 const NotFoundPage = lazy(() =>
-  loadWorkspaceModule().then((module) => ({ default: module.NotFoundPage })),
+  import("../pages/NotFoundPage").then((module) => ({ default: module.NotFoundPage })),
 );
 
 function preloadWorkspaceSurface() {
@@ -383,7 +383,9 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
       if (document.visibilityState === "visible") void refresh();
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), UI_ROLLOUT_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, UI_ROLLOUT_REFRESH_MS);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
