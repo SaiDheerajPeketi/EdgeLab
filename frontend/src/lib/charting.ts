@@ -1,6 +1,7 @@
 import type { CandlestickData, LineData, UTCTimestamp } from "lightweight-charts";
 import { CHART_COLOR } from "./colorTokens";
 import type { Candle } from "./api";
+import { trueRangeValues, wilderAverage } from "./indicatorMath";
 
 export const TIMEFRAMES = [
   { id: "1m", label: "1m", seconds: 60 },
@@ -1633,41 +1634,37 @@ function keltnerChannel(bars: Candle[], period: number, multiplier: number) {
 
 function superTrendSeries(bars: Candle[], period: number, multiplier: number): LineData[] {
   const atr = atrValues(bars, period);
-  const closes = bars.map((bar) => bar.close);
-  const ema = emaValues(closes, Math.max(2, period));
   const output: LineData[] = [];
+  let upperBand = Number.NaN;
+  let lowerBand = Number.NaN;
+  let bullish = false;
   for (let index = 0; index < bars.length; index += 1) {
-    if (!Number.isFinite(atr[index]) || !Number.isFinite(ema[index])) {
+    if (!Number.isFinite(atr[index])) {
       continue;
     }
     const bar = bars[index];
     const basis = (bar.high + bar.low) / 2;
-    const bullish = bar.close >= ema[index];
+    const basicUpper = basis + atr[index] * multiplier;
+    const basicLower = basis - atr[index] * multiplier;
+    if (!Number.isFinite(upperBand)) {
+      upperBand = basicUpper;
+      lowerBand = basicLower;
+    } else {
+      const previousClose = bars[index - 1].close;
+      upperBand = basicUpper < upperBand || previousClose > upperBand ? basicUpper : upperBand;
+      lowerBand = basicLower > lowerBand || previousClose < lowerBand ? basicLower : lowerBand;
+      bullish = bullish ? bar.close >= lowerBand : bar.close > upperBand;
+    }
     output.push({
       time: bar.time as UTCTimestamp,
-      value: bullish ? basis - atr[index] * multiplier : basis + atr[index] * multiplier,
+      value: bullish ? lowerBand : upperBand,
     });
   }
   return output;
 }
 
 function atrValues(bars: Candle[], period: number) {
-  if (bars.length === 0) {
-    return [];
-  }
-
-  const trueRanges = bars.map((bar, index) => {
-    if (index === 0) {
-      return bar.high - bar.low;
-    }
-    const previousClose = bars[index - 1].close;
-    return Math.max(
-      bar.high - bar.low,
-      Math.abs(bar.high - previousClose),
-      Math.abs(bar.low - previousClose),
-    );
-  });
-  return emaValues(trueRanges, period);
+  return wilderAverage(trueRangeValues(bars), period);
 }
 
 function valuesToLineData(bars: Candle[], values: number[]): LineData[] {
@@ -1749,6 +1746,9 @@ function toHeikinAshi(bars: Candle[]): Candle[] {
 }
 
 function toRsi(averageGain: number, averageLoss: number) {
+  if (averageGain === 0 && averageLoss === 0) {
+    return 50;
+  }
   if (averageLoss === 0) {
     return 100;
   }
