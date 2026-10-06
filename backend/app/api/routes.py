@@ -1550,7 +1550,7 @@ async def dataset_stream(websocket: WebSocket) -> None:
 def dataset_catalog_stream_payload(user_id: int) -> dict[str, object]:
     db = SessionLocal()
     try:
-        catalog = cached_dataset_catalog_response(db, user_id)
+        catalog = dataset_catalog.stored_catalog(db, user_id)
         return {
             "type": "catalog",
             "catalog": catalog.model_dump(mode="json"),

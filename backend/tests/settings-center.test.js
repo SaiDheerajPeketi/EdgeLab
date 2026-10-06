@@ -24,6 +24,7 @@ function loadSettingsModules() {
     path.join(sourceDir, "settingsPreferences.ts"),
   );
   fs.writeFileSync(path.join(sourceDir, "authSession.ts"), "export function getStoredAuthSession() { return null; }\n");
+  fs.copyFileSync(path.join(repoRoot, "frontend/src/lib/appDataBarrier.ts"), path.join(sourceDir, "appDataBarrier.ts"));
   fs.writeFileSync(path.join(sourceDir, "serverStorage.ts"), [
     "export async function loadAppStorageItem<T>(_key: string, fallback: T): Promise<T> { return fallback; }",
     "export async function saveAppStorageItemConfirmed<T>(_key: string, value: T) { return { localPersisted: true, serverPersisted: true, value }; }",

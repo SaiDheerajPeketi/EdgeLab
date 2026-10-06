@@ -1,5 +1,6 @@
 import { getStoredAuthSession } from "./authSession";
 import { loadAppStorageItem, saveAppStorageItemConfirmed } from "./serverStorage";
+import { appDataSessionKey, assertAppDataAccess, captureAppDataAccess, type AppDataAccess } from "./appDataBarrier";
 
 export type JournalAccountScope = {
   mode: "all" | "selected";
@@ -63,17 +64,21 @@ export function loadJournalScope() {
 }
 
 export async function hydrateJournalScope(validAccountIds: Iterable<number>) {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access);
   const owner = ownerSegment();
   const local = sanitizeJournalScope(readLocal(SCOPE_KEY), validAccountIds);
   const remote = sanitizeJournalScope(await loadAppStorageItem(SCOPE_KEY, local), validAccountIds);
   if (ownerSegment() !== owner) throw new DOMException("Journal owner changed", "AbortError");
-  writeLocal(SCOPE_KEY, remote);
+  writeLocal(SCOPE_KEY, remote, access);
   return remote;
 }
 
 export async function saveJournalScope(scope: JournalAccountScope) {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, true);
   const value = sanitizeJournalScope(scope);
-  writeLocal(SCOPE_KEY, value);
+  writeLocal(SCOPE_KEY, value, access);
   await saveAppStorageItemConfirmed(SCOPE_KEY, value);
   return value;
 }
@@ -83,15 +88,19 @@ export function loadJournalPanelPreferences() {
 }
 
 export async function hydrateJournalPanelPreferences() {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access);
   const local = loadJournalPanelPreferences();
   const remote = sanitizeJournalPanelPreferences(await loadAppStorageItem(PANEL_KEY, local));
-  writeLocal(PANEL_KEY, remote);
+  writeLocal(PANEL_KEY, remote, access);
   return remote;
 }
 
 export async function saveJournalPanelPreferences(preferences: JournalPanelPreferences) {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, true);
   const value = sanitizeJournalPanelPreferences(preferences);
-  writeLocal(PANEL_KEY, value);
+  writeLocal(PANEL_KEY, value, access);
   await saveAppStorageItemConfirmed(PANEL_KEY, value);
   return value;
 }
@@ -102,8 +111,10 @@ export function loadJournalSampleRunId() {
 }
 
 export function saveJournalSampleRunId(runId: number | null) {
-  writeLocal(SAMPLE_RUN_KEY, runId);
-  void saveAppStorageItemConfirmed(SAMPLE_RUN_KEY, runId);
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, true);
+  writeLocal(SAMPLE_RUN_KEY, runId, access);
+  void saveAppStorageItemConfirmed(SAMPLE_RUN_KEY, runId).catch(() => undefined);
 }
 
 export function journalDeepLink(link: JournalDeepLink) {
@@ -152,12 +163,14 @@ function ownerSegment() {
 }
 
 function localKey(key: string) {
-  return `edgelab.${key}.${ownerSegment()}`;
+  const owner = ownerSegment();
+  return appDataSessionKey(`edgelab.${key}.${owner}`, owner);
 }
 
 function readLocal(key: string): unknown {
   if (typeof window === "undefined") return null;
   try {
+    assertAppDataAccess(captureAppDataAccess());
     const raw = window.localStorage.getItem(localKey(key));
     return raw == null ? null : JSON.parse(raw);
   } catch {
@@ -165,10 +178,11 @@ function readLocal(key: string): unknown {
   }
 }
 
-function writeLocal(key: string, value: unknown) {
+function writeLocal(key: string, value: unknown, access: AppDataAccess | null = captureAppDataAccess()) {
   if (typeof window === "undefined") return;
+  assertAppDataAccess(access);
   try {
-    window.localStorage.setItem(localKey(key), JSON.stringify(value));
+    window.localStorage.setItem(access ? appDataSessionKey(`edgelab.${key}.${access.owner}`, access.owner) : localKey(key), JSON.stringify(value));
   } catch {
     // Confirmed server persistence remains the durable path when local storage is full.
   }

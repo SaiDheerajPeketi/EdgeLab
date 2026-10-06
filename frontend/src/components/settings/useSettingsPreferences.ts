@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { getAppStorageItem, patchSettingsPreferences } from "../../lib/api";
 import { getStoredAuthSession, subscribeAuthSession } from "../../lib/authSession";
+import { appDataSessionKey } from "../../lib/appDataBarrier";
 import { rebaseQueuedPreferences } from "../../lib/chartSettingsDraft";
 import { useJournalDraft } from "../../lib/journalDrafts";
 import { confirmAppStorageOperations } from "../../lib/serverStorage";
@@ -19,7 +20,7 @@ function snapshot(owner: string) {
   if (!snapshots.has(owner)) {
     let attempts: Partial<SettingsPreferences> = {};
     try {
-      const stored = JSON.parse(sessionStorage.getItem(`edgelab.preferences-save-errors.v1.user-${owner}`) ?? "null");
+      const stored = JSON.parse(sessionStorage.getItem(appDataSessionKey(`edgelab.preferences-save-errors.v1.user-${owner}`, `user-${owner}`)) ?? "null");
       if (stored?.version === 1) attempts = Object.fromEntries(fields.filter((field) => valid(field, stored.attempts?.[field])).map((field) => [field, stored.attempts[field]]));
     } catch { /* Private drafts remain recoverable independently. */ }
     snapshots.set(owner, { ready: false, loading: false, error: false, defaults: DEFAULT_SETTINGS_PREFERENCES, submitted: {}, states: Object.fromEntries(Object.keys(attempts).map((field) => [field, "error"])), attempts, revisions: {}, undo: null, conflict: false });
@@ -37,14 +38,14 @@ function validate(value: unknown, changes?: Partial<SettingsPreferences>) {
 function publish(owner: string, update: Partial<Snapshot>) { snapshots.set(owner, { ...snapshot(owner), ...update }); listeners.forEach((listener) => listener()); }
 function remember(owner: string) {
   const current = snapshot(owner);
-  try { sessionStorage.setItem(`edgelab.preferences-save-errors.v1.user-${owner}`, JSON.stringify({ version: 1, attempts: Object.fromEntries(fields.filter((field) => current.states[field] === "error").map((field) => [field, current.attempts[field]])) })); } catch { /* In-memory recovery remains available. */ }
+  try { sessionStorage.setItem(appDataSessionKey(`edgelab.preferences-save-errors.v1.user-${owner}`, `user-${owner}`), JSON.stringify({ version: 1, attempts: Object.fromEntries(fields.filter((field) => current.states[field] === "error").map((field) => [field, current.attempts[field]])) })); } catch { /* In-memory recovery remains available. */ }
 }
 async function load(owner: string) {
   const starting = snapshot(owner);
   if (starting.loading) return;
   publish(owner, { loading: true, error: false });
   try {
-    const [item] = await confirmAppStorageOperations([{ key, rebaseQueued: rebaseQueuedPreferences }], async () => { const result = await getAppStorageItem("edgelab", key); validate(result.value); return [result]; });
+    const [item] = await confirmAppStorageOperations([{ key, rebaseQueued: rebaseQueuedPreferences }], async () => { const result = await getAppStorageItem("edgelab", key); validate(result.value); return [result]; }, { readOnly: true });
     if (owner === ownerNow()) {
       const latest = snapshot(owner), loaded = validate(item.value);
       const defaults = Object.fromEntries(fields.map((field) => [field, starting.revisions[field] !== latest.revisions[field] ? latest.defaults[field] : loaded[field]])) as SettingsPreferences;

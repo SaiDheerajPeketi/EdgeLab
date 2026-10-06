@@ -15,9 +15,9 @@ function loadJournalContracts() {
   const sourceDir = path.join(tempDir, "src");
   const outDir = path.join(tempDir, "out");
   fs.mkdirSync(sourceDir, { recursive: true });
-  for (const file of ["journalAnalytics.ts", "journalWorkspaceState.ts"]) fs.copyFileSync(path.join(repoRoot, "frontend/src/lib", file), path.join(sourceDir, file));
+  for (const file of ["journalAnalytics.ts", "journalWorkspaceState.ts", "appDataBarrier.ts"]) fs.copyFileSync(path.join(repoRoot, "frontend/src/lib", file), path.join(sourceDir, file));
   fs.writeFileSync(path.join(sourceDir, "journalApi.ts"), "export type CanonicalTrade = any; export type JournalAccount = any; export type JournalTag = any;\n");
-  fs.writeFileSync(path.join(sourceDir, "authSession.ts"), "export function getStoredAuthSession() { return { user: { id: 7, email: 'owner@example.com' } }; }\n");
+  fs.writeFileSync(path.join(sourceDir, "authSession.ts"), "export function getStoredAuthSession() { return { token: null, user: { id: 7, email: 'owner@example.com' } }; }\n");
   fs.writeFileSync(path.join(sourceDir, "serverStorage.ts"), "export async function loadAppStorageItem(_key: string, fallback: unknown) { return fallback; } export async function saveAppStorageItemConfirmed(_key: string, value: unknown) { return value; }\n");
   const compile = spawnSync(process.execPath, [tscBin, "--module", "commonjs", "--target", "es2022", "--lib", "es2022,dom", "--skipLibCheck", "--outDir", outDir, ...fs.readdirSync(sourceDir).map((file) => path.join(sourceDir, file))], { cwd: repoRoot, encoding: "utf8" });
   if (compile.status !== 0) { fs.rmSync(tempDir, { force: true, recursive: true }); throw new Error(compile.stderr || compile.stdout || "Journal contracts failed to compile"); }

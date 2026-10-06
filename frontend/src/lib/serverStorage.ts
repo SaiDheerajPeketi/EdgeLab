@@ -1,5 +1,6 @@
 import { getAppStorageItem, putAppStorageItem, type AppStorageItem } from "./api";
 import { getStoredAuthSession } from "./authSession";
+import { appDataLegacyMigrationAllowed, appDataSessionKey, assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant, type AppDataAccess } from "./appDataBarrier";
 
 export const APP_STORAGE_NAMESPACE = "edgelab";
 
@@ -15,6 +16,20 @@ const listeners = new Map<string, Set<Listener<unknown>>>();
 const mutationVersions = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
 const queuedValues = new Map<string, Map<number, { value: unknown }>>();
+
+registerAppDataParticipant({
+  settle: async (owner) => { await Promise.allSettled([...writeQueues].filter(([key]) => key.startsWith(`${owner}:`)).map(([, write]) => write)); },
+  invalidate: (owner) => {
+    for (const key of memoryCache.keys()) if (key.startsWith(`${owner}:`)) memoryCache.delete(key);
+    for (const key of mutationVersions.keys()) if (key.startsWith(`${owner}:`)) mutationVersions.delete(key);
+    for (const key of queuedValues.keys()) if (key.startsWith(`${owner}:`)) queuedValues.delete(key);
+  },
+});
+
+function assertStorageAccess(access: AppDataAccess | null, namespace: string, key: string, combinedKey: string, mutation = false) {
+  if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+  assertAppDataAccess(access, mutation);
+}
 
 function queueValue(combinedKey: string, value: unknown) {
   const version = (mutationVersions.get(combinedKey) ?? 0) + 1;
@@ -45,6 +60,9 @@ const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "drawing-tool-favorites.v1": "edgelab.drawing-tool-favorites.v1",
   "fib-presets.v1": "edgelab.fib-presets.v1",
   "indicator-favorites.v1": "edgelab.indicator-favorites.v1",
+  "journal-account-scope.v1": "edgelab.journal-account-scope.v1",
+  "journal-panel-layout.v1": "edgelab.journal-panel-layout.v1",
+  "journal-sample-run.v1": "edgelab.journal-sample-run.v1",
   "finance-tracker.v1": "edgelab.finance-tracker.v1",
   "live-chart-layout.v1": "edgelab.live-chart-layout.v1",
   "live-chart-layouts.v1": "edgelab.live-chart-layouts.v1",
@@ -82,6 +100,7 @@ export function getCachedAppStorageItem<T>(
   fallback: T,
   namespace = APP_STORAGE_NAMESPACE,
 ): T {
+  try { assertAppDataAccess(captureAppDataAccess()); } catch { return fallback; }
   const cached = memoryCache.get(storageKey(namespace, key));
   return cached === undefined ? fallback : (cached as T);
 }
@@ -91,12 +110,14 @@ export async function loadAppStorageItem<T>(
   fallback: T,
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<T> {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access);
   const combinedKey = storageKey(namespace, key);
   const versionAtStart = mutationVersions.get(combinedKey) ?? 0;
   const localValue = readLocalStorageValue<T>(key);
   try {
     const item = await getAppStorageItem<T>(namespace, key);
-    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+    assertStorageAccess(access, namespace, key, combinedKey);
     if ((mutationVersions.get(combinedKey) ?? 0) !== versionAtStart) {
       return getCachedAppStorageItem(key, fallback, namespace);
     }
@@ -104,28 +125,29 @@ export async function loadAppStorageItem<T>(
       const serverUpdatedAt = parseTimestamp(item.updated_at);
       if (
         localValue != null &&
+        appDataLegacyMigrationAllowed() &&
         localValue.source === "scoped" &&
         localValue.updatedAt > serverUpdatedAt
       ) {
-        setCachedValue(namespace, key, localValue.value);
-        void saveAppStorageItem(key, localValue.value, namespace);
+        setCachedValue(namespace, key, localValue.value, combinedKey);
+        void saveAppStorageItem(key, localValue.value, namespace).catch(() => undefined);
         return localValue.value;
       }
-      setCachedValue(namespace, key, item.value);
-      writeLocalStorageValue(key, item.value, serverUpdatedAt);
+      setCachedValue(namespace, key, item.value, combinedKey);
+      writeLocalStorageValue(key, item.value, serverUpdatedAt, access);
       return item.value;
     }
     if (item.value == null) {
-      if (localValue != null) {
-        setCachedValue(namespace, key, localValue.value);
-        void saveAppStorageItem(key, localValue.value, namespace);
+      if (localValue != null && appDataLegacyMigrationAllowed()) {
+        setCachedValue(namespace, key, localValue.value, combinedKey);
+        void saveAppStorageItem(key, localValue.value, namespace).catch(() => undefined);
         return localValue.value;
       }
     }
-    setCachedValue(namespace, key, fallback);
+    setCachedValue(namespace, key, fallback, combinedKey);
     return fallback;
   } catch {
-    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+    assertStorageAccess(access, namespace, key, combinedKey);
     const cachedValue = getCachedAppStorageItem(key, fallback, namespace);
     if (cachedValue !== fallback) {
       return cachedValue;
@@ -139,20 +161,22 @@ export async function saveAppStorageItem<T>(
   value: T,
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<T> {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, true);
   const combinedKey = storageKey(namespace, key);
   const queued = queueValue(combinedKey, value);
-  setCachedValue(namespace, key, value);
-  try { writeLocalStorageValue(key, value, Date.now()); }
+  setCachedValue(namespace, key, value, combinedKey);
+  try { writeLocalStorageValue(key, value, Date.now(), access); }
   catch (error) { queued.remove(); throw error; }
   const previousWrite = writeQueues.get(combinedKey) ?? Promise.resolve();
   const nextWrite = previousWrite
     .catch(() => undefined)
     .then(async () => {
       try {
-        if (storageKey(namespace, key) !== combinedKey) return;
+        assertStorageAccess(access, namespace, key, combinedKey, true);
         const item = await putAppStorageItem(namespace, key, queued.entry.value);
-        if (storageKey(namespace, key) !== combinedKey) return;
-        writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now());
+        assertStorageAccess(access, namespace, key, combinedKey);
+        writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now(), access);
       } catch {
         // Keep the UI responsive; a later successful save will replace the server value.
       } finally { queued.remove(); }
@@ -171,12 +195,14 @@ export async function saveAppStorageItemConfirmed<T>(
   value: T,
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<{ localPersisted: boolean; serverPersisted: boolean; value: T }> {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, true);
   const combinedKey = storageKey(namespace, key);
   const queued = queueValue(combinedKey, value);
-  setCachedValue(namespace, key, value);
+  setCachedValue(namespace, key, value, combinedKey);
   let localPersisted = false;
   try {
-    localPersisted = writeLocalStorageValue(key, value, Date.now());
+    localPersisted = writeLocalStorageValue(key, value, Date.now(), access);
   } catch {
     // The confirmed server write below remains a durable path when local storage is full.
   }
@@ -186,12 +212,12 @@ export async function saveAppStorageItemConfirmed<T>(
   const nextWrite = previousWrite
     .catch(() => undefined)
     .then(async () => {
-      if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+      assertStorageAccess(access, namespace, key, combinedKey, true);
       const item = await putAppStorageItem(namespace, key, queued.entry.value);
-      if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+      assertStorageAccess(access, namespace, key, combinedKey);
       serverPersisted = true;
       try {
-        writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now());
+        writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now(), access);
         localPersisted = true;
       } catch {
         // Server persistence is sufficient; hydration can recover the value remotely.
@@ -201,6 +227,7 @@ export async function saveAppStorageItemConfirmed<T>(
   try {
     await nextWrite;
   } catch (error) {
+    assertStorageAccess(access, namespace, key, combinedKey);
     if (!localPersisted) {
       throw error;
     }
@@ -214,31 +241,33 @@ export async function saveAppStorageItemConfirmed<T>(
 }
 
 /** Serialize a strict read/write behind legacy writes; publish only acknowledged values. */
-export async function confirmAppStorageOperation<T>(key: string, request: () => Promise<AppStorageItem<T>>, namespace = APP_STORAGE_NAMESPACE, rebaseQueued?: (pending: unknown, confirmed: T) => unknown): Promise<AppStorageItem<T>> {
+export async function confirmAppStorageOperation<T>(key: string, request: () => Promise<AppStorageItem<T>>, namespace = APP_STORAGE_NAMESPACE, rebaseQueued?: (pending: unknown, confirmed: T) => unknown, options: { readOnly?: boolean } = {}): Promise<AppStorageItem<T>> {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, !options.readOnly);
   const combinedKey = storageKey(namespace, key);
   const versionAtStart = mutationVersions.get(combinedKey) ?? 0;
   const previous = writeQueues.get(combinedKey) ?? Promise.resolve();
   let item: AppStorageItem<T>;
   const next = previous.catch(() => undefined).then(async () => {
-    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+    assertStorageAccess(access, namespace, key, combinedKey, !options.readOnly);
     item = await request();
-    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+    assertStorageAccess(access, namespace, key, combinedKey);
     const currentVersion = mutationVersions.get(combinedKey) ?? 0;
     if (rebaseQueued && item.value != null) {
       const values = queuedValues.get(combinedKey);
       values?.forEach((entry, version) => { if (version > versionAtStart) entry.value = rebaseQueued(entry.value, item.value!); });
       const latest = values?.get(currentVersion);
       if (latest) {
-        setCachedValue(namespace, key, latest.value);
-        try { writeLocalStorageValue(key, latest.value, Date.now()); } catch { /* Queued server write remains available. */ }
+        setCachedValue(namespace, key, latest.value, combinedKey);
+        try { writeLocalStorageValue(key, latest.value, Date.now(), access); } catch { /* Queued server write remains available. */ }
       }
     }
     // A response issued before a newer optimistic edit cannot replace that edit.
     if (currentVersion !== versionAtStart) return;
     mutationVersions.set(combinedKey, currentVersion + 1);
     if (item.value != null) {
-      setCachedValue(namespace, key, item.value);
-      try { writeLocalStorageValue(key, item.value, parseTimestamp(item.updated_at) || Date.now()); }
+      setCachedValue(namespace, key, item.value, combinedKey);
+      try { writeLocalStorageValue(key, item.value, parseTimestamp(item.updated_at) || Date.now(), access); }
       catch { /* The server acknowledgment remains durable when local storage is full. */ }
     }
   });
@@ -249,7 +278,9 @@ export async function confirmAppStorageOperation<T>(key: string, request: () => 
 
 /** Reserve all related storage queues before awaiting, keeping atomic writes
  * and their cache publication indivisible relative to later legacy writers. */
-export async function confirmAppStorageOperations(entries: Array<{ key: string; namespace?: string; rebaseQueued?: (pending: unknown, confirmed: unknown, before: unknown) => unknown }>, request: () => Promise<AppStorageItem[]>): Promise<AppStorageItem[]> {
+export async function confirmAppStorageOperations(entries: Array<{ key: string; namespace?: string; rebaseQueued?: (pending: unknown, confirmed: unknown, before: unknown) => unknown }>, request: () => Promise<AppStorageItem[]>, options: { readOnly?: boolean } = {}): Promise<AppStorageItem[]> {
+  const access = captureAppDataAccess();
+  assertAppDataAccess(access, !options.readOnly);
   const captures = entries.map((entry) => {
     const namespace = entry.namespace ?? APP_STORAGE_NAMESPACE;
     const combinedKey = storageKey(namespace, entry.key);
@@ -258,8 +289,8 @@ export async function confirmAppStorageOperations(entries: Array<{ key: string; 
   if (!captures.length || new Set(captures.map((entry) => entry.combinedKey)).size !== captures.length) throw new Error("Storage operation requires distinct keys.");
   let items: AppStorageItem[];
   const next = Promise.all(captures.map(({ previous }) => previous.catch(() => undefined))).then(async () => {
-    const guard = () => { if (captures.some(({ namespace, key, combinedKey }) => storageKey(namespace, key) !== combinedKey)) throw new DOMException("Storage owner changed", "AbortError"); };
-    guard(); items = await request(); guard();
+    const guard = (mutation = false) => { captures.forEach(({ namespace, key, combinedKey }) => assertStorageAccess(access, namespace, key, combinedKey, mutation)); };
+    guard(!options.readOnly); items = await request(); guard();
     if (items.length !== captures.length || captures.some(({ namespace, key }) => items.filter((item) => item.namespace === namespace && item.key === key).length !== 1)) throw new Error("Incomplete storage acknowledgment.");
     // Complete every rebase before publishing any member of the bundle.
     const rebases = captures.map(({ namespace, key, combinedKey, version, before, rebaseQueued }) => {
@@ -274,12 +305,12 @@ export async function confirmAppStorageOperations(entries: Array<{ key: string; 
       const values = queuedValues.get(combinedKey);
       const latest = values?.get(currentVersion);
       if (latest && rebaseQueued) {
-        setCachedValue(namespace, key, latest.value);
-        try { writeLocalStorageValue(key, latest.value, Date.now()); } catch { /* Queued persistence remains available. */ }
+        setCachedValue(namespace, key, latest.value, combinedKey);
+        try { writeLocalStorageValue(key, latest.value, Date.now(), access); } catch { /* Queued persistence remains available. */ }
       } else if (currentVersion === version) {
         mutationVersions.set(combinedKey, currentVersion + 1);
-        setCachedValue(namespace, key, item.value);
-        try { writeLocalStorageValue(key, item.value, parseTimestamp(item.updated_at) || Date.now()); } catch { /* Server values remain durable. */ }
+        setCachedValue(namespace, key, item.value, combinedKey);
+        try { writeLocalStorageValue(key, item.value, parseTimestamp(item.updated_at) || Date.now(), access); } catch { /* Server values remain durable. */ }
       }
     });
   });
@@ -306,7 +337,7 @@ export function subscribeAppStorageItem<T>(
 }
 
 export function isAppStorageLocalStorageKey(key: string) {
-  return (
+  return (key.endsWith(`.${storageOwnerSegment()}`) || key.endsWith(`.${storageOwnerSegment()}.__updatedAt`) || key.includes(`.${storageOwnerSegment()}.data-`)) && (
     key.startsWith("edgelab.workspace-share-copy.v1.workspace-copy-") ||
     Object.values(LEGACY_STORAGE_KEY_MAP).some(
       (prefix) => key === prefix || key.startsWith(`${prefix}.`),
@@ -314,8 +345,7 @@ export function isAppStorageLocalStorageKey(key: string) {
   );
 }
 
-function setCachedValue<T>(namespace: string, key: string, value: T) {
-  const combinedKey = storageKey(namespace, key);
+function setCachedValue<T>(namespace: string, key: string, value: T, combinedKey = storageKey(namespace, key)) {
   memoryCache.set(combinedKey, value);
   listeners.get(combinedKey)?.forEach((listener) => listener(value));
 }
@@ -330,7 +360,7 @@ function readLocalStorageValue<T>(key: string): LocalStorageValue<T> | null {
     return localValue;
   }
   const legacyKey = legacyStorageKeyFor(key);
-  if (!legacyKey || legacyKey === localKey) {
+  if (!legacyKey || legacyKey === localKey || !appDataLegacyMigrationAllowed()) {
     return null;
   }
   return readLocalStorageKeyValue<T>(key, legacyKey, "legacy");
@@ -365,11 +395,12 @@ function readLocalStorageKeyValue<T>(
   };
 }
 
-function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number) {
+function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number, access: AppDataAccess | null = captureAppDataAccess()) {
+  assertAppDataAccess(access);
   if (typeof window === "undefined") {
     return false;
   }
-  const localKey = localStorageKeyFor(key);
+  const localKey = localStorageKeyFor(key, access?.owner);
   if (!localKey) {
     return false;
   }
@@ -382,9 +413,9 @@ function writeLocalStorageValue<T>(key: string, value: T, updatedAt: number) {
   return true;
 }
 
-function localStorageKeyFor(key: string) {
+function localStorageKeyFor(key: string, owner = storageOwnerSegment()) {
   const legacyKey = legacyStorageKeyFor(key);
-  return legacyKey ? `${legacyKey}.${storageOwnerSegment()}` : null;
+  return legacyKey ? appDataSessionKey(`${legacyKey}.${owner}`, owner) : null;
 }
 
 function storageOwnerSegment() {

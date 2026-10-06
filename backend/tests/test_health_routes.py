@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api import routes
 from app.auth import AuthenticatedUser
 from app.db import Base
-from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetTimeframe, Position, Trade
+from app.models import BacktestSession, BetaUser, DatasetAsset, DatasetSettings, DatasetTimeframe, Position, Trade
 from app.services.backtester import BacktestService
 from app.services.datasets import DatasetCatalogService
 from app.services.rate_limits import RateLimitDecision
@@ -115,11 +115,42 @@ def test_dataset_catalog_stream_payload_serializes_catalog(monkeypatch, tmp_path
 
     with session_factory() as db:
         user_id = seed_user(db)
+        catalog.list_catalog(db, user_id)
+    monkeypatch.setattr(catalog, "discover_catalog", lambda *_args, **_kwargs: pytest.fail("Streams cannot discover datasets"))
+    monkeypatch.setattr(catalog, "_settings_row", lambda *_args: pytest.fail("Streams cannot initialize settings"))
     payload = routes.dataset_catalog_stream_payload(user_id)
 
     assert payload["type"] == "catalog"
     assert payload["catalog"]["root"] == str(datasets_root)
     assert payload["catalog"]["instruments"][0]["id"] == "GBP_USD"
+
+
+def test_dataset_stream_does_not_repopulate_an_empty_restored_catalog(monkeypatch, tmp_path):
+    datasets_root = tmp_path / "datasets"
+    asset_dir = datasets_root / "GBP_USD"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "GBPUSD_M1.csv").write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n2024-01-01 09:30:00,1.2,1.3,1.1,1.25,100\n",
+        encoding="utf-8",
+    )
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    catalog = DatasetCatalogService(datasets_root, session_factory)
+    monkeypatch.setattr(routes, "dataset_catalog", catalog)
+    monkeypatch.setattr(routes, "SessionLocal", session_factory)
+    monkeypatch.setattr(catalog, "discover_catalog", lambda *_args, **_kwargs: pytest.fail("Streams cannot discover datasets"))
+    monkeypatch.setattr(catalog, "_settings_row", lambda *_args: pytest.fail("Streams cannot initialize settings"))
+    with session_factory() as db:
+        user_id = seed_user(db)
+    for _ in range(2):
+        assert routes.dataset_catalog_stream_payload(user_id) == {
+            "type": "catalog", "catalog": {"root": str(datasets_root), "instruments": []},
+        }
+    with session_factory() as db:
+        assert db.query(DatasetSettings).count() == 0
+        assert db.query(DatasetAsset).count() == 0
+        assert db.query(DatasetTimeframe).count() == 0
 
 
 def test_dataset_catalog_stream_payload_hides_internal_errors(monkeypatch):
@@ -130,7 +161,7 @@ def test_dataset_catalog_stream_payload_hides_internal_errors(monkeypatch):
     def fail_catalog(*_args, **_kwargs):
         raise DataError("insert", {}, OverflowError("integer out of range"))
 
-    monkeypatch.setattr(routes, "cached_dataset_catalog_response", fail_catalog)
+    monkeypatch.setattr(routes, "dataset_catalog", SimpleNamespace(stored_catalog=fail_catalog))
 
     payload = routes.dataset_catalog_stream_payload(user_id)
 

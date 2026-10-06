@@ -112,6 +112,13 @@ class DatasetCatalogService:
         self.discover_catalog(db, user_id)
         return self._catalog_from_store(db, user_id)
 
+    def stored_catalog(self, db: Session, user_id: int) -> DatasetCatalogResponse:
+        # Streams observe committed catalog changes. They must not recreate rows
+        # while an account replacement is clearing or restoring the catalog.
+        root_path = db.scalar(select(DatasetSettings.root_path).where(DatasetSettings.user_id == user_id))
+        root = self._validated_root_path(Path(root_path) if root_path else self.default_root)
+        return self._catalog_from_store(db, user_id, root=root)
+
     def get_settings(self, db: Session, user_id: int) -> DatasetSettingsRead:
         return DatasetSettingsRead(root_path=str(self._root_path(db, user_id)))
 
@@ -859,7 +866,7 @@ class DatasetCatalogService:
             line = bytes(reversed(buffer)).decode("utf-8").strip()
             return line or None
 
-    def _catalog_from_store(self, db: Session, user_id: int) -> DatasetCatalogResponse:
+    def _catalog_from_store(self, db: Session, user_id: int, *, root: Path | None = None) -> DatasetCatalogResponse:
         instruments: list[DatasetInstrument] = []
         assets = db.scalars(
             select(DatasetAsset)
@@ -907,7 +914,7 @@ class DatasetCatalogService:
                     timeframes=timeframe_reads,
                 )
             )
-        return DatasetCatalogResponse(root=str(self._root_path(db, user_id)), instruments=instruments)
+        return DatasetCatalogResponse(root=str(root if root is not None else self._root_path(db, user_id)), instruments=instruments)
 
     def _root_path(self, db: Session, user_id: int) -> Path:
         return self._validated_root_path(Path(self._settings_row(db, user_id).root_path))

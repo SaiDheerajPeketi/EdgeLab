@@ -1,4 +1,5 @@
 import type { WorkspaceSharePayload, WorkspaceShareScope } from "./workspaceShare";
+import { captureAppDataAccess, runAppDataReplacement, runAppDataRequest } from "./appDataBarrier";
 
 export type Candle = {
   time: number;
@@ -750,8 +751,30 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const authToken = readStoredAuthToken();
+function normalizedApiPath(path: string) {
+  const decoded = decodeURIComponent(path.split(/[?#]/, 1)[0]);
+  if (/[\u0000-\u001f\u007f\\]/.test(decoded)) throw new Error("API paths cannot contain control characters or backslashes.");
+  if (decoded.split("/").some((part) => part === "." || part === "..")) throw new Error("API paths cannot contain dot segments.");
+  return new URL(`/${decoded.replace(/^\/+/, "")}`, "https://edgelab.invalid").pathname.replace(/\/+/g, "/").replace(/\/$/, "");
+}
+
+function portableMutation(path: string, init?: RequestInit) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const normalized = normalizedApiPath(path);
+  if (["HEAD", "OPTIONS"].includes(method)) return false;
+  // Catalog discovery and replay repair can commit account rows during reads.
+  if (method === "GET") return /^\/(?:datasets(?:\/settings)?|bootstrap(?:-shell)?|backtests(?:\/.*)?|market-data\/(?:meta|bars))$/.test(normalized);
+  return /^\/(?:app-storage|app-data|settings|datasets|journal|backtests|playbooks|trades|broker-connections|broker-sync-jobs|quant\/backtests)(?:\/|$)/.test(normalized);
+}
+
+function coordinatedPath(path: string) {
+  return !/^\/(?:auth(?:\/|$)|ui\/rollout$|health$|ready$)/.test(normalizedApiPath(path));
+}
+
+async function request<T>(path: string, init?: RequestInit, replacement = false): Promise<T> {
+  if (normalizedApiPath(path) === "/app-data/import" && !replacement) throw new Error("Use the validated account data import flow.");
+  const access = !replacement && coordinatedPath(path) ? captureAppDataAccess() : null;
+  const authToken = access?.token ?? readStoredAuthToken();
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -763,22 +786,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers.set("Authorization", `Bearer ${API_BEARER_TOKEN}`);
     }
   }
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => null);
-    const detail = error?.detail ?? response.statusText;
-    throw new ApiError(
-      response.status,
-      typeof detail === "string" ? detail : response.statusText,
-      detail,
-    );
+  if (access && headers.get("Authorization") !== `Bearer ${access.token}`) {
+    throw new DOMException("Account session changed before request", "AbortError");
   }
-
-  return response.json() as Promise<T>;
+  const execute = async (progress: { sent: () => void; completed: () => void }) => {
+    if (init?.signal?.aborted) throw new DOMException("Request canceled", "AbortError");
+    progress.sent();
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    const text = await response.text();
+    progress.completed();
+    let value;
+    try { value = JSON.parse(text); } catch (error) { if (response.ok) throw error; }
+    if (!response.ok) {
+      const detail = value?.detail ?? response.statusText;
+      throw new ApiError(response.status, typeof detail === "string" ? detail : response.statusText, detail);
+    }
+    return value as T;
+  };
+  return replacement ? execute({ sent() {}, completed() {} }) : runAppDataRequest(access, portableMutation(path, init), execute);
 }
 
 export function apiRequest<T>(path: string, init?: RequestInit) {
@@ -786,10 +811,20 @@ export function apiRequest<T>(path: string, init?: RequestInit) {
 }
 
 export async function authenticatedApiFetch(path: string, init?: RequestInit) {
+  if (normalizedApiPath(path) === "/app-data/import") throw new Error("Use the validated account data import flow.");
+  const access = coordinatedPath(path) ? captureAppDataAccess() : null;
   const headers = new Headers(init?.headers);
-  const token = getApiBearerToken();
+  const token = access?.token ?? getApiBearerToken();
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  if (access && headers.get("Authorization") !== `Bearer ${access.token}`) throw new DOMException("Account session changed before request", "AbortError");
+  return runAppDataRequest(access, portableMutation(path, init), async (progress) => {
+    if (init?.signal?.aborted) throw new DOMException("Request canceled", "AbortError");
+    progress.sent();
+    const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    if (portableMutation(path, init) || !["GET", "HEAD", "OPTIONS"].includes((init?.method ?? "GET").toUpperCase())) await response.clone().arrayBuffer();
+    progress.completed();
+    return response;
+  });
 }
 
 async function requestWithAuthorization<T>(
@@ -1068,7 +1103,7 @@ export async function exportAppDataBundle() {
   }
 }
 
-export async function importAppDataBundle(bundle: AppDataBundle) {
+export async function importAppDataBundle(bundle: AppDataBundle): Promise<AppDataImportResult> {
   const owner = appDataOwner();
   const validated = validateAppDataBundle(bundle);
   if (appDataImportSessions.has(owner.id)) {
@@ -1079,16 +1114,26 @@ export async function importAppDataBundle(bundle: AppDataBundle) {
   const expected = Object.fromEntries(APP_DATA_TABLE_NAMES.map((table) => [table, validated.tables[table]?.length ?? 0]));
   const body = JSON.stringify(validated);
   appDataImportSessions.set(owner.id, "working");
+  let sent = false;
   try {
-    const value = await requestWithAuthorization<unknown>("/app-data/import", owner.token, { method: "POST", body });
+    const result = await runAppDataReplacement<AppDataImportResult>(owner, async (markSent) => {
+      assertAppDataOwner(owner);
+      markSent();
+      sent = true;
+      const value = await request<unknown>("/app-data/import", { method: "POST", body, headers: { Authorization: `Bearer ${owner.token}` } }, true);
+      assertAppDataOwner(owner);
+      return validateAppDataImportResult(value, expected);
+    });
     assertAppDataOwner(owner);
-    return validateAppDataImportResult(value, expected);
+    return result;
   } catch (error) {
     assertAppDataOwner(owner);
     if (error instanceof DOMException && error.name === "AbortError") throw error;
+    if (!sent) throw error;
     throw new AppDataImportUncertainError();
   } finally {
-    appDataImportSessions.set(owner.id, "reload");
+    if (sent) appDataImportSessions.set(owner.id, "reload");
+    else appDataImportSessions.delete(owner.id);
   }
 }
 

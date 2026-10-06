@@ -25,6 +25,7 @@ const completeBundle = () => ({ app: "edgelab", version: 1, exported_at: timesta
 const countsFor = (value) => Object.fromEntries(tables.map((name) => [name, value.tables[name]?.length ?? 0]));
 const acknowledgment = (value) => ({ ok: true, imported_at: timestamp, summary: countsFor(value) });
 const response = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
+const transferTurn = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => {
   let resolve;
   const promise = new Promise((done) => { resolve = done; });
@@ -33,11 +34,13 @@ const deferred = () => {
 const uncertain = (error) => error.name === "AppDataImportUncertainError" && error.requiresReload === true;
 
 async function withHarness(run) {
-  const transfer = await freshApi(); // A reload creates a fresh module and clears its owner locks.
   const previous = { fetch: globalThis.fetch, window: globalThis.window };
   const storage = new Map();
   const requests = [];
-  globalThis.window = { localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, dispatchEvent() {}, addEventListener() {} };
+  const memory = (values) => ({ get length() { return values.size; }, key: (index) => [...values.keys()][index] ?? null, getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key) });
+  globalThis.window = { localStorage: memory(storage), sessionStorage: memory(new Map()), navigator: { locks: { request: (_name, _options, callback) => callback() } }, crypto: globalThis.crypto, dispatchEvent() {}, addEventListener() {} };
+  storage.set("edgelab.auth.session.v1", JSON.stringify(ownerSession(1)));
+  const transfer = await freshApi(); // Capture the current durable epoch at page startup.
   transfer.setStoredAuthSession(ownerSession(1));
   const harness = {
     api: transfer, requests, storage,
@@ -227,6 +230,7 @@ for (const operation of ["export", "import"])
       const active = deferred();
       fetch(() => active.promise);
       const pending = operation === "export" ? api.exportAppDataBundle() : api.importAppDataBundle(source);
+      await transferTurn();
       change(api);
       active.resolve(outcome === "HTTP failure" ? response({ detail: "Previous owner storage unavailable" }, 500)
         : outcome === "network failure" ? Promise.reject(new TypeError("Previous owner network interrupted"))
@@ -250,6 +254,7 @@ for (const operation of ["export", "import"]) test(`${operation} rejects a sessi
     const active = deferred();
     fetch(() => active.promise);
     const pending = operation === "export" ? api.exportAppDataBundle() : api.importAppDataBundle(source);
+    await transferTurn();
     try {
       Date.now = () => start + 2000;
       active.resolve(response(operation === "export" ? completeBundle() : acknowledgment(source)));
@@ -269,13 +274,14 @@ test("mutating the caller bundle during a pending import cannot change its submi
     source.tables.app_storage.push({ id: 9 });
     delete source.tables.journal_accounts;
     source.tables.positions = [{ id: 100 }];
+    await transferTurn();
     assert.deepEqual(JSON.parse(requests[0].init.body), original);
     active.resolve(response(acknowledgment(original)));
     assert.deepEqual(await pending, acknowledgment(original));
   });
 });
 
-for (const operation of ["export", "import"]) test(`${operation} pins the captured token when owner changes during the request auth reread`, async () => {
+for (const operation of ["export", "import"]) test(`${operation} rejects a changed owner during the request auth reread before fetching`, async () => {
   await withHarness(async ({ api, storage, fetch, requests }) => {
     const source = partialBundle();
     const active = deferred();
@@ -287,12 +293,10 @@ for (const operation of ["export", "import"]) test(`${operation} pins the captur
     };
     fetch(() => active.promise, "owner-1");
     const pending = operation === "export" ? api.exportAppDataBundle() : api.importAppDataBundle(source);
-    assert.equal(authReads, 2, "change must occur between owner capture and request auth reread");
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].init.headers.get("Authorization"), "Bearer owner-1");
-    if (operation === "import") assert.deepEqual(JSON.parse(requests[0].init.body), source);
     active.resolve(response(operation === "export" ? completeBundle() : acknowledgment(source)));
     await assert.rejects(pending, { name: "AbortError" });
+    assert.ok(authReads >= 2, "change must occur between owner capture and request admission");
+    assert.equal(requests.length, 0);
   });
 });
 

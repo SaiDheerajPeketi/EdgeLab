@@ -1,5 +1,6 @@
 import type { WorkspaceView } from "./workspace";
 import { getStoredAuthSession } from "./authSession";
+import { appDataSessionKey, assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant } from "./appDataBarrier";
 
 export type NavigationSurfaceId = WorkspaceView | `journal:${string}` | `reports:${string}` | `settings:${string}` | `chart:${string}`;
 
@@ -17,10 +18,14 @@ const memory = new Map<NavigationSurfaceId, NavigationSurfaceState>();
 const STORAGE_PREFIX = "edgelab.navigation-surfaces.v3";
 let activeOwner = ownerSegment();
 
+registerAppDataParticipant({ settle: async () => undefined, invalidate: (owner) => { if (owner === activeOwner) memory.clear(); } });
+
 hydrateMemory();
 if (typeof window !== "undefined") window.addEventListener("edgelab:auth-session-change", reloadNavigationStateForAuth);
 
 export function rememberNavigationState(view: NavigationSurfaceId, state: NavigationSurfaceState) {
+  try { assertAppDataAccess(captureAppDataAccess()); } catch { return; }
+  reloadNavigationStateForAuth();
   memory.set(view, structuredCloneSafe(state));
   persistMemory();
 }
@@ -57,6 +62,8 @@ export function parseNavigationDeepLink(hash: string) {
 }
 
 export function navigationStateFor(view: NavigationSurfaceId) {
+  try { assertAppDataAccess(captureAppDataAccess()); } catch { return null; }
+  reloadNavigationStateForAuth();
   const state = memory.get(view);
   return state ? structuredCloneSafe(state) : null;
 }
@@ -93,6 +100,7 @@ function structuredCloneSafe<T>(value: T): T {
 function hydrateMemory() {
   if (typeof window === "undefined") return;
   try {
+    assertAppDataAccess(captureAppDataAccess());
     const stored = JSON.parse(window.sessionStorage.getItem(storageKey(activeOwner)) ?? "{}") as Record<string, NavigationSurfaceState>;
     Object.entries(stored).forEach(([view, state]) => {
       if (state && Number.isFinite(state.scrollLeft) && Number.isFinite(state.scrollTop)) {
@@ -127,7 +135,7 @@ function ownerSegment() {
 }
 
 function storageKey(owner: string) {
-  return `${STORAGE_PREFIX}.${owner}`;
+  return appDataSessionKey(`${STORAGE_PREFIX}.${owner}`, owner);
 }
 
 function safeToken(value: string | null) {

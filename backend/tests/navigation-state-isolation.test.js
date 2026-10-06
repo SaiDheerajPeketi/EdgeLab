@@ -8,13 +8,11 @@ import { buildSync } from "../../node_modules/esbuild/lib/main.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 
-async function loadNavigationHarness() {
-  const local = new Map();
-  const session = new Map();
+async function loadNavigationHarness(local = new Map(), session = new Map()) {
   const listeners = new Map();
   globalThis.window = {
-    localStorage: { getItem: (key) => local.get(key) ?? null, setItem: (key, value) => local.set(key, value), removeItem: (key) => local.delete(key) },
-    sessionStorage: { getItem: (key) => session.get(key) ?? null, setItem: (key, value) => session.set(key, value) },
+    localStorage: { get length() { return local.size; }, key: (index) => [...local.keys()][index] ?? null, getItem: (key) => local.get(key) ?? null, setItem: (key, value) => local.set(key, value), removeItem: (key) => local.delete(key) },
+    sessionStorage: { get length() { return session.size; }, key: (index) => [...session.keys()][index] ?? null, removeItem: (key) => session.delete(key), getItem: (key) => session.get(key) ?? null, setItem: (key, value) => session.set(key, value) },
     addEventListener: (name, listener) => listeners.set(name, listener),
     dispatchEvent: (event) => { listeners.get(event.type)?.(event); return true; },
   };
@@ -55,4 +53,27 @@ test("cross-tab authentication changes reload identity-scoped navigation state",
     source,
     /if \(event\.key === AUTH_STORAGE_KEY\) \{\s*notifyListeners\(\);\s*notifyAuthIdentityChange\(\);/,
   );
+});
+
+
+test("a new data generation does not restore a legacy navigation draft from session storage", async () => {
+  const local = new Map([
+    ["edgelab.auth.session.v1", auth(1)],
+    ["edgelab.app-data-generation.v1.user-1", JSON.stringify({ revision: "after-import", phase: "ready" })],
+  ]);
+  const oldKey = "edgelab.navigation-surfaces.v3.user-1";
+  const session = new Map([[oldKey, JSON.stringify({ "journal:trades": { scrollLeft: 0, scrollTop: 72, selectedId: 11, draft: { note: "Old private draft" } } })]]);
+  const harness = await loadNavigationHarness(local, session);
+  try {
+    assert.equal(harness.module.navigationStateFor("journal:trades"), null);
+    harness.module.rememberNavigationState("journal:trades", { scrollLeft: 0, scrollTop: 0, selectedId: 20 });
+    const newKeys = [...session.keys()].filter((key) => key !== oldKey);
+    assert.equal(newKeys.length, 1);
+    assert.match(newKeys[0], /after-import/);
+    assert.equal(JSON.parse(session.get(oldKey))["journal:trades"].selectedId, 11);
+    harness.cleanup();
+    const reloaded = await loadNavigationHarness(local, session);
+    try { assert.equal(reloaded.module.navigationStateFor("journal:trades").selectedId, 20); }
+    finally { reloaded.cleanup(); }
+  } finally { harness.cleanup(); }
 });

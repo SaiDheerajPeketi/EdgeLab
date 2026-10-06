@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getApiWebSocketUrl } from "../../frontend/src/lib/api.ts";
+import { buildSync } from "esbuild";
+import { fileURLToPath } from "node:url";
+const apiBundle = buildSync({ bundle: true, entryPoints: [fileURLToPath(new URL("../../frontend/src/lib/api.ts", import.meta.url))], define: { "import.meta.env": "{}" }, format: "esm", platform: "node", write: false }).outputFiles[0].text;
+const { getApiWebSocketUrl } = await import(`data:text/javascript;base64,${Buffer.from(apiBundle).toString("base64")}`);
 import {
   isSafeRichTextHref,
   sanitizeRichTextHtml,

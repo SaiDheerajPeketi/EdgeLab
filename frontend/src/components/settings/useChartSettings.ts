@@ -32,7 +32,7 @@ function validate(response: ChartSettingsResponse, changes?: Record<string, unkn
 }
 async function operation(owner: string, request: () => Promise<ChartSettingsResponse>, changes?: Record<string, unknown>) {
   const activeBefore = snapshot(owner).active;
-  return confirmAppStorageOperations([{ key: CHART_ACTIVE_KEY }, { key: CHART_PRESETS_KEY, rebaseQueued: (pending, confirmed, before) => rebaseQueuedChartPresets(pending, confirmed, before, activeBefore) }], async () => validate(await request(), changes));
+  return confirmAppStorageOperations([{ key: CHART_ACTIVE_KEY }, { key: CHART_PRESETS_KEY, rebaseQueued: (pending, confirmed, before) => rebaseQueuedChartPresets(pending, confirmed, before, activeBefore) }], async () => validate(await request(), changes), { readOnly: changes === undefined });
 }
 async function load(owner: string) {
   const starting = snapshot(owner);

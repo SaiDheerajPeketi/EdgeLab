@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { getAppStorageItem, putAppStorageItem } from "../../lib/api";
 import { getStoredAuthSession, subscribeAuthSession } from "../../lib/authSession";
+import { appDataSessionKey } from "../../lib/appDataBarrier";
 import { BACKTEST_DEFAULTS, BACKTEST_FIELDS, BACKTEST_KEYS, backtestSaveDelay, backtestValidation, backtestValue, type BacktestDefaults, type BacktestField } from "../../lib/backtestSettingsModel";
 import { useJournalDraft } from "../../lib/journalDrafts";
 import { confirmAppStorageOperation } from "../../lib/serverStorage";
@@ -22,7 +23,7 @@ function snapshot(owner: string) {
 function publish(owner: string, update: Partial<Snapshot>) { snapshots.set(owner, { ...snapshot(owner), ...update }); listeners.forEach((listener) => listener()); }
 function savedFailures(owner: string): Partial<BacktestDefaults> {
   try {
-    const value = JSON.parse(sessionStorage.getItem(`edgelab.backtest-save-errors.v1.user-${owner}`) ?? "null");
+    const value = JSON.parse(sessionStorage.getItem(appDataSessionKey(`edgelab.backtest-save-errors.v1.user-${owner}`, `user-${owner}`)) ?? "null");
     if (!value || value.version !== 1 || !value.attempts || typeof value.attempts !== "object") return {};
     return Object.fromEntries(BACKTEST_FIELDS.filter((field) => Object.prototype.hasOwnProperty.call(value.attempts, field) && !backtestValidation(field, value.attempts[field]) && (typeof value.attempts[field] !== "string" || value.attempts[field].length <= 100)).map((field) => [field, value.attempts[field]]));
   } catch { return {}; }
@@ -30,7 +31,7 @@ function savedFailures(owner: string): Partial<BacktestDefaults> {
 function rememberFailures(owner: string) {
   const current = snapshot(owner);
   const attempts = Object.fromEntries(BACKTEST_FIELDS.filter((field) => current.states[field] === "error").map((field) => [field, current.attempts[field]]));
-  try { sessionStorage.setItem(`edgelab.backtest-save-errors.v1.user-${owner}`, JSON.stringify({ version: 1, attempts })); } catch { /* In-memory recovery remains available. */ }
+  try { sessionStorage.setItem(appDataSessionKey(`edgelab.backtest-save-errors.v1.user-${owner}`, `user-${owner}`), JSON.stringify({ version: 1, attempts })); } catch { /* In-memory recovery remains available. */ }
 }
 async function load(owner: string) {
   if (snapshot(owner).loading) return;
@@ -40,7 +41,7 @@ async function load(owner: string) {
   publish(owner, { loading: true, error: false });
   try {
     const entries = await Promise.all(BACKTEST_FIELDS.map(async (field) => {
-      const item = await confirmAppStorageOperation(BACKTEST_KEYS[field], () => getAppStorageItem("edgelab", BACKTEST_KEYS[field]));
+      const item = await confirmAppStorageOperation(BACKTEST_KEYS[field], () => getAppStorageItem("edgelab", BACKTEST_KEYS[field]), "edgelab", undefined, { readOnly: true });
       return [field, backtestValue(field, item.value)] as const;
     }));
     if (owner === ownerNow()) {

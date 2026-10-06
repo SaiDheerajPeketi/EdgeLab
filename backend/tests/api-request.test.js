@@ -1,38 +1,22 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import ts from "../../frontend/node_modules/typescript/lib/typescript.js";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildSync } from "esbuild";
+import { fileURLToPath } from "node:url";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const sourcePath = path.resolve(currentDir, "../../frontend/src/lib/api.ts");
 
 async function loadApi() {
-  const source = fs
-    .readFileSync(sourcePath, "utf8")
-    .replace("import.meta.env.VITE_API_BASE_URL", '"/api"')
-    .replace("import.meta.env.VITE_API_BEARER_TOKEN", '""');
-  const output = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.ES2022,
-      target: ts.ScriptTarget.ES2022,
-    },
-  }).outputText;
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "edgelab-api-request-"));
-  const compiledPath = path.join(tempDir, "api.mjs");
-  fs.writeFileSync(compiledPath, output, "utf8");
-  try {
-    return await import(`${pathToFileURL(compiledPath).href}?v=${Date.now()}`);
-  } finally {
-    fs.rmSync(tempDir, { force: true, recursive: true });
-  }
+  const output = buildSync({ bundle: true, entryPoints: [sourcePath], define: { "import.meta.env": "{}" }, format: "esm", platform: "node", write: false }).outputFiles[0].text;
+  return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}#${Date.now()}`);
 }
 
 function memoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
+    get length() { return values.size; },
+    key: (index) => [...values.keys()][index] ?? null,
     getItem: (key) => values.get(key) ?? null,
     removeItem: (key) => values.delete(key),
     setItem: (key, value) => values.set(key, String(value)),
@@ -46,7 +30,7 @@ test("workspace share open sends auth and capability headers without putting tok
   let captured;
   globalThis.window = {
     localStorage: memoryStorage({
-      "edgelab.auth.session.v1": JSON.stringify({ token: "session-token" }),
+      "edgelab.auth.session.v1": JSON.stringify({ token: "session-token", expiresAt: "2099-01-01T00:00:00Z", user: { id: 1, email: "user@example.test", approved: true } }),
     }),
   };
   globalThis.fetch = async (url, init) => {

@@ -38,8 +38,8 @@ async function load(owner: string) {
   publish(owner, { loading: true, error: false });
   try {
     const [journal, note] = await Promise.all([
-      confirmAppStorageOperation("live-journal.v1", () => getAppStorageItem("edgelab", "live-journal.v1")),
-      confirmAppStorageOperation("notebook-template.v1", () => getAppStorageItem<string>("edgelab", "notebook-template.v1")),
+      confirmAppStorageOperation("live-journal.v1", () => getAppStorageItem("edgelab", "live-journal.v1"), "edgelab", undefined, { readOnly: true }),
+      confirmAppStorageOperation("notebook-template.v1", () => getAppStorageItem<string>("edgelab", "notebook-template.v1"), "edgelab", undefined, { readOnly: true }),
     ]);
     if (owner !== ownerNow()) return;
     publish(owner, { ready: true, defaults: journalSettingsFrom(journal.value), template: typeof note.value === "string" && note.value.trim() ? note.value : DEFAULT_NOTE_TEMPLATE });

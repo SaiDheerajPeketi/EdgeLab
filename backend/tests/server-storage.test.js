@@ -22,6 +22,7 @@ function loadServerStorageModule() {
     path.join(repoRoot, "frontend/src/lib/serverStorage.ts"),
     path.join(sourceDir, "serverStorage.ts"),
   );
+  fs.copyFileSync(path.join(repoRoot, "frontend/src/lib/appDataBarrier.ts"), path.join(sourceDir, "appDataBarrier.ts"));
   fs.writeFileSync(
     path.join(sourceDir, "api.ts"),
     [
@@ -36,7 +37,7 @@ function loadServerStorageModule() {
   );
   fs.writeFileSync(
     path.join(sourceDir, "authSession.ts"),
-    "export function getStoredAuthSession() { return { user: { id: globalThis.__edgelabStorageOwner ?? 7, email: 'owner@example.com' } }; }\n",
+    "export function getStoredAuthSession() { return { token: globalThis.__edgelabStorageToken ?? null, user: { id: globalThis.__edgelabStorageOwner ?? 7, email: 'owner@example.com' } }; }\n",
   );
   const inputs = fs.readdirSync(sourceDir).map((file) => path.join(sourceDir, file));
   const compile = spawnSync(
@@ -57,6 +58,8 @@ function loadServerStorageModule() {
 function memoryStorage({ rejectWrites = false } = {}) {
   const values = new Map();
   return {
+    get length() { return values.size; },
+    key: (index) => [...values.keys()][index] ?? null,
     getItem: (key) => values.get(key) ?? null,
     keys: () => [...values.keys()],
     removeItem: (key) => values.delete(key),

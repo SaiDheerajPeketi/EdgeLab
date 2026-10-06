@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { SetStateAction } from "react";
 import { flushSync } from "react-dom";
+import { assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant } from "./lib/appDataBarrier";
 import { useLocation } from "react-router-dom";
 import {
   AlertTriangle,
@@ -832,17 +833,34 @@ export function WorkspaceApp() {
     let reconnectTimer: number | null = null;
     let stopped = false;
 
+    const access = captureAppDataAccess();
+    const stop = () => {
+      stopped = true;
+      if (reconnectTimer != null) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+    const current = () => {
+      if (!access) { stop(); return false; }
+      try { assertAppDataAccess(access); return true; }
+      catch { stop(); return false; }
+    };
+    const unsubscribe = registerAppDataParticipant({ settle: async () => {}, invalidate: (owner) => { if (access?.owner === owner) stop(); } });
+    window.addEventListener("storage", current);
+    window.addEventListener("edgelab:auth-session-change", current);
+
     const connect = () => {
-      if (stopped) {
+      if (stopped || !current()) {
         return;
       }
       const socketUrl = getApiWebSocketUrl("/datasets/stream");
       socket = new WebSocket(socketUrl);
       trackDiagnosticWebSocket(socket, socketUrl);
       socket.onopen = () => {
+        if (!current()) return;
         socket?.send(JSON.stringify({ authToken: getApiBearerToken() }));
       };
       socket.onmessage = (event) => {
+        if (!current()) return;
         try {
           const message = JSON.parse(event.data as string) as {
             catalog?: DatasetCatalog;
@@ -867,11 +885,10 @@ export function WorkspaceApp() {
 
     connect();
     return () => {
-      stopped = true;
-      if (reconnectTimer != null) {
-        window.clearTimeout(reconnectTimer);
-      }
-      socket?.close();
+      unsubscribe();
+      window.removeEventListener("storage", current);
+      window.removeEventListener("edgelab:auth-session-change", current);
+      stop();
     };
   }, [applyDatasetCatalog]);
 
