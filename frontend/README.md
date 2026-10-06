@@ -24,6 +24,12 @@ Both `/app/journal/settings` and `/app/settings/journal` provide capture default
 
 Appearance density previews immediately, but feedback defaults and local confirmed values change only after server acknowledgment. Density saves merge only that preference and preserve diagnostic sharing. Appearance reset changes density only; Chart reset stages the nine displayed controls only. Undo restores the relevant prior draft.
 
+Account settings in both interfaces revoke only the current browser session. EdgeLab requires `ok: true` before clearing its token and navigating to `/auth/signin`; failures preserve the session and offer Retry. Pending revocation survives interface switches, and late responses cannot clear a replacement session, including another token for the same owner.
+
+Privacy shares the confirmed diagnostic-sharing preference, private drafts, retry, Undo, and field-scoped reset. Effective feedback defaults change only after acknowledgment; unknown preferences and density are preserved. Credential and recipient-sharing rows describe enforced boundaries. Quant requests browser microphone permission when Dictate is used; permission does not guarantee an available transcription service. Generated indicators use restricted EdgeLab DSL; arbitrary generated JavaScript/Python execution is unavailable.
+
+Global (`/app/settings` and `/app/settings/global`) distinguishes browser language/time zone from the interface formatting locale resolved from the page language. AI (`/app/settings/ai`) loads the authenticated `/quant/models` catalog and reports live models, deterministic offline fixtures, unavailable reasons, adapter readiness, credential requirements, and supported operations. Empty catalogs and load failures remain distinct; Retry and Refresh only read availability. A late catalog response cannot reveal a previous session’s metadata. Catalog readiness is not a provider connectivity test. Quant retains server conversations and generated artifacts per conversation; new conversations use 30 days, and external requests require explicit consent for extra chart/history/image context.
+
 ## Run it
 
 Install the root workspace dependencies, then start the frontend:

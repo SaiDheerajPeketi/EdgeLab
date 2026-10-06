@@ -3,7 +3,7 @@ import { gotoStable, installDeterminism, seedApprovedSession } from "./support/a
 
 test.use({ video: "off" });
 
-const settingsPath = "/app/settings/global";
+const settingsPath = "/app/settings/storage";
 const modernAppearancePath = "/app/settings/appearance";
 const storagePath = "/api/app-storage/edgelab/settings-center.v1";
 const localKey = "edgelab.settings-center.v1.user-7001";

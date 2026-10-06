@@ -18,6 +18,17 @@ test.describe("exhaustive compatibility route parity", () => {
       if (route.request().method() === "PATCH") chart = { ...chart, presets: { ...chart.presets, value: [{ ...chart.presets.value[0], settings: { ...chart.presets.value[0].settings, ...route.request().postDataJSON() } }] } };
       await route.fulfill({ json: chart });
     });
+    let preferences = { density: "comfortable", includeDiagnosticsByDefault: true };
+    await page.route("**/api/app-storage/edgelab/settings-center.v1", (route) => route.fulfill({ json: { namespace: "edgelab", key: "settings-center.v1", value: preferences, updated_at: "2026-09-15T12:00:00Z" } }));
+    await page.route("**/api/settings/preferences", (route) => {
+      preferences = { ...preferences, ...route.request().postDataJSON() };
+      return route.fulfill({ json: { namespace: "edgelab", key: "settings-center.v1", value: preferences, updated_at: "2026-09-15T12:00:00Z" } });
+    });
+    await page.route("**/api/quant/models", (route) => route.fulfill({ json: [] }));
+    await page.route("**/api/auth/session", async (route) => {
+      if (route.request().method() === "DELETE") await route.fulfill({ status: 503, json: { detail: "Revocation unavailable" } });
+      else await route.fallback();
+    });
     const values = new Map(Object.entries(BACKTEST_KEYS).map(([field, key]) => [key, BACKTEST_DEFAULTS[field as BacktestField]]));
     await page.route("**/api/app-storage/edgelab/order-*.v1", async (route) => {
       const key = new URL(route.request().url()).pathname.split("/").at(-1)!;
@@ -109,7 +120,17 @@ test.describe("exhaustive compatibility route parity", () => {
 });
 
 async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, path: string) {
-  if (["/app/settings/chart", "/app/settings/appearance"].includes(path)) {
+  if (["/app/settings", "/app/settings/global"].includes(path)) {
+    await expect(page.locator("#setting-regional-format")).toContainText("Interface formatting locale");
+    await expect(page.getByLabel("Workspace density")).toHaveCount(0);
+  } else if (path === "/app/settings/ai") {
+    await expect(page.locator("#setting-ai-routing")).toContainText("The server returned no configured models.");
+  } else if (path === "/app/settings/account") {
+    await expect(page.getByRole("button", { name: "End session and sign out" })).toBeEnabled();
+  } else if (path === "/app/settings/privacy-security") {
+    await expect(page.getByRole("switch", { name: "Include diagnostics by default" })).toBeEnabled();
+    await expect(page.locator("#setting-device-permissions")).toContainText("restricted EdgeLab indicator language");
+  } else if (["/app/settings/chart", "/app/settings/appearance"].includes(path)) {
     await expect(page.getByLabel("Text size", { exact: true })).toBeEnabled();
     await expect(page.getByLabel("Grid", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Workspace density", { exact: true })).toHaveCount(0);
@@ -153,7 +174,15 @@ async function createUnsavedSettingsDraft(page: Page) {
 }
 
 async function executeCompatibilityPrimaryAction(page: Page, contract: CompatibilityRouteParity, journal: JournalFixture | null, journalSettings: JournalSettingsFixture | null) {
-  if (contract.primaryAction === "refresh-journal") {
+  if (contract.primaryAction === "end-session") {
+    await page.getByRole("button", { name: "End session and sign out" }).click();
+    await expect(page.locator("#setting-current-session").getByRole("alert")).toContainText("You remain signed in");
+    await expect(page).toHaveURL(/\/app\/settings\/account$/);
+  } else if (contract.primaryAction === "save-diagnostic-preference") {
+    const diagnostic = page.getByRole("switch", { name: "Include diagnostics by default" });
+    await diagnostic.setChecked(false);
+    await expect(page.locator("#setting-diagnostic-sharing").getByRole("status")).toHaveText("Saved");
+  } else if (contract.primaryAction === "refresh-journal") {
     await page.getByRole("button", { name: "Refresh journal" }).click();
     await expect(page.getByRole("status").filter({ hasText: /recent trades available/ })).toBeVisible();
   } else if (contract.primaryAction === "save-trade-review") {
@@ -229,7 +258,12 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
 }
 
 async function expectJournalWriteCanary(page: Page, contract: CompatibilityRouteParity, version: "modern" | "fallback") {
-  if (contract.primaryAction === "save-chart-settings") {
+  if (contract.primaryAction === "save-diagnostic-preference") {
+    await expect(page.getByRole("switch", { name: "Include diagnostics by default" })).not.toBeChecked();
+    await expect(page.locator("#setting-diagnostic-sharing")).toContainText("Effective: Excluded by default");
+  } else if (contract.primaryAction === "end-session") {
+    await expect(page.getByRole("button", { name: "End session and sign out" })).toBeEnabled();
+  } else if (contract.primaryAction === "save-chart-settings") {
     await expect(page.getByLabel("Text size", { exact: true })).toBeEnabled();
     await expect(page.getByRole("button", { name: contract.routePath.endsWith("/appearance") ? "Apply palette preset" : "Apply as active preset", exact: true })).toBeDisabled();
   } else if (contract.primaryAction === "save-backtest-settings") {

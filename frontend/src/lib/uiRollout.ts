@@ -10,11 +10,11 @@ export type CompatibilityRouteParity = {
   kind: CompatibilityParityKind;
   sessionSource: "auth-session" | "route-session";
   draftKey: string | null;
-  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "chart-settings" | "replay-layout";
-  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "save-chart-settings" | "restore-replay-layout";
+  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "chart-settings" | "replay-layout" | "auth-session" | "regional-format" | "quant-models";
+  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "save-chart-settings" | "restore-replay-layout" | "end-session" | "save-diagnostic-preference";
   actionExemption: string | null;
   requiredViewports: typeof UI_COMPATIBILITY_VIEWPORTS;
-  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-settings-save" | "chart-replay-layout";
+  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-settings-save" | "chart-replay-layout" | "account-session-end" | "diagnostic-preference-save" | "settings-read-continuity";
   canarySpec?: string;
   reasonSource: string;
 };
@@ -46,6 +46,19 @@ const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = O
 });
 
 const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> = {
+  ...Object.fromEntries(["/app/settings", "/app/settings/global", "/app/settings/ai"].map((path) => [path, {
+    kind: "read-only" as const, draftKey: null, savedDataRead: path.endsWith("/ai") ? "quant-models" as const : "regional-format" as const,
+    primaryAction: "navigate" as const, testCaseId: "settings-read-continuity" as const,
+    reasonSource: "frontend/src/components/settings/SessionPrivacyPanels.tsx", canarySpec: "e2e/compatibility-session-privacy.interaction.spec.ts",
+  }])),
+  "/app/settings/account": {
+    kind: "shared-domain", draftKey: null, savedDataRead: "auth-session", primaryAction: "end-session", testCaseId: "account-session-end",
+    reasonSource: "frontend/src/components/settings/useAccountSession.ts", canarySpec: "e2e/compatibility-session-privacy.interaction.spec.ts",
+  },
+  "/app/settings/privacy-security": {
+    kind: "writable", draftKey: "settings:preferences", savedDataRead: "settings-preferences", primaryAction: "save-diagnostic-preference", testCaseId: "diagnostic-preference-save",
+    reasonSource: "frontend/src/components/settings/useSettingsPreferences.ts", canarySpec: "e2e/compatibility-session-privacy.interaction.spec.ts",
+  },
   ...Object.fromEntries(["/app/settings/chart", "/app/settings/appearance"].map((path) => [path, {
     kind: "writable" as const, draftKey: "settings:chart-defaults;settings:preferences", savedDataRead: "chart-settings" as const,
     primaryAction: "save-chart-settings" as const, testCaseId: "chart-settings-save" as const,

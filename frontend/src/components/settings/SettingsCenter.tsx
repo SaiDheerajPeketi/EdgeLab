@@ -22,16 +22,16 @@ import {
   UserRound,
 } from "lucide-react";
 import {
-  deleteAuthSession,
   type DatasetCatalog,
   type DatasetRefreshResponse,
   type DatasetRefreshStatus,
 } from "../../lib/api";
-import { clearStoredAuthSession, getStoredAuthSession } from "../../lib/authSession";
+import { getStoredAuthSession } from "../../lib/authSession";
 import { BacktestSettingsPanel } from "./BacktestSettingsPanel";
 import { useBacktestSettings } from "./useBacktestSettings";
 import { useJournalSettings, RESET_JOURNAL_SETTINGS, type SettingsJournalDefaults } from "./useJournalSettings";
 export type { SettingsJournalDefaults } from "./useJournalSettings";
+import { AccountSettingsPanel, AiSettingsPanel, GlobalSettingsPanel, PrivacySettingsPanel } from "./SessionPrivacyPanels";
 import { ChartSettingsPanel } from "./ChartSettingsPanel";
 import { useChartSettings } from "./useChartSettings";
 import { useSettingsPreferences } from "./useSettingsPreferences";
@@ -221,14 +221,6 @@ export function SettingsCenter({
     }));
   }
 
-  async function signOut() {
-    if (!authSession) return;
-    setSaveStates((current) => ({ ...current, signout: "saving" }));
-    try { await deleteAuthSession(authSession.token); } catch { /* Local session removal remains available. */ }
-    clearStoredAuthSession();
-    window.location.assign("/signin");
-  }
-
   const activeCategory = SETTINGS_CATEGORIES.find((item) => item.id === category) ?? SETTINGS_CATEGORIES[0];
   const controlsInCategory = SETTINGS_CONTROLS.filter((item) => item.category === category).length;
 
@@ -263,12 +255,12 @@ export function SettingsCenter({
         </aside>
 
         <div className="min-w-0">
-          {preferenceSettings.conflict ? <div className="mb-4 flex min-w-0 flex-col items-stretch gap-3 rounded-md bg-amber-300/[0.08] px-3 py-3 text-sm text-amber-100 sm:flex-row sm:items-center" data-settings-conflict role="alert"><span className="ui-resilient-text min-w-0 flex-1" data-settings-conflict-message>Settings changed in another EdgeLab tab. Reload its version or keep this tab’s values.</span><div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:shrink-0" data-settings-conflict-actions><button type="button" className="min-h-11 min-w-0 rounded px-2 text-xs font-semibold text-amber-100 hover:bg-white/[0.06] sm:min-h-9" onClick={() => void preferenceSettings.useNewer()}>Use newer version</button><button type="button" className="min-h-11 min-w-0 rounded bg-amber-200 px-2 text-xs font-semibold text-slate-950 hover:bg-amber-100 sm:min-h-9" onClick={() => void preferenceSettings.keepVersion()}>Keep this version</button></div></div> : null}
+          {preferenceSettings.conflict && category !== "privacy-security" ? <div className="mb-4 flex min-w-0 flex-col items-stretch gap-3 rounded-md bg-amber-300/[0.08] px-3 py-3 text-sm text-amber-100 sm:flex-row sm:items-center" data-settings-conflict role="alert"><span className="ui-resilient-text min-w-0 flex-1" data-settings-conflict-message>Settings changed in another EdgeLab tab. Reload its version or keep this tab’s values.</span><div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:shrink-0" data-settings-conflict-actions><button type="button" className="min-h-11 min-w-0 rounded px-2 text-xs font-semibold text-amber-100 hover:bg-white/[0.06] sm:min-h-9" onClick={() => void preferenceSettings.useNewer()}>Use newer version</button><button type="button" className="min-h-11 min-w-0 rounded bg-amber-200 px-2 text-xs font-semibold text-slate-950 hover:bg-amber-100 sm:min-h-9" onClick={() => void preferenceSettings.keepVersion()}>Keep this version</button></div></div> : null}
           {undoAction ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-cyan-400/20 bg-cyan-400/[0.04] px-3 py-2 text-sm"><span className="text-cyan-50">{undoAction.label}</span><button type="button" onClick={() => { undoAction.run(); setUndoAction(null); }} className="inline-flex min-h-8 items-center gap-1.5 rounded px-2 text-xs font-semibold text-cyan-300 hover:bg-white/5"><Undo2 aria-hidden="true" className="h-3.5 w-3.5" />Undo</button></div> : null}
           {saveStates.hydration === "error" ? <div className="mb-4 border-l-2 border-amber-300 bg-amber-300/5 px-3 py-2 text-sm text-amber-100" role="alert">Some cross-device values could not be loaded. Local effective values remain available.</div> : null}
           <div className="mb-5 border-b border-white/10 pb-5"><p className="text-xs text-zinc-400">{controlsInCategory} supported control{controlsInCategory === 1 ? "" : "s"}</p><h2 className="mt-1 text-xl font-semibold text-white">{activeCategory.label}</h2><p className="mt-1 text-sm leading-6 text-zinc-400">{activeCategory.description}</p></div>
 
-          {category === "global" ? <GlobalSettings /> : null}
+          {category === "global" ? <GlobalSettingsPanel /> : null}
           {category === "journal" ? <>
             {!journalSettings.ready || journalSettings.error ? <div className="mb-4 text-sm text-amber-100" role={journalSettings.error ? "alert" : "status"}>{journalSettings.error ? "Journal settings could not be loaded. Your draft is kept." : "Loading journal settings…"}{journalSettings.error ? <button type="button" onClick={() => void journalSettings.reload()} className="ml-3 min-h-11 rounded border border-amber-200 px-3" disabled={journalSettings.loading}>Retry loading settings</button> : null}</div> : null}
             <SettingsSection title="Journal defaults" description="These workspace defaults prefill new journal entries; existing trades are never rewritten." dirty={journalDirty} onReset={journalSettings.ready ? () => setJournalDraft(RESET_JOURNAL_SETTINGS) : undefined}>
@@ -289,21 +281,14 @@ export function SettingsCenter({
             <DatasetSettings assetDraft={assetDraft} assetId={assetId} datasets={datasets} datasetRoot={datasetRoot} datasetRootDirty={datasetRootDirty} refreshStatus={refreshStatus} refreshing={refreshing} saveStates={saveStates} selectedAsset={selectedAsset} onAssetDraftChange={setAssetDraft} onAssetIdChange={setAssetId} onRefresh={() => void refreshDatasetsNow()} onRootChange={setDatasetRoot} onSaveAsset={() => void saveAsset()} onSaveRoot={() => void saveDatasetRoot()} />
             <SettingsIntegrations />
           </> : null}
-          {category === "account" ? <AccountSettings authSession={authSession} signOutState={saveStates.signout} onSignOut={() => void signOut()} /> : null}
-          {category === "ai" ? <AiSettings /> : null}
-          {category === "privacy-security" ? <PrivacySettings settings={preferenceSettings} /> : null}
+          {category === "account" ? <AccountSettingsPanel /> : null}
+          {category === "ai" ? <AiSettingsPanel /> : null}
+          {category === "privacy-security" ? <PrivacySettingsPanel settings={preferenceSettings} /> : null}
           {category === "storage" ? <SettingsDataTransfer /> : null}
         </div>
       </div>
     </main>
   );
-}
-
-function GlobalSettings() {
-  const locale = typeof navigator === "undefined" ? "Unavailable" : navigator.language;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "System default";
-  const sample = new Intl.NumberFormat(locale === "Unavailable" ? undefined : locale, { maximumFractionDigits: 2 }).format(12345.67);
-  return <SettingsSection title="Effective regional behavior" description="EdgeLab currently follows this browser. These system values are read-only so the interface never implies a server preference that does not exist."><SettingRow controlId="regional-format" label="Language, time zone, and number format" description="Used for human-readable dates and numbers unless a dataset or session provides its own time zone." scope="System" effective={`${locale} · ${timeZone}`}><dl className="grid gap-2 text-sm"><div className="flex justify-between gap-3"><dt className="text-zinc-400">Language</dt><dd>{locale}</dd></div><div className="flex justify-between gap-3"><dt className="text-zinc-400">Time zone</dt><dd className="text-right">{timeZone}</dd></div><div className="flex justify-between gap-3"><dt className="text-zinc-400">Number sample</dt><dd>{sample}</dd></div></dl></SettingRow></SettingsSection>;
 }
 
 type AssetDraft = { currency: string; timezone: string; multiplier: string };
@@ -315,37 +300,12 @@ function DatasetSettings(props: { assetDraft: AssetDraft; assetId: string; datas
   </SettingsSection>;
 }
 
-function AccountSettings({ authSession, signOutState, onSignOut }: { authSession: ReturnType<typeof getStoredAuthSession>; signOutState?: SaveState; onSignOut: () => void }) {
-  return <SettingsSection title="Identity and session" description="Only the active browser session is exposed by the current API; EdgeLab does not claim visibility into other devices.">
-    <SettingRow controlId="account-identity" label="Account identity" description="Approved beta identity attached to owned settings and records." scope="Personal" effective={authSession ? `${authSession.user.name} · ${authSession.user.provider}` : "No authenticated user"}><div className="text-sm"><p className="text-zinc-100">{authSession?.user.name ?? "Signed out"}</p><p className="mt-1 break-all text-xs text-zinc-400">{authSession?.user.email ?? "No email"}</p></div></SettingRow>
-    <SettingRow controlId="current-session" label="Current browser session" description="Ending it removes the local token and asks the server to revoke the session." scope="Personal" effective={authSession ? `Expires ${new Date(authSession.expiresAt).toLocaleString()}` : "Inactive"} saveState={signOutState}><button type="button" onClick={onSignOut} disabled={!authSession || signOutState === "saving"} className="min-h-10 w-full rounded-md border border-rose-400/30 px-4 text-sm font-semibold text-rose-200 hover:bg-rose-400/10 disabled:opacity-45">End session and sign out</button></SettingRow>
-  </SettingsSection>;
-}
-
-function AiSettings() {
-  return <SettingsSection title="AI availability" description="Only supported behavior is shown. No controls are offered for services this build does not operate."><SettingRow controlId="ai-routing" label="AI model routing" description="No AI model is configured in this EdgeLab build." scope="System" effective="Off"><div className="space-y-2 text-xs leading-5 text-zinc-400"><p>Workspace content and conversations are not routed to an AI provider.</p><p>Conversation retention: not used. Microphone processing: not enabled. Generated-code execution: not enabled.</p></div></SettingRow></SettingsSection>;
-}
-
-function PrivacySettings({ settings }: { settings: ReturnType<typeof useSettingsPreferences> }) {
-  const preferences = settings.draft;
-
-  return <SettingsSection title="Privacy and security boundaries" description="These rows distinguish actual preferences from enforced system behavior." onReset={settings.ready ? () => settings.reset("includeDiagnosticsByDefault") : undefined}>
-    {!settings.ready || settings.error ? <p className="my-4 text-sm text-rose-300" role={settings.error ? "alert" : "status"}>{settings.error ? "Preferences could not be loaded. Your draft is kept." : "Loading preferences…"}{settings.error ? <button type="button" className="ml-3 min-h-11 rounded border border-white/15 px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" disabled={settings.loading} onClick={() => void settings.reload()}>Retry loading preferences</button> : null}</p> : null}
-    {settings.undo ? <div className="my-4 flex flex-wrap items-center justify-between gap-3 border-y border-cyan-400/20 py-3 text-sm"><span>Diagnostic sharing default changed</span><button type="button" className="inline-flex min-h-11 items-center gap-2 rounded border border-white/15 px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" onClick={settings.undoChange}><Undo2 aria-hidden="true" className="h-4 w-4" />Undo</button></div> : null}
-    <SettingRow controlId="diagnostic-sharing" label="Diagnostic sharing" description="Set whether the feedback form initially includes browser diagnostics. You can still change it for each submission." effective={settings.defaults.includeDiagnosticsByDefault ? "Included by default" : "Excluded by default"} saveState={settings.stateFor("includeDiagnosticsByDefault")} onRetry={() => void settings.retry("includeDiagnosticsByDefault")}><SettingsToggle disabled={!settings.ready} checked={preferences.includeDiagnosticsByDefault} label="Include diagnostics by default" onChange={(checked) => settings.change({ includeDiagnosticsByDefault: checked })} /></SettingRow>
-    <SettingRow controlId="credential-vault" label="Credential handling" description="Integration credentials are sent to the authenticated server vault, encrypted at rest, and returned only as metadata." scope="System" effective="Write-only values; owner-scoped metadata"><p className="text-xs leading-5 text-zinc-400">Use Data &amp; providers to verify decryptability, re-encrypt, or revoke a record. EdgeLab never displays the stored secret value.</p></SettingRow>
-    <SettingRow controlId="workspace-sharing" label="Workspace sharing" description="Snapshots require an EdgeLab session and an exact owner-or-recipient match. Recipients see a read-only snapshot until they open it as a separate copy." scope="System" effective="Recipient-bound; bearer token alone is insufficient"><p className="text-xs leading-5 text-zinc-400">Credentials, orders, and unrelated session state are excluded by the snapshot sanitizer.</p></SettingRow>
-    <SettingRow controlId="device-permissions" label="Device and code permissions" description="No microphone capture or generated-code execution is available in this build." scope="System" effective="Not enabled"><dl className="text-xs text-zinc-400"><div className="flex justify-between gap-3"><dt>Microphone</dt><dd>Not requested</dd></div><div className="mt-2 flex justify-between gap-3"><dt>Generated code</dt><dd>Not executed</dd></div></dl></SettingRow>
-  </SettingsSection>;
-}
-
 function categoryStatus(category: SettingsCategoryId, state: { datasets: DatasetCatalog | null; journalDirty: boolean; noteDirty: boolean; chartDirty: boolean; datasetRootDirty: boolean; backtestDirty: boolean; signedIn: boolean }) {
   if (category === "backtest" && state.backtestDirty) return "Unsaved";
   if (category === "journal" && (state.journalDirty || state.noteDirty)) return "Unsaved";
   if ((category === "chart" || category === "appearance") && state.chartDirty) return "Unsaved";
   if (category === "data-providers") return state.datasetRootDirty ? "Unsaved" : `${state.datasets?.instruments.length ?? 0}`;
   if (category === "account") return state.signedIn ? "Signed in" : "Signed out";
-  if (category === "ai") return "Off";
   return null;
 }
 

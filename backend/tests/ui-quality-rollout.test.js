@@ -61,11 +61,26 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     }
     assert.deepEqual(productRoutes.filter((route) => !module.UI_COMPATIBILITY_ROUTE_PARITY[route]), []);
     assert.ok(Object.keys(module.UI_COMPATIBILITY_ROUTE_PARITY).every((route) => module.compatibilityRouteIsMapped(route)));
-    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "journal-daily-note-save", "journal-day-review", "settings-draft-save", "journal-settings-save", "backtest-settings-save", "chart-settings-save", "chart-replay-layout"]);
+    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "journal-daily-note-save", "journal-day-review", "settings-draft-save", "journal-settings-save", "backtest-settings-save", "chart-settings-save", "chart-replay-layout", "account-session-end", "diagnostic-preference-save", "settings-read-continuity"]);
     assert.ok(Object.values(module.UI_COMPATIBILITY_ROUTE_PARITY).every((contract) => allowedCases.has(contract.testCaseId)));
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/trades"].primaryAction, "save-trade-review");
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].savedDataRead, "journal-accounts");
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].primaryAction, "create-journal-account");
+    for (const routePath of ["/app/settings", "/app/settings/global", "/app/settings/ai"]) {
+      const contract = module.UI_COMPATIBILITY_ROUTE_PARITY[routePath];
+      assert.equal(contract.kind, "read-only");
+      assert.equal(contract.draftKey, null);
+      assert.equal(contract.savedDataRead, routePath.endsWith("/ai") ? "quant-models" : "regional-format");
+      assert.ok(fs.existsSync(path.join(ROOT, contract.canarySpec)));
+    }
+    const account = module.UI_COMPATIBILITY_ROUTE_PARITY["/app/settings/account"];
+    assert.equal(account.primaryAction, "end-session");
+    assert.equal(account.savedDataRead, "auth-session");
+    assert.equal(account.draftKey, null);
+    const privacy = module.UI_COMPATIBILITY_ROUTE_PARITY["/app/settings/privacy-security"];
+    assert.equal(privacy.primaryAction, "save-diagnostic-preference");
+    assert.equal(privacy.draftKey, "settings:preferences");
+    assert.ok(fs.existsSync(path.join(ROOT, privacy.canarySpec)));
     const backtest = module.UI_COMPATIBILITY_ROUTE_PARITY["/app/settings/backtest"];
     assert.equal(backtest.primaryAction, "save-backtest-settings");
     assert.equal(backtest.savedDataRead, "backtest-settings");

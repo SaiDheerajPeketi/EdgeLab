@@ -14,6 +14,8 @@ Journal settings support capture defaults and reusable note templates in both th
 
 Chart and Appearance settings expose nine staged display/palette controls in both interfaces. Apply preserves hidden options and other presets while saving and activating `Settings default` atomically for the next workspace load. Density saves independently after server confirmation; Appearance reset affects density only.
 
+Account and Privacy settings share current-session revocation and confirmed diagnostic-sharing preferences across both interfaces. Global shows actual interface/browser regional values; AI availability comes from the account’s server model catalog, with explicit offline-fixture and failure states.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:
