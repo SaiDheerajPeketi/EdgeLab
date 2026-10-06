@@ -13,6 +13,7 @@ const bundle = buildSync({
   stdin: {
     contents: [
       'export * from "./frontend/src/lib/charting.ts";',
+      'export * from "./frontend/src/lib/chartSessions.ts";',
       'export * from "./frontend/src/lib/indicatorDsl.ts";',
       'export * from "./frontend/src/lib/customIndicators.ts";',
     ].join("\n"),
@@ -60,6 +61,92 @@ function supertrend(bars, period = 2, multiplier = 1) {
     visible: true,
   }])[0].data;
 }
+
+function vwap(bars, context = {}) {
+  return charting.buildIndicatorDefinitions(bars, [{
+    id: "vwap-regression",
+    kind: "vwap",
+    settings: { color: "#ffffff", period: 1 },
+  }], context)[0].data;
+}
+
+function timedBars(timestamps, prices) {
+  return barsFromRows(prices.map((price) => [price + 1, price - 1, price]))
+    .map((bar, index) => ({ ...bar, time: Date.parse(timestamps[index]) / 1_000, timestamp: timestamps[index], volume: 1 }));
+}
+
+test("VWAP follows exchange rollover across UTC midnight while legacy callers retain UTC days", () => {
+  const bars = timedBars([
+    "2026-06-01T21:59:00Z", "2026-06-01T22:00:00Z",
+    "2026-06-01T23:59:00Z", "2026-06-02T00:00:00Z",
+  ], [10, 20, 30, 40]);
+  const original = structuredClone(bars);
+  const context = { sessionTemplate: charting.getChartSessionTemplate("cme-futures") };
+  const result = vwap(bars, context);
+  assertValues(result, [10, 20, 25, 30], "CME session VWAP");
+  assertValues(vwap(bars), [10, 15, 20, 40], "legacy UTC VWAP");
+  for (let length = 0; length <= bars.length; length += 1) {
+    assert.deepEqual(vwap(bars.slice(0, length), context), result.slice(0, length));
+  }
+  assert.deepEqual(bars, original);
+});
+
+test("forex VWAP rollover follows New York daylight saving time", () => {
+  const context = { sessionTemplate: charting.getChartSessionTemplate("forex-24x5") };
+  const summer = timedBars([
+    "2026-06-01T20:59:00Z", "2026-06-01T21:00:00Z", "2026-06-01T22:00:00Z",
+  ], [10, 20, 30]);
+  const winter = timedBars([
+    "2026-01-05T21:59:00Z", "2026-01-05T22:00:00Z", "2026-01-05T23:00:00Z",
+  ], [10, 20, 30]);
+  assertValues(vwap(summer, context), [10, 20, 25], "summer FX VWAP");
+  assertValues(vwap(winter, context), [10, 20, 25], "winter FX VWAP");
+});
+
+test("VWAP uses source volumes before a multi-hour candle crosses session rollover", () => {
+  const sourceBars = timedBars([
+    "2026-06-01T20:30:00Z", "2026-06-01T21:00:00Z", "2026-06-01T22:00:00Z",
+  ], [10, 20, 30]);
+  sourceBars[1].volume = 3;
+  const bars = charting.aggregateBars(sourceBars, "4H");
+  assert.equal(bars.length, 1);
+  const output = vwap(bars, {
+    sessionTemplate: charting.getChartSessionTemplate("forex-24x5"),
+    sourceBars,
+    timeframe: "4H",
+  });
+  assertValues(output, [22.5], "volume-weighted post-rollover value");
+  assert.equal(output[0].time, bars[0].time);
+});
+
+test("VWAP normalizes source ordering and duplicates exactly like plotted candles", () => {
+  const rows = timedBars([
+    "2026-06-01T20:30:00Z", "2026-06-01T21:00:00Z", "2026-06-01T22:00:00Z",
+  ], [10, 20, 30]);
+  const sourceBars = [rows[2], { ...rows[0], close: 999, volume: 999 }, rows[1], rows[0]];
+  const original = structuredClone(sourceBars);
+  const output = vwap(charting.aggregateBars(sourceBars, "1H"), {
+    sessionTemplate: charting.getChartSessionTemplate("forex-24x5"),
+    sourceBars,
+    timeframe: "1H",
+  });
+  assertValues(output, [10, 20, 25], "normalized source VWAP");
+  assert.deepEqual(sourceBars, original);
+});
+
+test("one-minute VWAP retains second-offset timestamps used by plotted candles", () => {
+  const sourceBars = timedBars([
+    "2026-06-01T20:30:15Z", "2026-06-01T21:00:15Z", "2026-06-01T22:00:15Z",
+  ], [10, 20, 30]);
+  const bars = charting.aggregateBars(sourceBars, "1m");
+  const output = vwap(bars, {
+    sessionTemplate: charting.getChartSessionTemplate("forex-24x5"),
+    sourceBars,
+    timeframe: "1m",
+  });
+  assertValues(output, [10, 20, 25], "one-minute VWAP");
+  assert.deepEqual(output.map((point) => point.time), bars.map((bar) => bar.time));
+});
 
 test("ATR waits for a full true-range seed and uses Wilder smoothing", () => {
   // True ranges: 2, 4, 3, 5, 3, 3. Seed at index 2 is (2 + 4 + 3) / 3.

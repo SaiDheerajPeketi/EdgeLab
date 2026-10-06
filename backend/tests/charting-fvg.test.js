@@ -26,6 +26,10 @@ async function loadChartingModule() {
     path.join(REPO_ROOT, "frontend", "src", "lib", "indicatorMath.ts"),
     path.join(sourceDir, "indicatorMath.ts"),
   );
+  fs.copyFileSync(
+    path.join(REPO_ROOT, "frontend", "src", "lib", "chartSessions.ts"),
+    path.join(sourceDir, "chartSessions.ts"),
+  );
   fs.writeFileSync(
     path.join(sourceDir, "api.ts"),
     [

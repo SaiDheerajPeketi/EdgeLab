@@ -2,6 +2,7 @@ import type { CandlestickData, LineData, UTCTimestamp } from "lightweight-charts
 import { CHART_COLOR } from "./colorTokens";
 import type { Candle } from "./api";
 import { trueRangeValues, wilderAverage } from "./indicatorMath";
+import { sessionTradingDayKey, type ChartSessionTemplate } from "./chartSessions";
 
 export const TIMEFRAMES = [
   { id: "1m", label: "1m", seconds: 60 },
@@ -924,6 +925,11 @@ export function toCandles(bars: Candle[], smoothCandles: boolean): CandlestickDa
 export function buildIndicatorDefinitions(
   bars: Candle[],
   indicatorInstances: ChartIndicatorInstance[],
+  context: {
+    sessionTemplate?: ChartSessionTemplate;
+    sourceBars?: Candle[];
+    timeframe?: ChartTimeframe;
+  } = {},
 ): IndicatorDefinition[] {
   const definitions: IndicatorDefinition[] = [];
   for (const instance of indicatorInstances) {
@@ -1014,7 +1020,7 @@ export function buildIndicatorDefinitions(
         sourceId: instance.id,
         label,
         color: config.color,
-        data: vwapSeries(bars),
+        data: chartVwapSeries(bars, context),
         lineWidth,
         lineStyle: config.lineStyle ? lineStyle : 2,
       });
@@ -1676,14 +1682,31 @@ function valuesToLineData(bars: Candle[], values: number[]): LineData[] {
     .filter((point) => Number.isFinite(point.value));
 }
 
-function vwapSeries(bars: Candle[]): LineData[] {
+function chartVwapSeries(
+  bars: Candle[],
+  context: { sessionTemplate?: ChartSessionTemplate; sourceBars?: Candle[]; timeframe?: ChartTimeframe },
+): LineData[] {
+  const source = vwapSeries(normalizeBars(context.sourceBars ?? bars), context.sessionTemplate);
+  if (!context.sourceBars || !context.timeframe) return source;
+  // Compute before aggregation so a chart candle spanning rollover cannot mix sessions.
+  const chartTimes = new Set(bars.map((bar) => bar.time));
+  const values = new Map<number, number>();
+  for (const point of source) {
+    const time = context.timeframe === "1m" ? point.time as number : bucketTime(point.time as number, context.timeframe);
+    if (chartTimes.has(time)) values.set(time, point.value);
+  }
+  return Array.from(values, ([time, value]) => ({ time: time as UTCTimestamp, value }));
+}
+
+function vwapSeries(bars: Candle[], sessionTemplate?: ChartSessionTemplate): LineData[] {
   const output: LineData[] = [];
   let cumulativePriceVolume = 0;
   let cumulativeVolume = 0;
   let activeDay = "";
 
   for (const bar of bars) {
-    const day = new Date(bar.time * 1000).toISOString().slice(0, 10);
+    const utcDay = new Date(bar.time * 1000).toISOString().slice(0, 10);
+    const day = sessionTemplate ? sessionTradingDayKey(bar.time, sessionTemplate) ?? utcDay : utcDay;
     if (day !== activeDay) {
       activeDay = day;
       cumulativePriceVolume = 0;

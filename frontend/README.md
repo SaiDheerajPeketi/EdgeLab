@@ -33,6 +33,10 @@ The library includes native chart studies and 20 first-party EdgeLab DSL studies
 
 Historical Volatility requires a complete window of valid positive-price log returns. Its `periodsPerYear` input defaults to 252 and should be set to the expected number of bars per year for the chart timeframe and market calendar. Existing two-argument `histvol(source, period)` scripts retain the 252 default; `histvol(source, period, periodsPerYear)` supports explicit annualization.
 
+Chart VWAP follows the pane's selected exchange session, including FX/CME overnight rollover and daylight saving time. It accumulates the filtered source bars before chart aggregation, then plots the last VWAP value in each chart candle; a candle spanning rollover therefore uses the current session's source volume. Calculations without a session context retain the UTC-day default.
+
+Custom studies use a 350 ms worker limit on Live charts and a 1,200 ms limit on Replay charts. Cancellation and every completion/error path clear timers and terminate the worker; a browser worker-start failure is shown as an indicator error.
+
 ATR and SuperTrend follow the published [ATR smoothing](https://www.tradingview.com/support/solutions/43000501823-average-true-range-atr/) and [SuperTrend band recurrence](https://www.tradingview.com/support/solutions/43000634738-supertrend/) definitions. EdgeLab's indicator DSL is original and is not Pine Script compatible.
 
 ## Build-time configuration

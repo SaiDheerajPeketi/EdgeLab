@@ -39,48 +39,56 @@ export function createIndicatorRuntimeJob({
       promise: Promise.reject(new IndicatorWorkerError("WORKER_UNAVAILABLE", "This browser cannot start the isolated indicator worker.")),
     };
   }
-  const worker = new Worker(new URL("../workers/indicatorRuntime.worker.ts", import.meta.url), {
-    name: "EdgeLab indicator runtime",
-    type: "module",
-  });
-  let settled = false;
-  let rejectPromise: (error: Error) => void = () => undefined;
+  let cancelJob: () => void = () => undefined;
   const timeoutMs = mode === "live" ? 350 : 1_200;
   const promise = new Promise<EdgeIndicatorExecutionResult>((resolve, reject) => {
-    rejectPromise = reject;
-    const timeout = window.setTimeout(() => {
+    let worker: Worker | null = null;
+    let timeout: number | undefined;
+    let settled = false;
+    const finish = (result?: EdgeIndicatorExecutionResult, failure?: IndicatorWorkerError) => {
       if (settled) return;
       settled = true;
-      worker.terminate();
-      reject(new IndicatorWorkerError("TIME_LIMIT", `Indicator worker exceeded its ${timeoutMs} ms time limit.`));
-    }, timeoutMs);
-    const finish = () => window.clearTimeout(timeout);
-    worker.onmessage = (event: MessageEvent<EdgeIndicatorWorkerResponse>) => {
-      if (event.data.id !== id || settled) return;
-      settled = true;
-      finish();
-      worker.terminate();
-      if (event.data.status === "completed") resolve(event.data.result);
-      else reject(new IndicatorWorkerError(event.data.error.code, event.data.error.message));
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      if (worker) {
+        worker.onmessage = null;
+        worker.onerror = null;
+        worker.onmessageerror = null;
+        worker.terminate();
+      }
+      if (failure) reject(failure);
+      else resolve(result!);
     };
-    worker.onerror = (event) => {
-      if (settled) return;
-      settled = true;
-      finish();
-      worker.terminate();
-      reject(new IndicatorWorkerError("WORKER_ERROR", event.message || "The isolated indicator worker failed."));
-    };
-    const request: EdgeIndicatorWorkerRequest = { bars, id, inputs, mode, source };
-    worker.postMessage(request);
+    cancelJob = () => finish(undefined, new IndicatorWorkerError("CANCELLED", "Indicator execution was cancelled."));
+    try {
+      worker = new Worker(new URL("../workers/indicatorRuntime.worker.ts", import.meta.url), {
+        name: "EdgeLab indicator runtime",
+        type: "module",
+      });
+      timeout = window.setTimeout(() => finish(undefined, new IndicatorWorkerError(
+        "TIME_LIMIT", `Indicator worker exceeded its ${timeoutMs} ms time limit.`,
+      )), timeoutMs);
+      worker.onmessage = (event: MessageEvent<EdgeIndicatorWorkerResponse>) => {
+        if (event.data.id !== id || settled) return;
+        if (event.data.status === "completed") finish(event.data.result);
+        else finish(undefined, new IndicatorWorkerError(event.data.error.code, event.data.error.message));
+      };
+      worker.onerror = (event) => finish(undefined, new IndicatorWorkerError(
+        "WORKER_ERROR", event.message || "The isolated indicator worker failed.",
+      ));
+      worker.onmessageerror = () => finish(undefined, new IndicatorWorkerError(
+        "WORKER_ERROR", "The isolated indicator worker returned an unreadable result.",
+      ));
+      const request: EdgeIndicatorWorkerRequest = { bars, id, inputs, mode, source };
+      worker.postMessage(request);
+    } catch (failure) {
+      finish(undefined, new IndicatorWorkerError(
+        "WORKER_ERROR", failure instanceof Error ? failure.message : "The isolated indicator worker could not start.",
+      ));
+    }
   });
   return {
     id,
     promise,
-    cancel: () => {
-      if (settled) return;
-      settled = true;
-      worker.terminate();
-      rejectPromise(new IndicatorWorkerError("CANCELLED", "Indicator execution was cancelled."));
-    },
+    cancel: () => cancelJob(),
   };
 }

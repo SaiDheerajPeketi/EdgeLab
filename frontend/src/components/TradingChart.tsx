@@ -233,6 +233,7 @@ type Props = {
   drawings: ChartDrawing[];
   executions: Execution[];
   indicatorInstances: ChartIndicatorInstance[];
+  indicatorRuntimeMode?: "historical" | "live";
   keepDrawingAfterPlacement?: boolean;
   magnetMode: MagnetMode;
   neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
@@ -469,6 +470,7 @@ export function TradingChart({
   drawings,
   executions,
   indicatorInstances,
+  indicatorRuntimeMode = "historical",
   keepDrawingAfterPlacement = false,
   magnetMode,
   neutralDrawingTool,
@@ -696,8 +698,12 @@ export function TradingChart({
   );
 
   const nativeIndicatorDefinitions = useMemo(
-    () => buildIndicatorDefinitions(displayBars, indicatorInstances),
-    [displayBars, indicatorInstances],
+    () => buildIndicatorDefinitions(displayBars, indicatorInstances, {
+      sessionTemplate,
+      sourceBars: sessionBars,
+      timeframe,
+    }),
+    [displayBars, indicatorInstances, sessionBars, sessionTemplate, timeframe],
   );
   const indicatorDefinitions = useMemo<IndicatorDefinition[]>(
     () => [
@@ -739,7 +745,7 @@ export function TradingChart({
       const job = createIndicatorRuntimeJob({
         bars: displayBars.slice(-20_000),
         inputs: indicator.settings.customInputs,
-        mode: "historical",
+        mode: indicatorRuntimeMode,
         source: indicator.customScriptSource,
       });
       jobs.push(job);
@@ -765,7 +771,7 @@ export function TradingChart({
       active = false;
       jobs.forEach((job) => job.cancel());
     };
-  }, [displayBars, indicatorInstances]);
+  }, [displayBars, indicatorInstances, indicatorRuntimeMode]);
 
   useEffect(() => {
     if (!drawingControlsActive) {

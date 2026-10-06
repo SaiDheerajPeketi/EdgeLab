@@ -4793,6 +4793,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     drawings={pane.drawings}
                     executions={[]}
                     indicatorInstances={pane.indicatorInstances}
+                    indicatorRuntimeMode="live"
                     magnetMode={pane.magnetMode}
                     neutralDrawingTool={lastNeutralDrawingToolRef.current}
                     onAddDrawing={(drawing) => addDrawingToPane(pane.id, drawing)}
