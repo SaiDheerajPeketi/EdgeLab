@@ -11,6 +11,7 @@ import { CompatibilityJournalAccounts, CompatibilityJournalTrades } from "./Comp
 import { CompatibilityJournalNotes } from "./CompatibilityJournalNotes";
 import { CompatibilityJournalAnalytics } from "./CompatibilityJournalAnalytics";
 import { CompatibilityJournalDashboard } from "./CompatibilityJournalDashboard";
+import { CompatibilityJournalSettings } from "./CompatibilityJournalSettings";
 
 export function CompatibilityRouteRenderer({ group, revision }: { group: UiRouteGroup; revision: string }) {
   const location = useLocation();
@@ -19,7 +20,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   if ((location.pathname.startsWith("/app") || location.pathname === "/shared") && !session?.user.approved) {
     return <Navigate replace state={{ fromPath: deepLink }} to={buildAuthSignInHref({ fromPath: deepLink, waitlist: Boolean(session) })} />;
   }
-  const content = group === "public" ? <PublicCompatibility />
+  const content = ["/app/journal/settings", "/app/settings/journal"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalSettings /> : group === "public" ? <PublicCompatibility />
     : group === "settings" ? <SettingsCompatibility />
       : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/dashboard" ? <CompatibilityJournalDashboard /> : location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : ["/app/journal/notes", "/app/journal/calendar"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalNotes calendarMode={location.pathname.replace(/\/$/, "") === "/app/journal/calendar"} /> : ["/app/journal/analytics", "/app/journal/reports"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalAnalytics /> : <JournalCompatibility />
         : group === "chart" ? <ChartCompatibility />

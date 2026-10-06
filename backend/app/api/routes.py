@@ -28,8 +28,8 @@ from fastapi import (
 )
 from fastapi.params import Param
 from fastapi.responses import StreamingResponse
-from sqlalchemy import Date as SQLDate, DateTime, func, select
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy import Date as SQLDate, DateTime, func, select, update
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -77,6 +77,7 @@ from app.schemas import (
     AppDataImportResult,
     AppStoragePayload,
     AppStorageRead,
+    JournalSettingsUpdate,
     AngelOneInstrument,
     AngelOneInstrumentsResponse,
     AIBacktestRead,
@@ -1648,6 +1649,52 @@ def put_app_storage_item(
         value=item.value,
         updated_at=item.updated_at,
     )
+
+
+@router.patch("/journal/settings", response_model=AppStorageRead)
+def update_journal_settings(
+    payload: JournalSettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AppStorageRead:
+    """Merge capture defaults without replacing records or unrelated settings."""
+    changes = payload.model_dump(exclude_unset=True)
+    if "default_broker" in changes:
+        changes["default_broker"] = changes["default_broker"].strip() or "Manual"
+    for _ in range(3):
+        item = db.scalar(select(AppStorageItem).where(
+            AppStorageItem.user_id == current_user.id,
+            AppStorageItem.namespace == "edgelab",
+            AppStorageItem.key == "live-journal.v1",
+        ))
+        if item is not None and item.value is not None and not isinstance(item.value, dict):
+            raise HTTPException(status_code=409, detail="Journal storage needs recovery before changing defaults.")
+        value = dict(item.value) if item is not None and isinstance(item.value, dict) else {}
+        previous = value.get("settings")
+        if previous is not None and not isinstance(previous, dict):
+            raise HTTPException(status_code=409, detail="Journal settings need recovery before changing defaults.")
+        value["settings"] = {**JournalSettingsUpdate().model_dump(), **(previous if isinstance(previous, dict) else {}), **changes}
+        timestamp = utcnow()
+        if item is None:
+            db.add(AppStorageItem(user_id=current_user.id, namespace="edgelab", key="live-journal.v1", value=value, updated_at=timestamp))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                continue
+        else:
+            # Compare-and-swap also works on SQLite, where FOR UPDATE is ignored.
+            result = db.execute(update(AppStorageItem).where(
+                AppStorageItem.id == item.id,
+                AppStorageItem.user_id == current_user.id,
+                AppStorageItem.updated_at == item.updated_at,
+            ).values(value=value, updated_at=timestamp).execution_options(synchronize_session=False))
+            if result.rowcount != 1:
+                db.rollback()
+                continue
+            db.commit()
+        return AppStorageRead(namespace="edgelab", key="live-journal.v1", value=value, updated_at=timestamp)
+    raise HTTPException(status_code=409, detail="Journal changed while saving. Retry your defaults.")
 
 
 @router.delete("/app-storage/{namespace}/{key}", response_model=AppStorageRead)

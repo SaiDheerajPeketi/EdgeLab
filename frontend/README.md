@@ -16,6 +16,8 @@ Manual account and trade-review drafts use shared, authenticated-owner-scoped se
 
 The frontend is a React 18 and Vite application. It provides the public site, authentication flow, chart and replay workspaces, journal, reports, order flow, Quant assistant, settings, and shared-workspace views.
 
+Both `/app/journal/settings` and `/app/settings/journal` provide capture defaults and review note templates in either interface. Saves report success after server confirmation; validation, independent retry, owner-scoped drafts, and pending saves survive interface switches. Only changed capture fields are sent, and journal records are preserved when other journal writes are queued during a defaults save. Settings revalidate when reopened; note templates retain their exact multiline text.
+
 ## Run it
 
 Install the root workspace dependencies, then start the frontend:

@@ -1,4 +1,4 @@
-import { getAppStorageItem, putAppStorageItem } from "./api";
+import { getAppStorageItem, putAppStorageItem, type AppStorageItem } from "./api";
 import { getStoredAuthSession } from "./authSession";
 
 export const APP_STORAGE_NAMESPACE = "edgelab";
@@ -14,6 +14,17 @@ const memoryCache = new Map<string, unknown>();
 const listeners = new Map<string, Set<Listener<unknown>>>();
 const mutationVersions = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
+const queuedValues = new Map<string, Map<number, { value: unknown }>>();
+
+function queueValue(combinedKey: string, value: unknown) {
+  const version = (mutationVersions.get(combinedKey) ?? 0) + 1;
+  mutationVersions.set(combinedKey, version);
+  const values = queuedValues.get(combinedKey) ?? new Map<number, { value: unknown }>();
+  const entry = { value };
+  values.set(version, entry);
+  queuedValues.set(combinedKey, values);
+  return { entry, remove: () => { values.delete(version); if (!values.size) queuedValues.delete(combinedKey); } };
+}
 const WORKSPACE_SHARE_COPY_APP_STORAGE_KEY =
   /^workspace-share-copy\.v1\.workspace-copy-[a-z0-9-]{8,128}$/i;
 
@@ -128,19 +139,22 @@ export async function saveAppStorageItem<T>(
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<T> {
   const combinedKey = storageKey(namespace, key);
-  mutationVersions.set(combinedKey, (mutationVersions.get(combinedKey) ?? 0) + 1);
+  const queued = queueValue(combinedKey, value);
   setCachedValue(namespace, key, value);
-  writeLocalStorageValue(key, value, Date.now());
+  try { writeLocalStorageValue(key, value, Date.now()); }
+  catch (error) { queued.remove(); throw error; }
   const previousWrite = writeQueues.get(combinedKey) ?? Promise.resolve();
   const nextWrite = previousWrite
     .catch(() => undefined)
     .then(async () => {
       try {
-        const item = await putAppStorageItem(namespace, key, value);
-        writeLocalStorageValue(key, value, parseTimestamp(item.updated_at) || Date.now());
+        if (storageKey(namespace, key) !== combinedKey) return;
+        const item = await putAppStorageItem(namespace, key, queued.entry.value);
+        if (storageKey(namespace, key) !== combinedKey) return;
+        writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now());
       } catch {
         // Keep the UI responsive; a later successful save will replace the server value.
-      }
+      } finally { queued.remove(); }
     });
   writeQueues.set(combinedKey, nextWrite);
   void nextWrite.finally(() => {
@@ -157,7 +171,7 @@ export async function saveAppStorageItemConfirmed<T>(
   namespace = APP_STORAGE_NAMESPACE,
 ): Promise<{ localPersisted: boolean; serverPersisted: boolean; value: T }> {
   const combinedKey = storageKey(namespace, key);
-  mutationVersions.set(combinedKey, (mutationVersions.get(combinedKey) ?? 0) + 1);
+  const queued = queueValue(combinedKey, value);
   setCachedValue(namespace, key, value);
   let localPersisted = false;
   try {
@@ -171,10 +185,12 @@ export async function saveAppStorageItemConfirmed<T>(
   const nextWrite = previousWrite
     .catch(() => undefined)
     .then(async () => {
-      const item = await putAppStorageItem(namespace, key, value);
+      if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+      const item = await putAppStorageItem(namespace, key, queued.entry.value);
+      if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
       serverPersisted = true;
       try {
-        writeLocalStorageValue(key, value, parseTimestamp(item.updated_at) || Date.now());
+        writeLocalStorageValue(key, queued.entry.value, parseTimestamp(item.updated_at) || Date.now());
         localPersisted = true;
       } catch {
         // Server persistence is sufficient; hydration can recover the value remotely.
@@ -188,11 +204,46 @@ export async function saveAppStorageItemConfirmed<T>(
       throw error;
     }
   } finally {
+    queued.remove();
     if (writeQueues.get(combinedKey) === nextWrite) {
       writeQueues.delete(combinedKey);
     }
   }
   return { localPersisted, serverPersisted, value };
+}
+
+/** Serialize a strict read/write behind legacy writes; publish only acknowledged values. */
+export async function confirmAppStorageOperation<T>(key: string, request: () => Promise<AppStorageItem<T>>, namespace = APP_STORAGE_NAMESPACE, rebaseQueued?: (pending: unknown, confirmed: T) => unknown): Promise<AppStorageItem<T>> {
+  const combinedKey = storageKey(namespace, key);
+  const versionAtStart = mutationVersions.get(combinedKey) ?? 0;
+  const previous = writeQueues.get(combinedKey) ?? Promise.resolve();
+  let item: AppStorageItem<T>;
+  const next = previous.catch(() => undefined).then(async () => {
+    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+    item = await request();
+    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
+    const currentVersion = mutationVersions.get(combinedKey) ?? 0;
+    if (rebaseQueued && item.value != null) {
+      const values = queuedValues.get(combinedKey);
+      values?.forEach((entry, version) => { if (version > versionAtStart) entry.value = rebaseQueued(entry.value, item.value!); });
+      const latest = values?.get(currentVersion);
+      if (latest) {
+        setCachedValue(namespace, key, latest.value);
+        try { writeLocalStorageValue(key, latest.value, Date.now()); } catch { /* Queued server write remains available. */ }
+      }
+    }
+    // A response issued before a newer optimistic edit cannot replace that edit.
+    if (currentVersion !== versionAtStart) return;
+    mutationVersions.set(combinedKey, currentVersion + 1);
+    if (item.value != null) {
+      setCachedValue(namespace, key, item.value);
+      try { writeLocalStorageValue(key, item.value, parseTimestamp(item.updated_at) || Date.now()); }
+      catch { /* The server acknowledgment remains durable when local storage is full. */ }
+    }
+  });
+  writeQueues.set(combinedKey, next);
+  try { await next; return item!; }
+  finally { if (writeQueues.get(combinedKey) === next) writeQueues.delete(combinedKey); }
 }
 
 export function subscribeAppStorageItem<T>(

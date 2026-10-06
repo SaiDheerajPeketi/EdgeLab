@@ -10,6 +10,8 @@ EdgeLab is a local-first trading workspace for market replay, charting, trade jo
 - Dataset discovery and scheduled market-data population for forex and crypto.
 - Optional Redis caching, background analytics, telemetry, and a legacy Node API.
 
+Journal settings support capture defaults and reusable note templates in both the modern and compatibility interfaces. Defaults merge into existing journal data, and successful saves require a server acknowledgment; private drafts and pending saves survive interface changes.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:

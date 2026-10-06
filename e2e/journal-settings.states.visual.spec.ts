@@ -5,28 +5,20 @@ import {
   installDeterminism,
   seedApprovedSession,
 } from "./support/app";
+import { installJournalSettingsFixture } from "./support/compatibility-journal-settings";
 
 const route = "/app/journal/settings#settings/journal/journal-defaults";
+let releaseJournalSave: () => void;
 
 test.describe("journal settings state baselines", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
     await seedApprovedSession(page);
-    await page.addInitScript(() => {
-      let resolveJournalSave: (() => void) | null = null;
-      Object.defineProperty(window, "__edgeLabE2E", {
-        configurable: true,
-        value: {
-          waitForSettingsSave: (key: string) => key === "journal"
-            ? new Promise<void>((resolve) => { resolveJournalSave = resolve; })
-            : Promise.resolve(),
-        },
-      });
-      Object.defineProperty(window, "__resolveJournalSettingsSave", {
-        configurable: true,
-        value: () => resolveJournalSave?.(),
-      });
-    });
+    const state = await installJournalSettingsFixture(page, { setup: false });
+    state.fallback = false;
+    state.journals.delete(state.owner);
+    state.templates.delete(state.owner);
+    state.defaultsGate = new Promise<void>((resolve) => { releaseJournalSave = resolve; });
     await gotoStable(page, route, { waitForNetworkIdle: false });
     await expect(page.getByRole("heading", { name: "Journal defaults" })).toBeVisible();
   });
@@ -47,7 +39,7 @@ test.describe("journal settings state baselines", () => {
     const apply = page.getByRole("button", { name: "Apply journal defaults" });
     await apply.click();
 
-    await expect(page.getByRole("status").filter({ hasText: "Applying locally…" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Saving journal defaults…" })).toBeVisible();
     await expect(apply).toBeDisabled();
     await expectControlGeometry(page, apply);
     await expectCommandLauncherClearOfInteractiveControls(page);
@@ -58,9 +50,9 @@ test.describe("journal settings state baselines", () => {
     await page.getByLabel("Broker label").fill("Frankfurt futures desk");
     const apply = page.getByRole("button", { name: "Apply journal defaults" });
     await apply.click();
-    await page.evaluate(() => (window as typeof window & { __resolveJournalSettingsSave: () => void }).__resolveJournalSettingsSave());
+    releaseJournalSave();
 
-    await expect(page.getByRole("status").filter({ hasText: "Applied locally" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Journal defaults saved" })).toBeVisible();
     await expect(page.getByText("All explicit changes applied")).toBeVisible();
     await expect(apply).toBeDisabled();
     await expectCommandLauncherClearOfInteractiveControls(page);

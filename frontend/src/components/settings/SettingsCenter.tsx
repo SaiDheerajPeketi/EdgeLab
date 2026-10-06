@@ -75,7 +75,8 @@ import {
   type OrderRiskBase,
   type OrderSizingMode,
 } from "../../lib/orderSettings";
-import { getCachedAppStorageItem, loadAppStorageItem, saveAppStorageItemConfirmed } from "../../lib/serverStorage";
+import { useJournalSettings, RESET_JOURNAL_SETTINGS, type SettingsJournalDefaults } from "./useJournalSettings";
+export type { SettingsJournalDefaults } from "./useJournalSettings";
 import {
   DEFAULT_SETTINGS_PREFERENCES,
   hydrateSettingsPreferences,
@@ -97,32 +98,6 @@ import {
   type SettingsCategoryId,
   type SettingsControl,
 } from "./settingsCatalog";
-
-const NOTE_TEMPLATE_KEY = "notebook-template.v1";
-const DEFAULT_NOTE_TEMPLATE = [
-  "Setup",
-  "- Context:",
-  "- Trigger:",
-  "",
-  "Execution",
-  "- Side: {side}",
-  "- Quantity: {quantity}",
-  "- Entry: {entry}",
-  "- Exit: {exit}",
-  "- Result: {pnl} ({r}R)",
-  "",
-  "Review",
-  "- What worked:",
-  "- What needs correction:",
-  "- Next action:",
-].join("\n");
-
-export type SettingsJournalDefaults = {
-  default_broker: string;
-  default_currency: string;
-  default_entry_type: "MISSED" | "TAKEN";
-  require_account_for_taken_trades: boolean;
-};
 
 type Props = {
   datasets: DatasetCatalog | null;
@@ -167,14 +142,12 @@ const CATEGORY_ICONS: Record<SettingsCategoryId, LucideIcon> = {
 export function SettingsCenter({
   datasets,
   initialCategory = "global",
-  journalDefaults,
   onBack,
   backLabel = "Back",
   onGetDatasetRefreshStatus,
   onRefreshDatasets,
   onUpdateDatasetAsset,
   onUpdateDatasetSettings,
-  onUpdateJournalDefaults,
 }: Props) {
   const location = useLocation();
   const initialLink = typeof window === "undefined" ? null : parseSettingsDeepLink(window.location.hash);
@@ -182,10 +155,8 @@ export function SettingsCenter({
   const [focusControl, setFocusControl] = useState<string | null>(initialLink?.controlId ?? null);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [preferences, setPreferences] = useState<SettingsPreferences>(() => loadSettingsPreferences());
-  const [journalBaseline, setJournalBaseline] = useState(journalDefaults);
-  const [journalDraft, setJournalDraft] = useState(journalDefaults);
-  const [noteBaseline, setNoteBaseline] = useState(() => getCachedAppStorageItem(NOTE_TEMPLATE_KEY, DEFAULT_NOTE_TEMPLATE));
-  const [noteDraft, setNoteDraft] = useState(noteBaseline);
+  const journalSettings = useJournalSettings();
+  const { defaults: journalBaseline, journalDraft, setJournalDraft, noteDraft, setNoteDraft, journalDirty, noteDirty, saveJournal, saveNote } = journalSettings;
   const activeChart = loadActiveChartSettingsPreset()?.settings ?? DEFAULT_CHART_VISUAL_SETTINGS;
   const [chartBaseline, setChartBaseline] = useState<ChartVisualSettings>(activeChart);
   const [chartDraft, setChartDraft] = useState<ChartVisualSettings>(activeChart);
@@ -209,8 +180,6 @@ export function SettingsCenter({
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const authSession = getStoredAuthSession();
 
-  const journalDirty = !same(journalDraft, journalBaseline);
-  const noteDirty = noteDraft !== noteBaseline;
   const chartDirty = !same(chartDraft, chartBaseline);
   const datasetRootDirty = datasetRoot !== datasetRootBaseline;
   const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty;
@@ -230,17 +199,15 @@ export function SettingsCenter({
     let cancelled = false;
     void Promise.all([
       hydrateSettingsPreferences(),
-      loadAppStorageItem(NOTE_TEMPLATE_KEY, DEFAULT_NOTE_TEMPLATE),
       hydrateChartSettingsPresets(),
       hydrateOrderSizingMode(), hydrateOrderRiskBase(), hydrateOrderDefaultQuantity(), hydrateOrderDefaultRiskPercent(),
       hydrateOrderCommissionMode(), hydrateOrderCommissionFixed(), hydrateOrderCommissionPercent(),
       hydrateOrderFeeMode(), hydrateOrderFeeFixed(), hydrateOrderFeePercent(),
       hydrateOrderLineModificationConfirmation(),
-    ]).then(([nextPreferences, nextNote, presets, nextSizing, nextRiskBase, nextQuantity, nextRisk, commissionMode, commissionFixed, commissionPercent, feeMode, feeFixed, feePercent, nextConfirmation]) => {
+    ]).then(([nextPreferences, presets, nextSizing, nextRiskBase, nextQuantity, nextRisk, commissionMode, commissionFixed, commissionPercent, feeMode, feeFixed, feePercent, nextConfirmation]) => {
       if (cancelled) return;
       const nextCosts = { commissionMode, commissionFixed, commissionPercent, feeMode, feeFixed, feePercent };
       setPreferences(nextPreferences);
-      setNoteBaseline(nextNote); setNoteDraft(nextNote);
       const nextChart = loadActiveChartSettingsPreset(presets)?.settings ?? DEFAULT_CHART_VISUAL_SETTINGS;
       setChartBaseline(nextChart); setChartDraft(nextChart);
       setSizingMode(nextSizing); setRiskBase(nextRiskBase);
@@ -386,22 +353,6 @@ export function SettingsCenter({
     void save(key, () => apply(next)).catch(() => update(previous));
   }
 
-  async function saveJournal() {
-    await save("journal", async () => {
-      await onUpdateJournalDefaults(journalDraft);
-      if (import.meta.env.VITE_E2E_STATE_FIXTURES === "1") {
-        await (window as typeof window & { __edgeLabE2E?: { waitForSettingsSave?: (key: string) => Promise<void> } }).__edgeLabE2E?.waitForSettingsSave?.("journal");
-      }
-    });
-    setJournalBaseline(journalDraft);
-  }
-
-  async function saveNote() {
-    if (!noteDraft.trim()) return;
-    await save("note", () => saveAppStorageItemConfirmed(NOTE_TEMPLATE_KEY, noteDraft));
-    setNoteBaseline(noteDraft);
-  }
-
   async function saveChart() {
     await save("chart", () => saveChartSettingsPreset("Settings default", chartDraft));
     setChartBaseline(chartDraft);
@@ -484,14 +435,17 @@ export function SettingsCenter({
 
           {category === "global" ? <GlobalSettings /> : null}
           {category === "journal" ? <>
-            <SettingsSection title="Journal defaults" description="These workspace defaults prefill new journal entries; existing trades are never rewritten." dirty={journalDirty} onReset={() => setJournalDraft({ default_broker: "", default_currency: "USD", default_entry_type: "TAKEN", require_account_for_taken_trades: false })}>
-              <SettingRow controlId="journal-defaults" label="Capture defaults" description="Set the currency, broker label, entry type, and whether taken trades require an account." scope="Workspace" effective={`${journalBaseline.default_currency} · ${journalBaseline.default_entry_type.toLowerCase()}`} saveState={saveStates.journal} saveMessage={saveStates.journal === "saving" ? "Applying locally…" : saveStates.journal === "saved" ? "Applied locally" : saveStates.journal === "error" ? "Could not apply locally" : undefined} onRetry={() => void saveJournal()} validation={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "Use a three-letter currency code, for example USD." : null}>
-                <div className="space-y-2"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs text-zinc-400">Currency<input value={journalDraft.default_currency} maxLength={3} aria-invalid={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency)} aria-describedby={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "setting-journal-defaults-validation" : undefined} onChange={(event) => setJournalDraft((current) => ({ ...current, default_currency: event.target.value.toUpperCase() }))} className={`${fieldClassName} mt-1`} /></label><label className="text-xs text-zinc-400">Broker label<input value={journalDraft.default_broker} maxLength={80} placeholder="Optional" onChange={(event) => setJournalDraft((current) => ({ ...current, default_broker: event.target.value }))} className={`${fieldClassName} mt-1`} /></label></div><label className="block text-xs text-zinc-400">Default entry type<select value={journalDraft.default_entry_type} onChange={(event) => setJournalDraft((current) => ({ ...current, default_entry_type: event.target.value as "MISSED" | "TAKEN" }))} className={`${fieldClassName} mt-1`}><option value="TAKEN">Taken</option><option value="MISSED">Missed</option></select></label><div className="flex items-center justify-between gap-3 rounded-md border border-white/10 p-2.5"><span className="text-xs text-zinc-300">Require account for taken trades</span><SettingsToggle checked={journalDraft.require_account_for_taken_trades} label="Require account for taken trades" onChange={(checked) => setJournalDraft((current) => ({ ...current, require_account_for_taken_trades: checked }))} /></div><button type="button" disabled={!journalDirty || !/^[A-Za-z]{3}$/.test(journalDraft.default_currency) || saveStates.journal === "saving"} onClick={() => void saveJournal()} className="min-h-11 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45 sm:min-h-10">Apply journal defaults</button></div>
+            {!journalSettings.ready || journalSettings.error ? <div className="mb-4 text-sm text-amber-100" role={journalSettings.error ? "alert" : "status"}>{journalSettings.error ? "Journal settings could not be loaded. Your draft is kept." : "Loading journal settings…"}{journalSettings.error ? <button type="button" onClick={() => void journalSettings.reload()} className="ml-3 min-h-11 rounded border border-amber-200 px-3" disabled={journalSettings.loading}>Retry loading settings</button> : null}</div> : null}
+            <fieldset disabled={!journalSettings.ready} className="min-w-0">
+            <SettingsSection title="Journal defaults" description="These workspace defaults prefill new journal entries; existing trades are never rewritten." dirty={journalDirty} onReset={() => setJournalDraft(RESET_JOURNAL_SETTINGS)}>
+              <SettingRow controlId="journal-defaults" label="Capture defaults" description="Set the currency, broker label, entry type, and whether taken trades require an account." scope="Workspace" effective={`${journalBaseline.default_currency} · ${journalBaseline.default_entry_type.toLowerCase()}`} saveState={journalSettings.journalState} saveMessage={journalSettings.journalState === "saving" ? "Saving journal defaults…" : journalSettings.journalState === "saved" ? "Journal defaults saved" : journalSettings.journalState === "error" ? "Journal defaults could not be saved. Your draft is kept." : undefined} onRetry={() => void saveJournal()} validation={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "Use a three-letter currency code, for example USD." : null}>
+                <div className="space-y-2"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs text-zinc-400">Currency<input value={journalDraft.default_currency} maxLength={3} aria-invalid={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency)} aria-describedby={!/^[A-Za-z]{3}$/.test(journalDraft.default_currency) ? "setting-journal-defaults-validation" : undefined} onChange={(event) => setJournalDraft((current) => ({ ...current, default_currency: event.target.value.toUpperCase() }))} className={`${fieldClassName} mt-1`} /></label><label className="text-xs text-zinc-400">Broker label<input value={journalDraft.default_broker} maxLength={80} placeholder="Optional" onChange={(event) => setJournalDraft((current) => ({ ...current, default_broker: event.target.value }))} className={`${fieldClassName} mt-1`} /></label></div><label className="block text-xs text-zinc-400">Default entry type<select value={journalDraft.default_entry_type} onChange={(event) => setJournalDraft((current) => ({ ...current, default_entry_type: event.target.value as "MISSED" | "TAKEN" }))} className={`${fieldClassName} mt-1`}><option value="TAKEN">Taken</option><option value="MISSED">Missed</option></select></label><div className="flex items-center justify-between gap-3 rounded-md border border-white/10 p-2.5"><span className="text-xs text-zinc-300">Require account for taken trades</span><SettingsToggle checked={journalDraft.require_account_for_taken_trades} label="Require account for taken trades" onChange={(checked) => setJournalDraft((current) => ({ ...current, require_account_for_taken_trades: checked }))} /></div><button type="button" disabled={!journalDirty || !/^[A-Za-z]{3}$/.test(journalDraft.default_currency) || journalSettings.journalState === "saving"} onClick={() => void saveJournal()} className="min-h-11 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45 sm:min-h-10">Apply journal defaults</button></div>
               </SettingRow>
-              <SettingRow controlId="note-template" label="Review note template" description="Supported placeholders: {side}, {quantity}, {entry}, {exit}, {pnl}, and {r}." scope="Personal" effective="Inserted when a new notebook note starts" validation={!noteDraft.trim() ? "The template cannot be empty." : null} saveState={saveStates.note} onRetry={() => void saveNote()}>
-                <div><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} rows={10} className={`${fieldClassName} min-h-48 resize-y py-2 font-mono text-xs`} /><button type="button" onClick={() => void saveNote()} disabled={!noteDirty || !noteDraft.trim() || saveStates.note === "saving"} className="mt-2 min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Save note template</button></div>
+              <SettingRow controlId="note-template" label="Review note template" description="Supported placeholders: {side}, {quantity}, {entry}, {exit}, {pnl}, and {r}." scope="Personal" effective="Inserted when a new notebook note starts" validation={!noteDraft.trim() ? "The template cannot be empty." : null} saveState={journalSettings.noteState} saveMessage={journalSettings.noteState === "saving" ? "Saving note template…" : journalSettings.noteState === "saved" ? "Note template saved" : journalSettings.noteState === "error" ? "Note template could not be saved. Your draft is kept." : undefined} onRetry={() => void saveNote()}>
+                <div><textarea aria-label="Review note template" maxLength={200000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} rows={10} className={`${fieldClassName} min-h-48 resize-y py-2 font-mono text-xs`} /><button type="button" onClick={() => void saveNote()} disabled={!noteDirty || !noteDraft.trim() || journalSettings.noteState === "saving"} className="mt-2 min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Save note template</button></div>
               </SettingRow>
             </SettingsSection>
+            </fieldset>
           </> : null}
           {category === "backtest" ? <BacktestSettings
             costs={costs} lineConfirmation={lineConfirmation} quantity={quantity} riskBase={riskBase} riskPercent={riskPercent} saveStates={saveStates} sizingMode={sizingMode}

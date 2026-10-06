@@ -61,11 +61,17 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     }
     assert.deepEqual(productRoutes.filter((route) => !module.UI_COMPATIBILITY_ROUTE_PARITY[route]), []);
     assert.ok(Object.keys(module.UI_COMPATIBILITY_ROUTE_PARITY).every((route) => module.compatibilityRouteIsMapped(route)));
-    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "journal-daily-note-save", "journal-day-review", "settings-draft-save", "chart-replay-layout"]);
+    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "journal-daily-note-save", "journal-day-review", "settings-draft-save", "journal-settings-save", "chart-replay-layout"]);
     assert.ok(Object.values(module.UI_COMPATIBILITY_ROUTE_PARITY).every((contract) => allowedCases.has(contract.testCaseId)));
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/trades"].primaryAction, "save-trade-review");
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].savedDataRead, "journal-accounts");
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].primaryAction, "create-journal-account");
+    for (const routePath of ["/app/journal/settings", "/app/settings/journal"]) {
+      const contract = module.UI_COMPATIBILITY_ROUTE_PARITY[routePath];
+      assert.equal(contract.primaryAction, "save-journal-settings");
+      assert.equal(contract.savedDataRead, "journal-settings");
+      assert.ok(fs.existsSync(path.join(ROOT, contract.canarySpec)));
+    }
     for (const routePath of ["/app/journal/trades", "/app/journal/accounts", "/app/journal/notes", "/app/journal/calendar"]) {
       assert.ok(fs.existsSync(path.join(ROOT, module.UI_COMPATIBILITY_ROUTE_PARITY[routePath].canarySpec)));
       assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY[routePath].actionExemption, null);

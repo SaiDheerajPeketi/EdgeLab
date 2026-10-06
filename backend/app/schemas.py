@@ -189,6 +189,15 @@ class AppStoragePayload(BaseModel):
     value: Any = None
 
 
+class JournalSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_broker: str = Field(default="Manual", max_length=80)
+    default_currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
+    default_entry_type: Literal["TAKEN", "MISSED"] = "TAKEN"
+    require_account_for_taken_trades: bool = Field(default=True, strict=True)
+
+
 class AppStorageRead(BaseModel):
     namespace: str
     key: str

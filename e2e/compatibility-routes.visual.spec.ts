@@ -2,8 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { UI_COMPATIBILITY_PATHS, UI_COMPATIBILITY_ROUTE_PARITY, UI_COMPATIBILITY_VIEWPORTS, type CompatibilityRouteParity, type UiRouteGroup } from "../frontend/src/lib/uiRollout";
 import { expectStableScreenshot, installDeterminism, seedApprovedSession } from "./support/app";
 import { installJournalFixture, noteDate, seedAccount, tradeId } from "./support/compatibility-journal";
+import { installJournalSettingsFixture, journalDefaultsCanary, journalSettingsPatchPath } from "./support/compatibility-journal-settings";
 
 type JournalFixture = Awaited<ReturnType<typeof installJournalFixture>>;
+type JournalSettingsFixture = Awaited<ReturnType<typeof installJournalSettingsFixture>>;
 
 const groups = Object.entries(UI_COMPATIBILITY_PATHS) as Array<[UiRouteGroup, readonly string[]]>;
 
@@ -17,6 +19,7 @@ test.describe("exhaustive compatibility route parity", () => {
       test.setTimeout(120_000);
       if (group !== "public") await seedApprovedSession(page);
       const journal = group === "journal" ? await installJournalFixture(page, { setup: false }) : null;
+      const journalSettings = group === "journal" || group === "settings" ? await installJournalSettingsFixture(page, { setup: false }) : null;
       let fallback = true;
       await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
         revision: fallback ? "compatibility-route" : "modern-route", kill_switch: fallback,
@@ -37,9 +40,9 @@ test.describe("exhaustive compatibility route parity", () => {
         await expect(page.locator("#workspace-content")).toHaveCount(0);
         if (contract.kind === "read-only") expect(contract.draftKey).toBeNull();
         await expectCompatibilityDomainState(page, group, path);
-        await executeCompatibilityPrimaryAction(page, contract, journal);
+        await executeCompatibilityPrimaryAction(page, contract, journal, journalSettings);
         if (path === representativePath(group, paths)) await expectStableScreenshot(page, `compatibility-${group}`, { fullPage: false });
-        const settingsDraft = group === "settings" ? await createUnsavedSettingsDraft(page) : null;
+        const settingsDraft = group === "settings" && !isJournalSettings(path) ? await createUnsavedSettingsDraft(page) : null;
 
         fallback = false;
         await page.reload({ waitUntil: "domcontentloaded" });
@@ -66,6 +69,7 @@ test.describe("exhaustive compatibility route parity", () => {
       test.setTimeout(120_000);
       if (group !== "public") await seedApprovedSession(page);
       if (group === "journal") await installJournalFixture(page, { setup: false });
+      if (group === "journal" || group === "settings") await installJournalSettingsFixture(page, { setup: false });
       let fallback = false;
       await page.route("**/api/ui/rollout", (route) => route.fulfill({ json: {
         revision: fallback ? "rollback-domain" : "modern-domain", kill_switch: fallback,
@@ -92,7 +96,11 @@ test.describe("exhaustive compatibility route parity", () => {
 });
 
 async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, path: string) {
-  if (group === "public") await expect(page.getByRole("heading", { name: "Trade replay without losing your work" })).toBeVisible();
+  if (isJournalSettings(path)) {
+    await expect(page.getByLabel("Currency", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Review note template", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Workspace density", { exact: true })).toHaveCount(0);
+  } else if (group === "public") await expect(page.getByRole("heading", { name: "Trade replay without losing your work" })).toBeVisible();
   else if (group === "shell") await expect(page.getByText(/Session restored for/)).toBeVisible();
   else if (group === "journal") {
     if (path === "/app/journal/dashboard") {
@@ -123,7 +131,7 @@ async function createUnsavedSettingsDraft(page: Page) {
   return page.evaluate(() => sessionStorage.getItem("edgelab.compatibility.settings-draft.v1"));
 }
 
-async function executeCompatibilityPrimaryAction(page: Page, contract: CompatibilityRouteParity, journal: JournalFixture | null) {
+async function executeCompatibilityPrimaryAction(page: Page, contract: CompatibilityRouteParity, journal: JournalFixture | null, journalSettings: JournalSettingsFixture | null) {
   if (contract.primaryAction === "refresh-journal") {
     await page.getByRole("button", { name: "Refresh journal" }).click();
     await expect(page.getByRole("status").filter({ hasText: /recent trades available/ })).toBeVisible();
@@ -168,6 +176,15 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await expect(editor).toBeEnabled();
     await expect(page.getByRole("button", { name: "Save note", exact: true })).toBeDisabled();
     expect(journal!.noteWrites.at(-1)).toEqual({ method: "PUT", path: `/api/journal/daily-notes/${noteDate}`, body: { account_id: account, body } });
+  } else if (contract.primaryAction === "save-journal-settings") {
+    expect(journalSettings).not.toBeNull();
+    await page.getByLabel("Currency", { exact: true }).fill(journalDefaultsCanary.default_currency);
+    await page.getByLabel("Broker label", { exact: true }).fill(journalDefaultsCanary.default_broker);
+    await page.getByRole("combobox", { name: "Default entry type", exact: true }).selectOption(journalDefaultsCanary.default_entry_type);
+    await page.getByRole("switch", { name: "Require account for taken trades", exact: true }).setChecked(false);
+    await page.getByRole("button", { name: "Apply journal defaults", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: /^Journal defaults saved$/ })).toBeVisible();
+    expect(journalSettings!.writes.at(-1)).toEqual({ owner: journalSettings!.owner, method: "PATCH", path: journalSettingsPatchPath, body: journalDefaultsCanary });
   } else if (contract.primaryAction === "save-settings") {
     const density = page.getByLabel("Workspace density");
     await density.selectOption((await density.inputValue()) === "compact" ? "comfortable" : "compact");
@@ -183,7 +200,13 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
 }
 
 async function expectJournalWriteCanary(page: Page, contract: CompatibilityRouteParity, version: "modern" | "fallback") {
-  if (contract.primaryAction === "save-trade-review") {
+  if (contract.primaryAction === "save-journal-settings") {
+    await expect(page.getByLabel("Currency", { exact: true })).toHaveValue(journalDefaultsCanary.default_currency);
+    await expect(page.getByLabel("Broker label", { exact: true })).toHaveValue(journalDefaultsCanary.default_broker);
+    await expect(page.getByRole("combobox", { name: "Default entry type", exact: true })).toHaveValue(journalDefaultsCanary.default_entry_type);
+    await expect(page.getByRole("switch", { name: "Require account for taken trades", exact: true })).not.toBeChecked();
+    await expect(page.getByRole("button", { name: "Apply journal defaults", exact: true })).toBeDisabled();
+  } else if (contract.primaryAction === "save-trade-review") {
     if (version === "modern") {
       await expect(page.getByRole("switch", { name: "Trade reviewed", exact: true })).toBeChecked();
       await expect(page.getByRole("button", { name: "4 star rating", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -222,4 +245,8 @@ function representativePath(group: UiRouteGroup, paths: readonly string[]) {
   if (group === "settings") return "/app/settings/global";
   if (group === "journal") return "/app/journal/trades";
   return paths[0];
+}
+
+function isJournalSettings(path: string) {
+  return path === "/app/journal/settings" || path === "/app/settings/journal";
 }

@@ -28,7 +28,7 @@ export function journalReviewDraft(trade: CanonicalTrade | null) {
 
 export type JournalAccountDraft = ReturnType<typeof emptyJournalAccountDraft>;
 export type JournalReviewDraft = ReturnType<typeof journalReviewDraft>;
-type Draft = JournalAccountDraft | JournalReviewDraft | { body: string };
+type Draft = JournalAccountDraft | JournalReviewDraft | { body: string } | { default_broker: string; default_currency: string; default_entry_type: "TAKEN" | "MISSED"; require_account_for_taken_trades: boolean };
 type DraftEdits<T> = Partial<T>;
 type DraftEnvelope = { __schemaVersion: number; value: unknown };
 const VERSION = 1;
@@ -131,6 +131,9 @@ function draftOwner() {
 }
 
 function validField(key: string, value: unknown, base: Draft) {
+  if (key === "default_entry_type") return value === "TAKEN" || value === "MISSED";
+  if (key === "default_currency") return typeof value === "string" && value.length <= 3;
+  if (key === "default_broker") return typeof value === "string" && value.length <= 80;
   if (key === "body") return typeof value === "string" && value.length <= 200_000;
   if (key === "rating") return value === null || (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 5);
   if (key === "setupGrade") return value === null || (typeof value === "string" && ["A+", "A", "B", "C", "D", "F"].includes(value));

@@ -25,6 +25,7 @@ function loadServerStorageModule() {
   fs.writeFileSync(
     path.join(sourceDir, "api.ts"),
     [
+      "export type AppStorageItem<T = unknown> = { namespace: string; key: string; value: T | null; updated_at: string | null };",
       "export async function getAppStorageItem<T>(namespace: string, key: string) {",
       "  return globalThis.__edgelabStorageGet(namespace, key) as Promise<{ value: T | null; updated_at: string | null }>;",
       "}",
@@ -35,7 +36,7 @@ function loadServerStorageModule() {
   );
   fs.writeFileSync(
     path.join(sourceDir, "authSession.ts"),
-    "export function getStoredAuthSession() { return { user: { id: 7, email: 'owner@example.com' } }; }\n",
+    "export function getStoredAuthSession() { return { user: { id: globalThis.__edgelabStorageOwner ?? 7, email: 'owner@example.com' } }; }\n",
   );
   const inputs = fs.readdirSync(sourceDir).map((file) => path.join(sourceDir, file));
   const compile = spawnSync(
@@ -97,6 +98,75 @@ test("confirmed copy storage waits for the server and writes a reload-safe local
     delete globalThis.__edgelabStorageGet;
     delete globalThis.__edgelabStoragePut;
   }
+});
+
+test("strict storage rejects failed writes without publishing an optimistic value", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { localStorage: memoryStorage() };
+  const { module, cleanup } = loadServerStorageModule();
+  try {
+    await assert.rejects(module.confirmAppStorageOperation("notebook-template.v1", async () => { throw new Error("offline"); }), /offline/);
+    assert.equal(module.getCachedAppStorageItem("notebook-template.v1", "original"), "original");
+    assert.equal(globalThis.window.localStorage.keys().length, 0);
+  } finally { cleanup(); globalThis.window = previousWindow; }
+});
+
+test("an earlier strict read cannot replace a newer queued local edit", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { localStorage: memoryStorage() };
+  globalThis.__edgelabStoragePut = async (_namespace, _key, value) => ({ value, updated_at: "2026-10-07T10:00:00Z" });
+  const { module, cleanup } = loadServerStorageModule();
+  let release;
+  try {
+    const earlier = module.confirmAppStorageOperation("notebook-template.v1", () => new Promise((resolve) => { release = resolve; }));
+    await new Promise((resolve) => setImmediate(resolve));
+    await module.saveAppStorageItem("notebook-template.v1", "Newer template");
+    release({ value: "Earlier template", updated_at: "2026-10-07T09:00:00Z" });
+    await earlier;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(module.getCachedAppStorageItem("notebook-template.v1", null), "Newer template");
+  } finally { cleanup(); globalThis.window = previousWindow; delete globalThis.__edgelabStoragePut; }
+});
+
+test("defaults acknowledgment rebases a later full-journal write without losing new records", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { localStorage: memoryStorage() };
+  let persisted;
+  globalThis.__edgelabStoragePut = async (_namespace, _key, value) => { persisted = value; return { value, updated_at: "2026-10-07T10:00:00Z" }; };
+  const { module, cleanup } = loadServerStorageModule();
+  let release;
+  try {
+    const confirmed = module.confirmAppStorageOperation("live-journal.v1", () => new Promise((resolve) => { release = resolve; }), "edgelab", (pending, acknowledged) => ({ ...pending, settings: { ...pending.settings, default_currency: acknowledged.settings.default_currency } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    const later = { settings: { default_currency: "USD", timezone: "UTC" }, trades: [{ id: "new-trade" }], notes: ["Keep"] };
+    await module.saveAppStorageItem("live-journal.v1", later);
+    release({ value: { settings: { default_currency: "EUR" }, trades: [] }, updated_at: "2026-10-07T09:00:00Z" });
+    await confirmed;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(persisted, { ...later, settings: { default_currency: "EUR", timezone: "UTC" } });
+    assert.deepEqual(module.getCachedAppStorageItem("live-journal.v1", null), persisted);
+  } finally { cleanup(); globalThis.window = previousWindow; delete globalThis.__edgelabStoragePut; }
+});
+
+test("owner changes reject strict acknowledgments and skip old-owner queued requests", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { localStorage: memoryStorage() };
+  let requests = 0;
+  globalThis.__edgelabStoragePut = async () => { requests += 1; return { value: "private" }; };
+  const { module, cleanup } = loadServerStorageModule();
+  let release;
+  try {
+    const pending = module.confirmAppStorageOperation("notebook-template.v1", () => new Promise((resolve) => { release = resolve; }));
+    await new Promise((resolve) => setImmediate(resolve));
+    await module.saveAppStorageItem("notebook-template.v1", "Owner 7 draft");
+    globalThis.__edgelabStorageOwner = 8;
+    release({ value: "Owner 7 confirmed", updated_at: "2026-10-07T09:00:00Z" });
+    await assert.rejects(pending, /Storage owner changed/);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests, 0);
+    assert.equal(module.getCachedAppStorageItem("notebook-template.v1", null), null);
+    assert.equal(globalThis.window.localStorage.getItem("edgelab.notebook-template.v1.user-8"), null);
+  } finally { cleanup(); globalThis.window = previousWindow; delete globalThis.__edgelabStoragePut; delete globalThis.__edgelabStorageOwner; }
 });
 
 test("a rejected server write is surfaced while the scoped local copy hydrates after reload", async () => {
