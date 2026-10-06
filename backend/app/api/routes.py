@@ -9,6 +9,7 @@ from secrets import compare_digest, token_urlsafe
 import struct
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 from urllib.parse import urlencode
 from urllib.request import Request as UrlRequest
@@ -1746,12 +1747,16 @@ def list_canonical_trades(
     tag_id: list[int] | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
+    order: Literal["entry", "id"] = Query(default="entry"),
+    before_id: int | None = Query(default=None, gt=0),
     db: Session = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> list[CanonicalTradeRead]:
     enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
     if start_date is not None and end_date is not None and end_date < start_date:
         raise HTTPException(status_code=422, detail="end_date cannot precede start_date")
+    if (before_id is not None and order != "id") or (order == "id" and offset != 0):
+        raise HTTPException(status_code=422, detail="ID cursor paging requires order=id and offset=0")
     try:
         return journal.list_trades(
             db,
@@ -1763,6 +1768,8 @@ def list_canonical_trades(
             tag_ids=tag_id or (),
             offset=offset,
             limit=limit,
+            order=order,
+            before_id=before_id,
         )
     except journal.JournalServiceError as exc:
         raise journal_service_error(exc) from exc

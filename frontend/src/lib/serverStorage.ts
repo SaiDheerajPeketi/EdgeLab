@@ -84,6 +84,7 @@ export async function loadAppStorageItem<T>(
   const localValue = readLocalStorageValue<T>(key);
   try {
     const item = await getAppStorageItem<T>(namespace, key);
+    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
     if ((mutationVersions.get(combinedKey) ?? 0) !== versionAtStart) {
       return getCachedAppStorageItem(key, fallback, namespace);
     }
@@ -112,6 +113,7 @@ export async function loadAppStorageItem<T>(
     setCachedValue(namespace, key, fallback);
     return fallback;
   } catch {
+    if (storageKey(namespace, key) !== combinedKey) throw new DOMException("Storage owner changed", "AbortError");
     const cachedValue = getCachedAppStorageItem(key, fallback, namespace);
     if (cachedValue !== fallback) {
       return cachedValue;

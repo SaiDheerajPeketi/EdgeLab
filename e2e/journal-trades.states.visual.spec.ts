@@ -96,7 +96,14 @@ test.describe("journal trades missing state baselines", () => {
 
   test("large trade histories keep a bounded 100-row DOM window", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "The long-list runtime budget uses one stable desktop profile.");
-    await page.route("**/api/journal/trades**", (request) => request.fulfill({ json: buildJournalTradeFixtures(350) }));
+    await page.route("**/api/journal/trades**", (route) => {
+      const url = new URL(route.request().url());
+      const before = Number(url.searchParams.get("before_id") ?? Infinity);
+      const limit = Number(url.searchParams.get("limit") ?? 500);
+      const trades = buildJournalTradeFixtures(350);
+      return route.fulfill({ json: url.searchParams.get("order") === "id"
+        ? trades.filter((trade) => trade.id < before).sort((a, b) => b.id - a.id).slice(0, limit) : trades });
+    });
     await openTrades(page);
     const table = page.getByRole("table", { name: "Journal trades" });
     await expect(table.getByRole("row")).toHaveCount(101);

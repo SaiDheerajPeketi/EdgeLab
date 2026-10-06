@@ -1,8 +1,9 @@
+import asyncio
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from fastapi import HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -113,7 +114,7 @@ def test_canonical_day_and_note_routes_validate_ranges_and_account_ownership(mon
         account = journal.create_account(db, owner_id, JournalAccountCreate(name="Day account"))
         trade = journal.create_trade(db, owner_id, CanonicalTradeCreate(account_id=account.id, symbol="ES", side="LONG", entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc), entry_price=Decimal("100"), quantity=Decimal("1")))
         day = date(2026, 9, 15)
-        arguments = dict(account_id=None, reviewed=None, start_date=day, end_date=day, tag_id=None, offset=0, limit=500, db=db, current_user=owner)
+        arguments = dict(account_id=None, reviewed=None, start_date=day, end_date=day, tag_id=None, offset=0, limit=500, order="entry", before_id=None, db=db, current_user=owner)
         assert [row.id for row in routes.list_canonical_trades(**arguments)] == [trade.id]
         assert routes.list_canonical_trades(**{**arguments, "current_user": intruder}) == []
         with pytest.raises(HTTPException) as reversed_range:
@@ -462,3 +463,59 @@ def test_workspace_share_payload_purge_uses_management_rate_limit(monkeypatch):
     assert exc_info.value.status_code == 429
     assert exc_info.value.headers == {"Retry-After": "13"}
     assert calls[0][0] == f"rate-limit:workspace-share-management:user:{owner_id}"
+
+
+def test_id_cursor_api_preserves_owner_filters_and_validates_cursor_contract(monkeypatch):
+    monkeypatch.setattr(routes, "enforce_rate_limit", lambda *args: None)
+    with make_session_factory()() as db:
+        owner_id = seed_user(db, "cursor-owner@edgelab.local", "Owner")
+        intruder_id = seed_user(db, "cursor-intruder@edgelab.local", "Intruder")
+        account = journal.create_account(db, owner_id, JournalAccountCreate(name="Cursor account"))
+        foreign = journal.create_account(db, intruder_id, JournalAccountCreate(name="Foreign cursor account"))
+        ids = []
+        for account_id, user_id in [(account.id, owner_id), (foreign.id, intruder_id), (account.id, owner_id)]:
+            trade = journal.create_trade(db, user_id, CanonicalTradeCreate(
+                account_id=account_id, symbol="MES", side="LONG",
+                entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc),
+                entry_price=Decimal("100"), quantity=Decimal("1"),
+            ))
+            ids.append(trade.id)
+        owner = auth_user(owner_id, "cursor-owner@edgelab.local", "Owner")
+        args = dict(account_id=None, reviewed=None, start_date=None, end_date=None,
+                    tag_id=None, offset=0, limit=1, order="id", before_id=None, db=db, current_user=owner)
+        assert [row.id for row in routes.list_canonical_trades(**args)] == [ids[2]]
+        assert [row.id for row in routes.list_canonical_trades(**{**args, "before_id": ids[2]})] == [ids[0]]
+        assert routes.list_canonical_trades(**{**args, "before_id": ids[0]}) == []
+        assert [row.id for row in routes.list_canonical_trades(**{**args, "current_user": auth_user(intruder_id, "intruder@edgelab.local", "Intruder")})] == [ids[1]]
+        with pytest.raises(HTTPException) as forbidden:
+            routes.list_canonical_trades(**{**args, "account_id": foreign.id})
+        assert forbidden.value.status_code == 404
+
+        # Exercise FastAPI parsing before execution, including bounds validated by Query.
+        app = FastAPI()
+        app.include_router(routes.router)
+        app.dependency_overrides[routes.get_db] = lambda: db
+        app.dependency_overrides[routes.require_auth] = lambda: owner
+        async def request_status(query):
+            messages = []
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message):
+                messages.append(message)
+
+            await app({
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": "GET", "scheme": "http", "path": "/journal/trades", "raw_path": b"/journal/trades",
+                "query_string": query.encode(), "root_path": "", "headers": [],
+                "server": ("test", 80), "client": ("test", 1234),
+            }, receive, send)
+            return next(message["status"] for message in messages if message["type"] == "http.response.start")
+
+        for query in [
+            "before_id=0&order=id", "before_id=-1&order=id",
+            "before_id=1", "before_id=1&order=entry",
+            "order=id&offset=1", "order=unknown", "order=id&limit=501",
+        ]:
+            assert asyncio.run(request_status(query)) == 422, query

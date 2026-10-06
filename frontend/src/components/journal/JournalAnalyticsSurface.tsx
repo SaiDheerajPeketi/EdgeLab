@@ -3,6 +3,7 @@ import { ArrowRight, ChevronLeft, Lightbulb, Target } from "lucide-react";
 import { DEFAULT_JOURNAL_FILTERS, buildJournalBreakdown, filterJournalTrades, journalAssetMix, numeric, scopedCurrency, summarizeJournalTrades, weakSpots, type JournalBreakdownDimension, type JournalFilters } from "../../lib/journalAnalytics";
 import type { CanonicalTrade, JournalAccount, JournalTag } from "../../lib/journalApi";
 import { JournalButton, JournalEmpty, JournalFilterBar } from "./JournalControls";
+import { useJournalPages } from "./useJournalPages";
 
 const DIMENSIONS: Array<{ id: JournalBreakdownDimension; label: string }> = [
   { id: "market", label: "Market" },
@@ -39,6 +40,9 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
   const currency = useMemo(() => scopedCurrency(accounts, [...new Set(filtered.map((trade) => trade.account_id))]), [accounts, filtered]);
   const drillTrades = drillIds ? filtered.filter((trade) => drillIds.includes(trade.id)) : [];
   const selectedRow = selectedKey ? (rows.find((row) => row.key === selectedKey) ?? null) : null;
+  const context = JSON.stringify({ filters, dimension });
+  const segments = useJournalPages(rows, context);
+  const underlying = useJournalPages(drillTrades, `${context}:${selectedKey ?? ""}:${drillIds?.join(",") ?? ""}`);
 
   return (
     <div className="min-w-0 w-[calc(100vw-3rem)] max-w-full space-y-6 overflow-x-hidden sm:w-[calc(100vw-4.5rem)] lg:w-full">
@@ -117,7 +121,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
             ))}
           </div>
         </div>
-        <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-3rem)] overflow-x-auto border-y border-white/10 sm:max-w-[calc(100vw-4.5rem)] lg:max-w-full">
+        <div role="region" aria-label="Performance breakdown table" tabIndex={0} className="mt-4 min-w-0 w-full max-w-[calc(100vw-3rem)] overflow-x-auto border-y border-white/10 focus-visible:outline focus-visible:outline-cyan-300 sm:max-w-[calc(100vw-4.5rem)] lg:max-w-full">
           <table aria-label={`${DIMENSIONS.find((item) => item.id === dimension)?.label ?? dimension} performance breakdown`} className="w-full min-w-[58rem] text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-[11px] uppercase tracking-wide text-slate-600">
@@ -135,7 +139,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
               </tr>
             </thead>
             <tbody className="divide-y divide-white/8">
-              {rows.map((row) => {
+              {segments.rows.map((row) => {
                 const selected = selectedKey === row.key;
                 return (
                   <tr key={row.key} data-selected={selected || undefined} className={selected ? "bg-white/[0.045] ring-1 ring-inset ring-cyan-300/20" : "hover:bg-white/[0.035]"}>
@@ -161,6 +165,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
           </table>
           {!rows.length ? <JournalEmpty title="No data for this breakdown" detail="Adjust filters or add trades with the fields required by this dimension." /> : null}
         </div>
+        <AnalyticsPages label="Performance segment pages" noun="segments" paging={segments} />
         {selectedRow ? (
           <div data-selected-segment role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-3 text-sm text-cyan-50">
             <p className="min-w-0"><span className="text-xs font-medium uppercase tracking-wide text-cyan-200">Selected segment</span><span className="ml-2 font-semibold">{selectedRow.label}</span><span className="ml-2 text-xs text-slate-300">{selectedRow.totalTrades} {selectedRow.totalTrades === 1 ? "trade" : "trades"}</span></p>
@@ -223,7 +228,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
             </div>
           </div>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
-            {drillTrades.map((trade) => (
+            {underlying.rows.map((trade) => (
               <button key={trade.id} type="button" onClick={() => onOpenTrade(trade)} className="grid min-w-0 w-full gap-2 rounded-lg border border-white/10 bg-white/[0.018] p-3 text-left outline-none hover:bg-white/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:grid-cols-[6rem_minmax(0,1fr)_auto]">
                 <span className="text-xs text-slate-500">{new Date(trade.entry_time).toLocaleDateString()}</span>
                 <span className="min-w-0">
@@ -237,6 +242,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
             ))}
             {!drillTrades.length ? <p className="py-8 text-center text-sm text-slate-500 md:col-span-2">No underlying rows remain in the current filter.</p> : null}
           </div>
+          <AnalyticsPages label="Underlying trade pages" noun="trades" paging={underlying} />
         </section>
       ) : null}
     </div>
@@ -246,6 +252,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
 function AssetMix({ title, rows, onSelect }: { title: string; rows: ReturnType<typeof journalAssetMix>; onSelect: (label: string) => void }) {
   let offset = 0;
   const palette = ["#67e8f9", "#a78bfa", "#34d399", "#fbbf24", "#fb7185", "#94a3b8"];
+  const paging = useJournalPages(rows, rows.map((row) => row.label).join("\n"));
   return (
     <div>
       <h3 className="text-xs font-semibold text-slate-300">{title}</h3>
@@ -258,9 +265,9 @@ function AssetMix({ title, rows, onSelect }: { title: string; rows: ReturnType<t
           })}
         </svg>
         <div className="grid min-w-0 flex-1 gap-1">
-          {rows.map((row, index) => (
+          {paging.rows.map((row, index) => (
             <button key={row.label} type="button" onClick={() => onSelect(row.label)} className="flex min-h-11 items-center gap-2 rounded px-2 text-left text-sm text-slate-300 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:min-h-9">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[index % palette.length] }} />
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: palette[(paging.page * 100 + index) % palette.length] }} />
               <span className="min-w-0 flex-1 truncate">{row.label}</span>
               <span className="tabular-nums text-slate-500">
                 {row.count} · {row.percent.toFixed(0)}%
@@ -270,8 +277,18 @@ function AssetMix({ title, rows, onSelect }: { title: string; rows: ReturnType<t
           {!rows.length ? <p className="text-sm text-slate-500">Position mix appears after trades are added.</p> : null}
         </div>
       </div>
+      <AnalyticsPages label={`${title} pages`} noun="segments" paging={paging} />
     </div>
   );
+}
+
+function AnalyticsPages({ label, noun, paging }: { label: string; noun: string; paging: { page: number; pageCount: number; total: number; setPage: (page: number) => void } }) {
+  if (paging.pageCount <= 1) return null;
+  return <nav aria-label={label} className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400">
+    <JournalButton disabled={paging.page === 0} onClick={() => paging.setPage(paging.page - 1)}>Previous 100 {noun}</JournalButton>
+    <span>Page {paging.page + 1} of {paging.pageCount} · {paging.total.toLocaleString()} {noun}</span>
+    <JournalButton disabled={paging.page === paging.pageCount - 1} onClick={() => paging.setPage(paging.page + 1)}>Next 100 {noun}</JournalButton>
+  </nav>;
 }
 
 function MoneyCell({ value, currency, combinable, muted }: { value: number; currency: string; combinable: boolean; muted?: boolean }) {

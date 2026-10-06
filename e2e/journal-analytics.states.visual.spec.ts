@@ -240,11 +240,16 @@ async function openReports(page: Page, accounts: unknown[], trades: unknown[]) {
 }
 
 async function jsonRoute(page: Page, pattern: RegExp, body: unknown) {
-  await page.route(pattern, (request) => request.fulfill({
-    body: JSON.stringify(body),
-    contentType: "application/json",
-    status: 200,
-  }));
+  await page.route(pattern, (route) => {
+    const url = new URL(route.request().url());
+    let response = body;
+    if (url.pathname === "/api/journal/trades" && Array.isArray(body) && url.searchParams.get("order") === "id") {
+      const before = Number(url.searchParams.get("before_id") ?? Infinity);
+      const limit = Number(url.searchParams.get("limit") ?? 500);
+      response = [...body].filter((trade) => trade.id < before).sort((a, b) => b.id - a.id).slice(0, limit);
+    }
+    return route.fulfill({ body: JSON.stringify(response), contentType: "application/json", status: 200 });
+  });
 }
 
 async function captureState(page: Page, name: string, target: Locator) {

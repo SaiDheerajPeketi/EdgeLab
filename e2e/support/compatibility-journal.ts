@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalAccount, JournalAccountCreate, JournalDailyNote } from "../../frontend/src/lib/journalApi";
+import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalAccount, JournalAccountCreate, JournalDailyNote, JournalTag } from "../../frontend/src/lib/journalApi";
 import { installDeterminism, seedApprovedSession } from "./app";
 
 const timestamp = "2026-09-15T10:30:00.000Z";
@@ -96,6 +96,7 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
   }
   const state = {
     fallback: true,
+    backfills: 0,
     failReview: false,
     failAccount: false,
     failAccountRead: false,
@@ -106,6 +107,11 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     notePage: null as JournalDailyNote[] | null,
     noteWrites: [] as Array<{ method: string; path: string; body: { account_id?: number | null; body: string } }>,
     tradeReads: [] as Array<{ start: string | null; end: string | null; account: string | null; offset: number; limit: number }>,
+    tags: [] as JournalTag[],
+    historyGate: null as Promise<void> | null,
+    historyGateBefore: null as number | null,
+    failHistoryLater: false,
+    historyReads: [] as Array<{ before: number | null; ids: number[] }>,
     tradeGate: null as Promise<void> | null,
     tradeGateOffset: null as number | null,
     tradeGateDate: null as string | null,
@@ -114,6 +120,7 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     accountGate: null as Promise<void> | null,
     trade: structuredClone(seedTrade),
     tradePage: null as CanonicalTrade[] | null,
+    accountReads: [] as Array<string | null>,
     accounts: [structuredClone(seedAccount)],
     accountPage: null as JournalAccount[] | null,
     reads: [] as string[],
@@ -170,7 +177,18 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
       const offset = Number(url.searchParams.get("offset") ?? 0);
       const limit = Number(url.searchParams.get("limit") ?? 500);
       state.tradeReads.push({ start, end, account: accountId, offset, limit });
-      const response = structuredClone(trades.slice(offset, offset + limit));
+      const order = url.searchParams.get("order");
+      const before = url.searchParams.has("before_id") ? Number(url.searchParams.get("before_id")) : null;
+      const ordered = order === "id" ? trades.filter((trade) => before == null || trade.id < before).sort((a, b) => b.id - a.id) : trades;
+      const response = structuredClone(ordered.slice(offset, offset + limit));
+      if (order === "id") {
+        state.historyReads.push({ before, ids: response.map((trade) => trade.id) });
+        if (state.historyGate && before === state.historyGateBefore) await state.historyGate;
+        if (state.failHistoryLater && before != null) {
+          await route.fulfill({ json: { detail: "Complete history page unavailable" }, status: 500 });
+          return;
+        }
+      }
       if (state.tradeGate && offset === state.tradeGateOffset && start === state.tradeGateDate && end === start) await state.tradeGate;
       await route.fulfill({ json: response });
     } else if (path === "/api/journal/accounts") {
@@ -199,9 +217,11 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
         await route.fulfill({ json: created, status: 201 });
       } else {
         expect(method).toBe("GET");
+        state.accountReads.push(url.searchParams.get("include_archived"));
         await route.fulfill(state.failAccountRead ? { json: { detail: "Account list unavailable" }, status: 500 } : { json: state.accountPage ?? state.accounts });
       }
     } else if (path === "/api/journal/backfill") {
+      state.backfills += 1;
       await route.fulfill({ json: {
         accounts_created: 0, trades_created: 0, executions_created: 0, notes_created: 0,
         screenshots_created: 0, tags_created: 0, sources_unchanged: 1, diagnostics: [],
@@ -230,7 +250,14 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
       await route.fulfill({ json: (state.notePage ?? state.notes).filter((note) =>
         (!start || note.note_date >= start) && (!end || note.note_date <= end) && (!account || note.account_id === Number(account)),
       ) });
-    } else if (["/api/journal/tags", "/api/journal/imports"].includes(path)) {
+    } else if (path === "/api/journal/tags") {
+      if (method === "POST") {
+        const body = route.request().postDataJSON() as { category: JournalTag["category"]; name: string };
+        const tag: JournalTag = { id: 83401 + state.tags.length, ...body, color: null, archived_at: null, created_at: timestamp };
+        state.tags.push(tag);
+        await route.fulfill({ json: tag, status: 201 });
+      } else await route.fulfill({ json: state.tags });
+    } else if (path === "/api/journal/imports") {
       await route.fulfill({ json: [] });
     } else {
       await route.fallback();

@@ -5,7 +5,7 @@ import {
   createJournalAccount,
   createJournalTag,
   importJournalCsv,
-  listCanonicalTrades,
+  listAllCanonicalTrades,
   listJournalAccounts,
   listJournalDailyNotes,
   listJournalImports,
@@ -37,6 +37,7 @@ import {
   saveJournalScope,
   type JournalAccountScope,
 } from "../../lib/journalWorkspaceState";
+import { getStoredAuthSession } from "../../lib/authSession";
 
 export type JournalDataState = {
   accounts: JournalAccount[];
@@ -57,7 +58,10 @@ export function useJournalData() {
     migrationResult: null, notes: [], scope: loadJournalScope(), tags: [], trades: [],
   });
   const mountedRef = useRef(true);
-  const initialLoadRef = useRef(false);
+  const [snapshotReady, setSnapshotReady] = useState(false);
+  const loadGeneration = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
+  const scopeRevision = useRef(0);
   const confirmedAccounts = useRef(new Map<number, JournalAccount>());
   const confirmedTrades = useRef(new Map<number, CanonicalTrade>());
   const confirmedNotes = useRef(new Map<number, JournalDailyNote>());
@@ -75,43 +79,62 @@ export function useJournalData() {
   }), []);
 
   const fetchAll = useCallback(async (quiet = false) => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
+    const generation = ++loadGeneration.current;
+    const ownerId = getStoredAuthSession()?.user.id;
+    const scopeVersion = scopeRevision.current;
+    const isCurrent = () => mountedRef.current && generation === loadGeneration.current && getStoredAuthSession()?.user.id === ownerId;
     if (!quiet) setState((current) => ({ ...current, loading: true, error: null }));
     try {
       const [accounts, trades, tags, notes, imports] = await Promise.all([
-        listJournalAccounts(), listCanonicalTrades(), listJournalTags(), listJournalDailyNotes(), listJournalImports(),
+        listJournalAccounts(true), listAllCanonicalTrades({ signal: controller.signal }), listJournalTags(), listJournalDailyNotes(), listJournalImports(),
       ]);
-      const scope = await hydrateJournalScope(accounts.map((account) => account.id));
-      if (mountedRef.current) setState((current) => ({ ...current,
+      if (!isCurrent()) return null;
+      const scope = scopeVersion === scopeRevision.current ? await hydrateJournalScope(accounts.map((account) => account.id)) : null;
+      if (!isCurrent()) return null;
+      setState((current) => ({ ...current,
         accounts: [...accounts.map((account) => latestJournalRecord(account, confirmedAccounts.current.get(account.id))), ...[...confirmedAccounts.current.values()].filter((account) => !accounts.some((item) => item.id === account.id))],
-        trades: trades.map((trade) => latestJournalRecord(trade, confirmedTrades.current.get(trade.id))),
+        trades: trades.map((trade) => latestJournalRecord(trade, confirmedTrades.current.get(trade.id))).sort((left, right) => Date.parse(right.entry_time) - Date.parse(left.entry_time) || right.id - left.id),
         notes: [...notes.map((note) => latestJournalRecord(note, confirmedNotes.current.get(note.id))), ...[...confirmedNotes.current.values()].filter((note) => !notes.some((item) => item.id === note.id))],
-        tags, imports, scope, loading: false, error: null,
+        tags, imports, scope: scope && scopeVersion === scopeRevision.current ? scope : current.scope, loading: false, error: null,
       }));
+      setSnapshotReady(true);
       return { accounts, trades, tags, notes, imports };
     } catch (error) {
-      if (mountedRef.current) setState((current) => ({ ...current, loading: false, error: errorMessage(error, "Journal data could not be loaded.") }));
+      controller.abort();
+      if (!isCurrent()) return null;
+      setState((current) => ({ ...current, loading: false, error: errorMessage(error, "Complete Journal history could not be loaded. Refresh to retry.") }));
       throw error;
     }
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (initialLoadRef.current) return () => { mountedRef.current = false; };
-    initialLoadRef.current = true;
+    void fetchAll().catch(() => { /* The complete-history error remains available for retry. */ });
+    return () => { mountedRef.current = false; loadGeneration.current += 1; loadController.current?.abort(); };
+  }, [fetchAll]);
+
+  useEffect(() => {
+    if (!snapshotReady) return;
+    let active = true;
+    const ownerId = getStoredAuthSession()?.user.id;
+    const isCurrent = () => active && getStoredAuthSession()?.user.id === ownerId;
+    setState((current) => ({ ...current, migration: "migrating" }));
     void (async () => {
       try {
-        await fetchAll();
-        if (mountedRef.current) setState((current) => ({ ...current, migration: "migrating" }));
         const migrationResult = await backfillLegacyJournal();
+        if (!isCurrent()) return;
         const changed = migrationResult.accounts_created + migrationResult.trades_created + migrationResult.notes_created + migrationResult.tags_created > 0;
         if (changed) await fetchAll(true);
-        if (mountedRef.current) setState((current) => ({ ...current, migration: "ready", migrationResult }));
+        if (isCurrent()) setState((current) => ({ ...current, migration: "ready", migrationResult }));
       } catch (error) {
-        if (mountedRef.current) setState((current) => ({ ...current, migration: "warning", loading: false, error: current.error ?? errorMessage(error, "Legacy Journal migration could not be verified. Relational data remains available.") }));
+        if (isCurrent()) setState((current) => ({ ...current, migration: "warning", error: current.error ?? errorMessage(error, "Legacy Journal migration could not be verified. Relational data remains available.") }));
       }
     })();
-    return () => { mountedRef.current = false; };
-  }, [fetchAll]);
+    return () => { active = false; };
+  }, [snapshotReady, fetchAll]);
 
   const scopedTrades = useMemo(() => {
     if (state.scope.mode === "all") return state.trades;
@@ -125,6 +148,7 @@ export function useJournalData() {
   }, [state.notes, state.scope]);
 
   const setScope = useCallback((scope: JournalAccountScope) => {
+    scopeRevision.current += 1;
     setState((current) => ({ ...current, scope }));
     void saveJournalScope(scope).catch(() => setState((current) => ({ ...current, error: "Account scope changed locally but could not sync across devices." })));
   }, []);
@@ -143,10 +167,11 @@ export function useJournalData() {
 
   return {
     ...state,
+    historyReady: snapshotReady,
     scopedNotes,
     scopedTrades,
     clearError: () => setState((current) => ({ ...current, error: null })),
-    refresh: () => fetchAll(false),
+    refresh: () => fetchAll(false).catch(() => null),
     setScope,
     addAccount: async (payload: JournalAccountCreate) => {
       const account = await action(() => createJournalAccount(payload), { reload: false });

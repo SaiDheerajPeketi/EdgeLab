@@ -582,3 +582,79 @@ def test_sqlite_migration_creates_journal_tables_idempotently(tmp_path):
             "SELECT version FROM schema_migrations ORDER BY version"
         ).scalars().all()
     assert versions == [1, 2, 3, 4, 5, 6, 7]
+
+
+@pytest.mark.parametrize("count", [500, 1051, 1500])
+def test_id_cursor_reads_complete_sparse_history_without_timestamp_cursor_drift(db, count):
+    owner = seed_user(db, f"cursor-{count}@example.com")
+    account = create_account(db, owner)
+    created = journal.create_trade(db, owner.id, CanonicalTradeCreate(
+        account_id=account.id, symbol="ES", side="LONG",
+        entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc),
+        entry_price=Decimal("100"), quantity=Decimal("1"),
+    ))
+    row = db.get(CanonicalTrade, created.id)
+    template = {column.name: getattr(row, column.name) for column in CanonicalTrade.__table__.columns if column.name != "id"}
+    db.bulk_insert_mappings(CanonicalTrade, [
+        {**template, "id": 10 + index * 3, "source_ref": f"cursor-{index}", "duplicate_key": f"cursor-{index}",
+         "entry_time": datetime(2026, 9, 15, 10, tzinfo=timezone.utc) + timedelta(minutes=index)}
+        for index in range(count - 1)
+    ])
+    db.commit()
+    initial_ids = sorted(db.scalars(select(CanonicalTrade.id)).all(), reverse=True)
+    first = journal.list_trades(db, owner.id, order="id", limit=500)
+    assert [trade.id for trade in first] == initial_ids[:500]
+    cursor = first[-1].id
+    # Dates can cross the visible ordering boundary while the ID cursor remains stable.
+    db.get(CanonicalTrade, first[0].id).entry_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    db.get(CanonicalTrade, created.id).entry_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    db.commit()
+    loaded = first[:]
+    while True:
+        page = journal.list_trades(db, owner.id, order="id", before_id=cursor, limit=500)
+        loaded.extend(page)
+        if len(page) < 500:
+            break
+        cursor = page[-1].id
+    assert [trade.id for trade in loaded] == initial_ids
+    assert len({trade.id for trade in loaded}) == count
+    # The existing entry-time/offset contract remains available.
+    assert journal.list_trades(db, owner.id, limit=1)[0].id == created.id
+    assert journal.list_trades(db, owner.id, offset=1, limit=1)[0].id != created.id
+
+
+def test_id_cursor_handles_deleted_rows_and_excludes_insertions_above_the_snapshot(db):
+    owner = seed_user(db, "cursor-mutations@example.com")
+    account = create_account(db, owner)
+    created = journal.create_trade(db, owner.id, CanonicalTradeCreate(
+        account_id=account.id, symbol="NQ", side="LONG",
+        entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc),
+        entry_price=Decimal("100"), quantity=Decimal("1"),
+    ))
+    row = db.get(CanonicalTrade, created.id)
+    template = {column.name: getattr(row, column.name) for column in CanonicalTrade.__table__.columns if column.name != "id"}
+    db.bulk_insert_mappings(CanonicalTrade, [
+        {**template, "id": value, "source_ref": f"mutation-{value}", "duplicate_key": f"mutation-{value}"}
+        for value in [10, 30, 50, 70, 90]
+    ])
+    db.commit()
+    first = journal.list_trades(db, owner.id, order="id", limit=2)
+    assert [trade.id for trade in first] == [90, 70]
+    db.delete(db.get(CanonicalTrade, 30))
+    db.bulk_insert_mappings(CanonicalTrade, [{**template, "id": 110, "source_ref": "new-after-page", "duplicate_key": "new-after-page"}])
+    db.commit()
+    second = journal.list_trades(db, owner.id, order="id", before_id=70, limit=500)
+    assert [trade.id for trade in second] == [50, 10, created.id]
+    assert 110 not in {trade.id for trade in first + second}
+
+
+@pytest.mark.parametrize("arguments", [
+    {"order": "entry", "before_id": 50},
+    {"order": "id", "before_id": 0},
+    {"order": "id", "before_id": -1},
+    {"order": "id", "offset": 1},
+])
+def test_id_cursor_service_rejects_incompatible_arguments(db, arguments):
+    owner = seed_user(db, "cursor-invalid@example.com")
+    with pytest.raises(journal.JournalServiceError):
+        journal.list_trades(db, owner.id, **arguments)

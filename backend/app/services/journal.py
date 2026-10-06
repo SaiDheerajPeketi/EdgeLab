@@ -6,7 +6,7 @@ from decimal import Decimal
 from hashlib import sha256
 import json
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -565,7 +565,11 @@ def list_trades(
     tag_ids: Iterable[int] = (),
     offset: int = 0,
     limit: int = 100,
+    order: Literal["entry", "id"] = "entry",
+    before_id: int | None = None,
 ) -> list[CanonicalTradeRead]:
+    if (before_id is not None and (order != "id" or before_id <= 0)) or (order == "id" and offset != 0):
+        raise JournalServiceError("ID cursor paging requires a positive before_id, order=id and offset=0")
     statement = _trade_statement(user_id)
     if account_id is not None:
         _owned_account(db, user_id, account_id)
@@ -580,8 +584,11 @@ def list_trades(
         statement = statement.where(
             CanonicalTrade.tag_links.any(CanonicalTradeTag.tag_id == tag_id)
         )
+    if before_id is not None:
+        statement = statement.where(CanonicalTrade.id < before_id)
+    ordering = (CanonicalTrade.id.desc(),) if order == "id" else (CanonicalTrade.entry_time.desc(), CanonicalTrade.id.desc())
     rows = db.scalars(
-        statement.order_by(CanonicalTrade.entry_time.desc(), CanonicalTrade.id.desc())
+        statement.order_by(*ordering)
         .offset(offset)
         .limit(limit)
     ).all()

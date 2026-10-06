@@ -63,8 +63,10 @@ export function loadJournalScope() {
 }
 
 export async function hydrateJournalScope(validAccountIds: Iterable<number>) {
+  const owner = ownerSegment();
   const local = sanitizeJournalScope(readLocal(SCOPE_KEY), validAccountIds);
   const remote = sanitizeJournalScope(await loadAppStorageItem(SCOPE_KEY, local), validAccountIds);
+  if (ownerSegment() !== owner) throw new DOMException("Journal owner changed", "AbortError");
   writeLocal(SCOPE_KEY, remote);
   return remote;
 }

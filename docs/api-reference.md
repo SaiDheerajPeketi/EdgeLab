@@ -39,6 +39,8 @@ Authenticated WebSocket routes receive the user session token in their first mes
 
 `GET /api/journal/trades` accepts inclusive `start_date` and `end_date` filters in `YYYY-MM-DD` format. Bounds apply to the canonical UTC entry timestamp, independent of the source account's timezone. Combine them with `account_id`, `offset`, and `limit` (maximum 500) to page a complete day. Reversed date ranges return 422; account filters are restricted to the authenticated owner.
 
+For a complete history scan, request `order=id&limit=500`, then continue with `before_id` equal to the smallest ID in the previous page until a page has fewer than 500 rows. IDs are strictly descending; changing entry times or deleting records does not shift the cursor. New IDs above the first page appear on the next scan. This is a traversal of live records, not a transaction snapshot of their field values. Default `order=entry` retains entry-time/ID descending offset pagination. `before_id` must be positive and requires `order=id`; ID paging requires `offset=0`. Invalid combinations return 422.
+
 `PUT /api/journal/daily-notes/{note_date}` replaces the body for the exact date and `account_id` scope. A null account stores a shared note. Bodies preserve whitespace, may be empty, and allow up to 200,000 characters. An account note does not inherit or overwrite the shared note. `GET /api/journal/daily-notes` accepts the same inclusive date range and optional exact account filter.
 
 ## Compatibility API

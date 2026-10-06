@@ -245,7 +245,12 @@ export async function installDeterminism(
     }
     if (endpoint === "/journal/accounts") return fulfillJson(route, seedAccounts);
     if (endpoint === "/journal/tags") return fulfillJson(route, seedTags);
-    if (endpoint === "/journal/trades") return fulfillJson(route, seedTrades);
+    if (endpoint === "/journal/trades") {
+      if (url.searchParams.get("order") !== "id") return fulfillJson(route, seedTrades);
+      const before = Number(url.searchParams.get("before_id") ?? Infinity);
+      const limit = Number(url.searchParams.get("limit") ?? 500);
+      return fulfillJson(route, [...seedTrades].filter((trade) => trade.id < before).sort((a, b) => b.id - a.id).slice(0, limit));
+    }
     if (endpoint === "/journal/daily-notes") return fulfillJson(route, seedNotes);
     if (endpoint === "/journal/imports") return fulfillJson(route, []);
     if (endpoint === "/backtests" || endpoint === "/backtests/summaries") return fulfillJson(route, []);

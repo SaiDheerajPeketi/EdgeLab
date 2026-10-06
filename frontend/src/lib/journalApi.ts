@@ -286,14 +286,41 @@ export function createJournalTag(payload: { category: JournalTagCategory; name: 
   return apiRequest<JournalTag>("/journal/tags", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function listCanonicalTrades(options: { accountId?: number; reviewed?: boolean; tagIds?: number[]; offset?: number; limit?: number; startDate?: string; endDate?: string } = {}) {
+export function listCanonicalTrades(options: { accountId?: number; reviewed?: boolean; tagIds?: number[]; offset?: number; limit?: number; startDate?: string; endDate?: string; order?: "entry" | "id"; beforeId?: number; signal?: AbortSignal } = {}) {
   const query = new URLSearchParams({ offset: String(options.offset ?? 0), limit: String(options.limit ?? 500) });
   if (options.accountId) query.set("account_id", String(options.accountId));
   if (options.startDate) query.set("start_date", options.startDate);
   if (options.endDate) query.set("end_date", options.endDate);
   if (options.reviewed != null) query.set("reviewed", String(options.reviewed));
+  if (options.order) query.set("order", options.order);
+  if (options.beforeId != null) query.set("before_id", String(options.beforeId));
   options.tagIds?.forEach((tagId) => query.append("tag_id", String(tagId)));
-  return apiRequest<CanonicalTrade[]>(`/journal/trades?${query.toString()}`);
+  return apiRequest<CanonicalTrade[]>(`/journal/trades?${query.toString()}`, { signal: options.signal });
+}
+
+/** Scan immutable IDs so changed entry times and deleted rows cannot shift later pages. */
+export async function listAllCanonicalTrades(options: { signal?: AbortSignal } = {}) {
+  const ownerId = getStoredAuthSession()?.user.id;
+  const trades: CanonicalTrade[] = [];
+  let beforeId: number | undefined;
+  const checkActive = () => {
+    if (options.signal?.aborted || getStoredAuthSession()?.user.id !== ownerId) throw new DOMException("Journal history load canceled", "AbortError");
+  };
+  for (;;) {
+    checkActive();
+    const page = await listCanonicalTrades({ order: "id", beforeId, limit: 500, signal: options.signal });
+    checkActive();
+    if (!Array.isArray(page) || page.length > 500) throw new Error("Journal history could not be verified. Refresh to retry.");
+    let previousId = beforeId ?? Number.POSITIVE_INFINITY;
+    for (const trade of page) {
+      if (!Number.isSafeInteger(trade.id) || trade.id <= 0 || trade.id >= previousId) throw new Error("Journal history paging did not advance. Refresh to retry.");
+      previousId = trade.id;
+    }
+    trades.push(...page);
+    if (page.length < 500) break;
+    beforeId = previousId;
+  }
+  return trades.sort((left, right) => Date.parse(right.entry_time) - Date.parse(left.entry_time) || right.id - left.id);
 }
 
 export function createCanonicalTrade(payload: CanonicalTradeCreate) {
