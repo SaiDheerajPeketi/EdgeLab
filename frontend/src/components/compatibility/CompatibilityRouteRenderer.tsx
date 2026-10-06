@@ -7,6 +7,7 @@ import { loadAppStorageItem } from "../../lib/serverStorage";
 import { hydrateSettingsPreferences, saveSettingsPreferences, type SettingsPreferences } from "../../lib/settingsPreferences";
 import { buildAuthSignInHref } from "../../lib/authJourney";
 import { compatibilityDeepLink, UI_COMPATIBILITY_ROUTES, type UiRouteGroup } from "../../lib/uiRollout";
+import { CompatibilityJournalAccounts, CompatibilityJournalTrades } from "./CompatibilityJournal";
 
 export function CompatibilityRouteRenderer({ group, revision }: { group: UiRouteGroup; revision: string }) {
   const location = useLocation();
@@ -17,7 +18,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   }
   const content = group === "public" ? <PublicCompatibility />
     : group === "settings" ? <SettingsCompatibility />
-      : group === "journal" ? <JournalCompatibility />
+      : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : <JournalCompatibility />
         : group === "chart" ? <ChartCompatibility />
           : <ShellCompatibility email={session?.user.email ?? "Approved user"} />;
   return (

@@ -61,8 +61,15 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     }
     assert.deepEqual(productRoutes.filter((route) => !module.UI_COMPATIBILITY_ROUTE_PARITY[route]), []);
     assert.ok(Object.keys(module.UI_COMPATIBILITY_ROUTE_PARITY).every((route) => module.compatibilityRouteIsMapped(route)));
-    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "settings-draft-save", "chart-replay-layout"]);
+    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "settings-draft-save", "chart-replay-layout"]);
     assert.ok(Object.values(module.UI_COMPATIBILITY_ROUTE_PARITY).every((contract) => allowedCases.has(contract.testCaseId)));
+    assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/trades"].primaryAction, "save-trade-review");
+    assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].savedDataRead, "journal-accounts");
+    assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].primaryAction, "create-journal-account");
+    for (const routePath of ["/app/journal/trades", "/app/journal/accounts"]) {
+      assert.ok(fs.existsSync(path.join(ROOT, module.UI_COMPATIBILITY_ROUTE_PARITY[routePath].canarySpec)));
+      assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY[routePath].actionExemption, null);
+    }
     const playwrightConfig = fs.readFileSync(path.join(ROOT, "playwright.config.ts"), "utf8");
     assert.match(playwrightConfig, /name: "tradingDesktop"[\s\S]*compatibility-routes\\\.visual\\\.spec\\\.ts/);
     assert.ok(Object.values(module.resolveUiRollout()).every(Boolean));

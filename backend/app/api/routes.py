@@ -1762,6 +1762,19 @@ def list_canonical_trades(
         raise journal_service_error(exc) from exc
 
 
+@router.get("/journal/trades/{trade_id}", response_model=CanonicalTradeRead)
+def get_canonical_trade(
+    trade_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> CanonicalTradeRead:
+    enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    try:
+        return journal.get_trade(db, current_user.id, trade_id)
+    except journal.JournalServiceError as exc:
+        raise journal_service_error(exc) from exc
+
+
 @router.patch("/journal/trades/{trade_id}/review", response_model=CanonicalTradeRead)
 def update_canonical_trade_review(
     trade_id: int,

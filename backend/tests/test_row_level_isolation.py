@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException, Response
@@ -14,12 +15,15 @@ from app.schemas import (
     BacktestAdvanceRequest,
     BacktestCreate,
     BacktestSessionUpdate,
+    CanonicalTradeCreate,
     FeedbackCreate,
+    JournalAccountCreate,
     OrderCreate,
     PlaybookCreate,
     WorkspaceShareCreate,
 )
 from app.services.backtester import BacktestService
+from app.services import journal
 from app.services.datasets import DatasetCatalogService
 from app.services.rate_limits import RateLimitDecision
 
@@ -71,6 +75,31 @@ def build_services(tmp_path, session_factory):
     catalog = DatasetCatalogService(datasets_root, session_factory)
     backtester = BacktestService(dataset_catalog=catalog)
     return catalog, backtester
+
+
+def test_canonical_trade_point_lookup_is_owned_and_preserves_review_data(monkeypatch):
+    calls = []
+    monkeypatch.setattr(routes, "enforce_rate_limit", lambda bucket, owner, limit: calls.append((bucket, owner)))
+    with make_session_factory()() as db:
+        owner_id = seed_user(db, "lookup-owner@edgelab.local", "Owner")
+        intruder_id = seed_user(db, "lookup-intruder@edgelab.local", "Intruder")
+        account = journal.create_account(db, owner_id, JournalAccountCreate(name="Lookup account"))
+        trade = journal.create_trade(db, owner_id, CanonicalTradeCreate(
+            account_id=account.id, symbol="NQ", side="LONG",
+            entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc),
+            entry_price=Decimal("25000"), quantity=Decimal("1"),
+            rating=4, setup_grade="A+", reviewed=True, note="Saved review canary",
+        ))
+        read = routes.get_canonical_trade(trade.id, db, auth_user(owner_id, "lookup-owner@edgelab.local", "Owner"))
+        assert read.model_dump() == trade.model_dump()
+        assert read.notes[0].body == "Saved review canary"
+        for trade_id, user_id in [(trade.id, intruder_id), (trade.id + 1000, owner_id)]:
+            with pytest.raises(HTTPException) as exc_info:
+                routes.get_canonical_trade(trade_id, db, auth_user(user_id, "reader@edgelab.local", "Reader"))
+            assert exc_info.value.status_code == 404
+        assert calls == [("journal-read", owner_id), ("journal-read", intruder_id), ("journal-read", owner_id)]
+    route = next(route for route in routes.router.routes if route.path.endswith("/journal/trades/{trade_id}") and "GET" in route.methods)
+    assert any(dependency.call is routes.require_auth for dependency in route.dependant.dependencies)
 
 
 def test_backtest_routes_return_404_for_other_users(tmp_path, monkeypatch):

@@ -275,6 +275,10 @@ export function createCanonicalTrade(payload: CanonicalTradeCreate) {
   return apiRequest<CanonicalTrade>("/journal/trades", { method: "POST", body: JSON.stringify(payload) });
 }
 
+export function getCanonicalTrade(tradeId: number) {
+  return apiRequest<CanonicalTrade>(`/journal/trades/${tradeId}`);
+}
+
 export function updateCanonicalTradeReview(tradeId: number, payload: CanonicalTradeReviewUpdate) {
   return apiRequest<CanonicalTrade>(`/journal/trades/${tradeId}/review`, { method: "PATCH", body: JSON.stringify(payload) });
 }

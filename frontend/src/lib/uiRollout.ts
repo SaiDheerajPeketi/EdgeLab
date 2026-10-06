@@ -10,11 +10,12 @@ export type CompatibilityRouteParity = {
   kind: CompatibilityParityKind;
   sessionSource: "auth-session" | "route-session";
   draftKey: string | null;
-  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "settings-preferences" | "replay-layout";
-  primaryAction: "navigate" | "refresh-journal" | "save-settings" | "restore-replay-layout";
+  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "settings-preferences" | "replay-layout";
+  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-settings" | "restore-replay-layout";
   actionExemption: string | null;
   requiredViewports: typeof UI_COMPATIBILITY_VIEWPORTS;
-  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "settings-draft-save" | "chart-replay-layout";
+  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "settings-draft-save" | "chart-replay-layout";
+  canarySpec?: string;
   reasonSource: string;
 };
 type CompatibilityGroupParity = Omit<CompatibilityRouteParity, "actionExemption" | "routePath">;
@@ -44,9 +45,22 @@ const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = O
   chart: { kind: "shared-domain", sessionSource: "auth-session", draftKey: null, savedDataRead: "replay-layout", primaryAction: "restore-replay-layout", requiredViewports: UI_COMPATIBILITY_VIEWPORTS, testCaseId: "chart-replay-layout", reasonSource: "frontend/src/lib/api.ts#getLatestBacktest" },
 });
 
+const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> = {
+  "/app/journal/trades": {
+    primaryAction: "save-trade-review", testCaseId: "journal-trade-review",
+    reasonSource: "frontend/src/lib/journalApi.ts#updateCanonicalTradeReview",
+    canarySpec: "e2e/compatibility-journal.interaction.spec.ts",
+  },
+  "/app/journal/accounts": {
+    savedDataRead: "journal-accounts", primaryAction: "create-journal-account", testCaseId: "journal-account-create",
+    reasonSource: "frontend/src/lib/journalApi.ts#createJournalAccount",
+    canarySpec: "e2e/compatibility-journal.interaction.spec.ts",
+  },
+};
+
 export const UI_COMPATIBILITY_ROUTE_PARITY: Readonly<Record<string, CompatibilityRouteParity>> = Object.freeze(
   Object.fromEntries(Object.entries(UI_COMPATIBILITY_PATHS).flatMap(([group, paths]) => paths.map((routePath) => {
-    const contract = GROUP_PARITY[group as UiRouteGroup];
+    const contract = { ...GROUP_PARITY[group as UiRouteGroup], ...ROUTE_PARITY[routePath] };
     return [routePath, {
       ...contract,
       actionExemption: contract.primaryAction === "navigate" ? "Read-only route has no mutating parity action." : null,

@@ -70,6 +70,49 @@ def create_account(db, user: BetaUser, name: str = "Primary"):
     )
 
 
+@pytest.mark.parametrize("remaining,status", [(Decimal("0"), "CLOSED"), (Decimal("1"), "OPEN"), (Decimal("0"), "VOIDED")])
+@pytest.mark.parametrize("include_unchanged_execution", [False, True])
+def test_review_metadata_preserves_authoritative_pnl_and_trade_status(db, remaining, status, include_unchanged_execution):
+    owner = seed_user(db, "review-pnl-owner@example.com")
+    account = create_account(db, owner)
+    trade = journal.create_trade(db, owner.id, CanonicalTradeCreate(
+        account_id=account.id, symbol="ES", side="LONG",
+        entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc),
+        exit_time=datetime(2026, 9, 15, 11, tzinfo=timezone.utc),
+        entry_price=Decimal("5800"), exit_price=Decimal("5802"),
+        quantity=Decimal("2"), remaining_quantity=remaining,
+        gross_pnl=Decimal("200"), net_pnl=Decimal("190"),
+        commission=Decimal("7"), fees=Decimal("3"),
+    ))
+    row = db.get(CanonicalTrade, trade.id)
+    row.status = status
+    db.commit()
+    payload = {"reviewed": True, "rating": 4, "setup_grade": "A+", "note": "Metadata review"}
+    if include_unchanged_execution:
+        payload.update(entry_price=trade.entry_price, exit_price=trade.exit_price, entry_time=trade.entry_time, exit_time=trade.exit_time)
+    saved = journal.update_trade_review(db, owner.id, trade.id, CanonicalTradeReviewUpdate(**payload))
+    assert (saved.gross_pnl, saved.net_pnl, saved.status, saved.remaining_quantity) == (Decimal("200"), Decimal("190"), status, remaining)
+    assert saved.reviewed and saved.rating == 4 and saved.setup_grade == "A+"
+    assert saved.notes[-1].body == "Metadata review"
+    assert saved.executions == trade.executions
+
+
+def test_explicit_review_price_change_recalculates_pnl_but_time_only_preserves_it(db):
+    owner = seed_user(db, "price-review-owner@example.com")
+    account = create_account(db, owner)
+    trade = journal.create_trade(db, owner.id, CanonicalTradeCreate(
+        account_id=account.id, symbol="NQ", side="LONG",
+        entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc),
+        exit_time=datetime(2026, 9, 15, 11, tzinfo=timezone.utc),
+        entry_price=Decimal("100"), exit_price=Decimal("104"), quantity=Decimal("2"),
+        gross_pnl=Decimal("800"), net_pnl=Decimal("797"), commission=Decimal("2"), fees=Decimal("1"),
+    ))
+    time_only = journal.update_trade_review(db, owner.id, trade.id, CanonicalTradeReviewUpdate(exit_time=datetime(2026, 9, 15, 12, tzinfo=timezone.utc)))
+    assert (time_only.gross_pnl, time_only.net_pnl) == (Decimal("800"), Decimal("797"))
+    corrected = journal.update_trade_review(db, owner.id, trade.id, CanonicalTradeReviewUpdate(exit_price=Decimal("106")))
+    assert (corrected.gross_pnl, corrected.net_pnl, corrected.status) == (Decimal("12"), Decimal("9"), "CLOSED")
+
+
 def test_manual_canonical_trade_review_queue_tags_daily_notes_and_isolation(db):
     owner = seed_user(db, "journal-owner@example.com")
     intruder = seed_user(db, "journal-intruder@example.com")

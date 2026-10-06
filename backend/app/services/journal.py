@@ -582,6 +582,10 @@ def list_trades(
     return [_trade_read(row) for row in rows]
 
 
+def get_trade(db: Session, user_id: int, trade_id: int) -> CanonicalTradeRead:
+    return _trade_read(_owned_trade(db, user_id, trade_id))
+
+
 def update_trade_review(
     db: Session,
     user_id: int,
@@ -589,6 +593,8 @@ def update_trade_review(
     payload: CanonicalTradeReviewUpdate,
 ) -> CanonicalTradeRead:
     row = _owned_trade(db, user_id, trade_id)
+    original_prices = (row.entry_price, row.exit_price)
+    original_exit_time = row.exit_time
     fields = payload.model_fields_set
     if "tag_ids" in fields:
         tags = _owned_tags(db, user_id, payload.tag_ids or [])
@@ -631,14 +637,16 @@ def update_trade_review(
         row.screenshots.clear()
         for url in payload.screenshot_urls or []:
             _add_screenshot(db, row, user_id, url)
-    if row.entry_type == "TAKEN":
-        row.status = (
-            "CLOSED"
-            if row.exit_time is not None and row.remaining_quantity == 0
-            else "OPEN"
-        )
-        row.gross_pnl = _calculated_pnl(row.side, row.entry_price, row.exit_price, row.quantity)
-        row.net_pnl = row.gross_pnl - row.commission - row.fees
+    if row.entry_type == "TAKEN" and row.status != "VOIDED":
+        if row.exit_time != original_exit_time:
+            row.status = (
+                "CLOSED"
+                if row.exit_time is not None and row.remaining_quantity == 0
+                else "OPEN"
+            )
+        if (row.entry_price, row.exit_price) != original_prices:
+            row.gross_pnl = _calculated_pnl(row.side, row.entry_price, row.exit_price, row.quantity)
+            row.net_pnl = row.gross_pnl - row.commission - row.fees
     row.updated_at = utcnow()
     db.commit()
     return _trade_read(_owned_trade(db, user_id, row.id))
