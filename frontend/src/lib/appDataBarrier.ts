@@ -10,6 +10,10 @@ const blockedOwners = new Set<string>();
 const uncertainOwners = new Set<string>();
 const participants = new Set<{ settle: (owner: string) => Promise<void>; invalidate: (owner: string) => void }>();
 
+function notifyAppDataStateChange() {
+  if (typeof window !== "undefined") window.dispatchEvent?.(new Event("edgelab:app-data-state-change"));
+}
+
 function readEpoch(owner: string): Epoch {
   const raw = typeof window === "undefined" ? null : window.localStorage.getItem(`${EPOCH_PREFIX}${owner}`);
   if (!raw) return { revision: "", phase: "ready" };
@@ -110,6 +114,7 @@ function recordUncertain(owner: string, marker?: string) {
     const value = raw && raw !== "p" && raw !== "u" ? JSON.parse(raw) : null;
     window.localStorage.setItem(marker, parseOperation(value) ? JSON.stringify({ ...value, phase: "uncertain" }) : "u");
   } catch { /* Retain pending marker. */ } }
+  notifyAppDataStateChange();
 }
 
 export type RequestProgress = { sent: () => void; completed: () => void; operation?: AppDataOperation };
@@ -123,6 +128,7 @@ export async function runAppDataRequest<T>(access: AppDataAccess | null, portabl
       const value = operation ? JSON.stringify({ ...operation, phase: "pending" }) : "p";
       window.localStorage.setItem(marker, value);
       if (window.localStorage.getItem(marker) !== value) throw new Error("The browser could not reserve a safe account save. No request was sent.");
+      notifyAppDataStateChange();
     }
     let sent = false;
     let completed = false;
@@ -137,6 +143,7 @@ export async function runAppDataRequest<T>(access: AppDataAccess | null, portabl
       if (marker && (completed || !sent)) {
         try { window.localStorage.removeItem(marker); }
         catch { if (access) recordUncertain(access.owner, marker); }
+        notifyAppDataStateChange();
       }
     }
     assertAppDataAccess(access);
@@ -187,6 +194,7 @@ export async function runAppDataReplacement<T>(owner: { id: number; token: strin
         const value = JSON.stringify({ revision: window.crypto.randomUUID(), phase, ...(phase !== "ready" && operation ? { operation } : {}) } satisfies Epoch);
         window.localStorage.setItem(`${EPOCH_PREFIX}${access.owner}`, value);
         if (window.localStorage.getItem(`${EPOCH_PREFIX}${access.owner}`) !== value) throw new Error("The browser could not record the account replacement state.");
+        notifyAppDataStateChange();
       };
       setEpoch("replacing");
       advanced = true;
@@ -290,5 +298,5 @@ export async function recoverAppDataOperations<T>(access: AppDataAccess, verify:
       uncertainOwners.delete(access.owner);
       return { requiresReload: true, results };
     }) as { requiresReload: boolean; results: T[] };
-  } finally { if (!advanced) blockedOwners.delete(access.owner); }
+  } finally { if (!advanced) blockedOwners.delete(access.owner); notifyAppDataStateChange(); }
 }

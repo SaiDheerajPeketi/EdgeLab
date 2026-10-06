@@ -73,6 +73,7 @@ export const SETTINGS_CONTROLS: SettingsControl[] = [
   control("privacy-security", "device-permissions", "Device and code permissions", "Microphone and generated-code availability.", ["microphone", "code", "permission"]),
   control("storage", "export-data", "Export EdgeLab data", "Download a portable JSON bundle of account-owned application data.", ["backup", "download", "json"]),
   control("storage", "import-data", "Import EdgeLab data", "Validate and preview a bundle before replacing stored data.", ["restore", "upload", "backup", "json"]),
+  control("storage", "recover-data", "Interrupted saves", "Check interrupted saves before reloading the workspace.", ["recovery", "completion", "paused", "reload"]),
 ];
 
 function control(
