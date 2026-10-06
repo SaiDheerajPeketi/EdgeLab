@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSync } from "esbuild";
 import { fileURLToPath } from "node:url";
+import { installReceiptFetch } from "./app-data-receipt-fixture.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const bundle = buildSync({ bundle: true, define: { "import.meta.env": "{}" }, format: "esm", platform: "node", write: false, logLevel: "silent", stdin: { contents: 'export * from "./frontend/src/lib/appDataBarrier.ts"; export * from "./frontend/src/lib/api.ts"; export * from "./frontend/src/lib/serverStorage.ts"; export * from "./frontend/src/lib/navigationState.ts"; export { setStoredAuthSession } from "./frontend/src/lib/authSession.ts";', loader: "ts", resolveDir: root } }).outputFiles[0].text;
@@ -50,13 +51,16 @@ function webLocks() {
 
 async function harness(run, initial = {}) {
   const previous = { window: globalThis.window, fetch: globalThis.fetch };
+  const receipts = new Map();
+  const receiptCalls = [];
+  const restoreFetch = installReceiptFetch(receipts, receiptCalls);
   const local = memory(new Map(Object.entries({ "edgelab.auth.session.v1": JSON.stringify(session()), ...initial })));
   const sessionStorage = memory();
   globalThis.window = { localStorage: local, sessionStorage, navigator: { locks: webLocks() }, crypto: globalThis.crypto, addEventListener() {}, removeEventListener() {}, dispatchEvent() {} };
   const requests = [];
   globalThis.fetch = async (...args) => { requests.push(args); return json({ value: null, updated_at: null }); };
-  try { await run({ api: await fresh(), local, sessionStorage, requests }); }
-  finally { globalThis.fetch = previous.fetch; if (previous.window === undefined) delete globalThis.window; else globalThis.window = previous.window; }
+  try { await run({ api: await fresh(), local, sessionStorage, requests, receipts, receiptCalls }); }
+  finally { restoreFetch(); globalThis.fetch = previous.fetch; if (previous.window === undefined) delete globalThis.window; else globalThis.window = previous.window; }
 }
 
 const portable = { app: "edgelab", version: 1, tables: { app_storage: [{ id: 1 }] } };
@@ -348,7 +352,10 @@ for (const path of ["/datasets", "/datasets/settings", "/bootstrap", "/bootstrap
     globalThis.fetch = async (...args) => { requests.push(args); throw new TypeError("lost discovery response"); };
     await assert.rejects(api.apiRequest(path), /lost discovery response/);
     assert.equal(requestMarkers(local).length, 1);
-    assert.equal(local.getItem(requestMarkers(local)[0]), "u");
+    const marker = JSON.parse(local.getItem(requestMarkers(local)[0]));
+    assert.equal(marker.version, 2);
+    assert.equal(marker.method, "GET");
+    assert.equal(marker.phase, "uncertain");
     await assert.rejects(other.importAppDataBundle(portable), reload);
     assert.equal(requests.length, 1);
   });
@@ -381,7 +388,10 @@ for (const path of ["/broker-connections/7/refresh", "/broker-sync-jobs/7/retry"
     await assert.rejects(api.apiRequest(path, { method: "POST", body: "{}" }), /lost broker response/);
     assert.equal(requests.length, 1);
     assert.equal(requestMarkers(local).length, 1);
-    assert.equal(local.getItem(requestMarkers(local)[0]), "u");
+    const marker = JSON.parse(local.getItem(requestMarkers(local)[0]));
+    assert.equal(marker.version, 2);
+    assert.equal(marker.method, "POST");
+    assert.equal(marker.phase, "uncertain");
     await assert.rejects(other.importAppDataBundle(portable), reload);
     assert.equal(requests.length, 1);
   });
@@ -424,5 +434,112 @@ test("replacement failure becomes uncertain only when the callback marks its net
     assert.equal(JSON.parse(local.getItem(epochKey)).phase, "ready");
     const reloaded = await fresh();
     reloaded.assertAppDataAccess(reloaded.captureAppDataAccess(), true);
+  });
+});
+
+const replayAdvanceCalls = [
+  ["JSON advance", (api) => api.advanceBacktest(7, 1)],
+  ["JSON compact advance", (api) => api.advanceBacktestCompact(7, 1)],
+  ["raw advance", (api) => api.authenticatedApiFetch("/backtests/7/advance", { method: "POST", body: '{"steps":1}' })],
+  ["raw compact advance", (api) => api.authenticatedApiFetch("/backtests/7/advance-compact", { method: "POST", body: '{"steps":1}' })],
+];
+
+for (const [label, call] of replayAdvanceCalls) test(`${label} preserves replay throughput while holding its shared lock through the full response body`, async () => {
+  await harness(async ({ api, local, requests, receiptCalls }) => {
+    const body = deferred();
+    const order = [];
+    const consume = async () => { order.push("body pending"); await body.promise; order.push("body consumed"); };
+    globalThis.fetch = async (path, init) => {
+      requests.push([path, init]);
+      assert.equal(new Headers(init.headers).get("X-EdgeLab-Operation-Id"), null);
+      return label.startsWith("raw")
+        ? { ok: true, status: 200, clone: () => ({ arrayBuffer: async () => { await consume(); return new ArrayBuffer(0); } }) }
+        : { ok: true, status: 200, text: async () => { await consume(); return '{"current_index":8}'; } };
+    };
+    const pending = call(api);
+    const rejected = assert.rejects(pending, reload);
+    await turn();
+    assert.equal(requests.length, 1);
+    assert.equal(local.getItem(requestMarkers(local)[0]), "p");
+    assert.deepEqual(receiptCalls, []);
+    const replacement = api.runAppDataReplacement({ id: 1, token: "token-1" }, async () => { order.push("replacement"); });
+    await turn();
+    assert.deepEqual(order, ["body pending"]);
+    body.resolve();
+    await rejected;
+    await replacement;
+    assert.deepEqual(order, ["body pending", "body consumed", "replacement"]);
+    assert.deepEqual(requestMarkers(local), []);
+    assert.deepEqual(receiptCalls, []);
+  });
+});
+
+for (const [label, call] of replayAdvanceCalls) test(`${label} network uncertainty leaves a legacy marker and blocks import without guessing a server receipt`, async () => {
+  await harness(async ({ api, local, requests, receiptCalls }) => {
+    globalThis.fetch = async (path, init) => {
+      requests.push([path, init]);
+      assert.equal(new Headers(init.headers).get("X-EdgeLab-Operation-Id"), null);
+      throw new TypeError("replay response lost");
+    };
+    await assert.rejects(call(api), /replay response lost/);
+    assert.equal(requests.length, 1);
+    assert.equal(local.getItem(requestMarkers(local)[0]), "u");
+    await assert.rejects(api.recoverAccountDataOperations(), /no valid server receipt/);
+    await assert.rejects(api.importAppDataBundle(portable), reload);
+    assert.equal(requests.length, 1);
+    assert.deepEqual(receiptCalls, []);
+    assert.equal(local.getItem(requestMarkers(local)[0]), "u");
+  });
+});
+
+for (const [path, method] of [["/backtests/7/jump", "POST"], ["/backtests/7/orders", "POST"], ["/backtests/7/advance", "PATCH"], ["/backtests/not-an-id/advance", "POST"]]) test(`${method} ${path} still reserves and verifies its server receipt`, async () => {
+  await harness(async ({ api, requests, receiptCalls }) => {
+    globalThis.fetch = async (url, init) => { requests.push([url, init]); return json({ ok: true }); };
+    await api.apiRequest(path, { method, body: "{}" });
+    assert.equal(requests.length, 1);
+    assert.deepEqual(receiptCalls.map((call) => call.action), ["reserve", "recover"]);
+    assert.equal(new Headers(requests[0][1].headers).get("X-EdgeLab-Operation-Id"), receiptCalls[0].id);
+    assert.deepEqual(JSON.parse(receiptCalls[0].init.body), { method, path });
+  });
+});
+
+const unreceiptedAdmissionCalls = [
+  ["JSON read", (api) => api.apiRequest("/settings/preferences")],
+  replayAdvanceCalls[0],
+  ["raw read", (api) => api.authenticatedApiFetch("/settings/preferences")],
+  replayAdvanceCalls[2],
+];
+
+for (const [label, call] of unreceiptedAdmissionCalls) test(`${label} rechecks owner after the reservation yield before sending`, async () => {
+  await harness(async ({ api, requests, receiptCalls }) => {
+    const pending = call(api);
+    api.setStoredAuthSession(session(2));
+    await assert.rejects(pending, { name: "AbortError" });
+    assert.equal(requests.length, 0);
+    assert.deepEqual(receiptCalls, []);
+  });
+});
+
+for (const [label, call] of unreceiptedAdmissionCalls) test(`${label} rechecks its data generation after the reservation yield before sending`, async () => {
+  await harness(async ({ api, local, requests, receiptCalls }) => {
+    const pending = call(api);
+    local.setItem(epochKey, JSON.stringify({ revision: "external-generation", phase: "ready" }));
+    await assert.rejects(pending, reload);
+    assert.equal(requests.length, 0);
+    assert.deepEqual(receiptCalls, []);
+  });
+});
+
+for (const [label, call] of unreceiptedAdmissionCalls) test(`${label} observes import admission closure during the reservation yield`, async () => {
+  await harness(async ({ api, requests, receiptCalls }) => {
+    const pending = call(api);
+    const rejected = assert.rejects(pending, reload);
+    let replaced = false;
+    const replacement = api.runAppDataReplacement({ id: 1, token: "token-1" }, async () => { replaced = true; });
+    await rejected;
+    await replacement;
+    assert.equal(replaced, true);
+    assert.equal(requests.length, 0);
+    assert.deepEqual(receiptCalls, []);
   });
 });

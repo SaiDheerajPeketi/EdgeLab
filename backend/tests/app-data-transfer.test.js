@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
+import { installReceiptFetch } from "./app-data-receipt-fixture.js";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const bundle = buildSync({
@@ -35,6 +36,9 @@ const uncertain = (error) => error.name === "AppDataImportUncertainError" && err
 
 async function withHarness(run) {
   const previous = { fetch: globalThis.fetch, window: globalThis.window };
+  const receipts = new Map();
+  const receiptCalls = [];
+  const restoreFetch = installReceiptFetch(receipts, receiptCalls);
   const storage = new Map();
   const requests = [];
   const memory = (values) => ({ get length() { return values.size; }, key: (index) => [...values.keys()][index] ?? null, getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key) });
@@ -43,7 +47,7 @@ async function withHarness(run) {
   const transfer = await freshApi(); // Capture the current durable epoch at page startup.
   transfer.setStoredAuthSession(ownerSession(1));
   const harness = {
-    api: transfer, requests, storage,
+    api: transfer, requests, storage, receipts, receiptCalls,
     fetch: (handler, expectedToken) => { globalThis.fetch = async (path, init) => {
       const url = new URL(path, "http://fixture");
       const session = JSON.parse(storage.get("edgelab.auth.session.v1"));
@@ -53,7 +57,7 @@ async function withHarness(run) {
     }; },
   };
   try { await run(harness); }
-  finally { globalThis.fetch = previous.fetch; if (previous.window === undefined) delete globalThis.window; else globalThis.window = previous.window; }
+  finally { restoreFetch(); globalThis.fetch = previous.fetch; if (previous.window === undefined) delete globalThis.window; else globalThis.window = previous.window; }
 }
 
 test("frontend transfer tables exactly match the bounded backend registry", () => {
@@ -185,6 +189,7 @@ test("duplicate pending imports send only one replacement POST", async () => {
     fetch(() => active.promise);
     const first = api.importAppDataBundle(source);
     await assert.rejects(api.importAppDataBundle(source), /already running/);
+    await transferTurn();
     assert.equal(requests.length, 1);
     active.resolve(response(acknowledgment(source)));
     await first;
@@ -205,7 +210,7 @@ for (const outcome of ["success", "HTTP failure", "network failure", "malformed 
         return response({ ok: true });
       });
       if (outcome === "success") await api.importAppDataBundle(source);
-      else await assert.rejects(api.importAppDataBundle(source), uncertain);
+      else await assert.rejects(api.importAppDataBundle(source), outcome === "HTTP failure" ? (error) => error.requiresReload === true && /failed or was canceled/.test(error.message) : uncertain);
       api.setStoredAuthSession({ ...ownerSession(1), token: "refreshed-owner-1" });
       await assert.rejects(api.importAppDataBundle(source), /Reload/);
       assert.equal(requests.length, 1);

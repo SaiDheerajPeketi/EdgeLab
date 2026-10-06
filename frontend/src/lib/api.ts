@@ -1,5 +1,6 @@
 import type { WorkspaceSharePayload, WorkspaceShareScope } from "./workspaceShare";
-import { captureAppDataAccess, runAppDataReplacement, runAppDataRequest } from "./appDataBarrier";
+import { AppDataReloadRequiredError, appDataRecoveryNeeded, assertAppDataAccess, captureAppDataAccess, recoverAppDataOperations, runAppDataReplacement, runAppDataRequest } from "./appDataBarrier";
+import type { AppDataAccess, AppDataOperation, RequestProgress } from "./appDataBarrier";
 
 export type Candle = {
   time: number;
@@ -755,27 +756,106 @@ function normalizedApiPath(path: string) {
   const decoded = decodeURIComponent(path.split(/[?#]/, 1)[0]);
   if (/[\u0000-\u001f\u007f\\]/.test(decoded)) throw new Error("API paths cannot contain control characters or backslashes.");
   if (decoded.split("/").some((part) => part === "." || part === "..")) throw new Error("API paths cannot contain dot segments.");
-  return new URL(`/${decoded.replace(/^\/+/, "")}`, "https://edgelab.invalid").pathname.replace(/\/+/g, "/").replace(/\/$/, "");
+  return `/${decoded.replace(/^\/+/, "")}`.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
 }
 
 function portableMutation(path: string, init?: RequestInit) {
   const method = (init?.method ?? "GET").toUpperCase();
   const normalized = normalizedApiPath(path);
   if (["HEAD", "OPTIONS"].includes(method)) return false;
+  if (/^\/app-data\/operations(?:\/|$)/.test(normalized)) return false;
   // Catalog discovery and replay repair can commit account rows during reads.
   if (method === "GET") return /^\/(?:datasets(?:\/settings)?|bootstrap(?:-shell)?|backtests(?:\/.*)?|market-data\/(?:meta|bars))$/.test(normalized);
-  return /^\/(?:app-storage|app-data|settings|datasets|journal|backtests|playbooks|trades|broker-connections|broker-sync-jobs|quant\/backtests)(?:\/|$)/.test(normalized);
+  return normalized === "/app-data/import" || /^\/(?:app-storage|settings|datasets|journal|backtests|playbooks|trades|broker-connections|broker-sync-jobs|quant\/backtests)(?:\/|$)/.test(normalized);
+}
+
+type AppDataOperationReceipt = {
+  operation_id: string; method: string | null; path: string | null;
+  status: "reserved" | "running" | "completed" | "canceled";
+  http_status: number | null; result: AppDataImportResult | null;
+  created_at: string; completed_at: string | null;
+};
+
+function validateOperationReceipt(value: unknown, operation: AppDataOperation): AppDataOperationReceipt {
+  if (!appDataRecord(value) || Object.keys(value).length !== 8 ||
+      !["operation_id", "method", "path", "status", "http_status", "result", "created_at", "completed_at"].every((key) => appDataOwn(value, key)) ||
+      value.operation_id !== operation.id || !appDataTimestamp(value.created_at) ||
+      !["reserved", "running", "completed", "canceled"].includes(String(value.status)) ||
+      !((value.method === operation.method && value.path === operation.path) || (value.status === "canceled" && value.method === null && value.path === null))) {
+    throw new AppDataReloadRequiredError("The server receipt could not be verified. Saves remain paused.");
+  }
+  if (value.status === "reserved" || value.status === "running") {
+    if (value.http_status !== null || value.result !== null || value.completed_at !== null) throw new AppDataReloadRequiredError("Invalid pending server receipt. Saves remain paused.");
+  } else {
+    if (!appDataTimestamp(value.completed_at) || Date.parse(value.completed_at) < Date.parse(value.created_at)) throw new AppDataReloadRequiredError("Invalid receipt completion time. Saves remain paused.");
+    if (value.status === "canceled") {
+      if (value.http_status !== null || value.result !== null) throw new AppDataReloadRequiredError("Invalid cancellation receipt. Saves remain paused.");
+    } else if (!Number.isInteger(value.http_status) || (value.http_status as number) < 100 || (value.http_status as number) > 599 ||
+        (value.result !== null && !(operation.path === "/app-data/import" && value.http_status === 200))) {
+      throw new AppDataReloadRequiredError("Invalid completed server receipt. Saves remain paused.");
+    }
+  }
+  return value as unknown as AppDataOperationReceipt;
+}
+
+// Private metadata transport must not acquire a shared lock inside replacement
+// or recovery's exclusive lock, or recursively reserve its own operation.
+async function operationReceipt(operation: AppDataOperation, action: "reserve" | "recover", token: string, identity: () => void) {
+  identity();
+  try {
+    const response = await fetch(`${API_BASE_URL}/app-data/operations/${operation.id}/${action}`, {
+      method: "POST", headers: new Headers({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" }),
+      ...(action === "reserve" ? { body: JSON.stringify({ method: operation.method, path: operation.path }) } : {}), cache: "no-store",
+    });
+    const text = await response.text();
+    identity();
+    if (!response.ok) throw new ApiError(response.status, "The server could not verify this account operation. Saves remain paused.", null);
+    return validateOperationReceipt(JSON.parse(text), operation);
+  } catch (error) {
+    identity();
+    throw error;
+  }
+}
+
+async function reserveOperation(operation: AppDataOperation | undefined, access: AppDataAccess | null, headers: Headers, identity = () => assertAppDataAccess(access, true)) {
+  if (!operation) return;
+  const token = headers.get("Authorization")?.replace(/^Bearer /, "");
+  if (!token) throw new Error("Sign in before reserving an account operation.");
+  const receipt = await operationReceipt(operation, "reserve", token, identity);
+  if (receipt.status !== "reserved") throw new AppDataReloadRequiredError("This account operation has already started or was canceled. No request was sent.");
+  identity();
+  headers.set("X-EdgeLab-Operation-Id", operation.id);
+}
+
+async function confirmOperation(progress: RequestProgress, headers: Headers, response: Response, identity: () => void) {
+  if (progress.operation) {
+    const receipt = await operationReceipt(progress.operation, "recover", headers.get("Authorization")!.replace(/^Bearer /, ""), identity);
+    if (!["completed", "canceled"].includes(receipt.status)) throw new AppDataReloadRequiredError("This account operation is still running. Saves remain paused until the server confirms completion.");
+    if ((receipt.status === "canceled" && response.ok) || (receipt.status === "completed" && receipt.http_status !== response.status)) throw new AppDataReloadRequiredError("The response does not match its server receipt. Saves remain paused.");
+    if (progress.operation.path === "/app-data/import" && receipt.status === "completed" && receipt.http_status === 200) validateAppDataImportResult(receipt.result, progress.operation.expected!);
+  }
+  progress.completed();
 }
 
 function coordinatedPath(path: string) {
   return !/^\/(?:auth(?:\/|$)|ui\/rollout$|health$|ready$)/.test(normalizedApiPath(path));
 }
 
-async function request<T>(path: string, init?: RequestInit, replacement = false): Promise<T> {
+function operationSpecification(path: string, init?: RequestInit) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const normalized = normalizedApiPath(path);
+  // Preserve the existing replay path until receipt throughput is authorized.
+  // Its shared locks and legacy uncertainty markers still guard replacement.
+  if (method === "POST" && /^\/backtests\/\d+\/advance(?:-compact)?$/.test(normalized)) return undefined;
+  return { method, path: normalized };
+}
+
+async function request<T>(path: string, init?: RequestInit, replacement?: { operation: AppDataOperation; owner: ReturnType<typeof appDataOwner>; markSent: () => void }): Promise<T> {
   if (normalizedApiPath(path) === "/app-data/import" && !replacement) throw new Error("Use the validated account data import flow.");
   const access = !replacement && coordinatedPath(path) ? captureAppDataAccess() : null;
   const authToken = access?.token ?? readStoredAuthToken();
   const headers = new Headers(init?.headers);
+  if (headers.has("X-EdgeLab-Operation-Id")) throw new Error("Account operation headers are managed by the validated request flow.");
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -789,12 +869,17 @@ async function request<T>(path: string, init?: RequestInit, replacement = false)
   if (access && headers.get("Authorization") !== `Bearer ${access.token}`) {
     throw new DOMException("Account session changed before request", "AbortError");
   }
-  const execute = async (progress: { sent: () => void; completed: () => void }) => {
+  const identity = replacement ? () => assertAppDataOwner(replacement.owner) : () => assertAppDataAccess(access, false, true);
+  const execute = async (progress: RequestProgress) => {
     if (init?.signal?.aborted) throw new DOMException("Request canceled", "AbortError");
+    await reserveOperation(progress.operation, access, headers, replacement ? identity : () => assertAppDataAccess(access, true));
+    if (init?.signal?.aborted) throw new DOMException("Request canceled", "AbortError");
+    if (replacement) identity();
+    else assertAppDataAccess(access, portableMutation(path, init));
     progress.sent();
     const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
     const text = await response.text();
-    progress.completed();
+    await confirmOperation(progress, headers, response, identity);
     let value;
     try { value = JSON.parse(text); } catch (error) { if (response.ok) throw error; }
     if (!response.ok) {
@@ -803,7 +888,7 @@ async function request<T>(path: string, init?: RequestInit, replacement = false)
     }
     return value as T;
   };
-  return replacement ? execute({ sent() {}, completed() {} }) : runAppDataRequest(access, portableMutation(path, init), execute);
+  return replacement ? execute({ operation: replacement.operation, sent: replacement.markSent, completed() {} }) : runAppDataRequest(access, portableMutation(path, init), execute, operationSpecification(path, init));
 }
 
 export function apiRequest<T>(path: string, init?: RequestInit) {
@@ -814,17 +899,21 @@ export async function authenticatedApiFetch(path: string, init?: RequestInit) {
   if (normalizedApiPath(path) === "/app-data/import") throw new Error("Use the validated account data import flow.");
   const access = coordinatedPath(path) ? captureAppDataAccess() : null;
   const headers = new Headers(init?.headers);
+  if (headers.has("X-EdgeLab-Operation-Id")) throw new Error("Account operation headers are managed by the validated request flow.");
   const token = access?.token ?? getApiBearerToken();
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
   if (access && headers.get("Authorization") !== `Bearer ${access.token}`) throw new DOMException("Account session changed before request", "AbortError");
   return runAppDataRequest(access, portableMutation(path, init), async (progress) => {
     if (init?.signal?.aborted) throw new DOMException("Request canceled", "AbortError");
+    await reserveOperation(progress.operation, access, headers);
+    if (init?.signal?.aborted) throw new DOMException("Request canceled", "AbortError");
+    assertAppDataAccess(access, portableMutation(path, init));
     progress.sent();
     const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
     if (portableMutation(path, init) || !["GET", "HEAD", "OPTIONS"].includes((init?.method ?? "GET").toUpperCase())) await response.clone().arrayBuffer();
-    progress.completed();
+    await confirmOperation(progress, headers, response, () => assertAppDataAccess(access, false, true));
     return response;
-  });
+  }, operationSpecification(path, init));
 }
 
 async function requestWithAuthorization<T>(
@@ -1103,6 +1192,22 @@ export async function exportAppDataBundle() {
   }
 }
 
+export async function recoverAccountDataOperations() {
+  const owner = appDataOwner();
+  const access = captureAppDataAccess();
+  if (!access || access.owner !== `user-${owner.id}` || access.token !== owner.token) throw new DOMException("Account session changed", "AbortError");
+  return recoverAppDataOperations(access, async (operation) => {
+    // Counts belong to the frozen submitted bundle, never the current UI draft.
+    if (operation.path === "/app-data/import" && (!operation.expected || Object.keys(operation.expected).length !== APP_DATA_TABLE_NAMES.length || APP_DATA_TABLE_NAMES.some((table) => !Number.isSafeInteger(operation.expected![table]) || operation.expected![table] < 0))) throw new AppDataReloadRequiredError("The interrupted import has invalid recovery counts. Saves remain paused.");
+    const receipt = await operationReceipt(operation, "recover", owner.token, () => assertAppDataOwner(owner));
+    if (!["completed", "canceled"].includes(receipt.status)) throw new AppDataReloadRequiredError("An account operation is still running. Check completion again before continuing.");
+    if (operation.path === "/app-data/import" && receipt.status === "completed" && receipt.http_status === 200) {
+      receipt.result = validateAppDataImportResult(receipt.result, operation.expected!);
+    }
+    return receipt;
+  }, () => assertAppDataOwner(owner));
+}
+
 export async function importAppDataBundle(bundle: AppDataBundle): Promise<AppDataImportResult> {
   const owner = appDataOwner();
   const validated = validateAppDataBundle(bundle);
@@ -1113,23 +1218,38 @@ export async function importAppDataBundle(bundle: AppDataBundle): Promise<AppDat
   }
   const expected = Object.fromEntries(APP_DATA_TABLE_NAMES.map((table) => [table, validated.tables[table]?.length ?? 0]));
   const body = JSON.stringify(validated);
+  if (appDataRecoveryNeeded(`user-${owner.id}`)) {
+    const recovery = await recoverAccountDataOperations();
+    if (recovery.requiresReload) throw new AppDataReloadRequiredError("Previous account operations were checked. Reload the workspace before importing or saving again.");
+  }
   appDataImportSessions.set(owner.id, "working");
   let sent = false;
   try {
-    const result = await runAppDataReplacement<AppDataImportResult>(owner, async (markSent) => {
+    const result = await runAppDataReplacement<AppDataImportResult>(owner, async (markSent, operation) => {
       assertAppDataOwner(owner);
-      markSent();
-      sent = true;
-      const value = await request<unknown>("/app-data/import", { method: "POST", body, headers: { Authorization: `Bearer ${owner.token}` } }, true);
+      if (!operation) throw new Error("The browser could not reserve a safe import. No request was sent.");
+      const value = await request<unknown>("/app-data/import", { method: "POST", body, headers: { Authorization: `Bearer ${owner.token}` } }, { operation, owner, markSent: () => { markSent(); sent = true; } });
       assertAppDataOwner(owner);
       return validateAppDataImportResult(value, expected);
-    });
+    }, { expected });
     assertAppDataOwner(owner);
     return result;
   } catch (error) {
     assertAppDataOwner(owner);
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     if (!sent) throw error;
+    // Outside the replacement lock and ordinary save queues: no lock upgrade
+    // or participant waiting on its own request. Never dispatch the import again.
+    try {
+      const recovery = await recoverAccountDataOperations();
+      assertAppDataOwner(owner);
+      const imported = recovery.results.find((receipt) => receipt.path === "/app-data/import" && receipt.status === "completed" && receipt.http_status === 200);
+      if (imported?.result) return validateAppDataImportResult(imported.result, expected);
+      throw new AppDataReloadRequiredError("The server confirmed that the import failed or was canceled. Reload the workspace before trying another import.");
+    } catch (recoveryError) {
+      assertAppDataOwner(owner);
+      if (recoveryError instanceof AppDataReloadRequiredError && /failed or was canceled/.test(recoveryError.message)) throw recoveryError;
+    }
     throw new AppDataImportUncertainError();
   } finally {
     if (sent) appDataImportSessions.set(owner.id, "reload");
