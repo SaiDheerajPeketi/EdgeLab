@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
@@ -92,6 +93,7 @@ import {
   SETTINGS_CONTROLS,
   parseSettingsDeepLink,
   settingsDeepLink,
+  settingsCategoryForPath,
   type SettingsCategoryId,
   type SettingsControl,
 } from "./settingsCatalog";
@@ -174,8 +176,9 @@ export function SettingsCenter({
   onUpdateDatasetSettings,
   onUpdateJournalDefaults,
 }: Props) {
+  const location = useLocation();
   const initialLink = typeof window === "undefined" ? null : parseSettingsDeepLink(window.location.hash);
-  const [category, setCategory] = useState<SettingsCategoryId>(initialLink?.category ?? initialCategory);
+  const [category, setCategory] = useState<SettingsCategoryId>(initialLink?.category ?? settingsCategoryForPath(location.pathname) ?? initialCategory);
   const [focusControl, setFocusControl] = useState<string | null>(initialLink?.controlId ?? null);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [preferences, setPreferences] = useState<SettingsPreferences>(() => loadSettingsPreferences());
@@ -319,6 +322,12 @@ export function SettingsCenter({
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, [preferences]);
+
+  useEffect(() => {
+    const next = parseSettingsDeepLink(window.location.hash);
+    setCategory(next?.category ?? settingsCategoryForPath(location.pathname) ?? initialCategory);
+    if (next?.controlId) setFocusControl(next.controlId);
+  }, [location.pathname, initialCategory]);
 
   useEffect(() => {
     const onHashChange = () => {

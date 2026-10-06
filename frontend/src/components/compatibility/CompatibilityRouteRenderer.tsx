@@ -65,13 +65,31 @@ function ChartCompatibility() {
 function SettingsCompatibility() {
   const [preferences, setPreferences] = useState<SettingsPreferences | null>(null);
   const [status, setStatus] = useState("Loading settings…");
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const save = async () => {
+    if (!preferences || saving) return;
+    setSaving(true);
+    setSaveFailed(false);
+    setStatus("Saving settings…");
+    try {
+      await saveSettingsPreferences(preferences, { requireServerPersistence: true });
+      sessionStorage.removeItem("edgelab.compatibility.settings-draft.v1");
+      setStatus("Settings saved");
+    } catch {
+      setSaveFailed(true);
+      setStatus("Settings could not be saved. Your changes are kept; try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
   useEffect(() => { void hydrateSettingsPreferences().then((value) => {
     const draft = readSettingsDraft();
     setPreferences(draft ?? value);
     setStatus(draft ? "Unsaved changes" : "Settings loaded");
   }).catch(() => setStatus("Settings unavailable")); }, []);
   if (!preferences) return <section><h1 className="text-2xl font-semibold">Settings</h1><p className="mt-3" role="status">{status}</p></section>;
-  return <section><p className="text-xs uppercase tracking-widest text-amber-300">Pre-redesign settings</p><h1 className="mt-2 text-2xl font-semibold">Settings</h1><label className="mt-5 block max-w-sm text-sm">Workspace density<select className="mt-2 min-h-11 w-full border border-stone-600 bg-stone-900 px-3" onChange={(event) => { const next = { ...preferences, density: event.target.value === "compact" ? "compact" : "comfortable" } satisfies SettingsPreferences; setPreferences(next); sessionStorage.setItem("edgelab.compatibility.settings-draft.v1", JSON.stringify(next)); setStatus("Unsaved changes"); }} value={preferences.density}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label><button className="mt-4 min-h-11 border border-amber-500 px-4" onClick={() => void saveSettingsPreferences(preferences).then(() => { sessionStorage.removeItem("edgelab.compatibility.settings-draft.v1"); setStatus("Settings saved"); })} type="button">Save settings</button><p className="mt-3 text-sm text-stone-300" role="status">{status}</p></section>;
+  return <section><p className="text-xs uppercase tracking-widest text-amber-300">Pre-redesign settings</p><h1 className="mt-2 text-2xl font-semibold">Settings</h1><label className="mt-5 block max-w-sm text-sm">Workspace density<select className="mt-2 min-h-11 w-full border border-stone-600 bg-stone-900 px-3" disabled={saving} onChange={(event) => { const next = { ...preferences, density: event.target.value === "compact" ? "compact" : "comfortable" } satisfies SettingsPreferences; setPreferences(next); sessionStorage.setItem("edgelab.compatibility.settings-draft.v1", JSON.stringify(next)); setSaveFailed(false); setStatus("Unsaved changes"); }} value={preferences.density}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label><button className="mt-4 min-h-11 border border-amber-500 px-4" disabled={saving} onClick={() => void save()} type="button">{saving ? "Saving…" : "Save settings"}</button><p className="mt-3 text-sm text-stone-300" role={saveFailed ? "alert" : "status"}>{status}</p></section>;
 }
 
 function readSettingsDraft(): SettingsPreferences | null {

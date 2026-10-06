@@ -56,10 +56,16 @@ export async function hydrateSettingsPreferences(): Promise<SettingsPreferences>
   return remote;
 }
 
-export async function saveSettingsPreferences(value: SettingsPreferences) {
+export async function saveSettingsPreferences(
+  value: SettingsPreferences,
+  { requireServerPersistence = false }: { requireServerPersistence?: boolean } = {},
+) {
   const sanitized = sanitizeSettingsPreferences(value);
   persistLocal(sanitized);
-  await saveAppStorageItemConfirmed(SETTINGS_PREFERENCES_KEY, sanitized);
+  const result = await saveAppStorageItemConfirmed(SETTINGS_PREFERENCES_KEY, sanitized);
+  if (requireServerPersistence && !result.serverPersisted) {
+    throw new Error("Settings could not be saved to the server.");
+  }
   return sanitized;
 }
 

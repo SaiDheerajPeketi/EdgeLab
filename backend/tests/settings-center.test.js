@@ -107,6 +107,23 @@ test("settings preferences sanitize unsupported persisted values", () => {
   }
 });
 
+test("settings category paths select every exact category and preserve contextual fallbacks", () => {
+  const { catalog, cleanup } = loadSettingsModules();
+  try {
+    assert.equal(catalog.settingsCategoryForPath("/app/settings"), "global");
+    assert.equal(catalog.settingsCategoryForPath("/app/settings/"), "global");
+    for (const category of catalog.SETTINGS_CATEGORY_IDS) {
+      assert.equal(catalog.settingsCategoryForPath(`/app/settings/${category}`), category);
+      assert.equal(catalog.settingsCategoryForPath(`/app/settings/${category}/`), category);
+    }
+    for (const path of ["/app/journal/settings", "/app/replay", "/app/settings/unknown", "/app/settings/appearance/extra", "/app/settings//", "/app/settings/appearances"]) {
+      assert.equal(catalog.settingsCategoryForPath(path), null, path);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test("workspace settings routes use the consolidated center and feedback consumes its privacy default", () => {
   const workspace = fs.readFileSync(path.join(repoRoot, "frontend/src/components/EdgeLabWorkspace.tsx"), "utf8");
   assert.match(workspace, /case "globalSettings":[\s\S]*settingsCenter\("global"\)/);

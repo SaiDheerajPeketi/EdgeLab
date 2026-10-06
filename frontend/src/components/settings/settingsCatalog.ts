@@ -13,6 +13,13 @@ export const SETTINGS_CATEGORY_IDS = [
 
 export type SettingsCategoryId = (typeof SETTINGS_CATEGORY_IDS)[number];
 
+export function settingsCategoryForPath(pathname: string): SettingsCategoryId | null {
+  const match = /^\/app\/settings(?:\/([^/]+))?\/?$/.exec(pathname);
+  if (!match) return null;
+  const category = match[1] ?? "global";
+  return SETTINGS_CATEGORY_IDS.includes(category as SettingsCategoryId) ? category as SettingsCategoryId : null;
+}
+
 export type SettingsControl = {
   category: SettingsCategoryId;
   description: string;
