@@ -953,15 +953,143 @@ export function deleteAppStorageItem(namespace: string, key: string) {
   );
 }
 
-export function exportAppDataBundle() {
-  return request<AppDataBundle>("/app-data/export");
+export const APP_DATA_TABLE_NAMES = Object.freeze([
+  "dataset_settings", "dataset_assets", "dataset_timeframes", "app_storage", "playbooks",
+  "backtest_sessions", "positions", "orders", "trades", "executions", "trade_notes",
+  "journal_accounts", "journal_import_runs", "canonical_trades", "canonical_executions",
+  "journal_tags", "canonical_trade_tags", "canonical_trade_notes", "canonical_trade_screenshots",
+  "journal_daily_notes", "journal_import_rows", "journal_import_diagnostics", "journal_backfill_checkpoints",
+] as const);
+
+/** Local structure checks; the server still validates columns and owned relationships. */
+export function validateAppDataBundle(value: unknown, completeExport = false): AppDataBundle {
+  if (!appDataRecord(value)) throw new Error("The selected file does not contain an object.");
+  if (value.app !== "edgelab" || value.version !== 1 ||
+      Object.keys(value).some((key) => !["app", "version", "exported_at", "tables"].includes(key))) {
+    throw new Error("The selected file is not a supported EdgeLab version 1 export.");
+  }
+  if (!appDataRecord(value.tables)) throw new Error("The export is missing its table collection.");
+  if ((value.exported_at != null && !appDataTimestamp(value.exported_at)) ||
+      (completeExport && !appDataTimestamp(value.exported_at))) {
+    throw new Error("The export has an invalid creation time.");
+  }
+  for (const [name, rows] of Object.entries(value.tables)) {
+    if (!APP_DATA_TABLE_NAMES.some((table) => table === name)) {
+      throw new Error("The file includes an unsupported account data table.");
+    }
+    if (!Array.isArray(rows)) throw new Error(`Table “${name}” has an invalid row structure.`);
+    const ids = new Set<number>();
+    for (const row of rows) {
+      if (!appDataRecord(row) || !Number.isSafeInteger(row.id) || (row.id as number) <= 0 || ids.has(row.id as number)) {
+        throw new Error(`Table “${name}” requires distinct, positive, safely represented record IDs.`);
+      }
+      ids.add(row.id as number);
+    }
+  }
+  if (completeExport && APP_DATA_TABLE_NAMES.some((table) => !appDataOwn(value.tables as object, table))) {
+    throw new Error("The server export is incomplete. No download was prepared.");
+  }
+  return value as unknown as AppDataBundle;
 }
 
-export function importAppDataBundle(bundle: AppDataBundle) {
-  return request<AppDataImportResult>("/app-data/import", {
-    method: "POST",
-    body: JSON.stringify(bundle),
-  });
+export class AppDataImportUncertainError extends Error {
+  readonly requiresReload = true;
+  constructor() {
+    super("Import completion could not be verified. Data may have changed. Reload the workspace and verify it before trying another import.");
+    this.name = "AppDataImportUncertainError";
+  }
+}
+
+export function validateAppDataImportResult(value: unknown, expected: Readonly<Record<string, number>>): AppDataImportResult {
+  if (!appDataRecord(value) || value.ok !== true || !appDataTimestamp(value.imported_at) ||
+      !appDataRecord(value.summary) || Object.keys(value.summary).length !== APP_DATA_TABLE_NAMES.length ||
+      Object.keys(expected).length !== APP_DATA_TABLE_NAMES.length ||
+      APP_DATA_TABLE_NAMES.some((table) => !appDataOwn(value.summary as object, table) ||
+        !appDataOwn(expected, table) || !Number.isSafeInteger(expected[table]) || expected[table] < 0 ||
+        !Number.isSafeInteger((value.summary as Record<string, unknown>)[table]) ||
+        (value.summary as Record<string, unknown>)[table] !== expected[table])) {
+    throw new AppDataImportUncertainError();
+  }
+  return value as unknown as AppDataImportResult;
+}
+
+function appDataRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value) &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+}
+
+function appDataOwn(value: object, key: string) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function appDataTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?$/.test(value)) return false;
+  const [year, month, day, hour, minute, second] = value.slice(0, 19).split(/[-T:]/).map(Number);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1] &&
+    hour <= 23 && minute <= 59 && second <= 59 && Number.isFinite(Date.parse(value));
+}
+
+function appDataOwner() {
+  if (typeof window === "undefined") throw new Error("Sign in before transferring account data.");
+  const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+  let session;
+  try { session = JSON.parse(raw ?? "null"); } catch { /* Reject malformed authentication. */ }
+  if (session?.user?.approved !== true || !Number.isSafeInteger(session.user.id) || session.user.id <= 0 ||
+      typeof session.token !== "string" || !session.token.trim() ||
+      typeof session.expiresAt !== "string" || !(Date.parse(session.expiresAt) > Date.now())) {
+    throw new Error("Sign in to an approved account before transferring data.");
+  }
+  return { id: session.user.id as number, token: session.token.trim() as string, raw };
+}
+
+function assertAppDataOwner(owner: ReturnType<typeof appDataOwner>) {
+  try {
+    const current = appDataOwner();
+    if (current.id === owner.id && current.raw === owner.raw) return;
+  } catch { /* Expiry and sign-out invalidate the response as well. */ }
+  throw new DOMException("Account session changed during data transfer", "AbortError");
+}
+
+// Shared across screen remounts and rollout changes. A sent replacement cannot
+// safely be repeated using mounted state, even when its response is uncertain.
+const appDataImportSessions = new Map<number, "working" | "reload">();
+
+export async function exportAppDataBundle() {
+  const owner = appDataOwner();
+  try {
+    const value = await requestWithAuthorization<unknown>("/app-data/export", owner.token);
+    assertAppDataOwner(owner);
+    return validateAppDataBundle(value, true);
+  } catch (error) {
+    assertAppDataOwner(owner);
+    throw error;
+  }
+}
+
+export async function importAppDataBundle(bundle: AppDataBundle) {
+  const owner = appDataOwner();
+  const validated = validateAppDataBundle(bundle);
+  if (appDataImportSessions.has(owner.id)) {
+    throw new Error(appDataImportSessions.get(owner.id) === "working"
+      ? "An import is already running for this account. Wait for its result."
+      : "Reload the workspace and verify your data before trying another import.");
+  }
+  const expected = Object.fromEntries(APP_DATA_TABLE_NAMES.map((table) => [table, validated.tables[table]?.length ?? 0]));
+  const body = JSON.stringify(validated);
+  appDataImportSessions.set(owner.id, "working");
+  try {
+    const value = await requestWithAuthorization<unknown>("/app-data/import", owner.token, { method: "POST", body });
+    assertAppDataOwner(owner);
+    return validateAppDataImportResult(value, expected);
+  } catch (error) {
+    assertAppDataOwner(owner);
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new AppDataImportUncertainError();
+  } finally {
+    appDataImportSessions.set(owner.id, "reload");
+  }
 }
 
 export function getIntegrationSecrets() {

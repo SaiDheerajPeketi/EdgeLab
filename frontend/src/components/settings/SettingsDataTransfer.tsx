@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Download, FileJson, LoaderCircle, Upload }
 import {
   exportAppDataBundle,
   importAppDataBundle,
+  validateAppDataBundle,
   type AppDataBundle,
   type AppDataImportResult,
 } from "../../lib/api";
@@ -127,22 +128,7 @@ export function SettingsDataTransfer() {
   );
 }
 
-export function validateAppDataBundle(value: unknown): AppDataBundle {
-  if (!value || typeof value !== "object") throw new Error("The selected file does not contain an object.");
-  const candidate = value as Partial<AppDataBundle>;
-  if (candidate.app !== "edgelab" || !Number.isInteger(candidate.version) || (candidate.version ?? 0) < 1) {
-    throw new Error("The selected file is not a supported EdgeLab export.");
-  }
-  if (!candidate.tables || typeof candidate.tables !== "object" || Array.isArray(candidate.tables)) {
-    throw new Error("The export is missing its table collection.");
-  }
-  for (const [name, rows] of Object.entries(candidate.tables)) {
-    if (!name || !Array.isArray(rows) || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) {
-      throw new Error(`Table “${name || "unknown"}” has an invalid row structure.`);
-    }
-  }
-  return candidate as AppDataBundle;
-}
+export { validateAppDataBundle } from "../../lib/api";
 
 function messageFor(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
