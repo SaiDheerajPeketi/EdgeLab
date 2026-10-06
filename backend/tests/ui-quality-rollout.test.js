@@ -61,7 +61,7 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     }
     assert.deepEqual(productRoutes.filter((route) => !module.UI_COMPATIBILITY_ROUTE_PARITY[route]), []);
     assert.ok(Object.keys(module.UI_COMPATIBILITY_ROUTE_PARITY).every((route) => module.compatibilityRouteIsMapped(route)));
-    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "journal-daily-note-save", "journal-day-review", "settings-draft-save", "journal-settings-save", "backtest-settings-save", "chart-replay-layout"]);
+    const allowedCases = new Set(["public-read-continuity", "shell-session-continuity", "journal-canonical-refresh", "journal-trade-review", "journal-account-create", "journal-daily-note-save", "journal-day-review", "settings-draft-save", "journal-settings-save", "backtest-settings-save", "chart-settings-save", "chart-replay-layout"]);
     assert.ok(Object.values(module.UI_COMPATIBILITY_ROUTE_PARITY).every((contract) => allowedCases.has(contract.testCaseId)));
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/trades"].primaryAction, "save-trade-review");
     assert.equal(module.UI_COMPATIBILITY_ROUTE_PARITY["/app/journal/accounts"].savedDataRead, "journal-accounts");

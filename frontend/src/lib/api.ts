@@ -921,6 +921,15 @@ export function getAppStorageItem<T = unknown>(namespace: string, key: string) {
   );
 }
 
+export type ChartSettingsResponse = { presets: AppStorageItem; active: AppStorageItem };
+export function getChartSettings() { return request<ChartSettingsResponse>("/settings/chart"); }
+export function patchChartSettings(changes: Record<string, unknown>) {
+  return request<ChartSettingsResponse>("/settings/chart", { method: "PATCH", body: JSON.stringify(changes) });
+}
+export function patchSettingsPreferences(changes: Record<string, unknown>) {
+  return request<AppStorageItem>("/settings/preferences", { method: "PATCH", body: JSON.stringify(changes) });
+}
+
 export function putAppStorageItem<T = unknown>(
   namespace: string,
   key: string,

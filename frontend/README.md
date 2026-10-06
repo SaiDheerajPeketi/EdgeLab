@@ -20,6 +20,10 @@ Both `/app/journal/settings` and `/app/settings/journal` provide capture default
 
 `/app/settings/backtest` provides all eleven order and replay preferences in both interfaces. Choices save immediately; valid numeric edits wait 600 ms. Each changed key requires its own server acknowledgment, so partial failures retain only unconfirmed edits for explicit retry. Owner-scoped drafts and failed-attempt recovery survive reloads and interface switches; later edits are preserved while earlier saves finish. Undo and section reset include chart-line confirmation. Confirmed sizing values prefill new orders, confirmation governs future chart-line changes, and commission/fee defaults prefill new replay sessions; existing sessions keep their own costs. Changing a cost mode preserves its inactive numeric values.
 
+`/app/settings/chart` and `/app/settings/appearance` share all nine display and palette controls in both interfaces. They edit the existing `Settings default` preset; when absent, a new preset clones the active chart's full settings. Apply atomically saves changed controls and activates the preset for the next workspace load. Text sizes must be whole numbers from 10 to 18; up/down colors update their body aliases while preserving independent wick and border colors. Hidden options, unknown metadata, and every other preset remain intact. Owner-scoped drafts, pending saves, explicit retries, and later edits survive interface switches. Later toolbar saves and deletions wait for the atomic operation and retain their own changes.
+
+Appearance density previews immediately, but feedback defaults and local confirmed values change only after server acknowledgment. Density saves merge only that preference and preserve diagnostic sharing. Appearance reset changes density only; Chart reset stages the nine displayed controls only. Undo restores the relevant prior draft.
+
 ## Run it
 
 Install the root workspace dependencies, then start the frontend:

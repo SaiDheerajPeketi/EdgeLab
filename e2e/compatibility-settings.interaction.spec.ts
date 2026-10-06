@@ -3,7 +3,8 @@ import { gotoStable, installDeterminism, seedApprovedSession } from "./support/a
 
 test.use({ video: "off" });
 
-const settingsPath = "/app/settings/appearance";
+const settingsPath = "/app/settings/global";
+const modernAppearancePath = "/app/settings/appearance";
 const storagePath = "/api/app-storage/edgelab/settings-center.v1";
 const localKey = "edgelab.settings-center.v1.user-7001";
 const draftKey = "edgelab.compatibility.settings-draft.v1";
@@ -87,17 +88,17 @@ test("fallback saves an exact settings canary that modern and fallback reload fr
   state.fallback = false;
   await page.evaluate((key) => localStorage.removeItem(key), localKey);
   const readsBeforeModern = state.reads.length;
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await gotoStable(page, modernAppearancePath, { waitForNetworkIdle: false });
   await expect(settingsBoundary(page)).toHaveAttribute("data-ui-version", "v2");
   await expect(page.getByLabel("Settings density", { exact: true })).toHaveValue("compact");
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.density)).toBe("compact");
   await expect.poll(() => state.reads.length).toBeGreaterThan(readsBeforeModern);
-  await expect(page).toHaveURL(new RegExp(`${settingsPath}$`));
+  await expect(page).toHaveURL(new RegExp(`${modernAppearancePath}$`));
 
   state.fallback = true;
   await page.evaluate((key) => localStorage.removeItem(key), localKey);
   const readsBeforeFallback = state.reads.length;
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await gotoStable(page, settingsPath, { waitForNetworkIdle: false });
   await expect(settingsBoundary(page)).toHaveAttribute("data-ui-version", "fallback");
   await expect(page.getByLabel("Workspace density")).toHaveValue("compact");
   await expect(page.getByRole("status").filter({ hasText: /^Settings loaded$/ })).toBeVisible();

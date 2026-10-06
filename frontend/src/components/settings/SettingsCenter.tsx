@@ -27,26 +27,14 @@ import {
   type DatasetRefreshResponse,
   type DatasetRefreshStatus,
 } from "../../lib/api";
-import {
-  DEFAULT_CHART_VISUAL_SETTINGS,
-  hydrateChartSettingsPresets,
-  loadActiveChartSettingsPreset,
-  saveChartSettingsPreset,
-  type ChartVisualSettings,
-} from "../../lib/chartSettings";
 import { clearStoredAuthSession, getStoredAuthSession } from "../../lib/authSession";
 import { BacktestSettingsPanel } from "./BacktestSettingsPanel";
 import { useBacktestSettings } from "./useBacktestSettings";
 import { useJournalSettings, RESET_JOURNAL_SETTINGS, type SettingsJournalDefaults } from "./useJournalSettings";
 export type { SettingsJournalDefaults } from "./useJournalSettings";
-import {
-  DEFAULT_SETTINGS_PREFERENCES,
-  hydrateSettingsPreferences,
-  loadSettingsPreferences,
-  saveSettingsPreferences,
-  settingsPreferencesStorageKey,
-  type SettingsPreferences,
-} from "../../lib/settingsPreferences";
+import { ChartSettingsPanel } from "./ChartSettingsPanel";
+import { useChartSettings } from "./useChartSettings";
+import { useSettingsPreferences } from "./useSettingsPreferences";
 import { SettingsDataTransfer } from "./SettingsDataTransfer";
 import { SettingsIntegrations } from "./SettingsIntegrations";
 import { SettingRow, SettingsSection, SettingsToggle, fieldClassName, type SaveState } from "./SettingsPrimitives";
@@ -107,12 +95,11 @@ export function SettingsCenter({
   const [category, setCategory] = useState<SettingsCategoryId>(initialLink?.category ?? settingsCategoryForPath(location.pathname) ?? initialCategory);
   const [focusControl, setFocusControl] = useState<string | null>(initialLink?.controlId ?? null);
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
-  const [preferences, setPreferences] = useState<SettingsPreferences>(() => loadSettingsPreferences());
+  const preferenceSettings = useSettingsPreferences();
+  const preferences = preferenceSettings.draft;
+  const chartSettings = useChartSettings();
   const journalSettings = useJournalSettings();
   const { defaults: journalBaseline, journalDraft, setJournalDraft, noteDraft, setNoteDraft, journalDirty, noteDirty, saveJournal, saveNote } = journalSettings;
-  const activeChart = loadActiveChartSettingsPreset()?.settings ?? DEFAULT_CHART_VISUAL_SETTINGS;
-  const [chartBaseline, setChartBaseline] = useState<ChartVisualSettings>(activeChart);
-  const [chartDraft, setChartDraft] = useState<ChartVisualSettings>(activeChart);
   const backtestSettings = useBacktestSettings();
   const [datasetRootBaseline, setDatasetRootBaseline] = useState(datasets?.root ?? "");
   const [datasetRoot, setDatasetRoot] = useState(datasets?.root ?? "");
@@ -124,9 +111,9 @@ export function SettingsCenter({
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const authSession = getStoredAuthSession();
 
-  const chartDirty = !same(chartDraft, chartBaseline);
+  const chartDirty = chartSettings.dirty || chartSettings.pending;
   const datasetRootDirty = datasetRoot !== datasetRootBaseline;
-  const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty || journalSettings.journalPending || journalSettings.notePending || backtestSettings.dirty || backtestSettings.pending;
+  const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty || journalSettings.journalPending || journalSettings.notePending || backtestSettings.dirty || backtestSettings.pending || preferenceSettings.dirty || preferenceSettings.pending;
 
   const save = useCallback(async (key: string, action: () => Promise<unknown> | unknown) => {
     setSaveStates((current) => ({ ...current, [key]: "saving" }));
@@ -140,20 +127,6 @@ export function SettingsCenter({
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void Promise.all([
-      hydrateSettingsPreferences(),
-      hydrateChartSettingsPresets(),
-    ]).then(([nextPreferences, presets]) => {
-      if (cancelled) return;
-      setPreferences(nextPreferences);
-      const nextChart = loadActiveChartSettingsPreset(presets)?.settings ?? DEFAULT_CHART_VISUAL_SETTINGS;
-      setChartBaseline(nextChart); setChartDraft(nextChart);
-    }).catch(() => setSaveStates((current) => ({ ...current, hydration: "error" })));
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (!hasDirty) return;
       event.preventDefault();
@@ -162,22 +135,6 @@ export function SettingsCenter({
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [hasDirty]);
-
-  useEffect(() => {
-    document.documentElement.dataset.density = preferences.density;
-  }, [preferences.density]);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== settingsPreferencesStorageKey() || event.newValue == null) return;
-      let remote: SettingsPreferences;
-      try { remote = JSON.parse(event.newValue) as SettingsPreferences; } catch { return; }
-      if (same(remote, preferences)) return;
-      setSaveStates((current) => ({ ...current, preferences: "conflict" }));
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, [preferences]);
 
   useEffect(() => {
     const next = parseSettingsDeepLink(window.location.hash);
@@ -235,17 +192,6 @@ export function SettingsCenter({
   }
 
   function selectResult(result: SettingsControl) { navigate(result.category, result.id); }
-
-  function setImmediate<T>(key: string, label: string, previous: T, next: T, apply: (value: T) => Promise<unknown> | unknown, update: (value: T) => void) {
-    update(next);
-    setUndoAction({ label, run: () => { update(previous); void save(key, () => apply(previous)); } });
-    void save(key, () => apply(next)).catch(() => update(previous));
-  }
-
-  async function saveChart() {
-    await save("chart", () => saveChartSettingsPreset("Settings default", chartDraft));
-    setChartBaseline(chartDraft);
-  }
 
   async function saveDatasetRoot() {
     if (!datasetRoot.trim()) return;
@@ -317,7 +263,7 @@ export function SettingsCenter({
         </aside>
 
         <div className="min-w-0">
-          {saveStates.preferences === "conflict" ? <div className="mb-4 flex min-w-0 flex-col items-stretch gap-3 rounded-md bg-amber-300/[0.08] px-3 py-3 text-sm text-amber-100 sm:flex-row sm:items-center" data-settings-conflict role="alert"><span className="ui-resilient-text min-w-0 flex-1" data-settings-conflict-message>Settings changed in another EdgeLab tab. Reload its version or keep this tab’s values.</span><div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:shrink-0" data-settings-conflict-actions><button type="button" className="min-h-11 min-w-0 rounded px-2 text-xs font-semibold text-amber-100 hover:bg-white/[0.06] sm:min-h-9" onClick={() => { const remote = loadSettingsPreferences(); setPreferences(remote); setSaveStates((current) => ({ ...current, preferences: "saved" })); }}>Use newer version</button><button type="button" className="min-h-11 min-w-0 rounded bg-amber-200 px-2 text-xs font-semibold text-slate-950 hover:bg-amber-100 sm:min-h-9" onClick={() => void save("preferences", () => saveSettingsPreferences(preferences))}>Keep this version</button></div></div> : null}
+          {preferenceSettings.conflict ? <div className="mb-4 flex min-w-0 flex-col items-stretch gap-3 rounded-md bg-amber-300/[0.08] px-3 py-3 text-sm text-amber-100 sm:flex-row sm:items-center" data-settings-conflict role="alert"><span className="ui-resilient-text min-w-0 flex-1" data-settings-conflict-message>Settings changed in another EdgeLab tab. Reload its version or keep this tab’s values.</span><div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:flex sm:shrink-0" data-settings-conflict-actions><button type="button" className="min-h-11 min-w-0 rounded px-2 text-xs font-semibold text-amber-100 hover:bg-white/[0.06] sm:min-h-9" onClick={() => void preferenceSettings.useNewer()}>Use newer version</button><button type="button" className="min-h-11 min-w-0 rounded bg-amber-200 px-2 text-xs font-semibold text-slate-950 hover:bg-amber-100 sm:min-h-9" onClick={() => void preferenceSettings.keepVersion()}>Keep this version</button></div></div> : null}
           {undoAction ? <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-cyan-400/20 bg-cyan-400/[0.04] px-3 py-2 text-sm"><span className="text-cyan-50">{undoAction.label}</span><button type="button" onClick={() => { undoAction.run(); setUndoAction(null); }} className="inline-flex min-h-8 items-center gap-1.5 rounded px-2 text-xs font-semibold text-cyan-300 hover:bg-white/5"><Undo2 aria-hidden="true" className="h-3.5 w-3.5" />Undo</button></div> : null}
           {saveStates.hydration === "error" ? <div className="mb-4 border-l-2 border-amber-300 bg-amber-300/5 px-3 py-2 text-sm text-amber-100" role="alert">Some cross-device values could not be loaded. Local effective values remain available.</div> : null}
           <div className="mb-5 border-b border-white/10 pb-5"><p className="text-xs text-zinc-400">{controlsInCategory} supported control{controlsInCategory === 1 ? "" : "s"}</p><h2 className="mt-1 text-xl font-semibold text-white">{activeCategory.label}</h2><p className="mt-1 text-sm leading-6 text-zinc-400">{activeCategory.description}</p></div>
@@ -337,15 +283,15 @@ export function SettingsCenter({
             </SettingsSection>
           </> : null}
           {category === "backtest" ? <BacktestSettingsPanel settings={backtestSettings} /> : null}
-          {category === "chart" ? <ChartSettings draft={chartDraft} baseline={chartBaseline} saveState={saveStates.chart} onChange={setChartDraft} onReset={() => setChartDraft(DEFAULT_CHART_VISUAL_SETTINGS)} onSave={() => void saveChart()} /> : null}
-          {category === "appearance" ? <AppearanceSettings chartDraft={chartDraft} chartBaseline={chartBaseline} preferences={preferences} saveState={saveStates.preferences} onChartChange={setChartDraft} onSaveChart={() => void saveChart()} onPreferenceChange={(next) => setImmediate("preferences", "Settings density changed", preferences, next, saveSettingsPreferences, setPreferences)} /> : null}
+          {category === "chart" ? <ChartSettingsPanel settings={chartSettings} preferences={preferenceSettings} /> : null}
+          {category === "appearance" ? <ChartSettingsPanel appearance settings={chartSettings} preferences={preferenceSettings} /> : null}
           {category === "data-providers" ? <>
             <DatasetSettings assetDraft={assetDraft} assetId={assetId} datasets={datasets} datasetRoot={datasetRoot} datasetRootDirty={datasetRootDirty} refreshStatus={refreshStatus} refreshing={refreshing} saveStates={saveStates} selectedAsset={selectedAsset} onAssetDraftChange={setAssetDraft} onAssetIdChange={setAssetId} onRefresh={() => void refreshDatasetsNow()} onRootChange={setDatasetRoot} onSaveAsset={() => void saveAsset()} onSaveRoot={() => void saveDatasetRoot()} />
             <SettingsIntegrations />
           </> : null}
           {category === "account" ? <AccountSettings authSession={authSession} signOutState={saveStates.signout} onSignOut={() => void signOut()} /> : null}
           {category === "ai" ? <AiSettings /> : null}
-          {category === "privacy-security" ? <PrivacySettings preferences={preferences} saveState={saveStates.preferences} onPreferenceChange={(next) => setImmediate("preferences", "Diagnostic sharing default changed", preferences, next, saveSettingsPreferences, setPreferences)} /> : null}
+          {category === "privacy-security" ? <PrivacySettings settings={preferenceSettings} /> : null}
           {category === "storage" ? <SettingsDataTransfer /> : null}
         </div>
       </div>
@@ -358,27 +304,6 @@ function GlobalSettings() {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "System default";
   const sample = new Intl.NumberFormat(locale === "Unavailable" ? undefined : locale, { maximumFractionDigits: 2 }).format(12345.67);
   return <SettingsSection title="Effective regional behavior" description="EdgeLab currently follows this browser. These system values are read-only so the interface never implies a server preference that does not exist."><SettingRow controlId="regional-format" label="Language, time zone, and number format" description="Used for human-readable dates and numbers unless a dataset or session provides its own time zone." scope="System" effective={`${locale} · ${timeZone}`}><dl className="grid gap-2 text-sm"><div className="flex justify-between gap-3"><dt className="text-zinc-400">Language</dt><dd>{locale}</dd></div><div className="flex justify-between gap-3"><dt className="text-zinc-400">Time zone</dt><dd className="text-right">{timeZone}</dd></div><div className="flex justify-between gap-3"><dt className="text-zinc-400">Number sample</dt><dd>{sample}</dd></div></dl></SettingRow></SettingsSection>;
-}
-
-function ChartSettings({ draft, baseline, saveState, onChange, onReset, onSave }: { draft: ChartVisualSettings; baseline: ChartVisualSettings; saveState?: SaveState; onChange: (value: ChartVisualSettings) => void; onReset: () => void; onSave: () => void }) {
-  const dirty = !same(draft, baseline);
-  return <SettingsSection title="Staged chart preset" description="Preview a focused subset of supported chart defaults. Applying saves an active preset for the next workspace load; it does not mutate the chart currently in use." dirty={dirty} onReset={onReset}>
-    <SettingRow controlId="chart-preset" label="Chart visual preset" description="Set time display, date labels, text size, grid, and core chart colors." scope="Workspace" effective="Active on next workspace load" saveState={saveState}>
-      <div className="space-y-3"><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs text-zinc-400">Hours<select value={draft.timeHoursFormat} onChange={(event) => onChange({ ...draft, timeHoursFormat: event.target.value as ChartVisualSettings["timeHoursFormat"] })} className={`${fieldClassName} mt-1`}><option value="12-hour">12-hour</option><option value="24-hour">24-hour</option></select></label><label className="text-xs text-zinc-400">Date format<select value={draft.dateFormat} onChange={(event) => onChange({ ...draft, dateFormat: event.target.value as ChartVisualSettings["dateFormat"] })} className={`${fieldClassName} mt-1`}><option value="dd MMM yy">31 Dec 26</option><option value="MMM dd yyyy">Dec 31 2026</option><option value="yyyy-MM-dd">2026-12-31</option></select></label><label className="text-xs text-zinc-400">Text size<input type="number" min={9} max={24} step={1} value={draft.textSize} onChange={(event) => onChange({ ...draft, textSize: Math.min(24, Math.max(9, Number(event.target.value) || 9)) })} className={`${fieldClassName} mt-1`} /></label><label className="text-xs text-zinc-400">Grid<select value={draft.gridMode} onChange={(event) => onChange({ ...draft, gridMode: event.target.value as ChartVisualSettings["gridMode"] })} className={`${fieldClassName} mt-1`}><option value="both">Horizontal and vertical</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option><option value="none">None</option></select></label></div><PalettePreview draft={draft} onChange={onChange} /><button type="button" disabled={!dirty || saveState === "saving"} onClick={onSave} className="min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Apply as active preset</button></div>
-    </SettingRow>
-  </SettingsSection>;
-}
-
-function AppearanceSettings({ chartDraft, chartBaseline, preferences, saveState, onChartChange, onSaveChart, onPreferenceChange }: { chartDraft: ChartVisualSettings; chartBaseline: ChartVisualSettings; preferences: SettingsPreferences; saveState?: SaveState; onChartChange: (value: ChartVisualSettings) => void; onSaveChart: () => void; onPreferenceChange: (value: SettingsPreferences) => void }) {
-  const chartDirty = !same(chartDraft, chartBaseline);
-  return <SettingsSection title="Interface presentation" description="Density applies immediately to this settings workspace. Palette changes remain staged until you apply the chart preset." onReset={() => onPreferenceChange(DEFAULT_SETTINGS_PREFERENCES)}>
-    <SettingRow controlId="settings-density" label="Settings density" description="Choose comfortable or compact row spacing without hiding explanations or status." effective={preferences.density} saveState={saveState}><select aria-label="Settings density" value={preferences.density} onChange={(event) => onPreferenceChange({ ...preferences, density: event.target.value as SettingsPreferences["density"] })} className={fieldClassName}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></SettingRow>
-    <SettingRow controlId="palette-preview" label="Palette preview" description="Stage background, text, grid, up-candle, and down-candle colors with a representative preview." scope="Workspace" effective={chartDirty ? "Draft, not applied" : "Saved preset"}><div className="space-y-3"><PalettePreview draft={chartDraft} onChange={onChartChange} /><button type="button" disabled={!chartDirty} onClick={onSaveChart} className="min-h-10 w-full rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-45">Apply palette preset</button></div></SettingRow>
-  </SettingsSection>;
-}
-
-function PalettePreview({ draft, onChange }: { draft: ChartVisualSettings; onChange: (value: ChartVisualSettings) => void }) {
-  return <div><div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{([['backgroundColor','Background'],['textColor','Text'],['gridColor','Grid'],['candleUpColor','Up'],['candleDownColor','Down']] as const).map(([key, label]) => <label key={key} className="text-[11px] text-zinc-400">{label}<input type="color" value={draft[key]} onChange={(event) => onChange({ ...draft, [key]: event.target.value })} className="mt-1 h-9 w-full cursor-pointer rounded border border-white/10 bg-transparent p-1" /></label>)}</div><div className="mt-3 overflow-hidden rounded-md border border-white/10 p-3" style={{ backgroundColor: draft.backgroundColor, color: draft.textColor }} aria-label="Staged chart palette preview"><div className="relative h-20" style={{ backgroundImage: draft.gridMode === "none" ? undefined : `linear-gradient(${draft.gridColor} 1px, transparent 1px), linear-gradient(90deg, ${draft.gridColor} 1px, transparent 1px)`, backgroundSize: "28px 20px" }}><div className="absolute bottom-3 left-[18%] h-9 w-2" style={{ backgroundColor: draft.candleUpColor }} /><div className="absolute bottom-5 left-[35%] h-7 w-2" style={{ backgroundColor: draft.candleDownColor }} /><div className="absolute bottom-6 left-[52%] h-10 w-2" style={{ backgroundColor: draft.candleUpColor }} /><div className="absolute bottom-4 left-[69%] h-6 w-2" style={{ backgroundColor: draft.candleDownColor }} /><span className="absolute left-2 top-1" style={{ fontSize: draft.textSize }}>Preview</span></div></div></div>;
 }
 
 type AssetDraft = { currency: string; timezone: string; multiplier: string };
@@ -401,9 +326,13 @@ function AiSettings() {
   return <SettingsSection title="AI availability" description="Only supported behavior is shown. No controls are offered for services this build does not operate."><SettingRow controlId="ai-routing" label="AI model routing" description="No AI model is configured in this EdgeLab build." scope="System" effective="Off"><div className="space-y-2 text-xs leading-5 text-zinc-400"><p>Workspace content and conversations are not routed to an AI provider.</p><p>Conversation retention: not used. Microphone processing: not enabled. Generated-code execution: not enabled.</p></div></SettingRow></SettingsSection>;
 }
 
-function PrivacySettings({ preferences, saveState, onPreferenceChange }: { preferences: SettingsPreferences; saveState?: SaveState; onPreferenceChange: (value: SettingsPreferences) => void }) {
-  return <SettingsSection title="Privacy and security boundaries" description="These rows distinguish actual preferences from enforced system behavior." onReset={() => onPreferenceChange(DEFAULT_SETTINGS_PREFERENCES)}>
-    <SettingRow controlId="diagnostic-sharing" label="Diagnostic sharing" description="Set whether the feedback form initially includes browser diagnostics. You can still change it for each submission." effective={preferences.includeDiagnosticsByDefault ? "Included by default" : "Excluded by default"} saveState={saveState}><SettingsToggle checked={preferences.includeDiagnosticsByDefault} label="Include diagnostics by default" onChange={(checked) => onPreferenceChange({ ...preferences, includeDiagnosticsByDefault: checked })} /></SettingRow>
+function PrivacySettings({ settings }: { settings: ReturnType<typeof useSettingsPreferences> }) {
+  const preferences = settings.draft;
+
+  return <SettingsSection title="Privacy and security boundaries" description="These rows distinguish actual preferences from enforced system behavior." onReset={settings.ready ? () => settings.reset("includeDiagnosticsByDefault") : undefined}>
+    {!settings.ready || settings.error ? <p className="my-4 text-sm text-rose-300" role={settings.error ? "alert" : "status"}>{settings.error ? "Preferences could not be loaded. Your draft is kept." : "Loading preferences…"}{settings.error ? <button type="button" className="ml-3 min-h-11 rounded border border-white/15 px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" disabled={settings.loading} onClick={() => void settings.reload()}>Retry loading preferences</button> : null}</p> : null}
+    {settings.undo ? <div className="my-4 flex flex-wrap items-center justify-between gap-3 border-y border-cyan-400/20 py-3 text-sm"><span>Diagnostic sharing default changed</span><button type="button" className="inline-flex min-h-11 items-center gap-2 rounded border border-white/15 px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" onClick={settings.undoChange}><Undo2 aria-hidden="true" className="h-4 w-4" />Undo</button></div> : null}
+    <SettingRow controlId="diagnostic-sharing" label="Diagnostic sharing" description="Set whether the feedback form initially includes browser diagnostics. You can still change it for each submission." effective={settings.defaults.includeDiagnosticsByDefault ? "Included by default" : "Excluded by default"} saveState={settings.stateFor("includeDiagnosticsByDefault")} onRetry={() => void settings.retry("includeDiagnosticsByDefault")}><SettingsToggle disabled={!settings.ready} checked={preferences.includeDiagnosticsByDefault} label="Include diagnostics by default" onChange={(checked) => settings.change({ includeDiagnosticsByDefault: checked })} /></SettingRow>
     <SettingRow controlId="credential-vault" label="Credential handling" description="Integration credentials are sent to the authenticated server vault, encrypted at rest, and returned only as metadata." scope="System" effective="Write-only values; owner-scoped metadata"><p className="text-xs leading-5 text-zinc-400">Use Data &amp; providers to verify decryptability, re-encrypt, or revoke a record. EdgeLab never displays the stored secret value.</p></SettingRow>
     <SettingRow controlId="workspace-sharing" label="Workspace sharing" description="Snapshots require an EdgeLab session and an exact owner-or-recipient match. Recipients see a read-only snapshot until they open it as a separate copy." scope="System" effective="Recipient-bound; bearer token alone is insufficient"><p className="text-xs leading-5 text-zinc-400">Credentials, orders, and unrelated session state are excluded by the snapshot sanitizer.</p></SettingRow>
     <SettingRow controlId="device-permissions" label="Device and code permissions" description="No microphone capture or generated-code execution is available in this build." scope="System" effective="Not enabled"><dl className="text-xs text-zinc-400"><div className="flex justify-between gap-3"><dt>Microphone</dt><dd>Not requested</dd></div><div className="mt-2 flex justify-between gap-3"><dt>Generated code</dt><dd>Not executed</dd></div></dl></SettingRow>
@@ -439,4 +368,3 @@ function refreshText(status: DatasetRefreshStatus | null, datasets: DatasetCatal
 }
 
 function positiveNumber(value: string) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0; }
-function same(left: unknown, right: unknown) { return JSON.stringify(left) === JSON.stringify(right); }

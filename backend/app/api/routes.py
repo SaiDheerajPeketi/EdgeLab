@@ -77,6 +77,9 @@ from app.schemas import (
     AppDataImportResult,
     AppStoragePayload,
     AppStorageRead,
+    ChartSettingsRead,
+    ChartSettingsUpdate,
+    SettingsPreferencesUpdate,
     JournalSettingsUpdate,
     AngelOneInstrument,
     AngelOneInstrumentsResponse,
@@ -222,6 +225,7 @@ from app.services.rate_limits import build_rate_limiter
 from app.services.read_models import ReadModelCacheService
 from app.services.strategy_summaries import build_strategy_summaries
 from app.services.trade_imports import import_trade_csv
+from app.services.settings import read_chart_settings, patch_chart_settings, patch_settings_preferences
 
 
 router = APIRouter()
@@ -1695,6 +1699,21 @@ def update_journal_settings(
             db.commit()
         return AppStorageRead(namespace="edgelab", key="live-journal.v1", value=value, updated_at=timestamp)
     raise HTTPException(status_code=409, detail="Journal changed while saving. Retry your defaults.")
+
+
+@router.get("/settings/chart", response_model=ChartSettingsRead)
+def get_chart_settings(db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
+    return read_chart_settings(db, current_user.id)
+
+
+@router.patch("/settings/chart", response_model=ChartSettingsRead)
+def update_chart_settings(payload: ChartSettingsUpdate, db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
+    return patch_chart_settings(db, current_user.id, payload.model_dump(exclude_unset=True))
+
+
+@router.patch("/settings/preferences", response_model=AppStorageRead)
+def update_settings_preferences(payload: SettingsPreferencesUpdate, db: Session = Depends(get_db), current_user: AuthenticatedUser = Depends(require_auth)):
+    return patch_settings_preferences(db, current_user.id, payload.model_dump(exclude_unset=True))
 
 
 @router.delete("/app-storage/{namespace}/{key}", response_model=AppStorageRead)

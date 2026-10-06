@@ -12,6 +12,8 @@ EdgeLab is a local-first trading workspace for market replay, charting, trade jo
 
 Journal settings support capture defaults and reusable note templates in both the modern and compatibility interfaces. Defaults merge into existing journal data, and successful saves require a server acknowledgment; private drafts and pending saves survive interface changes.
 
+Chart and Appearance settings expose nine staged display/palette controls in both interfaces. Apply preserves hidden options and other presets while saving and activating `Settings default` atomically for the next workspace load. Density saves independently after server confirmation; Appearance reset affects density only.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:

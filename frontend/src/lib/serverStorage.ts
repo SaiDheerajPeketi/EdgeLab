@@ -69,6 +69,7 @@ const LEGACY_STORAGE_KEY_MAP: Record<string, string> = {
   "quant-preferences.v1": "edgelab.quant-preferences.v1",
   "quant-workspace.v1": "edgelab.quant-workspace.v1",
   "strategy-mistake-tags.v1": "edgelab.strategy-mistake-tags.v1",
+  "settings-center.v1": "edgelab.settings-center.v1",
   "workspace-beta-notice-dismissed.v1": "edgelab.workspace.beta-notice.dismissed.v1",
 };
 
@@ -244,6 +245,47 @@ export async function confirmAppStorageOperation<T>(key: string, request: () => 
   writeQueues.set(combinedKey, next);
   try { await next; return item!; }
   finally { if (writeQueues.get(combinedKey) === next) writeQueues.delete(combinedKey); }
+}
+
+/** Reserve all related storage queues before awaiting, keeping atomic writes
+ * and their cache publication indivisible relative to later legacy writers. */
+export async function confirmAppStorageOperations(entries: Array<{ key: string; namespace?: string; rebaseQueued?: (pending: unknown, confirmed: unknown, before: unknown) => unknown }>, request: () => Promise<AppStorageItem[]>): Promise<AppStorageItem[]> {
+  const captures = entries.map((entry) => {
+    const namespace = entry.namespace ?? APP_STORAGE_NAMESPACE;
+    const combinedKey = storageKey(namespace, entry.key);
+    return { ...entry, namespace, combinedKey, version: mutationVersions.get(combinedKey) ?? 0, before: memoryCache.get(combinedKey), previous: writeQueues.get(combinedKey) ?? Promise.resolve() };
+  });
+  if (!captures.length || new Set(captures.map((entry) => entry.combinedKey)).size !== captures.length) throw new Error("Storage operation requires distinct keys.");
+  let items: AppStorageItem[];
+  const next = Promise.all(captures.map(({ previous }) => previous.catch(() => undefined))).then(async () => {
+    const guard = () => { if (captures.some(({ namespace, key, combinedKey }) => storageKey(namespace, key) !== combinedKey)) throw new DOMException("Storage owner changed", "AbortError"); };
+    guard(); items = await request(); guard();
+    if (items.length !== captures.length || captures.some(({ namespace, key }) => items.filter((item) => item.namespace === namespace && item.key === key).length !== 1)) throw new Error("Incomplete storage acknowledgment.");
+    // Complete every rebase before publishing any member of the bundle.
+    const rebases = captures.map(({ namespace, key, combinedKey, version, before, rebaseQueued }) => {
+      const item = items.find((item) => item.namespace === namespace && item.key === key)!;
+      return Array.from(queuedValues.get(combinedKey)?.entries() ?? []).filter(([pendingVersion]) => pendingVersion > version && rebaseQueued).map(([, entry]) => ({ entry, value: rebaseQueued!(entry.value, item.value, before) }));
+    });
+    rebases.flat().forEach(({ entry, value }) => { entry.value = value; });
+    // Caller orders keys so activation is published before preset subscribers.
+    captures.forEach(({ namespace, key, combinedKey, version, rebaseQueued }) => {
+      const item = items.find((item) => item.namespace === namespace && item.key === key)!;
+      const currentVersion = mutationVersions.get(combinedKey) ?? 0;
+      const values = queuedValues.get(combinedKey);
+      const latest = values?.get(currentVersion);
+      if (latest && rebaseQueued) {
+        setCachedValue(namespace, key, latest.value);
+        try { writeLocalStorageValue(key, latest.value, Date.now()); } catch { /* Queued persistence remains available. */ }
+      } else if (currentVersion === version) {
+        mutationVersions.set(combinedKey, currentVersion + 1);
+        setCachedValue(namespace, key, item.value);
+        try { writeLocalStorageValue(key, item.value, parseTimestamp(item.updated_at) || Date.now()); } catch { /* Server values remain durable. */ }
+      }
+    });
+  });
+  captures.forEach(({ combinedKey }) => writeQueues.set(combinedKey, next));
+  try { await next; return items!; }
+  finally { captures.forEach(({ combinedKey }) => { if (writeQueues.get(combinedKey) === next) writeQueues.delete(combinedKey); }); }
 }
 
 export function subscribeAppStorageItem<T>(

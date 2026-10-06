@@ -205,6 +205,32 @@ class AppStorageRead(BaseModel):
     updated_at: datetime | None = None
 
 
+class ChartSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timeHoursFormat: Literal["12-hour", "24-hour"] = "24-hour"
+    dateFormat: Literal["dd MMM yy", "MMM dd yyyy", "yyyy-MM-dd"] = "dd MMM yy"
+    textSize: int = Field(default=12, ge=10, le=18, strict=True)
+    gridMode: Literal["both", "horizontal", "vertical", "none"] = "both"
+    backgroundColor: str = Field(default="#09090b", pattern=r"^#[0-9a-fA-F]{6}$")
+    textColor: str = Field(default="#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
+    gridColor: str = Field(default="#27272a", pattern=r"^#[0-9a-fA-F]{6}$")
+    candleUpColor: str = Field(default="#22c55e", pattern=r"^#[0-9a-fA-F]{6}$")
+    candleDownColor: str = Field(default="#ef4444", pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class ChartSettingsRead(BaseModel):
+    presets: AppStorageRead
+    active: AppStorageRead
+
+
+class SettingsPreferencesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    density: Literal["comfortable", "compact"] = "comfortable"
+    includeDiagnosticsByDefault: bool = Field(default=True, strict=True)
+
+
 class IntegrationSecretCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

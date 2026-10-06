@@ -330,15 +330,21 @@ export function saveChartSettingsPreset(
   settings: ChartVisualSettings,
 ): ChartSettingsPreset[] {
   const presetName = normalizeChartSettingsPresetName(name);
+  const existing = getCachedAppStorageItem<ChartSettingsPreset[]>(CHART_SETTINGS_PRESETS_STORAGE_KEY, []);
+  const previous = existing.find((preset) => preset.name === presetName);
+  const sanitized = sanitizeChartVisualSettings(settings);
+  const before = sanitizeChartVisualSettings(previous?.settings);
+  const changes = Object.fromEntries(Object.entries(sanitized).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(before[key as keyof ChartVisualSettings])));
   const nextPreset: ChartSettingsPreset = {
+    ...previous,
     name: presetName,
-    settings: sanitizeChartVisualSettings(settings),
+    settings: previous ? { ...previous.settings, ...changes } : sanitized,
     updatedAt: new Date().toISOString(),
   };
   const nextPresets = [
     nextPreset,
-    ...loadChartSettingsPresets().filter((preset) => preset.name !== presetName),
-  ].slice(0, 24);
+    ...existing.filter((preset) => preset.name !== presetName),
+  ];
   persistChartSettingsPresets(nextPresets);
   persistActiveChartSettingsPresetName(presetName);
   return nextPresets;
@@ -346,7 +352,7 @@ export function saveChartSettingsPreset(
 
 export function deleteChartSettingsPreset(name: string): ChartSettingsPreset[] {
   const presetName = normalizeChartSettingsPresetName(name);
-  const nextPresets = loadChartSettingsPresets().filter(
+  const nextPresets = getCachedAppStorageItem<ChartSettingsPreset[]>(CHART_SETTINGS_PRESETS_STORAGE_KEY, []).filter(
     (preset) => preset.name !== presetName,
   );
   persistChartSettingsPresets(nextPresets);

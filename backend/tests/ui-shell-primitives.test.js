@@ -38,10 +38,11 @@ test("shared primitives cover the complete operating component vocabulary", () =
 test("settings expose cross-tab conflict recovery and the selected density", () => {
   const center = fs.readFileSync(path.join(ROOT, "frontend/src/components/settings/SettingsCenter.tsx"), "utf8");
   const preferences = fs.readFileSync(path.join(ROOT, "frontend/src/lib/settingsPreferences.ts"), "utf8");
-  assert.match(center, /addEventListener\("storage"/);
+  const preferenceHook = fs.readFileSync(path.join(ROOT, "frontend/src/components/settings/useSettingsPreferences.ts"), "utf8");
+  assert.match(preferenceHook, /addEventListener\("storage"/);
   assert.match(center, /Use newer version/);
   assert.match(center, /Keep this version/);
-  assert.match(center, /dataset\.density/);
+  assert.match(preferenceHook, /applySettingsPreferences\(draft\)/);
   assert.match(preferences, /settingsPreferencesStorageKey/);
 });
 

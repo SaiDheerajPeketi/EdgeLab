@@ -13,6 +13,11 @@ const groups = Object.entries(UI_COMPATIBILITY_PATHS) as Array<[UiRouteGroup, re
 test.describe("exhaustive compatibility route parity", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page, { rollout: "fallback" });
+    let chart = { presets: { namespace: "edgelab", key: "chart-settings-presets.v1", value: [{ name: "Settings default", settings: { textSize: 12 }, updatedAt: "2026-09-15T12:00:00Z" }], updated_at: "2026-09-15T12:00:00Z" }, active: { namespace: "edgelab", key: "active-chart-settings-preset.v1", value: "Settings default", updated_at: "2026-09-15T12:00:00Z" } };
+    await page.route("**/api/settings/chart", async (route) => {
+      if (route.request().method() === "PATCH") chart = { ...chart, presets: { ...chart.presets, value: [{ ...chart.presets.value[0], settings: { ...chart.presets.value[0].settings, ...route.request().postDataJSON() } }] } };
+      await route.fulfill({ json: chart });
+    });
     const values = new Map(Object.entries(BACKTEST_KEYS).map(([field, key]) => [key, BACKTEST_DEFAULTS[field as BacktestField]]));
     await page.route("**/api/app-storage/edgelab/order-*.v1", async (route) => {
       const key = new URL(route.request().url()).pathname.split("/").at(-1)!;
@@ -104,7 +109,11 @@ test.describe("exhaustive compatibility route parity", () => {
 });
 
 async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, path: string) {
-  if (path === "/app/settings/backtest") {
+  if (["/app/settings/chart", "/app/settings/appearance"].includes(path)) {
+    await expect(page.getByLabel("Text size", { exact: true })).toBeEnabled();
+    await expect(page.getByLabel("Grid", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Workspace density", { exact: true })).toHaveCount(0);
+  } else if (path === "/app/settings/backtest") {
     await expect(page.getByLabel("Sizing mode", { exact: true })).toBeEnabled();
     await expect(page.getByRole("switch", { name: "Require chart-line confirmation", exact: true })).toBeVisible();
     await expect(page.getByLabel("Workspace density", { exact: true })).toHaveCount(0);
@@ -197,6 +206,11 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await page.getByRole("button", { name: "Apply journal defaults", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: /^Journal defaults saved$/ })).toBeVisible();
     expect(journalSettings!.writes.at(-1)).toEqual({ owner: journalSettings!.owner, method: "PATCH", path: journalSettingsPatchPath, body: journalDefaultsCanary });
+  } else if (contract.primaryAction === "save-chart-settings") {
+    const input = page.getByLabel("Text size", { exact: true });
+    await input.fill((await input.inputValue()) === "16" ? "15" : "16");
+    await page.getByRole("button", { name: contract.routePath.endsWith("/appearance") ? "Apply palette preset" : "Apply as active preset", exact: true }).click();
+    await expect(page.locator('[data-setting-control="chart-preset"],[data-setting-control="palette-preview"]').getByRole("status")).toHaveText("Saved");
   } else if (contract.primaryAction === "save-backtest-settings") {
     await page.getByLabel("Default quantity", { exact: true }).fill("2500");
     await expect(page.locator('[data-setting-control="default-quantity"]').getByRole("status")).toHaveText("Saved");
@@ -215,7 +229,10 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
 }
 
 async function expectJournalWriteCanary(page: Page, contract: CompatibilityRouteParity, version: "modern" | "fallback") {
-  if (contract.primaryAction === "save-backtest-settings") {
+  if (contract.primaryAction === "save-chart-settings") {
+    await expect(page.getByLabel("Text size", { exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: contract.routePath.endsWith("/appearance") ? "Apply palette preset" : "Apply as active preset", exact: true })).toBeDisabled();
+  } else if (contract.primaryAction === "save-backtest-settings") {
     await expect(page.getByLabel("Default quantity", { exact: true })).toHaveValue("2500");
     await expect(page.getByLabel("Default quantity", { exact: true })).toBeEnabled();
   } else if (contract.primaryAction === "save-journal-settings") {

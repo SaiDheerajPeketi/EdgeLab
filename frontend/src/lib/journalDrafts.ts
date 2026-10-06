@@ -2,6 +2,8 @@ import { useRef, useState, useSyncExternalStore, type SetStateAction } from "rea
 import { getStoredAuthSession, subscribeAuthSession } from "./authSession";
 import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalSetupGrade } from "./journalApi";
 import type { BacktestDefaults } from "./backtestSettingsModel";
+import type { ChartSettingsDraft } from "./chartSettingsDraft";
+import type { SettingsPreferences } from "./settingsPreferences";
 import { navigationStateFor, reloadNavigationStateForAuth, updateNavigationState, type NavigationSurfaceId } from "./navigationState";
 
 export function emptyJournalAccountDraft() {
@@ -29,7 +31,7 @@ export function journalReviewDraft(trade: CanonicalTrade | null) {
 
 export type JournalAccountDraft = ReturnType<typeof emptyJournalAccountDraft>;
 export type JournalReviewDraft = ReturnType<typeof journalReviewDraft>;
-type Draft = JournalAccountDraft | JournalReviewDraft | BacktestDefaults | { body: string } | { default_broker: string; default_currency: string; default_entry_type: "TAKEN" | "MISSED"; require_account_for_taken_trades: boolean };
+type Draft = JournalAccountDraft | JournalReviewDraft | BacktestDefaults | ChartSettingsDraft | SettingsPreferences | { body: string } | { default_broker: string; default_currency: string; default_entry_type: "TAKEN" | "MISSED"; require_account_for_taken_trades: boolean };
 type DraftEdits<T> = Partial<T>;
 type DraftEnvelope = { __schemaVersion: number; value: unknown };
 const VERSION = 1;
@@ -132,6 +134,13 @@ function draftOwner() {
 }
 
 function validField(key: string, value: unknown, base: Draft) {
+  if ("timeHoursFormat" in base) {
+    if (key === "timeHoursFormat") return value === "12-hour" || value === "24-hour";
+    if (key === "dateFormat") return ["dd MMM yy", "MMM dd yyyy", "yyyy-MM-dd"].includes(String(value));
+    if (key === "gridMode") return ["both", "horizontal", "vertical", "none"].includes(String(value));
+    return typeof value === "string" && value.length <= 100;
+  }
+  if (key === "density") return value === "comfortable" || value === "compact";
   if ("sizingMode" in base) {
     if (key === "sizingMode") return value === "quantity" || value === "risk";
     if (key === "riskBase") return value === "CURRENT_BALANCE" || value === "INITIAL_BALANCE";
