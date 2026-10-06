@@ -105,6 +105,7 @@ import {
   isSingleInstanceIndicator,
 } from "../lib/indicatorCatalog";
 import {
+  favoriteIndicatorScriptId,
   hydrateIndicatorFavorites,
   loadCachedIndicatorFavorites,
   persistIndicatorFavorites,
@@ -491,9 +492,32 @@ export function ChartToolbar({
         !drawingFavorites.includes(item.tool as FavoriteDrawingTool),
     ),
   ];
-  const favoriteIndicatorOptions = indicatorFavorites.flatMap((kind) => {
-    const indicator = getIndicatorCatalogItem(kind);
-    return indicator ? [indicator] : [];
+  const favoriteIndicatorOptions = indicatorFavorites.flatMap((favorite) => {
+    const scriptId = favoriteIndicatorScriptId(favorite);
+    if (scriptId != null) {
+      const script = customIndicatorScripts.find((item) => item.id === scriptId);
+      return script ? [{
+        color: script.color,
+        count: indicatorInstances.filter((instance) => instance.kind === "custom" && instance.customScriptId === scriptId).length,
+        description: script.description,
+        disabled: !onAddCustomIndicator,
+        id: favorite,
+        label: script.name,
+        add: () => onAddCustomIndicator?.(script),
+      }] : [];
+    }
+    const indicator = getIndicatorCatalogItem(favorite as ChartIndicatorKind);
+    if (!indicator) return [];
+    const count = indicatorInstances.filter((instance) => instance.kind === indicator.kind).length;
+    return [{
+      color: indicator.color,
+      count,
+      description: indicator.description,
+      disabled: isSingleInstanceIndicator(indicator.kind) && count > 0,
+      id: favorite,
+      label: indicator.label,
+      add: () => onAddIndicator(indicator.kind),
+    }];
   });
   const visibleSymbolOptions = searchChartSymbols(symbolOptions, symbolQuery, 10);
   const visibleMarkers = DRAWING_MARKERS.filter((marker) =>
@@ -1629,24 +1653,21 @@ export function ChartToolbar({
               Quick add
             </span>
             {favoriteIndicatorOptions.map((indicator) => {
-              const count = indicatorInstances.filter(
-                (instance) => instance.kind === indicator.kind,
-              ).length;
-              const disabled = isSingleInstanceIndicator(indicator.kind) && count > 0;
+              const { count, disabled } = indicator;
               return (
                 <button
                   aria-label={
                     disabled
-                      ? `${indicator.label} is already active`
+                      ? count > 0 ? `${indicator.label} is already active` : `${indicator.label} cannot be added in this chart`
                       : count > 0
                         ? `Add another ${indicator.label} indicator; ${count} active`
                         : `Add ${indicator.label} indicator`
                   }
                   className={`studio-tool-button ${count > 0 ? "text-cyan-100" : ""}`}
                   disabled={disabled}
-                  key={indicator.kind}
-                  onClick={() => onAddIndicator(indicator.kind)}
-                  title={disabled ? `${indicator.label} supports one instance` : indicator.description}
+                  key={indicator.id}
+                  onClick={indicator.add}
+                  title={disabled && count > 0 ? `${indicator.label} supports one instance` : indicator.description}
                   type="button"
                 >
                   <span

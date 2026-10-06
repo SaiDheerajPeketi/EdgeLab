@@ -46,6 +46,7 @@ type OverlaySurfaceProps = {
   gap?: number;
   id?: string;
   minWidth?: number;
+  mobileSheet?: boolean;
   onDismiss: (reason: OverlayDismissReason) => void;
   onKeyDown?: HTMLAttributes<HTMLDivElement>["onKeyDown"];
   open: boolean;
@@ -71,6 +72,7 @@ export function OverlaySurface({
   gap = 8,
   id,
   minWidth = 0,
+  mobileSheet = false,
   onDismiss,
   onKeyDown,
   open,
@@ -112,6 +114,7 @@ export function OverlaySurface({
           gap,
           measuredHeight,
           minWidth,
+          mobileSheet,
           preferredWidth,
           viewport,
         }),
@@ -143,6 +146,7 @@ export function OverlaySurface({
     estimatedHeight,
     gap,
     minWidth,
+    mobileSheet,
     open,
     preferredWidth,
     surfaceRef,
@@ -210,6 +214,7 @@ export function computeOverlayGeometry({
   gap,
   measuredHeight,
   minWidth,
+  mobileSheet = false,
   preferredWidth,
   viewport,
 }: {
@@ -218,12 +223,22 @@ export function computeOverlayGeometry({
   gap: number;
   measuredHeight: number;
   minWidth: number;
+  mobileSheet?: boolean;
   preferredWidth?: number;
   viewport: Viewport;
 }): OverlayGeometry {
   const viewportRight = viewport.left + viewport.width;
   const viewportBottom = viewport.top + viewport.height;
   const availableWidth = Math.max(0, viewport.width - VIEWPORT_MARGIN * 2);
+  if (mobileSheet && viewport.width <= 640) {
+    return {
+      left: viewport.left + VIEWPORT_MARGIN,
+      maxHeight: Math.max(0, viewport.height - VIEWPORT_MARGIN * 2),
+      placement: "below",
+      top: viewport.top + VIEWPORT_MARGIN,
+      width: availableWidth,
+    };
+  }
   const desiredWidth = Math.max(anchor.width, preferredWidth ?? 0, minWidth);
   const width = Math.min(desiredWidth, availableWidth);
   const desiredLeft = align === "right" ? anchor.right - width : anchor.left;

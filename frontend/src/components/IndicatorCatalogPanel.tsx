@@ -16,21 +16,26 @@ import {
   type IndicatorCatalogFilter,
   type IndicatorCatalogItem,
 } from "../lib/indicatorCatalog";
-import { MAX_INDICATOR_FAVORITES } from "../lib/indicatorFavorites";
+import {
+  favoriteIndicatorScriptId,
+  MAX_INDICATOR_FAVORITES,
+  scriptIndicatorFavorite,
+  type FavoriteIndicator,
+} from "../lib/indicatorFavorites";
 import type { CustomIndicatorScript } from "../lib/customIndicators";
 import { OverlaySurface } from "./overlays/OverlaySurface";
 
 type Props = {
   anchorRef: RefObject<HTMLElement>;
   id?: string;
-  favorites: readonly ChartIndicatorKind[];
+  favorites: readonly FavoriteIndicator[];
   indicatorInstances: ChartIndicatorInstance[];
   customScripts?: readonly CustomIndicatorScript[];
   onAddIndicator: (kind: ChartIndicatorKind) => void;
   onAddCustomIndicator?: (script: CustomIndicatorScript) => void;
   onClose: (restoreFocus: boolean) => void;
   onEditCustomIndicator?: (script: CustomIndicatorScript) => void;
-  onToggleFavorite: (kind: ChartIndicatorKind) => void;
+  onToggleFavorite: (favorite: FavoriteIndicator) => void;
 };
 
 export function IndicatorCatalogPanel({
@@ -72,11 +77,20 @@ export function IndicatorCatalogPanel({
     const terms = normalizeSearch(query).split(" ").filter(Boolean);
     return customScripts.filter((script) => {
       if (activeCategory !== "all" && activeCategory !== "favorites" && script.category !== activeCategory) return false;
-      if (activeCategory === "favorites") return false;
+      if (activeCategory === "favorites" && !favoriteSet.has(scriptIndicatorFavorite(script.id))) return false;
       const searchable = normalizeSearch([script.name, script.description, script.category, script.origin, ...script.synonyms].join(" "));
       return terms.every((term) => searchable.includes(term));
     });
-  }, [activeCategory, customScripts, query]);
+  }, [activeCategory, customScripts, favoriteSet, query]);
+  const unavailableFavorites = useMemo(() => {
+    if (activeCategory !== "favorites") return [];
+    const terms = normalizeSearch(query).split(" ").filter(Boolean);
+    return favorites.filter((favorite) => {
+      const scriptId = favoriteIndicatorScriptId(favorite);
+      return scriptId != null && !customScripts.some((script) => script.id === scriptId) &&
+        terms.every((term) => "unavailable script".includes(term));
+    });
+  }, [activeCategory, customScripts, favorites, query]);
   const emptyState = useMemo(() => {
     if (query.trim()) {
       return {
@@ -239,6 +253,7 @@ export function IndicatorCatalogPanel({
       estimatedHeight={680}
       id={id}
       minWidth={320}
+      mobileSheet
       onDismiss={(reason) => onClose(reason === "escape")}
       onKeyDown={(event) => event.stopPropagation()}
       open
@@ -322,14 +337,14 @@ export function IndicatorCatalogPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <div className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-slate-500">
+        <div className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-slate-400">
           <span aria-live="polite">
-            {visibleIndicators.length + visibleScripts.length} {visibleIndicators.length + visibleScripts.length === 1 ? "indicator" : "indicators"}
+            {visibleIndicators.length + visibleScripts.length + unavailableFavorites.length} {visibleIndicators.length + visibleScripts.length + unavailableFavorites.length === 1 ? "indicator" : "indicators"}
           </span>
           <span className="truncate">Previews illustrate behavior, not live data</span>
         </div>
 
-        {visibleIndicators.length + visibleScripts.length > 0 ? (
+        {visibleIndicators.length + visibleScripts.length + unavailableFavorites.length > 0 ? (
           <div
             aria-label="Indicator results"
             className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2"
@@ -422,6 +437,9 @@ export function IndicatorCatalogPanel({
             })}
             {visibleScripts.map((script) => {
               const count = indicatorInstances.filter((indicator) => indicator.kind === "custom" && indicator.customScriptId === script.id).length;
+              const favoriteId = scriptIndicatorFavorite(script.id);
+              const favorite = favoriteSet.has(favoriteId);
+              const favoriteLimitReached = !favorite && favorites.length >= MAX_INDICATOR_FAVORITES;
               return (
                 <article className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-2.5 transition hover:border-cyan-300/20 hover:bg-cyan-300/[0.045]" key={script.id} role="listitem">
                   <IndicatorPreview indicator={script} />
@@ -431,7 +449,25 @@ export function IndicatorCatalogPanel({
                         <h3 className="truncate text-sm font-semibold text-white">{script.name}</h3>
                         <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-200/70">{script.origin === "first-party" ? "EdgeLab first-party" : `My script · v${script.revision}`}</span>
                       </div>
-                      {onEditCustomIndicator ? <button aria-label={`Open ${script.name} in the indicator editor`} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 outline-none transition hover:bg-white/10 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-300/40" onClick={() => onEditCustomIndicator(script)} type="button"><Code2 size={14} /></button> : null}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          aria-disabled={favoriteLimitReached}
+                          aria-label={favoriteLimitReached ? `Cannot add ${script.name} to favorites; limit of ${MAX_INDICATOR_FAVORITES} reached` : `${favorite ? "Remove" : "Add"} ${script.name} ${favorite ? "from" : "to"} favorite indicators`}
+                          aria-pressed={favorite}
+                          className={`grid h-8 w-8 place-items-center rounded-md outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/40 ${favoriteLimitReached ? "cursor-not-allowed opacity-35" : ""} ${favorite ? "bg-cyan-300/[0.12] text-cyan-100" : "text-slate-500 hover:bg-white/10 hover:text-cyan-100"}`}
+                          onClick={() => {
+                            if (favoriteLimitReached) {
+                              setAnnouncement(`Favorite limit reached. Remove one of your ${MAX_INDICATOR_FAVORITES} favorites first.`);
+                              return;
+                            }
+                            onToggleFavorite(favoriteId);
+                            setAnnouncement(`${script.name} ${favorite ? "removed from" : "added to"} favorites.`);
+                          }}
+                          title={favoriteLimitReached ? `Keep up to ${MAX_INDICATOR_FAVORITES} favorite indicators` : favorite ? "Remove favorite" : "Add favorite"}
+                          type="button"
+                        ><Star fill={favorite ? "currentColor" : "none"} size={14} /></button>
+                        {onEditCustomIndicator ? <button aria-label={`Open ${script.name} in the indicator editor`} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 outline-none transition hover:bg-white/10 hover:text-cyan-100 focus-visible:ring-2 focus-visible:ring-cyan-300/40" onClick={() => onEditCustomIndicator(script)} type="button"><Code2 size={14} /></button> : null}
+                      </div>
                     </div>
                     <p className="mt-1 min-h-10 text-xs leading-5 text-slate-400">{script.description}</p>
                     <button aria-label={`Add ${script.name} EdgeLab script${count ? `; ${count} active` : ""}`} className="mt-2 inline-flex h-8 items-center justify-center gap-1.5 self-start rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2.5 text-xs font-semibold text-cyan-100 outline-none transition hover:border-cyan-300/35 hover:bg-cyan-300/15 focus-visible:ring-2 focus-visible:ring-cyan-300/40 disabled:cursor-not-allowed disabled:opacity-40" data-indicator-catalog-add disabled={!onAddCustomIndicator} onClick={() => onAddCustomIndicator?.(script)} onKeyDown={handleResultKeyDown} type="button"><Plus size={13} />{count ? `Add ${count + 1}` : "Add"}</button>
@@ -439,6 +475,15 @@ export function IndicatorCatalogPanel({
                 </article>
               );
             })}
+            {unavailableFavorites.map((favorite) => (
+              <article className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3" key={favorite} role="listitem">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-white">Unavailable script</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">This script may still be loading or has been deleted. You can remove its favorite to free a slot.</p>
+                </div>
+                <button aria-label="Remove unavailable script from favorite indicators" className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-cyan-300/[0.12] text-cyan-100 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300/40" onClick={() => { onToggleFavorite(favorite); setAnnouncement("Unavailable script removed from favorites."); }} type="button"><Star fill="currentColor" size={14} /></button>
+              </article>
+            ))}
           </div>
         ) : (
           <div
@@ -480,17 +525,6 @@ export function IndicatorCatalogPanel({
       <span aria-live="polite" className="sr-only">
         {announcement}
       </span>
-      <style>{`
-        @media (max-width: 640px) {
-          .indicator-catalog-panel {
-            inset: 12px;
-            margin: 0;
-            max-height: none;
-            position: fixed;
-            width: auto;
-          }
-        }
-      `}</style>
     </OverlaySurface>
   );
 }

@@ -188,3 +188,36 @@ test("chart command search exposes a labelled dialog and keyboard result navigat
   }
   assert.doesNotMatch(toolbar, /role="listbox" ariaLabel="Chart command search"/);
 });
+
+test("mobile sheet geometry fills the visual viewport and tracks keyboard shrink and offsets", async () => {
+  const { cleanup, module } = await loadOverlayGeometry();
+  try {
+    const base = {
+      align: "left",
+      anchor: { bottom: 445, left: 25, right: 153, top: 400, width: 128 },
+      gap: 8,
+      measuredHeight: 680,
+      minWidth: 320,
+      mobileSheet: true,
+      preferredWidth: 760,
+    };
+    assert.deepEqual(module.computeOverlayGeometry({
+      ...base,
+      viewport: { height: 844, left: 0, top: 0, width: 390 },
+    }), { left: 8, maxHeight: 828, placement: "below", top: 8, width: 374 });
+    assert.deepEqual(module.computeOverlayGeometry({
+      ...base,
+      viewport: { height: 400, left: 14, top: 240, width: 320 },
+    }), { left: 22, maxHeight: 384, placement: "below", top: 248, width: 304 });
+    const desktop = {
+      ...base,
+      viewport: { height: 1_000, left: 0, top: 0, width: 1_440 },
+    };
+    assert.deepEqual(
+      module.computeOverlayGeometry(desktop),
+      module.computeOverlayGeometry({ ...desktop, mobileSheet: false }),
+    );
+  } finally {
+    cleanup();
+  }
+});

@@ -226,7 +226,7 @@ export function getIndicatorCatalogItem(kind: ChartIndicatorKind) {
 }
 
 export function getAvailableIndicatorCategories(
-  _favorites: readonly ChartIndicatorKind[],
+  _favorites: readonly string[],
 ) {
   return INDICATOR_CATEGORIES;
 }
@@ -237,7 +237,7 @@ export function filterIndicatorCatalog({
   query = "",
 }: {
   category?: IndicatorCatalogFilter;
-  favorites?: readonly ChartIndicatorKind[];
+  favorites?: readonly string[];
   query?: string;
 }) {
   const favoriteSet = new Set(favorites);

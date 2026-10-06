@@ -6,7 +6,15 @@ import {
   subscribeAppStorageItem,
 } from "./serverStorage";
 
-export type FavoriteIndicator = ChartIndicatorKind;
+export type FavoriteIndicator = ChartIndicatorKind | `script:${string}`;
+
+export function scriptIndicatorFavorite(scriptId: string): FavoriteIndicator {
+  return `script:${scriptId}`;
+}
+
+export function favoriteIndicatorScriptId(favorite: FavoriteIndicator): string | null {
+  return favorite.startsWith("script:") ? favorite.slice(7) : null;
+}
 
 export const INDICATOR_FAVORITES_STORAGE_KEY = "indicator-favorites.v1";
 export const MAX_INDICATOR_FAVORITES = 6;
@@ -30,7 +38,8 @@ export function sanitizeIndicatorFavorites(value: unknown): FavoriteIndicator[] 
   for (const candidate of value) {
     if (
       typeof candidate !== "string" ||
-      !INDICATOR_KIND_SET.has(candidate as ChartIndicatorKind) ||
+      (!INDICATOR_KIND_SET.has(candidate as ChartIndicatorKind) &&
+        !/^script:[A-Za-z0-9:_-]{1,96}$/.test(candidate)) ||
       favorites.includes(candidate as FavoriteIndicator)
     ) {
       continue;
