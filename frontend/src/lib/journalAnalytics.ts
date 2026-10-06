@@ -155,9 +155,9 @@ export function inferMarket(symbol: string) {
   return "Other";
 }
 
-export function scopedCurrency(accounts: JournalAccount[], accountIds: number[]) {
+export function scopedCurrency(accounts: JournalAccount[], accountIds: number[], trades: CanonicalTrade[] = []) {
   const selected = accountIds.length ? accounts.filter((account) => accountIds.includes(account.id)) : accounts.filter((account) => account.status === "ACTIVE");
-  const currencies = [...new Set(selected.map((account) => account.currency))];
+  const currencies = [...new Set([...selected.map((account) => account.currency), ...trades.map((trade) => trade.currency)])];
   return currencies.length === 1 ? { combinable: true, currency: currencies[0] } : { combinable: currencies.length <= 1, currency: currencies[0] ?? "USD", currencies };
 }
 

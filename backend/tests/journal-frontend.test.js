@@ -65,9 +65,11 @@ test("Journal UI contracts preserve owner scope, deep links, costs, filters, and
 test("Journal command center exposes complete scoped KPIs and account-comparison lenses", () => {
   const dashboard = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/JournalDashboard.tsx"), "utf8");
   const comparison = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/JournalAccountComparison.tsx"), "utf8");
+  const dashboardModel = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/useJournalDashboard.ts"), "utf8");
   const analytics = fs.readFileSync(path.join(repoRoot, "frontend/src/components/journal/JournalAnalyticsSurface.tsx"), "utf8");
   for (const label of ["Net P&L", "Gross P&L", "Balance", "Win rate", "Profit factor", "Trades", "Costs", "Drawdown"]) assert.match(dashboard, new RegExp(`label=\\"${label.replace("&", "&")}\\"`));
-  for (const lens of ["direction", "market", "symbol", "hour", "duration", "size", "tag", "rating", "strategy"]) assert.match(comparison, new RegExp(`dimension: \\"${lens}\\"`));
+  assert.match(comparison, /COMPARISON_LENSES\.map/);
+  for (const lens of ["direction", "market", "symbol", "hour", "duration", "size", "tag", "rating", "strategy"]) assert.match(dashboardModel, new RegExp(`dimension: \\"${lens}\\"`));
   assert.match(comparison, /Trading-day comparison/);
   assert.match(comparison, /label="Drawdown"/);
   assert.match(analytics, /journalAssetMix\(filtered, "market"\)/);

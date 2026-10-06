@@ -19,7 +19,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
   const filtered = useMemo(() => filterJournalTrades(trades, filters), [filters, trades]);
   const rows = useMemo(() => buildJournalBreakdown(filtered, dimension, accounts), [accounts, dimension, filtered]);
   const summary = useMemo(() => summarizeJournalTrades(filtered), [filtered]);
-  const currency = useMemo(() => scopedCurrency(accounts, [...new Set(filtered.map((trade) => trade.account_id))]), [accounts, filtered]);
+  const currency = useMemo(() => scopedCurrency(accounts, [...new Set(filtered.map((trade) => trade.account_id))], filtered), [accounts, filtered]);
   const weak = useMemo(() => currency.combinable ? weakSpots(filtered, accounts) : [], [accounts, filtered, currency.combinable]);
   const selectedRow = selectedKey ? (rows.find((row) => row.key === selectedKey) ?? null) : null;
   const drillIds = drilling ? selectedRow?.tradeIds ?? [] : null;

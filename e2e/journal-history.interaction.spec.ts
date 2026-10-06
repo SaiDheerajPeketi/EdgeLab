@@ -186,7 +186,7 @@ test("late history pages preserve confirmed earlier-page reviews and superseded 
   const failed: string[] = [];
   page.on("requestfailed", (request) => { if (request.url().includes("/journal/trades?") && request.url().includes("order=id")) failed.push(request.url()); });
   const release = await gateRefresh(page, state);
-  await page.getByRole("button", { name: /^OLDLOSS Pending/ }).click();
+  await page.getByRole("button", { name: `Review OLDLOSS trade ${state.trade.id}`, exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("switch", { name: "Trade reviewed", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Review note", exact: true }).fill("Confirmed while a later history page is pending");

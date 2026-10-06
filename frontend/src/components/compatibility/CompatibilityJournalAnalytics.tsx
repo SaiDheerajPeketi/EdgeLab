@@ -24,7 +24,7 @@ export function CompatibilityJournalAnalytics() {
   const filtered = useMemo(() => filterJournalTrades(trades, filters), [trades, filters]);
   const rows = useMemo(() => buildJournalBreakdown(filtered, dimension, journal.accounts), [filtered, dimension, journal.accounts]);
   const summary = useMemo(() => summarizeJournalTrades(filtered), [filtered]);
-  const currency = useMemo(() => scopedCurrency(journal.accounts, [...new Set(filtered.map((trade) => trade.account_id))]), [journal.accounts, filtered]);
+  const currency = useMemo(() => scopedCurrency(journal.accounts, [...new Set(filtered.map((trade) => trade.account_id))], filtered), [journal.accounts, filtered]);
   const weak = useMemo(() => currency.combinable ? weakSpots(filtered, journal.accounts) : [], [currency.combinable, filtered, journal.accounts]);
   const selectedRow = rows.find((row) => row.key === selectedKey);
   const drillIds = useMemo(() => new Set(selectedRow?.tradeIds ?? []), [selectedRow]);
