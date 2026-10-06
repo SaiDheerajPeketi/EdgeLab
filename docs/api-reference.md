@@ -17,6 +17,7 @@ All product routes use the `/api` prefix. The main route families are:
 | `/api/playbooks` | Trading playbooks and strategy metadata |
 | `/api/metrics` | Summary and curve data |
 | `/api/app-storage` | User-scoped application state |
+| `/api/app-data` | Account data transfer and durable operation receipts |
 | `/api/workspace-shares` | Read-only workspace sharing |
 | `/api/quant` | Quant conversations, captures, and generated artifacts |
 
@@ -42,6 +43,16 @@ Authenticated WebSocket routes receive the user session token in their first mes
 For a complete history scan, request `order=id&limit=500`, then continue with `before_id` equal to the smallest ID in the previous page until a page has fewer than 500 rows. IDs are strictly descending; changing entry times or deleting records does not shift the cursor. New IDs above the first page appear on the next scan. This is a traversal of live records, not a transaction snapshot of their field values. Default `order=entry` retains entry-time/ID descending offset pagination. `before_id` must be positive and requires `order=id`; ID paging requires `offset=0`. Invalid combinations return 422.
 
 `PUT /api/journal/daily-notes/{note_date}` replaces the body for the exact date and `account_id` scope. A null account stores a shared note. Bodies preserve whitespace, may be empty, and allow up to 200,000 characters. An account note does not inherit or overwrite the shared note. `GET /api/journal/daily-notes` accepts the same inclusive date range and optional exact account filter.
+
+## Account operation recovery
+
+For requests that can write portable account data, opt-in clients first send `POST /api/app-data/operations/{uuid}/reserve` with `{"method":"PUT","path":"/app-storage/edgelab/example.v1"}`. Use a canonical version 4 UUID and the decoded API path without `/api` or query parameters. The method/path bind that UUID permanently within the authenticated account. Supported scope includes account import, storage/settings, datasets, Journal, replay, playbooks, trades, broker synchronization, and Quant backtests; dataset/bootstrap/replay discovery reads are included because they can commit account rows.
+
+Send the actual request with the same bearer token and `X-EdgeLab-Operation-Id: {uuid}`. An absent, mismatched, canceled, running, or completed reservation returns 409 before invoking the handler. Repeating reservation may inspect an existing receipt; it never resets or re-executes that ID.
+
+`POST /api/app-data/operations/{uuid}/recover` returns `canceled`, `running`, or `completed`. Recovery cancels a reserved ID or creates a canceled tombstone for an absent ID, preventing delayed reservations or requests from starting. It never cancels an already-running handler. `completed` proves the handler has ended; inspect `http_status`, and for successful account imports, the bounded `result` containing completion time and all table counts. HTTP failure or partial writes can still yield a completed receipt. A process crash or cancellation can leave `running` indefinitely; elapsed time is not evidence of completion. Stream/background work must also finish before the receipt becomes completed.
+
+Both endpoints require an approved account, are owner-scoped and return `Cache-Control: no-store`. They share a 600-call limit per account per configured rate-limit window. Receipts do not contain request bodies and are retained across account imports. Browser use of this protocol is still pending; existing requests without an operation header retain their current behavior.
 
 ## Compatibility API
 

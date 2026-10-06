@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import AppStorageItem, BacktestSession, BetaUser, Trade
+from app.models import AppDataOperation, AppStorageItem, BacktestSession, BetaUser, Trade
 from backend.scripts.migrate_sqlite_to_database import migrate_sqlite_to_database
 
 
@@ -28,9 +28,10 @@ def test_empty_sqlite_database_upgrades_to_alembic_head(tmp_path, monkeypatch):
     engine = _sqlite_engine(database_url)
     inspector = inspect(engine)
     with engine.connect() as connection:
-        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20260915_0014"
+        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20261007_0015"
     assert "backtest_session_summaries" in inspector.get_table_names()
     assert "ai_generation_jobs" in inspector.get_table_names()
+    assert "app_data_operations" in inspector.get_table_names()
 
 
 def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):
@@ -94,6 +95,10 @@ def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):
                 value={"panes": ["results", "journal"]},
             )
         )
+        source_db.add(AppDataOperation(
+            user_id=user.id, operation_id="00000000-0000-4000-8000-000000000001",
+            status="canceled", completed_at=user.created_at,
+        ))
         source_db.commit()
 
     with target_session_factory() as target_db:
@@ -119,6 +124,7 @@ def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):
     assert summary["migrated_rows"]["beta_users"] == 1
     assert summary["migrated_rows"]["backtest_sessions"] == 1
     assert summary["migrated_rows"]["trades"] == 1
+    assert summary["migrated_rows"]["app_data_operations"] == 1
     assert summary["tables"]["app_storage"]["counts_match"] is True
     assert summary["tables"]["app_storage"]["sample_rows_match"] is True
 
@@ -126,3 +132,7 @@ def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):
         assert target_db.scalar(select(BetaUser.email)) == "trader@example.com"
         stored_value = target_db.scalar(select(AppStorageItem.value))
         assert stored_value == {"panes": ["results", "journal"]}
+        receipt = target_db.scalar(select(AppDataOperation))
+        assert receipt.operation_id == "00000000-0000-4000-8000-000000000001"
+        assert receipt.status == "canceled"
+        assert receipt.completed_at is not None

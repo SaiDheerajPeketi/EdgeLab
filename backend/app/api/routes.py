@@ -77,6 +77,8 @@ from app.schemas import (
     AppBootstrapResponse,
     AppBootstrapShellResponse,
     AppDataImportResult,
+    AppDataOperationReserve,
+    AppDataOperationRead,
     AppStoragePayload,
     AppStorageRead,
     ChartSettingsRead,
@@ -211,6 +213,7 @@ from app.schemas import (
     WorkspaceSharePublicRead,
 )
 from app.services import (
+    app_data_operations,
     broker_sync,
     integration_secrets,
     journal,
@@ -230,7 +233,7 @@ from app.services.trade_imports import import_trade_csv
 from app.services.settings import read_chart_settings, patch_chart_settings, patch_settings_preferences
 
 
-router = APIRouter()
+router = APIRouter(route_class=app_data_operations.AppDataOperationRoute)
 logger = logging.getLogger(__name__)
 DATASET_STREAM_INTERVAL_SECONDS = 3
 WEBSOCKET_AUTH_TIMEOUT_SECONDS = 5
@@ -268,6 +271,7 @@ BROKER_READ_RATE_LIMIT = 180
 JOURNAL_READ_RATE_LIMIT = 240
 JOURNAL_WRITE_RATE_LIMIT = 120
 JOURNAL_IMPORT_RATE_LIMIT = 20
+APP_DATA_OPERATION_RATE_LIMIT = 600
 BROKER_WRITE_RATE_LIMIT = 30
 BROKER_SYNC_RATE_LIMIT = 30
 NORMALIZED_MARKET_READ_RATE_LIMIT = 240
@@ -1578,6 +1582,33 @@ def update_dataset_asset(
     except (DatasetRefreshInProgress, FileNotFoundError, OSError, SQLAlchemyError, ValueError) as exc:
         db.rollback()
         raise dataset_error_response(exc) from exc
+
+
+@router.post("/app-data/operations/{operation_id}/reserve", response_model=AppDataOperationRead)
+def reserve_app_data_operation(
+    operation_id: str,
+    payload: AppDataOperationReserve,
+    response: Response,
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AppDataOperationRead:
+    if not current_user.approved:
+        raise HTTPException(status_code=403, detail="Approved account required")
+    enforce_rate_limit("app-data-operations", current_user.id, APP_DATA_OPERATION_RATE_LIMIT)
+    response.headers["Cache-Control"] = "no-store"
+    return app_data_operations.reserve(current_user.id, operation_id, payload.method, payload.path)
+
+
+@router.post("/app-data/operations/{operation_id}/recover", response_model=AppDataOperationRead)
+def recover_app_data_operation(
+    operation_id: str,
+    response: Response,
+    current_user: AuthenticatedUser = Depends(require_auth),
+) -> AppDataOperationRead:
+    if not current_user.approved:
+        raise HTTPException(status_code=403, detail="Approved account required")
+    enforce_rate_limit("app-data-operations", current_user.id, APP_DATA_OPERATION_RATE_LIMIT)
+    response.headers["Cache-Control"] = "no-store"
+    return app_data_operations.recover(current_user.id, operation_id)
 
 
 @router.get("/app-data/export", response_model=AppDataBundle)

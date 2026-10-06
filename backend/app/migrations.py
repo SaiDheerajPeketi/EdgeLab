@@ -382,6 +382,12 @@ def create_quant_ai_tables(engine: Engine) -> None:
         model.__table__.create(bind=engine, checkfirst=True)
 
 
+def create_app_data_operations_table(engine: Engine) -> None:
+    from app.models import AppDataOperation
+
+    AppDataOperation.__table__.create(bind=engine, checkfirst=True)
+
+
 MIGRATIONS = [
     Migration(1, "sqlite_compat_columns", migrate_sqlite_compat_columns),
     Migration(2, "workspace_share_snapshots", create_workspace_share_snapshots_table),
@@ -390,4 +396,5 @@ MIGRATIONS = [
     Migration(5, "relational_journal", create_relational_journal_tables),
     Migration(6, "market_data_infrastructure", create_market_data_infrastructure_tables),
     Migration(7, "quant_ai_infrastructure", create_quant_ai_tables),
+    Migration(8, "app_data_operations", create_app_data_operations_table),
 ]

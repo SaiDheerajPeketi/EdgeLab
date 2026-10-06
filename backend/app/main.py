@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,8 +48,9 @@ async def lifespan(_: FastAPI):
     yield
 
 
-class RequestBodyTooLarge(Exception):
-    pass
+class RequestBodyTooLarge(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(status_code=413, detail="Request body too large")
 
 
 class RequestBodyLimitMiddleware:

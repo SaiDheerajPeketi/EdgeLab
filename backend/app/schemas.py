@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictStr, UUID4, field_validator, model_validator
 
 
 OrderSide = Literal["BUY", "SELL"]
@@ -471,6 +471,26 @@ class AppDataImportResult(BaseModel):
     ok: bool = True
     imported_at: datetime
     summary: dict[str, int] = Field(default_factory=dict)
+
+
+class AppDataOperationReserve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+    path: StrictStr = Field(min_length=1, max_length=512)
+
+
+class AppDataOperationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    operation_id: UUID4
+    method: str | None
+    path: str | None
+    status: Literal["reserved", "running", "completed", "canceled"]
+    http_status: int | None
+    result: AppDataImportResult | None
+    created_at: datetime
+    completed_at: datetime | None
 
 
 def share_field_alias(value: str) -> str:

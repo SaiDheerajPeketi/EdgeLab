@@ -37,6 +37,23 @@ class UserOwnedMixin:
     )
 
 
+class AppDataOperation(Base):
+    __tablename__ = "app_data_operations"
+    __table_args__ = (
+        CheckConstraint("status IN ('reserved', 'running', 'completed', 'canceled')", name="ck_app_data_operation_status"),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("beta_users.id", ondelete="CASCADE"), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    method: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class BacktestSession(UserOwnedMixin, Base):
     __tablename__ = "backtest_sessions"
     __table_args__ = (
