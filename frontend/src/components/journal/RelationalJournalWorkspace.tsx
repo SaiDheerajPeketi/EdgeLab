@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, BookOpen, Database, FileBarChart, LoaderCircle, Plus, RefreshCw, RotateCcw, Rows3 } from "lucide-react";
 import type { WorkspaceView } from "../../lib/workspace";
 import { journalDeepLink, parseJournalDeepLink, type JournalDeepLink } from "../../lib/journalWorkspaceState";
-import type { CanonicalTrade } from "../../lib/journalApi";
+import { getCanonicalTrade, latestJournalRecord, subscribeJournalUpdates, type CanonicalTrade } from "../../lib/journalApi";
 import type { JournalBreakdownDimension } from "../../lib/journalAnalytics";
 import { JournalAccountsSurface } from "./JournalAccountsSurface";
 import { JournalAnalyticsSurface } from "./JournalAnalyticsSurface";
@@ -30,25 +30,53 @@ export function RelationalJournalWorkspace({ view }: { view: WorkspaceView }) {
   const [surface, setSurface] = useState<Surface>(() => initialLink ? linkSurface(initialLink.surface) : viewSurface(view));
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(initialLink?.tradeId ?? null);
   const [selectedDate, setSelectedDate] = useState<string | null>(initialLink?.date ?? null);
+  const [noteAccountId, setNoteAccountId] = useState<number | null>(initialLink?.accountId ?? null);
+  const [linkedTrade, setLinkedTrade] = useState<CanonicalTrade | null>(null);
+  const confirmedTrades = useRef(new Map<number, CanonicalTrade>());
+  const [tradeLoadError, setTradeLoadError] = useState(false);
+  const [tradeRevision, setTradeRevision] = useState(0);
   const [initialDimension, setInitialDimension] = useState<JournalBreakdownDimension>(() => viewDimension(view));
   const [sampleBusy, setSampleBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const selectedTrade = journal.trades.find((trade) => trade.id === selectedTradeId) ?? null;
+  const listedTrade = journal.trades.find((trade) => trade.id === selectedTradeId);
+  const selectedTrade = listedTrade ? latestJournalRecord(listedTrade, linkedTrade?.id === selectedTradeId ? linkedTrade : undefined) : linkedTrade?.id === selectedTradeId ? linkedTrade : null;
+  const linkSurfaceName = surface === "notes" && view === "journalDayView" ? "calendar" : surface;
   const routePresentation = journalRoutePresentation(view);
+  useEffect(() => subscribeJournalUpdates((update) => {
+    if (update.kind !== "review") return;
+    confirmedTrades.current.set(update.trade.id, update.trade);
+    setLinkedTrade((current) => current?.id === update.trade.id ? update.trade : current);
+  }), []);
 
   useEffect(() => { const next = viewSurface(view); setSurface(next); setInitialDimension(viewDimension(view)); }, [view]);
   useEffect(() => {
-    const handleHash = () => { const link = parseJournalDeepLink(window.location.hash); if (!link) return; setSurface(linkSurface(link.surface)); setSelectedTradeId(link.tradeId); setSelectedDate(link.date); if (link.segment && isDimension(link.segment)) setInitialDimension(link.segment); if (link.accountId && journal.accounts.some((account) => account.id === link.accountId)) journal.setScope({ mode: "selected", accountIds: [link.accountId] }); };
+    const handleHash = () => { const link = parseJournalDeepLink(window.location.hash); if (!link) return; setSurface(linkSurface(link.surface)); setSelectedTradeId(link.tradeId); setSelectedDate(link.date); setNoteAccountId(link.accountId); if (link.segment && isDimension(link.segment)) setInitialDimension(link.segment); if (link.surface !== "notes" && link.surface !== "calendar" && link.accountId && journal.accounts.some((account) => account.id === link.accountId)) journal.setScope({ mode: "selected", accountIds: [link.accountId] }); };
     window.addEventListener("hashchange", handleHash); handleHash();
     return () => window.removeEventListener("hashchange", handleHash);
   }, [journal.accounts]);
 
   const navigate = useCallback((next: Surface, options: Partial<JournalDeepLink> = {}) => {
-    setSurface(next); setSelectedDate(options.date ?? null); setSelectedTradeId(options.tradeId ?? null);
-    const hash = journalDeepLink({ surface: next === "notes" && options.date ? "calendar" : next, tradeId: options.tradeId ?? null, date: options.date ?? null, accountId: options.accountId ?? null, segment: options.segment ?? null, returnTo: options.returnTo ?? null });
+    setSurface(next); setSelectedDate(options.date ?? null); setSelectedTradeId(options.tradeId ?? null); setNoteAccountId(options.accountId ?? null);
+    const hash = journalDeepLink({ surface: next === "notes" && view === "journalDayView" ? "calendar" : next, tradeId: options.tradeId ?? null, date: options.date ?? null, accountId: options.accountId ?? null, segment: options.segment ?? null, returnTo: options.returnTo ?? null });
     window.history.pushState(null, "", hash);
-  }, []);
-  const openTrade = useCallback((trade: CanonicalTrade) => { setSelectedTradeId(trade.id); window.history.replaceState(null, "", journalDeepLink({ surface, tradeId: trade.id, date: selectedDate, accountId: null, segment: null, returnTo: surface })); }, [selectedDate, surface]);
+  }, [view]);
+  const openTrade = useCallback((trade: CanonicalTrade, context?: { date: string; accountId: number | null }) => {
+    const date = context?.date ?? selectedDate;
+    const accountId = context ? context.accountId : noteAccountId;
+    setSelectedDate(date); setNoteAccountId(accountId); setSelectedTradeId(trade.id); setLinkedTrade(trade);
+    window.history.replaceState(null, "", journalDeepLink({ surface: linkSurfaceName, tradeId: trade.id, date, accountId, segment: null, returnTo: linkSurfaceName }));
+  }, [selectedDate, noteAccountId, linkSurfaceName]);
+  useEffect(() => {
+    let active = true;
+    setLinkedTrade(null); setTradeLoadError(false);
+    if (selectedTradeId != null) void getCanonicalTrade(selectedTradeId).then((trade) => { if (active) setLinkedTrade(latestJournalRecord(trade, confirmedTrades.current.get(trade.id))); }).catch(() => { if (active) setTradeLoadError(true); });
+    return () => { active = false; };
+  }, [selectedTradeId, tradeRevision]);
+  function selectNote(date: string, accountId: number | null) {
+    setSelectedDate(date); setNoteAccountId(accountId);
+    window.history.replaceState(null, "", journalDeepLink({ surface: linkSurfaceName, tradeId: null, date, accountId, segment: null, returnTo: null }));
+  }
+
 
   async function importSample() { setSampleBusy(true); setNotice(null); try { const result = await journal.importSample(); setNotice(`Sample ready: ${result.run.imported_rows} trades imported. You can remove them with Reset sample.`); navigate("dashboard"); } catch { /* hook exposes the error */ } finally { setSampleBusy(false); } }
   async function resetSample() { setSampleBusy(true); setNotice(null); try { await journal.resetSample(); setNotice("Sample trades were rolled back; your other Journal records were unchanged."); } catch { /* hook exposes the error */ } finally { setSampleBusy(false); } }
@@ -63,16 +91,17 @@ export function RelationalJournalWorkspace({ view }: { view: WorkspaceView }) {
       {journal.error ? <div className="mb-5"><JournalError message={journal.error} onRetry={() => void journal.refresh()} onDismiss={journal.clearError} /></div> : null}
       {notice ? <p role="status" className="mb-5 border-y border-emerald-300/20 bg-emerald-300/[0.04] px-3 py-2 text-sm text-emerald-100">{notice}</p> : null}
       {journal.migration === "migrating" ? <p className="mb-5 flex items-center gap-2 text-xs text-slate-500"><LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />Checking the safe one-time legacy Journal backfill…</p> : null}
-      {!journal.accounts.length ? journal.error ? null : <Onboarding busy={sampleBusy} onAccounts={() => navigate("accounts")} onSample={() => void importSample()} /> : <div key={`${view}-${surface}`} data-motion="route-surface" data-journal-route={view}><SurfaceContent surface={surface} journal={journal} initialDimension={initialDimension} selectedDate={selectedDate} navigate={navigate} openTrade={openTrade} /></div>}
+      {!journal.accounts.length ? journal.error ? null : <Onboarding busy={sampleBusy} onAccounts={() => navigate("accounts")} onSample={() => void importSample()} /> : <div key={`${view}-${surface}`} data-motion="route-surface" data-journal-route={view}><SurfaceContent surface={surface} journal={journal} initialDimension={initialDimension} selectedDate={selectedDate} noteAccountId={noteAccountId} calendarMode={view === "journalDayView"} selectNote={selectNote} navigate={navigate} openTrade={openTrade} /></div>}
     </div></section></JournalPanelManager>
-    <JournalReviewDrawer trade={selectedTrade} tags={journal.tags} returnLabel={NAV.find((item) => item.id === surface)?.label ?? "Journal"} onClose={() => { setSelectedTradeId(null); window.history.replaceState(null, "", journalDeepLink({ surface, tradeId: null, date: selectedDate, accountId: null, segment: null, returnTo: null })); }} onSave={journal.updateReview} onCreateTag={journal.addTag} />
+    {tradeLoadError && !selectedTrade ? <div className="p-5"><p className="text-rose-200" role="alert">This trade could not be opened.</p><JournalButton onClick={() => setTradeRevision((value) => value + 1)}>Retry trade</JournalButton></div> : null}
+    <JournalReviewDrawer trade={selectedTrade} tags={journal.tags} returnLabel={NAV.find((item) => item.id === surface)?.label ?? "Journal"} onClose={() => { setSelectedTradeId(null); window.history.replaceState(null, "", journalDeepLink({ surface: linkSurfaceName, tradeId: null, date: selectedDate, accountId: noteAccountId, segment: null, returnTo: null })); }} onSave={async (tradeId, payload) => { const updated = await journal.updateReview(tradeId, payload); setLinkedTrade(updated); return updated; }} onCreateTag={journal.addTag} />
   </div>;
 }
 
-function SurfaceContent({ surface, journal, initialDimension, selectedDate, navigate, openTrade }: { surface: Surface; journal: ReturnType<typeof useJournalData>; initialDimension: JournalBreakdownDimension; selectedDate: string | null; navigate: (surface: Surface, options?: Partial<JournalDeepLink>) => void; openTrade: (trade: CanonicalTrade) => void }) {
-  if (surface === "dashboard") return <JournalDashboard accounts={journal.accounts.filter((account) => journal.scope.mode === "all" || journal.scope.accountIds.includes(account.id))} notes={journal.scopedNotes} trades={journal.scopedTrades} onOpenDate={(date) => navigate("notes", { date })} onOpenTrade={openTrade} onSaveNote={journal.saveDailyNote} />;
+function SurfaceContent({ surface, journal, initialDimension, selectedDate, noteAccountId, calendarMode, selectNote, navigate, openTrade }: { surface: Surface; journal: ReturnType<typeof useJournalData>; initialDimension: JournalBreakdownDimension; selectedDate: string | null; noteAccountId: number | null; calendarMode: boolean; selectNote: (date: string, accountId: number | null) => void; navigate: (surface: Surface, options?: Partial<JournalDeepLink>) => void; openTrade: (trade: CanonicalTrade, context?: { date: string; accountId: number | null }) => void }) {
+  if (surface === "dashboard") return <JournalDashboard accounts={journal.accounts.filter((account) => journal.scope.mode === "all" || journal.scope.accountIds.includes(account.id))} notes={journal.scopedNotes} trades={journal.scopedTrades} onOpenDate={(date) => { const accounts = journal.accounts.filter((account) => journal.scope.mode === "all" || journal.scope.accountIds.includes(account.id)); navigate("notes", { date, accountId: accounts.length === 1 ? accounts[0].id : null }); }} onOpenTrade={openTrade} onSaveNote={journal.saveDailyNote} />;
   if (surface === "trades") return <JournalTradesSurface accounts={journal.accounts} tags={journal.tags} trades={journal.scopedTrades} onAddTrade={journal.addTrade} onOpenTrade={openTrade} onMarkReviewed={(tradeId) => journal.updateReview(tradeId, { reviewed: true })} />;
-  if (surface === "notes") return <JournalNotesSurface accounts={journal.accounts} notes={journal.scopedNotes} trades={journal.scopedTrades} initialDate={selectedDate} onOpenTrade={openTrade} onSaveNote={journal.saveDailyNote} />;
+  if (surface === "notes") return <JournalNotesSurface accounts={journal.accounts} notes={journal.notes} trades={journal.scopedTrades} initialDate={selectedDate} initialAccountId={noteAccountId} calendarMode={calendarMode} onSelectNote={selectNote} onOpenTrade={openTrade} onSaveNote={journal.saveDailyNote} />;
   if (surface === "accounts") return <JournalAccountsSurface accounts={journal.accounts} trades={journal.trades} imports={journal.imports} onAddAccount={journal.addAccount} onImport={journal.importCsv} onRollback={journal.rollbackImport} onSyncConnection={journal.syncConnection} />;
   return <JournalAnalyticsSurface key={initialDimension} accounts={journal.accounts} tags={journal.tags} trades={journal.scopedTrades} initialDimension={initialDimension} onOpenTrade={openTrade} />;
 }

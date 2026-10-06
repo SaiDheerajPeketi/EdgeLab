@@ -28,7 +28,7 @@ export function journalReviewDraft(trade: CanonicalTrade | null) {
 
 export type JournalAccountDraft = ReturnType<typeof emptyJournalAccountDraft>;
 export type JournalReviewDraft = ReturnType<typeof journalReviewDraft>;
-type Draft = JournalAccountDraft | JournalReviewDraft;
+type Draft = JournalAccountDraft | JournalReviewDraft | { body: string };
 type DraftEdits<T> = Partial<T>;
 type DraftEnvelope = { __schemaVersion: number; value: unknown };
 const VERSION = 1;
@@ -131,6 +131,7 @@ function draftOwner() {
 }
 
 function validField(key: string, value: unknown, base: Draft) {
+  if (key === "body") return typeof value === "string" && value.length <= 200_000;
   if (key === "rating") return value === null || (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 5);
   if (key === "setupGrade") return value === null || (typeof value === "string" && ["A+", "A", "B", "C", "D", "F"].includes(value));
   if (key === "tagIds") return Array.isArray(value) && value.length <= 500 && value.every((id) => Number.isSafeInteger(id) && id > 0);

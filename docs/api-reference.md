@@ -35,6 +35,12 @@ The development bypass is accepted only when `EDGELAB_DEV_AUTH_BYPASS=1` and the
 
 Authenticated WebSocket routes receive the user session token in their first message. Tokens are never placed in WebSocket query strings, which keeps them out of proxy access logs and browser URL diagnostics.
 
+## Journal day review
+
+`GET /api/journal/trades` accepts inclusive `start_date` and `end_date` filters in `YYYY-MM-DD` format. Bounds apply to the canonical UTC entry timestamp, independent of the source account's timezone. Combine them with `account_id`, `offset`, and `limit` (maximum 500) to page a complete day. Reversed date ranges return 422; account filters are restricted to the authenticated owner.
+
+`PUT /api/journal/daily-notes/{note_date}` replaces the body for the exact date and `account_id` scope. A null account stores a shared note. Bodies preserve whitespace, may be empty, and allow up to 200,000 characters. An account note does not inherit or overwrite the shared note. `GET /api/journal/daily-notes` accepts the same inclusive date range and optional exact account filter.
+
 ## Compatibility API
 
 The Express API in `backend/index.js` exists for older clients and is available only when started directly or with the `legacy-node-api` Compose profile. New integrations should use FastAPI.

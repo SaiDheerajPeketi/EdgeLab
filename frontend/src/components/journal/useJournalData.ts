@@ -60,13 +60,17 @@ export function useJournalData() {
   const initialLoadRef = useRef(false);
   const confirmedAccounts = useRef(new Map<number, JournalAccount>());
   const confirmedTrades = useRef(new Map<number, CanonicalTrade>());
+  const confirmedNotes = useRef(new Map<number, JournalDailyNote>());
   useEffect(() => subscribeJournalUpdates((update) => {
     if (update.kind === "account") {
       confirmedAccounts.current.set(update.account.id, update.account);
       setState((current) => ({ ...current, accounts: [...current.accounts.filter((account) => account.id !== update.account.id), update.account] }));
-    } else {
+    } else if (update.kind === "review") {
       confirmedTrades.current.set(update.trade.id, update.trade);
       setState((current) => ({ ...current, trades: current.trades.map((trade) => trade.id === update.trade.id ? update.trade : trade) }));
+    } else {
+      confirmedNotes.current.set(update.note.id, update.note);
+      setState((current) => ({ ...current, notes: [update.note, ...current.notes.filter((note) => note.id !== update.note.id)] }));
     }
   }), []);
 
@@ -80,7 +84,8 @@ export function useJournalData() {
       if (mountedRef.current) setState((current) => ({ ...current,
         accounts: [...accounts.map((account) => latestJournalRecord(account, confirmedAccounts.current.get(account.id))), ...[...confirmedAccounts.current.values()].filter((account) => !accounts.some((item) => item.id === account.id))],
         trades: trades.map((trade) => latestJournalRecord(trade, confirmedTrades.current.get(trade.id))),
-        tags, notes, imports, scope, loading: false, error: null,
+        notes: [...notes.map((note) => latestJournalRecord(note, confirmedNotes.current.get(note.id))), ...[...confirmedNotes.current.values()].filter((note) => !notes.some((item) => item.id === note.id))],
+        tags, imports, scope, loading: false, error: null,
       }));
       return { accounts, trades, tags, notes, imports };
     } catch (error) {

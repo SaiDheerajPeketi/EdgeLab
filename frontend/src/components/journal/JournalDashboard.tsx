@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Gauge, LineChart, Save, ShieldAlert } from "lucide-react";
 import {
   computeEdgeScore,
@@ -12,7 +12,10 @@ import {
 import type { CanonicalTrade, JournalAccount, JournalDailyNote } from "../../lib/journalApi";
 import { JournalButton, journalFieldClass } from "./JournalControls";
 import { JournalAccountComparison } from "./JournalAccountComparison";
-import { useRestorableSurfaceState } from "../../lib/useRestorableSurfaceState";
+import { exactDailyNote, isJournalDate, utcEntryDay } from "../../lib/journalDailyNotes";
+import { navigationStateFor } from "../../lib/navigationState";
+import { useDailyNoteDraft } from "./useDailyNoteDraft";
+import { restoreSurfaceValue, useRestorableSurfaceState } from "../../lib/useRestorableSurfaceState";
 
 type Props = {
   accounts: JournalAccount[];
@@ -23,8 +26,8 @@ type Props = {
   onSaveNote: (date: string, payload: { account_id?: number | null; body: string }) => Promise<JournalDailyNote>;
 };
 const JOURNAL_DATE_SCHEMA = { version: 1, validate: (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) } as const;
-type JournalNoteDraft = { date: string; body: string };
-const JOURNAL_NOTE_DRAFT_SCHEMA = { version: 1, validate: (value: unknown): value is JournalNoteDraft => Boolean(value && typeof value === "object" && /^\d{4}-\d{2}-\d{2}$/.test(String((value as Partial<JournalNoteDraft>).date ?? "")) && typeof (value as Partial<JournalNoteDraft>).body === "string") } as const;
+type PreviousReflection = { date: string; body: string };
+const PREVIOUS_REFLECTION_SCHEMA = { version: 1, validate: (value: unknown): value is PreviousReflection | null => value === null || Boolean(value && typeof value === "object" && isJournalDate(String((value as PreviousReflection).date)) && typeof (value as PreviousReflection).body === "string") } as const;
 
 export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTrade, onSaveNote }: Props) {
   const summary = useMemo(() => summarizeJournalTrades(trades), [trades]);
@@ -37,24 +40,15 @@ export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTr
   const calendar = useMemo(() => journalCalendar(trades), [trades]);
   const latestDate = calendar.at(-1)?.date ?? today();
   const [selectedDate, setSelectedDate] = useRestorableSurfaceState<string>("journal:dashboard", "selectedId", latestDate, JOURNAL_DATE_SCHEMA);
-  const selectedNote = notes.find((note) => note.note_date === selectedDate) ?? null;
-  const [noteDraft, setNoteDraft] = useRestorableSurfaceState<JournalNoteDraft>("journal:dashboard", "draft", { date: selectedDate, body: selectedNote?.body ?? "" }, JOURNAL_NOTE_DRAFT_SCHEMA);
-  const noteBody = noteDraft.date === selectedDate ? noteDraft.body : selectedNote?.body ?? "";
-  const [noteState, setNoteState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [previousReflection] = useState(() => restoreSurfaceValue<PreviousReflection | null>(navigationStateFor("journal:dashboard")?.draft, null, PREVIOUS_REFLECTION_SCHEMA));
   const selectedAccount = accounts.length === 1 ? accounts[0].id : null;
-
-  useEffect(() => { setNoteState("idle"); }, [selectedDate, selectedNote?.id, selectedNote?.body]);
+  const selectedNote = exactDailyNote(notes, selectedDate, selectedAccount);
+  const { body: noteBody, setBody: setNoteBody, saving: noteSaving, state: noteState, dirty: noteDirty, save: saveNote } = useDailyNoteDraft(selectedDate, selectedAccount, selectedNote, onSaveNote);
 
   const days = useMemo(() => calendarDays(latestDate, calendar), [calendar, latestDate]);
-  const selectedTrades = trades.filter((trade) => trade.entry_time.slice(0, 10) === selectedDate);
+  const selectedTrades = trades.filter((trade) => utcEntryDay(trade.entry_time) === selectedDate);
   const recent = trades.slice().sort((left, right) => Date.parse(right.entry_time) - Date.parse(left.entry_time)).slice(0, 8);
   const money = (value: number) => currency.combinable ? formatMoney(value, currency.currency) : "Separate currencies";
-
-  async function saveNote() {
-    setNoteState("saving");
-    try { await onSaveNote(selectedDate, { account_id: selectedAccount, body: noteBody }); setNoteState("saved"); }
-    catch { setNoteState("error"); }
-  }
 
   return <div className="space-y-8">
     <section aria-labelledby="journal-overview-heading">
@@ -80,8 +74,10 @@ export function JournalDashboard({ accounts, notes, trades, onOpenDate, onOpenTr
 
     <div className="grid gap-8 2xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,.75fr)]">
       <section aria-labelledby="calendar-heading" className="min-w-0 border-t border-white/10 pt-5"><div className="flex items-center gap-2"><CalendarDays aria-hidden="true" className="h-4 w-4 text-cyan-300" /><h2 id="calendar-heading" className="text-base font-semibold text-white">Trading calendar</h2><span className="ml-auto text-xs text-slate-500">Select a day for its note and trades</span></div><div className="mt-4 grid grid-cols-7 gap-px overflow-hidden rounded-md bg-white/10" role="grid" aria-label="Recent trading days">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day) => <div key={day} role="columnheader" className="bg-[#0d1117] px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-600">{day}</div>)}{days.map((day) => <button key={day.date} type="button" role="gridcell" aria-selected={selectedDate === day.date} onClick={() => { setSelectedDate(day.date); onOpenDate(day.date); }} className={`min-h-16 bg-[#0d1117] p-2 text-left outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 ${selectedDate === day.date ? "bg-cyan-300/[0.08]" : ""}`}><span className="text-[11px] text-slate-500">{Number(day.date.slice(8))}</span>{day.summary ? <><span className={`mt-1 block text-xs font-semibold tabular-nums ${day.summary.netPnl >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{currency.combinable ? compactMoney(day.summary.netPnl, currency.currency) : `${day.summary.totalTrades} trades`}</span><span className="mt-0.5 block text-[10px] text-slate-600">{day.summary.totalTrades} · {day.summary.winRate.toFixed(0)}%</span></> : null}</button>)}</div></section>
-      <section aria-labelledby="daily-note-heading" className="border-t border-white/10 pt-5"><div className="flex items-center justify-between gap-3"><div><h2 id="daily-note-heading" className="text-base font-semibold text-white">Daily note</h2><p className="mt-1 text-xs text-slate-500">{formatDate(selectedDate)} · {selectedTrades.length} trade{selectedTrades.length === 1 ? "" : "s"}</p></div><button type="button" onClick={() => onOpenDate(selectedDate)} className="min-h-9 text-xs font-semibold text-cyan-300 hover:underline">Open full day</button></div><label className="mt-4 block text-xs text-slate-500">Session reflection<textarea className={`${journalFieldClass} mt-1 min-h-40 resize-y py-2`} value={noteBody} onChange={(event) => { setNoteDraft({ date: selectedDate, body: event.target.value }); setNoteState("idle"); }} placeholder="Plan quality, execution, emotions, and what to carry forward…" /></label><div className="mt-3 flex items-center justify-between gap-3"><span className={`text-xs ${noteState === "error" ? "text-rose-200" : "text-slate-500"}`}>{noteState === "saving" ? "Saving…" : noteState === "saved" ? "Saved across devices" : noteState === "error" ? "Save failed. Your text is still here." : "Explicit save"}</span><JournalButton onClick={() => void saveNote()} disabled={noteState === "saving" || noteBody === (selectedNote?.body ?? "")} tone="primary"><Save aria-hidden="true" className="h-4 w-4" />{noteState === "error" ? "Retry" : "Save note"}</JournalButton></div></section>
+      <section aria-labelledby="daily-note-heading" className="border-t border-white/10 pt-5"><div className="flex items-center justify-between gap-3"><div><h2 id="daily-note-heading" className="text-base font-semibold text-white">Daily note</h2><p className="mt-1 text-xs text-slate-500">{formatDate(selectedDate)} · {selectedTrades.length} trade{selectedTrades.length === 1 ? "" : "s"}</p></div><button type="button" onClick={() => onOpenDate(selectedDate)} className="min-h-9 text-xs font-semibold text-cyan-300 hover:underline">Open full day</button></div><label className="mt-4 block text-xs text-slate-500">Session reflection<textarea className={`${journalFieldClass} mt-1 min-h-40 resize-y py-2`} disabled={noteSaving} value={noteBody} onChange={(event) => { setNoteBody(event.target.value); }} placeholder="Plan quality, execution, emotions, and what to carry forward…" /></label><div className="mt-3 flex items-center justify-between gap-3"><span className={`text-xs ${noteState === "error" ? "text-rose-200" : "text-slate-500"}`}>{noteState === "saving" ? "Saving…" : noteState === "saved" ? "Saved across devices" : noteState === "error" ? "Save failed. Your text is still here." : "Explicit save"}</span><JournalButton onClick={() => void saveNote()} disabled={noteSaving || !noteDirty} tone="primary"><Save aria-hidden="true" className="h-4 w-4" />{noteState === "error" ? "Retry" : "Save note"}</JournalButton></div></section>
     </div>
+
+    {previousReflection?.body && !notes.some((note) => note.note_date === previousReflection.date && note.body === previousReflection.body) ? <section className="border-t border-white/10 pt-5" aria-labelledby="previous-reflection-heading"><h2 id="previous-reflection-heading" className="text-base font-semibold text-white">Previous dashboard reflection</h2><p className="mt-1 text-sm text-slate-400">{formatDate(previousReflection.date)} · The earlier editor did not record an account. Copy this text into a note after choosing its date and account.</p><label className="mt-3 block text-xs text-slate-400">Recovered reflection<textarea className={`${journalFieldClass} mt-1 resize-y py-2`} rows={4} value={previousReflection.body} readOnly /></label></section> : null}
 
     <JournalAccountComparison accounts={accounts} trades={trades} />
 

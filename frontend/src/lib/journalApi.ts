@@ -2,7 +2,7 @@ import { apiRequest } from "./api";
 import { getStoredAuthSession } from "./authSession";
 import { runJournalMutation } from "./journalMutationState";
 
-type JournalUpdate = { kind: "account"; account: JournalAccount } | { kind: "review"; trade: CanonicalTrade };
+type JournalUpdate = { kind: "account"; account: JournalAccount } | { kind: "review"; trade: CanonicalTrade } | { kind: "daily-note"; note: JournalDailyNote };
 const journalListeners = new Set<(update: JournalUpdate) => void>();
 export function subscribeJournalUpdates(listener: (update: JournalUpdate) => void) {
   journalListeners.add(listener);
@@ -286,9 +286,11 @@ export function createJournalTag(payload: { category: JournalTagCategory; name: 
   return apiRequest<JournalTag>("/journal/tags", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function listCanonicalTrades(options: { accountId?: number; reviewed?: boolean; tagIds?: number[]; offset?: number; limit?: number } = {}) {
+export function listCanonicalTrades(options: { accountId?: number; reviewed?: boolean; tagIds?: number[]; offset?: number; limit?: number; startDate?: string; endDate?: string } = {}) {
   const query = new URLSearchParams({ offset: String(options.offset ?? 0), limit: String(options.limit ?? 500) });
   if (options.accountId) query.set("account_id", String(options.accountId));
+  if (options.startDate) query.set("start_date", options.startDate);
+  if (options.endDate) query.set("end_date", options.endDate);
   if (options.reviewed != null) query.set("reviewed", String(options.reviewed));
   options.tagIds?.forEach((tagId) => query.append("tag_id", String(tagId)));
   return apiRequest<CanonicalTrade[]>(`/journal/trades?${query.toString()}`);
@@ -319,8 +321,13 @@ export function listJournalDailyNotes(options: { startDate?: string; endDate?: s
   return apiRequest<JournalDailyNote[]>(`/journal/daily-notes${query.size ? `?${query.toString()}` : ""}`);
 }
 
-export function upsertJournalDailyNote(noteDate: string, payload: { account_id?: number | null; body: string }) {
-  return apiRequest<JournalDailyNote>(`/journal/daily-notes/${encodeURIComponent(noteDate)}`, { method: "PUT", body: JSON.stringify(payload) });
+export async function upsertJournalDailyNote(noteDate: string, payload: { account_id?: number | null; body: string }) {
+  const ownerId = getStoredAuthSession()?.user.id;
+  return runJournalMutation(`journal:daily-note:${noteDate}:${payload.account_id ?? "shared"}`, async () => {
+    const note = await apiRequest<JournalDailyNote>(`/journal/daily-notes/${encodeURIComponent(noteDate)}`, { method: "PUT", body: JSON.stringify(payload) });
+    publishJournalUpdate(ownerId, { kind: "daily-note", note });
+    return note;
+  });
 }
 
 export function importJournalCsv(payload: JournalImportCreate) {

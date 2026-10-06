@@ -8,6 +8,7 @@ import { hydrateSettingsPreferences, saveSettingsPreferences, type SettingsPrefe
 import { buildAuthSignInHref } from "../../lib/authJourney";
 import { compatibilityDeepLink, UI_COMPATIBILITY_ROUTES, type UiRouteGroup } from "../../lib/uiRollout";
 import { CompatibilityJournalAccounts, CompatibilityJournalTrades } from "./CompatibilityJournal";
+import { CompatibilityJournalNotes } from "./CompatibilityJournalNotes";
 
 export function CompatibilityRouteRenderer({ group, revision }: { group: UiRouteGroup; revision: string }) {
   const location = useLocation();
@@ -18,7 +19,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   }
   const content = group === "public" ? <PublicCompatibility />
     : group === "settings" ? <SettingsCompatibility />
-      : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : <JournalCompatibility />
+      : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : ["/app/journal/notes", "/app/journal/calendar"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalNotes calendarMode={location.pathname.replace(/\/$/, "") === "/app/journal/calendar"} /> : <JournalCompatibility />
         : group === "chart" ? <ChartCompatibility />
           : <ShellCompatibility email={session?.user.email ?? "Approved user"} />;
   return (
@@ -26,7 +27,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
       <header className="border-b-2 border-amber-700 bg-[#221d14] shadow-md">
         <div className="flex min-h-12 flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2">
           <strong className="font-mono text-sm tracking-wide text-amber-200">EdgeLab compatibility</strong>
-          <nav aria-label={`${group} compatibility navigation`} className="flex flex-1 flex-wrap items-center gap-1">
+          <nav aria-label={`${group} compatibility navigation`} className={`flex flex-wrap items-center gap-1 ${group === "journal" ? "w-full flex-none sm:w-auto sm:flex-1" : "flex-1"}`}>
             {UI_COMPATIBILITY_ROUTES[group].map((item) => <Link className="inline-flex min-h-11 items-center border border-stone-600 bg-stone-900 px-3 text-sm font-medium hover:border-amber-400" key={item.href} to={item.href}>{item.label}</Link>)}
           </nav>
           <span className="font-mono text-[11px] text-stone-400">policy {revision}</span>

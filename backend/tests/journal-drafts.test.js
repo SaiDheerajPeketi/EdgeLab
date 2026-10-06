@@ -14,7 +14,36 @@ const drafts = await import(pathToFileURL(output).href);
 const mutationOutput = path.join(directory, "mutations.mjs");
 buildSync({ bundle: true, entryPoints: [path.join(root, "frontend/src/lib/journalMutationState.ts")], format: "esm", outfile: mutationOutput, platform: "node" });
 const mutations = await import(pathToFileURL(mutationOutput).href);
+const notesOutput = path.join(directory, "daily-notes.mjs");
+buildSync({ bundle: true, entryPoints: [path.join(root, "frontend/src/lib/journalDailyNotes.ts")], format: "esm", outfile: notesOutput, platform: "node" });
+const dailyNotes = await import(pathToFileURL(notesOutput).href);
 test.after(() => fs.rmSync(directory, { force: true, recursive: true }));
+
+test("daily-note dates and scopes keep shared and account bodies separate", () => {
+  const notes = [{ id: 1, note_date: "2026-09-15", account_id: null, body: "Shared" }, { id: 2, note_date: "2026-09-15", account_id: 7, body: "" }];
+  assert.equal(dailyNotes.exactDailyNote(notes, "2026-09-15", 7).body, "");
+  assert.equal(dailyNotes.exactDailyNote(notes, "2026-09-15", 8), null);
+  assert.notEqual(dailyNotes.dailyNoteScope("2026-09-15", null), dailyNotes.dailyNoteScope("2026-09-15", 7));
+  assert.notEqual(dailyNotes.dailyNoteScope("2026-09-15", 7), dailyNotes.dailyNoteScope("2026-09-16", 7));
+  for (const invalid of ["", "0000-01-01", "2026-02-29", "2026-09-31", "2026-13-01", "2026-9-15"]) assert.equal(dailyNotes.isJournalDate(invalid), false);
+  assert.equal(dailyNotes.isJournalDate("2024-02-29"), true);
+  assert.equal(dailyNotes.utcEntryDay("2026-09-15T00:30:00+02:00"), "2026-09-14");
+  assert.equal(dailyNotes.utcEntryDay("2026-09-15T23:30:00-02:00"), "2026-09-16");
+  assert.equal(dailyNotes.journalMonthDays("2026-09").length, 42);
+  assert.equal(dailyNotes.journalMonthDays("2026-09")[0], "2026-08-31");
+  assert.equal(dailyNotes.shiftJournalMonth("2026-12", 1), "2027-01");
+});
+
+test("daily-note drafts retain long and empty replacement bodies and acknowledge only submitted text", () => {
+  const base = { body: "Saved" };
+  const long = "x".repeat(200000);
+  assert.deepEqual(drafts.restoreJournalDraft({ __schemaVersion: 1, value: { body: long } }, base), { body: long });
+  assert.deepEqual(drafts.restoreJournalDraft({ __schemaVersion: 1, value: { body: `${long}x` } }, base), {});
+  const edits = drafts.journalDraftEdits(base, { body: "" });
+  assert.deepEqual(edits, { body: "" });
+  assert.deepEqual(drafts.acknowledgeJournalDraft(edits, { body: "" }), {});
+  assert.deepEqual(drafts.acknowledgeJournalDraft({ body: "Newer text" }, { body: "Submitted" }), { body: "Newer text" });
+});
 
 const trade = {
   reviewed: false, rating: null, setup_grade: null, tags: [],

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -18,6 +18,7 @@ from app.schemas import (
     CanonicalTradeCreate,
     FeedbackCreate,
     JournalAccountCreate,
+    JournalDailyNoteUpsert,
     OrderCreate,
     PlaybookCreate,
     WorkspaceShareCreate,
@@ -100,6 +101,30 @@ def test_canonical_trade_point_lookup_is_owned_and_preserves_review_data(monkeyp
         assert calls == [("journal-read", owner_id), ("journal-read", intruder_id), ("journal-read", owner_id)]
     route = next(route for route in routes.router.routes if route.path.endswith("/journal/trades/{trade_id}") and "GET" in route.methods)
     assert any(dependency.call is routes.require_auth for dependency in route.dependant.dependencies)
+
+
+def test_canonical_day_and_note_routes_validate_ranges_and_account_ownership(monkeypatch):
+    monkeypatch.setattr(routes, "enforce_rate_limit", lambda *_args: None)
+    with make_session_factory()() as db:
+        owner_id = seed_user(db, "day-route-owner@edgelab.local", "Owner")
+        intruder_id = seed_user(db, "day-route-other@edgelab.local", "Other")
+        owner = auth_user(owner_id, "day-route-owner@edgelab.local", "Owner")
+        intruder = auth_user(intruder_id, "day-route-other@edgelab.local", "Other")
+        account = journal.create_account(db, owner_id, JournalAccountCreate(name="Day account"))
+        trade = journal.create_trade(db, owner_id, CanonicalTradeCreate(account_id=account.id, symbol="ES", side="LONG", entry_time=datetime(2026, 9, 15, 10, tzinfo=timezone.utc), entry_price=Decimal("100"), quantity=Decimal("1")))
+        day = date(2026, 9, 15)
+        arguments = dict(account_id=None, reviewed=None, start_date=day, end_date=day, tag_id=None, offset=0, limit=500, db=db, current_user=owner)
+        assert [row.id for row in routes.list_canonical_trades(**arguments)] == [trade.id]
+        assert routes.list_canonical_trades(**{**arguments, "current_user": intruder}) == []
+        with pytest.raises(HTTPException) as reversed_range:
+            routes.list_canonical_trades(**{**arguments, "start_date": date(2026, 9, 16)})
+        assert reversed_range.value.status_code == 422
+        with pytest.raises(HTTPException) as foreign_account:
+            routes.list_canonical_trades(**{**arguments, "account_id": account.id, "current_user": intruder})
+        assert foreign_account.value.status_code == 404
+        with pytest.raises(HTTPException) as foreign_note:
+            routes.upsert_journal_daily_note(note_date=day, payload=JournalDailyNoteUpsert(account_id=account.id, body="Private"), db=db, current_user=intruder)
+        assert foreign_note.value.status_code == 404
 
 
 def test_backtest_routes_return_404_for_other_users(tmp_path, monkeypatch):

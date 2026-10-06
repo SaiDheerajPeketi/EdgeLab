@@ -12,7 +12,7 @@ export const WORKSPACE_ROUTE_DEFINITIONS: ReadonlyArray<{
   { path: "/app/journal/settings", view: "journalSettings" },
   { path: "/app/journal/analytics", view: "journalReports" },
   { path: "/app/journal/notes", view: "journalNotes" },
-  { path: "/app/journal/calendar", view: "journalDashboard" },
+  { path: "/app/journal/calendar", view: "journalDayView" },
   { path: "/app/journal/dashboard", view: "journalDashboard" },
   { path: "/app/journal", view: "journalDashboard" },
   { path: "/app/reports", view: "reports" },
@@ -45,6 +45,7 @@ export function workspacePathForView(view: WorkspaceView): string {
   if (view === "journalTrades" || view === "journal") return "/app/journal/trades";
   if (view === "journalReports") return "/app/journal/analytics";
   if (view === "journalNotes") return "/app/journal/notes";
+  if (view === "journalDayView") return "/app/journal/calendar";
   if (view === "journalSettings") return "/app/journal/settings";
   if (view.startsWith("journal") || view === "financeTracker") return "/app/journal/dashboard";
   if (["dashboard", "reports", "dayView", "tradeView", "notebook"].includes(view)) return "/app/reports";

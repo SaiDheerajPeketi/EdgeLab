@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -560,6 +560,8 @@ def list_trades(
     *,
     account_id: int | None = None,
     reviewed: bool | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     tag_ids: Iterable[int] = (),
     offset: int = 0,
     limit: int = 100,
@@ -570,6 +572,10 @@ def list_trades(
         statement = statement.where(CanonicalTrade.account_id == account_id)
     if reviewed is not None:
         statement = statement.where(CanonicalTrade.reviewed.is_(reviewed))
+    if start_date is not None:
+        statement = statement.where(CanonicalTrade.entry_time >= datetime.combine(start_date, time.min, timezone.utc))
+    if end_date is not None:
+        statement = statement.where(CanonicalTrade.entry_time <= datetime.combine(end_date, time.max, timezone.utc))
     for tag_id in sorted(set(tag_ids)):
         statement = statement.where(
             CanonicalTrade.tag_links.any(CanonicalTradeTag.tag_id == tag_id)

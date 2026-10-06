@@ -1741,6 +1741,8 @@ def create_canonical_trade(
 def list_canonical_trades(
     account_id: int | None = Query(default=None, gt=0),
     reviewed: bool | None = Query(default=None),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     tag_id: list[int] | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
@@ -1748,12 +1750,16 @@ def list_canonical_trades(
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> list[CanonicalTradeRead]:
     enforce_rate_limit("journal-read", current_user.id, JOURNAL_READ_RATE_LIMIT)
+    if start_date is not None and end_date is not None and end_date < start_date:
+        raise HTTPException(status_code=422, detail="end_date cannot precede start_date")
     try:
         return journal.list_trades(
             db,
             current_user.id,
             account_id=account_id,
             reviewed=reviewed,
+            start_date=start_date,
+            end_date=end_date,
             tag_ids=tag_id or (),
             offset=offset,
             limit=limit,

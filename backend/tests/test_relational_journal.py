@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -68,6 +68,56 @@ def create_account(db, user: BetaUser, name: str = "Primary"):
             initial_balance=Decimal("25000"),
         ),
     )
+
+
+def test_utc_day_trade_filter_includes_boundaries_and_pages_complete_history(db):
+    owner = seed_user(db, "day-owner@example.com")
+    intruder = seed_user(db, "day-other@example.com")
+    account = create_account(db, owner)
+    other_account = create_account(db, intruder)
+    created = journal.create_trade(db, owner.id, CanonicalTradeCreate(
+        account_id=account.id, symbol="MES", side="LONG", source_timezone="America/New_York",
+        entry_time=datetime(2026, 9, 15, 0, tzinfo=timezone.utc), entry_price=Decimal("100"), quantity=Decimal("1"),
+    ))
+    row = db.get(CanonicalTrade, created.id)
+    template = {column.name: getattr(row, column.name) for column in CanonicalTrade.__table__.columns if column.name != "id"}
+    rows = []
+    for index in range(520):
+        rows.append({**template, "source_ref": f"day-{index}", "duplicate_key": f"day-{index}", "entry_time": datetime(2026, 9, 15, 12, tzinfo=timezone.utc)})
+    for label, timestamp in [
+        ("end", datetime(2026, 9, 15, 23, 59, 59, 999999, tzinfo=timezone.utc)),
+        ("before", datetime(2026, 9, 14, 23, 59, 59, 999999, tzinfo=timezone.utc)),
+        ("after", datetime(2026, 9, 16, 0, tzinfo=timezone.utc)),
+    ]:
+        rows.append({**template, "source_ref": label, "duplicate_key": label, "entry_time": timestamp})
+    rows.append({**template, "user_id": intruder.id, "account_id": other_account.id, "source_ref": "foreign", "duplicate_key": "foreign"})
+    db.bulk_insert_mappings(CanonicalTrade, rows)
+    db.commit()
+    day = date(2026, 9, 15)
+    first = journal.list_trades(db, owner.id, start_date=day, end_date=day, limit=500)
+    second = journal.list_trades(db, owner.id, start_date=day, end_date=day, offset=500, limit=500)
+    assert len(first) == 500 and len(second) == 22
+    all_trades = first + second
+    assert len({trade.id for trade in all_trades}) == 522
+    assert all(trade.entry_time.date() == day and trade.account_id == account.id for trade in all_trades)
+    assert created.id in {trade.id for trade in second}
+    assert first[0].source_ref == "end"
+    assert journal.list_trades(db, owner.id, start_date=day + timedelta(days=2), end_date=day + timedelta(days=2)) == []
+    with pytest.raises(journal.JournalServiceError):
+        journal.list_trades(db, intruder.id, account_id=account.id, start_date=day, end_date=day)
+
+
+def test_daily_note_replacement_preserves_whitespace_and_empty_scoped_body(db):
+    owner = seed_user(db, "note-replace@example.com")
+    account = create_account(db, owner)
+    day = date(2026, 9, 15)
+    shared = journal.upsert_daily_note(db, owner.id, day, JournalDailyNoteUpsert(body="Shared text"))
+    scoped = journal.upsert_daily_note(db, owner.id, day, JournalDailyNoteUpsert(account_id=account.id, body="  Account text\n"))
+    assert scoped.body == "  Account text\n"
+    empty = journal.upsert_daily_note(db, owner.id, day, JournalDailyNoteUpsert(account_id=account.id, body=""))
+    assert empty.id == scoped.id and empty.body == ""
+    assert [note.body for note in journal.list_daily_notes(db, owner.id, account_id=account.id)] == [""]
+    assert next(note for note in journal.list_daily_notes(db, owner.id) if note.id == shared.id).body == "Shared text"
 
 
 @pytest.mark.parametrize("remaining,status", [(Decimal("0"), "CLOSED"), (Decimal("1"), "OPEN"), (Decimal("0"), "VOIDED")])

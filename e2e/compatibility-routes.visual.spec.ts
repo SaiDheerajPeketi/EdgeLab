@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { UI_COMPATIBILITY_PATHS, UI_COMPATIBILITY_ROUTE_PARITY, UI_COMPATIBILITY_VIEWPORTS, type CompatibilityRouteParity, type UiRouteGroup } from "../frontend/src/lib/uiRollout";
 import { expectStableScreenshot, installDeterminism, seedApprovedSession } from "./support/app";
-import { installJournalFixture, tradeId } from "./support/compatibility-journal";
+import { installJournalFixture, noteDate, tradeId } from "./support/compatibility-journal";
 
 type JournalFixture = Awaited<ReturnType<typeof installJournalFixture>>;
 
@@ -98,6 +98,9 @@ async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, p
     if (path === "/app/journal/accounts") {
       await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
       await expect(page.getByRole("status").filter({ hasText: /accounts available/ })).toBeVisible();
+    } else if (path === "/app/journal/notes" || path === "/app/journal/calendar") {
+      await expect(page.getByRole("heading", { name: path.endsWith("/notes") ? "Daily notes" : "Day review", exact: true }).last()).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "Daily note", exact: true })).toBeVisible();
     } else await expect(page.getByRole("status").filter({ hasText: /recent trades available/ })).toBeVisible();
   }
   else if (group === "settings") await expect(page.getByLabel("Workspace density")).toBeVisible();
@@ -140,6 +143,17 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await page.getByRole("button", { name: "Create account", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: /^Account Rollback manual account created$/ })).toBeVisible();
     expect(journal!.creations.at(-1)?.body).toEqual({ name: "Rollback manual account", provider: "Manual", currency: "EUR", timezone: "Europe/Berlin", initial_balance: 9001, notes: "Rollback account canary" });
+  } else if (contract.primaryAction === "save-daily-note") {
+    expect(journal).not.toBeNull();
+    const surface = contract.routePath.endsWith("/calendar") ? "calendar" : "notes";
+    await page.goto(`${contract.routePath}#journal/${surface}?date=${noteDate}`, { waitUntil: "domcontentloaded" });
+    const body = `Rollback daily-note canary ${contract.routePath}`;
+    const editor = page.getByRole("textbox", { name: "Daily note", exact: true });
+    await editor.fill(body);
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect(editor).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save note", exact: true })).toBeDisabled();
+    expect(journal!.noteWrites.at(-1)).toEqual({ method: "PUT", path: `/api/journal/daily-notes/${noteDate}`, body: { account_id: null, body } });
   } else if (contract.primaryAction === "save-settings") {
     const density = page.getByLabel("Workspace density");
     await density.selectOption((await density.inputValue()) === "compact" ? "comfortable" : "compact");
@@ -168,6 +182,11 @@ async function expectJournalWriteCanary(page: Page, contract: CompatibilityRoute
       await expect(page.getByRole("combobox", { name: "Setup grade", exact: true })).toHaveValue("A+");
       await expect(page.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText("Rollback review canary");
     }
+  } else if (contract.primaryAction === "save-daily-note") {
+    await expect(page.getByRole("textbox", { name: "Daily note", exact: true })).toHaveValue(`Rollback daily-note canary ${contract.routePath}`);
+    await expect(page.getByLabel("Date", { exact: true })).toHaveValue(noteDate);
+    await expect(page.getByRole("combobox", { name: "Note scope", exact: true })).toHaveValue("all");
+    await expect(page.getByRole("button", { name: "Save note", exact: true })).toBeDisabled();
   } else if (contract.primaryAction === "create-journal-account") {
     const accounts = version === "modern" ? page.locator('[data-journal-route="journalAccounts"]') : page.getByRole("list", { name: "Journal accounts", exact: true });
     await expect(accounts.getByText("Rollback manual account", { exact: true })).toBeVisible();

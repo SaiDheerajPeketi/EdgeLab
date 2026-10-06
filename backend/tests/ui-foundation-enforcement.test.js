@@ -33,7 +33,8 @@ test("stateful operating routes restore rows, filters, drafts, panels, and chart
   for (const key of ["draft", "filters", "openPanel", "scrollLeft", "scrollTop", "selectedId", "viewport"]) assert.match(navigation, new RegExp(`\\b${key}\\b`));
   assert.match(read("frontend/src/components/journal/JournalTradesSurface.tsx"), /useRestorableSurfaceState<JournalFilters>[\s\S]*"filters"/);
   assert.match(read("frontend/src/components/journal/JournalTradesSurface.tsx"), /"selectedId"/);
-  assert.match(read("frontend/src/components/journal/JournalDashboard.tsx"), /"draft"/);
+  assert.match(read("frontend/src/components/journal/JournalDashboard.tsx"), /useDailyNoteDraft/);
+  assert.match(read("frontend/src/components/journal/useDailyNoteDraft.ts"), /useJournalDraft\(scope/);
   assert.match(read("frontend/src/components/ResultsPanel.tsx"), /"reports:results"[\s\S]*"filters"/);
   const chart = `${read("frontend/src/lib/chartWorkspace.ts")}\n${read("frontend/src/App.tsx")}`;
   for (const contract of ["visibleRange", "activePaneId", "panelState", "revision"]) assert.ok(chart.includes(contract), `chart workspace does not retain ${contract}`);

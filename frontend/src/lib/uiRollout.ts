@@ -10,11 +10,11 @@ export type CompatibilityRouteParity = {
   kind: CompatibilityParityKind;
   sessionSource: "auth-session" | "route-session";
   draftKey: string | null;
-  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "settings-preferences" | "replay-layout";
-  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-settings" | "restore-replay-layout";
+  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "replay-layout";
+  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "restore-replay-layout";
   actionExemption: string | null;
   requiredViewports: typeof UI_COMPATIBILITY_VIEWPORTS;
-  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "settings-draft-save" | "chart-replay-layout";
+  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "chart-replay-layout";
   canarySpec?: string;
   reasonSource: string;
 };
@@ -46,6 +46,16 @@ const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = O
 });
 
 const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> = {
+  "/app/journal/notes": {
+    kind: "writable", draftKey: "journal:daily-note:{date}:{accountId|shared}", savedDataRead: "journal-daily-notes",
+    primaryAction: "save-daily-note", testCaseId: "journal-daily-note-save", reasonSource: "frontend/src/lib/journalApi.ts#upsertJournalDailyNote",
+    canarySpec: "e2e/compatibility-journal-notes.interaction.spec.ts",
+  },
+  "/app/journal/calendar": {
+    kind: "writable", draftKey: "journal:daily-note:{date}:{accountId|shared}", savedDataRead: "journal-daily-notes",
+    primaryAction: "save-daily-note", testCaseId: "journal-day-review", reasonSource: "frontend/src/lib/journalApi.ts#upsertJournalDailyNote",
+    canarySpec: "e2e/compatibility-journal-notes.interaction.spec.ts",
+  },
   "/app/journal/trades": {
     primaryAction: "save-trade-review", testCaseId: "journal-trade-review",
     reasonSource: "frontend/src/lib/journalApi.ts#updateCanonicalTradeReview",
@@ -72,7 +82,7 @@ export const UI_COMPATIBILITY_ROUTE_PARITY: Readonly<Record<string, Compatibilit
 export const UI_COMPATIBILITY_ROUTES: Readonly<Record<UiRouteGroup, readonly CompatibilityRoute[]>> = Object.freeze({
   public: [{ href: "/", label: "Home" }, { href: "/pricing", label: "Pricing" }, { href: "/auth/signin", label: "Sign in" }],
   shell: [{ href: "/app", label: "Workspace" }, { href: "/app/live", label: "Live" }, { href: "/app/journal/dashboard", label: "Journal" }, { href: "/app/settings/global", label: "Settings" }],
-  journal: [{ href: "/app/journal/dashboard", label: "Overview" }, { href: "/app/journal/trades", label: "Trades" }, { href: "/app/reports", label: "Reports" }],
+  journal: [{ href: "/app/journal/dashboard", label: "Overview" }, { href: "/app/journal/trades", label: "Trades" }, { href: "/app/journal/notes", label: "Notes" }, { href: "/app/journal/calendar", label: "Calendar" }, { href: "/app/journal/accounts", label: "Accounts" }, { href: "/app/reports", label: "Reports" }],
   settings: [{ href: "/app/settings/global", label: "Global" }, { href: "/app/settings/chart", label: "Chart" }, { href: "/app/settings/data-providers#settings/data-providers/broker-connections", label: "Data & providers" }],
   chart: [{ href: "/app/live", label: "Live" }, { href: "/app/replay", label: "Replay" }, { href: "/app/order-flow", label: "Order flow" }],
 });

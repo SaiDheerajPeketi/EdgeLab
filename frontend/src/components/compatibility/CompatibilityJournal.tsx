@@ -181,7 +181,7 @@ export function CompatibilityJournalTrades() {
   </section>;
 }
 
-function TradeReview({ trade, onClose, onSaved }: { trade: CanonicalTrade; onClose: () => void; onSaved: (trade: CanonicalTrade) => void }) {
+export function TradeReview({ trade, onClose, onSaved }: { trade: CanonicalTrade; onClose: () => void; onSaved: (trade: CanonicalTrade) => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [draft, setDraft, clearDraft] = useJournalDraft(`journal:review:${trade.id}`, journalReviewDraft(trade));
   const [localSaving, setSaving] = useState(false);

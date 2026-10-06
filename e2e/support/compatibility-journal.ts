@@ -1,11 +1,17 @@
 import { expect, type Page } from "@playwright/test";
-import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalAccount, JournalAccountCreate } from "../../frontend/src/lib/journalApi";
+import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalAccount, JournalAccountCreate, JournalDailyNote } from "../../frontend/src/lib/journalApi";
 import { installDeterminism, seedApprovedSession } from "./app";
 
 const timestamp = "2026-09-15T10:30:00.000Z";
 export const tradeId = 83_101;
 export const tradePath = `/app/journal/trades#journal/trades?trade=${tradeId}`;
 export const accountsPath = "/app/journal/accounts";
+export const noteDate = "2026-09-15";
+export const noteCanary = "  UTC daily reflection\nKeep the trailing space.  \n";
+export const seedNotes: JournalDailyNote[] = [
+  { id: 83_301, account_id: null, note_date: noteDate, body: "Seed shared day note", created_at: timestamp, updated_at: timestamp },
+  { id: 83_302, account_id: 83_081, note_date: noteDate, body: "Seed account day note", created_at: timestamp, updated_at: timestamp },
+];
 export const reviewPath = `/api/journal/trades/${tradeId}/review`;
 export const reviewCanary = {
   reviewed: true,
@@ -93,6 +99,17 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     failReview: false,
     failAccount: false,
     failAccountRead: false,
+    failNote: false,
+    failNoteRead: false,
+    noteGate: null as Promise<void> | null,
+    notes: structuredClone(seedNotes),
+    notePage: null as JournalDailyNote[] | null,
+    noteWrites: [] as Array<{ method: string; path: string; body: { account_id?: number | null; body: string } }>,
+    tradeReads: [] as Array<{ start: string | null; end: string | null; account: string | null; offset: number; limit: number }>,
+    tradeGate: null as Promise<void> | null,
+    tradeGateOffset: null as number | null,
+    tradeGateDate: null as string | null,
+    pointTrade: null as CanonicalTrade | null,
     reviewGate: null as Promise<void> | null,
     accountGate: null as Promise<void> | null,
     trade: structuredClone(seedTrade),
@@ -139,15 +156,23 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     } else if (/^\/api\/journal\/trades\/\d+$/.test(path)) {
       expect(method).toBe("GET");
       const id = Number(path.split("/").at(-1));
-      const trade = id === state.trade.id ? state.trade : state.tradePage?.find((item) => item.id === id);
+      const trade = id === state.trade.id ? state.pointTrade ?? state.trade : state.tradePage?.find((item) => item.id === id);
       await route.fulfill(trade ? { json: trade } : { json: { detail: "Trade not found" }, status: 404 });
     } else if (path === "/api/journal/trades") {
       expect(method).toBe("GET");
       const accountId = url.searchParams.get("account_id");
-      const trades = (state.tradePage ?? [state.trade]).filter((trade) => !accountId || trade.account_id === Number(accountId));
+      const start = url.searchParams.get("start_date");
+      const end = url.searchParams.get("end_date");
+      const trades = (state.tradePage ?? [state.trade]).map((trade) => trade.id === state.trade.id ? state.trade : trade).filter((trade) => {
+        const day = new Date(trade.entry_time).toISOString().slice(0, 10);
+        return (!accountId || trade.account_id === Number(accountId)) && (!start || day >= start) && (!end || day <= end);
+      });
       const offset = Number(url.searchParams.get("offset") ?? 0);
       const limit = Number(url.searchParams.get("limit") ?? 500);
-      await route.fulfill({ json: trades.slice(offset, offset + limit) });
+      state.tradeReads.push({ start, end, account: accountId, offset, limit });
+      const response = structuredClone(trades.slice(offset, offset + limit));
+      if (state.tradeGate && offset === state.tradeGateOffset && start === state.tradeGateDate && end === start) await state.tradeGate;
+      await route.fulfill({ json: response });
     } else if (path === "/api/journal/accounts") {
       if (method === "POST") {
         const body = route.request().postDataJSON() as JournalAccountCreate;
@@ -181,7 +206,31 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
         accounts_created: 0, trades_created: 0, executions_created: 0, notes_created: 0,
         screenshots_created: 0, tags_created: 0, sources_unchanged: 1, diagnostics: [],
       } });
-    } else if (["/api/journal/tags", "/api/journal/daily-notes", "/api/journal/imports"].includes(path)) {
+    } else if (/^\/api\/journal\/daily-notes\/\d{4}-\d{2}-\d{2}$/.test(path)) {
+      expect(method).toBe("PUT");
+      const body = route.request().postDataJSON() as { account_id?: number | null; body: string };
+      state.noteWrites.push({ method, path, body });
+      if (state.noteGate) await state.noteGate;
+      if (state.failNote) { await route.fulfill({ json: { detail: "Daily note storage unavailable" }, status: 500 }); return; }
+      const date = path.split("/").at(-1)!;
+      const index = state.notes.findIndex((note) => note.note_date === date && note.account_id === (body.account_id ?? null));
+      const saved: JournalDailyNote = {
+        id: index < 0 ? 83_301 + state.notes.length : state.notes[index].id,
+        account_id: body.account_id ?? null, note_date: date, body: body.body,
+        created_at: index < 0 ? timestamp : state.notes[index].created_at, updated_at: timestamp,
+      };
+      if (index < 0) state.notes.push(saved); else state.notes[index] = saved;
+      await route.fulfill({ json: saved });
+    } else if (path === "/api/journal/daily-notes") {
+      expect(method).toBe("GET");
+      if (state.failNoteRead) { await route.fulfill({ json: { detail: "Daily note list unavailable" }, status: 500 }); return; }
+      const start = url.searchParams.get("start_date");
+      const end = url.searchParams.get("end_date");
+      const account = url.searchParams.get("account_id");
+      await route.fulfill({ json: (state.notePage ?? state.notes).filter((note) =>
+        (!start || note.note_date >= start) && (!end || note.note_date <= end) && (!account || note.account_id === Number(account)),
+      ) });
+    } else if (["/api/journal/tags", "/api/journal/imports"].includes(path)) {
       await route.fulfill({ json: [] });
     } else {
       await route.fallback();
