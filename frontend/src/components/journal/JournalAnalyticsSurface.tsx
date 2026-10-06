@@ -1,24 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ArrowRight, ChevronLeft, Lightbulb, Target } from "lucide-react";
-import { DEFAULT_JOURNAL_FILTERS, buildJournalBreakdown, filterJournalTrades, journalAssetMix, numeric, scopedCurrency, summarizeJournalTrades, weakSpots, type JournalBreakdownDimension, type JournalFilters } from "../../lib/journalAnalytics";
+import { buildJournalBreakdown, filterJournalTrades, journalAssetMix, numeric, scopedCurrency, summarizeJournalTrades, weakSpots, type JournalBreakdownDimension } from "../../lib/journalAnalytics";
 import type { CanonicalTrade, JournalAccount, JournalTag } from "../../lib/journalApi";
 import { JournalButton, JournalEmpty, JournalFilterBar } from "./JournalControls";
 import { useJournalPages } from "./useJournalPages";
-
-const DIMENSIONS: Array<{ id: JournalBreakdownDimension; label: string }> = [
-  { id: "market", label: "Market" },
-  { id: "symbol", label: "Symbol" },
-  { id: "direction", label: "Direction" },
-  { id: "duration", label: "Duration" },
-  { id: "size", label: "Size" },
-  { id: "strategy", label: "Strategy" },
-  { id: "tag", label: "Tag" },
-  { id: "rating", label: "Rating" },
-  { id: "grade", label: "Grade" },
-  { id: "weekday", label: "Weekday" },
-  { id: "hour", label: "Time of day" },
-  { id: "account", label: "Account" },
-];
+import { JOURNAL_DIMENSIONS as DIMENSIONS, useJournalAnalyticsContext } from "./useJournalAnalyticsContext";
 
 type Props = {
   accounts: JournalAccount[];
@@ -29,17 +15,16 @@ type Props = {
 };
 
 export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimension = "market", onOpenTrade }: Props) {
-  const [filters, setFilters] = useState<JournalFilters>(DEFAULT_JOURNAL_FILTERS);
-  const [dimension, setDimension] = useState<JournalBreakdownDimension>(initialDimension);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [drillIds, setDrillIds] = useState<number[] | null>(null);
+  const { filters, setFilters, dimension, setDimension, selectedKey, setSelectedKey, drilling, setDrilling } = useJournalAnalyticsContext(initialDimension);
   const filtered = useMemo(() => filterJournalTrades(trades, filters), [filters, trades]);
   const rows = useMemo(() => buildJournalBreakdown(filtered, dimension, accounts), [accounts, dimension, filtered]);
   const summary = useMemo(() => summarizeJournalTrades(filtered), [filtered]);
-  const weak = useMemo(() => weakSpots(filtered, accounts), [accounts, filtered]);
   const currency = useMemo(() => scopedCurrency(accounts, [...new Set(filtered.map((trade) => trade.account_id))]), [accounts, filtered]);
-  const drillTrades = drillIds ? filtered.filter((trade) => drillIds.includes(trade.id)) : [];
+  const weak = useMemo(() => currency.combinable ? weakSpots(filtered, accounts) : [], [accounts, filtered, currency.combinable]);
   const selectedRow = selectedKey ? (rows.find((row) => row.key === selectedKey) ?? null) : null;
+  const drillIds = drilling ? selectedRow?.tradeIds ?? [] : null;
+  const drillIdSet = useMemo(() => new Set(drillIds ?? []), [drillIds]);
+  const drillTrades = drillIds ? filtered.filter((trade) => drillIdSet.has(trade.id)) : [];
   const context = JSON.stringify({ filters, dimension });
   const segments = useJournalPages(rows, context);
   const underlying = useJournalPages(drillTrades, `${context}:${selectedKey ?? ""}:${drillIds?.join(",") ?? ""}`);
@@ -67,7 +52,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
         onChange={(next) => {
           setFilters(next);
           setSelectedKey(null);
-          setDrillIds(null);
+          setDrilling(false);
         }}
       />
       {filtered.length > 0 && filtered.length < 5 ? (
@@ -112,7 +97,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
                 onClick={() => {
                   setDimension(item.id);
                   setSelectedKey(null);
-                  setDrillIds(null);
+                  setDrilling(false);
                 }}
                 className={breakdownTabClass(dimension === item.id)}
               >
@@ -152,9 +137,9 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
                     <MoneyCell value={-row.costs} currency={currency.currency} combinable={currency.combinable} muted />
                     <MoneyCell value={row.netPnl} currency={currency.currency} combinable={currency.combinable} />
                     <MoneyCell value={row.expectancy} currency={currency.currency} combinable={currency.combinable} />
-                    <td className="px-3 py-3 text-right tabular-nums text-slate-300">{row.profitFactor == null ? "∞" : row.profitFactor.toFixed(2)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-slate-300">{!currency.combinable ? <><span aria-hidden="true">—</span><span className="sr-only">Not combined across currencies</span></> : row.profitFactor == null ? "∞" : row.profitFactor.toFixed(2)}</td>
                     <td className="px-3 py-3 text-right">
-                      <button type="button" onClick={() => { setSelectedKey(row.key); setDrillIds(null); }} aria-label={`Select ${row.label} segment`} aria-pressed={selected} className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline sm:min-h-8">
+                      <button type="button" onClick={() => { setSelectedKey(row.key); setDrilling(false); }} aria-label={`Select ${row.label} segment`} aria-pressed={selected} className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-cyan-300 hover:underline sm:min-h-8">
                         {selected ? "Selected" : "Select"} <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
                       </button>
                     </td>
@@ -169,7 +154,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
         {selectedRow ? (
           <div data-selected-segment role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-3 text-sm text-cyan-50">
             <p className="min-w-0"><span className="text-xs font-medium uppercase tracking-wide text-cyan-200">Selected segment</span><span className="ml-2 font-semibold">{selectedRow.label}</span><span className="ml-2 text-xs text-slate-300">{selectedRow.totalTrades} {selectedRow.totalTrades === 1 ? "trade" : "trades"}</span></p>
-            <JournalButton onClick={() => setDrillIds(selectedRow.tradeIds)}>View underlying trades</JournalButton>
+            <JournalButton onClick={() => setDrilling(true)}>View underlying trades</JournalButton>
           </div>
         ) : null}
       </section>
@@ -191,7 +176,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
                 onClick={() => {
                   setDimension(weakDimension);
                   setSelectedKey(worst.key);
-                  setDrillIds(worst.tradeIds);
+                  setDrilling(true);
                 }}
                 className="min-h-11 rounded-lg border border-white/10 bg-[#0d1117] p-3 text-left outline-none hover:bg-white/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300"
               >
@@ -207,14 +192,14 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-slate-500">Strength and review rankings appear after closed trades are available.</p>
+          <p className="mt-4 text-sm text-slate-500">{currency.combinable ? "Strength and review rankings appear after closed trades are available." : "Choose one currency before ranking expectancy."}</p>
         )}
       </section>
 
       {drillIds ? (
         <section aria-labelledby="drilldown-heading" className="rounded-xl border border-cyan-300/20 bg-[#0a0f15] p-4 sm:p-5 [&_button]:min-h-11 sm:[&_button]:min-h-[var(--control-height)]">
           <div className="flex flex-wrap items-start gap-3">
-            <JournalButton onClick={() => setDrillIds(null)}>
+            <JournalButton onClick={() => setDrilling(false)}>
               <ChevronLeft aria-hidden="true" className="h-4 w-4" />
               Back to breakdown
             </JournalButton>
@@ -229,7 +214,7 @@ export function JournalAnalyticsSurface({ accounts, tags, trades, initialDimensi
           </div>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
             {underlying.rows.map((trade) => (
-              <button key={trade.id} type="button" onClick={() => onOpenTrade(trade)} className="grid min-w-0 w-full gap-2 rounded-lg border border-white/10 bg-white/[0.018] p-3 text-left outline-none hover:bg-white/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:grid-cols-[6rem_minmax(0,1fr)_auto]">
+              <button data-trade-id={trade.id} key={trade.id} type="button" onClick={() => onOpenTrade(trade)} className="grid min-w-0 w-full gap-2 rounded-lg border border-white/10 bg-white/[0.018] p-3 text-left outline-none hover:bg-white/[0.045] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:grid-cols-[6rem_minmax(0,1fr)_auto]">
                 <span className="text-xs text-slate-500">{new Date(trade.entry_time).toLocaleDateString()}</span>
                 <span className="min-w-0">
                   <span className="block font-semibold text-white">{trade.symbol}</span>

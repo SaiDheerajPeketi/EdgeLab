@@ -9,6 +9,7 @@ import { buildAuthSignInHref } from "../../lib/authJourney";
 import { compatibilityDeepLink, UI_COMPATIBILITY_ROUTES, type UiRouteGroup } from "../../lib/uiRollout";
 import { CompatibilityJournalAccounts, CompatibilityJournalTrades } from "./CompatibilityJournal";
 import { CompatibilityJournalNotes } from "./CompatibilityJournalNotes";
+import { CompatibilityJournalAnalytics } from "./CompatibilityJournalAnalytics";
 
 export function CompatibilityRouteRenderer({ group, revision }: { group: UiRouteGroup; revision: string }) {
   const location = useLocation();
@@ -19,7 +20,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   }
   const content = group === "public" ? <PublicCompatibility />
     : group === "settings" ? <SettingsCompatibility />
-      : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : ["/app/journal/notes", "/app/journal/calendar"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalNotes calendarMode={location.pathname.replace(/\/$/, "") === "/app/journal/calendar"} /> : <JournalCompatibility />
+      : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : ["/app/journal/notes", "/app/journal/calendar"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalNotes calendarMode={location.pathname.replace(/\/$/, "") === "/app/journal/calendar"} /> : ["/app/journal/analytics", "/app/journal/reports"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalAnalytics /> : <JournalCompatibility />
         : group === "chart" ? <ChartCompatibility />
           : <ShellCompatibility email={session?.user.email ?? "Approved user"} />;
   return (

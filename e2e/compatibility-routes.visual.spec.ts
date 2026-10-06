@@ -98,6 +98,9 @@ async function expectCompatibilityDomainState(page: Page, group: UiRouteGroup, p
     if (path === "/app/journal/accounts") {
       await expect(page.getByRole("heading", { name: "Accounts", exact: true })).toBeVisible();
       await expect(page.getByRole("status").filter({ hasText: /accounts available/ })).toBeVisible();
+    } else if (path === "/app/journal/analytics" || path === "/app/journal/reports") {
+      await expect(page.getByRole("heading", { name: "Performance breakdown", exact: true })).toBeVisible();
+      await expect(page.getByText(/matching trades ·/)).toBeVisible();
     } else if (path === "/app/journal/notes" || path === "/app/journal/calendar") {
       await expect(page.getByRole("heading", { name: path.endsWith("/notes") ? "Daily notes" : "Day review", exact: true }).last()).toBeVisible();
       await expect(page.getByRole("textbox", { name: "Daily note", exact: true })).toBeVisible();
@@ -123,13 +126,19 @@ async function executeCompatibilityPrimaryAction(page: Page, contract: Compatibi
     await expect(page.getByRole("status").filter({ hasText: /recent trades available/ })).toBeVisible();
   } else if (contract.primaryAction === "save-trade-review") {
     expect(journal).not.toBeNull();
+    if (contract.routePath === "/app/journal/analytics" || contract.routePath === "/app/journal/reports") {
+      await page.getByRole("tab", { name: "Symbol", exact: true }).click();
+      await page.getByRole("button", { name: "Select BTCUSDT segment", exact: true }).click();
+      await page.getByRole("button", { name: "View underlying trades", exact: true }).click();
+    }
     await page.getByRole("button", { name: `Review BTCUSDT trade ${tradeId}`, exact: true }).click();
-    await page.getByLabel("Reviewed", { exact: true }).check();
-    await page.getByRole("combobox", { name: "Rating", exact: true }).selectOption("4");
-    await page.getByRole("combobox", { name: "Setup grade", exact: true }).selectOption("A+");
-    await page.getByLabel("Review note", { exact: true }).fill("Rollback review canary");
-    await page.getByRole("button", { name: "Save review", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: /^Review saved$/ })).toBeVisible();
+    const form = page.getByRole("form", { name: "Review BTCUSDT", exact: true });
+    await form.getByLabel("Reviewed", { exact: true }).check();
+    await form.getByRole("combobox", { name: "Rating", exact: true }).selectOption("4");
+    await form.getByRole("combobox", { name: "Setup grade", exact: true }).selectOption("A+");
+    await form.getByLabel("Review note", { exact: true }).fill("Rollback review canary");
+    await form.getByRole("button", { name: "Save review", exact: true }).click();
+    await expect(form.getByRole("status").filter({ hasText: /^Review saved$/ })).toBeVisible();
     expect(journal!.reviews.at(-1)?.body).toEqual({ reviewed: true, rating: 4, setup_grade: "A+", note: "Rollback review canary" });
     expect(journal!.trade.notes.at(-1)?.body).toBe("Rollback review canary");
   } else if (contract.primaryAction === "create-journal-account") {
@@ -177,10 +186,11 @@ async function expectJournalWriteCanary(page: Page, contract: CompatibilityRoute
       await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("");
       await expect(page.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText("Rollback review canary");
     } else {
-      await expect(page.getByLabel("Reviewed", { exact: true })).toBeChecked();
-      await expect(page.getByRole("combobox", { name: "Rating", exact: true })).toHaveValue("4");
-      await expect(page.getByRole("combobox", { name: "Setup grade", exact: true })).toHaveValue("A+");
-      await expect(page.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText("Rollback review canary");
+      const form = page.getByRole("form", { name: "Review BTCUSDT", exact: true });
+      await expect(form.getByLabel("Reviewed", { exact: true })).toBeChecked();
+      await expect(form.getByRole("combobox", { name: "Rating", exact: true })).toHaveValue("4");
+      await expect(form.getByRole("combobox", { name: "Setup grade", exact: true })).toHaveValue("A+");
+      await expect(form.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText("Rollback review canary");
     }
   } else if (contract.primaryAction === "save-daily-note") {
     await expect(page.getByRole("textbox", { name: "Daily note", exact: true })).toHaveValue(`Rollback daily-note canary ${contract.routePath}`);

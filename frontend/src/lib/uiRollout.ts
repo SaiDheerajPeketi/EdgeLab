@@ -46,6 +46,18 @@ const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = O
 });
 
 const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> = {
+  "/app/journal/analytics": {
+    kind: "writable", draftKey: "journal:review:{tradeId}",
+    primaryAction: "save-trade-review", testCaseId: "journal-trade-review",
+    reasonSource: "frontend/src/lib/journalApi.ts#updateCanonicalTradeReview",
+    canarySpec: "e2e/compatibility-journal-analytics.interaction.spec.ts",
+  },
+  "/app/journal/reports": {
+    kind: "writable", draftKey: "journal:review:{tradeId}",
+    primaryAction: "save-trade-review", testCaseId: "journal-trade-review",
+    reasonSource: "frontend/src/lib/journalApi.ts#updateCanonicalTradeReview",
+    canarySpec: "e2e/compatibility-journal-analytics.interaction.spec.ts",
+  },
   "/app/journal/notes": {
     kind: "writable", draftKey: "journal:daily-note:{date}:{accountId|shared}", savedDataRead: "journal-daily-notes",
     primaryAction: "save-daily-note", testCaseId: "journal-daily-note-save", reasonSource: "frontend/src/lib/journalApi.ts#upsertJournalDailyNote",

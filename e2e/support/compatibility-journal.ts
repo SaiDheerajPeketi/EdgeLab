@@ -116,6 +116,7 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     tradeGateOffset: null as number | null,
     tradeGateDate: null as string | null,
     pointTrade: null as CanonicalTrade | null,
+    pointTradeGate: null as Promise<void> | null,
     reviewGate: null as Promise<void> | null,
     accountGate: null as Promise<void> | null,
     trade: structuredClone(seedTrade),
@@ -163,7 +164,8 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     } else if (/^\/api\/journal\/trades\/\d+$/.test(path)) {
       expect(method).toBe("GET");
       const id = Number(path.split("/").at(-1));
-      const trade = id === state.trade.id ? state.pointTrade ?? state.trade : state.tradePage?.find((item) => item.id === id);
+      const trade = structuredClone(id === state.trade.id ? state.pointTrade ?? state.trade : state.tradePage?.find((item) => item.id === id));
+      if (state.pointTradeGate) await state.pointTradeGate;
       await route.fulfill(trade ? { json: trade } : { json: { detail: "Trade not found" }, status: 404 });
     } else if (path === "/api/journal/trades") {
       expect(method).toBe("GET");

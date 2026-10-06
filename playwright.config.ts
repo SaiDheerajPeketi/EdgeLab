@@ -182,7 +182,7 @@ export default defineConfig({
     },
     {
       name: "tradingDesktop",
-      testMatch: /(?:live-feed|live-tail|order-flow|replay)\.states\.visual\.spec\.ts|protected-workspace\.quality\.spec\.ts|compatibility-routes\.visual\.spec\.ts|compatibility-(?:journal(?:-drafts|-notes)?|settings)\.interaction\.spec\.ts|journal-history\.interaction\.spec\.ts/,
+      testMatch: /(?:live-feed|live-tail|order-flow|replay)\.states\.visual\.spec\.ts|protected-workspace\.quality\.spec\.ts|compatibility-routes\.visual\.spec\.ts|compatibility-(?:journal(?:-drafts|-notes|-analytics)?|settings)\.interaction\.spec\.ts|journal-history\.interaction\.spec\.ts/,
       use: {
         ...commonUse,
         deviceScaleFactor: 1,

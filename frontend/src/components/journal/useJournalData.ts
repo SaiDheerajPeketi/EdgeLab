@@ -52,7 +52,7 @@ export type JournalDataState = {
   trades: CanonicalTrade[];
 };
 
-export function useJournalData() {
+export function useJournalData({ migrateLegacy = true }: { migrateLegacy?: boolean } = {}) {
   const [state, setState] = useState<JournalDataState>({
     accounts: [], error: null, imports: [], loading: true, migration: "checking",
     migrationResult: null, notes: [], scope: loadJournalScope(), tags: [], trades: [],
@@ -117,7 +117,7 @@ export function useJournalData() {
   }, [fetchAll]);
 
   useEffect(() => {
-    if (!snapshotReady) return;
+    if (!snapshotReady || !migrateLegacy) return;
     let active = true;
     const ownerId = getStoredAuthSession()?.user.id;
     const isCurrent = () => active && getStoredAuthSession()?.user.id === ownerId;
@@ -134,7 +134,7 @@ export function useJournalData() {
       }
     })();
     return () => { active = false; };
-  }, [snapshotReady, fetchAll]);
+  }, [snapshotReady, fetchAll, migrateLegacy]);
 
   const scopedTrades = useMemo(() => {
     if (state.scope.mode === "all") return state.trades;
