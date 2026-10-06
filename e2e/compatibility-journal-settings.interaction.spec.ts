@@ -211,6 +211,7 @@ for (const path of paths) {
     await expect(template(page)).toBeEnabled();
     await expect(template(page)).toHaveValue(initialNoteTemplate);
     await expect(saveTemplate(page)).toBeDisabled();
+    await expect(page.getByText("All explicit changes applied", { exact: true })).toHaveCount(0);
     await expect(broker(page)).toHaveValue("Independent pending edit");
     expect(state.templates.get(state.owner)).toBe(initialNoteTemplate);
     expect(await effectiveTemplate(page)).toBe(initialNoteTemplate);

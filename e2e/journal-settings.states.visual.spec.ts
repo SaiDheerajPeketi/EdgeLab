@@ -40,6 +40,8 @@ test.describe("journal settings state baselines", () => {
     await apply.click();
 
     await expect(page.getByRole("status").filter({ hasText: "Saving journal defaults…" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Draft changes not applied" })).toBeVisible();
+    await expect(page.getByText("All explicit changes applied", { exact: true })).toHaveCount(0);
     await expect(apply).toBeDisabled();
     await expectControlGeometry(page, apply);
     await expectCommandLauncherClearOfInteractiveControls(page);

@@ -56,8 +56,12 @@ export function useJournalSettings() {
   const notePending = useJournalMutationPending("settings:note-template");
   // During a save, edits are relative to the submitted value. Returning to the
   // old baseline is then an explicit later edit rather than an empty draft.
-  const [journalDraft, setJournalDraft, clearJournal, journalDirty] = useJournalDraft("settings:journal-defaults", journalPending ? current.journalSubmitted ?? current.defaults : current.defaults);
-  const [note, setNote, clearNote, noteDirty] = useJournalDraft("settings:note-template", { body: notePending ? current.noteSubmitted ?? current.template : current.template });
+  const [journalDraft, setJournalDraft, clearJournal] = useJournalDraft("settings:journal-defaults", journalPending ? current.journalSubmitted ?? current.defaults : current.defaults);
+  const [note, setNote, clearNote] = useJournalDraft("settings:note-template", { body: notePending ? current.noteSubmitted ?? current.template : current.template });
+  // The pending base protects later edits; effective/unsaved feedback still
+  // compares with server-confirmed values until the acknowledgment arrives.
+  const journalDirty = Object.keys(journalDraftEdits(current.defaults, journalDraft)).length > 0;
+  const noteDirty = note.body !== current.template;
   useEffect(() => { void load(owner); }, [owner]);
   async function saveJournal() {
     if (!current.ready || !journalDirty || !/^[A-Z]{3}$/.test(journalDraft.default_currency) || journalPending) return;
@@ -96,10 +100,10 @@ export function useJournalSettings() {
     finally { if (owner !== ownerNow()) publish(owner, { ready: false, noteState: "idle" }); }
   }
   useEffect(() => {
-    if (!journalDirty && !noteDirty) return;
+    if (!journalDirty && !noteDirty && !journalPending && !notePending) return;
     const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [journalDirty, noteDirty]);
+  }, [journalDirty, noteDirty, journalPending, notePending]);
   return { ...current, journalDraft, setJournalDraft, journalDirty, noteDraft: note.body, setNoteDraft: (body: string) => setNote({ body }), noteDirty, journalPending, notePending, journalState: journalPending ? "saving" as const : current.journalState, noteState: notePending ? "saving" as const : current.noteState, saveJournal, saveNote, reload: () => load(owner) };
 }
