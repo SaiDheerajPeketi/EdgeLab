@@ -27,6 +27,14 @@ Vite listens on <http://127.0.0.1:5173> and proxies `/api` to FastAPI on port 80
 
 Workspace URLs are stable and deep-linkable. The main groups are `/app/live`, `/app/replay`, `/app/order-flow`, `/app/quant`, `/app/journal/*`, `/app/reports`, and `/app/settings/*`.
 
+## Indicator calculations
+
+The library includes native chart studies and 20 first-party EdgeLab DSL studies. Native and DSL ATR/RSI use Wilder smoothing with a full-period seed; ADX waits for both directional-movement and DX warmup windows. SuperTrend retains recursive trailing bands and changes direction on closing-price crossings. Flat RSI and MFI return a neutral 50; unchanged typical prices contribute to neither side of MFI.
+
+Historical Volatility requires a complete window of valid positive-price log returns. Its `periodsPerYear` input defaults to 252 and should be set to the expected number of bars per year for the chart timeframe and market calendar. Existing two-argument `histvol(source, period)` scripts retain the 252 default; `histvol(source, period, periodsPerYear)` supports explicit annualization.
+
+ATR and SuperTrend follow the published [ATR smoothing](https://www.tradingview.com/support/solutions/43000501823-average-true-range-atr/) and [SuperTrend band recurrence](https://www.tradingview.com/support/solutions/43000634738-supertrend/) definitions. EdgeLab's indicator DSL is original and is not Pine Script compatible.
+
 ## Build-time configuration
 
 | Variable | Purpose | Default |

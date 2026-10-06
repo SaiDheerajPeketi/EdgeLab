@@ -11,7 +11,11 @@ const bundle = buildSync({
   logLevel: "silent",
   platform: "node",
   stdin: {
-    contents: 'export * from "./frontend/src/lib/charting.ts";',
+    contents: [
+      'export * from "./frontend/src/lib/charting.ts";',
+      'export * from "./frontend/src/lib/indicatorDsl.ts";',
+      'export * from "./frontend/src/lib/customIndicators.ts";',
+    ].join("\n"),
     loader: "ts",
     resolveDir: repoRoot,
     sourcefile: "indicator-calculations-entry.ts",
@@ -20,7 +24,7 @@ const bundle = buildSync({
   write: false,
 }).outputFiles[0].text;
 const charting = await import(
-  `data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`,
+  `data:text/javascript;base64,${Buffer.from(bundle + "\n//# sourceURL=indicator-calculations-bundle.js").toString("base64")}`,
 );
 
 function barsFromRows(rows) {
@@ -130,4 +134,118 @@ test("RSI uses Wilder gains and losses with neutral flat-price behavior", () => 
     const bars = barsFromRows(closes.map((close) => [close + 1, close - 1, close]));
     assertValues(charting.rsiSeries(bars, 3), expected, "RSI direction limits");
   }
+});
+
+function executeExpression(bars, expression) {
+  return charting.executeEdgeIndicator({
+    bars,
+    source: `indicator "Calculation regression" pane\nplot "Value" = ${expression} color "#ffffff"`,
+  }).plots[0].points;
+}
+
+test("DSL ATR and RSI match the native Wilder calculations", () => {
+  const bars = barsFromRows([
+    [11, 9, 10], [14, 10, 12], [13, 10, 11],
+    [16, 12, 14], [14, 11, 13], [16, 13, 15],
+  ]);
+  assert.deepEqual(executeExpression(bars, "atr(3)"), charting.atrSeries(bars, 3));
+  assert.deepEqual(executeExpression(bars, "rsi(close, 3)"), charting.rsiSeries(bars, 3));
+  const flat = barsFromRows(Array.from({ length: 6 }, () => [11, 9, 10]));
+  assertValues(executeExpression(flat, "rsi(close, 3)"), [50, 50, 50], "flat DSL RSI");
+});
+
+test("DSL ADX waits for seeded directional movement and a full Wilder DX average", () => {
+  // Initial DM seed is +1/-0; following DX values are 100, 100/3, 100/9, 1100/27.
+  const bars = barsFromRows([
+    [11, 9, 10], [12, 10, 11], [13, 11, 12], [14, 12, 13],
+    [13, 11, 12], [12, 10, 11], [11, 9, 10],
+  ]);
+  assert.deepEqual(executeExpression(bars.slice(0, 5), "adx(3)"), []);
+  const output = executeExpression(bars, "adx(3)");
+  assertValues(output, [1300 / 27, 3700 / 81], "Wilder ADX");
+  assert.equal(output[0].time, bars[5].time);
+  const flat = barsFromRows(Array.from({ length: 7 }, () => [11, 9, 10]));
+  assertValues(executeExpression(flat, "adx(3)"), [0, 0], "flat ADX");
+});
+
+test("DSL MFI excludes unchanged typical prices and is neutral without directional flow", () => {
+  const bars = barsFromRows([10, 11, 11, 9, 10].map((close) => [close + 1, close - 1, close]));
+  assertValues(executeExpression(bars, "mfi(2)"), [100, 0, 1000 / 19], "MFI directional money flow");
+  assert.equal(executeExpression(bars, "mfi(2)")[0].time, bars[2].time);
+  const flat = barsFromRows(Array.from({ length: 5 }, () => [11, 9, 10]));
+  assertValues(executeExpression(flat, "mfi(2)"), [50, 50, 50], "flat MFI");
+  const noVolume = bars.map((bar) => ({ ...bar, volume: 0 }));
+  assertValues(executeExpression(noVolume, "mfi(2)"), [50, 50, 50], "zero-volume MFI");
+});
+
+test("historical volatility requires valid returns and supports explicit annualization", () => {
+  const bars = barsFromRows([100, 200, 100].map((close) => [close + 1, close - 1, close]));
+  assert.deepEqual(executeExpression(bars.slice(0, 2), "histvol(close, 2)"), []);
+  assertValues(
+    executeExpression(bars, "histvol(close, 2)"),
+    [Math.log(2) * Math.sqrt(252) * 100],
+    "default historical volatility",
+  );
+  assertValues(
+    executeExpression(bars, "histvol(close, 2, 1)"),
+    [Math.log(2) * 100],
+    "explicit historical volatility",
+  );
+  const invalid = barsFromRows([100, 0, 100, 200, 100].map((close) => [close + 1, close - 1, close]));
+  const recovered = executeExpression(invalid, "histvol(close, 2, 1)");
+  assertValues(recovered, [Math.log(2) * 100], "recovered historical volatility");
+  assert.equal(recovered[0].time, invalid[4].time);
+});
+
+test("DSL studies preserve historical replay prefixes without mutating candle epochs", () => {
+  const bars = barsFromRows([
+    [11, 9, 10], [12, 10, 11], [13, 11, 12], [14, 12, 13],
+    [13, 11, 12], [12, 10, 11], [11, 9, 10], [14, 11, 13],
+  ]);
+  const original = structuredClone(bars);
+  for (const expression of ["atr(3)", "rsi(close, 3)", "adx(3)", "mfi(3)", "histvol(close, 3, 1)"]) {
+    const complete = executeExpression(bars, expression);
+    for (let length = 0; length <= bars.length; length += 1) {
+      const prefix = bars.slice(0, length);
+      assert.deepEqual(
+        executeExpression(prefix, expression),
+        complete.filter((point) => prefix.some((bar) => bar.time === point.time)),
+        expression,
+      );
+    }
+  }
+  assert.deepEqual(bars, original);
+});
+
+test("every first-party study executes deterministically with finite chart points", () => {
+  const bars = barsFromRows(Array.from({ length: 180 }, (_, index) => {
+    const close = 100 + index * 0.2 + Math.sin(index / 5);
+    return [close + 1, close - 1, close];
+  }));
+  for (const study of charting.FIRST_PARTY_EDGE_INDICATORS) {
+    const first = charting.executeEdgeIndicator({ bars, source: study.source });
+    assert.ok(first.plots.length > 0, study.name);
+    for (const plot of first.plots) {
+      assert.ok(plot.points.length > 0, study.name);
+      assert.ok(plot.points.every((point) => Number.isFinite(point.value)), study.name);
+    }
+    const second = charting.executeEdgeIndicator({ bars, source: study.source });
+    assert.deepEqual(first.plots, second.plots, study.name);
+  }
+});
+
+test("first-party historical volatility exposes its annualization setting", () => {
+  const study = charting.FIRST_PARTY_EDGE_INDICATORS.find((item) => item.id === "first-party:historical-volatility");
+  assert.ok(study);
+  const parsed = charting.parseEdgeIndicator(study.source);
+  const annualization = parsed.program.inputs.find((input) => input.name === "periodsPerYear");
+  assert.ok(annualization);
+  assert.equal(annualization.defaultValue, 252);
+  const bars = barsFromRows([100, 200, 100].map((close) => [close + 1, close - 1, close]));
+  const result = charting.executeEdgeIndicator({
+    bars,
+    inputs: { period: 2, periodsPerYear: 1 },
+    source: study.source,
+  });
+  assertValues(result.plots[0].points, [Math.log(2) * 100], "catalog annualization");
 });

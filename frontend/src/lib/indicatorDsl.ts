@@ -1,4 +1,5 @@
 import type { Candle } from "./api";
+import { trueRangeValues as trueRanges, wilderAverage } from "./indicatorMath";
 
 export const EDGE_INDICATOR_DSL_VERSION = "1.0";
 
@@ -24,6 +25,10 @@ Series: open, high, low, close, volume, hl2, hlc3, ohlc4.
 Functions: sma, ema, wma, highest, lowest, change, roc, rsi, atr, stdev,
 linreg, cci, adx, obv, mfi, cmf, force_index, histvol, choppiness, abs, min, max.
 Operators: +, -, *, / and parentheses. Comments begin with //.
+
+RSI, ATR, and ADX use Wilder smoothing after a full lookback. Flat RSI/MFI is 50.
+histvol(source, period, periodsPerYear) accepts an optional annualization factor
+(default 252). Choose bars per year for your timeframe and market calendar.
 
 There are no loops, network calls, imports, mutation, wall-clock reads, or arbitrary JavaScript.
 Execution is isolated in a worker and bounded by source, syntax, bar, plot, and operation limits.`;
@@ -241,7 +246,7 @@ function canonicalNumber(value: number) {
   return Object.is(value, -0) ? "0" : String(value);
 }
 
-const FUNCTION_SIGNATURES: Record<string, { args: Array<"number" | "series">; maxArgs?: number; returns: ValueType }> = {
+const FUNCTION_SIGNATURES: Record<string, { args: Array<"number" | "series">; minArgs?: number; returns: ValueType }> = {
   abs: { args: ["series"], returns: "series" },
   adx: { args: ["number"], returns: "series" },
   atr: { args: ["number"], returns: "series" },
@@ -252,7 +257,7 @@ const FUNCTION_SIGNATURES: Record<string, { args: Array<"number" | "series">; ma
   ema: { args: ["series", "number"], returns: "series" },
   force_index: { args: ["number"], returns: "series" },
   highest: { args: ["series", "number"], returns: "series" },
-  histvol: { args: ["series", "number"], returns: "series" },
+  histvol: { args: ["series", "number", "number"], minArgs: 2, returns: "series" },
   linreg: { args: ["series", "number"], returns: "series" },
   lowest: { args: ["series", "number"], returns: "series" },
   max: { args: ["series", "series"], returns: "series" },
@@ -549,7 +554,11 @@ function inferExpressionType(
     diagnostics.push(diagnostic("E_UNKNOWN_FUNCTION", line, 1, `Unknown function “${expression.name}”.`));
     return "series";
   }
-  if (expression.arguments.length !== signature.args.length) diagnostics.push(diagnostic("E_ARGUMENT_COUNT", line, 1, `${expression.name} expects ${signature.args.length} argument${signature.args.length === 1 ? "" : "s"}.`));
+  const minimumArgs = signature.minArgs ?? signature.args.length;
+  if (expression.arguments.length < minimumArgs || expression.arguments.length > signature.args.length) {
+    const count = minimumArgs === signature.args.length ? String(minimumArgs) : `${minimumArgs}–${signature.args.length}`;
+    diagnostics.push(diagnostic("E_ARGUMENT_COUNT", line, 1, `${expression.name} expects ${count} argument${signature.args.length === 1 ? "" : "s"}.`));
+  }
   expression.arguments.forEach((argument, index) => {
     const actual = inferExpressionType(argument, inputs, diagnostics, line);
     const expected = signature.args[index];
@@ -659,7 +668,7 @@ function evaluateCall(name: string, args: RuntimeValue[], context: ReturnType<ty
     case "mfi": return moneyFlowIndex(context.bars, period(0), budget);
     case "cmf": return chaikinMoneyFlow(context.bars, period(0), budget);
     case "force_index": return forceIndex(context.bars, period(0), budget);
-    case "histvol": return historicalVolatility(series(0), period(1), budget);
+    case "histvol": return historicalVolatility(series(0), period(1), budget, args.length > 2 ? clamp(Number(args[2]), 1, 1_000_000_000) : 252);
     case "choppiness": return choppinessIndex(context.bars, period(0), budget);
     case "min": return elementwise(series(0), series(1), Math.min, budget);
     case "max": return elementwise(series(0), series(1), Math.max, budget);
@@ -704,25 +713,21 @@ function rateOfChange(values: number[], period: number, budget: OperationBudget)
 }
 
 function relativeStrength(values: number[], period: number, budget: OperationBudget) {
-  budget.add(values.length * 2);
-  const result = values.map(() => Number.NaN);
-  let gains = 0;
-  let losses = 0;
-  for (let index = 1; index < values.length; index += 1) {
-    const delta = values[index] - values[index - 1];
-    gains += Math.max(0, delta); losses += Math.max(0, -delta);
-    if (index > period) { const removed = values[index - period] - values[index - period - 1]; gains -= Math.max(0, removed); losses -= Math.max(0, -removed); }
-    if (index >= period) result[index] = losses === 0 ? 100 : 100 - 100 / (1 + gains / losses);
-  }
-  return result;
-}
-
-function trueRanges(bars: Candle[]) {
-  return bars.map((bar, index) => index === 0 ? bar.high - bar.low : Math.max(bar.high - bar.low, Math.abs(bar.high - bars[index - 1].close), Math.abs(bar.low - bars[index - 1].close)));
+  budget.add(values.length * 5);
+  const changes = values.map((value, index) => index === 0 ? Number.NaN : value - values[index - 1]);
+  const gains = wilderAverage(changes.map((value) => Math.max(0, value)), period);
+  const losses = wilderAverage(changes.map((value) => Math.max(0, -value)), period);
+  return gains.map((gain, index) => {
+    const loss = losses[index];
+    if (!Number.isFinite(gain) || !Number.isFinite(loss)) return Number.NaN;
+    if (gain === 0 && loss === 0) return 50;
+    return loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  });
 }
 
 function averageTrueRange(bars: Candle[], period: number, budget: OperationBudget) {
-  return rollingMean(trueRanges(bars), period, budget);
+  budget.add(bars.length * 2);
+  return wilderAverage(trueRanges(bars), period);
 }
 
 function rollingDeviation(values: number[], period: number, budget: OperationBudget) {
@@ -760,19 +765,21 @@ function commodityChannel(bars: Candle[], period: number, budget: OperationBudge
 }
 
 function averageDirectionalIndex(bars: Candle[], period: number, budget: OperationBudget) {
-  budget.add(bars.length * 6);
+  budget.add(bars.length * 9);
   const tr = trueRanges(bars);
-  const plus = bars.map((bar, index) => index === 0 ? 0 : Math.max(0, bar.high - bars[index - 1].high) > Math.max(0, bars[index - 1].low - bar.low) ? Math.max(0, bar.high - bars[index - 1].high) : 0);
-  const minus = bars.map((bar, index) => index === 0 ? 0 : Math.max(0, bars[index - 1].low - bar.low) > Math.max(0, bar.high - bars[index - 1].high) ? Math.max(0, bars[index - 1].low - bar.low) : 0);
-  const atr = rollingMean(tr, period, budget);
-  const plusMean = rollingMean(plus, period, budget);
-  const minusMean = rollingMean(minus, period, budget);
+  if (tr.length > 0) tr[0] = Number.NaN;
+  const plus = bars.map((bar, index) => index === 0 ? Number.NaN : Math.max(0, bar.high - bars[index - 1].high) > Math.max(0, bars[index - 1].low - bar.low) ? Math.max(0, bar.high - bars[index - 1].high) : 0);
+  const minus = bars.map((bar, index) => index === 0 ? Number.NaN : Math.max(0, bars[index - 1].low - bar.low) > Math.max(0, bar.high - bars[index - 1].high) ? Math.max(0, bars[index - 1].low - bar.low) : 0);
+  const atr = wilderAverage(tr, period);
+  const plusMean = wilderAverage(plus, period);
+  const minusMean = wilderAverage(minus, period);
   const dx = bars.map((_, index) => {
-    if (!Number.isFinite(atr[index]) || atr[index] === 0) return Number.NaN;
+    if (!Number.isFinite(atr[index])) return Number.NaN;
+    if (atr[index] === 0) return 0;
     const plusDi = 100 * plusMean[index] / atr[index]; const minusDi = 100 * minusMean[index] / atr[index];
     return plusDi + minusDi === 0 ? 0 : 100 * Math.abs(plusDi - minusDi) / (plusDi + minusDi);
   });
-  return rollingMean(dx.map((value) => Number.isFinite(value) ? value : 0), period, budget);
+  return wilderAverage(dx, period);
 }
 
 function onBalanceVolume(bars: Candle[], budget: OperationBudget) {
@@ -789,8 +796,10 @@ function moneyFlowIndex(bars: Candle[], period: number, budget: OperationBudget)
     let positive = 0; let negative = 0;
     for (let cursor = index - period + 1; cursor <= index; cursor += 1) {
       const flow = typical[cursor] * bars[cursor].volume;
-      if (typical[cursor] >= typical[cursor - 1]) positive += flow; else negative += flow;
+      if (typical[cursor] > typical[cursor - 1]) positive += flow;
+      else if (typical[cursor] < typical[cursor - 1]) negative += flow;
     }
+    if (positive === 0 && negative === 0) return 50;
     return negative === 0 ? 100 : 100 - 100 / (1 + positive / negative);
   });
 }
@@ -814,9 +823,10 @@ function forceIndex(bars: Candle[], period: number, budget: OperationBudget) {
   return exponentialMean(raw, period, budget);
 }
 
-function historicalVolatility(values: number[], period: number, budget: OperationBudget) {
+function historicalVolatility(values: number[], period: number, budget: OperationBudget, periodsPerYear = 252) {
+  budget.add(values.length * 2);
   const returns = values.map((value, index) => index === 0 || value <= 0 || values[index - 1] <= 0 ? Number.NaN : Math.log(value / values[index - 1]));
-  return rollingDeviation(returns.map((value) => Number.isFinite(value) ? value : 0), period, budget).map((value) => value * Math.sqrt(252) * 100);
+  return rollingDeviation(returns, period, budget).map((value) => value * Math.sqrt(periodsPerYear) * 100);
 }
 
 function choppinessIndex(bars: Candle[], period: number, budget: OperationBudget) {
