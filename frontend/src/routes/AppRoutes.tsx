@@ -344,6 +344,7 @@ function initialUiRolloutState(): UiRolloutRuntimeState {
 
 export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const session = useAuthSession();
   const boundaryRef = useRef<HTMLDivElement>(null);
   const [rollout, setRollout] = useState(initialUiRolloutState);
   const group = routeGroup(location.pathname);
@@ -406,6 +407,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
 
   return (
     <div
+      key={session?.user.id ?? "anonymous"}
       className={`ui-route-transition ${modernUiEnabled ? "" : "ui-route-fallback"}`}
       data-route-group={group}
       data-ui-rollout-revision={rollout.revision}

@@ -1,4 +1,22 @@
 import { apiRequest } from "./api";
+import { getStoredAuthSession } from "./authSession";
+import { runJournalMutation } from "./journalMutationState";
+
+type JournalUpdate = { kind: "account"; account: JournalAccount } | { kind: "review"; trade: CanonicalTrade };
+const journalListeners = new Set<(update: JournalUpdate) => void>();
+export function subscribeJournalUpdates(listener: (update: JournalUpdate) => void) {
+  journalListeners.add(listener);
+  return () => { journalListeners.delete(listener); };
+}
+
+/** Keep a replacement interface current when a request from the previous one finishes. */
+function publishJournalUpdate(ownerId: number | undefined, update: JournalUpdate) {
+  if (ownerId && ownerId === getStoredAuthSession()?.user.id) journalListeners.forEach((listener) => listener(update));
+}
+
+export function latestJournalRecord<T extends { updated_at: string }>(incoming: T, confirmed?: T) {
+  return confirmed && Date.parse(confirmed.updated_at) >= Date.parse(incoming.updated_at) ? confirmed : incoming;
+}
 
 declare global {
   interface String {
@@ -251,8 +269,13 @@ export function listJournalAccounts(includeArchived = false) {
   return apiRequest<JournalAccount[]>(`/journal/accounts?include_archived=${includeArchived ? "true" : "false"}`);
 }
 
-export function createJournalAccount(payload: JournalAccountCreate) {
-  return apiRequest<JournalAccount>("/journal/accounts", { method: "POST", body: JSON.stringify(payload) });
+export async function createJournalAccount(payload: JournalAccountCreate) {
+  const ownerId = getStoredAuthSession()?.user.id;
+  return runJournalMutation("journal:account-create", async () => {
+    const account = await apiRequest<JournalAccount>("/journal/accounts", { method: "POST", body: JSON.stringify(payload) });
+    publishJournalUpdate(ownerId, { kind: "account", account });
+    return account;
+  });
 }
 
 export function listJournalTags() {
@@ -279,8 +302,13 @@ export function getCanonicalTrade(tradeId: number) {
   return apiRequest<CanonicalTrade>(`/journal/trades/${tradeId}`);
 }
 
-export function updateCanonicalTradeReview(tradeId: number, payload: CanonicalTradeReviewUpdate) {
-  return apiRequest<CanonicalTrade>(`/journal/trades/${tradeId}/review`, { method: "PATCH", body: JSON.stringify(payload) });
+export async function updateCanonicalTradeReview(tradeId: number, payload: CanonicalTradeReviewUpdate) {
+  const ownerId = getStoredAuthSession()?.user.id;
+  return runJournalMutation(`journal:review:${tradeId}`, async () => {
+    const trade = await apiRequest<CanonicalTrade>(`/journal/trades/${tradeId}/review`, { method: "PATCH", body: JSON.stringify(payload) });
+    publishJournalUpdate(ownerId, { kind: "review", trade });
+    return trade;
+  });
 }
 
 export function listJournalDailyNotes(options: { startDate?: string; endDate?: string; accountId?: number } = {}) {

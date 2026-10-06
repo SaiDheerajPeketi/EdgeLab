@@ -4,9 +4,11 @@ import { formatDateTime, formatMoney } from "../../lib/format";
 import {
   createJournalAccount, getCanonicalTrade, listCanonicalTrades, listJournalAccounts,
   updateCanonicalTradeReview, type CanonicalTrade, type JournalAccount,
-  type JournalSetupGrade,
+  latestJournalRecord, subscribeJournalUpdates,
 } from "../../lib/journalApi";
 import { journalDeepLink, parseJournalDeepLink } from "../../lib/journalWorkspaceState";
+import { emptyJournalAccountDraft, journalReviewDraft, useJournalDraft } from "../../lib/journalDrafts";
+import { useJournalMutationPending } from "../../lib/journalMutationState";
 
 const fieldClass = "mt-1 min-h-11 w-full min-w-0 border border-stone-600 bg-stone-900 px-3 text-sm text-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-50";
 const buttonClass = "min-h-11 border border-stone-500 px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-50";
@@ -18,13 +20,23 @@ export function CompatibilityJournalAccounts() {
   const [revision, setRevision] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [localSaving, setSaving] = useState(false);
+  const saving = useJournalMutationPending("journal:account-create") || localSaving;
   const [notice, setNotice] = useState("");
-  const [draft, setDraft] = useState(emptyAccount);
+  const [draft, setDraft, clearDraft] = useJournalDraft("journal:account-create", emptyJournalAccountDraft());
+  const confirmedAccounts = useRef(new Map<number, JournalAccount>());
+  useEffect(() => subscribeJournalUpdates((update) => {
+    if (update.kind !== "account") return;
+    confirmedAccounts.current.set(update.account.id, update.account);
+    setAccounts((current) => [...current.filter((account) => account.id !== update.account.id), update.account]);
+  }), []);
   useEffect(() => {
     let active = true;
     setLoading(true); setLoadError(null);
-    void listJournalAccounts(true).then((value) => { if (active) setAccounts(value); })
+    void listJournalAccounts(true).then((value) => { if (active) setAccounts([
+      ...value.map((account) => latestJournalRecord(account, confirmedAccounts.current.get(account.id))),
+      ...[...confirmedAccounts.current.values()].filter((account) => !value.some((item) => item.id === account.id)),
+    ]); })
       .catch((error) => { if (active) setLoadError(message(error, "Accounts could not be loaded. Refresh to retry.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -32,7 +44,7 @@ export function CompatibilityJournalAccounts() {
 
   async function create() {
     if (saving || loading) return;
-    const balance = Number(draft.balance);
+    const balance = Number(draft.initialBalance);
     if (!draft.name.trim() || !draft.currency.trim() || !draft.timezone.trim() || !Number.isFinite(balance) || balance < 0) {
       setSaveError("Enter an account name, currency, time zone, and a non-negative initial balance."); return;
     }
@@ -44,9 +56,10 @@ export function CompatibilityJournalAccounts() {
         name: draft.name.trim(), provider: draft.provider.trim() || "Manual",
         currency: draft.currency.trim().toUpperCase(), timezone: draft.timezone.trim(),
         initial_balance: balance, notes: draft.notes.trim() || null,
+        ...(draft.color !== emptyJournalAccountDraft().color ? { color: draft.color } : {}),
       });
       setAccounts((current) => [...current.filter((item) => item.id !== account.id), account]);
-      setDraft(emptyAccount()); setNotice(`Account ${account.name} created`);
+      clearDraft(undefined, draft); setNotice(`Account ${account.name} created`);
     } catch (error) { setSaveError(message(error, "Account could not be created. Your changes are kept; try again.")); }
     finally { setSaving(false); }
   }
@@ -73,7 +86,7 @@ export function CompatibilityJournalAccounts() {
         <Field label="Broker label"><input className={fieldClass} maxLength={80} value={draft.provider} onChange={(event) => setDraft({ ...draft, provider: event.target.value })} /></Field>
         <Field label="Currency"><input className={fieldClass} minLength={3} maxLength={12} pattern="[A-Za-z0-9]{3,12}" required value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value })} /></Field>
         <Field label="Time zone"><input className={fieldClass} maxLength={80} required value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} /></Field>
-        <Field label="Initial balance"><input className={fieldClass} min={0} step="any" type="number" required value={draft.balance} onChange={(event) => setDraft({ ...draft, balance: event.target.value })} /></Field>
+        <Field label="Initial balance"><input className={fieldClass} min={0} step="any" type="number" required value={draft.initialBalance} onChange={(event) => setDraft({ ...draft, initialBalance: event.target.value })} /></Field>
         <Field label="Account notes"><textarea className={`${fieldClass} py-2`} rows={3} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></Field>
       </fieldset>
       {saveError ? <p className="mt-3 text-rose-200" role="alert">{saveError}</p> : null}
@@ -98,6 +111,13 @@ export function CompatibilityJournalTrades() {
   const [selected, setSelected] = useState<CanonicalTrade | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [selectionLoading, setSelectionLoading] = useState(false);
+  const confirmedTrades = useRef(new Map<number, CanonicalTrade>());
+  useEffect(() => subscribeJournalUpdates((update) => {
+    if (update.kind !== "review") return;
+    confirmedTrades.current.set(update.trade.id, update.trade);
+    setSelected((current) => current?.id === update.trade.id ? update.trade : current);
+    setTrades((current) => current.map((trade) => trade.id === update.trade.id ? update.trade : trade));
+  }), []);
   useEffect(() => { setOffset(0); }, [accountId]);
   useEffect(() => {
     let active = true;
@@ -108,7 +128,7 @@ export function CompatibilityJournalTrades() {
   useEffect(() => {
     let active = true;
     setLoading(true); setLoadError(null); setTrades([]);
-    void listCanonicalTrades({ accountId, offset, limit: PAGE_SIZE }).then((value) => { if (active) setTrades(value); })
+    void listCanonicalTrades({ accountId, offset, limit: PAGE_SIZE }).then((value) => { if (active) setTrades(value.map((trade) => latestJournalRecord(trade, confirmedTrades.current.get(trade.id)))); })
       .catch((error) => { if (active) setLoadError(message(error, "Trades could not be loaded. Refresh to retry.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -116,7 +136,7 @@ export function CompatibilityJournalTrades() {
   useEffect(() => {
     let active = true;
     setSelected(null); setSelectionError(null); setSelectionLoading(tradeId != null);
-    if (tradeId != null) void getCanonicalTrade(tradeId).then((trade) => { if (active) setSelected(trade); })
+    if (tradeId != null) void getCanonicalTrade(tradeId).then((trade) => { if (active) setSelected(latestJournalRecord(trade, confirmedTrades.current.get(trade.id))); })
       .catch((error) => { if (active) setSelectionError(message(error, "This trade could not be opened. Refresh to retry.")); })
       .finally(() => { if (active) setSelectionLoading(false); });
     return () => { active = false; };
@@ -163,8 +183,9 @@ export function CompatibilityJournalTrades() {
 
 function TradeReview({ trade, onClose, onSaved }: { trade: CanonicalTrade; onClose: () => void; onSaved: (trade: CanonicalTrade) => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [draft, setDraft] = useState(() => ({ reviewed: trade.reviewed, rating: trade.rating?.toString() ?? "", grade: trade.setup_grade ?? "", note: "" }));
-  const [saving, setSaving] = useState(false);
+  const [draft, setDraft, clearDraft] = useJournalDraft(`journal:review:${trade.id}`, journalReviewDraft(trade));
+  const [localSaving, setSaving] = useState(false);
+  const saving = useJournalMutationPending(`journal:review:${trade.id}`) || localSaving;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   useEffect(() => { headingRef.current?.focus(); }, []);
@@ -172,8 +193,8 @@ function TradeReview({ trade, onClose, onSaved }: { trade: CanonicalTrade; onClo
     if (saving) return;
     setSaving(true); setError(null); setNotice("");
     try {
-      const saved = await updateCanonicalTradeReview(trade.id, { reviewed: draft.reviewed, rating: draft.rating ? Number(draft.rating) : null, setup_grade: draft.grade ? draft.grade as JournalSetupGrade : null, note: draft.note.trim() || null });
-      onSaved(saved); setDraft((current) => ({ ...current, note: "" })); setNotice("Review saved");
+      const saved = await updateCanonicalTradeReview(trade.id, { reviewed: draft.reviewed, rating: draft.rating, setup_grade: draft.setupGrade, note: draft.note.trim() || null });
+      onSaved(saved); clearDraft(["reviewed", "rating", "setupGrade", "note"], draft); setNotice("Review saved");
     } catch (caught) { setError(message(caught, "Review could not be saved. Your changes are kept; try again.")); }
     finally { setSaving(false); }
   }
@@ -182,8 +203,8 @@ function TradeReview({ trade, onClose, onSaved }: { trade: CanonicalTrade; onClo
     <p className="mt-1 text-sm text-stone-300">{formatDateTime(trade.entry_time)} · {trade.source_type.toLowerCase()}</p>
     <fieldset className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2" disabled={saving}>
       <label className="flex min-h-11 items-center gap-3 text-sm"><input className="h-11 w-11 shrink-0 accent-amber-300" checked={draft.reviewed} onChange={(event) => setDraft({ ...draft, reviewed: event.target.checked })} type="checkbox" />Reviewed</label>
-      <Field label="Rating"><select className={fieldClass} value={draft.rating} onChange={(event) => setDraft({ ...draft, rating: event.target.value })}><option value="">Unrated</option>{[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}</option>)}</select></Field>
-      <Field label="Setup grade"><select className={fieldClass} value={draft.grade} onChange={(event) => setDraft({ ...draft, grade: event.target.value })}><option value="">Ungraded</option>{["A+", "A", "B", "C", "D", "F"].map((grade) => <option key={grade}>{grade}</option>)}</select></Field>
+      <Field label="Rating"><select className={fieldClass} value={draft.rating ?? ""} onChange={(event) => setDraft({ ...draft, rating: event.target.value ? Number(event.target.value) : null })}><option value="">Unrated</option>{[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}</option>)}</select></Field>
+      <Field label="Setup grade"><select className={fieldClass} value={draft.setupGrade ?? ""} onChange={(event) => setDraft({ ...draft, setupGrade: (event.target.value || null) as typeof draft.setupGrade })}><option value="">Ungraded</option>{["A+", "A", "B", "C", "D", "F"].map((grade) => <option key={grade}>{grade}</option>)}</select></Field>
       <Field label="Review note"><textarea className={`${fieldClass} py-2`} rows={4} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></Field>
     </fieldset>
     {trade.notes.length ? <ul className="mt-4 space-y-2" aria-label="Saved trade notes">{trade.notes.map((note) => <li className="break-words whitespace-pre-wrap text-sm text-stone-300" key={note.id}>{note.body}</li>)}</ul> : null}
@@ -194,5 +215,4 @@ function TradeReview({ trade, onClose, onSaved }: { trade: CanonicalTrade; onClo
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block min-w-0 text-sm text-stone-300">{label}{children}</label>; }
-function emptyAccount() { return { name: "", provider: "Manual", currency: "USD", timezone: "UTC", balance: "0", notes: "" }; }
 function message(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback; }

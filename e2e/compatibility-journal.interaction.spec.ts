@@ -74,7 +74,7 @@ test("trade review persists exact canonical values through fallback and modern r
         })),
       })), null, 2), contentType: "application/json" });
     }
-    await page.screenshot({ animations: "disabled", fullPage: testInfo.project.name === "mobile", path: `.impeccable/review/compatibility-journal-review-${testInfo.project.name}.png` });
+    await page.screenshot({ animations: "disabled", fullPage: true, path: `.impeccable/review/compatibility-journal-review-${testInfo.project.name}.png` });
   }
   await content.getByRole("button", { name: "Save review", exact: true }).scrollIntoViewIfNeeded();
   await expect(content.getByRole("button", { name: "Save review", exact: true })).toBeInViewport();
@@ -87,6 +87,7 @@ test("trade review persists exact canonical values through fallback and modern r
   expect(state.trade).toEqual(seedTrade);
   releaseReview();
   await expect.poll(() => state.trade.reviewed).toBe(true);
+  await expect(content.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("");
   expect(state.reviews).toEqual([{ body: reviewCanary, method: "PATCH", path: reviewPath }]);
   expect(state.trade.rating).toBe(4);
   expect(state.trade.setup_grade).toBe("A+");
@@ -100,7 +101,8 @@ test("trade review persists exact canonical values through fallback and modern r
   await expect(drawer.getByRole("switch", { name: "Trade reviewed", exact: true })).toHaveAttribute("aria-checked", "true");
   await expect(drawer.getByRole("button", { name: "4 star rating", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(drawer.getByRole("combobox", { name: "Setup grade", exact: true })).toHaveValue("A+");
-  await expect(drawer.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue(reviewCanary.note);
+  await expect(drawer.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("");
+  await expect(drawer.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText(reviewCanary.note);
 
   state.fallback = true;
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -161,7 +163,7 @@ test("manual account creation persists its exact canonical canary across rendere
         })),
       })), null, 2), contentType: "application/json" });
     }
-    await page.screenshot({ animations: "disabled", fullPage: testInfo.project.name === "mobile", path: `.impeccable/review/compatibility-journal-accounts-${testInfo.project.name}.png` });
+    await page.screenshot({ animations: "disabled", fullPage: true, path: `.impeccable/review/compatibility-journal-accounts-${testInfo.project.name}.png` });
   }
   await content.getByRole("button", { name: "Create account", exact: true }).scrollIntoViewIfNeeded();
   await expect(content.getByRole("button", { name: "Create account", exact: true })).toBeInViewport();

@@ -2,6 +2,8 @@
 
 Compatibility mode supports canonical Journal trade paging, account filtering, direct review links, review updates, and manual account creation. Review and account saves use the same server APIs as the current interface; failed saves keep the open form for retry.
 
+Manual account and trade-review drafts use shared, authenticated-owner-scoped session storage, surviving refreshes and switches between interfaces in the same tab. Compatibility review saves acknowledge only visible fields, retaining pending execution edits for the modern drawer. Modern reviews send only edited fields; saved notes remain separate from the empty new-note editor. Successful saves clear submitted values, Cancel discards the draft, and closing a review preserves it. Broker credentials are excluded from draft storage.
+
 The frontend is a React 18 and Vite application. It provides the public site, authentication flow, chart and replay workspaces, journal, reports, order flow, Quant assistant, settings, and shared-workspace views.
 
 ## Run it

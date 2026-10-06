@@ -14,6 +14,8 @@ import {
   syncBrokerConnectionToJournal,
   updateCanonicalTradeReview,
   upsertJournalDailyNote,
+  latestJournalRecord,
+  subscribeJournalUpdates,
   type CanonicalTrade,
   type CanonicalTradeCreate,
   type CanonicalTradeReviewUpdate,
@@ -56,6 +58,17 @@ export function useJournalData() {
   });
   const mountedRef = useRef(true);
   const initialLoadRef = useRef(false);
+  const confirmedAccounts = useRef(new Map<number, JournalAccount>());
+  const confirmedTrades = useRef(new Map<number, CanonicalTrade>());
+  useEffect(() => subscribeJournalUpdates((update) => {
+    if (update.kind === "account") {
+      confirmedAccounts.current.set(update.account.id, update.account);
+      setState((current) => ({ ...current, accounts: [...current.accounts.filter((account) => account.id !== update.account.id), update.account] }));
+    } else {
+      confirmedTrades.current.set(update.trade.id, update.trade);
+      setState((current) => ({ ...current, trades: current.trades.map((trade) => trade.id === update.trade.id ? update.trade : trade) }));
+    }
+  }), []);
 
   const fetchAll = useCallback(async (quiet = false) => {
     if (!quiet) setState((current) => ({ ...current, loading: true, error: null }));
@@ -64,7 +77,11 @@ export function useJournalData() {
         listJournalAccounts(), listCanonicalTrades(), listJournalTags(), listJournalDailyNotes(), listJournalImports(),
       ]);
       const scope = await hydrateJournalScope(accounts.map((account) => account.id));
-      if (mountedRef.current) setState((current) => ({ ...current, accounts, trades, tags, notes, imports, scope, loading: false, error: null }));
+      if (mountedRef.current) setState((current) => ({ ...current,
+        accounts: [...accounts.map((account) => latestJournalRecord(account, confirmedAccounts.current.get(account.id))), ...[...confirmedAccounts.current.values()].filter((account) => !accounts.some((item) => item.id === account.id))],
+        trades: trades.map((trade) => latestJournalRecord(trade, confirmedTrades.current.get(trade.id))),
+        tags, notes, imports, scope, loading: false, error: null,
+      }));
       return { accounts, trades, tags, notes, imports };
     } catch (error) {
       if (mountedRef.current) setState((current) => ({ ...current, loading: false, error: errorMessage(error, "Journal data could not be loaded.") }));
@@ -126,7 +143,11 @@ export function useJournalData() {
     clearError: () => setState((current) => ({ ...current, error: null })),
     refresh: () => fetchAll(false),
     setScope,
-    addAccount: (payload: JournalAccountCreate) => action(() => createJournalAccount(payload)),
+    addAccount: async (payload: JournalAccountCreate) => {
+      const account = await action(() => createJournalAccount(payload), { reload: false });
+      if (mountedRef.current) setState((current) => ({ ...current, accounts: [...current.accounts.filter((item) => item.id !== account.id), account] }));
+      return account;
+    },
     addTag: (payload: { category: JournalTagCategory; name: string; color?: string | null }) => action(() => createJournalTag(payload)),
     addTrade: (payload: CanonicalTradeCreate) => action(() => createCanonicalTrade(payload)),
     updateReview: async (tradeId: number, payload: CanonicalTradeReviewUpdate) => {

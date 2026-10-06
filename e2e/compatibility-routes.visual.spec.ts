@@ -160,7 +160,8 @@ async function expectJournalWriteCanary(page: Page, contract: CompatibilityRoute
       await expect(page.getByRole("switch", { name: "Trade reviewed", exact: true })).toBeChecked();
       await expect(page.getByRole("button", { name: "4 star rating", exact: true })).toHaveAttribute("aria-pressed", "true");
       await expect(page.getByRole("combobox", { name: "Setup grade", exact: true })).toHaveValue("A+");
-      await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("Rollback review canary");
+      await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("");
+      await expect(page.getByRole("list", { name: "Saved trade notes", exact: true })).toContainText("Rollback review canary");
     } else {
       await expect(page.getByLabel("Reviewed", { exact: true })).toBeChecked();
       await expect(page.getByRole("combobox", { name: "Rating", exact: true })).toHaveValue("4");

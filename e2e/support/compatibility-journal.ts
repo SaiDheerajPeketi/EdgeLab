@@ -92,11 +92,13 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
     fallback: true,
     failReview: false,
     failAccount: false,
+    failAccountRead: false,
     reviewGate: null as Promise<void> | null,
     accountGate: null as Promise<void> | null,
     trade: structuredClone(seedTrade),
     tradePage: null as CanonicalTrade[] | null,
     accounts: [structuredClone(seedAccount)],
+    accountPage: null as JournalAccount[] | null,
     reads: [] as string[],
     reviews: [] as Array<{ method: string; path: string; body: CanonicalTradeReviewUpdate }>,
     creations: [] as Array<{ method: string; path: string; body: JournalAccountCreate }>,
@@ -122,19 +124,23 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
         await route.fulfill({ json: { detail: "Review storage unavailable" }, status: 500 });
         return;
       }
+      const { note, tag_ids: _tagIds, screenshot_urls: _screenshotUrls, ...fields } = body;
       state.trade = {
         ...state.trade,
+        ...fields,
         reviewed: body.reviewed ?? state.trade.reviewed,
         rating: body.rating === undefined ? state.trade.rating : body.rating,
         setup_grade: body.setup_grade === undefined ? state.trade.setup_grade : body.setup_grade,
-        reviewed_at: body.reviewed ? timestamp : null,
-        notes: body.note ? [{ id: 83_201, kind: "REVIEW", body: body.note, created_at: timestamp }] : [],
+        reviewed_at: body.reviewed === undefined ? state.trade.reviewed_at : body.reviewed ? timestamp : null,
+        notes: note ? [...state.trade.notes, { id: 83_201 + state.trade.notes.length, kind: "REVIEW", body: note, created_at: timestamp }] : state.trade.notes,
         updated_at: timestamp,
       };
       await route.fulfill({ json: state.trade });
-    } else if (path === `/api/journal/trades/${tradeId}`) {
+    } else if (/^\/api\/journal\/trades\/\d+$/.test(path)) {
       expect(method).toBe("GET");
-      await route.fulfill({ json: state.trade });
+      const id = Number(path.split("/").at(-1));
+      const trade = id === state.trade.id ? state.trade : state.tradePage?.find((item) => item.id === id);
+      await route.fulfill(trade ? { json: trade } : { json: { detail: "Trade not found" }, status: 404 });
     } else if (path === "/api/journal/trades") {
       expect(method).toBe("GET");
       const accountId = url.searchParams.get("account_id");
@@ -168,7 +174,7 @@ export async function installJournalFixture(page: Page, { setup = true }: { setu
         await route.fulfill({ json: created, status: 201 });
       } else {
         expect(method).toBe("GET");
-        await route.fulfill({ json: state.accounts });
+        await route.fulfill(state.failAccountRead ? { json: { detail: "Account list unavailable" }, status: 500 } : { json: state.accountPage ?? state.accounts });
       }
     } else if (path === "/api/journal/backfill") {
       await route.fulfill({ json: {
