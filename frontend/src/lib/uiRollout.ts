@@ -10,11 +10,11 @@ export type CompatibilityRouteParity = {
   kind: CompatibilityParityKind;
   sessionSource: "auth-session" | "route-session";
   draftKey: string | null;
-  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "replay-layout";
-  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "restore-replay-layout";
+  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "replay-layout";
+  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "restore-replay-layout";
   actionExemption: string | null;
   requiredViewports: typeof UI_COMPATIBILITY_VIEWPORTS;
-  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "chart-replay-layout";
+  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-replay-layout";
   canarySpec?: string;
   reasonSource: string;
 };
@@ -51,6 +51,11 @@ const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> 
     primaryAction: "save-journal-settings" as const, testCaseId: "journal-settings-save" as const,
     reasonSource: "frontend/src/components/settings/useJournalSettings.ts", canarySpec: "e2e/compatibility-journal-settings.interaction.spec.ts",
   }])),
+  "/app/settings/backtest": {
+    kind: "writable", draftKey: "settings:backtest-defaults", savedDataRead: "backtest-settings",
+    primaryAction: "save-backtest-settings", testCaseId: "backtest-settings-save",
+    reasonSource: "frontend/src/components/settings/useBacktestSettings.ts", canarySpec: "e2e/compatibility-backtest-settings.interaction.spec.ts",
+  },
   "/app/journal/dashboard": {
     kind: "writable", draftKey: "journal:daily-note:{date}:{accountId|shared}", savedDataRead: "journal-daily-notes",
     primaryAction: "save-daily-note", testCaseId: "journal-daily-note-save", reasonSource: "frontend/src/lib/journalApi.ts#upsertJournalDailyNote",

@@ -55,7 +55,7 @@ export const SETTINGS_CONTROLS: SettingsControl[] = [
   control("backtest", "default-quantity", "Default quantity", "Quantity used to prefill new fixed-size orders.", ["contracts", "lots", "units"]),
   control("backtest", "default-risk", "Default risk", "Percent used to prefill risk-sized orders.", ["percent", "risk per trade"]),
   control("backtest", "risk-basis", "Risk balance basis", "Calculate percent risk from current or initial balance.", ["current balance", "initial balance", "equity"]),
-  control("backtest", "trading-costs", "Commissions and fees", "Default cost modes and values for new orders.", ["brokerage", "commission", "fee", "cost"]),
+  control("backtest", "trading-costs", "Commissions and fees", "Default cost modes and values for new replay sessions.", ["brokerage", "commission", "fee", "cost"]),
   control("backtest", "line-confirmation", "Chart-line confirmation", "Require confirmation before a chart line changes an order.", ["order line", "safety", "confirm"]),
   control("chart", "chart-preset", "Chart visual preset", "Stage chart defaults and save them for the next workspace load.", ["grid", "text", "time format", "colors", "theme"]),
   control("appearance", "settings-density", "Settings density", "Adjust spacing in this settings workspace.", ["compact", "comfortable", "spacing"]),

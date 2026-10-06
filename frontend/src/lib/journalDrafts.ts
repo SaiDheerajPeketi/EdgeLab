@@ -1,6 +1,7 @@
 import { useRef, useState, useSyncExternalStore, type SetStateAction } from "react";
 import { getStoredAuthSession, subscribeAuthSession } from "./authSession";
 import type { CanonicalTrade, CanonicalTradeReviewUpdate, JournalSetupGrade } from "./journalApi";
+import type { BacktestDefaults } from "./backtestSettingsModel";
 import { navigationStateFor, reloadNavigationStateForAuth, updateNavigationState, type NavigationSurfaceId } from "./navigationState";
 
 export function emptyJournalAccountDraft() {
@@ -28,7 +29,7 @@ export function journalReviewDraft(trade: CanonicalTrade | null) {
 
 export type JournalAccountDraft = ReturnType<typeof emptyJournalAccountDraft>;
 export type JournalReviewDraft = ReturnType<typeof journalReviewDraft>;
-type Draft = JournalAccountDraft | JournalReviewDraft | { body: string } | { default_broker: string; default_currency: string; default_entry_type: "TAKEN" | "MISSED"; require_account_for_taken_trades: boolean };
+type Draft = JournalAccountDraft | JournalReviewDraft | BacktestDefaults | { body: string } | { default_broker: string; default_currency: string; default_entry_type: "TAKEN" | "MISSED"; require_account_for_taken_trades: boolean };
 type DraftEdits<T> = Partial<T>;
 type DraftEnvelope = { __schemaVersion: number; value: unknown };
 const VERSION = 1;
@@ -131,6 +132,13 @@ function draftOwner() {
 }
 
 function validField(key: string, value: unknown, base: Draft) {
+  if ("sizingMode" in base) {
+    if (key === "sizingMode") return value === "quantity" || value === "risk";
+    if (key === "riskBase") return value === "CURRENT_BALANCE" || value === "INITIAL_BALANCE";
+    if (key === "commissionMode" || key === "feeMode") return typeof value === "string" && ["NONE", "FIXED", "PERCENT"].includes(value);
+    if (key === "lineConfirmation") return typeof value === "boolean";
+    return typeof value === "string" && value.length <= 100;
+  }
   if (key === "default_entry_type") return value === "TAKEN" || value === "MISSED";
   if (key === "default_currency") return typeof value === "string" && value.length <= 3;
   if (key === "default_broker") return typeof value === "string" && value.length <= 80;

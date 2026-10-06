@@ -18,6 +18,8 @@ The frontend is a React 18 and Vite application. It provides the public site, au
 
 Both `/app/journal/settings` and `/app/settings/journal` provide capture defaults and review note templates in either interface. Saves report success after server confirmation; validation, independent retry, owner-scoped drafts, and pending saves survive interface switches. Only changed capture fields are sent, and journal records are preserved when other journal writes are queued during a defaults save. Settings revalidate when reopened; note templates retain their exact multiline text.
 
+`/app/settings/backtest` provides all eleven order and replay preferences in both interfaces. Choices save immediately; valid numeric edits wait 600 ms. Each changed key requires its own server acknowledgment, so partial failures retain only unconfirmed edits for explicit retry. Owner-scoped drafts and failed-attempt recovery survive reloads and interface switches; later edits are preserved while earlier saves finish. Undo and section reset include chart-line confirmation. Confirmed sizing values prefill new orders, confirmation governs future chart-line changes, and commission/fee defaults prefill new replay sessions; existing sessions keep their own costs. Changing a cost mode preserves its inactive numeric values.
+
 ## Run it
 
 Install the root workspace dependencies, then start the frontend:

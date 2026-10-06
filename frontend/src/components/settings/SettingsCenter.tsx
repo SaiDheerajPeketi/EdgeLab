@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -28,11 +28,6 @@ import {
   type DatasetRefreshStatus,
 } from "../../lib/api";
 import {
-  hydrateOrderLineModificationConfirmation,
-  loadOrderLineModificationConfirmation,
-  saveOrderLineModificationConfirmation,
-} from "../../lib/backtestSettings";
-import {
   DEFAULT_CHART_VISUAL_SETTINGS,
   hydrateChartSettingsPresets,
   loadActiveChartSettingsPreset,
@@ -40,41 +35,8 @@ import {
   type ChartVisualSettings,
 } from "../../lib/chartSettings";
 import { clearStoredAuthSession, getStoredAuthSession } from "../../lib/authSession";
-import {
-  hydrateOrderCommissionFixed,
-  hydrateOrderCommissionMode,
-  hydrateOrderCommissionPercent,
-  hydrateOrderDefaultQuantity,
-  hydrateOrderDefaultRiskPercent,
-  hydrateOrderFeeFixed,
-  hydrateOrderFeeMode,
-  hydrateOrderFeePercent,
-  hydrateOrderRiskBase,
-  hydrateOrderSizingMode,
-  loadOrderCommissionFixed,
-  loadOrderCommissionMode,
-  loadOrderCommissionPercent,
-  loadOrderDefaultQuantity,
-  loadOrderDefaultRiskPercent,
-  loadOrderFeeFixed,
-  loadOrderFeeMode,
-  loadOrderFeePercent,
-  loadOrderRiskBase,
-  loadOrderSizingMode,
-  saveOrderCommissionFixed,
-  saveOrderCommissionMode,
-  saveOrderCommissionPercent,
-  saveOrderDefaultQuantity,
-  saveOrderDefaultRiskPercent,
-  saveOrderFeeFixed,
-  saveOrderFeeMode,
-  saveOrderFeePercent,
-  saveOrderRiskBase,
-  saveOrderSizingMode,
-  type OrderCommissionMode,
-  type OrderRiskBase,
-  type OrderSizingMode,
-} from "../../lib/orderSettings";
+import { BacktestSettingsPanel } from "./BacktestSettingsPanel";
+import { useBacktestSettings } from "./useBacktestSettings";
 import { useJournalSettings, RESET_JOURNAL_SETTINGS, type SettingsJournalDefaults } from "./useJournalSettings";
 export type { SettingsJournalDefaults } from "./useJournalSettings";
 import {
@@ -115,15 +77,6 @@ type Props = {
   onUpdateJournalDefaults: (payload: Partial<SettingsJournalDefaults>) => void;
 };
 
-type CostDraft = {
-  commissionFixed: string;
-  commissionMode: OrderCommissionMode;
-  commissionPercent: string;
-  feeFixed: string;
-  feeMode: OrderCommissionMode;
-  feePercent: string;
-};
-
 type UndoAction = { label: string; run: () => void };
 
 const CATEGORY_ICONS: Record<SettingsCategoryId, LucideIcon> = {
@@ -160,16 +113,7 @@ export function SettingsCenter({
   const activeChart = loadActiveChartSettingsPreset()?.settings ?? DEFAULT_CHART_VISUAL_SETTINGS;
   const [chartBaseline, setChartBaseline] = useState<ChartVisualSettings>(activeChart);
   const [chartDraft, setChartDraft] = useState<ChartVisualSettings>(activeChart);
-  const [sizingMode, setSizingMode] = useState<OrderSizingMode>(() => loadOrderSizingMode());
-  const [riskBase, setRiskBase] = useState<OrderRiskBase>(() => loadOrderRiskBase());
-  const [quantity, setQuantity] = useState(() => loadOrderDefaultQuantity());
-  const [riskPercent, setRiskPercent] = useState(() => loadOrderDefaultRiskPercent());
-  const [costs, setCosts] = useState<CostDraft>(() => currentCosts());
-  const [lineConfirmation, setLineConfirmation] = useState(() => loadOrderLineModificationConfirmation());
-  const quantitySavedRef = useRef(quantity);
-  const riskSavedRef = useRef(riskPercent);
-  const costsSavedRef = useRef(costs);
-  const hydratedRef = useRef(false);
+  const backtestSettings = useBacktestSettings();
   const [datasetRootBaseline, setDatasetRootBaseline] = useState(datasets?.root ?? "");
   const [datasetRoot, setDatasetRoot] = useState(datasets?.root ?? "");
   const [refreshStatus, setRefreshStatus] = useState<DatasetRefreshStatus | null>(null);
@@ -182,7 +126,7 @@ export function SettingsCenter({
 
   const chartDirty = !same(chartDraft, chartBaseline);
   const datasetRootDirty = datasetRoot !== datasetRootBaseline;
-  const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty || journalSettings.journalPending || journalSettings.notePending;
+  const hasDirty = journalDirty || noteDirty || chartDirty || datasetRootDirty || journalSettings.journalPending || journalSettings.notePending || backtestSettings.dirty || backtestSettings.pending;
 
   const save = useCallback(async (key: string, action: () => Promise<unknown> | unknown) => {
     setSaveStates((current) => ({ ...current, [key]: "saving" }));
@@ -200,69 +144,14 @@ export function SettingsCenter({
     void Promise.all([
       hydrateSettingsPreferences(),
       hydrateChartSettingsPresets(),
-      hydrateOrderSizingMode(), hydrateOrderRiskBase(), hydrateOrderDefaultQuantity(), hydrateOrderDefaultRiskPercent(),
-      hydrateOrderCommissionMode(), hydrateOrderCommissionFixed(), hydrateOrderCommissionPercent(),
-      hydrateOrderFeeMode(), hydrateOrderFeeFixed(), hydrateOrderFeePercent(),
-      hydrateOrderLineModificationConfirmation(),
-    ]).then(([nextPreferences, presets, nextSizing, nextRiskBase, nextQuantity, nextRisk, commissionMode, commissionFixed, commissionPercent, feeMode, feeFixed, feePercent, nextConfirmation]) => {
+    ]).then(([nextPreferences, presets]) => {
       if (cancelled) return;
-      const nextCosts = { commissionMode, commissionFixed, commissionPercent, feeMode, feeFixed, feePercent };
       setPreferences(nextPreferences);
       const nextChart = loadActiveChartSettingsPreset(presets)?.settings ?? DEFAULT_CHART_VISUAL_SETTINGS;
       setChartBaseline(nextChart); setChartDraft(nextChart);
-      setSizingMode(nextSizing); setRiskBase(nextRiskBase);
-      quantitySavedRef.current = nextQuantity; setQuantity(nextQuantity);
-      riskSavedRef.current = nextRisk; setRiskPercent(nextRisk);
-      costsSavedRef.current = nextCosts; setCosts(nextCosts);
-      setLineConfirmation(nextConfirmation);
-      hydratedRef.current = true;
-    }).catch(() => {
-      hydratedRef.current = true;
-      setSaveStates((current) => ({ ...current, hydration: "error" }));
-    });
+    }).catch(() => setSaveStates((current) => ({ ...current, hydration: "error" })));
     return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    if (!hydratedRef.current || quantity === quantitySavedRef.current) return;
-    if (!positiveNumber(quantity)) return;
-    setSaveStates((current) => ({ ...current, quantity: "saving" }));
-    const timer = window.setTimeout(() => {
-      void saveOrderDefaultQuantity(quantity).then(() => {
-        quantitySavedRef.current = quantity;
-        setSaveStates((current) => ({ ...current, quantity: "saved" }));
-      }).catch(() => setSaveStates((current) => ({ ...current, quantity: "error" })));
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [quantity]);
-
-  useEffect(() => {
-    if (!hydratedRef.current || riskPercent === riskSavedRef.current) return;
-    if (!validRisk(riskPercent)) return;
-    setSaveStates((current) => ({ ...current, risk: "saving" }));
-    const timer = window.setTimeout(() => {
-      void saveOrderDefaultRiskPercent(riskPercent).then(() => {
-        riskSavedRef.current = riskPercent;
-        setSaveStates((current) => ({ ...current, risk: "saved" }));
-      }).catch(() => setSaveStates((current) => ({ ...current, risk: "error" })));
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [riskPercent]);
-
-  useEffect(() => {
-    if (!hydratedRef.current || same(costs, costsSavedRef.current) || costError(costs)) return;
-    setSaveStates((current) => ({ ...current, costs: "saving" }));
-    const timer = window.setTimeout(() => {
-      void Promise.all([
-        saveOrderCommissionFixed(costs.commissionFixed), saveOrderCommissionPercent(costs.commissionPercent),
-        saveOrderFeeFixed(costs.feeFixed), saveOrderFeePercent(costs.feePercent),
-      ]).then(() => {
-        costsSavedRef.current = costs;
-        setSaveStates((current) => ({ ...current, costs: "saved" }));
-      }).catch(() => setSaveStates((current) => ({ ...current, costs: "error" })));
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [costs]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -421,7 +310,7 @@ export function SettingsCenter({
             {SETTINGS_CATEGORIES.map((item) => {
               const Icon = CATEGORY_ICONS[item.id];
               const selected = item.id === category;
-              const status = categoryStatus(item.id, { datasets, journalDirty, noteDirty, chartDirty, datasetRootDirty, signedIn: Boolean(authSession) });
+              const status = categoryStatus(item.id, { datasets, journalDirty, noteDirty, chartDirty, datasetRootDirty, backtestDirty: backtestSettings.dirty || backtestSettings.pending, signedIn: Boolean(authSession) });
               return <button key={item.id} type="button" aria-current={selected ? "page" : undefined} onClick={() => navigate(item.id)} className={`flex min-h-10 w-full items-center gap-2.5 rounded-md px-2.5 text-start text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${selected ? "bg-white/10 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"}`}><Icon aria-hidden="true" className="h-4 w-4 shrink-0" /><span className="ui-resilient-text min-w-0 flex-1" dir="auto">{item.label}</span>{status ? <span className={`shrink-0 text-[11px] ${status === "Unsaved" ? "text-amber-200" : "text-zinc-400"}`}>{status}</span> : null}</button>;
             })}
           </nav>
@@ -447,15 +336,7 @@ export function SettingsCenter({
               </fieldset>
             </SettingsSection>
           </> : null}
-          {category === "backtest" ? <BacktestSettings
-            costs={costs} lineConfirmation={lineConfirmation} quantity={quantity} riskBase={riskBase} riskPercent={riskPercent} saveStates={saveStates} sizingMode={sizingMode}
-            onCostsChange={setCosts} onQuantityChange={setQuantity} onRiskPercentChange={setRiskPercent}
-            onLineConfirmationChange={(next) => setImmediate("line", "Chart-line confirmation changed", lineConfirmation, next, saveOrderLineModificationConfirmation, setLineConfirmation)}
-            onRiskBaseChange={(next) => setImmediate("risk-base", "Risk balance basis changed", riskBase, next, saveOrderRiskBase, setRiskBase)}
-            onSizingModeChange={(next) => setImmediate("sizing", "Order sizing mode changed", sizingMode, next, saveOrderSizingMode, setSizingMode)}
-            onCommissionModeChange={(next) => setImmediate("commission-mode", "Commission mode changed", costs.commissionMode, next, saveOrderCommissionMode, (value) => { costsSavedRef.current = { ...costsSavedRef.current, commissionMode: value }; setCosts((current) => ({ ...current, commissionMode: value })); })}
-            onFeeModeChange={(next) => setImmediate("fee-mode", "Fee mode changed", costs.feeMode, next, saveOrderFeeMode, (value) => { costsSavedRef.current = { ...costsSavedRef.current, feeMode: value }; setCosts((current) => ({ ...current, feeMode: value })); })}
-          /> : null}
+          {category === "backtest" ? <BacktestSettingsPanel settings={backtestSettings} /> : null}
           {category === "chart" ? <ChartSettings draft={chartDraft} baseline={chartBaseline} saveState={saveStates.chart} onChange={setChartDraft} onReset={() => setChartDraft(DEFAULT_CHART_VISUAL_SETTINGS)} onSave={() => void saveChart()} /> : null}
           {category === "appearance" ? <AppearanceSettings chartDraft={chartDraft} chartBaseline={chartBaseline} preferences={preferences} saveState={saveStates.preferences} onChartChange={setChartDraft} onSaveChart={() => void saveChart()} onPreferenceChange={(next) => setImmediate("preferences", "Settings density changed", preferences, next, saveSettingsPreferences, setPreferences)} /> : null}
           {category === "data-providers" ? <>
@@ -477,26 +358,6 @@ function GlobalSettings() {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "System default";
   const sample = new Intl.NumberFormat(locale === "Unavailable" ? undefined : locale, { maximumFractionDigits: 2 }).format(12345.67);
   return <SettingsSection title="Effective regional behavior" description="EdgeLab currently follows this browser. These system values are read-only so the interface never implies a server preference that does not exist."><SettingRow controlId="regional-format" label="Language, time zone, and number format" description="Used for human-readable dates and numbers unless a dataset or session provides its own time zone." scope="System" effective={`${locale} · ${timeZone}`}><dl className="grid gap-2 text-sm"><div className="flex justify-between gap-3"><dt className="text-zinc-400">Language</dt><dd>{locale}</dd></div><div className="flex justify-between gap-3"><dt className="text-zinc-400">Time zone</dt><dd className="text-right">{timeZone}</dd></div><div className="flex justify-between gap-3"><dt className="text-zinc-400">Number sample</dt><dd>{sample}</dd></div></dl></SettingRow></SettingsSection>;
-}
-
-function BacktestSettings(props: {
-  costs: CostDraft; lineConfirmation: boolean; quantity: string; riskBase: OrderRiskBase; riskPercent: string; sizingMode: OrderSizingMode; saveStates: Record<string, SaveState>;
-  onCostsChange: (value: CostDraft) => void; onQuantityChange: (value: string) => void; onRiskPercentChange: (value: string) => void;
-  onLineConfirmationChange: (value: boolean) => void; onRiskBaseChange: (value: OrderRiskBase) => void; onSizingModeChange: (value: OrderSizingMode) => void;
-  onCommissionModeChange: (value: OrderCommissionMode) => void; onFeeModeChange: (value: OrderCommissionMode) => void;
-}) {
-  return <SettingsSection title="New-order defaults" description="Immediate choices apply to the next order. Numeric fields debounce for 600 ms after valid input; active orders are unchanged." onReset={() => { props.onSizingModeChange("quantity"); props.onRiskBaseChange("CURRENT_BALANCE"); props.onQuantityChange("100000"); props.onRiskPercentChange("1"); props.onCommissionModeChange("NONE"); props.onFeeModeChange("NONE"); props.onCostsChange({ commissionMode: "NONE", commissionFixed: "0", commissionPercent: "0", feeMode: "NONE", feeFixed: "0", feePercent: "0" }); }}>
-    <SettingRow controlId="sizing-mode" label="Order sizing mode" description="Fixed quantity uses units; percent risk requires a protective stop." effective={props.sizingMode === "quantity" ? "Fixed quantity" : "Percent risk"} saveState={props.saveStates.sizing}><select aria-label="Order sizing mode" value={props.sizingMode} onChange={(event) => props.onSizingModeChange(event.target.value as OrderSizingMode)} className={fieldClassName}><option value="quantity">Fixed quantity</option><option value="risk">Percent risk</option></select></SettingRow>
-    <SettingRow controlId="default-quantity" label="Default quantity" description="Positive units used to prefill new fixed-size orders." validation={positiveNumber(props.quantity) ? null : "Enter a number greater than zero."} saveState={props.saveStates.quantity}><div className="relative"><input inputMode="decimal" value={props.quantity} onChange={(event) => props.onQuantityChange(event.target.value)} className={`${fieldClassName} pr-16`} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">units</span></div></SettingRow>
-    <SettingRow controlId="default-risk" label="Default risk" description="Percent of the selected balance basis used for new risk-sized orders." validation={validRisk(props.riskPercent) ? null : "Enter a percentage greater than 0 and no more than 100."} saveState={props.saveStates.risk}><div className="relative"><input inputMode="decimal" value={props.riskPercent} onChange={(event) => props.onRiskPercentChange(event.target.value)} className={`${fieldClassName} pr-10`} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">%</span></div></SettingRow>
-    <SettingRow controlId="risk-basis" label="Risk balance basis" description="Choose whether percent risk follows current equity or the original session balance." effective={props.riskBase === "CURRENT_BALANCE" ? "Current balance" : "Initial balance"} saveState={props.saveStates["risk-base"]}><select aria-label="Risk balance basis" value={props.riskBase} onChange={(event) => props.onRiskBaseChange(event.target.value as OrderRiskBase)} className={fieldClassName}><option value="CURRENT_BALANCE">Current balance</option><option value="INITIAL_BALANCE">Initial balance</option></select></SettingRow>
-    <SettingRow controlId="trading-costs" label="Commissions and fees" description="Modes save immediately. Valid numeric values debounce and apply to new orders only." validation={costError(props.costs)} saveState={props.saveStates.costs}><div className="space-y-3"><CostEditor label="Commission" mode={props.costs.commissionMode} fixed={props.costs.commissionFixed} percent={props.costs.commissionPercent} onMode={props.onCommissionModeChange} onFixed={(value) => props.onCostsChange({ ...props.costs, commissionFixed: value })} onPercent={(value) => props.onCostsChange({ ...props.costs, commissionPercent: value })} /><CostEditor label="Fee" mode={props.costs.feeMode} fixed={props.costs.feeFixed} percent={props.costs.feePercent} onMode={props.onFeeModeChange} onFixed={(value) => props.onCostsChange({ ...props.costs, feeFixed: value })} onPercent={(value) => props.onCostsChange({ ...props.costs, feePercent: value })} /></div></SettingRow>
-    <SettingRow controlId="line-confirmation" label="Chart-line confirmation" description="Ask before dragging a chart line changes a pending order." effective={props.lineConfirmation ? "Required" : "Not required"} saveState={props.saveStates.line}><SettingsToggle checked={props.lineConfirmation} label="Require chart-line confirmation" onChange={props.onLineConfirmationChange} /></SettingRow>
-  </SettingsSection>;
-}
-
-function CostEditor({ label, mode, fixed, percent, onMode, onFixed, onPercent }: { label: string; mode: OrderCommissionMode; fixed: string; percent: string; onMode: (value: OrderCommissionMode) => void; onFixed: (value: string) => void; onPercent: (value: string) => void }) {
-  return <fieldset><legend className="mb-1 text-xs font-medium text-zinc-400">{label}</legend><div className="grid grid-cols-[minmax(7rem,1fr)_minmax(0,1fr)] gap-2"><select aria-label={`${label} mode`} value={mode} onChange={(event) => onMode(event.target.value as OrderCommissionMode)} className={fieldClassName}><option value="NONE">None</option><option value="FIXED">Fixed</option><option value="PERCENT">Percent</option></select>{mode === "NONE" ? <div className="grid min-h-10 place-items-center rounded-md border border-white/8 text-xs text-zinc-400">No value</div> : <div className="relative"><input inputMode="decimal" value={mode === "FIXED" ? fixed : percent} onChange={(event) => mode === "FIXED" ? onFixed(event.target.value) : onPercent(event.target.value)} className={`${fieldClassName} pr-9`} aria-label={`${label} ${mode === "FIXED" ? "fixed amount" : "percentage"}`} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">{mode === "FIXED" ? "amt" : "%"}</span></div>}</div></fieldset>;
 }
 
 function ChartSettings({ draft, baseline, saveState, onChange, onReset, onSave }: { draft: ChartVisualSettings; baseline: ChartVisualSettings; saveState?: SaveState; onChange: (value: ChartVisualSettings) => void; onReset: () => void; onSave: () => void }) {
@@ -549,17 +410,14 @@ function PrivacySettings({ preferences, saveState, onPreferenceChange }: { prefe
   </SettingsSection>;
 }
 
-function categoryStatus(category: SettingsCategoryId, state: { datasets: DatasetCatalog | null; journalDirty: boolean; noteDirty: boolean; chartDirty: boolean; datasetRootDirty: boolean; signedIn: boolean }) {
+function categoryStatus(category: SettingsCategoryId, state: { datasets: DatasetCatalog | null; journalDirty: boolean; noteDirty: boolean; chartDirty: boolean; datasetRootDirty: boolean; backtestDirty: boolean; signedIn: boolean }) {
+  if (category === "backtest" && state.backtestDirty) return "Unsaved";
   if (category === "journal" && (state.journalDirty || state.noteDirty)) return "Unsaved";
   if ((category === "chart" || category === "appearance") && state.chartDirty) return "Unsaved";
   if (category === "data-providers") return state.datasetRootDirty ? "Unsaved" : `${state.datasets?.instruments.length ?? 0}`;
   if (category === "account") return state.signedIn ? "Signed in" : "Signed out";
   if (category === "ai") return "Off";
   return null;
-}
-
-function currentCosts(): CostDraft {
-  return { commissionMode: loadOrderCommissionMode(), commissionFixed: loadOrderCommissionFixed(), commissionPercent: loadOrderCommissionPercent(), feeMode: loadOrderFeeMode(), feeFixed: loadOrderFeeFixed(), feePercent: loadOrderFeePercent() };
 }
 
 function assetValues(asset: DatasetCatalog["instruments"][number] | null): AssetDraft {
@@ -581,11 +439,4 @@ function refreshText(status: DatasetRefreshStatus | null, datasets: DatasetCatal
 }
 
 function positiveNumber(value: string) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0; }
-function validRisk(value: string) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 && parsed <= 100; }
-function nonNegative(value: string) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0; }
-function costError(costs: CostDraft) {
-  if (!nonNegative(costs.commissionFixed) || !nonNegative(costs.commissionPercent) || !nonNegative(costs.feeFixed) || !nonNegative(costs.feePercent)) return "Cost values must be zero or greater.";
-  if (Number(costs.commissionPercent) > 100 || Number(costs.feePercent) > 100) return "Percentage costs cannot exceed 100%.";
-  return null;
-}
 function same(left: unknown, right: unknown) { return JSON.stringify(left) === JSON.stringify(right); }
