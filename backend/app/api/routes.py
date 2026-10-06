@@ -44,6 +44,7 @@ from app.market_data_db import MarketDataSessionLocal
 from app.models import (
     AppStorageItem,
     BacktestSession,
+    BacktestSessionSummary,
     BetaSession,
     BetaUser,
     DatasetAsset,
@@ -68,6 +69,7 @@ from app.models import (
     Position,
     Trade,
     TradeNote,
+    UserDashboardSummary,
     utcnow,
 )
 from app.schemas import (
@@ -394,7 +396,7 @@ def bundle_row_to_model(model: type, payload: dict[str, object]) -> object:
     return model(**values)
 
 
-def validate_app_data_bundle(bundle: AppDataBundle) -> None:
+def validate_app_data_bundle(bundle: AppDataBundle, db: Session, user_id: int) -> None:
     unknown_tables = sorted(set(bundle.tables) - APP_DATA_TABLE_NAMES)
     if unknown_tables:
         raise HTTPException(
@@ -408,6 +410,65 @@ def validate_app_data_bundle(bundle: AppDataBundle) -> None:
             status_code=413,
             detail=f"Import bundle exceeds the {settings.max_app_data_rows} row limit",
         )
+
+    # Portable IDs preserve replay/review deep links, but never grant ownership
+    # of existing rows. Validate the complete graph before replacement begins.
+    if type(bundle.version) is not int or bundle.version != 1:
+        raise HTTPException(status_code=400, detail="Import requires an EdgeLab version 1 bundle")
+    ids: dict[str, set[int]] = {}
+    for table_name, model in APP_DATA_TABLES:
+        columns = model.__table__.columns
+        table_ids: set[int] = set()
+        for row in bundle.tables.get(table_name, []):
+            if set(row) - set(columns.keys()):
+                raise HTTPException(status_code=400, detail=f"Import table {table_name} contains unsupported fields")
+            row_id = row.get("id")
+            if type(row_id) is not int or not 0 < row_id <= 2**63 - 1 or row_id in table_ids:
+                raise HTTPException(status_code=400, detail=f"Import table {table_name} requires distinct positive integer IDs")
+            table_ids.add(row_id)
+            for column in columns:
+                if column.name in {"id", "user_id"}:
+                    continue
+                if row.get(column.name) is None and not column.nullable and column.default is None and column.server_default is None:
+                    raise HTTPException(status_code=400, detail=f"Import table {table_name} is missing a required field")
+        ids[table_name] = table_ids
+
+    for table_name, model in APP_DATA_TABLES:
+        incoming_ids = list(ids[table_name])
+        for start in range(0, len(incoming_ids), APP_DATA_IMPORT_BATCH_SIZE):
+            foreign_id = db.scalar(select(model.id).where(
+                model.id.in_(incoming_ids[start:start + APP_DATA_IMPORT_BATCH_SIZE]),
+                model.user_id.is_distinct_from(user_id),
+            ).limit(1))
+            if foreign_id is not None:
+                raise HTTPException(status_code=400, detail=f"Import table {table_name} contains an unavailable ID")
+        for column in model.__table__.columns:
+            if column.name == "user_id":
+                continue  # The authenticated owner replaces every supplied user_id.
+            for foreign_key in column.foreign_keys:
+                values = set()
+                for row in bundle.tables.get(table_name, []):
+                    value = row.get(column.name)
+                    if value is None:
+                        continue
+                    if type(value) is not int or not 0 < value <= 2**63 - 1:
+                        raise HTTPException(status_code=400, detail=f"Import table {table_name} contains an invalid reference")
+                    values.add(value)
+                target = foreign_key.column.table
+                if target.name in ids:
+                    found = ids[target.name]
+                else:
+                    # The only retained target is an owned broker account;
+                    # never accept an unrestricted reference to another owner.
+                    found = set()
+                    reference_ids = list(values)
+                    for start in range(0, len(reference_ids), APP_DATA_IMPORT_BATCH_SIZE):
+                        found.update(db.scalars(select(foreign_key.column).where(
+                            foreign_key.column.in_(reference_ids[start:start + APP_DATA_IMPORT_BATCH_SIZE]),
+                            target.c.user_id == user_id,
+                        )).all())
+                if not values.issubset(found):
+                    raise HTTPException(status_code=400, detail=f"Import table {table_name} references missing or unavailable rows")
 
 
 def dataset_error_response(exc: Exception) -> HTTPException:
@@ -1546,7 +1607,7 @@ def export_app_data(
                 select(model).where(model.user_id == current_user.id)
             ).all()
         ]
-    return AppDataBundle(exported_at=utcnow(), tables=tables)
+    return AppDataBundle(app="edgelab", version=1, exported_at=utcnow(), tables=tables)
 
 
 @router.post("/app-data/import", response_model=AppDataImportResult)
@@ -1557,11 +1618,13 @@ def import_app_data(
 ) -> AppDataImportResult:
     if bundle.app != "edgelab":
         raise HTTPException(status_code=400, detail="Import file is not an EdgeLab data bundle")
-    if bundle.version > 1:
-        raise HTTPException(status_code=400, detail="Import bundle version is newer than this app supports")
-    validate_app_data_bundle(bundle)
+    validate_app_data_bundle(bundle, db, current_user.id)
 
     try:
+        # Summaries are derived, not portable. Even SQLite without FK cascades
+        # must recompute them from the replacement records after import.
+        for model in (BacktestSessionSummary, UserDashboardSummary):
+            db.query(model).filter(model.user_id == current_user.id).delete(synchronize_session=False)
         for _table_name, model in reversed(APP_DATA_TABLES):
             db.query(model).filter(model.user_id == current_user.id).delete(synchronize_session=False)
         db.flush()
@@ -1575,6 +1638,11 @@ def import_app_data(
                 model_row = bundle_row_to_model(model, row)
                 if hasattr(model_row, "user_id"):
                     model_row.user_id = current_user.id
+                if model is DatasetTimeframe:
+                    # Candle data is not in the bundle. Rebuild from the CSV
+                    # before database-backed readers can trust this timeframe.
+                    model_row.database_imported = False
+                    model_row.database_imported_at = None
                 batch.append(model_row)
                 if index % APP_DATA_IMPORT_BATCH_SIZE == 0:
                     db.add_all(batch)
@@ -1589,10 +1657,10 @@ def import_app_data(
             dataset_catalog_cache_scope(current_user.id),
         )
         return AppDataImportResult(imported_at=utcnow(), summary=summary)
-    except Exception as exc:
+    except Exception:
         db.rollback()
-        logger.exception("App data import failed")
-        raise HTTPException(status_code=400, detail="Import failed") from exc
+        logger.warning("App data import failed")
+        raise HTTPException(status_code=400, detail="Import failed") from None
 
 
 @router.get("/app-storage/{namespace}/{key}", response_model=AppStorageRead)

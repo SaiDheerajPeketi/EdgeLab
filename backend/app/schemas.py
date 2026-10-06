@@ -460,10 +460,11 @@ class FeedbackRead(BaseModel):
 
 
 class AppDataBundle(BaseModel):
-    app: Literal["edgelab"] = "edgelab"
-    version: int = 1
+    model_config = ConfigDict(extra="forbid")
+    app: Literal["edgelab"]
+    version: int = Field(strict=True, ge=1, le=1)
     exported_at: datetime | None = None
-    tables: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    tables: dict[str, list[dict[str, Any]]]
 
 
 class AppDataImportResult(BaseModel):
