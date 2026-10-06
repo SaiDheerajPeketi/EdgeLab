@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Candle } from "../lib/api";
+import { getApiBearerToken } from "../lib/api";
+import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import { FloatingWorkspacePanel } from "./ui/WorkspacePanelManager";
 import { IconButton } from "./ui/Primitives";
 import type { EdgeIndicatorInputValue } from "../lib/indicatorDsl";
@@ -67,6 +69,7 @@ type Props = {
 };
 
 type MicrophoneState = "not-requested" | "requesting" | "recording" | "transcribing" | "denied" | "error";
+type RecordingAttempt = { controller: AbortController; ownerId: number | null; token: string | null };
 type QuantSendRequest = {
   operation?: "CHART_ANALYSIS" | "GENERATE_INDICATOR" | "EDIT_INDICATOR" | "ANALYSIS_TO_INDICATOR";
   retry?: boolean;
@@ -107,7 +110,9 @@ export function QuantPanel({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
-  const cancelRecordingRef = useRef(false);
+  const recordingAttemptRef = useRef<RecordingAttempt | null>(null);
+  const recordingBytesRef = useRef(0);
+  const mountedRef = useRef(false);
   const recordingLimitRef = useRef<number | null>(null);
 
   const conversations = workspace.conversations.filter((conversation) => conversation.kind === kind);
@@ -118,7 +123,14 @@ export function QuantPanel({
   const busy = job?.status === "queued" || job?.status === "running";
 
   useEffect(() => {
+    mountedRef.current = true;
     let active = true;
+    const onAuthChange = () => {
+      const attempt = recordingAttemptRef.current;
+      if (attempt) ensureCurrentRecording(attempt);
+    };
+    const unsubscribe = subscribeAuthSession(onAuthChange);
+    window.addEventListener("edgelab:auth-session-change", onAuthChange);
     void Promise.all([hydrateQuantWorkspace(), hydrateQuantPreferences(), fetchQuantProviderStatus()]).then(([nextWorkspace, nextPreferences, nextProvider]) => {
       if (!active) return;
       setWorkspace(nextWorkspace);
@@ -129,8 +141,11 @@ export function QuantPanel({
     });
     return () => {
       active = false;
+      mountedRef.current = false;
+      unsubscribe();
+      window.removeEventListener("edgelab:auth-session-change", onAuthChange);
       void jobCancelRef.current?.();
-      stopMediaTracks();
+      invalidateRecording();
     };
   }, []);
 
@@ -147,10 +162,40 @@ export function QuantPanel({
   }
 
   function stopMediaTracks() {
+    if (recordingLimitRef.current != null) window.clearTimeout(recordingLimitRef.current);
+    recordingLimitRef.current = null;
+    const recorder = mediaRecorderRef.current;
+    if (recorder) {
+      recorder.onstop = null;
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+      if (recorder.state !== "inactive") {
+        try { recorder.stop(); } catch { /* Track cleanup still runs after a browser stop failure. */ }
+      }
+    }
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
     mediaRecorderRef.current = null;
     mediaChunksRef.current = [];
+    recordingBytesRef.current = 0;
+  }
+
+  function invalidateRecording() {
+    const attempt = recordingAttemptRef.current;
+    recordingAttemptRef.current = null;
+    attempt?.controller.abort();
+    stopMediaTracks();
+  }
+
+  function ensureCurrentRecording(attempt: RecordingAttempt) {
+    const current = mountedRef.current && recordingAttemptRef.current === attempt
+      && getApiBearerToken() === attempt.token && (getStoredAuthSession()?.user.id ?? null) === attempt.ownerId;
+    // Expiry can remove a session silently; release its attempt even without an identity event.
+    if (!current && recordingAttemptRef.current === attempt) {
+      invalidateRecording();
+      if (mountedRef.current) setMicrophone("not-requested");
+    }
+    return current;
   }
 
   function commitWorkspace(next: QuantWorkspace) {
@@ -294,6 +339,7 @@ export function QuantPanel({
   }
 
   async function startRecording() {
+    if (recordingAttemptRef.current) return;
     if (!provider.available) {
       setError("Dictation needs a configured Quant transcription provider.");
       return;
@@ -304,20 +350,49 @@ export function QuantPanel({
       return;
     }
     setMicrophone("requesting");
+    setError(null);
+    const attempt = { controller: new AbortController(), ownerId: getStoredAuthSession()?.user.id ?? null, token: getApiBearerToken() };
+    recordingAttemptRef.current = attempt;
     appendQuantAudit({ action: "microphone", contextFields: [], modelId: selectedModel?.id ?? null, status: "allowed" });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      if (!ensureCurrentRecording(attempt)) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       mediaStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       mediaChunksRef.current = [];
-      cancelRecordingRef.current = false;
-      recorder.ondataavailable = (event) => { if (event.data.size > 0) mediaChunksRef.current.push(event.data); };
-      recorder.onstop = () => void finishRecording(recorder.mimeType || "audio/webm");
+      recordingBytesRef.current = 0;
+      recorder.ondataavailable = (event) => {
+        if (!ensureCurrentRecording(attempt)) return;
+        if (event.data.size === 0) return;
+        recordingBytesRef.current += event.data.size;
+        if (recordingBytesRef.current > 5_000_000) {
+          invalidateRecording();
+          setMicrophone("error");
+          setError("Recording exceeds the 5 MB transcription limit.");
+          return;
+        }
+        mediaChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => void finishRecording(recorder.mimeType || "audio/webm", attempt);
+      recorder.onerror = () => {
+        if (!ensureCurrentRecording(attempt)) return;
+        invalidateRecording();
+        setMicrophone("error");
+        setError("The microphone recording failed. Try recording again.");
+      };
       recorder.start(250);
+      if (!ensureCurrentRecording(attempt)) return;
       setMicrophone("recording");
-      recordingLimitRef.current = window.setTimeout(() => recorder.state === "recording" && recorder.stop(), 60_000);
+      recordingLimitRef.current = window.setTimeout(() => {
+        if (ensureCurrentRecording(attempt) && recorder.state === "recording") recorder.stop();
+      }, 60_000);
     } catch (failure) {
+      if (!ensureCurrentRecording(attempt)) return;
+      invalidateRecording();
       const denied = failure instanceof DOMException && (failure.name === "NotAllowedError" || failure.name === "SecurityError");
       setMicrophone(denied ? "denied" : "error");
       setError(denied ? "Microphone permission was denied. Change the site permission to use dictation." : "The microphone could not be started.");
@@ -325,31 +400,40 @@ export function QuantPanel({
     }
   }
 
-  async function finishRecording(mimeType: string) {
-    if (recordingLimitRef.current != null) window.clearTimeout(recordingLimitRef.current);
-    const cancelled = cancelRecordingRef.current;
+  async function finishRecording(mimeType: string, attempt: RecordingAttempt) {
+    if (!ensureCurrentRecording(attempt)) return;
     const blob = new Blob(mediaChunksRef.current, { type: mimeType });
     stopMediaTracks();
-    if (cancelled) { setMicrophone("not-requested"); return; }
-    if (blob.size > 5_000_000) { setMicrophone("error"); setError("Recording exceeds the 5 MB transcription limit."); return; }
+    if (!blob.size || blob.size > 5_000_000) {
+      invalidateRecording();
+      setMicrophone("error");
+      setError(blob.size ? "Recording exceeds the 5 MB transcription limit." : "No audio was recorded. Try recording again.");
+      return;
+    }
     setMicrophone("transcribing");
     try {
-      const encoded = arrayBufferToBase64(await blob.arrayBuffer());
-      const text = await transcribeQuantAudio(encoded, mimeType);
-      setPrompt((current) => [current.trim(), text.trim()].filter(Boolean).join(" "));
+      const buffer = await blob.arrayBuffer();
+      if (!ensureCurrentRecording(attempt)) return;
+      const encoded = arrayBufferToBase64(buffer);
+      const text = await transcribeQuantAudio(encoded, mimeType, attempt.controller.signal);
+      if (!ensureCurrentRecording(attempt)) return;
+      setPrompt((current) => mountedRef.current && getApiBearerToken() === attempt.token
+        && (getStoredAuthSession()?.user.id ?? null) === attempt.ownerId
+        ? [current.trim(), text.trim()].filter(Boolean).join(" ") : current);
       setMicrophone("not-requested");
       appendQuantAudit({ action: "transcribe", contextFields: ["audio"], modelId: selectedModel?.id ?? null, status: "completed" });
     } catch (failure) {
+      if (!ensureCurrentRecording(attempt)) return;
       setMicrophone("error");
       setError(failure instanceof Error ? failure.message : "Audio transcription failed.");
       appendQuantAudit({ action: "transcribe", contextFields: ["audio"], modelId: selectedModel?.id ?? null, status: "failed" });
+    } finally {
+      if (recordingAttemptRef.current === attempt) invalidateRecording();
     }
   }
 
   function cancelRecording() {
-    cancelRecordingRef.current = true;
-    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
-    else stopMediaTracks();
+    invalidateRecording();
     setMicrophone("not-requested");
   }
 

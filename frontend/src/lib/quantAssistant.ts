@@ -473,10 +473,11 @@ export function parseQuantEventFrame(frame: string): { event: string; payload: R
   } catch { return null; }
 }
 
-export async function transcribeQuantAudio(data: string, mimeType: string) {
+export async function transcribeQuantAudio(data: string, mimeType: string, signal?: AbortSignal) {
   const response = await apiRequest<unknown>("/quant/transcriptions", {
     body: JSON.stringify({ audioBase64: data, mimeType }),
     method: "POST",
+    signal,
   });
   if (typeof response !== "object" || response == null || typeof (response as { text?: unknown }).text !== "string") throw new Error("The transcription service returned no editable text.");
   return (response as { text: string }).text.slice(0, 8_000);
