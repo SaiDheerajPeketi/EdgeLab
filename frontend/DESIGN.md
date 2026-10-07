@@ -45,6 +45,8 @@ The public hero's dimensional study uses 96 fixed synthetic OHLC candles, with P
 
 The indicator editor's community catalog extends the existing operating layout as a collapsible source browser. Original author, licence, Pine version, revision and source identity stay readable beside the draft; edited copies retain their upstream base. Preview before importing, distinguish experimental native execution from legacy migration, and keep catalog reload separate from replacing a saved script. Catalog controls and source links have 44px targets, visible focus, contained mobile widths and readable loading/error recovery. Downloads use the verified original bytes.
 
+Public startup must defer private compatibility surfaces and the dimensional scene. Keep the explicit Three.js bridge in its own deferred engine chunk so shared marketing content cannot pull it into the first page load. Compatibility navigation remains available while its selected lazy surface loads, with an accessible status message. Loading improvements preserve rollout fallback, deep links, existing visual baselines and the current performance budgets.
+
 ## Non-goals
 
 No LuxAlgo visual clone, decorative glass everywhere, novelty motion in repeated workflows, invented proof, or replacement of expert tools with simplified substitutes.

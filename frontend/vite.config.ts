@@ -16,11 +16,20 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, "/");
+          // Keep the lazy Three bridge separate from shared marketing components.
+          if (normalizedId.endsWith("/src/components/marketing/marketSceneThree.ts")) {
+            return "market-3d";
+          }
           if (!normalizedId.includes("/node_modules/")) {
             return undefined;
           }
           if (normalizedId.includes("/node_modules/three/")) {
             return "market-3d";
+          }
+          if (
+            /\/node_modules\/(?:motion|framer-motion|motion-dom|motion-utils)\//.test(normalizedId)
+          ) {
+            return "motion-vendor";
           }
           if (normalizedId.includes("/node_modules/lucide-react/")) {
             return "icon-vendor";

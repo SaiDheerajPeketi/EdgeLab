@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { getLatestBacktest } from "../../lib/api";
 import { getStoredAuthSession } from "../../lib/authSession";
@@ -7,15 +7,16 @@ import { loadAppStorageItem } from "../../lib/serverStorage";
 import { hydrateSettingsPreferences, saveSettingsPreferences, type SettingsPreferences } from "../../lib/settingsPreferences";
 import { buildAuthSignInHref } from "../../lib/authJourney";
 import { compatibilityDeepLink, UI_COMPATIBILITY_ROUTES, type UiRouteGroup } from "../../lib/uiRollout";
-import { CompatibilityJournalAccounts, CompatibilityJournalTrades } from "./CompatibilityJournal";
-import { CompatibilityJournalNotes } from "./CompatibilityJournalNotes";
-import { CompatibilityJournalAnalytics } from "./CompatibilityJournalAnalytics";
-import { CompatibilityJournalDashboard } from "./CompatibilityJournalDashboard";
-import { CompatibilityJournalSettings } from "./CompatibilityJournalSettings";
-import { CompatibilityBacktestSettings } from "./CompatibilityBacktestSettings";
-import { CompatibilitySessionPrivacySettings } from "./CompatibilitySessionPrivacySettings";
-import { CompatibilityStorageSettings } from "./CompatibilityStorageSettings";
-import { CompatibilityChartSettings } from "./CompatibilityChartSettings";
+const CompatibilityJournalAccounts = lazy(() => import("./CompatibilityJournal").then((module) => ({ default: module.CompatibilityJournalAccounts })));
+const CompatibilityJournalTrades = lazy(() => import("./CompatibilityJournal").then((module) => ({ default: module.CompatibilityJournalTrades })));
+const CompatibilityJournalNotes = lazy(() => import("./CompatibilityJournalNotes").then((module) => ({ default: module.CompatibilityJournalNotes })));
+const CompatibilityJournalAnalytics = lazy(() => import("./CompatibilityJournalAnalytics").then((module) => ({ default: module.CompatibilityJournalAnalytics })));
+const CompatibilityJournalDashboard = lazy(() => import("./CompatibilityJournalDashboard").then((module) => ({ default: module.CompatibilityJournalDashboard })));
+const CompatibilityJournalSettings = lazy(() => import("./CompatibilityJournalSettings").then((module) => ({ default: module.CompatibilityJournalSettings })));
+const CompatibilityBacktestSettings = lazy(() => import("./CompatibilityBacktestSettings").then((module) => ({ default: module.CompatibilityBacktestSettings })));
+const CompatibilitySessionPrivacySettings = lazy(() => import("./CompatibilitySessionPrivacySettings").then((module) => ({ default: module.CompatibilitySessionPrivacySettings })));
+const CompatibilityStorageSettings = lazy(() => import("./CompatibilityStorageSettings").then((module) => ({ default: module.CompatibilityStorageSettings })));
+const CompatibilityChartSettings = lazy(() => import("./CompatibilityChartSettings").then((module) => ({ default: module.CompatibilityChartSettings })));
 
 export function CompatibilityRouteRenderer({ group, revision }: { group: UiRouteGroup; revision: string }) {
   const location = useLocation();
@@ -41,7 +42,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
         </div>
         <p aria-atomic="true" className="border-t border-amber-800/70 bg-amber-950 px-4 py-1.5 text-xs text-amber-100" role="status">Compatibility interface active for {group}. Current deep link: <bdi>{deepLink}</bdi></p>
       </header>
-      <main className="mx-auto max-w-5xl p-5" id="compatibility-content">{content}</main>
+      <main className="mx-auto max-w-5xl p-5" id="compatibility-content"><Suspense fallback={<p role="status">Loading this workspace…</p>}>{content}</Suspense></main>
     </div>
   );
 }

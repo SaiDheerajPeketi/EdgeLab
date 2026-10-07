@@ -3,7 +3,6 @@ import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { DataTransferProvider } from "../components/settings/useDataTransfer";
-import { CompatibilityRouteRenderer } from "../components/compatibility/CompatibilityRouteRenderer";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { getAuthSession, getUiRolloutConfig } from "../lib/api";
 import {
@@ -30,6 +29,9 @@ import {
 
 const LandingPage = lazy(() =>
   import("../pages/LandingPage").then((module) => ({ default: module.LandingPage })),
+);
+const CompatibilityRouteRenderer = lazy(() =>
+  import("../components/compatibility/CompatibilityRouteRenderer").then((module) => ({ default: module.CompatibilityRouteRenderer })),
 );
 const PricingPage = lazy(() =>
   import("../pages/PricingPage").then((module) => ({ default: module.PricingPage })),
@@ -416,7 +418,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
       data-ui-version={modernUiEnabled ? "v2" : "fallback"}
       ref={boundaryRef}
     >
-      {modernUiEnabled ? children : <CompatibilityRouteRenderer group={group} revision={rollout.revision} />}
+      {modernUiEnabled ? children : <Suspense fallback={<AppRouteFallback />}><CompatibilityRouteRenderer group={group} revision={rollout.revision} /></Suspense>}
     </div></DataTransferProvider>
   );
 }

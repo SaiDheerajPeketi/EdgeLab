@@ -43,7 +43,7 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
     // Keep Three out of the public route's initial JS. Import only near the scene.
     const initialize = async () => {
       try {
-        const THREE = await import("three");
+        const THREE = await import("./marketSceneThree");
         if (disposed) return;
         const geometries = new Set<BufferGeometry>();
         const materials = new Set<Material>();
