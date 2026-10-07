@@ -89,6 +89,12 @@ jobs:
       - name: Run continuous landing demo and motion gate
         run: npx playwright test --config=e2e/landing-continuity52.config.ts
 
+      - name: Verify fixed OHLC software perspective geometry
+        run: node --test backend/tests/market-sculpture-projection.test.js
+
+      - name: Run dimensional landing fallback gate
+        run: npx playwright test --config=e2e/landing-sculpture60.config.ts
+
       - name: Publish low-power metrics summary
         if: always()
         shell: bash

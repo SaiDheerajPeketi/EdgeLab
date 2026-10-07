@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "rea
 import { Link, useLocation } from "react-router-dom";
 import { CapabilityStatusRail } from "../components/marketing/CapabilityStatusRail";
 import { TrustEvidence } from "../components/marketing/TrustEvidence";
+import { MarketSculpture } from "../components/marketing/MarketSculpture";
 import {
   buildMarketingNavItems,
   MarketingShell,
@@ -13,7 +14,6 @@ import { useReducedMotionPreference } from "../lib/motionPreferences";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 const HeroDemo = lazy(() => import("../components/marketing/HeroDemo").then((module) => ({ default: module.HeroDemo })));
-const MarketSculpture = lazy(() => import("../components/marketing/MarketSculpture").then((module) => ({ default: module.MarketSculpture })));
 const PricingSection = lazy(() => import("../components/marketing/PricingSection").then((module) => ({ default: module.PricingSection })));
 const PricingFaq = lazy(() => import("../components/marketing/PricingSection").then((module) => ({
   default: () => <module.FaqAccordion items={module.pricingFaqItems} />,
@@ -164,7 +164,7 @@ function MarketTape() {
       ref={rootRef}
       role="region"
     >
-      <div className="relative z-10 hidden items-center border-r border-white/10 bg-[#080d12] px-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 sm:flex">
+      <div className="relative z-10 flex items-center border-r border-white/10 bg-[#080d12] px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 sm:px-4">
         Demo feed
       </div>
       <div className="relative min-w-0 overflow-hidden">
@@ -249,7 +249,7 @@ export function LandingPage() {
             <div className="grid gap-8 sm:gap-12 lg:min-h-[650px] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center lg:gap-x-8 lg:gap-y-16">
               <div className="order-1 min-w-0">
                 <h1
-                  className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[0.95] tracking-[-0.05em] text-white"
+                  className="max-w-4xl text-balance text-[clamp(3rem,6.4vw,6rem)] font-medium leading-[0.95] tracking-[-0.04em] text-white"
                   data-marketing-reveal="title"
                   data-motion="reveal"
                   data-reveal-delay="0.03"
@@ -300,7 +300,7 @@ export function LandingPage() {
                 </p> : null}
               </div>
 
-              <div className="order-3 min-w-0 origin-top scroll-mt-28 lg:col-span-2" data-landing-stage data-scroll-scene data-marketing-flow id="live-preview" tabIndex={-1}>
+              <div className="order-2 min-w-0 origin-top scroll-mt-28 lg:order-3 lg:col-span-2" data-landing-stage data-scroll-scene data-marketing-flow id="live-preview" tabIndex={-1}>
                 <div className="landing-motion-content" data-scene-content>
                   <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
                   <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
@@ -309,8 +309,8 @@ export function LandingPage() {
                   </p>
                 </div>
               </div>
-              <div className="order-2 min-w-0" data-marketing-flow>
-                <Suspense fallback={<div className="flex min-h-[460px] items-center px-6 text-sm text-slate-300">Preparing the market scene…</div>}><MarketSculpture /></Suspense>
+              <div className="order-3 min-w-0 lg:order-2" data-marketing-flow>
+                <MarketSculpture />
               </div>
             </div>
 

@@ -1,21 +1,14 @@
 import { ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useReducedMotionPreference } from "../../lib/motionPreferences";
-import { createDemoMarket, generateDemoBars } from "../../lib/demoMarket";
+import { CANDLES, PRICE_SCALE, ENTRY_INDEX, EXIT_INDEX, FLOOR_Y, STOP_PRICE, WORLD_YAW, CAMERA_FOV, candlePosition, priceY } from "../../lib/marketSculptureGeometry";
+import { MarketSculptureProjection } from "./MarketSculptureProjection";
 import type { BufferGeometry, InstancedMesh, Material, Object3D, WebGLRenderer } from "three";
 
 type Chapter = "price" | "decisions" | "review";
-type SceneControl = { chapter(value: Chapter): void; orbit(x: number, y: number): void; reset(): void };
+type SceneControl = { chapter(value: Chapter): void; view(yaw: number, pitch: number): void };
 const ORBIT_KEYS: Record<string, [number, number]> = { ArrowLeft: [-0.08, 0], ArrowRight: [0.08, 0], ArrowUp: [0, -0.06], ArrowDown: [0, 0.06] };
 
-// A fixed, synthetic session: selecting a chapter never changes the underlying prices.
-const EXAMPLE_BARS = generateDemoBars(createDemoMarket({ seed: 81 }), 96).bars;
-const MAX_VOLUME = Math.max(...EXAMPLE_BARS.map((bar) => bar.volume));
-const CANDLES = EXAMPLE_BARS.map((bar) => ({ ...bar, volume: bar.volume / MAX_VOLUME }));
-const PRICE_LOW = Math.min(...CANDLES.map((bar) => bar.low));
-const PRICE_HIGH = Math.max(...CANDLES.map((bar) => bar.high));
-const PRICE_SCALE = 8 / (PRICE_HIGH - PRICE_LOW);
-const PRICE_CENTER = (PRICE_LOW + PRICE_HIGH) / 2;
 const CHAPTERS: { id: Chapter; label: string; title: string; detail: string }[] = [
   { id: "price", label: "Price", title: "96 moments. One market context.", detail: "A fixed example session, from first candle to last. Up and down bodies preserve the same OHLC path in every view." },
   { id: "decisions", label: "Decisions", title: "Attach the reason to the moment.", detail: "Example: mark the pullback at candle 44, define a stop, then record the exit at candle 82. The price path stays unchanged." },
@@ -29,11 +22,60 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
   const chapterRef = useRef<Chapter>("price");
   const [chapter, setChapter] = useState<Chapter>("price");
   const [status, setStatus] = useState<"loading" | "ready" | "fallback">("loading");
+  const [view, setView] = useState({ yaw: 0, pitch: 0 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const [size, setSize] = useState({ width: 600, height: 500 });
+  const [projectionScroll, setProjectionScroll] = useState(0);
+  const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
   const reducedMotion = useReducedMotionPreference();
+  const orbit = (x: number, y: number) => setView((current) => ({
+    yaw: Math.max(-0.42, Math.min(0.42, current.yaw + x)),
+    pitch: Math.max(-0.3, Math.min(0.3, current.pitch + y)),
+  }));
+  const reset = () => setView({ yaw: 0, pitch: 0 });
   chapterRef.current = chapter;
   const content = CHAPTERS.find((item) => item.id === chapter)!;
 
   useEffect(() => { controlRef.current?.chapter(chapter); }, [chapter]);
+  useEffect(() => { controlRef.current?.view(view.yaw, view.pitch); }, [view]);
+
+  useEffect(() => {
+    const mount = canvasRef.current;
+    if (!mount) return;
+    const resize = () => {
+      const width = Math.max(1, mount.clientWidth), height = Math.max(1, mount.clientHeight);
+      setSize((current) => current.width === width && current.height === height ? current : { width, height });
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(mount);
+    resize();
+    return () => observer.disconnect();
+  }, []);
+
+  // The projected scene keeps the same scroll perspective without an animation loop.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || status === "ready") return;
+    let frame = 0, visible = false;
+    const render = () => {
+      frame = 0;
+      if (!visible || document.hidden) return;
+      const rect = host.getBoundingClientRect();
+      const next = reducedMotion ? 0 : Math.max(-1, Math.min(1, (window.innerHeight * 0.45 - rect.top) / window.innerHeight));
+      setProjectionScroll((current) => current === next ? current : next);
+    };
+    const request = () => { if (!frame && visible && !document.hidden) frame = requestAnimationFrame(render); };
+    const visibility = () => {
+      host.dataset.sceneActive = String(visible && !document.hidden);
+      if (!visible || document.hidden) { cancelAnimationFrame(frame); frame = 0; } else request();
+    };
+    const observer = new IntersectionObserver(([entry]) => { visible = entry?.isIntersecting ?? false; visibility(); });
+    observer.observe(host);
+    document.addEventListener("visibilitychange", visibility);
+    if (!reducedMotion) window.addEventListener("scroll", request, { passive: true });
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); document.removeEventListener("visibilitychange", visibility); window.removeEventListener("scroll", request); };
+  }, [reducedMotion, status]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -53,8 +95,8 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
         let renderer: WebGLRenderer | null = null;
         let frame = 0;
         let visible = true;
-        let dragging: { id: number; x: number; y: number } | null = null;
-        let yaw = 0, pitch = 0, scroll = 0;
+        let { yaw, pitch } = viewRef.current;
+        let scroll = 0;
         const scene = new THREE.Scene();
         const world = new THREE.Group();
         scene.add(world);
@@ -78,6 +120,9 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
         canvas.style.display = "block";
         canvas.style.width = "100%";
         canvas.style.height = "100%";
+        canvas.style.position = "absolute";
+        canvas.style.inset = "0";
+        canvas.style.opacity = "0";
         mount.appendChild(canvas);
         const disposeResources = () => {
           window.cancelAnimationFrame(frame);
@@ -89,7 +134,7 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
           canvas.remove();
         };
         cleanScene = disposeResources;
-        const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+        const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
         scene.add(new THREE.AmbientLight(0xd6f6ff, 1.2));
         const key = new THREE.DirectionalLight(0xe2fcff, 3);
         key.position.set(-5, 10, 6);
@@ -103,8 +148,8 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
         const wicks = remember(new THREE.InstancedMesh(bodyGeometry, new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.3 }), CANDLES.length));
         const volume = remember(new THREE.InstancedMesh(bodyGeometry, new THREE.MeshBasicMaterial({ color: 0x2c97a8, transparent: true, opacity: 0.42 }), CANDLES.length));
         const dummy = new THREE.Object3D();
-        const toY = (price: number) => (price - PRICE_CENTER) * PRICE_SCALE;
-        const position = (index: number) => ({ x: (index - 47.5) * 0.18, z: Math.sin(index * 0.055) * 1.75 });
+        const toY = priceY;
+        const position = candlePosition;
         CANDLES.forEach((bar, index) => {
           const { x, z } = position(index);
           const tint = new THREE.Color(bar.close >= bar.open ? "#55e6bb" : "#fa7893");
@@ -121,18 +166,18 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
         world.add(bodies, wicks, volume);
         // A measured floor places candles in real perspective, without changing their prices.
         const gridPoints: number[] = [];
-        for (let x = -10; x <= 10; x += 2) gridPoints.push(x, -4.35, -4, x, -4.35, 4);
-        for (let z = -4; z <= 4; z += 1) gridPoints.push(-10, -4.35, z, 10, -4.35, z);
+        for (let x = -10; x <= 10; x += 2) gridPoints.push(x, FLOOR_Y, -4, x, FLOOR_Y, 4);
+        for (let z = -4; z <= 4; z += 1) gridPoints.push(-10, FLOOR_Y, z, 10, FLOOR_Y, z);
         const grid = remember(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(gridPoints, 3)), new THREE.LineBasicMaterial({ color: 0x275464, transparent: true, opacity: 0.45 })));
         world.add(grid);
         const decisions = new THREE.Group();
         const review = new THREE.Group();
-        const landmarks = [44, 82].map((index) => {
+        const landmarks = [ENTRY_INDEX, EXIT_INDEX].map((index) => {
           const bar = CANDLES[index];
           const { x, z } = position(index);
-          const marker = remember(new THREE.Mesh(new THREE.OctahedronGeometry(0.25), new THREE.MeshStandardMaterial({ color: index === 44 ? 0x32d3ee : 0xfbbf24, emissive: index === 44 ? 0x083c46 : 0x4a3004, roughness: 0.25 })));
+          const marker = remember(new THREE.Mesh(new THREE.OctahedronGeometry(0.25), new THREE.MeshStandardMaterial({ color: index === ENTRY_INDEX ? 0x32d3ee : 0xfbbf24, emissive: index === ENTRY_INDEX ? 0x083c46 : 0x4a3004, roughness: 0.25 })));
           marker.position.set(x, toY(bar.high) + 0.9, z);
-          const stem = remember(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, -4.35, z), marker.position]), new THREE.LineBasicMaterial({ color: index === 44 ? 0x32d3ee : 0xfbbf24, transparent: true, opacity: 0.6 })));
+          const stem = remember(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, FLOOR_Y, z), marker.position]), new THREE.LineBasicMaterial({ color: index === ENTRY_INDEX ? 0x32d3ee : 0xfbbf24, transparent: true, opacity: 0.6 })));
           decisions.add(marker, stem);
           const ring = remember(new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.022, 6, 48), new THREE.MeshBasicMaterial({ color: 0x32d3ee })));
           ring.rotation.x = Math.PI / 2;
@@ -142,8 +187,9 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
         });
         const trail = remember(new THREE.Line(new THREE.BufferGeometry().setFromPoints([landmarks[0], new THREE.Vector3(landmarks[0].x, landmarks[1].y, landmarks[0].z), landmarks[1]]), new THREE.LineBasicMaterial({ color: 0x32d3ee })));
         review.add(trail);
-        const stop = remember(new THREE.Mesh(new THREE.BoxGeometry(6.85, 0.035, 0.4), new THREE.MeshBasicMaterial({ color: 0xfb7185, transparent: true, opacity: 0.7 })));
-        stop.position.set(2.8, toY(CANDLES[44].low) - 0.3, position(44).z);
+        const stopStart = position(ENTRY_INDEX), stopEnd = position(EXIT_INDEX);
+        const stop = remember(new THREE.Mesh(new THREE.BoxGeometry(stopEnd.x - stopStart.x, 0.035, 0.4), new THREE.MeshBasicMaterial({ color: 0xfb7185, transparent: true, opacity: 0.7 })));
+        stop.position.set((stopStart.x + stopEnd.x) / 2, toY(STOP_PRICE), stopStart.z);
         decisions.add(stop);
         world.add(decisions, review);
 
@@ -156,15 +202,16 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
           const distance = Math.max(20, 29 / camera.aspect);
           camera.position.set(Math.sin(angle) * distance, distance * 0.34 + pitch * 6 + scroll * 0.9, Math.cos(angle) * distance);
           camera.lookAt(0, -0.8, 0);
-          world.rotation.y = -0.08;
-          renderer.render(scene, camera);
-          host.dataset.camera = `${yaw.toFixed(2)},${pitch.toFixed(2)}`;
+          world.rotation.y = WORLD_YAW;
+          try { renderer.render(scene, camera); }
+          catch { setStatus("fallback"); cleanScene(); return; }
+          canvas.style.opacity = "1";
+          setStatus((current) => current === "ready" ? current : "ready");
           host.dataset.renderCount = String(Number(host.dataset.renderCount ?? 0) + 1);
         };
         const requestRender = () => { if (!disposed && visible && !document.hidden && !frame) frame = window.requestAnimationFrame(render); };
-        const orbit = (x: number, y: number) => { yaw = Math.max(-0.42, Math.min(0.42, yaw + x)); pitch = Math.max(-0.3, Math.min(0.3, pitch + y)); requestRender(); };
         const setChapter = (value: Chapter) => { decisions.visible = value !== "price"; review.visible = value === "review"; requestRender(); };
-        controlRef.current = { chapter: setChapter, orbit, reset() { yaw = 0; pitch = 0; requestRender(); } };
+        controlRef.current = { chapter: setChapter, view(nextYaw, nextPitch) { yaw = nextYaw; pitch = nextPitch; requestRender(); } };
         setChapter(chapterRef.current);
         const resize = () => {
           if (!renderer) return;
@@ -184,31 +231,16 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
         });
         visibilityObserver.observe(host);
         const visibility = () => { host.dataset.sceneActive = String(visible && !document.hidden); if (document.hidden) { window.cancelAnimationFrame(frame); frame = 0; } else requestRender(); };
-        const pointerDown = (event: PointerEvent) => {
-          // Vertical touch gestures keep scrolling the page; use the buttons on mobile.
-          if (event.pointerType === "touch" || event.button !== 0) return;
-          dragging = { id: event.pointerId, x: event.clientX, y: event.clientY };
-          mount.setPointerCapture(event.pointerId);
-        };
-        const pointerMove = (event: PointerEvent) => { if (!dragging || event.pointerId !== dragging.id) return; orbit((event.clientX - dragging.x) * 0.004, (event.clientY - dragging.y) * 0.003); dragging = { id: event.pointerId, x: event.clientX, y: event.clientY }; };
-        const pointerUp = () => { if (dragging && mount.hasPointerCapture(dragging.id)) mount.releasePointerCapture(dragging.id); dragging = null; };
-        const contextLost = (event: Event) => { event.preventDefault(); setStatus("fallback"); window.cancelAnimationFrame(frame); frame = 0; visible = false; host.dataset.sceneActive = "false"; };
-        mount.addEventListener("pointerdown", pointerDown);
-        mount.addEventListener("pointermove", pointerMove);
-        mount.addEventListener("pointerup", pointerUp);
-        mount.addEventListener("pointercancel", pointerUp);
+        const contextLost = (event: Event) => { event.preventDefault(); setStatus("fallback"); cleanScene(); };
         canvas.addEventListener("webglcontextlost", contextLost);
         document.addEventListener("visibilitychange", visibility);
         if (!reducedMotion) window.addEventListener("scroll", requestRender, { passive: true });
         resize();
         host.dataset.candleCount = String(CANDLES.length);
         host.dataset.sceneActive = "true";
-        setStatus("ready");
         cleanScene = () => {
           window.cancelAnimationFrame(frame);
-          pointerUp();
           resizeObserver.disconnect(); visibilityObserver.disconnect();
-          mount.removeEventListener("pointerdown", pointerDown); mount.removeEventListener("pointermove", pointerMove); mount.removeEventListener("pointerup", pointerUp); mount.removeEventListener("pointercancel", pointerUp);
           canvas.removeEventListener("webglcontextlost", contextLost);
           document.removeEventListener("visibilitychange", visibility);
           window.removeEventListener("scroll", requestRender);
@@ -221,21 +253,36 @@ export function MarketSculpture({ className = "" }: { className?: string }) {
     return () => { disposed = true; loadObserver.disconnect(); cleanScene(); };
   }, [reducedMotion]);
 
-  return <section className={`min-w-0 ${className}`} ref={hostRef} data-market-sculpture data-scene-status={status} data-chapter={chapter} aria-label="Explore a market session in three dimensions">
+  return <section className={`min-w-0 ${className}`} ref={hostRef} data-market-sculpture data-scene-status={status} data-chapter={chapter} data-candle-count={CANDLES.length} data-camera={`${view.yaw.toFixed(2)},${view.pitch.toFixed(2)}`} aria-label="Explore a market session in three dimensions">
     <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400"><span className="font-data">96 candles / one example session</span><span>Synthetic data · 3D study</span></div>
     <div className="relative mt-1 h-[360px] sm:h-[460px] lg:h-[500px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" tabIndex={0} role="group" aria-label="Rotate the market scene" aria-describedby="market-sculpture-instructions" onKeyDown={(event) => {
       const delta = ORBIT_KEYS[event.key];
-      if (delta) { event.preventDefault(); controlRef.current?.orbit(delta[0], delta[1]); }
-      if (event.key === "Home") { event.preventDefault(); controlRef.current?.reset(); }
-    }}>
-      <div className={`absolute inset-0 cursor-grab rounded-md focus-visible:outline-none ${status === "fallback" ? "invisible" : ""}`} ref={canvasRef} />
-      {status !== "ready" ? <div className="absolute inset-0 flex flex-col justify-center border-y border-cyan-300/15 px-6 text-slate-300"><p className="text-xl font-medium text-white">A market. A decision. A trace.</p><p className="mt-3 text-sm leading-6">{status === "loading" ? "Preparing the dimensional study…" : "The 3D view is unavailable on this device. The example remains below; explore the working chart and journal on this page."}</p><p className="mt-3 font-data text-xs">Entry: candle 44 · Exit: candle 82</p></div> : null}
+      if (delta) { event.preventDefault(); orbit(delta[0], delta[1]); }
+      if (event.key === "Home") { event.preventDefault(); reset(); }
+    }} onPointerDown={(event) => {
+      if (event.pointerType === "touch" || event.button !== 0) return;
+      dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }} onPointerMove={(event) => {
+      const drag = dragRef.current;
+      if (!drag || drag.id !== event.pointerId) return;
+      orbit((event.clientX - drag.x) * 0.004, (event.clientY - drag.y) * 0.003);
+      dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
+    }} onPointerUp={(event) => {
+      if (dragRef.current?.id !== event.pointerId) return;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      dragRef.current = null;
+    }} onPointerCancel={() => { dragRef.current = null; }} onLostPointerCapture={() => { dragRef.current = null; }}>
+      <div className="absolute inset-0 cursor-grab active:cursor-grabbing" ref={canvasRef}>
+        {status !== "ready" ? <MarketSculptureProjection chapter={chapter} yaw={view.yaw + (reducedMotion ? 0 : projectionScroll) * 0.13} pitch={view.pitch + (reducedMotion ? 0 : projectionScroll) * 0.15} width={size.width} height={size.height} /> : null}
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-between px-3 font-data text-[10px] text-slate-400"><span>FIRST CANDLE</span><span>LAST CANDLE</span></div>
     </div>
     <div className="flex flex-wrap items-center justify-between gap-2 border-y border-white/10">
       <div className="flex min-w-0" role="group" aria-label="Market scene chapters">{CHAPTERS.map((item) => <button className={`relative min-h-11 px-3 text-sm transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-200 ${item.id === chapter ? "text-cyan-100" : "text-slate-400"}`} aria-pressed={item.id === chapter} key={item.id} onClick={() => setChapter(item.id)} type="button">{item.label}{item.id === chapter ? <span className="absolute inset-x-3 bottom-0 h-px bg-cyan-200" aria-hidden="true" /> : null}</button>)}</div>
-      <div className="flex"><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene left" onClick={() => controlRef.current?.orbit(-0.08, 0)}><ArrowLeft size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Reset scene view" onClick={() => controlRef.current?.reset()}><RotateCcw size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene right" onClick={() => controlRef.current?.orbit(0.08, 0)}><ArrowRight size={15} /></button></div>
+      <div className="flex"><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene left" onClick={() => orbit(-0.08, 0)}><ArrowLeft size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Reset scene view" onClick={reset}><RotateCcw size={15} /></button><button className="flex h-11 w-11 items-center justify-center text-slate-300 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" type="button" aria-label="Rotate scene right" onClick={() => orbit(0.08, 0)}><ArrowRight size={15} /></button></div>
     </div>
     <div className="pt-4" aria-live="polite"><h2 className="text-xl font-medium tracking-tight text-white">{content.title}</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">{content.detail}</p></div>
-    <p className="mt-2 text-[10px] leading-4 text-slate-400" id="market-sculpture-instructions">Drag or use arrow keys to change perspective. Home resets. Prices remain fixed.</p>
+    <p className="mt-2 text-xs leading-5 text-slate-400" id="market-sculpture-instructions">Drag with a mouse or use the rotation controls. Arrow keys rotate; Home resets. Prices stay fixed.</p>
   </section>;
 }
