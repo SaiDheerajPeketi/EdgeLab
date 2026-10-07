@@ -180,6 +180,18 @@ type UiRolloutSnapshotStorage = Pick<Storage, "removeItem" | "setItem">;
 export const UI_ROLLOUT_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const SHELL_DEPENDENTS: readonly UiRouteGroup[] = ["journal", "settings", "chart"];
 
+/** A fresh loopback development preview can render without the API; saved policy always wins. */
+export function initialUiRolloutState(cachedValue: string | null, development = false, hostname = "") {
+  const cached = parseUiRolloutSnapshot(cachedValue);
+  if (cached) return { flags: resolveServerUiRollout(cached), revision: cached.revision, source: "cache" as const };
+  const localPreview = cachedValue === null && development && ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+  return {
+    flags: resolveUiRollout({ killSwitch: !localPreview }),
+    revision: localPreview ? "local-preview" : "awaiting-server",
+    source: "fallback" as const,
+  };
+}
+
 /** Server overrides win; the kill switch provides a reversible fallback without changing routes or data. */
 export function resolveUiRollout(config: UiRolloutConfig = {}): Readonly<Record<UiRouteGroup, boolean>> {
   const killSwitch = config.killSwitch === true;
@@ -257,7 +269,7 @@ export function serializeUiRolloutSnapshot(response: unknown, savedAt = Date.now
   return JSON.stringify({ response: normalized, savedAt, version: 1 } satisfies UiRolloutSnapshot);
 }
 
-/** A rejected response must evict an older enabled snapshot before the next reload. */
+/** Persist rejected policy too, so a development reload cannot treat it as a fresh preview. */
 export function persistUiRolloutSnapshot(
   storage: UiRolloutSnapshotStorage,
   response: unknown,
@@ -265,17 +277,14 @@ export function persistUiRolloutSnapshot(
 ) {
   const key = rolloutStorageKey();
   const snapshot = serializeUiRolloutSnapshot(response, savedAt);
-  if (!snapshot) {
-    try { storage.removeItem(key); } catch { /* Runtime fallback remains active. */ }
-    return false;
-  }
   try {
-    storage.setItem(key, snapshot);
-    return true;
+    storage.setItem(key, snapshot ?? "{}");
+    return snapshot !== null;
   } catch {
     // Do not leave an older enabled snapshot behind when the new policy could
     // not be stored (for example because browser storage is full).
     try { storage.removeItem(key); } catch { /* Runtime fallback remains active. */ }
+    try { storage.setItem(key, "{}"); } catch { /* Storage is unavailable; runtime policy remains active. */ }
     return false;
   }
 }

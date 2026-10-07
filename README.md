@@ -53,6 +53,8 @@ EDGELAB_DEV_AUTH_BYPASS=1 EDGELAB_JWT_SECRET=local-dev-secret npm run dev
 
 The frontend runs at <http://127.0.0.1:5173>, FastAPI at <http://127.0.0.1:8000>, and the optional compatibility API at <http://127.0.0.1:3001>.
 
+A fresh local Vite preview can show the redesigned landing page while the API is offline. Saved rollout settings still take precedence, and workspace data requires the backend. See [frontend development](frontend/README.md) for the local preview policy.
+
 ## Verification
 
 ```bash

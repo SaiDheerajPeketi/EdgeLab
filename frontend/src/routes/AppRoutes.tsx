@@ -22,7 +22,7 @@ import {
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 import {
   normalizeServerUiRollout,
-  parseUiRolloutSnapshot,
+  initialUiRolloutState,
   persistUiRolloutSnapshot,
   resolveServerUiRollout,
   resolveUiRollout,
@@ -355,18 +355,12 @@ function rolloutRuntimeState(
   } : null;
 }
 
-function initialUiRolloutState(): UiRolloutRuntimeState {
-  const fallback: UiRolloutRuntimeState = {
-    flags: resolveUiRollout({ killSwitch: true }),
-    revision: "awaiting-server",
-    source: "fallback",
-  };
-  if (typeof window === "undefined") return fallback;
+function readInitialUiRolloutState(): UiRolloutRuntimeState {
+  if (typeof window === "undefined") return initialUiRolloutState(null);
   try {
-    const cached = parseUiRolloutSnapshot(window.localStorage.getItem(UI_ROLLOUT_STORAGE_KEY));
-    return rolloutRuntimeState(cached, "cache") ?? fallback;
+    return initialUiRolloutState(window.localStorage.getItem(UI_ROLLOUT_STORAGE_KEY), import.meta.env.DEV, window.location.hostname);
   } catch {
-    return fallback;
+    return initialUiRolloutState(null);
   }
 }
 
@@ -374,7 +368,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
   const location = useLocation();
   const session = useAuthSession();
   const boundaryRef = useRef<HTMLDivElement>(null);
-  const [rollout, setRollout] = useState(initialUiRolloutState);
+  const [rollout, setRollout] = useState(readInitialUiRolloutState);
   const group = routeGroup(location.pathname);
 
   useEffect(() => {
@@ -401,7 +395,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
         }
         setRollout(next);
       } catch {
-        // Keep the last valid response (or the fail-closed bootstrap state) so
+        // Keep the last valid response (or the initial presentation state) so
         // a transient outage cannot undo an operator fallback.
       } finally {
         requestInFlight = false;

@@ -242,7 +242,7 @@ export function ReplayController({
             <RotateCcw size={17} />
           </button>
 
-          <div className="flex shrink-0 flex-nowrap items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <ThemedSelect
               ariaLabel="Replay speed"
               className="h-10 w-32"
@@ -316,7 +316,7 @@ export function ReplayController({
           >
             Go
           </button>
-          <div className="flex shrink-0 flex-nowrap items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <ReplayDateTimePicker
               currentTimestamp={currentTimestamp}
               dateFormat={dateFormat}

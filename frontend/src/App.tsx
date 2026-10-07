@@ -2983,7 +2983,7 @@ export function WorkspaceApp() {
           style={{ width: sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH }}
         />
         <main
-          className="min-w-0 flex-1 overflow-x-hidden p-3 pb-[calc(6.25rem+env(safe-area-inset-bottom))] outline-none sm:p-4 sm:pb-[calc(6.25rem+env(safe-area-inset-bottom))] lg:pb-4 xl:p-5 xl:pb-5"
+          className="min-w-0 flex-1 overflow-x-clip p-3 pb-[calc(6.25rem+env(safe-area-inset-bottom))] outline-none sm:p-4 sm:pb-[calc(6.25rem+env(safe-area-inset-bottom))] lg:pb-4 xl:p-5 xl:pb-5"
           id="workspace-content"
           tabIndex={-1}
         >

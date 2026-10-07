@@ -65,6 +65,9 @@ jobs:
       - name: Run native Pine candle layering gate
         run: npx playwright test --config=e2e/pine-layering.config.ts
 
+      - name: Run native study responsive geometry gate
+        run: EDGELAB_GEOMETRY51_PHASE=verified npx playwright test --config=e2e/pine-study-geometry51.config.ts
+
       - name: Publish low-power metrics summary
         if: always()
         shell: bash

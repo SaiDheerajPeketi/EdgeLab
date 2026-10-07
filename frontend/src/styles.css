@@ -1298,18 +1298,20 @@ button:disabled {
   }
 
   .chart-studio-toolbar {
-    @apply grid min-w-0 gap-3 rounded-md border border-white/10 bg-[#090d12] px-3 py-3 shadow-panel;
+    @apply grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 rounded-md border border-white/10 bg-[#090d12] px-3 py-3 shadow-panel;
     background-image:
       linear-gradient(90deg, rgba(50, 211, 238, 0.08), transparent 46%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
   }
 
   .timeframe-strip {
-    @apply flex min-h-10 shrink-0 flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1;
+    @apply flex min-h-10 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md border border-white/10 bg-black/25 p-1;
   }
 
   .chart-command-box {
-    @apply relative flex h-10 min-w-[280px] flex-1 items-center gap-2 rounded-md border border-cyan-300/20 bg-black/30 px-3 text-sm text-slate-200 ring-1 ring-cyan-300/5;
+    @apply relative flex h-10 min-w-0 max-w-full flex-1 items-center gap-2 rounded-md border border-cyan-300/20 bg-black/30 px-3 text-sm text-slate-200 ring-1 ring-cyan-300/5;
+    flex-basis: 280px;
+    min-width: min(280px, 100%);
   }
 
   .chart-command-box input {
@@ -1716,7 +1718,8 @@ button:disabled {
   }
 
   .study-chip {
-    @apply inline-flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
+    @apply inline-flex min-h-9 min-w-0 max-w-full flex-wrap items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
+    overflow-wrap: anywhere;
   }
 
   .chart-studio-toolbar .indicator-chip {

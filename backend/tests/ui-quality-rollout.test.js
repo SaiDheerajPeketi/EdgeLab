@@ -140,13 +140,54 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     assert.equal(module.persistUiRolloutSnapshot(storage, response, 1_000), true);
     assert.ok(values.has(module.rolloutStorageKey()));
     assert.equal(module.persistUiRolloutSnapshot(storage, { ...response, flags: {} }, 1_100), false);
-    assert.equal(values.has(module.rolloutStorageKey()), false);
+    assert.equal(values.get(module.rolloutStorageKey()), "{}");
     const reloadResponse = module.parseUiRolloutSnapshot(values.get(module.rolloutStorageKey()) ?? null, 1_200);
     assert.equal(reloadResponse, null);
     const reloadFlags = reloadResponse
       ? module.resolveServerUiRollout(reloadResponse)
       : module.resolveUiRollout({ killSwitch: true });
     assert.ok(Object.values(reloadFlags).every((value) => !value));
+  } finally { cleanup(); }
+});
+
+test("only a fresh loopback development preview boots modern UI without server policy", async () => {
+  const { cleanup, module } = await bundle("frontend/src/lib/uiRollout.ts");
+  try {
+    const enabled = (state) => Object.values(state.flags).every(Boolean);
+    const denied = (state) => Object.values(state.flags).every((flag) => !flag);
+    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+      const state = module.initialUiRolloutState(null, true, host);
+      assert.ok(enabled(state));
+      assert.equal(state.revision, "local-preview");
+      assert.ok(denied(module.initialUiRolloutState(null, false, host)));
+      for (const raw of ["", "{}", "not-json"]) assert.ok(denied(module.initialUiRolloutState(raw, true, host)));
+    }
+    for (const host of ["", "edgelab.app", "localhost.example.com", "127.0.0.10", "::1"]) {
+      assert.ok(denied(module.initialUiRolloutState(null, true, host)));
+    }
+    assert.ok(denied(module.initialUiRolloutState(null)));
+    const flags = { shell: true, journal: true, settings: true, chart: false, public: false };
+    const policy = { revision: "operator-policy", kill_switch: false, flags };
+    const cached = module.initialUiRolloutState(module.serializeUiRolloutSnapshot(policy), true, "localhost");
+    assert.deepEqual(cached.flags, flags);
+    assert.equal(cached.source, "cache");
+    assert.ok(denied(module.initialUiRolloutState(module.serializeUiRolloutSnapshot({ ...policy, kill_switch: true }), true, "localhost")));
+    assert.ok(denied(module.initialUiRolloutState(module.serializeUiRolloutSnapshot(policy, Date.now() - module.UI_ROLLOUT_CACHE_MAX_AGE_MS - 1_000), true, "localhost")));
+
+    const values = new Map();
+    const key = module.rolloutStorageKey();
+    const storage = { removeItem: (key) => values.delete(key), setItem: (key, value) => values.set(key, value) };
+    assert.equal(module.persistUiRolloutSnapshot(storage, policy), true);
+    assert.equal(module.persistUiRolloutSnapshot(storage, { ...policy, flags: {} }), false);
+    assert.ok(denied(module.initialUiRolloutState(values.get(key) ?? null, true, "localhost")));
+    const fullStorage = {
+      removeItem: storage.removeItem,
+      setItem: (key, value) => { if (value !== "{}") throw new Error("quota"); storage.setItem(key, value); },
+    };
+    assert.equal(module.persistUiRolloutSnapshot(fullStorage, policy), false);
+    assert.ok(denied(module.initialUiRolloutState(values.get(key) ?? null, true, "localhost")));
+    assert.equal(module.persistUiRolloutSnapshot(storage, policy), true);
+    assert.deepEqual(module.initialUiRolloutState(values.get(key), true, "localhost").flags, flags);
   } finally { cleanup(); }
 });
 
