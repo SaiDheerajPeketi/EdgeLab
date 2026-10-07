@@ -2048,3 +2048,55 @@ class AIAuditLog(UserOwnedMixin, Base):
     outcome: Mapped[str] = mapped_column(String(24), nullable=False)
     details: Mapped[object] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+class BillingCustomer(Base):
+    __tablename__ = "billing_customers"
+    __table_args__ = (
+        UniqueConstraint("user_id", "livemode", name="uq_billing_customer_user_mode"),
+        UniqueConstraint("stripe_customer_id", "livemode", name="uq_billing_customer_stripe_mode"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("beta_users.id", ondelete="CASCADE"), index=True)
+    livemode: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    stripe_customer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    pending_nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_cadence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    pending_price_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    pending_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    checkout_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class BillingSubscription(Base):
+    __tablename__ = "billing_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("stripe_subscription_id", "livemode", name="uq_billing_subscription_stripe_mode"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("beta_users.id", ondelete="CASCADE"), index=True)
+    billing_customer_id: Mapped[int] = mapped_column(ForeignKey("billing_customers.id", ondelete="CASCADE"), index=True)
+    livemode: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    stripe_subscription_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    price_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    cadence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    eligible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    invoice_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class BillingWebhookEvent(Base):
+    __tablename__ = "billing_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    livemode: Mapped[bool] = mapped_column(Boolean, primary_key=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

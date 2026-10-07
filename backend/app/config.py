@@ -147,6 +147,12 @@ class Settings:
     google_client_secret: str = GOOGLE_OAUTH_CREDENTIALS.client_secret
     google_client_secrets_file: Path | None = GOOGLE_OAUTH_CREDENTIALS.source_file
     public_origin: str = os.getenv("EDGELAB_PUBLIC_ORIGIN", "").strip().rstrip("/")
+    billing_enabled: bool = bool_env("EDGELAB_BILLING_ENABLED", False)
+    stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+    stripe_mode: str = os.getenv("EDGELAB_STRIPE_MODE", "test").strip().lower()
+    stripe_monthly_price_id: str = os.getenv("STRIPE_PRO_MONTHLY_PRICE_ID", "").strip()
+    stripe_annual_price_id: str = os.getenv("STRIPE_PRO_ANNUAL_PRICE_ID", "").strip()
     google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
@@ -288,6 +294,12 @@ if not settings.google_redirect_uri and settings.public_origin:
         google_client_secret=settings.google_client_secret,
         google_client_secrets_file=settings.google_client_secrets_file,
         public_origin=settings.public_origin,
+        billing_enabled=settings.billing_enabled,
+        stripe_secret_key=settings.stripe_secret_key,
+        stripe_webhook_secret=settings.stripe_webhook_secret,
+        stripe_mode=settings.stripe_mode,
+        stripe_monthly_price_id=settings.stripe_monthly_price_id,
+        stripe_annual_price_id=settings.stripe_annual_price_id,
         google_redirect_uri=f"{settings.public_origin}/auth/callback/google",
         cors_origins=settings.cors_origins,
         cache_market_data=settings.cache_market_data,

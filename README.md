@@ -20,6 +20,8 @@ Chart and Appearance settings expose nine staged display/palette controls in bot
 
 Account and Privacy settings share current-session revocation and confirmed diagnostic-sharing preferences across both interfaces. Global shows actual interface/browser regional values; AI availability comes from the account’s server model catalog, with explicit offline-fixture and failure states.
 
+Stripe billing provides server-created subscription Checkout and Customer Portal sessions, signed webhook reconciliation, and account-scoped billing status. It defaults to disabled test mode; credentials belong only on the API. The launch catalog is EdgeLab Pro at USD $29/month or $290/year, with no trial. Provider prices must match the configured plan before checkout can open. See [billing setup](backend/README.md#stripe-billing). This backend foundation does not activate public enrollment, workspace paywalls, or landing-page checkout by itself.
+
 ## Quick start
 
 The smallest supported installation needs only Docker:

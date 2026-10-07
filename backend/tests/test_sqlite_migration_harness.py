@@ -28,10 +28,19 @@ def test_empty_sqlite_database_upgrades_to_alembic_head(tmp_path, monkeypatch):
     engine = _sqlite_engine(database_url)
     inspector = inspect(engine)
     with engine.connect() as connection:
-        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20261007_0015"
+        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20261007_0016"
     assert "backtest_session_summaries" in inspector.get_table_names()
     assert "ai_generation_jobs" in inspector.get_table_names()
     assert "app_data_operations" in inspector.get_table_names()
+    billing_tables = {"billing_customers", "billing_subscriptions", "billing_webhook_events"}
+    assert billing_tables <= set(inspector.get_table_names())
+    assert "verified_at" in {column["name"] for column in inspector.get_columns("billing_customers")}
+
+    command.downgrade(config, "20261007_0015")
+    assert billing_tables.isdisjoint(inspect(engine).get_table_names())
+    assert "beta_users" in inspect(engine).get_table_names()
+    command.upgrade(config, "head")
+    assert billing_tables <= set(inspect(engine).get_table_names())
 
 
 def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):

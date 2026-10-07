@@ -46,6 +46,16 @@ By default, local development uses SQLite and `datasets/`. Set `DATABASE_URL` an
 | `scripts/` | Imports, refresh jobs, and benchmarks |
 | `tests/` | Python and Node-based backend tests |
 
+## Stripe billing
+
+Billing is disabled by default. Set `EDGELAB_BILLING_ENABLED=1`, `EDGELAB_STRIPE_MODE=test`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_MONTHLY_PRICE_ID`, and `STRIPE_PRO_ANNUAL_PRICE_ID` on the API. Create active recurring USD prices for EdgeLab Pro at 2900 cents monthly and 29000 cents annually, with interval count 1 and no trial. The service validates provider price facts and mode instead of trusting client amounts or IDs. Use `EDGELAB_PUBLIC_ORIGIN` for fixed checkout and portal return URLs; production requires HTTPS. These credentials never belong in browser build variables.
+
+`GET /api/billing/catalog` reports configured availability. Authenticated `POST /api/billing/checkout` accepts only `{ "plan": "pro", "cadence": "monthly" }` or annual cadence; `POST /api/billing/portal` accepts no customer ID or return URL. `GET /api/billing/status` reconciles the account's current provider subscriptions. Returning to `/pricing?billing=success` does not grant access. Register the raw signed webhook at `/api/billing/webhook` for the pinned Stripe API version `2026-09-30.endive`. Delivery IDs are deduplicated durably; provider state is reconciled under an account lock instead of applying unordered event snapshots. Test and live customers remain separate, and test purchases do not grant production workspace access.
+
+Billing records are outside portable workspace exports/imports and do not alter beta approval or licensed market-data entitlements. Alembic revision `20261007_0016` creates the additive tables. Public enrollment, workspace API enforcement, and browser checkout integration are separate launch steps; this core alone does not make the application a paid public service. Live activation requires an eligible merchant account, live credentials and price IDs, the configured HTTPS origin, registered webhook delivery, and an actual purchase/cancellation check. Refund handling must coordinate the refund with subscription cancellation; refunds are not inferred from a checkout redirect.
+
+Production access also requires a provider-verified snapshot less than five minutes old; expiry is never extended by a failed refresh. The status endpoint reconciles that snapshot, and the service exposes a refresh function for subsequent workspace enforcement. A missed webhook cannot leave a year-long cached entitlement permanently valid.
+
 ## Credentials and broker integrations
 
 Integration credentials are encrypted at rest. Production startup requires a keyring and an active key:

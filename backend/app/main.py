@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.routes import router
+from app.api.billing import router as billing_router
 from app.config import settings
 from app.db import engine, init_db
 from app.market_data_db import init_market_data_db, market_data_engine
@@ -196,3 +197,4 @@ def observability_metrics() -> PlainTextResponse:
 
 
 app.include_router(router, prefix="/api")
+app.include_router(billing_router, prefix="/api")
