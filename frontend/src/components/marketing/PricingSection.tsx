@@ -19,7 +19,7 @@ const INCLUDED_BETA_WORKFLOW = [
   "Manual bar replay and simulated order management",
   "Journal records, reports, and playbook review",
   "Backtest CSV import with preview and row reporting",
-  "Authenticated JSON export for EdgeLab app data",
+  "JSON data exports with an active paid subscription",
 ] as const;
 
 const ACCESS_COMPARISON = [
@@ -49,7 +49,7 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "Will beta accounts keep history after launch?",
     answer:
-      "There is no retention guarantee for beta data. Treat it as test material and use the authenticated JSON export for anything important; large market-data files are not included in that bundle.",
+      "There is no retention guarantee for beta data. Treat it as test material and separately retain important records. JSON exports require an active paid subscription; large market-data files are not included.",
   },
   {
     question: "Does EdgeLab connect to my broker or data provider?",

@@ -10,10 +10,10 @@ function parseNumber(rawValue: string | undefined, fallback: number) {
 }
 
 export function resolveDeploymentMode(rawValue: string | undefined): DeploymentMode {
-  return rawValue?.trim().toLowerCase() === "production" ? "production" : "beta";
+  return rawValue?.trim().toLowerCase() === "beta" ? "beta" : "production";
 }
 
-export const deploymentMode = resolveDeploymentMode(import.meta.env.VITE_DEPLOYMENT_MODE);
+export const deploymentMode = resolveDeploymentMode(import.meta.env?.VITE_DEPLOYMENT_MODE);
 
 export function isBetaMode(mode: DeploymentMode = deploymentMode) {
   return mode === "beta";

@@ -27,6 +27,9 @@ async function fixture(page: Page, fallback = true) {
     const request = route.request();
     const endpoint = new URL(request.url()).pathname.replace(/^\/api/, "");
     if (endpoint === "/ui/rollout") { await route.fulfill({ json: { revision: state.fallback ? "storage-fallback" : "storage-modern", kill_switch: state.fallback, flags: { shell: true, journal: true, settings: true, chart: true, public: true } } }); return; }
+    if (endpoint === "/billing/status") { await route.fulfill({ json: { provider: "stripe", mode: "live", configured: true,
+      workspace_access: true, subscription_access: true, plan: "pro", status: "active", cadence: "monthly",
+      current_period_end: "2027-09-15T10:00:00Z", cancel_at_period_end: false, verified_at: "2026-09-15T10:30:00Z", refresh_required: false } }); return; }
     if (endpoint === "/auth/session") { await route.fulfill({ json: state.session }); return; }
     const metadata = endpoint.match(/^\/app-data\/operations\/([0-9a-f-]+)\/(reserve|recover)$/);
     if (metadata) {

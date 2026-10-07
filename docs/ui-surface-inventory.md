@@ -6,6 +6,7 @@ This inventory is the release authority for route and state coverage. `retain` m
 |---|---|---|---|---|
 | `/` landing | Persuade | restructure | 1440, 834, 390 | default, beta capacity, CTA pending/success/error |
 | `/pricing` | Persuade | restructure | 1440, 834, 390 | monthly/annual, entitlement unavailable |
+| `/account` | Operate | replace | 1440, 834, 390 | unpaid, active paid subscription, recoverable billing error |
 | `/privacy`, `/terms`, `*` | Read | restyle | 1440, 834, 390 | not found, maintenance |
 | `/auth/signin`, callback | Operate | replace | 1440, 834, 390 | loading, denied, full beta, expired, retry |
 | `/shared` | Operate | restructure | 1440, 834, 390 | loading, expired, revoked, forbidden, transport error, open-as-copy |

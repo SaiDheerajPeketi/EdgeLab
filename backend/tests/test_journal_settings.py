@@ -1,6 +1,7 @@
 import asyncio
 import json
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -9,7 +10,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import auth
 from app.api import routes
+from app.services import app_data_operations
 from app.auth import AuthenticatedUser
 from app.db import Base
 from app.models import BetaUser
@@ -26,6 +29,10 @@ STORAGE_PATH = "/api/app-storage/edgelab/live-journal.v1"
 
 @pytest.fixture
 def api(monkeypatch):
+    # These storage semantics tests exercise two approved free beta accounts.
+    beta_settings = replace(routes.settings, deployment_mode="beta", beta_seats_total=2)
+    for module in (auth, routes, app_data_operations):
+        monkeypatch.setattr(module, "settings", beta_settings)
     monkeypatch.setattr(routes, "enforce_rate_limit", lambda *_args: None)
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)

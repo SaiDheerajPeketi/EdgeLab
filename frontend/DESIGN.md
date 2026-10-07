@@ -31,6 +31,7 @@ Use cyan as the primary series, blue for comparison, green plus `+`/up semantics
 
 - `/`: persuade through the chart → replay → journal → insight loop.
 - `/pricing`: explain entitlement boundaries honestly.
+- `/account`: manage billing and sign-out independently of workspace access; explain the active paid subscription required for JSON, CSV and chart-image exports.
 - `/auth/*`: communicate secure progress, recovery, and return destination.
 - `/app`: operate from one persistent shell; no route should become a legacy island.
 - `/shared`: explain snapshot scope, ownership, expiry, and open-as-copy.

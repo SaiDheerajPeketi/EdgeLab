@@ -3,6 +3,7 @@ import type { BetaAuthConfig } from "./api";
 import { ApiError, getBetaAuthConfig } from "./api";
 
 const FALLBACK_AUTH_CONFIG: BetaAuthConfig = {
+  deployment_mode: "production",
   google_enabled: false,
   google_client_id: null,
   google_redirect_uri: null,
@@ -32,7 +33,7 @@ export function useBetaAuthConfig() {
           return;
         }
         setConfig(FALLBACK_AUTH_CONFIG);
-        setError(responseError instanceof ApiError ? responseError.message : "Beta auth unavailable");
+        setError(responseError instanceof ApiError ? responseError.message : "Sign-in is unavailable");
         setLoading(false);
       });
 

@@ -730,6 +730,8 @@ class FeedbackSubmission(UserOwnedMixin, Base):
 class BetaUser(Base):
     __tablename__ = "beta_users"
 
+    google_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(160), default="Beta Trader")

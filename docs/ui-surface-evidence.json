@@ -179,6 +179,23 @@
         "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" }
       }
     },
+    "/account": {
+      "unpaid": {
+        "mobile": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-unpaid.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-unpaid.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-unpaid.png", "captureMode": "full-page" }
+      },
+      "paid": {
+        "mobile": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-paid.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-paid.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-paid.png", "captureMode": "full-page" }
+      },
+      "billing-error": {
+        "mobile": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-billing-error.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-billing-error.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-access47.interaction.spec.ts", "snapshot": "account-billing-error.png", "captureMode": "full-page" }
+      }
+    },
     "/auth/signin": {
       "signin": {
         "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "signin.png", "captureMode": "full-page" },

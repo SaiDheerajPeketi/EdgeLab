@@ -42,3 +42,6 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "sqlite":
+        from app.migrations import migrate_google_subject
+        migrate_google_subject(engine)

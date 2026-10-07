@@ -20,7 +20,9 @@ Chart and Appearance settings expose nine staged display/palette controls in bot
 
 Account and Privacy settings share current-session revocation and confirmed diagnostic-sharing preferences across both interfaces. Global shows actual interface/browser regional values; AI availability comes from the account’s server model catalog, with explicit offline-fixture and failure states.
 
-Stripe billing provides server-created subscription Checkout and Customer Portal sessions, signed webhook reconciliation, and account-scoped billing status. It defaults to disabled test mode; credentials belong only on the API. The launch catalog is EdgeLab Pro at USD $29/month or $290/year, with no trial. Provider prices must match the configured plan before checkout can open. See [billing setup](backend/README.md#stripe-billing). This backend foundation does not activate public enrollment, workspace paywalls, or landing-page checkout by itself.
+Stripe billing provides server-created subscription Checkout and Customer Portal sessions, signed webhook reconciliation, and account-scoped billing status. It defaults to disabled test mode; credentials belong only on the API. The launch catalog is EdgeLab Pro at USD $29/month or $290/year, with no trial. Provider prices must match the configured plan before checkout can open. See [billing setup](backend/README.md#stripe-billing).
+
+Production mode accepts verified Google accounts and requires a current live paid subscription for workspace APIs and streams. Data exports require that subscription in both production and beta mode. `/account` remains available for billing management and sign-out without workspace access. Set both `EDGELAB_DEPLOYMENT_MODE` and `VITE_DEPLOYMENT_MODE` to `beta` for the optional capped beta workspace; the local Compose file selects beta explicitly. Browser checkout and live merchant activation remain separate launch steps.
 
 ## Quick start
 

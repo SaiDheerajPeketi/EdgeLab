@@ -5,6 +5,7 @@
     "/": { "mode": "test", "path": "/" },
     "/index.html": { "mode": "exempt", "kind": "alias", "target": "/", "reason": "Static-host alias of the landing route." },
     "/pricing": { "mode": "test", "path": "/pricing" },
+    "/account": { "mode": "test", "path": "/account" },
     "/privacy": { "mode": "test", "path": "/privacy" },
     "/terms": { "mode": "test", "path": "/terms" },
     "/auth/signin": { "mode": "test", "path": "/auth/signin" },

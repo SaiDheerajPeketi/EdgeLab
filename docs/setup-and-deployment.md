@@ -56,7 +56,7 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-At minimum, replace `POSTGRES_PASSWORD` and `EDGELAB_JWT_SECRET`. A production environment also requires `EDGELAB_SECRET_VAULT_KEYS` and `EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID`; configure Google OAuth unless you intentionally enable another beta access path.
+At minimum, replace `POSTGRES_PASSWORD` and `EDGELAB_JWT_SECRET`. A production environment also requires `EDGELAB_SECRET_VAULT_KEYS` and `EDGELAB_SECRET_VAULT_ACTIVE_KEY_ID`, verified Google sign-in, and configured live Stripe subscriptions for workspace access. `EDGELAB_DEPLOYMENT_MODE` and browser build `VITE_DEPLOYMENT_MODE` both default to `production`; set both to `beta` for the optional capped beta workspace. Data exports require an active live paid subscription in either mode. Local Compose selects beta explicitly.
 
 The full stack exposes the frontend on `FRONTEND_PORT` (8080 by default). PostgreSQL, TimescaleDB, Redis, PgBouncer, the API services, the data populator, and the analytics worker start by default.
 

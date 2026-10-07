@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { ApiError, exchangeGoogleAuthCode } from "../lib/api";
-import { setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
+import { hasWorkspaceAccess, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import {
   buildAuthSignInHref,
   safeAuthDestination,
@@ -19,7 +19,7 @@ const CALLBACK_STEPS = [
     label: "Session restore",
   },
   {
-    detail: "Route approved access straight back into the workspace.",
+    detail: "Check access and return to your workspace or subscription options.",
     label: "Workspace handoff",
   },
 ] as const;
@@ -98,12 +98,18 @@ export function AuthCallbackPage() {
         if (!active) {
           return;
         }
-        setStoredAuthSession(toStoredAuthSession(response.session));
+        const session = toStoredAuthSession(response.session);
+        setStoredAuthSession(session);
         setActiveStep(2);
-        if (response.session.user.approved) {
+        if (hasWorkspaceAccess(session)) {
           handoffFrame = window.requestAnimationFrame(() => {
             navigate(fromPath, { replace: true });
           });
+          return;
+        }
+
+        if (session.user.deploymentMode !== "beta") {
+          navigate(`/pricing?from=${encodeURIComponent(fromPath)}`, { replace: true, state: { fromPath } });
           return;
         }
 

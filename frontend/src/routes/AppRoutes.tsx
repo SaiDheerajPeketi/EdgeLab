@@ -4,10 +4,11 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
 import { DataTransferProvider } from "../components/settings/useDataTransfer";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
-import { getAuthSession, getUiRolloutConfig } from "../lib/api";
+import { ApiError, getAuthSession, getUiRolloutConfig } from "../lib/api";
 import {
   clearStoredAuthSession,
   getStoredAuthSession,
+  hasWorkspaceAccess,
   setStoredAuthSession,
   subscribeAuthSession,
   toStoredAuthSession,
@@ -25,6 +26,7 @@ import {
   resolveUiRollout,
   rolloutStorageKey,
   routeGroup,
+  routeUsesModernUi,
 } from "../lib/uiRollout";
 
 const LandingPage = lazy(() =>
@@ -36,6 +38,7 @@ const CompatibilityRouteRenderer = lazy(() =>
 const PricingPage = lazy(() =>
   import("../pages/PricingPage").then((module) => ({ default: module.PricingPage })),
 );
+const AccountPage = lazy(() => import("../pages/AccountPage").then((module) => ({ default: module.AccountPage })));
 const PrivacyPage = lazy(() =>
   import("../pages/LegalPages").then((module) => ({ default: module.PrivacyPage })),
 );
@@ -136,18 +139,24 @@ function SessionRehydrator() {
     }
 
     let active = true;
-
-    getAuthSession(session.token)
+    let pending = false;
+    const refresh = () => {
+      if (pending) return;
+      pending = true;
+      getAuthSession(session.token)
       .then((response) => {
         if (!active) {
           return;
         }
-        setStoredAuthSession(toStoredAuthSession(response));
+        const next = { ...toStoredAuthSession(response), token: session.token };
+        const current = getStoredAuthSession();
+        if (current?.token === session.token && JSON.stringify(current) !== JSON.stringify(next)) setStoredAuthSession(next);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) {
           return;
         }
+        if (!(error instanceof ApiError) || error.status !== 401 || getStoredAuthSession()?.token !== session.token) return;
         clearStoredAuthSession();
         if (location.pathname.startsWith("/app")) {
           const fromPath = `${location.pathname}${location.search}${location.hash}`;
@@ -156,12 +165,20 @@ function SessionRehydrator() {
             state: { fromPath },
           });
         }
-      });
+      })
+      .finally(() => { pending = false; });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    const handleVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [navigate, session?.token]);
+  }, [navigate, session?.token, location.pathname, location.search, location.hash]);
 
   return null;
 }
@@ -233,10 +250,10 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   const location = useLocation();
 
   useEffect(() => {
-    if (session?.user.approved && location.pathname.startsWith("/app")) {
+    if (hasWorkspaceAccess(session) && location.pathname.startsWith("/app")) {
       void preloadWorkspaceSurface();
     }
-  }, [location.pathname, session?.user.approved]);
+  }, [location.pathname, session]);
 
   if (!session) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
@@ -249,8 +266,11 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
     );
   }
 
-  if (!session.user.approved) {
+  if (!hasWorkspaceAccess(session)) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
+    if (session.user.deploymentMode !== "beta") {
+      return <Navigate replace state={{ fromPath }} to={`/pricing?from=${encodeURIComponent(fromPath)}`} />;
+    }
     return (
       <Navigate
         replace
@@ -276,7 +296,7 @@ function AuthSignInRoute() {
   const session = useAuthSession();
   const location = useLocation();
 
-  if (session?.user.approved) {
+  if (hasWorkspaceAccess(session)) {
     return <Navigate replace to={authRedirectTarget(location)} />;
   }
 
@@ -293,6 +313,7 @@ export function AppRoutes() {
           <Route element={<LandingPage />} path="/" />
           <Route element={<Navigate replace to="/" />} path="/index.html" />
           <Route element={<PricingPage />} path="/pricing" />
+          <Route element={<AccountPage />} path="/account" />
           <Route element={<PrivacyPage />} path="/privacy" />
           <Route element={<TermsPage />} path="/terms" />
           <Route element={<AuthSignInRoute />} path="/auth/signin" />
@@ -406,7 +427,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [location.pathname]);
 
-  const modernUiEnabled = rollout.flags[group];
+  const modernUiEnabled = routeUsesModernUi(location.pathname, rollout.flags);
 
   return (
     <DataTransferProvider><div

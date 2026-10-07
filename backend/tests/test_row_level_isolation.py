@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -6,8 +7,11 @@ import pytest
 from fastapi import FastAPI, HTTPException, Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app import auth
 from app.api import routes
+from app.services import app_data_operations
 from app.auth import AuthenticatedUser
 from app.db import Base
 from app.models import AppStorageItem, BacktestSession, BetaUser, FeedbackSubmission
@@ -30,8 +34,9 @@ from app.services.datasets import DatasetCatalogService
 from app.services.rate_limits import RateLimitDecision
 
 
-def make_session_factory():
-    engine = create_engine("sqlite:///:memory:")
+def make_session_factory(*, threaded=False):
+    options = {"connect_args": {"check_same_thread": False}, "poolclass": StaticPool} if threaded else {}
+    engine = create_engine("sqlite:///:memory:", **options)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 
@@ -466,8 +471,11 @@ def test_workspace_share_payload_purge_uses_management_rate_limit(monkeypatch):
 
 
 def test_id_cursor_api_preserves_owner_filters_and_validates_cursor_contract(monkeypatch):
+    beta_settings = replace(routes.settings, deployment_mode="beta", beta_seats_total=2)
+    for module in (auth, routes, app_data_operations):
+        monkeypatch.setattr(module, "settings", beta_settings)
     monkeypatch.setattr(routes, "enforce_rate_limit", lambda *args: None)
-    with make_session_factory()() as db:
+    with make_session_factory(threaded=True)() as db:
         owner_id = seed_user(db, "cursor-owner@edgelab.local", "Owner")
         intruder_id = seed_user(db, "cursor-intruder@edgelab.local", "Intruder")
         account = journal.create_account(db, owner_id, JournalAccountCreate(name="Cursor account"))

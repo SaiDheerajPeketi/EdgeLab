@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -11,7 +12,9 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.dml import Update
 
+from app import auth
 from app.api import routes
+from app.services import app_data_operations
 from app.auth import AuthenticatedUser
 from app.db import Base
 from app.models import AppStorageItem, BetaUser
@@ -24,6 +27,10 @@ PREFERENCES_STORAGE = "/api/app-storage/edgelab/settings-center.v1"
 
 @pytest.fixture
 def api(monkeypatch):
+    # These storage semantics tests exercise two approved free beta accounts.
+    beta_settings = replace(routes.settings, deployment_mode="beta", beta_seats_total=2)
+    for module in (auth, routes, app_data_operations):
+        monkeypatch.setattr(module, "settings", beta_settings)
     monkeypatch.setattr(routes, "enforce_rate_limit", lambda *_args: None)
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
@@ -299,7 +306,12 @@ def test_second_row_integrity_conflict_rolls_back_the_entire_chart_patch(api, mo
 
 def test_conflicting_initial_insert_does_not_leave_either_chart_row(api, monkeypatch):
     attempts = []
+    original_commit = api.db.commit
     def conflict_commit():
+        # Inject only the tested chart insert conflict, not the prior access
+        # policy's independent beta enrollment transaction.
+        if not any(isinstance(row, AppStorageItem) for row in api.db.new):
+            return original_commit()
         api.db.flush()
         attempts.append(True)
         raise IntegrityError("injected active-row insert conflict", {}, Exception("concurrent initial insert"))

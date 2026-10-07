@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from secrets import compare_digest
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.models import BetaSession, BetaUser, utcnow
+from app.services import access_policy
 
 
 JWT_ALGORITHM = "HS256"
@@ -30,6 +32,7 @@ class AuthenticatedUser:
     session_id: str
     session_created_at: datetime
     session_expires_at: datetime
+    access_expires_at: datetime | None = None
 
 
 def configured_api_token() -> str:
@@ -72,6 +75,39 @@ def require_auth(
     return authenticate_token(db, token)
 
 
+def require_workspace(
+    current_user: AuthenticatedUser = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> AuthenticatedUser:
+    access_policy.require_workspace_user(db, current_user.id, settings)
+    return current_user
+
+
+def _verified_google_user(user):
+    return user is not None and user.provider == "google" and isinstance(user.google_subject, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", user.google_subject) is not None
+
+
+def require_billing_identity(
+    current_user: AuthenticatedUser = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> AuthenticatedUser:
+    if not _verified_google_user(db.get(BetaUser, current_user.id, populate_existing=True)):
+        raise HTTPException(status_code=403, detail="Verified Google sign-in required for billing")
+    return current_user
+
+
+def require_subscription(
+    current_user: AuthenticatedUser = Depends(require_billing_identity),
+    db: Session = Depends(get_db),
+) -> AuthenticatedUser:
+    require_billing_identity(current_user, db)
+    access = access_policy.access_snapshot(db, current_user.id, settings, paid_only=True)
+    db.commit()
+    if not access["workspace_access"]:
+        raise HTTPException(status_code=403, detail="Data export requires an active subscription")
+    return current_user
+
+
 def create_session_token(user_id: int, session_id: str, expires_at: datetime) -> str:
     claims = {
         "sub": str(int(user_id)),
@@ -106,6 +142,8 @@ def authenticate_token(db: Session, token: str) -> AuthenticatedUser:
     user = db.scalar(select(BetaUser).where(BetaUser.id == user_id))
     if user is None:
         raise _auth_error()
+    if access_policy.deployment_mode(settings) == "production" and not _verified_google_user(user):
+        raise _auth_error()
 
     return AuthenticatedUser(
         id=user.id,
@@ -116,7 +154,7 @@ def authenticate_token(db: Session, token: str) -> AuthenticatedUser:
         beta_position=user.beta_position,
         session_id=session.id,
         session_created_at=session.created_at,
-        session_expires_at=session.expires_at,
+        session_expires_at=min(expires_at, datetime.fromtimestamp(claims["expires_at"], timezone.utc)),
     )
 
 
@@ -197,6 +235,7 @@ def _decode_jwt(token: str) -> dict[str, object]:
     return {
         "user_id": user_id,
         "session_id": session_id,
+        "expires_at": expires_at,
     }
 
 

@@ -18,7 +18,7 @@ const tables = api.APP_DATA_TABLE_NAMES;
 const timestamp = "2026-10-07T12:00:00.123456Z";
 const ownerSession = (id) => ({
   createdAt: "2026-01-01T00:00:00Z", expiresAt: "2099-01-01T00:00:00Z", token: `owner-${id}`,
-  user: { approved: true, email: `owner-${id}@example.com`, id, name: `Owner ${id}`, isBetaUser: true, plan: "beta", provider: "google", betaPosition: null },
+  user: { approved: true, deploymentMode: "beta", workspaceAccess: true, accessExpiresAt: "2099-01-01T00:00:00Z", email: `owner-${id}@example.com`, id, name: `Owner ${id}`, isBetaUser: true, plan: "beta", provider: "google", betaPosition: null },
 });
 const emptyTables = () => Object.fromEntries(tables.map((name) => [name, []]));
 const partialBundle = () => ({ app: "edgelab", version: 1, tables: { app_storage: [{ id: 7, value: { theme: "dark" } }], journal_accounts: [{ id: 12 }, { id: 20 }] } });
@@ -307,14 +307,12 @@ for (const operation of ["export", "import"]) test(`${operation} rejects a chang
 
 const invalidSessions = [
   ["signed out", () => null],
-  ["unapproved", () => ({ ...ownerSession(1), user: { ...ownerSession(1).user, approved: false } })],
-  ["truthy approval", () => ({ ...ownerSession(1), user: { ...ownerSession(1).user, approved: "yes" } })],
   ...[0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].map((id) => [`invalid owner ID ${String(id)}`, () => ({ ...ownerSession(1), user: { ...ownerSession(1).user, id } })]),
   ...["", "   ", 7].map((token) => [`invalid token ${String(token)}`, () => ({ ...ownerSession(1), token })]),
   ...["2000-01-01T00:00:00Z", "not a date", null].map((expiresAt) => [`invalid expiry ${String(expiresAt)}`, () => ({ ...ownerSession(1), expiresAt })]),
 ];
 for (const operation of ["export", "import"])
-  for (const [label, makeSession] of invalidSessions) test(`${operation} requires a valid approved owner before fetching (${label})`, async () => {
+  for (const [label, makeSession] of invalidSessions) test(`${operation} requires a valid identity owner before fetching (${label})`, async () => {
     await withHarness(async ({ api, fetch, requests }) => {
       api.setStoredAuthSession(makeSession());
       fetch(() => { throw new Error("must not request"); });
@@ -322,3 +320,34 @@ for (const operation of ["export", "import"])
       assert.equal(requests.length, 0);
     });
   });
+
+
+for (const operation of ["export", "import"]) test(`${operation} accepts public identity and leaves entitlement to the server`, async () => {
+  await withHarness(async ({ api, fetch, requests }) => {
+    api.setStoredAuthSession({ ...ownerSession(1), user: { ...ownerSession(1).user,
+      approved: false, deploymentMode: "production", workspaceAccess: false,
+      accessExpiresAt: null, isBetaUser: false, plan: "none" } });
+    fetch(() => response({ detail: "Active subscription required" }, 403));
+    await assert.rejects(operation === "export" ? api.exportAppDataBundle() : api.importAppDataBundle(partialBundle()), /Active subscription required|failed or was canceled/);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].init.headers.get("Authorization"), "Bearer owner-1");
+  });
+});
+
+for (const operation of ["export", "import"]) test(`${operation} survives same-id same-token access metadata refresh during a request`, async () => {
+  await withHarness(async ({ api, fetch, requests }) => {
+    const active = deferred();
+    const source = partialBundle();
+    fetch(() => active.promise);
+    const pending = operation === "export" ? api.exportAppDataBundle() : api.importAppDataBundle(source);
+    await transferTurn();
+    api.setStoredAuthSession({ ...ownerSession(1), expiresAt: "2098-01-01T00:00:00Z",
+      user: { ...ownerSession(1).user, approved: false, deploymentMode: "production",
+        workspaceAccess: true, accessExpiresAt: "2098-01-01T00:00:00Z", isBetaUser: false,
+        plan: "pro", name: "Updated identity" } });
+    const expected = operation === "export" ? completeBundle() : acknowledgment(source);
+    active.resolve(response(expected));
+    assert.deepEqual(await pending, expected);
+    assert.equal(requests.length, 1);
+  });
+});

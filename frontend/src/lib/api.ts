@@ -679,7 +679,7 @@ export type WorkspaceShareOpen = {
 };
 
 export type BetaProgramStatus = {
-  mode: "beta";
+  mode: "beta" | "production";
   seats_total: number;
   seats_taken: number;
   seats_remaining: number;
@@ -687,6 +687,7 @@ export type BetaProgramStatus = {
 };
 
 export type BetaAuthConfig = {
+  deployment_mode: "beta" | "production";
   google_enabled: boolean;
   google_client_id: string | null;
   google_redirect_uri: string | null;
@@ -713,8 +714,11 @@ export type BetaAuthUser = {
   provider: "email" | "google";
   approved: boolean;
   beta_position: number | null;
-  is_beta_user: true;
-  plan: "beta";
+  deployment_mode: "beta" | "production";
+  workspace_access: boolean;
+  access_expires_at: string | null;
+  is_beta_user: boolean;
+  plan: "beta" | "pro" | "none";
 };
 
 export type BetaAuthSession = {
@@ -764,6 +768,8 @@ function portableMutation(path: string, init?: RequestInit) {
   const normalized = normalizedApiPath(path);
   if (["HEAD", "OPTIONS"].includes(method)) return false;
   if (/^\/app-data\/operations(?:\/|$)/.test(normalized)) return false;
+  // Revoking an owned connection remains available when workspace access ends.
+  if (method === "DELETE" && /^\/broker-connections\/\d+$/.test(normalized)) return false;
   // Catalog discovery and replay repair can commit account rows during reads.
   if (method === "GET") return /^\/(?:datasets(?:\/settings)?|bootstrap(?:-shell)?|backtests(?:\/.*)?|market-data\/(?:meta|bars))$/.test(normalized);
   return normalized === "/app-data/import" || /^\/(?:app-storage|settings|datasets|journal|backtests|playbooks|trades|broker-connections|broker-sync-jobs|quant\/backtests)(?:\/|$)/.test(normalized);
@@ -1160,10 +1166,10 @@ function appDataOwner() {
   const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
   let session;
   try { session = JSON.parse(raw ?? "null"); } catch { /* Reject malformed authentication. */ }
-  if (session?.user?.approved !== true || !Number.isSafeInteger(session.user.id) || session.user.id <= 0 ||
+  if (!Number.isSafeInteger(session?.user?.id) || session.user.id <= 0 ||
       typeof session.token !== "string" || !session.token.trim() ||
       typeof session.expiresAt !== "string" || !(Date.parse(session.expiresAt) > Date.now())) {
-    throw new Error("Sign in to an approved account before transferring data.");
+    throw new Error("Sign in before transferring account data.");
   }
   return { id: session.user.id as number, token: session.token.trim() as string, raw };
 }
@@ -1171,7 +1177,7 @@ function appDataOwner() {
 function assertAppDataOwner(owner: ReturnType<typeof appDataOwner>) {
   try {
     const current = appDataOwner();
-    if (current.id === owner.id && current.raw === owner.raw) return;
+    if (current.id === owner.id && current.token === owner.token) return;
   } catch { /* Expiry and sign-out invalidate the response as well. */ }
   throw new DOMException("Account session changed during data transfer", "AbortError");
 }

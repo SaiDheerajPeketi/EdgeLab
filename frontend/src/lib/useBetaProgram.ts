@@ -4,7 +4,7 @@ import { ApiError, getBetaProgramStatus } from "./api";
 import { getBetaSeatState } from "./deploymentMode";
 
 export type BetaProgramView = {
-  mode: "beta";
+  mode: "beta" | "production";
   seats_total: number;
   seats_taken: number | null;
   seats_remaining: number | null;

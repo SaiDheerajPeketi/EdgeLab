@@ -114,6 +114,7 @@ export default defineConfig({
         EDGELAB_DATASET_AUTO_DISCOVERY_ENABLED: "0",
         EDGELAB_DATASETS_ROOT: datasetsRoot,
         EDGELAB_DEV_AUTH_BYPASS: "1",
+        EDGELAB_DEPLOYMENT_MODE: "beta",
         EDGELAB_JWT_SECRET: "ui-regression-only-secret-not-for-production",
         EDGELAB_MARKET_DATA_DATABASE_URL: `sqlite:///${databasePath}`,
         EDGELAB_MARKET_DATA_IMPORT_ENABLED: "0",

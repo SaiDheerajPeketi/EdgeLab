@@ -1,4 +1,6 @@
 import type { ChartPaneLayoutId } from "./chartLayouts";
+import { requireActiveExportSubscription } from "./billing";
+import { getStoredAuthSession } from "./authSession";
 
 export type ChartCaptureStatus = "capturing" | "error" | "idle" | "success";
 
@@ -28,6 +30,7 @@ export async function captureVisibleChartGridPng(
   target: HTMLElement,
   options: ChartCaptureOptions,
 ): Promise<ChartCaptureResult> {
+  const owner = await requireActiveExportSubscription();
   await document.fonts?.ready.catch(() => undefined);
   const { toPng } = await import("html-to-image");
   const cssWidth = Math.max(
@@ -52,6 +55,9 @@ export async function captureVisibleChartGridPng(
     width: cssWidth,
   });
 
+  await requireActiveExportSubscription(owner);
+  const current = getStoredAuthSession();
+  if (current?.token !== owner.token || current.user.id !== owner.user.id) throw new DOMException("The account changed before export.", "AbortError");
   const link = document.createElement("a");
   link.download = fileName;
   link.href = dataUrl;

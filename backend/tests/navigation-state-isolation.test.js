@@ -14,12 +14,13 @@ async function loadNavigationHarness(local = new Map(), session = new Map()) {
     localStorage: { get length() { return local.size; }, key: (index) => [...local.keys()][index] ?? null, getItem: (key) => local.get(key) ?? null, setItem: (key, value) => local.set(key, value), removeItem: (key) => local.delete(key) },
     sessionStorage: { get length() { return session.size; }, key: (index) => [...session.keys()][index] ?? null, removeItem: (key) => session.delete(key), getItem: (key) => session.get(key) ?? null, setItem: (key, value) => session.set(key, value) },
     addEventListener: (name, listener) => listeners.set(name, listener),
+    removeEventListener: (name) => listeners.delete(name),
     dispatchEvent: (event) => { listeners.get(event.type)?.(event); return true; },
   };
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "edgelab-navigation-"));
   const output = path.join(directory, "module.mjs");
-  buildSync({ bundle: true, entryPoints: [path.join(root, "frontend/src/lib/navigationState.ts")], format: "esm", outfile: output, platform: "node" });
-  return { cleanup: () => { fs.rmSync(directory, { force: true, recursive: true }); delete globalThis.window; }, local, module: await import(`${pathToFileURL(output).href}?${Date.now()}`), session };
+  buildSync({ bundle: true, stdin: { contents: 'export * from "./frontend/src/lib/navigationState.ts"; export * from "./frontend/src/lib/authSession.ts";', resolveDir: root }, format: "esm", outfile: output, platform: "node" });
+  return { cleanup: () => { fs.rmSync(directory, { force: true, recursive: true }); delete globalThis.window; }, listeners, local, module: await import(`${pathToFileURL(output).href}?${Date.now()}`), session };
 }
 
 function auth(id) {
@@ -47,12 +48,24 @@ test("navigation state reloads per authenticated identity and clears on logout",
   } finally { harness.cleanup(); }
 });
 
-test("cross-tab authentication changes reload identity-scoped navigation state", () => {
-  const source = fs.readFileSync(path.join(root, "frontend/src/lib/authSession.ts"), "utf8");
-  assert.match(
-    source,
-    /if \(event\.key === AUTH_STORAGE_KEY\) \{\s*notifyListeners\(\);\s*notifyAuthIdentityChange\(\);/,
-  );
+test("cross-tab authentication changes reload identity-scoped navigation without resetting on subscription refresh", async () => {
+  const harness = await loadNavigationHarness(new Map([["edgelab.auth.session.v1", auth(1)]]));
+  const unsubscribe = harness.module.subscribeAuthSession(() => {});
+  try {
+    harness.module.reloadNavigationStateForAuth();
+    harness.module.rememberNavigationState("journal:trades", { scrollLeft: 0, scrollTop: 72, selectedId: 11 });
+    const oldValue = harness.local.get("edgelab.auth.session.v1");
+    const refreshed = JSON.parse(oldValue);
+    refreshed.user.workspaceAccess = false;
+    const newValue = JSON.stringify(refreshed);
+    harness.local.set("edgelab.auth.session.v1", newValue);
+    harness.listeners.get("storage")({ key: "edgelab.auth.session.v1", oldValue, newValue });
+    assert.equal(harness.module.navigationStateFor("journal:trades").selectedId, 11);
+    harness.local.set("edgelab.auth.session.v1", auth(2));
+    harness.listeners.get("storage")({ key: "edgelab.auth.session.v1", oldValue: newValue, newValue: auth(2) });
+    assert.equal(harness.module.navigationStateFor("journal:trades"), null);
+    assert.equal(JSON.parse(harness.session.get("edgelab.navigation-surfaces.v3.user-1"))["journal:trades"].selectedId, 11);
+  } finally { unsubscribe(); harness.cleanup(); }
 });
 
 

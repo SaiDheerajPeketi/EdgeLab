@@ -128,14 +128,14 @@ def context(monkeypatch):
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    monkeypatch.setattr(auth, "settings", SimpleNamespace(jwt_secret="billing-route-jwt", api_token="static-api-key"))
+    monkeypatch.setattr(auth, "settings", SimpleNamespace(deployment_mode="production", jwt_secret="billing-route-jwt", api_token="static-api-key"))
     config = billing.BillingConfig(enabled=True, mode="live", secret_key="sk_live_routefixture",
                                    webhook_secret="whsec_routefixture", monthly_price_id="price_ProMonthly",
                                    annual_price_id="price_ProAnnual", public_origin="https://edgelab.example")
     value = SimpleNamespace(factory=factory, config=config, headers=[], owners=[], sessions=[], client=HTTPClient())
     with factory() as db:
         for index, status in enumerate(["APPROVED", "APPROVED", "WAITLISTED"]):
-            user = models.BetaUser(email=f"billing-{index}@example.test", name=f"Owner {index}", provider="google", status=status)
+            user = models.BetaUser(email=f"billing-{index}@example.test", name=f"Owner {index}", provider="google", google_subject=f"verified_billing_{index}", status=status)
             db.add(user)
             db.flush()
             expires = models.utcnow() + timedelta(hours=1)

@@ -33,7 +33,15 @@ test("rollout flags preserve deep links and provide a global reversible fallback
     }
     const inventory = JSON.parse(fs.readFileSync(path.join(ROOT, "docs/ui-surface-inventory.json"), "utf8"));
     const redirectedOrPatternRoutes = new Set(["/index.html", "/auth/callback/google", "/workspace", "*", "/app/*", "/app/settings/:category"]);
-    const productRoutes = inventory.routes.map((route) => route.path).filter((route) => !redirectedOrPatternRoutes.has(route));
+    assert.deepEqual(module.UI_INVARIANT_ROUTES, ["/account"]);
+    const rollbackFlags = module.resolveUiRollout({ killSwitch: true });
+    for (const route of ["/account", "/account/", "/ACCOUNT"]) {
+      assert.equal(module.routeUsesModernUi(route, rollbackFlags), true);
+    }
+    for (const route of ["/account/subscription", "/accounts", "/pricing", "/app/settings/account", "/app/live"]) {
+      assert.equal(module.routeUsesModernUi(route, rollbackFlags), false);
+    }
+    const productRoutes = inventory.routes.map((route) => route.path).filter((route) => !redirectedOrPatternRoutes.has(route) && !module.routeUsesInvariantUi(route));
     assert.deepEqual(
       productRoutes.filter((route) => !module.compatibilityRouteIsMapped(route)),
       [],

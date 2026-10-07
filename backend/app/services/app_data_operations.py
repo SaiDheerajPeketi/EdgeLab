@@ -4,7 +4,7 @@ import json
 import re
 from uuid import UUID
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from sqlalchemy import select, update
@@ -13,7 +13,9 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
-from app.auth import authenticate_token, bearer_token
+from app.auth import authenticate_token, bearer_token, require_workspace, require_subscription
+from app.config import settings
+from app.services import access_policy
 from app.db import SessionLocal
 from app.models import AppDataOperation, utcnow
 from app.schemas import AppDataImportResult, AppDataOperationRead
@@ -121,30 +123,62 @@ def complete(user_id: int, key: str, status: int, result: dict | None = None) ->
         db.commit()
 
 
-def _authenticate_and_claim(authorization: str | None, key: str, method: str, path: str) -> int:
+def _authenticate_and_claim(authorization: str | None, key: str, method: str, path: str, needs_workspace: bool = True) -> int:
     token = bearer_token(authorization)
     if not token:
         raise HTTPException(status_code=401, detail="Valid account session required")
     with SessionLocal() as db:
         user = authenticate_token(db, token)
-        if not user.approved:
-            raise HTTPException(status_code=403, detail="Approved account required")
+        if needs_workspace:
+            access_policy.require_workspace_user(db, user.id, settings)
         user_id = user.id
     claim(user_id, key, method, path)
     return user_id
 
 
+# Exact endpoint/method exemptions. Future endpoints require workspace access by
+# default; identity-only account operations retain their existing owner checks.
+ACCESS_EXEMPT = frozenset({
+    ("GET", "/health"), ("GET", "/ready"), ("GET", "/ui/rollout"),
+    ("GET", "/auth/config"), ("GET", "/auth/beta/status"),
+    ("POST", "/auth/beta/access"), ("POST", "/auth/dev/bypass"),
+    ("POST", "/auth/google/exchange"), ("GET", "/auth/session"), ("DELETE", "/auth/session"),
+    ("POST", "/app-data/operations/{operation_id}/recover"),
+    ("POST", "/quant/jobs/{job_id}/cancel"),
+    ("DELETE", "/integration-secrets/{secret_id}"),
+    ("DELETE", "/broker-connections/{connection_id}"),
+    ("DELETE", "/market-data/subscriptions/{subscription_id}"),
+    ("GET", "/workspace-shares/open"), ("GET", "/workspace-shares"),
+    ("GET", "/quant/scripts/{script_id}/permissions"),
+    ("GET", "/integration-secrets"), ("GET", "/integration-secrets/{secret_id}"),
+    ("GET", "/broker-connections"), ("GET", "/broker-connections/{connection_id}"),
+    ("POST", "/workspace-shares/{snapshot_id}/revoke"),
+    ("DELETE", "/workspace-shares/{snapshot_id}/payload"),
+    ("DELETE", "/quant/scripts/{script_id}/permissions/{permission_id}"),
+})
+
+
 class AppDataOperationRoute(APIRoute):
+    def __init__(self, path, *args, **kwargs):
+        methods = kwargs.get("methods") or {"GET"}
+        if path.removeprefix("/api") == "/app-data/export" and "GET" in methods:
+            kwargs["dependencies"] = [Depends(require_subscription), *(kwargs.get("dependencies") or [])]
+        elif any((method, path.removeprefix("/api")) not in ACCESS_EXEMPT for method in methods):
+            kwargs["dependencies"] = [Depends(require_workspace), *(kwargs.get("dependencies") or [])]
+        super().__init__(path, *args, **kwargs)
+
     def get_route_handler(self):
         original = super().get_route_handler()
 
         async def handler(request: Request):
             key = request.headers.get(OPERATION_HEADER)
-            if key is None:
+            # Export is a paid, read-only response, never an operation claim.
+            if key is None or (request.method == "GET" and self.path.removeprefix("/api") == "/app-data/export"):
                 return await original(request)
             key = operation_id(key)
             path = canonical_path(request.scope["path"].removeprefix("/api"))
-            user_id = await run_in_threadpool(_authenticate_and_claim, request.headers.get("Authorization"), key, request.method, path)
+            needs_workspace = (request.method, self.path.removeprefix("/api")) not in ACCESS_EXEMPT
+            user_id = await run_in_threadpool(_authenticate_and_claim, request.headers.get("Authorization"), key, request.method, path, needs_workspace)
             try:
                 response = await original(request)
             except Exception as error:

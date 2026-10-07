@@ -7,6 +7,7 @@ import os
 import re
 from secrets import compare_digest, token_urlsafe
 import struct
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -35,9 +36,12 @@ from sqlalchemy.orm import Session
 from app.auth import (
     AuthenticatedUser,
     authenticate_token,
+    bearer_token,
     create_session_token,
     require_auth,
+    require_subscription,
 )
+from app.services import access_policy
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.market_data_db import MarketDataSessionLocal
@@ -237,6 +241,7 @@ router = APIRouter(route_class=app_data_operations.AppDataOperationRoute)
 logger = logging.getLogger(__name__)
 DATASET_STREAM_INTERVAL_SECONDS = 3
 WEBSOCKET_AUTH_TIMEOUT_SECONDS = 5
+ACCESS_RECHECK_SECONDS = 5
 BOOTSTRAP_SESSION_LIMIT = 25
 BOOTSTRAP_TRADE_LIMIT = 100
 SESSION_SUMMARIES_LIMIT = 50
@@ -511,62 +516,22 @@ def purge_expired_beta_sessions(db: Session) -> None:
 
 
 def sync_beta_program(db: Session) -> BetaProgramStatus:
+    mode = access_policy.deployment_mode(settings)
+    if mode == "production":
+        return BetaProgramStatus(mode=mode, deployment_mode=mode, seats_total=0, seats_taken=0, seats_remaining=0, waitlist_count=0)
     purge_expired_beta_sessions(db)
-    approved_users = db.scalars(
-        select(BetaUser)
-        .where(BetaUser.status == "APPROVED")
-        .order_by(BetaUser.beta_position.asc(), BetaUser.created_at.asc(), BetaUser.id.asc())
-    ).all()
-    approved_count = len(approved_users)
-
-    for index, user in enumerate(approved_users, start=1):
-        if user.beta_position != index:
-            user.beta_position = index
-
-    available_slots = max(settings.beta_seats_total - approved_count, 0)
-    if available_slots > 0:
-        waitlisted_to_promote = db.scalars(
-            select(BetaUser)
-            .where(BetaUser.status == "WAITLISTED")
-            .order_by(BetaUser.created_at.asc(), BetaUser.id.asc())
-            .limit(available_slots)
-        ).all()
-        next_position = approved_count + 1
-        for user in waitlisted_to_promote:
-            user.status = "APPROVED"
-            user.beta_position = next_position
-            next_position += 1
-        approved_count += len(waitlisted_to_promote)
-
-    waitlisted_users = db.scalars(
-        select(BetaUser)
-        .where(BetaUser.status == "WAITLISTED")
-        .order_by(BetaUser.created_at.asc(), BetaUser.id.asc())
-    ).all()
-    for index, user in enumerate(waitlisted_users, start=1):
-        if user.beta_position != index:
-            user.beta_position = index
-
-    db.flush()
-    waitlist_count = len(waitlisted_users)
-    seats_taken = min(approved_count, settings.beta_seats_total)
-    return BetaProgramStatus(
-        seats_total=settings.beta_seats_total,
-        seats_taken=seats_taken,
-        seats_remaining=max(settings.beta_seats_total - seats_taken, 0),
-        waitlist_count=waitlist_count,
-    )
+    return BetaProgramStatus(**access_policy.sync_beta(db, settings))
 
 
-def serialize_beta_user(user: BetaUser) -> BetaAuthUser:
-    return BetaAuthUser(
-        id=user.id,
-        email=user.email,
-        name=user.name,
+def serialize_beta_user(db: Session, user: BetaUser, expires_at: datetime) -> BetaAuthUser:
+    access = access_policy.access_snapshot(db, user.id, settings)
+    if access["workspace_access"] and access["deployment_mode"] == "beta":
+        access["access_expires_at"] = expires_at
+    elif access["access_expires_at"] is not None:
+        access["access_expires_at"] = min(normalize_db_datetime(expires_at), access["access_expires_at"])
+    return BetaAuthUser(id=user.id, email=user.email, name=user.name,
         provider="google" if user.provider == "google" else "email",
-        approved=user.status == "APPROVED",
-        beta_position=user.beta_position,
-    )
+        approved=user.status == "APPROVED", beta_position=user.beta_position, **access)
 
 
 def issue_beta_session(db: Session, user: BetaUser) -> BetaAuthSessionRead:
@@ -582,7 +547,7 @@ def issue_beta_session(db: Session, user: BetaUser) -> BetaAuthSessionRead:
         token=token,
         created_at=session.created_at,
         expires_at=session.expires_at,
-        user=serialize_beta_user(user),
+        user=serialize_beta_user(db, user, session.expires_at),
     )
 
 
@@ -593,19 +558,17 @@ def grant_beta_access_response(
     name: str,
     provider: str,
 ) -> BetaAccessResponse:
+    mode = access_policy.deployment_mode(settings)
+    access_policy.lock_enrollment(db)
     user = db.scalar(select(BetaUser).where(BetaUser.email == email))
     if user is None:
-        user = BetaUser(
-            email=email,
-            name=name,
-            provider=provider,
-            status="WAITLISTED",
-        )
+        user = BetaUser(email=email, name=name, provider="email", status="WAITLISTED" if mode == "beta" else "PUBLIC")
         db.add(user)
         db.flush()
+    elif user.provider != "email":
+        raise HTTPException(status_code=409, detail="Use the account's existing sign-in provider")
     else:
         user.name = name or user.name
-        user.provider = provider
 
     program = sync_beta_program(db)
     user.last_login_at = utcnow()
@@ -802,7 +765,7 @@ def google_oauth_enabled() -> bool:
 
 
 def beta_manual_access_enabled() -> bool:
-    return bool(getattr(settings, "beta_manual_access_enabled", False))
+    return access_policy.deployment_mode(settings) == "beta" and bool(getattr(settings, "beta_manual_access_enabled", False))
 
 
 LOCAL_DEV_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
@@ -821,7 +784,7 @@ def is_local_dev_origin(origin: str) -> bool:
 
 
 def dev_auth_bypass_enabled() -> bool:
-    if not bool(getattr(settings, "dev_auth_bypass_enabled", False)):
+    if access_policy.deployment_mode(settings) != "beta" or not bool(getattr(settings, "dev_auth_bypass_enabled", False)):
         return False
     if settings.public_origin and not is_local_dev_origin(settings.public_origin):
         return False
@@ -874,6 +837,10 @@ def fetch_google_token_payload(code: str, redirect_uri: str) -> dict[str, object
     return result
 
 
+def valid_google_subject(value) -> bool:
+    return isinstance(value, str) and 1 <= len(value) <= 255 and re.fullmatch(r"[A-Za-z0-9_-]+", value) is not None
+
+
 def fetch_google_userinfo(access_token: str) -> dict[str, object]:
     request = UrlRequest(
         "https://openidconnect.googleapis.com/v1/userinfo",
@@ -890,8 +857,8 @@ def fetch_google_userinfo(access_token: str) -> dict[str, object]:
         raise HTTPException(status_code=502, detail="Google userinfo request failed") from exc
 
     email = clean_text(result.get("email")) if isinstance(result, dict) else ""
-    if not email:
-        raise HTTPException(status_code=502, detail="Google userinfo missing email")
+    if not email or result.get("email_verified") is not True or not valid_google_subject(result.get("sub")):
+        raise HTTPException(status_code=502, detail="Google userinfo requires a verified email and stable subject")
     return result
 
 
@@ -1256,6 +1223,7 @@ def beta_program_status(db: Session = Depends(get_db)) -> BetaProgramStatus:
 @router.get("/auth/config", response_model=BetaAuthConfig)
 def beta_auth_config() -> BetaAuthConfig:
     return BetaAuthConfig(
+        deployment_mode=access_policy.deployment_mode(settings),
         google_enabled=google_oauth_enabled(),
         google_client_id=settings.google_client_id or None,
         google_redirect_uri=settings.google_redirect_uri or None,
@@ -1373,14 +1341,37 @@ def exchange_google_auth_code(
         userinfo = fetch_google_userinfo(clean_text(token_payload.get("access_token")))
         email = normalize_beta_email(clean_text(userinfo.get("email")))
         name = clean_text(userinfo.get("name")) or email.split("@", 1)[0]
-        response = grant_beta_access_response(
-            db,
-            email=email,
-            name=name,
-            provider="google",
-        )
+        if userinfo.get("email_verified") is not True or not valid_google_subject(userinfo.get("sub")):
+            raise HTTPException(status_code=502, detail="Google userinfo requires a verified email and stable subject")
+        mode = access_policy.deployment_mode(settings)
+        access_policy.lock_enrollment(db)
+        subject = userinfo["sub"]
+        user = db.scalar(select(BetaUser).where(BetaUser.google_subject == subject))
+        by_email = db.scalar(select(BetaUser).where(BetaUser.email == email))
+        if user is not None:
+            if by_email is not None and by_email.id != user.id:
+                raise HTTPException(status_code=409, detail="Google account email conflicts with an existing account")
+            user.email, user.name = email, name
+        elif by_email is not None:
+            if by_email.provider != "google" or by_email.google_subject is not None:
+                raise HTTPException(status_code=409, detail="Use the account's existing sign-in provider")
+            user = by_email
+            # Pre-47 manual enrollment accepted a caller-supplied Google label;
+            # those prior sessions do not prove control of the verified account.
+            db.query(BetaSession).filter(BetaSession.user_id == user.id).delete(synchronize_session=False)
+            user.google_subject, user.name = subject, name
+        else:
+            user = BetaUser(email=email, name=name, provider="google", google_subject=subject, status="WAITLISTED" if mode == "beta" else "PUBLIC")
+            db.add(user)
+            db.flush()
+        program = sync_beta_program(db)
+        user.last_login_at = utcnow()
+        response = BetaAccessResponse(session=issue_beta_session(db, user), program=program)
         db.commit()
         return response
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Google account identity conflicts with an existing account") from exc
     except OperationalError as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail="Google sign-in failed") from exc
@@ -1393,8 +1384,7 @@ def read_beta_session(
 ) -> BetaAuthSessionRead:
     try:
         sync_beta_program(db)
-        db.commit()
-        return BetaAuthSessionRead(
+        result = BetaAuthSessionRead(
             token=create_session_token(
                 current_user.id,
                 current_user.session_id,
@@ -1402,15 +1392,10 @@ def read_beta_session(
             ),
             created_at=current_user.session_created_at,
             expires_at=current_user.session_expires_at,
-            user=BetaAuthUser(
-                id=current_user.id,
-                email=current_user.email,
-                name=current_user.name,
-                provider="google" if current_user.provider == "google" else "email",
-                approved=current_user.approved,
-                beta_position=current_user.beta_position,
-            ),
+            user=serialize_beta_user(db, db.get(BetaUser, current_user.id, populate_existing=True), current_user.session_expires_at),
         )
+        db.commit()
+        return result
     except OperationalError as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail="Beta session unavailable") from exc
@@ -1515,6 +1500,14 @@ def dataset_refresh_status(
     return dataset_catalog.refresh_status(current_user.id)
 
 
+def verify_stream_access(token: str) -> AuthenticatedUser:
+    with SessionLocal() as db:
+        user = authenticate_token(db, token)
+        access = access_policy.require_workspace_user(db, user.id, settings)
+        expiry = access["access_expires_at"] or normalize_db_datetime(user.session_expires_at)
+        return replace(user, access_expires_at=min(expiry, normalize_db_datetime(user.session_expires_at)))
+
+
 @router.websocket("/datasets/stream")
 async def dataset_stream(websocket: WebSocket) -> None:
     await websocket.accept()
@@ -1525,7 +1518,7 @@ async def dataset_stream(websocket: WebSocket) -> None:
             timeout=WEBSOCKET_AUTH_TIMEOUT_SECONDS,
         )
         token = clean_text(initial.get("authToken")) if isinstance(initial, dict) else ""
-        current_user = authenticate_token(db, token)
+        current_user = verify_stream_access(token)
     except (HTTPException, asyncio.TimeoutError, ValueError, TypeError, json.JSONDecodeError):
         await websocket.close(code=4401)
         return
@@ -1535,7 +1528,18 @@ async def dataset_stream(websocket: WebSocket) -> None:
     last_signature: str | None = None
     try:
         while True:
+            try:
+                current_user = await asyncio.to_thread(verify_stream_access, token)
+            except HTTPException as exc:
+                await websocket.close(code=4401 if exc.status_code == 401 else 4403)
+                return
             payload = await asyncio.to_thread(dataset_catalog_stream_payload, current_user.id)
+            if current_user.access_expires_at <= utcnow():
+                try:
+                    current_user = await asyncio.to_thread(verify_stream_access, token)
+                except HTTPException as exc:
+                    await websocket.close(code=4401 if exc.status_code == 401 else 4403)
+                    return
             signature = json.dumps(payload, sort_keys=True, separators=(",", ":"))
             if signature != last_signature:
                 await websocket.send_json(payload)
@@ -1591,8 +1595,6 @@ def reserve_app_data_operation(
     response: Response,
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppDataOperationRead:
-    if not current_user.approved:
-        raise HTTPException(status_code=403, detail="Approved account required")
     enforce_rate_limit("app-data-operations", current_user.id, APP_DATA_OPERATION_RATE_LIMIT)
     response.headers["Cache-Control"] = "no-store"
     return app_data_operations.reserve(current_user.id, operation_id, payload.method, payload.path)
@@ -1604,8 +1606,6 @@ def recover_app_data_operation(
     response: Response,
     current_user: AuthenticatedUser = Depends(require_auth),
 ) -> AppDataOperationRead:
-    if not current_user.approved:
-        raise HTTPException(status_code=403, detail="Approved account required")
     enforce_rate_limit("app-data-operations", current_user.id, APP_DATA_OPERATION_RATE_LIMIT)
     response.headers["Cache-Control"] = "no-store"
     return app_data_operations.recover(current_user.id, operation_id)
@@ -1614,7 +1614,7 @@ def recover_app_data_operation(
 @router.get("/app-data/export", response_model=AppDataBundle)
 def export_app_data(
     db: Session = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(require_auth),
+    current_user: AuthenticatedUser = Depends(require_subscription),
 ) -> AppDataBundle:
     row_counts = {
         table_name: db.scalar(
@@ -2907,7 +2907,8 @@ async def angelone_stream(websocket: WebSocket) -> None:
 
     db = SessionLocal()
     try:
-        authenticate_token(db, clean_text(initial.get("apiToken")))
+        token = clean_text(initial.get("apiToken"))
+        stream_user = verify_stream_access(token)
     except HTTPException:
         await websocket.send_json({"type": "error", "message": "Valid session required"})
         await websocket.close(code=4401)
@@ -2935,12 +2936,12 @@ async def angelone_stream(websocket: WebSocket) -> None:
         if not isinstance(item, dict):
             continue
         exchange_type = clean_int(item.get("exchangeType"))
-        token = clean_text(item.get("token"))
-        if exchange_type is None or not token:
+        instrument_token = clean_text(item.get("token"))
+        if exchange_type is None or not instrument_token:
             continue
         token_groups.setdefault(exchange_type, [])
-        if token not in token_groups[exchange_type]:
-            token_groups[exchange_type].append(token)
+        if instrument_token not in token_groups[exchange_type]:
+            token_groups[exchange_type].append(instrument_token)
 
     if not token_groups:
         await websocket.send_json({"type": "error", "message": "Angel One instruments are missing token metadata"})
@@ -2982,14 +2983,24 @@ async def angelone_stream(websocket: WebSocket) -> None:
             await upstream.send(json.dumps(subscribe_payload))
             await websocket.send_json({"type": "status", "status": "subscribed"})
 
+            async def forward(payload) -> None:
+                nonlocal stream_user
+                if stream_user.access_expires_at <= utcnow():
+                    try:
+                        stream_user = await asyncio.to_thread(verify_stream_access, token)
+                    except HTTPException as exc:
+                        await websocket.close(code=4401 if exc.status_code == 401 else 4403)
+                        raise
+                await websocket.send_json(payload)
+
             async def pump_upstream() -> None:
                 async for message in upstream:
                     if isinstance(message, bytes):
                         tick = parse_angelone_binary_tick(message)
                         if tick is not None:
-                            await websocket.send_json({"type": "tick", "tick": tick})
+                            await forward({"type": "tick", "tick": tick})
                     elif isinstance(message, str) and message.lower() not in {"pong", "ping"}:
-                        await websocket.send_json({"type": "message", "message": message})
+                        await forward({"type": "message", "message": message})
 
             async def ping_upstream() -> None:
                 while True:
@@ -3000,17 +3011,30 @@ async def angelone_stream(websocket: WebSocket) -> None:
                 while True:
                     await websocket.receive_text()
 
+            async def watch_access() -> None:
+                nonlocal stream_user
+                while True:
+                    remaining = (stream_user.access_expires_at - utcnow()).total_seconds()
+                    await asyncio.sleep(max(0, min(ACCESS_RECHECK_SECONDS, remaining)))
+                    try:
+                        stream_user = await asyncio.to_thread(verify_stream_access, token)
+                    except HTTPException as exc:
+                        await websocket.close(code=4401 if exc.status_code == 401 else 4403)
+                        raise
+
             tasks = {
                 asyncio.create_task(pump_upstream()),
                 asyncio.create_task(ping_upstream()),
                 asyncio.create_task(watch_client()),
+                asyncio.create_task(watch_access()),
             }
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
             for task in pending:
                 task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
             for task in done:
                 task.result()
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, HTTPException):
         return
     except Exception:
         logger.exception("Angel One live feed failed")
@@ -4314,12 +4338,23 @@ def stream_quant_job_events(
         while True:
             if await request.is_disconnected():
                 return
+            try:
+                stream_user = await asyncio.to_thread(verify_stream_access, bearer_token(request.headers.get("Authorization")) or "")
+            except HTTPException:
+                yield 'event: access_revoked\ndata: {"workspace_access":false}\n\n'
+                return
             with SessionLocal() as stream_db:
                 events = quant_ai.list_job_events(
                     stream_db, current_user.id, job_id, after_sequence=sequence
                 )
                 job = quant_ai.get_generation_job(stream_db, current_user.id, job_id)
             for event in events:
+                if stream_user.access_expires_at <= utcnow():
+                    try:
+                        stream_user = await asyncio.to_thread(verify_stream_access, bearer_token(request.headers.get("Authorization")) or "")
+                    except HTTPException:
+                        yield 'event: access_revoked\ndata: {"workspace_access":false}\n\n'
+                        return
                 sequence = event.sequence
                 data = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
                 yield f"id: {event.sequence}\nevent: {event.event_type.lower()}\ndata: {data}\n\n"

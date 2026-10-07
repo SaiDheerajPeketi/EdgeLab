@@ -2,6 +2,7 @@ import asyncio
 import json as jsonlib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
+from dataclasses import replace
 from datetime import timedelta
 from threading import Barrier
 from types import SimpleNamespace
@@ -79,7 +80,9 @@ def context(tmp_path, monkeypatch):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr(operations, "SessionLocal", factory)
-    monkeypatch.setattr(auth, "settings", SimpleNamespace(jwt_secret="receipt-test-secret"))
+    beta_settings = replace(routes.settings, deployment_mode="beta", beta_seats_total=2, jwt_secret="receipt-test-secret")
+    for module in (auth, routes, operations):
+        monkeypatch.setattr(module, "settings", beta_settings)
     monkeypatch.setattr(routes.rate_limiter, "consume", lambda *args, **kwargs: SimpleNamespace(allowed=True))
     headers = []
     owners = []
@@ -230,12 +233,18 @@ def test_receipt_and_guard_require_real_approved_session(context, mode):
     headers = context.headers[2] if mode == "unapproved" else ({} if mode == "unauthenticated" else {"Authorization": "Bearer invalid"})
     key = str(uuid4())
     status = 403 if mode == "unapproved" else 401
-    for suffix in ["reserve", "recover"]:
-        response = context.client.post(f"/api/app-data/operations/{key}/{suffix}", json={"method": "PUT", "path": "/app-storage/preferences/workspace"}, headers=headers)
-        assert response.status_code == status
+    response = context.client.post(f"/api/app-data/operations/{key}/reserve", json={"method": "PUT", "path": "/app-storage/preferences/workspace"}, headers=headers)
+    assert response.status_code == status
+    # Owner-only recovery remains available without a workspace entitlement.
+    response = context.client.post(f"/api/app-data/operations/{key}/recover", headers=headers)
+    assert response.status_code == (200 if mode == "unapproved" else 401)
     response = context.client.put("/api/app-storage/preferences/workspace", json={"value": 1}, headers={**headers, operations.OPERATION_HEADER: key})
     assert response.status_code == status
-    assert receipt(context, key) is None
+    if mode == "unapproved":
+        with context.factory() as db:
+            assert db.get(models.AppDataOperation, (context.owners[2], key)).status == "canceled"
+    else:
+        assert receipt(context, key) is None
 
 
 def test_validation_failure_finishes_and_no_header_compatibility(context):
@@ -318,7 +327,7 @@ def test_finished_handler_errors_record_only_http_status(context, failure, statu
     key = str(uuid4())
     path = "/app-storage/proof/error/future"
     reserve(context, key, path=path)
-    router = APIRouter(route_class=operations.AppDataOperationRoute)
+    router = APIRouter(route_class=operations.AppDataOperationRoute, dependency_overrides_provider=context.app)
 
     @router.put(path)
     async def endpoint():
@@ -336,7 +345,7 @@ def test_async_cancellation_keeps_running_receipt(context):
     key = str(uuid4())
     path = "/app-storage/proof/canceled/future"
     reserve(context, key, path=path)
-    router = APIRouter(route_class=operations.AppDataOperationRoute)
+    router = APIRouter(route_class=operations.AppDataOperationRoute, dependency_overrides_provider=context.app)
 
     @router.put(path)
     async def endpoint():
@@ -354,7 +363,7 @@ def test_receipt_waits_for_stream_and_background_completion(context, mode):
     key = str(uuid4())
     path = "/app-storage/proof/response"
     reserve(context, key, path=path)
-    router = APIRouter(route_class=operations.AppDataOperationRoute)
+    router = APIRouter(route_class=operations.AppDataOperationRoute, dependency_overrides_provider=context.app)
 
     async def scenario():
         entered, release = asyncio.Event(), asyncio.Event()
@@ -430,7 +439,7 @@ def test_asgi_20_disconnect_does_not_complete_unfinished_stream(context, disconn
     key = str(uuid4())
     path = "/app-storage/proof/old-asgi"
     reserve(context, key, path=path)
-    router = APIRouter(route_class=operations.AppDataOperationRoute)
+    router = APIRouter(route_class=operations.AppDataOperationRoute, dependency_overrides_provider=context.app)
 
     async def scenario():
         entered, release, canceled = asyncio.Event(), asyncio.Event(), asyncio.Event()

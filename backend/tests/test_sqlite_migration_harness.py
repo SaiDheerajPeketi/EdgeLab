@@ -3,6 +3,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 import sqlalchemy as sa
+import pytest
 from sqlalchemy import inspect
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -28,7 +29,8 @@ def test_empty_sqlite_database_upgrades_to_alembic_head(tmp_path, monkeypatch):
     engine = _sqlite_engine(database_url)
     inspector = inspect(engine)
     with engine.connect() as connection:
-        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20261007_0016"
+        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20261007_0017"
+    assert "google_subject" in {column["name"] for column in inspector.get_columns("beta_users")}
     assert "backtest_session_summaries" in inspector.get_table_names()
     assert "ai_generation_jobs" in inspector.get_table_names()
     assert "app_data_operations" in inspector.get_table_names()
@@ -145,3 +147,47 @@ def test_migrate_sqlite_to_database_copies_rows_and_verifies_samples(tmp_path):
         assert receipt.operation_id == "00000000-0000-4000-8000-000000000001"
         assert receipt.status == "canceled"
         assert receipt.completed_at is not None
+
+
+def test_google_subject_additive_upgrade_downgrade_reupgrade_preserves_existing_identity(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'google-subject.db'}"
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    command.upgrade(config, "20261007_0016")
+    engine = _sqlite_engine(database_url)
+    assert "google_subject" not in {c["name"] for c in inspect(engine).get_columns("beta_users")}
+    with engine.begin() as connection:
+        connection.execute(sa.text("""INSERT INTO beta_users
+            (id,email,name,provider,status,beta_position,created_at,updated_at)
+            VALUES (37,'legacy-google@example.test','Existing Trader','google','APPROVED',4,
+                    '2026-01-01 00:00:00','2026-01-02 00:00:00')"""))
+        connection.execute(sa.text("""INSERT INTO app_storage
+            (id,user_id,namespace,key,value,created_at,updated_at)
+            VALUES (91,37,'workspace','native-source','{"original":"saved"}',
+                    '2026-01-01 00:00:00','2026-01-02 00:00:00')"""))
+        original = connection.execute(sa.text("SELECT id,email,name,provider,status,beta_position,created_at,updated_at FROM beta_users WHERE id=37")).one()
+    def preserved():
+        with engine.connect() as connection:
+            assert connection.execute(sa.text("SELECT id,email,name,provider,status,beta_position,created_at,updated_at FROM beta_users WHERE id=37")).one() == original
+            assert connection.execute(sa.text("SELECT user_id,value FROM app_storage WHERE id=91")).one() == (37, '{"original":"saved"}')
+    command.upgrade(config, "20261007_0017")
+    preserved()
+    with engine.begin() as connection:
+        assert connection.execute(sa.text("SELECT google_subject FROM beta_users WHERE id=37")).scalar_one() is None
+        connection.execute(sa.text("UPDATE beta_users SET google_subject='verified-subject' WHERE id=37"))
+    with pytest.raises(sa.exc.IntegrityError), engine.begin() as connection:
+        connection.execute(sa.text("""INSERT INTO beta_users
+            (id,email,name,provider,status,google_subject,created_at,updated_at)
+            VALUES (38,'collision@example.test','Collision','google','PUBLIC','verified-subject',
+                    '2026-01-01 00:00:00','2026-01-02 00:00:00')"""))
+    command.downgrade(config, "20261007_0016")
+    assert "google_subject" not in {c["name"] for c in inspect(engine).get_columns("beta_users")}
+    preserved()
+    command.upgrade(config, "head")
+    preserved()
+    with engine.connect() as connection:
+        assert connection.execute(sa.text("SELECT google_subject FROM beta_users WHERE id=37")).scalar_one() is None
+        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == "20261007_0017"
+    engine.dispose()

@@ -861,14 +861,16 @@ class WorkspaceSharePublicRead(BaseModel):
 
 
 class BetaProgramStatus(BaseModel):
-    mode: Literal["beta"] = "beta"
-    seats_total: int = Field(ge=1)
+    mode: Literal["beta", "production"]
+    deployment_mode: Literal["beta", "production"]
+    seats_total: int = Field(ge=0)
     seats_taken: int = Field(ge=0)
     seats_remaining: int = Field(ge=0)
     waitlist_count: int = Field(ge=0)
 
 
 class BetaAuthConfig(BaseModel):
+    deployment_mode: Literal["beta", "production"]
     google_enabled: bool = False
     google_client_id: str | None = None
     google_redirect_uri: str | None = None
@@ -897,8 +899,11 @@ class BetaAuthUser(BaseModel):
     provider: Literal["email", "google"]
     approved: bool
     beta_position: int | None = None
-    is_beta_user: Literal[True] = True
-    plan: Literal["beta"] = "beta"
+    deployment_mode: Literal["beta", "production"]
+    workspace_access: bool
+    access_expires_at: datetime | None
+    is_beta_user: bool
+    plan: Literal["beta", "pro", "none"]
 
 
 class BetaAuthSessionRead(BaseModel):

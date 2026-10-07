@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { getLatestBacktest } from "../../lib/api";
-import { getStoredAuthSession } from "../../lib/authSession";
+import { getStoredAuthSession, hasWorkspaceAccess } from "../../lib/authSession";
 import { listCanonicalTrades } from "../../lib/journalApi";
 import { loadAppStorageItem } from "../../lib/serverStorage";
 import { hydrateSettingsPreferences, saveSettingsPreferences, type SettingsPreferences } from "../../lib/settingsPreferences";
@@ -22,7 +22,8 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   const location = useLocation();
   const session = getStoredAuthSession();
   const deepLink = compatibilityDeepLink(location);
-  if ((location.pathname.startsWith("/app") || location.pathname === "/shared") && !session?.user.approved) {
+  if ((location.pathname.startsWith("/app") || location.pathname === "/shared") && !hasWorkspaceAccess(session)) {
+    if (session && session.user.deploymentMode !== "beta") return <Navigate replace state={{ fromPath: deepLink }} to={`/pricing?from=${encodeURIComponent(deepLink)}`} />;
     return <Navigate replace state={{ fromPath: deepLink }} to={buildAuthSignInHref({ fromPath: deepLink, waitlist: Boolean(session) })} />;
   }
   const content = location.pathname.replace(/\/$/, "") === "/app/settings/storage" ? <CompatibilityStorageSettings /> : ["/app/settings", "/app/settings/global", "/app/settings/account", "/app/settings/ai", "/app/settings/privacy-security"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilitySessionPrivacySettings /> : ["/app/settings/chart", "/app/settings/appearance"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityChartSettings /> : location.pathname.replace(/\/$/, "") === "/app/settings/backtest" ? <CompatibilityBacktestSettings /> : ["/app/journal/settings", "/app/settings/journal"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalSettings /> : group === "public" ? <PublicCompatibility />

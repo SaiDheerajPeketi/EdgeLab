@@ -1,14 +1,31 @@
 import { createContext, useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { exportAppDataBundle, importAppDataBundle, recoverAccountDataOperations, validateAppDataBundle, type AppDataBundle, type AppDataImportResult } from "../../lib/api";
 import { appDataRecoveryNeeded, appDataSessionKey, assertAppDataAccess, captureAppDataAccess, registerAppDataParticipant } from "../../lib/appDataBarrier";
-import { getStoredAuthSession } from "../../lib/authSession";
+import { getStoredAuthSession, subscribeAuthSession } from "../../lib/authSession";
+import { getBillingStatus, hasActiveSubscription, type BillingStatus } from "../../lib/billing";
+import { Link } from "react-router-dom";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 type ImportDraft = { bundle: AppDataBundle; fileName: string; rows: number; tables: Array<{ name: string; rows: number }> };
 const TransferContext = createContext<ReturnType<typeof useTransferController> | null>(null);
 
 export function DataTransferProvider({ children }: { children: ReactNode }) {
-  return <TransferContext.Provider value={useTransferController()}>{children}</TransferContext.Provider>;
+  const transfer = useTransferController();
+  const [exportNotice, setExportNotice] = useState("");
+  useEffect(() => {
+    const failed = (event: Event) => setExportNotice(String((event as CustomEvent).detail));
+    const changed = () => setExportNotice("");
+    window.addEventListener("edgelab:export-error", failed);
+    window.addEventListener("edgelab:auth-session-change", changed);
+    return () => { window.removeEventListener("edgelab:export-error", failed); window.removeEventListener("edgelab:auth-session-change", changed); };
+  }, []);
+  return <TransferContext.Provider value={transfer}>
+    {exportNotice ? <div className="relative z-[130] flex flex-wrap items-center justify-between gap-3 bg-amber-950 px-4 py-3 text-sm leading-6 text-amber-100" role="alert">
+      <p className="min-w-0 flex-1">{exportNotice} <Link className="inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100" to="/account">Manage subscription</Link></p>
+      <button className="min-h-11 px-3 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100" type="button" onClick={() => setExportNotice("")}>Dismiss</button>
+    </div> : null}
+    {children}
+  </TransferContext.Provider>;
 }
 
 export function useDataTransfer() {
@@ -20,6 +37,10 @@ export function useDataTransfer() {
 function useTransferController() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [exportState, setExportState] = useState<"idle" | "working" | "error">("idle");
+  const [subscription, setSubscription] = useState<BillingStatus | null>(null);
+  const [subscriptionChecking, setSubscriptionChecking] = useState(false);
+  const [subscriptionClock, setSubscriptionClock] = useState(Date.now());
+  const subscriptionOwner = useRef<string | null>(null);
   const [draft, setDraftState] = useState<ImportDraft | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [importState, setImportState] = useState<"idle" | "working" | "error" | "done">("idle");
@@ -43,6 +64,40 @@ function useTransferController() {
   const draftStorage = useRef<{ key: string; binding: string } | null>(null);
   const views = useRef(new Set<symbol>());
   const busy = restoring || reading || exportState === "working" || importState === "working" || recovery.state === "checking";
+  const canExport = subscriptionOwner.current === sessionIdentity() && hasActiveSubscription(subscription, subscriptionClock);
+
+  useEffect(() => {
+    let alive = true, generation = 0, pending = false;
+    const refresh = async () => {
+      const owner = sessionIdentity();
+      if (owner !== subscriptionOwner.current) {
+        generation += 1; pending = false; subscriptionOwner.current = owner; setSubscription(null);
+      }
+      if (!owner) { setSubscriptionChecking(false); return; }
+      if (pending) return;
+      const run = ++generation;
+      pending = true; setSubscriptionChecking(true);
+      try {
+        const status = await getBillingStatus();
+        if (alive && run === generation && owner === sessionIdentity()) {
+          setSubscription(status); setSubscriptionClock(Date.now());
+        }
+      } catch {
+        if (alive && run === generation) setSubscription(null);
+      } finally {
+        if (alive && run === generation) { pending = false; setSubscriptionChecking(false); }
+      }
+    };
+    void refresh();
+    const unsubscribe = subscribeAuthSession(() => {
+      if (subscriptionOwner.current !== sessionIdentity()) void refresh();
+    });
+    const timer = window.setInterval(() => void refresh(), 30_000);
+    const clock = window.setInterval(() => setSubscriptionClock(Date.now()), 1000);
+    const visible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { alive = false; generation += 1; unsubscribe(); window.clearInterval(timer); window.clearInterval(clock); document.removeEventListener("visibilitychange", visible); };
+  }, []);
 
   function setDraft(next: ImportDraft | null) {
     setDraftState(next); setDraftWarning("");
@@ -202,6 +257,10 @@ function useTransferController() {
 
   async function exportData(view: symbol) {
     if (!views.current.has(view)) return;
+    if (subscriptionOwner.current !== sessionIdentity() || !hasActiveSubscription(subscription)) {
+      setError("An active paid subscription is required to export data. Check your subscription in Account.");
+      return;
+    }
     const ticket = begin("export");
     if (!ticket) return;
     setExportState("working");
@@ -209,6 +268,7 @@ function useTransferController() {
     try {
       const bundle = await exportAppDataBundle();
       if (!current(ticket)) return;
+      if (!hasActiveSubscription(subscription)) throw new Error("Your subscription needs to be checked again before exporting. Open Account, refresh your status, and retry.");
       setExportState("idle");
       if (!views.current.has(view)) return;
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
@@ -277,7 +337,7 @@ function useTransferController() {
   }
 
   return { fileInputRef, exportState, draft, confirmation, setConfirmation, importState, error, result, reading, pendingSaves,
-    reloadRequired, recovery, busy, restoring, draftWarning, identityKey: identity.current ?? "signed-out",
+    reloadRequired, recovery, busy, restoring, draftWarning, canExport, subscriptionChecking, identityKey: identity.current ?? "signed-out",
     attachView, chooseFile, onPickerClick, recoverSaves, exportData, readFile, importData };
 }
 
@@ -287,8 +347,8 @@ function messageFor(error: unknown, fallback: string) {
 
 function sessionIdentity() {
   const session = getStoredAuthSession();
-  return session?.user.approved === true && Number.isSafeInteger(session.user.id) && session.user.id > 0 && typeof session.token === "string" && session.token.trim() && typeof session.expiresAt === "string" && Date.parse(session.expiresAt) > Date.now()
-    ? window.localStorage.getItem("edgelab.auth.session.v1") : null;
+  return session && Number.isSafeInteger(session.user.id) && session.user.id > 0 && typeof session.token === "string" && session.token.trim() && typeof session.expiresAt === "string" && Date.parse(session.expiresAt) > Date.now()
+    ? `${session.user.id}:${session.token}` : null;
 }
 
 function interruptedSaves() {

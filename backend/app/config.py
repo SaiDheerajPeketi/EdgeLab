@@ -147,6 +147,7 @@ class Settings:
     google_client_secret: str = GOOGLE_OAUTH_CREDENTIALS.client_secret
     google_client_secrets_file: Path | None = GOOGLE_OAUTH_CREDENTIALS.source_file
     public_origin: str = os.getenv("EDGELAB_PUBLIC_ORIGIN", "").strip().rstrip("/")
+    deployment_mode: str = os.getenv("EDGELAB_DEPLOYMENT_MODE", "production").strip().lower()
     billing_enabled: bool = bool_env("EDGELAB_BILLING_ENABLED", False)
     stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "").strip()
     stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
@@ -294,6 +295,7 @@ if not settings.google_redirect_uri and settings.public_origin:
         google_client_secret=settings.google_client_secret,
         google_client_secrets_file=settings.google_client_secrets_file,
         public_origin=settings.public_origin,
+        deployment_mode=settings.deployment_mode,
         billing_enabled=settings.billing_enabled,
         stripe_secret_key=settings.stripe_secret_key,
         stripe_webhook_secret=settings.stripe_webhook_secret,

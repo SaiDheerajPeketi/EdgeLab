@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from typing import Literal
 
-from app.auth import AuthenticatedUser, require_auth
+from app.auth import AuthenticatedUser, require_billing_identity
 from app.db import get_db
 from app.services import billing
 
@@ -60,7 +60,7 @@ def read_catalog(
 def read_status(
     response: Response,
     db: Session = Depends(get_db),
-    user: AuthenticatedUser = Depends(require_auth),
+    user: AuthenticatedUser = Depends(require_billing_identity),
     config: billing.BillingConfig = Depends(get_billing_config),
     provider=Depends(get_billing_provider),
 ):
@@ -73,7 +73,7 @@ def checkout(
     payload: CheckoutRequest,
     response: Response,
     db: Session = Depends(get_db),
-    user: AuthenticatedUser = Depends(require_auth),
+    user: AuthenticatedUser = Depends(require_billing_identity),
     config: billing.BillingConfig = Depends(get_billing_config),
     provider=Depends(get_billing_provider),
 ):
@@ -86,7 +86,7 @@ def portal(
     response: Response,
     payload: PortalRequest | None = None,
     db: Session = Depends(get_db),
-    user: AuthenticatedUser = Depends(require_auth),
+    user: AuthenticatedUser = Depends(require_billing_identity),
     config: billing.BillingConfig = Depends(get_billing_config),
     provider=Depends(get_billing_provider),
 ):

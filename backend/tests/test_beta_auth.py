@@ -21,6 +21,7 @@ def make_model_session():
 
 def test_beta_access_waitlists_after_seats_fill(monkeypatch):
     settings = SimpleNamespace(
+        deployment_mode="beta",
         beta_seats_total=1,
         beta_manual_access_enabled=True,
         jwt_secret="test-jwt-secret",
@@ -58,6 +59,7 @@ def test_beta_access_waitlists_after_seats_fill(monkeypatch):
 
 def test_beta_session_can_be_read_and_deleted(monkeypatch):
     settings = SimpleNamespace(
+        deployment_mode="beta",
         beta_seats_total=2,
         beta_manual_access_enabled=True,
         jwt_secret="test-jwt-secret",
@@ -90,6 +92,7 @@ def test_beta_session_can_be_read_and_deleted(monkeypatch):
 
 def test_beta_access_requires_google_auth_by_default(monkeypatch):
     settings = SimpleNamespace(
+        deployment_mode="beta",
         beta_seats_total=2,
         beta_manual_access_enabled=False,
         jwt_secret="test-jwt-secret",
@@ -116,6 +119,7 @@ def test_beta_auth_config_returns_google_redirect_uri(monkeypatch):
         routes,
         "settings",
         SimpleNamespace(
+        deployment_mode="beta",
             beta_manual_access_enabled=False,
             dev_auth_bypass_enabled=False,
             google_client_id="client-id",
@@ -138,6 +142,7 @@ def test_google_token_exchange_rejects_unconfigured_redirect_uri(monkeypatch):
         routes,
         "settings",
         SimpleNamespace(
+        deployment_mode="beta",
             google_client_id="client-id",
             google_client_secret="client-secret",
             google_redirect_uri="https://edgelab.co.in/auth/callback/google",
@@ -165,7 +170,7 @@ def test_fetch_google_userinfo_builds_urllib_request(monkeypatch):
             return False
 
         def read(self):
-            return b'{"email":"alpha@desk.com","name":"Alpha Trader"}'
+            return b'{"email":"alpha@desk.com","name":"Alpha Trader","email_verified":true,"sub":"google_alpha"}'
 
     def fake_urlopen(request, timeout):
         captured["request"] = request
@@ -187,6 +192,7 @@ def test_dev_auth_bypass_is_only_advertised_for_local_origins(monkeypatch):
         routes,
         "settings",
         SimpleNamespace(
+        deployment_mode="beta",
             beta_manual_access_enabled=False,
             dev_auth_bypass_enabled=True,
             google_client_id="",
@@ -203,6 +209,7 @@ def test_dev_auth_bypass_is_only_advertised_for_local_origins(monkeypatch):
         routes,
         "settings",
         SimpleNamespace(
+        deployment_mode="beta",
             beta_manual_access_enabled=False,
             dev_auth_bypass_enabled=True,
             google_client_id="",
@@ -218,6 +225,7 @@ def test_dev_auth_bypass_is_only_advertised_for_local_origins(monkeypatch):
 
 def test_dev_auth_bypass_issues_session_only_for_loopback_request(monkeypatch):
     settings = SimpleNamespace(
+        deployment_mode="beta",
         beta_seats_total=2,
         beta_manual_access_enabled=False,
         dev_auth_bypass_enabled=True,
@@ -231,6 +239,7 @@ def test_dev_auth_bypass_issues_session_only_for_loopback_request(monkeypatch):
 
     try:
         blocked_request = SimpleNamespace(
+        deployment_mode="beta",
             url=SimpleNamespace(hostname="edgelab.co.in"),
             client=SimpleNamespace(host="203.0.113.10"),
         )
@@ -238,6 +247,7 @@ def test_dev_auth_bypass_issues_session_only_for_loopback_request(monkeypatch):
             routes.dev_auth_bypass(blocked_request, db)
 
         local_request = SimpleNamespace(
+        deployment_mode="beta",
             url=SimpleNamespace(hostname="localhost"),
             client=SimpleNamespace(host="127.0.0.1"),
         )

@@ -9,15 +9,19 @@ export type AuthSession = {
     betaPosition: number | null;
     email: string;
     id: number;
-    isBetaUser: true;
+    deploymentMode: "beta" | "production";
+    workspaceAccess: boolean;
+    accessExpiresAt: string | null;
+    isBetaUser: boolean;
     name: string;
-    plan: "beta";
+    plan: "beta" | "pro" | "none";
     provider: "email" | "google";
   };
 };
 
 const AUTH_STORAGE_KEY = "edgelab.auth.session.v1";
 const listeners = new Set<() => void>();
+let accessExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 let cachedRawSession: string | null = null;
 let cachedSession: AuthSession | null = null;
 
@@ -37,6 +41,30 @@ function notifyAuthIdentityChange() {
   if (isBrowser()) window.dispatchEvent(new Event("edgelab:auth-session-change"));
 }
 
+function identityKey(session: AuthSession | null) {
+  return session ? `${session.user.id}:${session.token}` : "";
+}
+
+function scheduleAccessExpiry() {
+  if (accessExpiryTimer) clearTimeout(accessExpiryTimer);
+  accessExpiryTimer = null;
+  if (!listeners.size) return;
+  const session = getStoredAuthSession();
+  const deadline = session && session.user.workspaceAccess === true
+    ? Math.min(Date.parse(session.expiresAt), Date.parse(session.user.accessExpiresAt ?? "")) : NaN;
+  if (!Number.isFinite(deadline)) return;
+  accessExpiryTimer = setTimeout(() => {
+    accessExpiryTimer = null;
+    const current = getStoredAuthSession();
+    if (current && !hasWorkspaceAccess(current)) {
+      setStoredAuthSession({ ...current, user: { ...current.user, workspaceAccess: false } });
+    } else {
+      notifyListeners();
+      scheduleAccessExpiry();
+    }
+  }, Math.max(0, Math.min(2_147_483_647, deadline - Date.now())));
+}
+
 function safeParse(rawValue: string | null): AuthSession | null {
   if (!rawValue) {
     return null;
@@ -44,10 +72,11 @@ function safeParse(rawValue: string | null): AuthSession | null {
 
   try {
     const parsed = JSON.parse(rawValue) as AuthSession;
-    if (!parsed?.user?.email || !parsed.expiresAt || !parsed.token) {
+    if (typeof parsed?.user?.email !== "string" || !parsed.user.email || !Number.isSafeInteger(parsed.user.id) || parsed.user.id <= 0 ||
+        typeof parsed.expiresAt !== "string" || typeof parsed.token !== "string" || !parsed.token.trim()) {
       return null;
     }
-    if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
+    if (!(Date.parse(parsed.expiresAt) > Date.now())) {
       return null;
     }
     return parsed;
@@ -99,6 +128,8 @@ export function setStoredAuthSession(
     return;
   }
 
+  const previousIdentity = identityKey(getStoredAuthSession());
+
   if (!session) {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     resetCachedSession();
@@ -110,7 +141,8 @@ export function setStoredAuthSession(
   if (options.notify !== false) {
     notifyListeners();
   }
-  notifyAuthIdentityChange();
+  if (previousIdentity !== identityKey(session)) notifyAuthIdentityChange();
+  scheduleAccessExpiry();
 }
 
 export function clearStoredAuthSession(options: AuthSessionUpdateOptions = {}) {
@@ -127,16 +159,29 @@ export function toStoredAuthSession(session: BetaAuthSession): AuthSession {
       betaPosition: session.user.beta_position,
       email: session.user.email,
       id: session.user.id,
-      isBetaUser: true,
+      deploymentMode: session.user.deployment_mode,
+      workspaceAccess: session.user.workspace_access === true,
+      accessExpiresAt: session.user.access_expires_at,
+      isBetaUser: session.user.is_beta_user === true,
       name: session.user.name,
-      plan: "beta",
+      plan: session.user.plan,
       provider: session.user.provider,
     },
   };
 }
 
+export function hasWorkspaceAccess(session: AuthSession | null, now = Date.now()) {
+  if (!session || session.user.workspaceAccess !== true ||
+      !(Date.parse(session.expiresAt) > now) ||
+      !(Date.parse(session.user.accessExpiresAt ?? "") > now)) return false;
+  return session.user.deploymentMode === "beta"
+    ? session.user.approved === true && session.user.isBetaUser === true && session.user.plan === "beta"
+    : session.user.deploymentMode === "production" && session.user.isBetaUser === false && session.user.plan === "pro";
+}
+
 export function subscribeAuthSession(listener: () => void) {
   listeners.add(listener);
+  scheduleAccessExpiry();
 
   if (!isBrowser()) {
     return () => listeners.delete(listener);
@@ -145,7 +190,8 @@ export function subscribeAuthSession(listener: () => void) {
   const handleStorage = (event: StorageEvent) => {
     if (event.key === AUTH_STORAGE_KEY) {
       notifyListeners();
-      notifyAuthIdentityChange();
+      if (identityKey(safeParse(event.oldValue)) !== identityKey(safeParse(event.newValue))) notifyAuthIdentityChange();
+      scheduleAccessExpiry();
     }
   };
 
@@ -153,6 +199,7 @@ export function subscribeAuthSession(listener: () => void) {
 
   return () => {
     listeners.delete(listener);
+    scheduleAccessExpiry();
     window.removeEventListener("storage", handleStorage);
   };
 }

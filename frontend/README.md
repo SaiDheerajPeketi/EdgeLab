@@ -123,11 +123,13 @@ ATR and SuperTrend follow the published [ATR smoothing](https://www.tradingview.
 | --- | --- | --- |
 | `VITE_API_BASE_URL` | API prefix used by the browser | `/api` |
 | `VITE_API_BEARER_TOKEN` | Optional token for protected non-user routes | empty |
-| `VITE_DEPLOYMENT_MODE` | `beta` or `production` marketing mode | `beta` |
+| `VITE_DEPLOYMENT_MODE` | `beta` or `production` presentation mode; align with server `EDGELAB_DEPLOYMENT_MODE` | `production` |
 | `VITE_BETA_SEATS_TOTAL` | Fallback beta capacity shown before API hydration | `500` |
 | `VITE_BETA_SEATS_TAKEN` | Fallback occupied-seat count | `0` |
 
 These values are compiled into the bundle. Rebuild the frontend after changing them.
+
+Workspace navigation uses the server's access decision and expiry, rather than beta approval alone. `/account` provides subscription status, Stripe billing management and sign-out without requiring workspace access. Account and settings JSON exports, results/journal CSV downloads and chart PNG captures require a verified active live subscription; the JSON export API enforces that policy even in beta mode. Test subscriptions do not enable exports. Async exports retain their original account identity through completion. Use both deployment variables set to `beta` for the optional beta variant; local Compose and isolated browser regression tests choose that variant explicitly.
 
 The production image precompresses JavaScript, CSS, HTML, JSON, and SVG output once at build time. Nginx serves those files directly and keeps fingerprinted assets cached for one year.
 

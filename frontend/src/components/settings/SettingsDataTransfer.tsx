@@ -2,6 +2,7 @@ import { useEffect, useRef, type ComponentProps } from "react";
 import { AlertTriangle, CheckCircle2, Download, FileJson, LoaderCircle, RefreshCw, Upload } from "lucide-react";
 import { SettingRow, SettingsSection, fieldClassName } from "./SettingsPrimitives";
 import { useDataTransfer } from "./useDataTransfer";
+import { Link } from "react-router-dom";
 
 const compatibilityField = "min-h-11 w-full min-w-0 border border-stone-600 bg-stone-900 px-3 text-sm text-stone-100 outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-55";
 const compatibilityButton = "inline-flex min-h-11 w-full items-center justify-center gap-2 border border-stone-600 bg-stone-900 px-4 text-sm font-medium text-stone-100 hover:border-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-55";
@@ -11,7 +12,7 @@ export function SettingsDataTransfer({ compatibility = false }: { compatibility?
   const view = useRef(Symbol("data-transfer-view")).current;
   useEffect(() => transfer.attachView(view), []);
   const { fileInputRef, exportState, draft, confirmation, setConfirmation, importState, error, result, reading, pendingSaves,
-    reloadRequired, recovery, busy, restoring, draftWarning, identityKey, chooseFile, onPickerClick, recoverSaves, exportData, readFile, importData } = transfer;
+    reloadRequired, recovery, busy, restoring, draftWarning, canExport, subscriptionChecking, identityKey, chooseFile, onPickerClick, recoverSaves, exportData, readFile, importData } = transfer;
   const muted = compatibility ? "text-stone-300" : "text-zinc-400";
   const secondary = compatibility ? compatibilityButton : "inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-white/15 bg-white/5 px-4 text-sm font-medium text-zinc-100 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-55";
   const primary = compatibility ? `${compatibilityButton} border-amber-500 text-amber-100` : "inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-semibold text-zinc-950 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-55";
@@ -28,10 +29,13 @@ export function SettingsDataTransfer({ compatibility = false }: { compatibility?
         </div>
       </TransferRow>
       <TransferRow compatibility={compatibility} controlId="export-data" label="Export EdgeLab data" description="Download account-owned application tables as a versioned JSON bundle." scope="Personal" effective="No credentials or authentication tokens are included.">
-        <button type="button" onClick={() => void exportData(view)} disabled={busy || reloadRequired} className={primary}>
+        <div className="space-y-3">
+        <button type="button" aria-describedby="export-subscription-requirement" onClick={() => void exportData(view)} disabled={busy || reloadRequired || !canExport} className={primary}>
           {exportState === "working" ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Download aria-hidden="true" className="h-4 w-4" />}
           {exportState === "working" ? "Preparing…" : "Download export"}
         </button>
+        <p id="export-subscription-requirement" className={`text-sm leading-6 ${muted}`} role="status">{canExport ? "Your subscription is active. Exports are available." : subscriptionChecking ? "Checking your subscription…" : "Data exports require an active paid subscription."} <Link className="inline-flex min-h-11 items-center underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" to="/account">Manage subscription</Link></p>
+        </div>
       </TransferRow>
 
       <TransferRow compatibility={compatibility} controlId="import-data" label="Import EdgeLab data" description="Replace supported account data only after a local schema check and a table-by-table preview." scope="Personal" validation={error}>

@@ -40,6 +40,7 @@ BASELINE_TABLES = (
 )
 
 POST_BASELINE_COLUMNS = {
+    "beta_users": {"google_subject"},
     "backtest_sessions": {"dataset_asset_id", "replay_ready"},
     "dataset_timeframes": {"database_imported", "database_imported_at"},
 }

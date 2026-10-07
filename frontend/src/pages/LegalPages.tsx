@@ -92,7 +92,7 @@ export function PrivacyPage() {
       />
       <LegalSection
         title="Export and retention"
-        body="Authenticated users can export EdgeLab application data as JSON. Large market-data files are not included in that bundle. Beta data may be pruned after beta ends, so export anything important before beta closes. Operational logs may be retained longer for security and support."
+        body="Users with an active paid subscription can export EdgeLab application data as JSON. Large market-data files are not included in that bundle. Beta data may be pruned after beta ends; separately retain important records if exports are unavailable. Operational logs may be retained longer for security and support."
       />
       <LegalSection
         title="Access boundary"
@@ -124,7 +124,7 @@ export function TermsPage() {
       />
       <LegalSection
         title="Data expectations"
-        body="Do not treat beta workspace storage as permanent recordkeeping. Users are responsible for exporting or separately retaining information they consider important before beta ends. Large market-data files are not part of the application-data export."
+        body="Do not treat beta workspace storage as permanent recordkeeping. Users are responsible for separately retaining important information before beta ends. Application-data exports require an active paid subscription, including during beta. Large market-data files are not part of the export."
       />
       <LegalSection
         title="Providers and planned features"

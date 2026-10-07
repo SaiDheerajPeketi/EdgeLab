@@ -388,6 +388,18 @@ def create_app_data_operations_table(engine: Engine) -> None:
     AppDataOperation.__table__.create(bind=engine, checkfirst=True)
 
 
+def migrate_google_subject(engine: Engine) -> None:
+    """Preserve existing SQLite accounts while adding stable Google ownership."""
+    if engine.dialect.name != "sqlite":
+        return
+    inspector = inspect(engine)
+    if "beta_users" not in inspector.get_table_names():
+        return
+    with engine.begin() as connection:
+        add_missing_columns(connection, inspector, "beta_users", {"google_subject": "VARCHAR(255)"})
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beta_users_google_subject ON beta_users (google_subject)"))
+
+
 MIGRATIONS = [
     Migration(1, "sqlite_compat_columns", migrate_sqlite_compat_columns),
     Migration(2, "workspace_share_snapshots", create_workspace_share_snapshots_table),
@@ -397,4 +409,5 @@ MIGRATIONS = [
     Migration(6, "market_data_infrastructure", create_market_data_infrastructure_tables),
     Migration(7, "quant_ai_infrastructure", create_quant_ai_tables),
     Migration(8, "app_data_operations", create_app_data_operations_table),
+    Migration(9, "google_subject", migrate_google_subject),
 ]

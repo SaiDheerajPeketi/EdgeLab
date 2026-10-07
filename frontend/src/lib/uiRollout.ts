@@ -1,5 +1,18 @@
+import { matchPath } from "react-router-dom";
+
 export const UI_ROUTE_GROUPS = ["shell", "journal", "settings", "chart", "public"] as const;
 export const UI_COMPATIBILITY_VIEWPORTS = ["mobile", "tablet", "desktop", "tradingDesktop"] as const;
+
+// Billing and session recovery must remain available during presentation rollback.
+export const UI_INVARIANT_ROUTES = ["/account"] as const;
+
+export function routeUsesInvariantUi(pathname: string) {
+  return UI_INVARIANT_ROUTES.some((path) => matchPath({ path, end: true }, pathname) !== null);
+}
+
+export function routeUsesModernUi(pathname: string, flags: Readonly<Record<UiRouteGroup, boolean>>) {
+  return routeUsesInvariantUi(pathname) || flags[routeGroup(pathname)];
+}
 
 export type UiRouteGroup = (typeof UI_ROUTE_GROUPS)[number];
 

@@ -10,6 +10,7 @@ These instructions apply to the whole repository.
 - The primary frontend is the Vite React app in `frontend`.
 - The legacy Node API in `backend/index.js` is kept for compatibility and is exposed only through the optional `legacy-node-api` Docker Compose profile.
 - The default deploy path is Docker Compose with FastAPI behind Nginx-served static frontend assets.
+- Keep API `EDGELAB_DEPLOYMENT_MODE` and browser `VITE_DEPLOYMENT_MODE` aligned. Production is the default; local Compose explicitly selects beta. Data exports require a verified live active subscription in either mode.
 
 ## Files That Must Stay In Sync
 

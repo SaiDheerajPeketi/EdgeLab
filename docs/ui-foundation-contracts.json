@@ -4,6 +4,7 @@
     "/": { "source": "frontend/src/pages/LandingPage.tsx", "restoration": "not-applicable" },
     "/index.html": { "source": "frontend/src/routes/AppRoutes.tsx", "restoration": "redirect" },
     "/pricing": { "source": "frontend/src/pages/PricingPage.tsx", "restoration": "not-applicable" },
+    "/account": { "source": "frontend/src/pages/AccountPage.tsx", "restoration": "return-url" },
     "/privacy": { "source": "frontend/src/pages/LegalPages.tsx", "restoration": "not-applicable" },
     "/terms": { "source": "frontend/src/pages/LegalPages.tsx", "restoration": "not-applicable" },
     "/auth/signin": { "source": "frontend/src/pages/AuthSignInPage.tsx", "restoration": "return-url" },
