@@ -35,14 +35,18 @@ test("native chart adapter maps histogram, area and step styles without turning 
   assert.equal(adapted.plots[1].base, 1);
   assert.equal(adapted.plots[2].step, true);
   const calls = [];
-  const series = () => ({ setData(data) { calls.push(["data", data]); }, setMarkers() {} });
-  const chart = { addHistogramSeries(options) { calls.push(["histogram", options]); return series(); }, addBaselineSeries(options) { calls.push(["baseline", options]); return series(); }, addLineSeries(options) { calls.push(["line", options]); return series(); } };
-  adapted.plots.filter((plot) => !plot.visual).forEach((plot) => pine.installPineChartPlot(chart, plot));
-  assert.equal(calls[0][0], "histogram");
-  assert.equal(calls[2][0], "baseline");
-  assert.equal(calls[2][1].baseValue.price, 1);
+  const chart = { timeScale: () => ({ subscribeVisibleTimeRangeChange() {}, unsubscribeVisibleTimeRangeChange() {} }), removeSeries() {}, addLineSeries(options) {
+    calls.push(["host", options]);
+    return { setData(data) { calls.push(["data", data]); }, attachPrimitive(primitive) { primitive.attached({ chart, series: this, requestUpdate() {} }); }, detachPrimitive(primitive) { primitive.detached(); } };
+  } };
+  const installed = pine.installPineChartPlots(chart, adapted.plots);
+  assert.equal(installed.series.length, 1, "All scalar styles share one owned host without replacing their geometry");
+  assert.equal(calls[0][0], "host");
+  assert.equal(calls[0][1].lineVisible, false);
+  assert.deepEqual(adapted.plots.map((plot) => plot.visual.style), ["histogram", "area", "stepline"]);
   assert.equal(adapted.plots[2].visual.style, "stepline");
   assert.equal(adapted.plots[2].visual.source, result.plots[2]);
+  installed.dispose();
 });
 
 test("unsupported native output warns while valid plots remain usable", async () => {

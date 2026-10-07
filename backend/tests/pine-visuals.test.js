@@ -278,9 +278,9 @@ test("fill follows reference placement and unsafe offset references are visibly 
   assert.ok(shifted.warnings.some((warning) => /offset/i.test(warning)));
 });
 
-test("fill-only autoscale respects visible native peers and explicit external primary price scale", async () => {
+test("fill-only autoscale respects histogram baselines and explicit external primary price scale", async () => {
   const body = 'a=plot(1000000000,"Hidden upper",display=display.none)\nb=plot(-1000000000,"Hidden lower",display=display.none)\nfill(a,b,color=color.red)';
-  for (const [peer, expected] of [['plot(100,"Histogram",style=plot.style_histogram)', null], ['plot(na,"Empty histogram",style=plot.style_histogram)', { minValue: -1000000000, maxValue: 1000000000 }]]) {
+  for (const [peer, expected] of [['plot(100,"Histogram",style=plot.style_histogram)', { minValue: 0, maxValue: 100 }], ['plot(na,"Empty histogram",style=plot.style_histogram)', { minValue: 0, maxValue: 0 }]]) {
     const result = await native(program(body + "\n" + peer)), adapted = pine.adaptPineChartResult(result, bars), chart = harness();
     chart.chart.addHistogramSeries = chart.chart.addLineSeries;
     const installed = pine.installPineChartPlots(chart.chart, adapted.plots);

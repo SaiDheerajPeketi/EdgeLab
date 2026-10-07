@@ -189,10 +189,8 @@ test("shifted visible ranges exclude offscreen circles and clip bridged null-gap
   expect(harness.workerRequests).toHaveLength(3); expect(harness.otherRequests).toEqual([]);
 });
 
-test("unsupported numeric kinds and invalid offset qualifiers disclose omission instead of painting stale slots", async ({ page, harness }) => {
+test("unsupported shape offsets and invalid offset qualifiers disclose omission instead of painting stale slots", async ({ page, harness }) => {
   for (const body of [
-    'plot(100,title="Area",style=plot.style_area,offset=2)',
-    'plot(100,title="Histogram",style=plot.style_histogram,offset=-2)',
     'plotshape(true,title="Shape",style=shape.circle,location=location.absolute,offset=2)',
   ]) {
     const result = await run(page,program(body));
@@ -208,7 +206,7 @@ test("unsupported numeric kinds and invalid offset qualifiers disclose omission 
   const filled = await run(page,program('a=plot(90,"Lower",offset=2)\nb=plot(110,"Upper")\nfill(a,b,color=#ff0000,title="Unsupported shifted fill")'));
   expect(filled.drawn.some((plot:any) => plot.kind === "fill")).toBe(false);
   expect(filled.warnings.join(" ")).toMatch(/fill.*offset|offset.*fill/i);
-  expect(harness.workerRequests).toHaveLength(7); expect(harness.otherRequests).toEqual([]);
+  expect(harness.workerRequests).toHaveLength(5); expect(harness.otherRequests).toEqual([]);
 });
 
 test("20k packed scalar offsets stay lazy while panning resizing and disposing", async ({ page, harness }, info) => {

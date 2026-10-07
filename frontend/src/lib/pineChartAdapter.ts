@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; adapterWarnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -68,7 +68,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const optionSets = pinePlotOptionSets(plot);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
     const showFrom = Math.max(0, bars.length - showLast);
-    const common = { id: plot.id, name: plot.name, overlay: plot.overlay, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
+    const common = { id: plot.id, name: plot.name, overlay: plot.overlay, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, ["area", "areabr"].includes(style) ? 1 : 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
     if (style === "background") {
       const offset = plot.options.offset == null ? 0 : plot.options.offset;
       if (typeof offset !== "number" || !Number.isSafeInteger(offset)) { warn("Background offsets require a constant safe integer."); return []; }
@@ -119,16 +119,23 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     }
     const kind = kinds[style];
     if (!kind) { warn(`Native ${style} output is not rendered by this chart adapter.`); return []; }
-    const plotOffset = kind === "line" && plot.options.offset !== undefined ? plot.options.offset : 0;
+    const numericStyle = ["line", "area", "histogram"].includes(kind);
+    const plotOffset = numericStyle && plot.options.offset !== undefined ? plot.options.offset : 0;
     if (typeof plotOffset !== "number" || !Number.isSafeInteger(plotOffset)) { warn("Plot offsets require a constant safe integer."); return []; }
-    if (kind === "line" && optionSets.some((options) => options.offset !== undefined && options.offset !== plotOffset)) { warn("Changing per-bar plot offsets are not rendered."); return []; }
-    if (kind !== "line" && hasOffset(plot)) { warn("Offsets for this plot style are not rendered by this chart adapter."); return []; }
-    const declaredWidth = number(plot.options.linewidth, 2);
-    if (declaredWidth < 1 || declaredWidth > 4 || !Number.isInteger(declaredWidth) || optionSets.some((options) => options.linewidth !== undefined && (number(options.linewidth, 2) < 1 || number(options.linewidth, 2) > 4 || !Number.isInteger(number(options.linewidth, 2))))) warn("Plot line width is limited to integer values from 1 to 4 pixels.");
+    if (numericStyle && optionSets.some((options) => options.offset !== undefined && options.offset !== plotOffset)) { warn("Changing per-bar plot offsets are not rendered."); return []; }
+    if (!numericStyle && hasOffset(plot)) { warn("Offsets for this plot style are not rendered by this chart adapter."); return []; }
+    const numericBody = kind === "area" || kind === "histogram";
+    const base = plot.options.histbase === undefined ? 0 : plot.options.histbase;
+    if (numericBody && (typeof base !== "number" || !Number.isFinite(base) || optionSets.some((options) => options.histbase !== undefined && options.histbase !== base))) { warn("Numeric filled plots require a constant finite histbase; changing or invalid baselines are not rendered."); return []; }
+    const histogramWidth = plot.options.linewidth === undefined ? 1 : plot.options.linewidth;
+    if (style === "histogram" && (typeof histogramWidth !== "number" || !Number.isSafeInteger(histogramWidth) || histogramWidth < 1 || optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== histogramWidth))) { warn("Histogram width requires a constant positive integer in pixels; changing or invalid widths are not rendered."); return []; }
+    if (style === "columns") warnings.push("Column widths use the local chart pixel-gap cadence; TradingView pixel gap calibration has not been verified.");
+    const declaredWidth = number(plot.options.linewidth, kind === "area" ? 1 : 2);
+    if (kind !== "histogram" && (declaredWidth < 1 || declaredWidth > 4 || !Number.isInteger(declaredWidth) || optionSets.some((options) => options.linewidth !== undefined && (number(options.linewidth, 2) < 1 || number(options.linewidth, 2) > 4 || !Number.isInteger(number(options.linewidth, 2)))))) warn("Plot line width is limited to integer values from 1 to 4 pixels.");
     if (plot.options.trackprice === true || optionSets.some((options) => options.trackprice === true)) warn("The trackprice guide is not exposed by this chart adapter.");
     if (style === "circles" && (plot.options.join === true || optionSets.some((options) => options.join === true))) warn("Circle plot joins are not rendered; points remain separate.");
     const baseColor = color(plot.options.color);
-    const visual = (["line", "markers"].includes(kind) || style === "areabr") ? { source: plot, bars, style, showFrom, ...(plotOffset ? { plotOffset } : {}) } : undefined;
+    const visual = ["line", "markers", "area", "histogram"].includes(kind) ? { source: plot, bars, style, showFrom, ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
     if (kind === "markers") {
       const allowedShapes = ["circle", "square", "arrowup", "arrowdown", "triangleup", "triangledown", "labelup", "labeldown"];
       const supported = optionSets.every((options) => {
@@ -182,7 +189,6 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     }
     const nonempty = segments.filter((segment) => segment.length);
     if (!nonempty.length && !visual) return [];
-    if (style === "columns") warn("Columns use the chart’s native histogram bar width.");
     if (!visual && optionSets.some((options) => options.linewidth !== undefined && options.linewidth !== plot.options.linewidth)) warn("Per-point line width is not supported; the declared plot width is used.");
     return [{ id: plot.id, name: plot.name, overlay: plot.overlay, kind, color: baseColor, width: Math.max(1, Math.min(4, Math.round(declaredWidth))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0), segments: nonempty, markers, visual }];
   });

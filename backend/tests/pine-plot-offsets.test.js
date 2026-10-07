@@ -92,8 +92,9 @@ test("invalid and changing offsets remain explicit omissions, including na",asyn
     assert.equal(adapted.plots.length,0);assert.ok(adapted.adapterWarnings.some(w=>/offset/i.test(w)),offset);
   }
   for(const style of ["area","areabr","histogram","columns"]) {
-    const adapted=pine.adaptPineChartResult(await run('plot(close,"Deferred",style=plot.style_'+style+',offset=2)'),bars);
-    assert.equal(adapted.plots.length,0);assert.match(adapted.adapterWarnings[0],/Offsets for this plot style/);
+    const adapted=pine.adaptPineChartResult(await run('plot(close,"Numeric",style=plot.style_'+style+',offset=2)'),bars);
+    assert.equal(adapted.plots.length,1);assert.equal(adapted.plots[0].visual.plotOffset,2);
+    assert.ok(!adapted.adapterWarnings.some(warning=>/Offsets for this plot style/.test(warning)));
   }
 });
 

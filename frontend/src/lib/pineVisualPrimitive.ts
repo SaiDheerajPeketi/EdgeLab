@@ -98,6 +98,7 @@ function extend(bounds: Bounds | null, value: number | undefined): Bounds | null
 }
 
 type Vertex = { x: number; y: number };
+type NumericBody = { index: number; left: number; right: number; logical: number; rounded: number; center: number; gap: number };
 /** Crossing reference lines form two lobes, not a simple quadrilateral. */
 function fillLobes(vertices: [Vertex, Vertex, Vertex, Vertex]): Vertex[][] {
   const [upperLeft, upperRight, lowerRight, lowerLeft] = vertices;
@@ -118,6 +119,22 @@ function clipFillPolygon(vertices: Vertex[], width: number, height: number): Ver
   let polygon = vertices;
   for (const [axis, bound, lower] of [["x", 0, true], ["x", width, false], ["y", 0, true], ["y", height, false]] as const) polygon = clipPolygonEdge(polygon, axis, bound, lower);
   return polygon;
+}
+
+function clipStroke(first: Vertex, second: Vertex, width: number, height: number): [Vertex, Vertex] | null {
+  if (![first.x, first.y, second.x, second.y].every(Number.isFinite)) return null;
+  let left = first, right = second;
+  for (const [axis, bound, lower] of [["x", 0, true], ["x", width, false], ["y", 0, true], ["y", height, false]] as const) {
+    const a = lower ? left[axis] >= bound : left[axis] <= bound, b = lower ? right[axis] >= bound : right[axis] <= bound;
+    if (!a && !b) return null;
+    if (a === b) continue;
+    const scale = Math.max(Math.abs(bound), Math.abs(left[axis]), Math.abs(right[axis]), 1);
+    const t = (bound / scale - left[axis] / scale) / (right[axis] / scale - left[axis] / scale);
+    const other = axis === "x" ? "y" : "x";
+    const point = { [axis]: bound, [other]: left[other] * (1 - t) + right[other] * t } as Vertex;
+    if (!a) left = point; else right = point;
+  }
+  return [left, right];
 }
 
 function clipPolygonEdge(polygon: Vertex[], axis: "x" | "y", bound: number, lower: boolean): Vertex[] {
@@ -161,6 +178,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private scalePeers: readonly PineChartPlot[];
   private allowFillOnlyScale: boolean;
   private cacheSize = 0;
+  private pixelRatio = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
   private chart?: IChartApi;
   private series?: ISeriesApi<SeriesType>;
   private requestUpdate?: () => void;
@@ -203,7 +221,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private visible(plot: PineChartPlot, neighbors = false): [number, number] {
     if (!this.chart || !plot.visual?.bars.length) return [0, -1];
     const scale = this.chart.timeScale(), bars = plot.visual.bars;
-    if (plot.kind === "background" || plot.visual.plotOffset) {
+    if (plot.kind === "background" || plot.kind === "area" || plot.kind === "histogram" || plot.visual.plotOffset) {
       const range = scale.getVisibleLogicalRange();
       if (!range) return [0, -1];
       const offset = plot.visual.plotOffset ?? plot.visual.backgroundOffset ?? 0;
@@ -220,7 +238,11 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         return lo;
       };
-      const margin = plot.kind === "background" ? 1 : 0;
+      let margin = plot.kind === "background" || plot.kind === "histogram" ? 1 : 0;
+      if (plot.kind === "histogram" && plot.visual.histogramWidth) {
+        const center = scale.logicalToCoordinate(0 as Logical), next = scale.logicalToCoordinate(1 as Logical);
+        if (center !== null && next !== null && next !== center) margin = Math.ceil(plot.visual.histogramWidth / Math.abs(next - center) / 2) + 1;
+      }
       const from = locate(Number(range.from) - offset - margin), to = locate(Number(range.to) - offset + margin, true) - 1;
       return valid ? [Math.max(plot.visual.showFrom, from - (neighbors && plot.kind !== "background" ? 1 : 0)), Math.min(bars.length - 1, to + (neighbors && plot.kind !== "background" ? 1 : 0))] : [0, -1];
     }
@@ -273,7 +295,8 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     const x = scale?.timeToCoordinate(bars[index].time as UTCTimestamp), xLeft = scale?.timeToCoordinate(bars[left].time as UTCTimestamp), xRight = scale?.timeToCoordinate(bars[right].time as UTCTimestamp);
     // Sessions and weekends do not create proportional time gaps on LWC's logical timeline.
     if (x == null || xLeft == null || xRight == null || xRight === xLeft) return undefined;
-    return low + (high - low) * (x - xLeft) / (xRight - xLeft);
+    const ratio = Math.max(0, Math.min(1, (x - xLeft) / (xRight - xLeft)));
+    return low * (1 - ratio) + high * ratio;
   }
   private bounds(plot: PineChartPlot, from: number, to: number): Bounds | null {
     let result: Bounds | null = null;
@@ -349,7 +372,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     const position = (index: number) => {
       const x = scale.timeToCoordinate(bars[index].time as UTCTimestamp);
       const logical = x === null ? null : scale.coordinateToLogical(x);
-      return logical === null ? undefined : Number(logical) + plot.visual!.plotOffset!;
+      return logical === null ? undefined : Number(logical) + (plot.visual!.plotOffset ?? 0);
     };
     let lo = 0, hi = indices.length;
     while (lo < hi) {
@@ -361,7 +384,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     const rightX = right === undefined ? undefined : position(right);
     if (rightX === target) return numeric(plot, right);
     if (left === undefined || right === undefined || rightX === undefined) return undefined;
-    if (["linebr", "steplinebr"].includes(plot.visual!.style) && right !== left + 1) return undefined;
+    if (["linebr", "steplinebr", "areabr"].includes(plot.visual!.style) && right !== left + 1) return undefined;
     const leftX = position(left);
     if (leftX === undefined || rightX === leftX) return undefined;
     const low = numeric(plot, left)!, high = numeric(plot, right)!;
@@ -371,9 +394,10 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   rangeForVisible(): AutoscaleInfo | null {
     const ranges = this.plots.map((plot) => this.visible(plot));
     const paneHeight = this.chart?.paneSize?.().height ?? Infinity;
+    const paneWidth = this.chart?.paneSize?.().width ?? Infinity;
     const inverted = this.series?.priceScale?.().options().invertScale === true;
     const logical = this.chart?.timeScale().getVisibleLogicalRange();
-    const key = `${inverted}|${paneHeight}|${logical?.from}:${logical?.to}|${ranges.map(([from, to]) => `${from}:${to}`).join("|")}`;
+    const key = `${inverted}|${paneHeight}|${paneWidth}|${this.pixelRatio}|${logical?.from}:${logical?.to}|${ranges.map(([from, to]) => `${from}:${to}`).join("|")}`;
     if (key === this.rangeKey) return this.rangeCache;
     this.rangeKey = key;
     let bounds: Bounds | null = null;
@@ -385,6 +409,26 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         return;
       }
       const [from, to] = ranges[p];
+      if (plot.kind === "histogram") {
+        // Documented numeric columns/histogram policy: histbase always belongs to the scale.
+        bounds = extend(bounds, plot.base);
+        if (to >= from) for (const body of this.numericBodies(plot, from, to, this.pixelRatio)) {
+          if (body.right / this.pixelRatio > 0 && body.left / this.pixelRatio < paneWidth) bounds = extend(bounds, numeric(plot, body.index));
+        }
+        return;
+      }
+      if (plot.kind === "area") {
+        let found = to >= from ? this.bounds(plot, from, to) : null;
+        if (logical) {
+          found = extend(found, this.shiftedEdgeValue(plot, Number(logical.from)));
+          found = extend(found, this.shiftedEdgeValue(plot, Number(logical.to)));
+        }
+        if (found) {
+          bounds = extend(bounds, found.min); bounds = extend(bounds, found.max);
+          if (plot.visual!.style === "area") bounds = extend(bounds, plot.base);
+        }
+        return;
+      }
       if (plot.visual?.plotOffset) {
         const found = to >= from ? this.bounds(plot, from, to) : null;
         if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
@@ -529,9 +573,13 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           }
           continue;
         }
+        if (plot.kind === "area" || plot.kind === "histogram") {
+          this.drawNumericPlot(ctx, plot, from, to, x, layer, mediaSize.width, mediaSize.height);
+          continue;
+        }
         let previous: { x: number; y: number; index: number } | null = null;
         let positions: Iterable<number>;
-        if (plot.kind === "line" || plot.kind === "area") {
+        if (plot.kind === "line") {
           const indices = this.indices(plot), lo = this.indexPosition(indices, from), hi = this.indexPosition(indices, to + 1);
           const bridges = !plot.pointsOnly && !["linebr", "steplinebr", "areabr"].includes(plot.visual!.style);
           positions = indices.subarray(bridges ? Math.max(0, lo - 1) : lo, bridges ? Math.min(indices.length, hi + 1) : hi);
@@ -545,17 +593,6 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
           const shade = pineVisualColor(option(options, sample, "color"), plot.color);
           if (plot.kind === "markers") { this.shape(ctx, plot, sample!, px, py, mediaSize.height); continue; }
           const width = Math.max(1, Math.min(4, Number(option(options, sample, "linewidth") ?? plot.width)));
-          if (layer === "fill" && plot.kind === "area") {
-            if (previous && index === previous.index + 1) {
-              const base = this.series!.priceToCoordinate(plot.base);
-              if (base !== null) {
-                const gradient = ctx.createLinearGradient(0, Math.min(previous.y, py), 0, base === Math.min(previous.y, py) ? base + 1 : base);
-                gradient.addColorStop(0, shade); gradient.addColorStop(1, "transparent"); ctx.fillStyle = gradient;
-                ctx.beginPath(); ctx.moveTo(previous.x, previous.y); ctx.lineTo(px, py); ctx.lineTo(px, base); ctx.lineTo(previous.x, base); ctx.closePath(); ctx.fill();
-              }
-            }
-            previous = { x: px, y: py, index }; continue;
-          }
           ctx.strokeStyle = shade; ctx.fillStyle = shade; ctx.lineWidth = width;
           if (plot.pointsOnly) { ctx.beginPath(); ctx.arc(px, py, width + 1, 0, Math.PI * 2); ctx.fill(); }
           else if (previous && (!["linebr", "steplinebr", "areabr"].includes(plot.visual!.style) || index === previous.index + 1)) { ctx.beginPath(); ctx.moveTo(previous.x, previous.y); if (plot.step) ctx.lineTo(px, previous.y); ctx.lineTo(px, py); ctx.stroke(); }
@@ -564,6 +601,107 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       }
       ctx.restore();
     });
+  }
+  private logicalPosition(plot: PineChartPlot, index: number): number | undefined {
+    const scale = this.chart?.timeScale(), bar = plot.visual!.bars[index];
+    if (!scale || !bar) return undefined;
+    const x = scale.timeToCoordinate(bar.time as UTCTimestamp), logical = x === null ? null : scale.coordinateToLogical(x);
+    return logical === null ? undefined : Number(logical) + (plot.visual!.plotOffset ?? 0);
+  }
+  /** Shared physical body bounds keep drawn pixels and autoscale eligibility identical. */
+  private numericBodies(plot: PineChartPlot, from: number, to: number, ratio: number): NumericBody[] {
+    const scale = this.chart!.timeScale(), rows: NumericBody[] = [];
+    for (let index = from; index <= to; index++) {
+      if (numeric(plot, index) === undefined) continue;
+      const logical = this.logicalPosition(plot, index);
+      if (logical === undefined) continue;
+      const center = scale.logicalToCoordinate(logical as Logical), adjacent = scale.logicalToCoordinate((logical + 1) as Logical);
+      if (center === null || adjacent === null || !Number.isFinite(center) || !Number.isFinite(adjacent)) continue;
+      const spacing = Math.abs(adjacent - center) * ratio;
+      const histogramWidth = plot.visual!.histogramWidth;
+      const gap = histogramWidth ? 0 : Math.ceil(spacing) <= 4 ? 0 : Math.max(1, Math.floor(ratio));
+      const pixels = histogramWidth ? Math.max(1, Math.round(histogramWidth * ratio)) : Math.max(1, Math.round(spacing) - gap);
+      const rounded = Math.round(center * ratio), left = rounded - Math.floor(pixels / 2);
+      rows.push({ index, left, right: left + pixels, logical, rounded, center: center * ratio, gap });
+    }
+    // Pinned local-column rounding corrects only consecutive actual chart slots.
+    if (!plot.visual!.histogramWidth) for (let index = 1; index < rows.length; index++) {
+      const current = rows[index], previous = rows[index - 1];
+      if (current.logical !== previous.logical + 1 || current.left - previous.right === current.gap) continue;
+      if (previous.rounded > previous.center) previous.right = current.left - current.gap;
+      else current.left = previous.right + current.gap;
+    }
+    return rows;
+  }
+  private drawNumericPlot(ctx: CanvasRenderingContext2D, plot: PineChartPlot, from: number, to: number, x: (index: number) => number | null, layer: string, width: number, height: number) {
+    const base = this.series!.priceToCoordinate(plot.base);
+    const ratio = Math.abs(ctx.getTransform?.().a ?? 1) || 1;
+    if (ratio !== this.pixelRatio) { this.pixelRatio = ratio; this.rangeKey = ""; this.requestUpdate?.(); }
+    if (plot.kind === "histogram") {
+      if (base === null || !Number.isFinite(base)) return;
+      const rows = this.numericBodies(plot, from, to, ratio);
+      let shade: string | undefined, active = false;
+      const flush = () => { if (active) { ctx.fillStyle = shade!; ctx.fill(); active = false; } };
+      for (const row of rows) {
+        const sample = this.sample(plot, row.index), value = anchor(plot, row.index, sample);
+        const y = value === undefined ? null : this.series!.priceToCoordinate(value);
+        if (y === null || !Number.isFinite(y)) continue;
+        const top = Math.max(0, Math.min(y, base)), bottom = Math.min(height, Math.max(y, base));
+        const color = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
+        const left = Math.max(0, row.left / ratio), right = Math.min(width, row.right / ratio);
+        if (!painted(color) || right <= left || bottom <= top) continue;
+        if (shade !== color) { flush(); shade = color; ctx.beginPath(); }
+        // A single nonzero-fill path unions overlapping same-color rectangles: no double alpha.
+        ctx.rect(left, top, right - left, bottom - top); active = true;
+      }
+      flush(); return;
+    }
+    const indices = this.indices(plot), lo = this.indexPosition(indices, from), hi = this.indexPosition(indices, to + 1);
+    const bridges = plot.visual!.style === "area";
+    const positions = indices.subarray(bridges ? Math.max(0, lo - 1) : lo, bridges ? Math.min(indices.length, hi + 1) : hi);
+    let previous: { point: Vertex; index: number } | undefined;
+    let run: { shade: string; points: Vertex[] } | undefined;
+    const flush = () => {
+      if (run && run.points.length > 1) {
+        ctx.fillStyle = run.shade; ctx.strokeStyle = run.shade; ctx.lineWidth = plot.width;
+        if (layer === "fill" && base !== null && Number.isFinite(base)) {
+          const vertices = [...run.points, { x: run.points.at(-1)!.x, y: base }, { x: run.points[0].x, y: base }];
+          const polygon = clipFillPolygon(vertices, width, height);
+          if (polygon.length >= 3) { ctx.beginPath(); ctx.moveTo(polygon[0].x, polygon[0].y); for (let i = 1; i < polygon.length; i++) ctx.lineTo(polygon[i].x, polygon[i].y); ctx.closePath(); ctx.fill(); }
+        } else if (layer === "line") {
+          // Clip each line segment, retaining a single stroke where adjacent endpoints meet.
+          ctx.beginPath(); let last: Vertex | undefined;
+          for (let index = 1; index < run.points.length; index++) {
+            const segment = clipStroke(run.points[index - 1], run.points[index], width, height);
+            if (!segment) { last = undefined; continue; }
+            if (!last || last.x !== segment[0].x || last.y !== segment[0].y) ctx.moveTo(segment[0].x, segment[0].y);
+            ctx.lineTo(segment[1].x, segment[1].y); last = segment[1];
+          }
+          ctx.stroke();
+        }
+      }
+      run = undefined;
+    };
+    const add = (left: Vertex, right: Vertex, shade: string) => {
+      if (run?.shade !== shade || run.points.at(-1)!.x !== left.x || run.points.at(-1)!.y !== left.y) { flush(); run = { shade, points: [left] }; }
+      run!.points.push(right);
+    };
+    for (const index of positions) {
+      const sample = this.sample(plot, index), value = anchor(plot, index, sample);
+      const px = x(index), py = value === undefined ? null : this.series!.priceToCoordinate(value);
+      if (px === null || py === null || !Number.isFinite(px) || !Number.isFinite(py)) { flush(); previous = undefined; continue; }
+      const point = { x: px, y: py }, shade = pineVisualColor(option(plot.visual!.source, sample, "color"), plot.color);
+      if (previous && (bridges || index === previous.index + 1) && painted(shade)) {
+        if (layer === "fill" && base !== null && ((previous.point.y < base && py > base) || (previous.point.y > base && py < base))) {
+          const scale = Math.max(Math.abs(base), Math.abs(py), Math.abs(previous.point.y), 1);
+          const t = (base / scale - previous.point.y / scale) / (py / scale - previous.point.y / scale);
+          const crossing = { x: previous.point.x * (1 - t) + px * t, y: base };
+          add(previous.point, crossing, shade); flush(); add(crossing, point, shade);
+        } else add(previous.point, point, shade);
+      } else flush();
+      previous = { point, index };
+    }
+    flush();
   }
   /** Shared vertical geometry keeps drawing and directional autoscale margins in agreement. */
   private markerGeometry(plot: PineChartPlot, sample: Sample, ctx?: CanvasRenderingContext2D): MarkerGeometry | null {
