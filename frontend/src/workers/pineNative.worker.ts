@@ -172,6 +172,64 @@ function resolvedSetting(value: unknown): unknown {
   return value;
 }
 
+/** Normalize this context's plot arguments around the pinned positional join type typo. */
+function bindPlotOptions(context: Context) {
+  const namespace = context.pine.plot;
+  const descriptor = Object.getOwnPropertyDescriptor(namespace, "any");
+  if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve plot options.");
+  const original = descriptor.value;
+  const signature = ["series", "title", "color", "linewidth", "style", "trackprice", "histbase", "offset", "join", "editable", "show_last", "display", "format", "precision", "force_overlay"];
+  const constantOptions = new WeakMap<object, Record<string, unknown>>();
+  Object.defineProperty(namespace, "any", { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+    if (context.isSecondaryContext) return Reflect.apply(original, this, args);
+    const last = args.at(-1) as { __callsiteId?: unknown } | undefined;
+    const sentinel = last && typeof last === "object" && typeof last.__callsiteId === "string" ? last : undefined;
+    const values = sentinel ? args.slice(0, -1) : args;
+    const options: Record<string, unknown> = {};
+    values.forEach((argument, index) => {
+      if (argument && typeof argument === "object" && !Array.isArray(argument) && (Object.getPrototypeOf(argument) === Object.prototype || Object.getPrototypeOf(argument) === null)) {
+        if (index !== values.length - 1) error("UNSUPPORTED_PLOT_OPTION", "Named plot options must follow positional arguments.");
+        Object.assign(options, argument);
+      } else {
+        if (index >= signature.length) error("UNSUPPORTED_PLOT_OPTION", "Plot received unsupported extra arguments.");
+        options[signature[index]] = argument;
+      }
+    });
+    // HlineHelper delegates to plot.any with its own linestyle/undefined fields.
+    // Preserve that internal path byte-for-byte; it has a separate rendering contract.
+    if (resolvedSetting(options.style) === "hline") return Reflect.apply(original, this, args);
+    if (!Object.prototype.hasOwnProperty.call(options, "series") || Object.keys(options).some((name) => !signature.includes(name))) error("UNSUPPORTED_PLOT_OPTION", "Plot requires a series and only supports its documented options.");
+    const series = options.series;
+    delete options.series;
+    for (const [name, argument] of Object.entries(options)) {
+      let value = argument;
+      for (let depth = 0; depth < 4; depth++) {
+        const scalar = value && typeof value === "object" && "__value" in value ? (value as { __value: unknown }).__value : value;
+        const resolved = resolvedSetting(scalar);
+        if (resolved === value) break;
+        value = resolved;
+      }
+      options[name] = value;
+      if (["trackprice", "join", "editable", "force_overlay"].includes(name) && typeof value !== "boolean") error("UNSUPPORTED_PLOT_OPTION", `Plot ${name} must resolve to a boolean.`);
+      if (["linewidth", "offset", "show_last", "precision"].includes(name) && (!Number.isSafeInteger(value) || (name === "linewidth" && (value as number) < 1) || (["show_last", "precision"].includes(name) && (value as number) < 0))) error("UNSUPPORTED_PLOT_OPTION", `Plot ${name} must resolve to a valid integer.`);
+      if (name === "histbase" && (typeof value !== "number" || !Number.isFinite(value))) error("UNSUPPORTED_PLOT_OPTION", "Plot histbase must resolve to a finite number.");
+      if (["title", "style", "display", "format"].includes(name) && (typeof value !== "string" || value.length > 4_096)) error("UNSUPPORTED_PLOT_OPTION", `Plot ${name} must resolve to a bounded string.`);
+      if (name === "color" && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string" && typeof value !== "function") error("UNSUPPORTED_PLOT_OPTION", "Plot color must resolve to a color or na.");
+    }
+    const flags = Object.prototype.hasOwnProperty.call(options, "offset") ? { offset: options.offset } : {};
+    const forwarded: unknown[] = [series, options];
+    if (sentinel) forwarded.push(sentinel);
+    const result = Reflect.apply(original, this, forwarded) as { options?: Record<string, unknown> };
+    if (!result?.options) error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the plot channel.");
+    const previous = constantOptions.get(result);
+    if (previous && (Object.keys(previous).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, previous[name])))) error("UNSUPPORTED_PLOT_OPTION", "Plot offset must remain constant throughout the snapshot.");
+    if (!previous) constantOptions.set(result, flags);
+    const overlay = (context.indicator as { overlay?: boolean } | undefined)?.overlay === true || context.strategy?.config?.overlay === true;
+    result.options.overlay = overlay || options.force_overlay === true;
+    return result;
+  } });
+}
+
 /** Bgcolor is global-only in Pine. Invocation ordinals are host channels, not source locations. */
 function bindBackgroundOptions(context: Context) {
   const pine = context.pine as unknown as Record<string, unknown>;
@@ -343,6 +401,7 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
+      bindPlotOptions(context);
       bindGradientFillOptions(context);
       backgrounds.set(context, bindBackgroundOptions(context));
       const pine = context.pine as unknown as Record<string, unknown>;

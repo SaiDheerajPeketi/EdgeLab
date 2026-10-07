@@ -203,10 +203,10 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
   private visible(plot: PineChartPlot, neighbors = false): [number, number] {
     if (!this.chart || !plot.visual?.bars.length) return [0, -1];
     const scale = this.chart.timeScale(), bars = plot.visual.bars;
-    if (plot.kind === "background") {
+    if (plot.kind === "background" || plot.visual.plotOffset) {
       const range = scale.getVisibleLogicalRange();
       if (!range) return [0, -1];
-      const offset = plot.visual.backgroundOffset ?? 0;
+      const offset = plot.visual.plotOffset ?? plot.visual.backgroundOffset ?? 0;
       let valid = true;
       // Source bars can be a subset of the shared chart timeline. Search actual chart positions,
       // rather than subtracting an assumed contiguous snapshot index from the visible range.
@@ -220,8 +220,9 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         }
         return lo;
       };
-      const from = locate(Number(range.from) - offset - 1), to = locate(Number(range.to) - offset + 1, true) - 1;
-      return valid ? [Math.max(plot.visual.showFrom, from), Math.min(bars.length - 1, to)] : [0, -1];
+      const margin = plot.kind === "background" ? 1 : 0;
+      const from = locate(Number(range.from) - offset - margin), to = locate(Number(range.to) - offset + margin, true) - 1;
+      return valid ? [Math.max(plot.visual.showFrom, from - (neighbors && plot.kind !== "background" ? 1 : 0)), Math.min(bars.length - 1, to + (neighbors && plot.kind !== "background" ? 1 : 0))] : [0, -1];
     }
     const range = scale.getVisibleRange();
     let from = seconds(range?.from), to = seconds(range?.to);
@@ -340,11 +341,39 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       return false;
     }));
   }
+  /** Only prices on the clipped, shifted segment affect a viewport between source centers. */
+  private shiftedEdgeValue(plot: PineChartPlot, target: number): number | undefined {
+    const scale = this.chart?.timeScale();
+    if (!scale) return undefined;
+    const indices = this.indices(plot), bars = plot.visual!.bars;
+    const position = (index: number) => {
+      const x = scale.timeToCoordinate(bars[index].time as UTCTimestamp);
+      const logical = x === null ? null : scale.coordinateToLogical(x);
+      return logical === null ? undefined : Number(logical) + plot.visual!.plotOffset!;
+    };
+    let lo = 0, hi = indices.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1, logical = position(indices[mid]);
+      if (logical === undefined) return undefined;
+      if (logical < target) lo = mid + 1; else hi = mid;
+    }
+    const right = indices[lo], left = indices[lo - 1];
+    const rightX = right === undefined ? undefined : position(right);
+    if (rightX === target) return numeric(plot, right);
+    if (left === undefined || right === undefined || rightX === undefined) return undefined;
+    if (["linebr", "steplinebr"].includes(plot.visual!.style) && right !== left + 1) return undefined;
+    const leftX = position(left);
+    if (leftX === undefined || rightX === leftX) return undefined;
+    const low = numeric(plot, left)!, high = numeric(plot, right)!;
+    const ratio = Math.max(0, Math.min(1, (target - leftX) / (rightX - leftX)));
+    return plot.step ? low : low * (1 - ratio) + high * ratio;
+  }
   rangeForVisible(): AutoscaleInfo | null {
     const ranges = this.plots.map((plot) => this.visible(plot));
     const paneHeight = this.chart?.paneSize?.().height ?? Infinity;
     const inverted = this.series?.priceScale?.().options().invertScale === true;
-    const key = `${inverted}|${paneHeight}|${ranges.map(([from, to]) => `${from}:${to}`).join("|")}`;
+    const logical = this.chart?.timeScale().getVisibleLogicalRange();
+    const key = `${inverted}|${paneHeight}|${logical?.from}:${logical?.to}|${ranges.map(([from, to]) => `${from}:${to}`).join("|")}`;
     if (key === this.rangeKey) return this.rangeCache;
     this.rangeKey = key;
     let bounds: Bounds | null = null;
@@ -356,6 +385,15 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         return;
       }
       const [from, to] = ranges[p];
+      if (plot.visual?.plotOffset) {
+        const found = to >= from ? this.bounds(plot, from, to) : null;
+        if (found) { bounds = extend(bounds, found.min); bounds = extend(bounds, found.max); }
+        if (!plot.pointsOnly && logical) {
+          bounds = extend(bounds, this.shiftedEdgeValue(plot, Number(logical.from)));
+          bounds = extend(bounds, this.shiftedEdgeValue(plot, Number(logical.to)));
+        }
+        return;
+      }
       if (to < from || plot.kind === "fill" || plot.kind === "background") return;
       const marker = plot.kind === "markers" ? this.markerBounds(plot, from, to) : undefined;
       const found = marker ? marker.bounds : this.bounds(plot, from, to);
@@ -425,7 +463,12 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         let [from, to] = this.visible(plot, true);
         this.from = from; this.to = to;
         if (to < from) continue;
-        const x = (index: number) => this.chart!.timeScale().timeToCoordinate(plot.visual!.bars[index].time as UTCTimestamp);
+        const x = (index: number) => {
+          const scale = this.chart!.timeScale(), center = scale.timeToCoordinate(plot.visual!.bars[index].time as UTCTimestamp);
+          if (!plot.visual!.plotOffset || center === null) return center;
+          const logical = scale.coordinateToLogical(center);
+          return logical === null ? null : scale.logicalToCoordinate((Number(logical) + plot.visual!.plotOffset) as Logical);
+        };
         if (plot.kind === "background") {
           const scale = this.chart!.timeScale();
           let band: { start: number; end: number; shade: string } | undefined;

@@ -52,7 +52,7 @@ test("unsupported native output warns while valid plots remain usable", async ()
   assert.equal(adapted.plots.length, 1);
   assert.ok(adapted.warnings.some((warning) => warning.includes("made-up-style")));
   result.plots[0].options.offset = 3;
-  assert.equal(pine.adaptPineChartResult(result, bars).plots.length, 0);
+  assert.equal(pine.adaptPineChartResult(result, bars).plots[0].visual.plotOffset, 3);
 });
 
 test("native shapes keep their requested position, color and true bars only", async () => {
