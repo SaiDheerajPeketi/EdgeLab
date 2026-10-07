@@ -1496,6 +1496,7 @@ export function TradingChart({
         borderColor: "rgba(148, 163, 184, 0.16)",
         timeVisible: true,
         secondsVisible: false,
+        lockVisibleTimeRangeOnResize: true,
       },
       localization: {
         priceFormatter: (price: number) => formatPrice(price),
@@ -5499,7 +5500,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       autoSize: false, width: Math.max(1, container.current.clientWidth), height: Math.max(1, container.current.clientHeight),
       layout: { background: { type: ColorType.Solid, color: "#060a0f" }, textColor: "#94a3b8", fontFamily: "Instrument Sans Variable" },
       grid: { vertLines: { visible: false }, horzLines: { color: "rgba(148,163,184,0.12)" } },
-      timeScale: { visible: false }, rightPriceScale: { borderVisible: false },
+      timeScale: { visible: false, lockVisibleTimeRangeOnResize: true }, rightPriceScale: { borderVisible: false },
       handleScroll: false, handleScale: false,
     });
     const installed = installPineChartPlots(chart, plots);

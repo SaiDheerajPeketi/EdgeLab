@@ -1278,7 +1278,10 @@ export function WorkspaceApp() {
         target?.tagName === "TEXTAREA" ||
         target?.tagName === "SELECT" ||
         target?.isContentEditable;
-      if (isTyping) {
+      const spaceActivatesControl = event.key === " " && target?.closest?.(
+        'button, a[href], summary, [role="button"], [role="checkbox"], [role="switch"], [role="radio"], [role="tab"], [role="menuitem"], [role="option"], [role="combobox"], [role="listbox"]',
+      );
+      if (event.defaultPrevented || isTyping || spaceActivatesControl) {
         return;
       }
 

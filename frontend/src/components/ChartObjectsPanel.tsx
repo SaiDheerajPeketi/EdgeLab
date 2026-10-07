@@ -1,3 +1,4 @@
+import { useId, useRef, useState } from "react";
 import {
   Activity,
   ArrowDown,
@@ -10,6 +11,7 @@ import {
   Layers,
   LockKeyhole,
   PanelRightClose,
+  Settings2,
   Trash2,
   GripVertical,
   UnlockKeyhole,
@@ -39,6 +41,9 @@ import {
   mergeIndicatorSettings,
 } from "../lib/charting";
 import { formatPrice } from "../lib/format";
+import { isPineScriptSource, sanitizePinePrepared } from "../lib/customIndicators";
+import { pineSourceVersion } from "../lib/pineProtocol";
+import { PineInputControl } from "./PineInputControl";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { DockedWorkspacePanel } from "./ui/WorkspacePanelManager";
@@ -199,63 +204,15 @@ export function ChartObjectsPanel({
                 No active studies.
               </div>
             )}
-            {indicatorInstances.map((indicator) => {
-              const settings = mergeIndicatorSettings(
-                indicator.kind,
-                indicator.settings ?? FALLBACK_SETTING,
-              );
-              return (
-                <div
-                  className={`chart-object-row object-row-with-hover text-left ${indicator.visible === false ? "opacity-55" : "chart-object-row-active"}`}
-                  key={indicator.id}
-                >
-                  <span
-                    className="object-symbol-cell"
-                    style={{ color: settings.color }}
-                  >
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: settings.color }}
-                    />
-                    <IndicatorHoverControls
-                      indicator={indicator}
-                      onRemove={() => onRemoveIndicator(indicator.id)}
-                      onToggleVisibility={() => onToggleIndicatorVisibility(indicator.id)}
-                      onUpdate={(settingsPatch) =>
-                        onUpdateIndicatorSettings(indicator.id, settingsPatch)
-                      }
-                    />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-slate-100">
-                      {indicatorDisplayName(indicator)}
-                    </span>
-                    <span className="block truncate text-xs text-slate-500">
-                      {indicator.kind === "custom"
-                        ? indicator.runtimeError
-                          ? `Runtime error · ${indicator.runtimeError}`
-                          : `EdgeLab DSL · v${indicator.customScriptVersion ?? 1}`
-                        : indicator.kind === "macd"
-                        ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
-                        : indicator.kind === "fvg" || indicator.kind === "ifvg"
-                        ? settings.unmitigatedOnly === true
-                          ? "Unmitigated only"
-                          : "All visible gaps"
-                        : indicator.kind === "vwap"
-                        ? "Session fair value"
-                        : `Period ${settings.period}${indicator.kind === "bb" ? ` / ${settings.stdDev ?? 2}σ` : ""}`}
-                    </span>
-                  </span>
-                  <button
-                    className={`rounded px-1.5 py-1 ${indicator.visible === false ? "text-slate-500" : "text-cyan-100"}`}
-                    onClick={() => onToggleIndicatorVisibility(indicator.id)}
-                    type="button"
-                  >
-                    {indicator.visible === false ? "Off" : "On"}
-                  </button>
-                </div>
-              );
-            })}
+            {indicatorInstances.map((indicator) => (
+              <IndicatorObjectRow
+                indicator={indicator}
+                key={indicator.id}
+                onRemove={() => onRemoveIndicator(indicator.id)}
+                onToggleVisibility={() => onToggleIndicatorVisibility(indicator.id)}
+                onUpdate={(settingsPatch) => onUpdateIndicatorSettings(indicator.id, settingsPatch)}
+              />
+            ))}
           </div>
         </section>
 
@@ -545,40 +502,94 @@ function DrawingHoverControls({
   );
 }
 
-function IndicatorHoverControls({
+function IndicatorObjectRow({ indicator, onRemove, onToggleVisibility, onUpdate }: {
+  indicator: ChartIndicatorInstance;
+  onRemove: () => void;
+  onToggleVisibility: () => void;
+  onUpdate: (settings: Partial<IndicatorSettings>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const disclosureId = useId();
+  const name = indicatorDisplayName(indicator);
+  const settings = mergeIndicatorSettings(indicator.kind, indicator.settings ?? FALLBACK_SETTING);
+  const native = indicator.kind === "custom" && isPineScriptSource(indicator.customScriptSource ?? "");
+  const prepared = native ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
+  let pineVersion: number | undefined = prepared?.pineVersion;
+  if (native && pineVersion === undefined) {
+    try { pineVersion = pineSourceVersion(indicator.customScriptSource!); } catch { /* Unsupported source remains identified as native Pine. */ }
+  }
+  const caption = indicator.kind === "custom"
+    ? indicator.runtimeError ? `Runtime error · ${indicator.runtimeError}`
+      : `${native ? `Native Pine${pineVersion ? ` v${pineVersion}` : ""}` : "EdgeLab DSL"} · revision ${indicator.customScriptVersion ?? 1}`
+    : indicator.kind === "macd" ? `${settings.fastPeriod ?? 12}/${settings.slowPeriod ?? 26}/${settings.signalPeriod ?? 9}`
+    : indicator.kind === "fvg" || indicator.kind === "ifvg" ? settings.unmitigatedOnly === true ? "Unmitigated only" : "All visible gaps"
+    : indicator.kind === "vwap" ? "Session fair value"
+    : `Period ${settings.period}${indicator.kind === "bb" ? ` / ${settings.stdDev ?? 2}σ` : ""}`;
+  const visible = indicator.visible !== false;
+  const close = () => { setExpanded(false); trigger.current?.focus({ preventScroll: true }); };
+  const remove = () => {
+    const row = trigger.current?.closest(".indicator-object-row");
+    if (row?.contains(document.activeElement)) {
+      const panel = row.closest(".chart-side-panel");
+      const triggers = Array.from(panel?.querySelectorAll<HTMLButtonElement>("[data-indicator-settings-trigger]") ?? []);
+      const index = triggers.indexOf(trigger.current!);
+      const fallback = triggers[index + 1] ?? triggers[index - 1] ?? panel?.querySelector<HTMLButtonElement>('[aria-label="Collapse chart objects"]');
+      fallback?.focus({ preventScroll: true });
+    }
+    onRemove();
+  };
+  return <div className={`chart-object-row indicator-object-row text-left ${visible ? "chart-object-row-active" : ""}`}>
+    <div className="indicator-object-header">
+      <span aria-hidden="true" className="object-symbol-cell" style={{ color: settings.color }}>
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: settings.color }} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="indicator-object-name block text-sm font-semibold leading-5 text-slate-100">{name}</span>
+        {indicator.kind !== "custom" ? <span className="block truncate text-xs text-slate-400" title={caption}>{caption}</span> : null}
+      </span>
+      <button aria-label={`${visible ? "On: Hide" : "Off: Show"} ${name}`} className={`indicator-object-action ${visible ? "text-cyan-100" : "text-slate-300"}`} onClick={onToggleVisibility} title={`${visible ? "Hide" : "Show"} ${name}`} type="button">{visible ? "On" : "Off"}</button>
+      <button data-indicator-settings-trigger="true" aria-controls={disclosureId} aria-expanded={expanded} aria-label={`Settings for ${name}`} className="indicator-object-action text-slate-300" onClick={() => setExpanded(!expanded)} ref={trigger} title={`Settings for ${name}`} type="button"><Settings2 aria-hidden="true" size={16} /></button>
+    </div>
+    {indicator.kind === "custom" ? <p className="indicator-object-caption mt-1 min-w-0 text-xs leading-5 text-slate-300">{caption}</p> : null}
+    <div className="indicator-object-settings" hidden={!expanded} id={disclosureId} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 text-xs font-semibold text-slate-200">Study settings</span>
+        <button aria-label={`Close settings for ${name}`} className="indicator-object-action text-slate-300" onClick={close} type="button"><X aria-hidden="true" size={16} /></button>
+      </div>
+      <IndicatorSettingsControls indicator={indicator} onRemove={remove} onUpdate={onUpdate} />
+    </div>
+  </div>;
+}
+
+function IndicatorSettingsControls({
   indicator,
   onRemove,
-  onToggleVisibility,
   onUpdate,
 }: {
   indicator: ChartIndicatorInstance;
   onRemove: () => void;
-  onToggleVisibility: () => void;
   onUpdate: (settings: Partial<IndicatorSettings>) => void;
 }) {
   const settings = indicator.settings ?? FALLBACK_SETTING;
   const isMacd = indicator.kind === "macd";
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
   const isVwap = indicator.kind === "vwap";
-  const isVisible = indicator.visible !== false;
+  const native = indicator.kind === "custom" && isPineScriptSource(indicator.customScriptSource ?? "");
+  const prepared = native ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!) : undefined;
 
   return (
     <div
-      className="drawing-hover-options"
+      className="grid min-w-0 gap-3"
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
+      aria-label={`Settings for ${indicatorDisplayName(indicator)}`}
       role="group"
     >
-      <button
-        className={`control-button h-9 text-xs ${isVisible ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : ""}`}
-        onClick={onToggleVisibility}
-        type="button"
-      >
-        {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-        {isVisible ? "Visible" : "Hidden"}
-      </button>
-
-      {isVisible && (
+      {native ? <div className="grid min-w-0 gap-3">
+        {prepared?.inputDefinitions.map((definition) => <PineInputControl key={definition.id} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onUpdate({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
+        {!prepared ? <p className="text-xs leading-5 text-slate-300">Check and save this Pine script in the editor to configure its inputs.</p> : !prepared.inputDefinitions.length ? <p className="text-xs leading-5 text-slate-300">No configurable Pine inputs.</p> : null}
+      </div> : (
         <>
           <label className="object-setting-field">
             <span>{isGapStudy ? "Bullish" : "Color"}</span>
@@ -628,16 +639,12 @@ function IndicatorHoverControls({
             />
           ) : null}
 
-          <button
-            className="control-button h-9 border-rose-300/30 bg-rose-300/10 text-xs text-rose-100"
-            onClick={onRemove}
-            type="button"
-          >
-            <Trash2 size={14} />
-            Remove
-          </button>
         </>
       )}
+      <button aria-label={`Remove ${indicatorDisplayName(indicator)}`} className="control-button min-h-11 border-rose-300/30 bg-rose-300/10 text-xs text-rose-100" onClick={onRemove} type="button">
+        <Trash2 aria-hidden="true" size={14} />
+        Remove
+      </button>
     </div>
   );
 }

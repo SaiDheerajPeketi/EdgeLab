@@ -338,18 +338,11 @@ test("saved genuine barcolor studies preserve panned candles through reversed co
  await expect.poll(()=>chartBitmap(page).then(v=>v.primary),"Settled Hide restores exact earlier-study candle pixels").toBe(edited.primary);await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
  const hidden=await chartBitmap(page);expect(hidden.axis,"Hide preserves dates").toBe(panned.axis);expect(hidden.primary,"Earlier red remains after Hide").toBe(edited.primary);
  const row=page.locator(".chart-object-row").filter({hasText:"Later body study"}).first();
- if(touch)await row.locator(".object-symbol-cell").tap();else await row.hover();
  const objectControls=await row.evaluate(r=>{const buttons=[...r.querySelectorAll("button")];return{caption:r.textContent,controls:buttons.map(b=>{const p=b.getBoundingClientRect(),hit=document.elementFromPoint(p.x+p.width/2,p.y+p.height/2);return{text:b.textContent,bounds:{x:p.x,y:p.y,width:p.width,height:p.height},hit:hit?.outerHTML};})};});
  await capture(page,"objects-visibility-controls",info.project.name,objectControls);
  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
  const openBaseline=await chartBitmap(page);
- const hiddenControl=row.getByRole("button",{name:"Hidden",exact:true});
- if(touch){
-  // Locator auto-scrolling dismisses this existing overflowing hover popup. Tap its real, current hit target.
-  const hit=await hiddenControl.evaluate(button=>{const r=button.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,target=document.elementFromPoint(x,y);return{x,y,width:r.width,height:r.height,inViewport:r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,ownsHit:!!target&&button.contains(target)};});
-  expect(hit.inViewport,"Actual Hidden control inside touch viewport").toBe(true);expect(hit.ownsHit,"Actual Hidden button owns touch point").toBe(true);
-  await page.touchscreen.tap(hit.x,hit.y);
- }else await hiddenControl.click();
+ await activate(page,row.getByRole("button",{name:"Off: Show Later body study",exact:true}),touch);
  await expect(pill).toBeVisible();await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
  await expect.poll(()=>chartBitmap(page).then(v=>v.primary),"Show preserves exact candle pixels in unchanged drawer geometry").toBe(openBaseline.primary);
  const shown=await chartBitmap(page);expect(shown.axis,"Show preserves dates at unchanged geometry").toBe(openBaseline.axis);expect(shown.width).toBe(openBaseline.width);expect(shown.height).toBe(openBaseline.height);

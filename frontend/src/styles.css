@@ -2982,6 +2982,37 @@ button:disabled {
     @apply flex min-w-0 items-center gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-400 transition;
   }
 
+  .indicator-object-row {
+    @apply block;
+  }
+
+  .indicator-object-header {
+    @apply flex min-w-0 items-center gap-2;
+  }
+
+  .indicator-object-name,
+  .indicator-object-caption {
+    overflow-wrap: anywhere;
+  }
+
+  .indicator-object-action {
+    @apply inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-md px-2 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-cyan-300;
+  }
+
+  .indicator-object-settings {
+    @apply mt-2 min-w-0 space-y-3 border-t border-white/10 pt-2;
+  }
+
+  .indicator-object-settings label {
+    @apply min-h-11 min-w-0;
+    overflow-wrap: anywhere;
+  }
+
+  .indicator-object-settings input:not([type="checkbox"]),
+  .indicator-object-settings select {
+    @apply min-h-11 w-full min-w-0;
+  }
+
   .chart-object-row-active {
     @apply border-cyan-300/25 bg-cyan-300/10;
   }
