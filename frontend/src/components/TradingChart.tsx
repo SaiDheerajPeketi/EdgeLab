@@ -176,7 +176,7 @@ import { ThemedSelect } from "./ThemedSelect";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
-import { adaptPineChartResult, installPineChartPlot, latestPineChartPoint, type PineChartPlot } from "../lib/pineChartAdapter";
+import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, type PineChartPlot } from "../lib/pineChartAdapter";
 import type { PineExecutionResult } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
@@ -526,6 +526,7 @@ export function TradingChart({
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const pineInstallationsRef = useRef(new Set<{ dispose(): void }>());
   const primarySeriesRef = useRef<PrimaryChartSeries | null>(null);
   const candlesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
@@ -546,7 +547,7 @@ export function TradingChart({
   }
   const candleSnapshotStore = candleSnapshotStoreRef.current;
   const [customRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
-  const [customRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, string[]>>({});
+  const [customRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, { assumptions: string[]; warnings: string[] }>>({});
   const [pineStrategyMarkers, setPineStrategyMarkers] = useState<Record<string, SeriesMarker<UTCTimestamp>[]>>({});
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -739,6 +740,11 @@ export function TradingChart({
     });
     return groups;
   }, [customRuntimeStudies]);
+  const customHeaderGroups = useMemo(() => {
+    const groups = new Map<string, CustomRuntimeStudy[]>();
+    customRuntimeStudies.forEach((study) => groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study]));
+    return [...groups.values()];
+  }, [customRuntimeStudies]);
   const fvgZoneDefinitions = useMemo(
     () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
@@ -813,7 +819,13 @@ export function TradingChart({
           ...studies,
         ]);
         if (adapted) {
-          setCustomRuntimeWarnings((current) => ({ ...current, [indicator.id]: adapted.warnings }));
+          const assumptions = nativeResult!.diagnostics
+            .filter((diagnostic) => ["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA"].includes(diagnostic.code))
+            .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`);
+          setCustomRuntimeWarnings((current) => ({ ...current, [indicator.id]: {
+            assumptions,
+            warnings: adapted.warnings.filter((warning) => !assumptions.includes(warning)),
+          } }));
           setPineStrategyMarkers((current) => ({ ...current, [indicator.id]: adapted.strategyMarkers }));
         }
         if (indicator.runtimeError) onIndicatorRuntimeState?.(indicator.id, null);
@@ -1519,6 +1531,8 @@ export function TradingChart({
       chartContainer.removeEventListener("pointerenter", handlePointerEnter);
       chartContainer.removeEventListener("pointerleave", handlePointerLeave);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+      pineInstallationsRef.current.forEach((installation) => installation.dispose());
+      pineInstallationsRef.current.clear();
       chart.remove();
       chartRef.current = null;
       primarySeriesRef.current = null;
@@ -1964,12 +1978,12 @@ export function TradingChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const series = customRuntimeStudies.flatMap((study) => study.overlay && study.pinePlot
-      ? installPineChartPlot(chart, study.pinePlot, primaryPriceScaleIdForPlacement(chartSettings.scalePlacement))
-      : []);
+    const plots = customRuntimeStudies.flatMap((study) => study.overlay && study.pinePlot ? [study.pinePlot] : []);
+    const installed = installPineChartPlots(chart, plots, primaryPriceScaleIdForPlacement(chartSettings.scalePlacement), { allowFillOnlyScale: false });
+    pineInstallationsRef.current.add(installed);
     return () => {
-      if (chartRef.current !== chart) return;
-      series.forEach((item) => chart.removeSeries(item));
+      pineInstallationsRef.current.delete(installed);
+      installed.dispose();
     };
   }, [customRuntimeStudies, chartSettings.scalePlacement, paneId]);
 
@@ -2990,11 +3004,13 @@ export function TradingChart({
     >
       <p className="sr-only" id={chartSummaryId}>{chartTextSummary}</p>
       {displayBars.length > 0 ? (
-        <table className="sr-only">
-          <caption>{formatMarketSymbol(symbol)} recent price bars; newest five of {displayBars.length} visible bars</caption>
-          <thead><tr><th scope="col">Time</th><th scope="col">Open</th><th scope="col">High</th><th scope="col">Low</th><th scope="col">Close</th><th scope="col">Volume</th></tr></thead>
-          <tbody>{displayBars.slice(-5).map((bar) => <tr key={bar.time}><th scope="row">{new Date(Number(bar.time) * 1_000).toISOString()}</th><td>{bar.open}</td><td>{bar.high}</td><td>{bar.low}</td><td>{bar.close}</td><td>{bar.volume}</td></tr>)}</tbody>
-        </table>
+        <div className="sr-only">
+          <table>
+            <caption>{formatMarketSymbol(symbol)} recent price bars; newest five of {displayBars.length} visible bars</caption>
+            <thead><tr><th scope="col">Time</th><th scope="col">Open</th><th scope="col">High</th><th scope="col">Low</th><th scope="col">Close</th><th scope="col">Volume</th></tr></thead>
+            <tbody>{displayBars.slice(-5).map((bar) => <tr key={bar.time}><th scope="row">{new Date(Number(bar.time) * 1_000).toISOString()}</th><td>{bar.open}</td><td>{bar.high}</td><td>{bar.low}</td><td>{bar.close}</td><td>{bar.volume}</td></tr>)}</tbody>
+          </table>
+        </div>
       ) : null}
       {drawingControlsActive && radialToolbox && (
         <RadialDrawingToolbox
@@ -3187,23 +3203,35 @@ export function TradingChart({
                     )}
                   </button>
                 ))}
-                {customRuntimeStudies.map((study) => {
-                  const semantics = indicatorInstances.find((indicator) => indicator.id === study.sourceId)?.customQuantSemantics;
-                  const isScore = semantics?.scorePlotName === study.plotName;
-                  const isProbability = semantics?.probabilityPlotName === study.plotName;
-                  const label = isScore ? semantics.scoreLabel : isProbability ? semantics.probabilityLabel : study.label;
-                  const detail = isScore ? semantics.scoreSemantics : isProbability ? semantics.probabilitySemantics : study.label;
-                  return <button
-                    className={`chart-study-pill ${renderedSelectedIndicatorId === study.sourceId ? "chart-study-pill-active" : ""}`}
-                    key={`header-${study.id}`}
-                    onClick={(event) => openIndicatorToolbar(study.sourceId, event)}
-                    title={`${study.error ?? detail}${semantics ? ` · ${semantics.modelProvenance}` : ""}`}
-                    type="button"
-                  >
-                    <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: study.error ? "#fb7185" : study.color }} />
-                    {chartSettings.indicatorTitles && <span>{label}</span>}
-                    {chartSettings.indicatorValues && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(isProbability ? 1 : 4) ?? "—"}{isProbability ? "%" : ""}</strong>}
-                  </button>;
+                {customHeaderGroups.map((studies) => {
+                  const buttons = studies.map((study) => {
+                    const semantics = indicatorInstances.find((indicator) => indicator.id === study.sourceId)?.customQuantSemantics;
+                    const isScore = semantics?.scorePlotName === study.plotName;
+                    const isProbability = semantics?.probabilityPlotName === study.plotName;
+                    const label = isScore ? semantics.scoreLabel : isProbability ? semantics.probabilityLabel : study.label;
+                    const detail = isScore ? semantics.scoreSemantics : isProbability ? semantics.probabilitySemantics : study.label;
+                    return <button
+                      className={`chart-study-pill ${renderedSelectedIndicatorId === study.sourceId ? "chart-study-pill-active" : ""}`}
+                      key={`header-${study.id}`}
+                      onClick={(event) => openIndicatorToolbar(study.sourceId, event)}
+                      title={`${study.error ?? detail}${semantics ? ` · ${semantics.modelProvenance}` : ""}`}
+                      type="button"
+                    >
+                      <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: study.error ? "#fb7185" : study.color }} />
+                      {chartSettings.indicatorTitles && <span>{label}</span>}
+                      {chartSettings.indicatorValues && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(isProbability ? 1 : 4) ?? "—"}{isProbability ? "%" : ""}</strong>}
+                    </button>;
+                  });
+                  if (studies.length <= 4 || !studies.some((study) => study.pinePlot)) return buttons;
+                  const sourceId = studies[0].sourceId;
+                  const name = indicatorInstances.find((indicator) => indicator.id === sourceId)?.customScriptName ?? "Pine script";
+                  return <div className="flex min-w-0 basis-full flex-wrap items-start gap-2" key={`outputs-${sourceId}`}>
+                    <button aria-label={name} className={`chart-study-pill max-md:min-h-11 ${renderedSelectedIndicatorId === sourceId ? "chart-study-pill-active" : ""}`} onClick={(event) => openIndicatorToolbar(sourceId, event)} title={`Edit ${name}`} type="button">{chartSettings.indicatorTitles ? name : <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />}</button>
+                    <details className="min-w-0 max-w-full text-slate-400">
+                      <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 max-md:min-h-11">{studies.length} outputs</summary>
+                      <div className="flex max-h-36 min-w-0 max-w-full flex-wrap gap-2 overflow-y-auto py-2 [&>button]:max-md:min-h-11">{buttons}</div>
+                    </details>
+                  </div>;
                 })}
                 {indicatorInstances.filter((indicator) => indicator.visible !== false && indicator.customQuantSemantics != null && indicator.customQuantSemantics.probabilityPlotName == null).map((indicator) => (
                   <span className="chart-study-pill" key={`probability-${indicator.id}`} title={`${indicator.customQuantSemantics!.probabilitySemantics} · ${indicator.customQuantSemantics!.modelProvenance}`}>
@@ -3218,12 +3246,16 @@ export function TradingChart({
         </div>
       </div>
 
-      {Object.entries(customRuntimeWarnings).filter(([, warnings]) => warnings.length).map(([id, warnings]) => (
-        <div className="border-t border-amber-300/15 bg-amber-300/5 px-4 py-2 text-xs leading-5 text-amber-100" key={id} role="status">
+      {Object.entries(customRuntimeWarnings).filter(([, result]) => result.warnings.length || result.assumptions.length).map(([id, { assumptions, warnings }]) => {
+        return <div className="border-t border-amber-300/15 bg-amber-300/5 px-4 py-2 text-xs leading-5 text-amber-100" key={id} role="status">
           <strong>{indicatorInstances.find((indicator) => indicator.id === id)?.customScriptName ?? "Pine script"}:</strong>{" "}
           {warnings.join(" · ")}
-        </div>
-      ))}
+          {assumptions.length > 0 && <details>
+            <summary className="min-h-6 cursor-pointer rounded py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200 max-md:min-h-11">Closed historical snapshot · {assumptions.length} assumptions</summary>
+            <p className="pb-1">{assumptions.join(" · ")}</p>
+          </details>}
+        </div>;
+      })}
       <div
         className={`chart-canvas-grid ${
           chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""
@@ -5420,7 +5452,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
       timeScale: { visible: false }, rightPriceScale: { borderVisible: false },
       handleScroll: false, handleScale: false,
     });
-    plots.forEach((plot) => installPineChartPlot(chart, plot));
+    const installed = installPineChartPlots(chart, plots);
     const stopObservingSize = observeSharedChartSize(container.current, ({ width, height }) => chart.resize(width, height));
     const syncRange = () => {
       const range = priceChart?.timeScale().getVisibleRange();
@@ -5432,16 +5464,20 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
     return () => {
       priceChart?.timeScale().unsubscribeVisibleTimeRangeChange(syncRange);
       stopObservingSize();
+      installed.dispose();
       chart.remove();
     };
   }, [plots, priceChart]);
   return <section className="border-t border-white/10 bg-ink-950 px-4 py-3" aria-label={`${label} native Pine pane`}>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
       <button className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
-      <span className="text-slate-400">Native Pine · {plots.map((plot) => plot.name).join(" · ")}</span>
+      {plots.length <= 8 ? <span className="text-slate-400">Native Pine · {plots.map((plot) => plot.name).join(" · ")}</span> : <details className="min-w-0 max-w-full text-slate-400">
+        <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 max-md:min-h-11">Native Pine · {plots.length} outputs</summary>
+        <p className="max-h-24 overflow-y-auto py-2 leading-5">{plots.map((plot) => plot.name).join(" · ")}</p>
+      </details>}
     </div>
     <div ref={container} className="h-32 w-full" />
-    <p className="sr-only">{plots.map((plot) => `${plot.name}: ${plot.segments.flat().filter((point) => point.value !== undefined).at(-1)?.value ?? "No numeric value"}`).join(". ")}</p>
+    <p className="sr-only">{plots.map((plot) => `${plot.name}: ${latestPineChartPoint(plot)?.value ?? "No numeric value"}`).join(". ")}</p>
   </section>;
 }
 

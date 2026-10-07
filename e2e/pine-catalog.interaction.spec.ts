@@ -309,7 +309,7 @@ test("native import preserves exact source and provenance through save, edits, h
 });
 
 for (const name of ["SuperTrend", "Chandelier Exit", "HalfTrend"]) {
-  test(`${name} executes all nine original output channels with rendering limits disclosed`, async ({ page }) => {
+  test(`${name} renders its original nine-channel study without omitting fills or shapes`, async ({ page }, info) => {
     await fixture(page); const editor = await openEditor(page), browser = await catalogBrowser(editor);
     const entry = catalog.entries.find((item) => item.name === name)!; await view(browser, entry);
     await browser.getByRole("button", { name: "Import draft", exact: true }).click(); await check(editor);
@@ -323,7 +323,24 @@ for (const name of ["SuperTrend", "Chandelier Exit", "HalfTrend"]) {
     expect(result.source).toBe(original(entry));
     await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
     await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
-    await expect(page.getByText(/Native fill output is not rendered/).first()).toBeVisible();
+    await expect(page.locator(".chart-study-pill").filter({ hasText: result.plots.find((plot) => plot.style === "fill")!.name }).first()).toHaveCount(1);
+    const outputs = page.locator(".chart-study-row details");
+    if (await outputs.count()) await outputs.locator("summary").click();
+    for (const fill of result.plots.filter((plot) => plot.style === "fill")) {
+      await expect(page.locator(".chart-study-pill").filter({ hasText: fill.name }).first()).toBeVisible();
+    }
+    await expect(page.getByText(/Native fill output is not rendered|disconnected segments; this plot was omitted|Separate shape text color is not supported/)).toHaveCount(0);
+    if (await outputs.count()) await outputs.locator("summary").click();
+    const captures = path.resolve(".artifacts/pine-visuals33/product");
+    fs.mkdirSync(captures, { recursive: true });
+    await page.locator(".chart-stage-header button:visible").first().focus();
+    await page.locator(".chart-stage").first().evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
+    await expect(page.locator(".chart-stage-header button:visible").first()).toBeFocused();
+    if (info.project.name === "mobile") {
+      expect((await page.locator(".chart-stage-header").first().boundingBox())!.height).toBeLessThan(300);
+      expect((await page.locator(".chart-stage canvas").first().boundingBox())!.y).toBeLessThan(page.viewportSize()!.height * 0.6);
+    }
+    await page.screenshot({ path: path.join(captures, `${entry.id}-${info.project.name}.png`) });
   });
 }
 

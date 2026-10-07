@@ -180,9 +180,9 @@ test("native Pine inputs persist through save, reload, revisions and duplication
   await editor.screenshot({ path: path.join(artifacts, `editor-${info.project.name}.png`) });
 });
 
-test("large packed execution saves only preparation metadata and reloads its source", async ({ page }) => {
+for (const placement of ["overlay", "pane"]) test(`large packed ${placement} saves, reloads and keeps all 64 outputs accessible`, async ({ page }, info) => {
   const state = await fixture(page), editor = await openEditor(page);
-  const source = '//@version=6\nindicator("Packed editor")\n' + Array.from({ length: 64 }, (_, index) => `plot(close + ${index},"Channel ${index}")`).join("\n");
+  const source = `//@version=6\nindicator("Packed editor",overlay=${placement === "overlay"})\n` + Array.from({ length: 64 }, (_, index) => `plot(close + ${index},"Channel ${index}")`).join("\n");
   await fillSource(editor, source); await check(editor); await run(editor);
   await expect(editor.locator("#edge-editor-diagnostics")).toContainText("64 plots");
   expect(await page.evaluate((source) => window.__nativeEditorResults.some((item) => item.status === "completed" && item.result.kind === "run" && item.result.source === source && "encoding" in item && item.encoding === "pine-packed-v1"), source)).toBe(true);
@@ -196,6 +196,71 @@ test("large packed execution saves only preparation metadata and reloads its sou
   await reopened.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
   await expect(reopened.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(source);
   await expect(reopened.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await reopened.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await reopened.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  const outputs = page.locator(".chart-study-row details");
+  await expect(outputs.locator("summary")).toHaveText("64 outputs");
+  const edit = page.locator(".chart-study-row").getByRole("button", { name: String(saved.name), exact: true });
+  await expect(edit).toBeVisible();
+  await expect(outputs.locator("button.chart-study-pill")).toHaveCount(64);
+  await expect(outputs.locator("button.chart-study-pill").first()).toBeHidden();
+  await outputs.locator("summary").focus(); await page.keyboard.press("Enter");
+  await expect(outputs.locator("button.chart-study-pill").first()).toBeVisible();
+  const body = outputs.locator("div").first();
+  expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  const last = outputs.getByRole("button").filter({ hasText: "Channel 63" });
+  await last.scrollIntoViewIfNeeded(); await expect(last).toBeVisible();
+  await last.focus(); await expect(last).toBeFocused();
+  const captures = path.resolve(".artifacts/pine-visuals33/product");
+  fs.mkdirSync(captures, { recursive: true });
+  await outputs.screenshot({ path: path.join(captures, `packed-${placement}-outputs-${info.project.name}.png`) });
+  await outputs.locator("summary").click(); await expect(last).toBeHidden();
+  await expect(edit).toBeVisible();
+  const assumptions = page.getByRole("status").filter({ hasText: "CLOSED_BAR_SNAPSHOT:" }).locator("details");
+  await expect(assumptions.locator("summary")).toContainText("Closed historical snapshot");
+  await expect(assumptions.locator("p")).toBeHidden();
+  await assumptions.locator("summary").focus(); await page.keyboard.press("Enter");
+  await expect(assumptions.locator("p")).toBeVisible();
+  await expect(assumptions.locator("p")).toContainText("realtime rollback");
+  await assumptions.locator("summary").click();
+  if (placement === "pane") {
+    const pane = page.getByRole("region", { name: `${String(saved.name)} native Pine pane` });
+    await expect(pane).toBeVisible();
+    await expect(pane.locator("details summary")).toHaveText("Native Pine · 64 outputs");
+    await expect(pane.locator("canvas").first()).toBeVisible();
+    await pane.locator("details summary").focus(); await page.keyboard.press("Enter");
+    const names = pane.locator("details p");
+    await expect(names).toContainText("Channel 63");
+    await names.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await pane.screenshot({ path: path.join(captures, `packed-native-pane-expanded-${info.project.name}.png`) });
+    await pane.locator("details summary").click();
+    await pane.screenshot({ path: path.join(captures, `packed-native-pane-${info.project.name}.png`) });
+  }
+  await expect.poll(() => page.locator(".chart-stage").first().evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await expect(page.locator(".chart-stage").first().getByRole("table", { name: /recent price bars/ }).getByRole("row")).toHaveCount(6);
+  await edit.focus();
+  await page.locator(".chart-stage").first().evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
+  await expect(edit).toBeFocused();
+  await page.screenshot({ path: path.join(captures, `packed-${placement}-${info.project.name}.png`) });
+});
+
+test("plot names matching assumption codes keep unsupported-output warnings visible", async ({ page }) => {
+  await fixture(page);
+  const editor = await openEditor(page);
+  const codes = ["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA"];
+  const source = `//@version=6\nindicator("Warning names",overlay=true)\nplot(close,"Price")\n` + codes.map((code) => `plot(close,"${code}",offset=1)`).join("\n");
+  await fillSource(editor, source); await check(editor);
+  await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  const status = page.getByRole("status").filter({ hasText: "Warning names:" });
+  for (const code of codes) await expect(status).toContainText(`${code}: Plot offsets are not rendered`);
+  await expect(status.locator("details p")).toBeHidden();
+  const exposed = await status.evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.querySelector("details")?.remove();
+    return copy.textContent;
+  });
+  for (const code of codes) expect(exposed).toContain(`${code}: Plot offsets are not rendered`);
 });
 
 test("native overlay and oscillator reach real chart canvases", async ({ page }, info) => {

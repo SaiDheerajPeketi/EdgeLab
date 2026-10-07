@@ -37,11 +37,12 @@ test("native chart adapter maps histogram, area and step styles without turning 
   const calls = [];
   const series = () => ({ setData(data) { calls.push(["data", data]); }, setMarkers() {} });
   const chart = { addHistogramSeries(options) { calls.push(["histogram", options]); return series(); }, addBaselineSeries(options) { calls.push(["baseline", options]); return series(); }, addLineSeries(options) { calls.push(["line", options]); return series(); } };
-  adapted.plots.forEach((plot) => pine.installPineChartPlot(chart, plot));
+  adapted.plots.filter((plot) => !plot.visual).forEach((plot) => pine.installPineChartPlot(chart, plot));
   assert.equal(calls[0][0], "histogram");
   assert.equal(calls[2][0], "baseline");
   assert.equal(calls[2][1].baseValue.price, 1);
-  assert.equal(calls[4][1].lineType, 1);
+  assert.equal(adapted.plots[2].visual.style, "stepline");
+  assert.equal(adapted.plots[2].visual.source, result.plots[2]);
 });
 
 test("unsupported native output warns while valid plots remain usable", async () => {
@@ -77,7 +78,7 @@ test("absolute native shapes preserve a real zero value instead of treating it a
   const adapted = pine.adaptPineChartResult(result, bars);
   assert.equal(adapted.plots[0].markers.length, bars.length);
   assert.ok(adapted.plots[0].segments[0].every((point) => point.value === 0));
-  assert.ok(adapted.plots[0].markers.every((marker) => marker.position === "inBar"));
+  assert.equal(adapted.plots[0].visual.source.options.location, "Absolute");
 });
 
 test("native display.none and data-window-only plots stay off the chart", async () => {
@@ -103,11 +104,13 @@ test("OHLC missing values become gaps while malformed and infinite arrays remain
   }
 });
 
-test("native shape text colors and size are supported or explicitly disclosed", async () => {
+test("native shape text colors and size retain raw options with honest calibration disclosure", async () => {
   const result = await run('plotshape(close > 3,"Signals",style=shape.circle,text="GO",textcolor=color.blue,size=size.huge)');
   const adapted = pine.adaptPineChartResult(result, bars);
-  assert.ok(adapted.warnings.some((warning) => /text.?colo(?:u)?r/i.test(warning)));
-  assert.ok(adapted.plots[0].markers.every((marker) => marker.size !== undefined) || adapted.warnings.some((warning) => /size/i.test(warning)));
+  assert.equal(adapted.plots[0].visual.source.options.textcolor, "#2962FF");
+  assert.equal(adapted.plots[0].visual.source.options.size, "huge");
+  assert.ok(!adapted.warnings.some((warning) => /text.?colo(?:u)?r/i.test(warning)));
+  assert.ok(adapted.warnings.some((warning) => /calibration/i.test(warning)));
 });
 
 test("native plot width clipping and ignored tracking are disclosed", async () => {
@@ -119,10 +122,13 @@ test("native plot width clipping and ignored tracking are disclosed", async () =
 
 test("disconnected native plots have a bounded series count and preserve na rather than bridging", async () => {
   const result = await run('plot(close,"Gap",style=plot.style_linebr)');
-  result.plots[0].points = Array.from({ length: 40 }, (_, index) => ({ time: index, value: index % 2 ? null : index, options: {} }));
-  const adapted = pine.adaptPineChartResult(result, bars);
-  assert.equal(adapted.plots.length, 0);
-  assert.ok(adapted.warnings.some((warning) => warning.includes("disconnected segments")));
+  const snapshot = Array.from({ length: 40 }, (_, index) => ({ ...bars[0], time: bars[0].time + index * 60 }));
+  result.plots[0].points = snapshot.map((bar, index) => ({ time: bar.time, value: index % 2 ? null : index, options: {} }));
+  const adapted = pine.adaptPineChartResult(result, snapshot);
+  assert.equal(adapted.plots.length, 1);
+  assert.equal(adapted.plots[0].segments.length, 20);
+  assert.equal(adapted.plots[0].visual.source, result.plots[0]);
+  assert.ok(!adapted.warnings.some((warning) => warning.includes("disconnected segments")));
 });
 
 test("strategy markers come from executed engine trades and omit pending orders", async () => {
