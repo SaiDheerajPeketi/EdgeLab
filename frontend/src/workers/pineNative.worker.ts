@@ -1,0 +1,196 @@
+/// <reference lib="webworker" />
+import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
+import type { IProvider, ISymbolInfo, Kline } from "pinets";
+import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, validatePineResponse } from "../lib/pineProtocol";
+import type { PineDiagnostic, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
+
+function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
+function warning(code: string, message: string): PineDiagnostic { return { code, message: message.slice(0, 4_096), severity: "warning", line: 1, column: 1 }; }
+function plainScalar(value: unknown): PineScalar {
+  if (value === undefined || value === null || (typeof value === "number" && !Number.isFinite(value))) return null;
+  if (typeof value === "boolean" || typeof value === "number") return value;
+  if (typeof value === "string" && value.length <= 4_096) return value;
+  return error("UNSUPPORTED_RESULT", "The native engine returned unsupported or oversized output data.");
+}
+function fields(value: object, keys?: string[]): Record<string, PineScalar> {
+  const result: Record<string, PineScalar> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key.startsWith("_") || (keys && !keys.includes(key))) continue;
+    if (["__proto__", "prototype", "constructor"].includes(key)) error("INVALID_MESSAGE", "Unsafe engine output key.");
+    result[key] = plainScalar(item);
+  }
+  return result;
+}
+function definitions(indicator: Indicator): PineInputDefinition[] {
+  const metadata = indicator.getInputsMeta();
+  if (metadata.length > PINE_LIMITS.inputs) error("INPUT_LIMIT", "Pine source exceeds 24 inputs.");
+  return metadata.map((item) => {
+    const definition: PineInputDefinition = { id: item.id, name: item.name, type: item.type, defval: plainScalar(item.defval) };
+    for (const key of ["varId", "title", "tooltip", "group", "display", "inline", "active", "confirm", "minval", "maxval", "step"] as const) {
+      const val = item[key];
+      if (val !== undefined) Object.assign(definition, { [key]: plainScalar(val) });
+    }
+    if (item.options) definition.options = item.options.map(plainScalar);
+    return definition;
+  });
+}
+function runtimeInputs(request: PineRequest, inputs: PineInputDefinition[]): Record<string, PineInputValue> {
+  const values: Record<string, PineInputValue> = {};
+  for (const key of Object.keys(request.inputs ?? {})) if (!inputs.some((item) => item.id === key)) error("INVALID_INPUT", `Unknown native Pine input ${key}.`);
+  for (const input of inputs) {
+    const value = request.inputs?.[input.id] ?? input.defval;
+    if (value === null) error("UNSUPPORTED_INPUT", `Input ${input.name} has an unsupported default value.`);
+    const numeric = ["int", "float", "price", "time"].includes(input.type);
+    if ((numeric && typeof value !== "number") || (input.type === "bool" && typeof value !== "boolean") || (!numeric && input.type !== "bool" && typeof value !== "string")) error("INVALID_INPUT", `Invalid value for Pine input ${input.name}.`);
+    if (typeof value === "number" && ((["int", "time"].includes(input.type) && !Number.isSafeInteger(value)) || (input.minval !== undefined && value < input.minval) || (input.maxval !== undefined && value > input.maxval))) error("INVALID_INPUT", `Pine input ${input.name} is outside its declared range.`);
+    if (input.options && !input.options.includes(value)) error("INVALID_INPUT", `Pine input ${input.name} must match a declared option.`);
+    if (input.type === "source" && !["open", "high", "low", "close", "hl2", "hlc3", "ohlc4", "hlcc4"].includes(String(value))) error("UNSUPPORTED_INPUT", "Only the loaded chart's OHLC sources are available.");
+    values[input.id] = value;
+  }
+  return values;
+}
+function displayName(source: string, declaration: string): string {
+  // A display hint only. Native preparation and execution remain authoritative.
+  const match = new RegExp(`^[ \\t]*${declaration}\\s*\\(\\s*(?:title\\s*=\\s*)?("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')`, "m").exec(source);
+  if (match) {
+    try {
+      const quoted = match[1];
+      const title = quoted.startsWith('"') ? JSON.parse(quoted) : quoted.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, "\\");
+      if (typeof title === "string" && title.length <= 4_096) return title;
+    } catch { /* The engine reports syntax errors; this hint has no execution role. */ }
+  }
+  return `Pine ${declaration}`;
+}
+function normalizeSymbol(symbol: string): string { return symbol.toUpperCase(); }
+function chartProvider(request: PineRequest): { provider: IProvider; unavailable: () => PineProtocolError | undefined } {
+  const context = request.context!;
+  const timeframe = canonicalPineTimeframe(context.timeframe);
+  let failure: PineProtocolError | undefined;
+  let calls = 0;
+  const reject = (symbol: string, tf?: string) => {
+    failure ??= new PineProtocolError("UNAVAILABLE_DATA", `Only loaded ${context.symbol} ${context.timeframe} chart data is available; requested ${symbol}${tf ? ` ${tf}` : ""}.`);
+  };
+  const interval = /^(\d+)([SDWM]?)$/.exec(timeframe)!;
+  const count = Number(interval[1]), unit = interval[2];
+  const candles: Kline[] = request.bars!.map((bar) => {
+    const openTime = bar.time * 1000;
+    const closeTime = unit === "M" ? computeNextPeriodStart(openTime, "month", count) : openTime + count * ({ S: 1_000, D: 86_400_000, W: 604_800_000 }[unit] ?? 60_000);
+    return { openTime, closeTime, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, quoteAssetVolume: 0, numberOfTrades: 0, takerBuyBaseAssetVolume: 0, takerBuyQuoteAssetVolume: 0, ignore: 0 };
+  });
+  const symbol = context.symbol, ticker = symbol.split(":").slice(-1)[0];
+  const info: ISymbolInfo = {
+    current_contract: "", description: symbol, isin: "", main_tickerid: symbol, prefix: symbol.includes(":") ? symbol.split(":")[0] : "", root: ticker, ticker, tickerid: symbol, type: "", basecurrency: "", country: "", currency: "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: 1,
+    minmove: 1, mintick: context.mintick ?? 0.01, pointvalue: context.pointvalue ?? 1, pricescale: 1 / (context.mintick ?? 0.01),
+    employees: 0, industry: "", sector: "", shareholders: 0, shares_outstanding_float: 0, shares_outstanding_total: 0, expiration_date: 0,
+    recommendations_buy: 0, recommendations_buy_strong: 0, recommendations_date: 0, recommendations_hold: 0, recommendations_sell: 0, recommendations_sell_strong: 0, recommendations_total: 0,
+    target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
+  };
+  const provider: IProvider = {
+    configure() { /* The provider is a closed snapshot, with no credentials or network. */ },
+    async getMarketData(requestedSymbol, requestedTimeframe, limit, start, end) {
+      if (++calls > 64) error("REQUEST_LIMIT", "Pine requested too many data snapshots.");
+      let tf: string;
+      try { tf = canonicalPineTimeframe(requestedTimeframe); } catch { reject(requestedSymbol, requestedTimeframe); return []; }
+      if (normalizeSymbol(requestedSymbol) !== normalizeSymbol(symbol) || tf !== timeframe) { reject(requestedSymbol, requestedTimeframe); return []; }
+      let result = candles.filter((bar) => (start === undefined || bar.openTime >= start) && (end === undefined || bar.openTime <= end));
+      if (limit !== undefined) result = result.slice(-Math.min(candles.length, Math.max(0, Math.floor(limit))));
+      return result.map((bar) => ({ ...bar }));
+    },
+    async getSymbolInfo(requestedSymbol) {
+      if (normalizeSymbol(requestedSymbol) !== normalizeSymbol(symbol)) reject(requestedSymbol);
+      return { ...info };
+    },
+  };
+  // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.
+  return { provider, unavailable: () => failure };
+}
+function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[]): PinePlot[] {
+  const drawings = new Set(["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"]);
+  const entries = Object.entries(raw).filter(([, value]) => {
+    const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
+    if (!drawings.has(plot.options?.style ?? "")) return true;
+    if (plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
+    return false;
+  });
+  if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds eight plots.");
+  let total = 0;
+  return entries.flatMap(([id, value]) => {
+    const plot = value as { title?: string; options?: Record<string, unknown>; data?: { time: number; value: unknown; options?: Record<string, unknown> }[] };
+    const style = typeof plot.options?.style === "string" ? plot.options.style : "line";
+    if (!Array.isArray(plot.data)) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
+    if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
+    total += plot.data.length;
+    if (total > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 160,000 points.");
+    return [{ id, name: plot.title ?? id, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: fields(plot.options ?? {}), points: plot.data.map((point) => {
+      const val = point.value;
+      if (Array.isArray(val) && (val.length > 4 || val.some((item) => typeof item !== "number" || !Number.isFinite(item)))) error("UNSUPPORTED_RESULT", "Invalid OHLC plot output.");
+      const normalized = Array.isArray(val) ? val as number[] : plainScalar(val);
+      if (typeof normalized === "string") error("UNSUPPORTED_RESULT", "Unsupported native plot value.");
+      return { time: point.time / 1000, value: normalized, options: fields(point.options ?? {}) };
+    }) }];
+  });
+}
+const TRADE_FIELDS = ["id", "entry_id", "entry_price", "entry_bar_index", "entry_time", "entry_comment", "exit_id", "exit_price", "exit_bar_index", "exit_time", "exit_comment", "size", "profit", "commission", "max_drawdown", "max_runup", "status"];
+const ORDER_FIELDS = ["id", "direction", "qty", "type", "limit", "stop", "bar", "time", "oca_name", "oca_type", "comment", "status", "category", "profit", "loss", "trail_price", "trail_offset", "trail_points", "from_entry", "qty_percent", "immediately"];
+const METRIC_FIELDS = ["position_size", "position_avg_price", "position_entry_name", "initial_capital", "account_currency", "equity", "netprofit", "grossprofit", "grossloss", "openprofit", "cagr", "max_drawdown", "max_runup", "equity_peak", "max_drawdown_percent_value", "max_runup_percent_value", "sharpe_ratio", "sortino_ratio", "wintrades", "losstrades", "eventrades", "buy_and_hold_pnl", "risk_halted"];
+function strategyResult(state: { config: object; closedtrades: object[]; opentrades: object[]; pending_orders: object[] }): PineStrategyResult {
+  if (state.closedtrades.length + state.opentrades.length + state.pending_orders.length > PINE_LIMITS.trades) error("TRADE_LIMIT", "Native strategy output exceeds 10,000 ledger entries.");
+  const trades = (items: object[]) => items.map((item) => {
+    const trade = fields(item, TRADE_FIELDS);
+    for (const key of ["entry_time", "exit_time"]) if (typeof trade[key] === "number") trade[key] = (trade[key] as number) / 1000;
+    return trade;
+  });
+  return { config: fields(state.config), metrics: fields(state, METRIC_FIELDS), closedTrades: trades(state.closedtrades), openTrades: trades(state.opentrades), pendingOrders: state.pending_orders.map((item) => { const order = fields(item, ORDER_FIELDS); if (typeof order.time === "number") order.time /= 1000; return order; }) };
+}
+
+/** Called only inside the isolated worker; exported for deterministic engine fixtures. */
+export async function executePineRequest(value: unknown): Promise<PineResult> {
+  const request = validatePineRequest(value);
+  const started = performance.now();
+  const indicator = new Indicator(request.source, request.inputs ?? {});
+  try { indicator.prepare({ debug: false, ln: false }); } catch (cause) {
+    error("COMPILE_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine compilation failed.");
+  }
+  const declaration = indicator.getDeclarationType();
+  if (!declaration) error("DECLARATION_REQUIRED", "Native Pine requires an indicator() or strategy() declaration.");
+  const inputDefinitions = definitions(indicator);
+  const inputs = runtimeInputs(request, inputDefinitions);
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, inputDefinitions, diagnostics: [] };
+  if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
+  const local = chartProvider(request);
+  const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
+  engine.setMaxLoops(PINE_LIMITS.loops);
+  engine.setTimezone("UTC");
+  let context;
+  try { context = await engine.run(indicator); } catch (cause) {
+    if (local.unavailable()) throw local.unavailable();
+    if (cause instanceof PineProtocolError) throw cause;
+    error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
+  }
+  if (local.unavailable()) throw local.unavailable();
+  const diagnostics = [warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
+  if (request.context!.mintick === undefined || request.context!.pointvalue === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Missing chart mintick or pointvalue uses 0.01 and 1 respectively; supply instrument metadata for tick-based orders and contract P&L."));
+  for (const item of context.warnings ?? []) {
+    if (diagnostics.length >= PINE_LIMITS.diagnostics) break;
+    diagnostics.push(warning("ENGINE_WARNING", item.message));
+  }
+  const properties = context.strategy?.config ?? context.indicator;
+  const overlay = properties?.overlay === true;
+  const plots = plotResults(context.plots, overlay, diagnostics);
+  const result: PineExecutionResult = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  return validatePineResponse({ id: request.id, status: "completed", result }, request);
+}
+
+if (typeof self !== "undefined" && typeof document === "undefined") {
+  const scope = self as unknown as DedicatedWorkerGlobalScope;
+  scope.onmessage = async (event: MessageEvent<unknown>) => {
+    const raw = event.data as { id?: unknown } | null;
+    const id = typeof raw?.id === "string" ? raw.id.slice(0, 128) : "invalid-request";
+    try {
+      const result = await executePineRequest(event.data);
+      scope.postMessage({ id, status: "completed", result });
+    } catch (cause) {
+      scope.postMessage({ id, status: "failed", error: { code: cause instanceof PineProtocolError ? cause.code : "RUNTIME_ERROR", message: cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed." } });
+    }
+  };
+}

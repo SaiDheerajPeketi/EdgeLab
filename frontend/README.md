@@ -1,5 +1,9 @@
 # EdgeLab frontend
 
+The native Pine foundation pins PineTS 0.11.0 and builds a separate classic worker asset with esbuild. The browser fetches that trusted asset from its own origin, then runs compilation and execution in a blob worker created inside an opaque `sandbox="allow-scripts"` frame. Its CSP denies network connections, imports and parent-origin storage; user source and results travel only as messages. The parent verifies frame identity, a cryptographic nonce and bounded result schemas, and the fixed bridge terminates/revokes its worker on completion, cancellation or timeout. These are isolation and availability controls, not a global memory/operation budget. Unsupported secondary-symbol/timeframe requests fail explicitly; data comes from the supplied local candle context.
+
+Native editor/chart integration is pending; the current editor still supports EdgeLab DSL only. PineTS is experimental and strategy results must not be presented as TradingView-identical. Pine-enabled builds use AGPL-3.0-only: distribute the complete matching application source and build scripts, and offer them to service users. `LICENSE.txt` and `THIRD_PARTY_NOTICES.txt` ship as static assets; see the root notices for upstream attribution.
+
 Compatibility mode supports canonical Journal trade paging, account filtering, direct review links, review updates, and manual account creation. Review and account saves use the same server APIs as the current interface; failed saves keep the open form for retry.
 
 Daily notes and calendar day review work in both interfaces. Shared and account notes stay separate; drafts are keyed by owner, UTC date, and note scope. Explicit saves preserve whitespace and allow an empty replacement body. Save locks and confirmed responses survive a same-page interface switch. Linked reviews retain the selected date and account, and day trades load the complete UTC entry day in API pages before displaying 100 trades per page. Each amount retains its own currency.
@@ -103,6 +107,9 @@ From the repository root:
 npm run build
 npm run quality:ui
 npm run test:ui
+npx playwright test --config e2e/pine-runtime.config.ts
 ```
 
 `test:ui` is the full Playwright suite and is much slower than the build and contract checks. Update visual snapshots only after reviewing the changed images.
+
+The dedicated Pine suite uses the already-built production worker and a loopback fixture server. Run the build first. It checks native calculations and strategy fills, denied network/parent access, result validation, message spoofing and cancellation/timeout acknowledgments. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` for a specific local Chromium binary; installed Firefox/WebKit run when available.

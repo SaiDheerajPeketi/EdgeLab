@@ -30,6 +30,8 @@ playwright-report/
 test-results/
 frontend/vite.config.js
 frontend/vite.config.d.ts
+frontend/pineWorkerPlugin.js
+frontend/pineWorkerPlugin.d.ts
 .env
 deployment/client_secret_*.json
 deployment/google-oauth-client.json

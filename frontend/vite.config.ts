@@ -1,9 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import { pineWorkerPlugin } from "./pineWorkerPlugin";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pineWorkerPlugin()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
