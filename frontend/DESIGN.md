@@ -47,6 +47,8 @@ The indicator editor's community catalog extends the existing operating layout a
 
 Chart Objects uses explicit in-flow settings disclosures for indicators, with separate 44px visibility controls that stay unobstructed. Native Pine settings expose validated source inputs and distinguish source version from saved revision. Closing returns focus to the opening control; removal keeps focus in the same panel. Resizing the chart for a panel preserves its established visible time interval within chart spacing limits.
 
+Active studies presents native Pine through its source identity and a contained Inputs disclosure. Declared inputs use the same validated definitions and current values as Objects; generic period and plot-color controls apply only to other study types. Long input lists scroll within the disclosure, names and version metadata wrap, and closing restores the connected trigger. Empty or unprepared input definitions explain the next action without inventing settings.
+
 Public startup must defer private compatibility surfaces and the dimensional scene. Keep the explicit Three.js bridge in its own deferred engine chunk so shared marketing content cannot pull it into the first page load. Compatibility navigation remains available while its selected lazy surface loads, with an accessible status message. Loading improvements preserve rollout fallback, deep links, existing visual baselines and the current performance budgets.
 
 ## Non-goals

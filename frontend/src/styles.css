@@ -1719,6 +1719,47 @@ button:disabled {
     @apply inline-flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-slate-300;
   }
 
+  .chart-studio-toolbar .indicator-chip {
+    @apply h-auto min-h-11 py-2;
+    overflow-wrap: anywhere;
+  }
+
+  .study-action-button {
+    @apply inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-md outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300;
+  }
+
+  .native-study-chip {
+    @apply block w-full max-w-md py-2;
+  }
+
+  .native-study-name,
+  .native-study-caption {
+    overflow-wrap: anywhere;
+  }
+
+  .native-study-inputs {
+    @apply mt-2 min-w-0 space-y-2 border-t border-white/10 pt-2;
+  }
+
+  .native-study-input-list {
+    @apply grid min-w-0 gap-3 overflow-y-auto overscroll-contain pr-1;
+    max-height: min(18rem, 45dvh);
+  }
+
+  .native-study-input-list label {
+    @apply min-h-11 min-w-0;
+    overflow-wrap: anywhere;
+  }
+
+  .native-study-input-list input:not([type="checkbox"]),
+  .native-study-input-list select {
+    @apply min-h-11 w-full min-w-0;
+  }
+
+  .native-study-inputs :is(input, select, button) {
+    scroll-margin-block: 6rem;
+  }
+
   .study-chip-color {
     @apply h-7;
   }
