@@ -317,7 +317,10 @@ export function IndicatorEditorPanel({
       if (attempt !== attemptRef.current || !currentOwner() || !currentContext(context)) return;
       runtimeCancelRef.current = null;
       if ("kind" in result) {
-        setPrepared({ ...result, kind: "prepare" });
+        // Preparation must stay small; packed runtime output belongs only to execution.
+        setPrepared({ kind: "prepare", source: result.source, language: result.language,
+          pineVersion: result.pineVersion, declaration: result.declaration, name: result.name,
+          overlay: result.overlay, inputDefinitions: result.inputDefinitions, diagnostics: result.diagnostics });
         setExecution(result);
         setInputs(result.inputs);
         setRunState({ detail: `${result.plots.length} plots · ${result.audit.bars.toLocaleString()} bars · PineTS ${result.audit.engineVersion}.`, status: "success" });

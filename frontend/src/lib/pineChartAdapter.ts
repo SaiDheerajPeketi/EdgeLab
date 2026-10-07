@@ -1,5 +1,5 @@
 import type { Candle } from "./api";
-import type { PineExecutionResult, PineScalar } from "./pineProtocol";
+import type { PineExecutionResult, PinePlot, PineScalar } from "./pineProtocol";
 import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } from "lightweight-charts";
 
 export type PineChartPoint = { time: UTCTimestamp; value?: number; color?: string; open?: number; high?: number; low?: number; close?: number; wickColor?: string; borderColor?: string };
@@ -17,6 +17,21 @@ function color(value: PineScalar | undefined, fallback = FALLBACK_COLOR) {
 }
 function number(value: PineScalar | undefined, fallback: number) { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
 
+function* shownPoints(plot: PinePlot, count: number) {
+  for (let index = Math.max(0, plot.points.length - count); index < plot.points.length; index++) yield plot.points[index];
+}
+
+/** Header values need one sample; chart geometry already owns the full rendered data. */
+export function latestPineChartPoint(plot: PineChartPlot): { time: UTCTimestamp; value: number } | null {
+  for (let segment = plot.segments.length - 1; segment >= 0; segment--) {
+    for (let index = plot.segments[segment].length - 1; index >= 0; index--) {
+      const point = plot.segments[segment][index];
+      if (point.value !== undefined) return { time: point.time, value: point.value };
+    }
+  }
+  return null;
+}
+
 /** Preserve native output semantics. Unsupported output is omitted with a visible reason. */
 export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]): PineChartResult {
   const warnings = result.diagnostics.map((item) => `${item.code}: ${item.message}`);
@@ -29,11 +44,11 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       warn(`The ${String(plot.options.display)} display destination is not exposed by this chart adapter; this plot is not drawn.`);
       return [];
     }
-    if (number(plot.options.offset, 0) !== 0 || plot.points.some((point) => number(point.options.offset, 0) !== 0)) { warn("Plot offsets are not rendered by this chart adapter."); return []; }
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
     const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
     const kind = kinds[style];
     if (!kind) { warn(`Native ${style} output is not rendered by this chart adapter.`); return []; }
+    if (number(plot.options.offset, 0) !== 0 || plot.points.some((point) => number(point.options.offset, 0) !== 0)) { warn("Plot offsets are not rendered by this chart adapter."); return []; }
     const declaredWidth = number(plot.options.linewidth, 2);
     if (declaredWidth < 1 || declaredWidth > 4 || !Number.isInteger(declaredWidth)) warn("Plot line width is limited to integer values from 1 to 4 pixels.");
     if (plot.options.trackprice === true || plot.points.some((point) => point.options.trackprice === true)) warn("The trackprice guide is not exposed by this chart adapter.");
@@ -42,7 +57,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const markers: SeriesMarker<UTCTimestamp>[] = [];
     const breakGaps = ["linebr", "steplinebr", "areabr"].includes(style);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, plot.points.length)));
-    const points = showLast ? plot.points.slice(-showLast) : [];
+    const points = shownPoints(plot, showLast);
     let warnedValue = false, warnedShape = false;
     for (const point of points) {
       const options = { ...plot.options, ...point.options };

@@ -180,6 +180,24 @@ test("native Pine inputs persist through save, reload, revisions and duplication
   await editor.screenshot({ path: path.join(artifacts, `editor-${info.project.name}.png`) });
 });
 
+test("large packed execution saves only preparation metadata and reloads its source", async ({ page }) => {
+  const state = await fixture(page), editor = await openEditor(page);
+  const source = '//@version=6\nindicator("Packed editor")\n' + Array.from({ length: 64 }, (_, index) => `plot(close + ${index},"Channel ${index}")`).join("\n");
+  await fillSource(editor, source); await check(editor); await run(editor);
+  await expect(editor.locator("#edge-editor-diagnostics")).toContainText("64 plots");
+  expect(await page.evaluate((source) => window.__nativeEditorResults.some((item) => item.status === "completed" && item.result.kind === "run" && item.result.source === source && "encoding" in item && item.encoding === "pine-packed-v1"), source)).toBe(true);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+  const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+  expect(saved.source).toBe(source);
+  expect(Object.keys(saved.pinePrepared as object).sort()).toEqual(["declaration", "diagnostics", "inputDefinitions", "kind", "language", "name", "overlay", "pineVersion", "source"].sort());
+  await page.reload(); await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  const reopened = await openEditor(page);
+  await reopened.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+  await expect(reopened.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(source);
+  await expect(reopened.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+});
+
 test("native overlay and oscillator reach real chart canvases", async ({ page }, info) => {
   await fixture(page);
   for (const source of [overlay, paneSource]) {
@@ -191,6 +209,11 @@ test("native overlay and oscillator reach real chart canvases", async ({ page },
     const result = await nativeRun(page, source);
     expect(result.plots[0].overlay).toBe(source === overlay);
     expect(result.plots[0].points.filter((point) => typeof point.value === "number").length).toBeGreaterThan(50);
+    const last = result.plots[0].points.at(-1)!;
+    const headerValue = source === overlay
+      ? bars.filter((bar) => bar.time <= last.time).reduce((ema, bar, index) => index === 0 ? bar.close : (bar.close + ema) / 2, 0)
+      : last.value as number;
+    await expect(page.locator("button.chart-study-pill").filter({ hasText: result.name }).last()).toContainText(headerValue.toFixed(4));
   }
   await expect(page.getByText("Native editor EMA", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Native editor RSI", { exact: true }).first()).toBeVisible();

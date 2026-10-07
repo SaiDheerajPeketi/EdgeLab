@@ -1,6 +1,8 @@
 import type { Candle } from "./api";
+import { decodePinePackedPlots, validatePinePackedBuffers, validatePinePlotOptions } from "./pinePacked";
+import type { PinePlotPoint } from "./pinePacked";
 
-export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, inputs: 24, plots: 8, points: 160_000, trades: 10_000, resultBytes: 12_000_000, loops: 10_000, diagnostics: 100 });
+export const PINE_LIMITS = Object.freeze({ sourceBytes: 20_000, bars: 20_000, inputs: 24, plots: 64, points: 1_280_000, legacyPoints: 4_096, trades: 10_000, resultBytes: 16_000_000, metadataBytes: 1_000_000, loops: 10_000, diagnostics: 100 });
 export type PineInputValue = boolean | number | string;
 export type PineScalar = PineInputValue | null;
 export type PineDiagnostic = { code: string; message: string; severity: "warning" | "error"; line: number; column: number };
@@ -22,7 +24,7 @@ export type PinePrepareResult = {
 };
 export type PinePlot = {
   id: string; name: string; style: string; overlay: boolean; options: Record<string, PineScalar>;
-  points: { time: number; value: number | boolean | null | number[]; options: Record<string, PineScalar> }[];
+  points: readonly PinePlotPoint[];
 };
 export type PineStrategyResult = {
   config: Record<string, PineScalar>; metrics: Record<string, PineScalar>;
@@ -116,23 +118,39 @@ export function validatePineRequest(value: unknown): PineRequest {
   return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(context ? { context } : {}), ...(bars ? { bars } : {}) };
 }
 
-// Validate before serializing: JSON.stringify alone silently loses functions and non-finite values.
-function boundedPlain(value: unknown): void {
+// Bound cumulative text before JSON allocation; binary is permitted only in the packed buffer list.
+export function boundedPineMetadataBytes(value: unknown): number {
   const active = new Set<object>();
-  let nodes = 0;
+  let nodes = 0, textBytes = 0;
+  const countText = (value: string) => {
+    textBytes += new TextEncoder().encode(value).length;
+    if (textBytes > PINE_LIMITS.metadataBytes) fail("Pine result metadata exceeds 1 MB.", "RESULT_LIMIT");
+  };
   function walk(item: unknown, depth: number): void {
-    if (++nodes > 1_500_000 || depth > 12) fail("Pine result exceeds the structural limit.", "RESULT_LIMIT");
+    if (++nodes > 100_000 || depth > 12) fail("Pine result exceeds the structural limit.", "RESULT_LIMIT");
     if (item === null || typeof item === "boolean") return;
     if (typeof item === "number") { finite(item); return; }
-    if (typeof item === "string") { string(item, PINE_LIMITS.sourceBytes); return; }
+    if (typeof item === "string") { countText(string(item, PINE_LIMITS.sourceBytes)); return; }
     if (!item || typeof item !== "object" || active.has(item)) fail("Pine result must contain only acyclic plain data.");
     active.add(item);
-    if (Array.isArray(item)) for (const child of array(item, PINE_LIMITS.points)) walk(child, depth + 1);
-    else for (const child of Object.values(record(item))) walk(child, depth + 1);
+    if (Array.isArray(item)) {
+      if (Object.getPrototypeOf(item) !== Array.prototype || Reflect.ownKeys(item).some((key) => typeof key !== "string" || (key !== "length" && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= item.length)))) fail("Pine metadata arrays cannot have extra fields.");
+      for (const child of array(item, 65_536)) walk(child, depth + 1);
+    } else {
+      const raw = record(item);
+      for (const key of Reflect.ownKeys(raw)) {
+        if (typeof key !== "string" || key.length > 128) fail("Invalid Pine metadata key.");
+        const descriptor = Object.getOwnPropertyDescriptor(raw, key)!;
+        if (!("value" in descriptor) || !descriptor.enumerable) fail("Pine metadata requires ordinary data fields.");
+        countText(key); walk(descriptor.value, depth + 1);
+      }
+    }
     active.delete(item);
   }
   walk(value, 0);
-  if (new TextEncoder().encode(JSON.stringify(value)).length > PINE_LIMITS.resultBytes) fail("Pine result exceeds 12 MB.", "RESULT_LIMIT");
+  const bytes = new TextEncoder().encode(JSON.stringify(value)).length;
+  if (bytes > PINE_LIMITS.metadataBytes) fail("Pine result metadata exceeds 1 MB.", "RESULT_LIMIT");
+  return bytes;
 }
 function inputDefinition(value: unknown): PineInputDefinition {
   const raw = record(value);
@@ -145,8 +163,21 @@ function inputDefinition(value: unknown): PineInputDefinition {
   return result;
 }
 export function validatePineResponse(value: unknown, request: PineRequest): PineResult {
-  boundedPlain(value);
   const response = record(value);
+  const packed = response.encoding === "pine-packed-v1";
+  if (response.encoding !== undefined && !packed) fail("Unknown Pine transport encoding.");
+  const allowed = packed ? ["id", "status", "encoding", "result", "buffers"] : ["id", "status", "result", "error"];
+  if (Object.keys(response).some((key) => !allowed.includes(key))) fail("Unexpected Pine response field.");
+  let buffers: ArrayBuffer[] | undefined;
+  if (packed) {
+    const rawResult = record(response.result);
+    const channelMetadata = array(rawResult.plots, PINE_LIMITS.plots);
+    const checked = validatePinePackedBuffers(response.buffers, channelMetadata.length);
+    const metadata = { ...response, buffers: [] };
+    const metadataBytes = boundedPineMetadataBytes(metadata);
+    if (checked.bytes + metadataBytes > PINE_LIMITS.resultBytes) fail("Packed Pine result exceeds 16 MB including metadata.", "RESULT_LIMIT");
+    buffers = checked.buffers;
+  } else boundedPineMetadataBytes(value);
   if (response.id !== request.id) fail("Pine response does not match its request.");
   if (response.status === "failed") {
     const error = record(response.error);
@@ -154,6 +185,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   }
   if (response.status !== "completed") fail("Invalid Pine response status.");
   const raw = record(response.result);
+  if (Object.keys(raw).some((key) => !["kind", "source", "language", "pineVersion", "declaration", "name", "overlay", "inputDefinitions", "diagnostics", "inputs", "plots", "strategy", "audit"].includes(key))) fail("Unexpected Pine result field.");
   if (raw.kind !== request.action || raw.source !== request.source || raw.language !== "pine" || raw.pineVersion !== pineSourceVersion(request.source) || !["indicator", "strategy"].includes(String(raw.declaration))) fail("Pine result metadata does not match its request.");
   const inputDefinitions = array(raw.inputDefinitions, PINE_LIMITS.inputs).map(inputDefinition);
   if (new Set(inputDefinitions.map((item) => item.id)).size !== inputDefinitions.length) fail("Duplicate Pine input ID.");
@@ -169,22 +201,29 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
   for (const [key, val] of Object.entries(request.inputs ?? {})) if (inputs[key] !== val) fail("Pine result changed a requested input value.");
   let points = 0;
   const barTimes = new Set(request.bars?.map((bar) => bar.time));
-  const plots = array(raw.plots, PINE_LIMITS.plots).map((item): PinePlot => {
+  const channelMetadata = array(raw.plots, PINE_LIMITS.plots);
+  const plots = buffers ? decodePinePackedPlots(channelMetadata, buffers, request.bars!) : channelMetadata.map((item): PinePlot => {
     const plot = record(item);
-    const data = array(plot.points, PINE_LIMITS.points);
+    if (Object.keys(plot).some((key) => !["id", "name", "style", "overlay", "options", "points"].includes(key))) fail("Unexpected legacy plot field.");
+    const data = array(plot.points, PINE_LIMITS.legacyPoints);
     points += data.length;
-    if (points > PINE_LIMITS.points) fail("Too many Pine plot points.", "RESULT_LIMIT");
+    if (points > PINE_LIMITS.legacyPoints || channelMetadata.length * request.bars!.length > PINE_LIMITS.legacyPoints) fail("Plain Pine output is limited to 4,096 bar slots; larger results require packed transport.", "RESULT_LIMIT");
     let previous = -Infinity;
-    return { id: string(plot.id, 128), name: string(plot.name), style: string(plot.style, 64), overlay: bool(plot.overlay), options: scalarRecord(plot.options), points: data.map((item) => {
+    return { id: string(plot.id, 128), name: string(plot.name), style: string(plot.style, 64), overlay: bool(plot.overlay), options: validatePinePlotOptions(plot.options), points: data.map((item) => {
       const point = record(item), time = finite(point.time);
+      if (Object.keys(point).some((key) => !["time", "value", "options"].includes(key))) fail("Unexpected Pine point field.");
       if (!Number.isSafeInteger(time) || time <= previous || !barTimes.has(time)) fail("Plot timestamps must be ordered, unique and belong to the chart snapshot.");
       previous = time;
       const value = Array.isArray(point.value) ? array(point.value, 4).map(finite) : scalar(point.value);
-      if (typeof value === "string") fail("Invalid plot value.");
-      return { time, value, options: scalarRecord(point.options) };
+      if (typeof value === "string" || (Array.isArray(value) && value.length !== 4)) fail("Invalid plot value.");
+      return { time, value, options: validatePinePlotOptions(point.options) };
     }) };
   });
-  if (new Set(plots.map((plot) => plot.id)).size !== plots.length) fail("Duplicate Pine plot ID.");
+  if (new Set(plots.map((plot) => plot.id)).size !== plots.length || plots.some((plot) => !plot.id)) fail("Missing or duplicate Pine plot ID.");
+  for (const plot of plots) if (plot.style === "fill") for (const key of ["plot1", "plot2"]) {
+    const id = plot.options[key];
+    if (typeof id !== "string" || !plots.some((candidate) => candidate.id === id && candidate.style !== "fill")) fail("Fill must reference existing numeric plot IDs.");
+  }
   const audit = record(raw.audit);
   if (audit.engine !== "PineTS" || audit.engineVersion !== "0.11.0" || audit.bars !== request.bars?.length || audit.sourceBytes !== new TextEncoder().encode(request.source).length || audit.mode !== (request.mode ?? "historical") || finite(audit.elapsedMs) < 0) fail("Invalid Pine execution audit.");
   let strategy: PineStrategyResult | undefined;

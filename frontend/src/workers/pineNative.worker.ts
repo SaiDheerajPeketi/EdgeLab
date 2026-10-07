@@ -2,6 +2,8 @@
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, validatePineResponse } from "../lib/pineProtocol";
+import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
+import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
 import type { PineDiagnostic, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
 function error(code: string, message: string): never { throw new PineProtocolError(code, message); }
@@ -119,7 +121,7 @@ export function normalizePinePlotValue(value: unknown): PinePlot["points"][numbe
   return scalar;
 }
 
-function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[]): PinePlot[] {
+function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[], bars: readonly { time: number }[]): { plots: PinePlot[] } | { plots: PinePackedPlot[]; buffers: ArrayBuffer[] } {
   const drawings = new Set(["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"]);
   const entries = Object.entries(raw).filter(([, value]) => {
     const plot = value as { options?: { style?: string }; data?: { value?: unknown }[] };
@@ -127,20 +129,20 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     if (plot.data?.some((point) => Array.isArray(point.value) ? point.value.length > 0 : point.value != null)) diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${plot.options!.style} drawing output is not exposed by this chart adapter.`));
     return false;
   });
-  if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds eight plots.");
-  let total = 0;
-  return entries.flatMap(([id, value]) => {
+  if (entries.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
+  if (entries.length * bars.length > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 1,280,000 bar slots.");
+  const packed = entries.length * bars.length > PINE_LIMITS.legacyPoints;
+  const plots = entries.flatMap(([id, value]) => {
     const plot = value as { title?: string; options?: Record<string, unknown>; data?: { time: number; value: unknown; options?: Record<string, unknown> }[] };
     const style = typeof plot.options?.style === "string" ? plot.options.style : "line";
     if (!Array.isArray(plot.data)) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
-    total += plot.data.length;
-    if (total > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 160,000 points.");
-    return [{ id, name: plot.title ?? id, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: fields(plot.options ?? {}), points: plot.data.map((point) => {
-      const normalized = normalizePinePlotValue(point.value);
-      return { time: point.time / 1000, value: normalized, options: fields(point.options ?? {}) };
-    }) }];
+    const points = function* (): Generator<PinePlotPoint> {
+      for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: fields(point.options ?? {}) };
+    };
+    return [{ id, name: plot.title ?? id, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: fields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
   });
+  return packed ? encodePinePackedPlots(plots, bars) : { plots: plots as PinePlot[] };
 }
 const TRADE_FIELDS = ["id", "entry_id", "entry_price", "entry_bar_index", "entry_time", "entry_comment", "exit_id", "exit_price", "exit_bar_index", "exit_time", "exit_comment", "size", "profit", "commission", "max_drawdown", "max_runup", "status"];
 const ORDER_FIELDS = ["id", "direction", "qty", "type", "limit", "stop", "bar", "time", "oca_name", "oca_type", "comment", "status", "category", "profit", "loss", "trail_price", "trail_offset", "trail_points", "from_entry", "qty_percent", "immediately"];
@@ -194,7 +196,14 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       }
       installed.add(context);
     }
-    return Reflect.apply(original, this, [context, ...args]);
+    const checked = () => {
+      const channels = (Object.values(context.plots) as { options?: { style?: string }; data?: unknown[] }[]).filter((plot) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(plot.options?.style ?? ""));
+      if (channels.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
+      if (channels.reduce((total, plot) => total + (plot.data?.length ?? 0), 0) > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 1,280,000 bar slots.");
+    };
+    const value = Reflect.apply(original, this, [context, ...args]);
+    if (value && typeof value.then === "function") return value.then((result: unknown) => { checked(); return result; });
+    checked(); return value;
   };
   // The engine reads this tag to select v5/v6 semantics before the first execution.
   const version = Object.getOwnPropertyDescriptor(original, "_pineVersion");
@@ -240,9 +249,9 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   }
   const properties = context.strategy?.config ?? context.indicator;
   const overlay = properties?.overlay === true;
-  const plots = plotResults(context.plots, overlay, diagnostics);
-  const result: PineExecutionResult = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
-  return validatePineResponse({ id: request.id, status: "completed", result }, request);
+  const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
+  const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
+  return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request);
 }
 
 if (typeof self !== "undefined" && typeof document === "undefined") {
@@ -252,7 +261,9 @@ if (typeof self !== "undefined" && typeof document === "undefined") {
     const id = typeof raw?.id === "string" ? raw.id.slice(0, 128) : "invalid-request";
     try {
       const result = await executePineRequest(event.data);
-      scope.postMessage({ id, status: "completed", result });
+      const request = validatePineRequest(event.data);
+      const response = toPineWireResponse(id, result, request.bars);
+      scope.postMessage(response, "buffers" in response ? response.buffers : []);
     } catch (cause) {
       scope.postMessage({ id, status: "failed", error: { code: cause instanceof PineProtocolError ? cause.code : "RUNTIME_ERROR", message: cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed." } });
     }

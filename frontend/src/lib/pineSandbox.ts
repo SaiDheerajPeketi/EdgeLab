@@ -10,7 +10,72 @@ const bridge = `(() => {
   const nonce = document.currentScript.dataset.job;
   const origin = document.currentScript.dataset.origin;
   let worker = null, url = null, initialized = false;
-  const send = (type, payload) => parent.postMessage({nonce, type, payload}, origin);
+  const send = (type, payload, transfer = []) => parent.postMessage({nonce, type, payload}, origin, transfer);
+  // A fixed transport allowlist, never a recursive collector over worker objects.
+  const boundedMetadata = value => {
+    const active = new Set(); let nodes = 0, textBytes = 0;
+    const countText = text => { textBytes += new TextEncoder().encode(text).length; if (textBytes > 1000000) throw new Error('Metadata too large'); };
+    const walk = (item, depth) => {
+      if (++nodes > 100000 || depth > 12) throw new Error('Metadata structure too large');
+      if (item === null || typeof item === 'boolean') return;
+      if (typeof item === 'number') { if (!Number.isFinite(item)) throw new Error('Nonfinite metadata'); return; }
+      if (typeof item === 'string') { if (item.length > 20000) throw new Error('Metadata string too large'); countText(item); return; }
+      if (!item || typeof item !== 'object' || active.has(item)) throw new Error('Invalid metadata');
+      active.add(item);
+      if (Array.isArray(item)) {
+        if (Object.getPrototypeOf(item) !== Array.prototype || item.length > 65536 || Reflect.ownKeys(item).some(key => typeof key !== 'string' || (key !== 'length' && (!/^(0|[1-9]\\d*)$/.test(key) || Number(key) >= item.length)))) throw new Error('Invalid metadata array');
+        for (const child of item) walk(child, depth + 1);
+      } else {
+        if (![Object.prototype,null].includes(Object.getPrototypeOf(item))) throw new Error('Nonplain metadata');
+        for (const key of Reflect.ownKeys(item)) {
+          if (typeof key !== 'string' || key.length > 128 || ['__proto__','prototype','constructor'].includes(key)) throw new Error('Invalid metadata key');
+          const descriptor = Object.getOwnPropertyDescriptor(item,key);
+          if (!('value' in descriptor) || !descriptor.enumerable) throw new Error('Invalid metadata field');
+          countText(key); walk(descriptor.value,depth + 1);
+        }
+      }
+      active.delete(item);
+    };
+    walk(value,0);
+    const bytes = new TextEncoder().encode(JSON.stringify(value)).length;
+    if (bytes > 1000000) throw new Error('Metadata too large');
+    return bytes;
+  };
+  const transferBuffers = payload => {
+    if (payload?.encoding !== 'pine-packed-v1') {
+      boundedMetadata(payload);
+      if (payload?.result?.language === 'pine' && payload.result.kind === 'run') {
+        const plots = payload.result.plots;
+        if (!Array.isArray(plots) || plots.length * payload.result.audit?.bars > 4096 || plots.reduce((total,plot) => total + (Array.isArray(plot.points) ? plot.points.length : Infinity),0) > 4096) throw new Error('Plain Pine sample limit exceeded');
+      }
+      return [];
+    }
+    if (Object.keys(payload).some(key => !['id','status','encoding','result','buffers'].includes(key)) || payload.status !== 'completed') throw new Error('Invalid packed envelope fields');
+    if (!payload.result || Object.keys(payload.result).some(key => !['kind','source','language','pineVersion','declaration','name','overlay','inputDefinitions','diagnostics','inputs','plots','strategy','audit'].includes(key))) throw new Error('Invalid packed result fields');
+    const plots = payload.result?.plots, buffers = payload.buffers;
+    if (!Array.isArray(plots) || plots.length > 64 || !Array.isArray(buffers) || Object.getPrototypeOf(buffers) !== Array.prototype || Reflect.ownKeys(buffers).some(key => typeof key !== 'string' || (key !== 'length' && (!/^(0|[1-9]\\d*)$/.test(key) || Number(key) >= buffers.length))) || buffers.length !== plots.length * 3) throw new Error('Invalid packed envelope');
+    let bytes = 0;
+    const seen = new Set(), used = new Set();
+    for (const buffer of buffers) {
+      if (!buffer || Object.getPrototypeOf(buffer) !== ArrayBuffer.prototype || Reflect.ownKeys(buffer).length || buffer.resizable === true || seen.has(buffer)) throw new Error('Invalid packed buffer');
+      new Uint8Array(buffer); seen.add(buffer); bytes += buffer.byteLength;
+      if (bytes > 16000000) throw new Error('Packed output too large');
+    }
+    for (const plot of plots) {
+      const data = plot?.packed;
+      if (!data || !Number.isInteger(data.slots) || data.slots < 1 || data.slots > 20000 || ![1,4].includes(data.arity)) throw new Error('Invalid packed dimensions');
+      for (const [key, size] of [['values',data.slots * data.arity * 8],['kinds',data.slots],['optionIndices',data.slots * 2]]) {
+        const index = data[key];
+        if (!Number.isInteger(index) || index < 0 || index >= buffers.length || used.has(index) || buffers[index].byteLength !== size) throw new Error('Invalid packed buffer reference');
+        used.add(index);
+      }
+    }
+    if (used.size !== buffers.length) throw new Error('Unreferenced packed buffer');
+    const metadata = {...payload,buffers:[]};
+    const metadataBytes = boundedMetadata(metadata);
+    if (metadataBytes > 1000000 || bytes + metadataBytes > 16000000) throw new Error('Packed metadata too large');
+    return buffers;
+  };
   const stop = () => {
     if (worker) {
       worker.onmessage = worker.onerror = worker.onmessageerror = null;
@@ -26,7 +91,11 @@ const bridge = `(() => {
     try {
       url = URL.createObjectURL(new Blob([event.data.workerSource], {type:'text/javascript'}));
       worker = new Worker(url);
-      worker.onmessage = event => { stop(); send('result', event.data); };
+      worker.onmessage = message => {
+        stop();
+        try { send('result', message.data, transferBuffers(message.data)); }
+        catch { send('result', {id:event.data.request.id,status:'failed',error:{code:'INVALID_MESSAGE',message:'The isolated worker returned invalid packed transport.'}}); }
+      };
       worker.onerror = () => { stop(); send('failure', 'The isolated Pine worker failed.'); };
       worker.onmessageerror = () => { stop(); send('failure', 'The isolated Pine worker returned unreadable data.'); };
       worker.postMessage(event.data.request);

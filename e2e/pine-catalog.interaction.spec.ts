@@ -309,14 +309,21 @@ test("native import preserves exact source and provenance through save, edits, h
 });
 
 for (const name of ["SuperTrend", "Chandelier Exit", "HalfTrend"]) {
-  test(`${name} actual native execution exposes its eight-plot runtime limit`, async ({ page }) => {
+  test(`${name} executes all nine original output channels with rendering limits disclosed`, async ({ page }) => {
     await fixture(page); const editor = await openEditor(page), browser = await catalogBrowser(editor);
     const entry = catalog.entries.find((item) => item.name === name)!; await view(browser, entry);
     await browser.getByRole("button", { name: "Import draft", exact: true }).click(); await check(editor);
-    await editor.getByRole("button", { name: "Run", exact: true }).click(); await expect(editor.locator("#edge-editor-diagnostics")).toContainText("exceeds eight plots");
+    await run(editor);
+    const result = await nativeRun(page, original(entry));
+    expect(result.plots).toHaveLength(9);
+    expect(result.plots.filter((plot) => plot.style === "fill")).toHaveLength(2);
+    expect(result.plots.some((plot) => plot.points.some((point) => typeof point.value === "number"))).toBe(true);
     await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(original(entry));
     await expect(browser.getByText(/execution is experimental/)).toBeVisible();
-    expect(await page.evaluate((source) => window.__nativeEditorResults.filter((result) => result.status === "completed" && result.result.kind === "run" && result.result.source === source).length, original(entry))).toBe(0);
+    expect(result.source).toBe(original(entry));
+    await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+    await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+    await expect(page.getByText(/Native fill output is not rendered/).first()).toBeVisible();
   });
 }
 

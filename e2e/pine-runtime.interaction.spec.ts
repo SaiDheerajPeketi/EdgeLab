@@ -8,6 +8,10 @@ type Outcome = { ok: boolean; value?: any; error?: { code?: string; name: string
 type Harness = { origin: string; endpointRequests: string[]; assetRequests: string[]; workerPath: string };
 type FixtureAPI = {
   startRuntime(request: any): string;
+  startObservedRuntime(request: any, holdCompletion?: boolean): string;
+  packedSummary(id: string): Promise<any>;
+  bridgeOwnership(id: string): any;
+  startPackedForgery(id: string, mutation: string): string;
   startProbe(options: { source: string; request?: Record<string, unknown>; timeoutMs?: number; validateAsPine?: any }): string;
   startObservedProbe(options: { source: string; timeoutMs?: number }): string;
   terminationAcks(id: string): number;
@@ -30,15 +34,79 @@ const entry = `
 import { createPineRuntimeJob } from './pineRuntime';
 import { createSandboxWorkerJob, PineSandboxError } from './pineSandbox';
 import { validatePineRequest, validatePineResponse } from './pineProtocol';
+import { getPackedPinePlot, pointAtBar } from './pinePacked';
 const jobs = new Map();
 const acknowledgments = new Map();
 const readiness = new Map();
+const packedObservations = new Map();
+const ownership = new Map();
+const observedRequests = new Map();
 function register(job) {
   const state = { job, settled: false, promise: null };
   state.promise = job.promise.then(value => ({ok:true,value}), error => ({ok:false,error:{name:error.name,code:error.code,message:error.message}})).then(value => {state.settled = true; return value;});
   jobs.set(job.id,state); return job.id;
 }
 export function startRuntime(request) { return register(createPineRuntimeJob(request)); }
+export function startObservedRuntime(request, holdCompletion=false) {
+  let job, target, nonce, heldResult;
+  const observe = event => {
+    if (event.source !== target || event.origin !== 'null' || event.data?.nonce !== nonce) return;
+    if (event.data.type === 'result') {
+      packedObservations.set(job.id,event.data.payload);
+      if (holdCompletion && event.data.payload?.encoding === 'pine-packed-v1') { heldResult=event; event.stopImmediatePropagation(); }
+    }
+    if (event.data.type === 'fixture-transfer-ownership') {
+      ownership.set(job.id,event.data.payload);
+      if (heldResult) {
+        const genuine=heldResult, proof=event.data.payload;
+        const sizes=genuine.data.payload.buffers.map(buffer=>buffer.byteLength);
+        if (!Array.isArray(proof.before) || !Array.isArray(proof.after) || proof.before.length!==sizes.length || proof.after.length!==sizes.length || !proof.before.every((size,index)=>size===sizes[index]) || !proof.after.every(size=>size===0)) throw new Error('Fixture did not prove genuine transfer ownership.');
+        heldResult=undefined; holdCompletion=false;
+        // Native stopImmediatePropagation flags persist on the captured event.
+        // Replay its exact authenticated fields and original payload references;
+        // the real Worker and production bridge have already transferred buffers.
+        const replay=new MessageEvent(genuine.type,{data:genuine.data,source:genuine.source,origin:genuine.origin,lastEventId:genuine.lastEventId,ports:genuine.ports});
+        if (replay.data!==genuine.data || replay.source!==genuine.source || replay.origin!==genuine.origin) throw new Error('Fixture changed an authenticated message field.');
+        window.dispatchEvent(replay);
+      }
+    }
+  };
+  // Keep only the observed genuine result pending until its frame proves detach.
+  // Preserve its authenticated data/source/origin without weakening any check.
+  window.addEventListener('message',observe,true);
+  job = createPineRuntimeJob(request);
+  const frame = document.querySelector('iframe[sandbox="allow-scripts"]');
+  target = frame.contentWindow; nonce = frame.srcdoc.match(/data-job="([a-f0-9]+)"/)[1];
+  const id = register(job);
+  observedRequests.set(id,request);
+  // The ownership proof is posted after the result from the same frame.
+  void result(id).finally(() => setTimeout(() => window.removeEventListener('message',observe,true),100));
+  return id;
+}
+export function bridgeOwnership(id) { return ownership.get(id) ?? null; }
+export function startPackedForgery(id,mutation) {
+  const wire = structuredClone(packedObservations.get(id));
+  return startProbe({request:{wire,mutation},validateAsPine:observedRequests.get(id),source:\`onmessage=event=>{
+    const wire=event.data.wire,plot=wire.result.plots[0]; wire.id=event.data.id;
+    if(event.data.mutation==='buffers-extra') wire.buffers.extra='unsafe';
+    if(event.data.mutation==='kind') new Uint8Array(wire.buffers[plot.packed.kinds])[0]=255;
+    if(event.data.mutation==='number') new Float64Array(wire.buffers[plot.packed.values])[0]=Infinity;
+    if(event.data.mutation==='option') new Uint16Array(wire.buffers[plot.packed.optionIndices])[0]=65535;
+    if(event.data.mutation==='fill') {plot.style='fill';plot.options={plot1:'missing',plot2:wire.result.plots[1].id};}
+    if(event.data.mutation==='metadata') plot.packed.optionTable=Array.from({length:64},()=>({text:'x'.repeat(4096),textcolor:'x'.repeat(4096),style:'x'.repeat(4096),location:'x'.repeat(4096)}));
+    postMessage(wire,wire.buffers);
+  }\`});
+}
+
+export async function packedSummary(id) {
+  const outcome = await result(id);
+  if (!outcome.ok) return outcome;
+  const value = outcome.value, wire = packedObservations.get(id);
+  return {ok:true,source:value.source,audit:value.audit,encoding:wire?.encoding,buffers:wire?.buffers?.length,bufferBytes:wire?.buffers?.reduce((sum,buffer)=>sum+buffer.byteLength,0),plots:value.plots.map(plot=>{
+    const packed = getPackedPinePlot(plot);
+    return {id:plot.id,packed:Boolean(packed),slots:packed?.kinds.length,first:pointAtBar(plot,0),last:pointAtBar(plot,value.audit.bars-1),ownsReceivedBuffers:packed ? [packed.values.buffer,packed.kinds.buffer,packed.optionIndices.buffer].every(buffer=>wire.buffers.includes(buffer)) : false};
+  })};
+}
 export function startProbe(options) {
   const id = 'probe-' + crypto.randomUUID();
   const binding = options.validateAsPine ? validatePineRequest({...options.validateAsPine,id}) : null;
@@ -297,5 +365,83 @@ test("production worker guards resolved strategy flags before orders and keeps f
   }
   expect(harness.endpointRequests).toEqual([]);
   await expect(page.locator("#parent-secret")).toHaveText("Parent workspace secret");
+  expect(await page.evaluate(() => localStorage.getItem("workspace-secret"))).toBe("private-value");
+});
+
+
+test("production opaque bridge transfers packed buffers and preserves receiver ownership", async ({ page, harness }) => {
+  const snapshot = Array.from({ length: 600 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));
+  const source = `//@version=6\nindicator("Packed bridge")\n${Array.from({ length: 8 }, (_, index) => `plot(close+${index},"Channel ${index}")`).join("\n")}`;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`${harness.origin}${harness.workerPath}`, async (route) => { await held; await route.continue(); });
+  const id = await page.evaluate((input) => window.pineFixture.startObservedRuntime(input, true), { ...runtimeRequest(source), bars: snapshot });
+  const frame = page.locator('iframe[sandbox="allow-scripts"]');
+  const nonce = (await frame.getAttribute("srcdoc"))!.match(/data-job="([a-f0-9]+)"/)![1];
+  // Observe native Worker events inside the genuine opaque frame. The subclass
+  // delegates all work to the browser's real Worker; bridge code stays unchanged.
+  await frame.contentFrame().locator("html").evaluate((_, binding) => {
+    const NativeWorker = Worker;
+    class ObservedWorker extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", (event) => {
+          if (event.data?.encoding !== "pine-packed-v1") return;
+          const buffers: ArrayBuffer[] = event.data.buffers;
+          const before = buffers.map((buffer) => buffer.byteLength);
+          // The genuine result is held in the parent, so this frame survives
+          // until the next task observes the bridge's synchronous transfer.
+          setTimeout(() => parent.postMessage({ nonce: binding, type: "fixture-transfer-ownership", payload: { before, after: buffers.map((buffer) => buffer.byteLength) } }, "*"), 0);
+        });
+      }
+    }
+    Object.defineProperty(window, "Worker", { value: ObservedWorker, configurable: true, writable: true });
+  }, nonce);
+  release();
+  const summary = await page.evaluate((job) => window.pineFixture.packedSummary(job), id);
+  expect(summary.ok, JSON.stringify(summary.error)).toBe(true);
+  expect(summary).toMatchObject({ encoding: "pine-packed-v1", buffers: 24, bufferBytes: 52_800, audit: { bars: 600, engine: "PineTS", engineVersion: "0.11.0" } });
+  expect(summary.plots).toHaveLength(8);
+  for (const [index, plot] of summary.plots.entries()) {
+    expect(plot).toMatchObject({ packed: true, slots: 600, ownsReceivedBuffers: true, first: { time: snapshot[0].time, value: 1 + index }, last: { time: snapshot[599].time, value: 600 + index } });
+  }
+  await expect.poll(() => page.evaluate((job) => window.pineFixture.bridgeOwnership(job), id)).toEqual({ before: Array.from({ length: 8 }, () => [4800, 600, 1200]).flat(), after: Array(24).fill(0) });
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  expect(harness.endpointRequests).toEqual([]);
+  expect(await page.evaluate(() => localStorage.getItem("workspace-secret"))).toBe("private-value");
+});
+
+test("production opaque worker completes the 64-by-20,000 scalar boundary without parent point inflation", async ({ page, harness }) => {
+  test.setTimeout(60_000);
+  const snapshot = Array.from({ length: 20_000 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));
+  const source = `//@version=6\nindicator("Full packed capacity")\n${Array.from({ length: 64 }, (_, index) => `plot(close+${index},"Channel ${index}")`).join("\n")}`;
+  const id = await page.evaluate((input) => window.pineFixture.startObservedRuntime(input), { ...runtimeRequest(source), bars: snapshot });
+  const summary = await page.evaluate((job) => window.pineFixture.packedSummary(job), id);
+  expect(summary.ok, JSON.stringify(summary.error)).toBe(true);
+  expect(summary).toMatchObject({ source, encoding: "pine-packed-v1", buffers: 192, bufferBytes: 14_080_000, audit: { bars: 20_000 } });
+  expect(summary.plots).toHaveLength(64);
+  for (const [index, plot] of summary.plots.entries()) expect(plot).toMatchObject({ packed: true, slots: 20_000, ownsReceivedBuffers: true, first: { time: snapshot[0].time, value: 1 + index }, last: { time: snapshot[19_999].time, value: 20_000 + index } });
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  const tooMany = source + '\nplot(close,"Channel64")';
+  expect(await run(page, { ...runtimeRequest(tooMany), bars: snapshot.slice(0, 2) })).toMatchObject({ ok: false, error: { code: "PLOT_LIMIT" } });
+  expect(harness.endpointRequests).toEqual([]);
+});
+
+
+test("opaque bridge rejects forged packed cells, option indices, fill references and metadata overflow", async ({ page, harness }) => {
+  const snapshot = Array.from({ length: 600 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));
+  const source = `//@version=6\nindicator("Packed validation")\n${Array.from({ length: 8 }, (_, index) => `plot(close+${index},"Channel ${index}")`).join("\n")}`;
+  const original = await page.evaluate((input) => window.pineFixture.startObservedRuntime(input), { ...runtimeRequest(source), bars: snapshot });
+  expect((await page.evaluate((id) => window.pineFixture.packedSummary(id), original)).ok).toBe(true);
+  for (const mutation of ["kind", "number", "option", "fill", "metadata", "buffers-extra"]) {
+    const id = await page.evaluate((input) => window.pineFixture.startPackedForgery(input.id, input.mutation), { id: original, mutation });
+    const rejected = await page.evaluate((job) => window.pineFixture.result(job), id);
+    expect(rejected, mutation).toMatchObject({ ok: false, error: { code: "INVALID_MESSAGE" } });
+    if (mutation === "metadata" || mutation === "buffers-extra") expect(rejected.error!.message).toContain("invalid packed transport");
+    expect(rejected.value).toBeUndefined();
+    await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  }
+  expect((await run(page)).ok).toBe(true);
+  expect(harness.endpointRequests).toEqual([]);
   expect(await page.evaluate(() => localStorage.getItem("workspace-secret"))).toBe("private-value");
 });

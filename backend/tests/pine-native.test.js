@@ -128,10 +128,10 @@ test("response validation rejects forged identity, source, audit and unsafe plot
   assert.throws(() => pine.validatePineResponse(response(unsafe), request()));
 });
 
-test("plot count allows eight real plots and refuses a ninth", async () => {
+test("plot count allows 64 real channels and refuses a 65th", async () => {
   const many = (count) => `//@version=6\nindicator("Many")\n${Array.from({ length: count }, (_, index) => `plot(close,"Plot ${index}")`).join("\n")}`;
-  assert.equal((await pine.executePineRequest(request({ source: many(8) }))).plots.length, 8);
-  await assert.rejects(pine.executePineRequest(request({ source: many(9) })), fails("PLOT_LIMIT"));
+  assert.equal((await pine.executePineRequest(request({ source: many(64) }))).plots.length, 64);
+  await assert.rejects(pine.executePineRequest(request({ source: many(65) })), fails("PLOT_LIMIT"));
 });
 
 

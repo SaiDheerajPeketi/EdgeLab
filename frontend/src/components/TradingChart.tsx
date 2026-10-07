@@ -176,7 +176,7 @@ import { ThemedSelect } from "./ThemedSelect";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
-import { adaptPineChartResult, installPineChartPlot, type PineChartPlot } from "../lib/pineChartAdapter";
+import { adaptPineChartResult, installPineChartPlot, latestPineChartPoint, type PineChartPlot } from "../lib/pineChartAdapter";
 import type { PineExecutionResult } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
@@ -800,12 +800,14 @@ export function TradingChart({
         if (!ownsResult()) return;
         const nativeResult = "language" in result && result.language === "pine" ? result as PineExecutionResult : null;
         const adapted = nativeResult ? adaptPineChartResult(nativeResult, snapshot) : null;
-        const studies = adapted ? adapted.plots.map((plot): CustomRuntimeStudy => ({
-          color: plot.color,
-          data: plot.segments.flat().flatMap((point) => point.value === undefined ? [] : [{ time: point.time, value: point.value }]),
-          error: null, id: `${indicator.id}-${plot.id}`, label: `${nativeResult!.name} · ${plot.name}`,
-          overlay: plot.overlay, plotName: plot.name, sourceId: indicator.id, pinePlot: plot,
-        })) : customStudiesFromResult(indicator, result as EdgeIndicatorExecutionResult);
+        const studies = adapted ? adapted.plots.map((plot): CustomRuntimeStudy => {
+          const latest = latestPineChartPoint(plot);
+          return {
+            color: plot.color, data: latest ? [latest] : [],
+            error: null, id: `${indicator.id}-${plot.id}`, label: `${nativeResult!.name} · ${plot.name}`,
+            overlay: plot.overlay, plotName: plot.name, sourceId: indicator.id, pinePlot: plot,
+          };
+        }) : customStudiesFromResult(indicator, result as EdgeIndicatorExecutionResult);
         setCustomRuntimeStudies((current) => [
           ...current.filter((study) => study.sourceId !== indicator.id),
           ...studies,
