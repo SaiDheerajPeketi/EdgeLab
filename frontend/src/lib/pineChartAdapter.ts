@@ -6,7 +6,7 @@ import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } fr
 
 export type PineChartPoint = { time: UTCTimestamp; value?: number; color?: string; open?: number; high?: number; low?: number; close?: number; wickColor?: string; borderColor?: string };
 export type PineChartPlot = {
-  id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background";
+  id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill" | "background" | "barcolor";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
   visual?: { histogramWidth?: number; plotOffset?: number; backgroundOffset?: number; level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
@@ -25,7 +25,7 @@ function* shownPoints(plot: PinePlot, time: number) {
 
 /** Header values need one sample; chart geometry already owns the full rendered data. */
 export function latestPineChartPoint(plot: PineChartPlot): { time: UTCTimestamp; value: number } | null {
-  if (plot.kind === "fill" || plot.kind === "background") return null;
+  if (plot.kind === "fill" || plot.kind === "background" || plot.kind === "barcolor") return null;
   if (plot.visual?.level) {
     const price = plot.visual.level.price, time = plot.visual.bars.at(-1)?.time;
     return price === null || time === undefined ? null : { time: time as UTCTimestamp, value: price };
@@ -69,6 +69,16 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
     const showFrom = Math.max(0, bars.length - showLast);
     const common = { id: plot.id, name: plot.name, overlay: plot.overlay, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, ["area", "areabr"].includes(style) ? 1 : 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
+    if (style === "barcolor") {
+      const offset = plot.options.offset === undefined ? 0 : plot.options.offset;
+      if (typeof offset !== "number" || !Number.isSafeInteger(offset) || optionSets.some((options) => options.offset !== undefined && options.offset !== offset)) { warn("Bar colors require a constant safe integer offset; invalid or changing offsets are not applied."); return []; }
+      if (plot.options.show_last !== undefined && (typeof plot.options.show_last !== "number" || !Number.isSafeInteger(plot.options.show_last) || plot.options.show_last < 0) || optionSets.some((options) => options.show_last !== undefined && options.show_last !== plot.options.show_last)) { warn("Bar colors require a constant nonnegative show_last count; invalid or changing counts are not applied."); return []; }
+      if (optionSets.some((options) => {
+        const shade = options.color !== undefined ? options.color : plot.options.color;
+        return shade != null && pineGradientColor(shade) === undefined;
+      })) warn("Unsupported bar-color formats leave the corresponding primary candle bodies unchanged.");
+      return [{ ...common, overlay: true, kind: "barcolor", segments: [], markers: [], visual: { source: plot, bars, style, showFrom, ...(offset ? { plotOffset: offset } : {}) } }];
+    }
     if (style === "background") {
       const offset = plot.options.offset == null ? 0 : plot.options.offset;
       if (typeof offset !== "number" || !Number.isSafeInteger(offset)) { warn("Background offsets require a constant safe integer."); return []; }
@@ -207,6 +217,49 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
   return { plots, warnings: [...new Set([...diagnosticWarnings, ...warnings])], adapterWarnings: [...new Set(warnings)], strategyMarkers: strategyMarkers.sort((left, right) => Number(left.time) - Number(right.time)) };
 }
 
+/** Body-only overrides over real primary chart slots; no point-object projection or synthetic bars. */
+export function projectPineBarColors(plots: readonly PineChartPlot[], chartBars: readonly Pick<Candle, "time">[]): { colorAt: (index: number) => string | undefined; warnings: string[] } {
+  const channels = plots.filter((plot) => plot.kind === "barcolor" && plot.visual);
+  const warnings = channels.length > 1 ? ["Local bar-color precedence follows study order and later non-na calls; TradingView cross-study precedence has not been verified."] : [];
+  const compiled = channels.map((plot) => ({ plot, source: plot.visual!.source, bars: plot.visual!.bars, packed: getPackedPinePlot(plot.visual!.source), offset: plot.visual!.plotOffset ?? 0 }));
+  return { warnings, colorAt(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= chartBars.length) return undefined;
+    for (let channel = compiled.length - 1; channel >= 0; channel--) {
+      const { plot, source, bars, packed, offset } = compiled[channel];
+      const target = index - offset;
+      if (target < 0 || target >= chartBars.length) continue;
+      const time = chartBars[target].time;
+      let lo = plot.visual!.showFrom, hi = bars.length;
+      while (lo < hi) { const mid = (lo + hi) >>> 1; if (bars[mid].time < time) lo = mid + 1; else hi = mid; }
+      if (bars[lo]?.time !== time) continue;
+      let shade: PineScalar | undefined;
+      if (packed) {
+        if (packed.kinds[lo] !== 3) continue;
+        const fields = packed.optionTable[packed.optionIndices[lo]], colorLane = packed.numericOptions.indexOf("color");
+        if (colorLane >= 0 && packed.numericKinds[colorLane * packed.slots + lo] === 1) continue;
+        shade = fields.color !== undefined ? fields.color : source.options.color;
+      } else {
+        let left = 0, right = source.points.length;
+        while (left < right) { const mid = (left + right) >>> 1; if (source.points[mid].time < time) left = mid + 1; else right = mid; }
+        const sample = source.points[left];
+        if (sample?.time !== time || sample.value !== true) continue;
+        shade = sample.options.color !== undefined ? sample.options.color : source.options.color;
+      }
+      // na is a no-op; an explicit fully transparent color remains a real body override.
+      if (typeof shade === "string") {
+        const rgba = pineGradientColor(shade);
+        // The primary series contrast parser accepts integer RGB, not CSS percentages or fractions.
+        if (rgba) {
+          const [mantissa, exponent] = String(rgba[3]).split("e-");
+          const alpha = exponent === undefined ? mantissa : "0." + "0".repeat(Number(exponent) - 1) + mantissa.replace(".", "");
+          return `rgba(${Math.round(rgba[0])},${Math.round(rgba[1])},${Math.round(rgba[2])},${alpha})`;
+        }
+      }
+    }
+    return undefined;
+  } };
+}
+
 function installNativePineChartPlot(chart: IChartApi, plot: PineChartPlot, priceScaleId = "right"): ISeriesApi<SeriesType>[] {
   return plot.segments.map((segment) => {
     const common = { title: plot.name, priceScaleId, priceLineVisible: false, lastValueVisible: false };
@@ -235,9 +288,9 @@ function installNativePineChartPlot(chart: IChartApi, plot: PineChartPlot, price
 
 /** A single owned host/primitive per placement keeps gaps and plot count independent of series count. */
 export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean; scaleAnchor?: Pick<Candle, "time" | "close"> } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; dispose: () => void } {
-  const native = plots.filter((plot) => !plot.visual).flatMap((plot) => installNativePineChartPlot(chart, plot, priceScaleId));
-  const visual = plots.filter((plot) => plot.visual);
-  const primitive = visual.length ? new PineVisualPrimitive(visual, plots.filter((plot) => !plot.visual), options) : undefined;
+  const native = plots.filter((plot) => plot.kind !== "barcolor" && !plot.visual).flatMap((plot) => installNativePineChartPlot(chart, plot, priceScaleId));
+  const visual = plots.filter((plot) => plot.kind !== "barcolor" && plot.visual);
+  const primitive = visual.length ? new PineVisualPrimitive(visual, plots.filter((plot) => plot.kind !== "barcolor" && !plot.visual), options) : undefined;
   let host: ISeriesApi<"Line"> | undefined;
   if (primitive) {
     const timeline = new Map<number, Candle>();

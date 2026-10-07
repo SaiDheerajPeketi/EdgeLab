@@ -177,7 +177,7 @@ import { ThemedSelect } from "./ThemedSelect";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
 import { isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
-import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, type PineChartPlot } from "../lib/pineChartAdapter";
+import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, type PineChartPlot } from "../lib/pineChartAdapter";
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
 import type { PineExecutionResult } from "../lib/pineProtocol";
@@ -297,6 +297,10 @@ type CustomRuntimeStudy = {
   plotName: string;
   sourceId: string;
   pinePlot?: PineChartPlot;
+  barcolorOwner?: {
+    bars: Candle[]; indicators: ChartIndicatorInstance[]; mode: "historical" | "live";
+    symbol?: string; timeframe: ChartTimeframe; token?: string;
+  };
 };
 
 type DraftDrawing = {
@@ -624,6 +628,7 @@ export function TradingChart({
     [sessionBars, timeframe],
   );
   const latestDisplayBarTime = displayBars.at(-1)?.time;
+  const previousDisplayBarsRef = useRef<Candle[] | null>(null);
   const sessionFilteredBarCount = bars.length - sessionBars.length;
   const sourceOrderFlowBars = useMemo(
     () => readOrderFlowSeries(sessionBars),
@@ -666,17 +671,31 @@ export function TradingChart({
     sessionTemplate,
   ]);
   const primarySeriesKind = primarySeriesKindForStyle(chartStyle);
+  const barcolorSupported = chartStyle === "candles" || chartStyle === "heikinAshi";
+  const pineBarcolorPlots = useMemo(() => indicatorInstances.flatMap((indicator) => {
+    if (indicator.visible === false || indicator.kind !== "custom") return [];
+    return customRuntimeStudies.flatMap((study) => {
+      const owner = study.barcolorOwner;
+      return study.sourceId === indicator.id && study.pinePlot?.kind === "barcolor" && owner
+        && owner.bars === displayBars && owner.indicators === indicatorInstances
+        && owner.mode === indicatorRuntimeMode && owner.symbol === symbol && owner.timeframe === timeframe
+        && owner.token === authSession?.token
+        ? [study.pinePlot] : [];
+    });
+  }), [authSession?.token, customRuntimeStudies, displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe]);
+  const pineBarcolors = useMemo(() => projectPineBarColors(pineBarcolorPlots, displayBars), [pineBarcolorPlots, displayBars]);
 
   const candleData = useMemo(
-    () =>
-      primarySeriesKind === "candlestick"
-        ? applyCandleVisualSettings(
-            toCandles(displayBars, chartStyle === "heikinAshi"),
-            displayBars,
-            chartSettings,
-          )
-        : [],
-    [chartSettings, chartStyle, displayBars, primarySeriesKind],
+    () => {
+      if (primarySeriesKind !== "candlestick") return [];
+      const data = applyCandleVisualSettings(toCandles(displayBars, chartStyle === "heikinAshi"), displayBars, chartSettings);
+      if (!barcolorSupported || !chartSettings.bodyVisible || !pineBarcolorPlots.length) return data;
+      return data.map((candle, index) => {
+        const color = pineBarcolors.colorAt(index);
+        return color === undefined ? candle : { ...candle, color };
+      });
+    },
+    [barcolorSupported, chartSettings, chartStyle, displayBars, pineBarcolorPlots.length, pineBarcolors, primarySeriesKind],
   );
   const closeLineData = useMemo(
     () =>
@@ -755,8 +774,9 @@ export function TradingChart({
   }, [customRuntimeStudies]);
   const customNoticeStudies = useMemo(() => Object.entries(customRuntimeWarnings).flatMap(([id, result]) => {
     const indicator = indicatorInstances.find((item) => item.id === id && item.visible !== false);
-    return indicator ? [{ ...result, id, name: indicator.customScriptName ?? "Pine script" }] : [];
-  }), [customRuntimeWarnings, indicatorInstances]);
+    const hasBarcolor = pineBarcolorPlots.some((plot) => customRuntimeStudies.some((study) => study.sourceId === id && study.pinePlot === plot));
+    return indicator ? [{ ...result, adapterWarnings: [...result.adapterWarnings, ...(hasBarcolor ? pineBarcolors.warnings : []), ...(hasBarcolor && !barcolorSupported ? ["Bar coloring is available on candle and Heikin Ashi charts; this chart style does not display it."] : [])], id, name: indicator.customScriptName ?? "Pine script" }] : [];
+  }), [barcolorSupported, customRuntimeStudies, customRuntimeWarnings, indicatorInstances, pineBarcolorPlots, pineBarcolors]);
   const fvgZoneDefinitions = useMemo(
     () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
@@ -824,6 +844,11 @@ export function TradingChart({
             color: plot.color, data: latest ? [latest] : [],
             error: null, id: `${indicator.id}-${plot.id}`, label: `${nativeResult!.name} · ${plot.name}`,
             overlay: plot.overlay, plotName: plot.name, sourceId: indicator.id, pinePlot: plot,
+            ...(plot.kind === "barcolor" ? { barcolorOwner: {
+              bars: capturedContext.displayBars, indicators: capturedContext.indicatorInstances,
+              mode: capturedContext.indicatorRuntimeMode, symbol: capturedContext.symbol,
+              timeframe: capturedContext.timeframe, token: capturedContext.authSession?.token,
+            } } : {}),
           };
         }) : customStudiesFromResult(indicator, result as EdgeIndicatorExecutionResult);
         setCustomRuntimeStudies((current) => [
@@ -1766,6 +1791,8 @@ export function TradingChart({
     previousTimeframeRef.current = timeframe;
     previousReplaySeekVersionRef.current = replaySeekVersion;
     previousChartStyleRef.current = chartStyle;
+    const sourceDataChanged = previousDisplayBarsRef.current !== displayBars;
+    previousDisplayBarsRef.current = displayBars;
     const forceSetData = timeframeChanged || replaySeekChanged || styleChanged;
     let dataChanged = false;
 
@@ -1799,7 +1826,7 @@ export function TradingChart({
     }
 
     const resetFrames: number[] = [];
-    if (displayBars.length > 0 && dataChanged) {
+    if (displayBars.length > 0 && dataChanged && (sourceDataChanged || forceSetData)) {
       if (timeframeChanged || replaySeekChanged) {
         const firstFrame = window.requestAnimationFrame(() => {
           const secondFrame = window.requestAnimationFrame(() => resetChartView());
@@ -1821,7 +1848,7 @@ export function TradingChart({
     chartSettings.volume,
     chartStyle,
     closeLineData,
-    displayBars.length,
+    displayBars,
     hasVolumeData,
     paneId,
     replaySeekVersion,
@@ -3248,7 +3275,7 @@ export function TradingChart({
                     >
                       <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: study.error ? "#fb7185" : study.color }} />
                       {chartSettings.indicatorTitles && <span>{label}</span>}
-                      {chartSettings.indicatorValues && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(isProbability ? 1 : 4) ?? "—"}{isProbability ? "%" : ""}</strong>}
+                      {chartSettings.indicatorValues && study.pinePlot?.kind !== "barcolor" && <strong>{study.error ? "Error" : latestIndicatorValue(study.data)?.toFixed(isProbability ? 1 : 4) ?? "—"}{isProbability ? "%" : ""}</strong>}
                     </button>;
                   });
                   if (studies.length <= 4 || !studies.some((study) => study.pinePlot)) return buttons;

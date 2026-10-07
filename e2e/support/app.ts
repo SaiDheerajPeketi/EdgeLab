@@ -373,6 +373,7 @@ export async function settlePage(
 
 export async function seedApprovedSession(page: Page) {
   await page.addInitScript(({ key, session }) => {
+    if (window !== window.top) return;
     window.localStorage.setItem(key, JSON.stringify({
       createdAt: session.created_at,
       expiresAt: session.expires_at,
@@ -393,6 +394,7 @@ export async function seedApprovedSession(page: Page) {
 
 export async function seedChartLayout(page: Page, paneLayout: "single" | "vertical-2" | "horizontal-2" | "grid-4" | "grid-6" | "grid-9" | "grid-12" | "grid-16") {
   await page.addInitScript(({ layout }) => {
+    if (window !== window.top) return;
     const value = JSON.stringify({
       chartStyle: "candles",
       drawings: [],

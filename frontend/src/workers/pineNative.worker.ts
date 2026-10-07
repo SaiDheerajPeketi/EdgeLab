@@ -135,10 +135,15 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
   // Object enumeration sorts numeric titles. Preserve actual background invocation order instead.
   const backgrounds = entries.filter(([, value]) => (value as { options?: { style?: string } }).options?.style === "background")
     .sort(([, first], [, second]) => ((first as { _edgelabBackgroundOrder?: number })._edgelabBackgroundOrder ?? 0) - ((second as { _edgelabBackgroundOrder?: number })._edgelabBackgroundOrder ?? 0));
-  let backgroundIndex = 0;
-  const ordered = entries.map((entry) => (entry[1] as { options?: { style?: string } }).options?.style === "background" ? backgrounds[backgroundIndex++] : entry);
+  const barcolors = entries.filter(([, value]) => (value as { options?: { style?: string } }).options?.style === "barcolor")
+    .sort(([, first], [, second]) => ((first as { _edgelabBarColorOrder?: number })._edgelabBarColorOrder ?? 0) - ((second as { _edgelabBarColorOrder?: number })._edgelabBarColorOrder ?? 0));
+  let backgroundIndex = 0, barcolorIndex = 0;
+  const ordered = entries.map((entry) => {
+    const style = (entry[1] as { options?: { style?: string } }).options?.style;
+    return style === "background" ? backgrounds[backgroundIndex++] : style === "barcolor" ? barcolors[barcolorIndex++] : entry;
+  });
   const plots = ordered.flatMap(([id, value]) => {
-    const plot = value as { title?: string; _edgelabBackgroundOrder?: number; options?: Record<string, unknown>; data?: { time: number; value: unknown; options?: Record<string, unknown> }[] };
+    const plot = value as { title?: string; _edgelabBackgroundOrder?: number; _edgelabBarColorOrder?: number; options?: Record<string, unknown>; data?: { time: number; value: unknown; options?: Record<string, unknown> }[] };
     const style = typeof plot.options?.style === "string" ? plot.options.style : "line";
     if (!Array.isArray(plot.data)) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
@@ -148,7 +153,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     const points = function* (): Generator<PinePlotPoint> {
       for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: plotFields(point.options ?? {}) };
     };
-    const name = plot.title ?? (style === "background" ? `Background ${(plot._edgelabBackgroundOrder ?? 0) + 1}` : id);
+    const name = plot.title ?? (style === "background" ? `Background ${(plot._edgelabBackgroundOrder ?? 0) + 1}` : style === "barcolor" ? `Bar color ${(plot._edgelabBarColorOrder ?? 0) + 1}` : id);
     return [{ id, name, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: plotFields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
   });
   return packed ? encodePinePackedPlots(plots, bars) : { plots: plots as PinePlot[] };
@@ -307,6 +312,91 @@ function bindBackgroundOptions(context: Context) {
   };
 }
 
+/** Preserve six-slot barcolor calls and their execution order in this context only. */
+function bindBarColorOptions(context: Context) {
+  const pine = context.pine as unknown as Record<string, unknown>;
+  const descriptor = Object.getOwnPropertyDescriptor(pine, "barcolor");
+  if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve barcolor options.");
+  const original = descriptor.value;
+  const signature = ["color", "offset", "editable", "show_last", "title", "display"];
+  const channels = new Map<number, { id: string; flags: Record<string, unknown> }>();
+  let count = 0, expectedCount: number | undefined;
+  Object.defineProperty(pine, "barcolor", { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+    if (context.isSecondaryContext) return Reflect.apply(original, this, args);
+    const last = args.at(-1) as { __callsiteId?: unknown } | undefined;
+    const sentinel = last && typeof last === "object" && typeof last.__callsiteId === "string" ? last : undefined;
+    const values = sentinel ? args.slice(0, -1) : args;
+    const resolve = (argument: unknown) => {
+      let value = argument;
+      for (let depth = 0; depth < 4; depth++) {
+        const scalar = value && typeof value === "object" && "__value" in value ? (value as { __value: unknown }).__value : value;
+        const next = resolvedSetting(scalar);
+        if (next === value) break;
+        value = next;
+      }
+      return value;
+    };
+    const fields: Record<string, unknown> = {};
+    values.forEach((argument, index) => {
+      const value = resolve(argument);
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) Object.assign(fields, value);
+      else {
+        if (index >= signature.length) error("UNSUPPORTED_BARCOLOR_OPTION", "Bar coloring received unsupported extra arguments.");
+        fields[signature[index]] = value;
+      }
+    });
+    for (const [name, value] of Object.entries(fields)) fields[name] = resolve(value);
+    if (!Object.prototype.hasOwnProperty.call(fields, "color") || Object.keys(fields).some((key) => !signature.includes(key))) error("UNSUPPORTED_BARCOLOR_OPTION", "Bar coloring requires a color and only supports its documented options.");
+    const color = fields.color;
+    if (color !== undefined && color !== null && !(typeof color === "number" && Number.isNaN(color)) && typeof color !== "string") error("UNSUPPORTED_BARCOLOR_OPTION", "Bar color must resolve to a color or na.");
+    const flags: Record<string, unknown> = { offset: fields.offset === undefined ? 0 : fields.offset, editable: fields.editable === undefined ? true : fields.editable, display: fields.display === undefined ? "all" : fields.display };
+    if (!Number.isSafeInteger(flags.offset)) error("UNSUPPORTED_BARCOLOR_OPTION", "Bar offset must resolve to a safe integer.");
+    for (const name of ["editable"]) if (typeof flags[name] !== "boolean") error("UNSUPPORTED_BARCOLOR_OPTION", `Bar ${name} must resolve to a boolean.`);
+    if (fields.show_last !== undefined) {
+      if (!Number.isSafeInteger(fields.show_last) || (fields.show_last as number) < 0) error("UNSUPPORTED_BARCOLOR_OPTION", "Bar show_last must resolve to a nonnegative integer.");
+      flags.show_last = fields.show_last;
+    }
+    if (fields.title !== undefined) {
+      if (typeof fields.title !== "string" || fields.title.length > 4_096) error("UNSUPPORTED_BARCOLOR_OPTION", "Bar title must resolve to a bounded string.");
+      flags.title = fields.title;
+    }
+    flags.display = typeof flags.display === "string" ? flags.display.replace(/^display[._]/, "") : flags.display;
+    if (flags.display !== "all" && flags.display !== "none") error("UNSUPPORTED_BARCOLOR_OPTION", "Bar display must resolve to display.all or display.none.");
+    const ordinal = count++;
+    if (ordinal >= PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
+    const plots = context.plots as Record<string, { _callsiteId?: string; _edgelabBarColorOrder?: number; options?: Record<string, unknown> }>;
+    const title = flags.title as string | undefined;
+    let channel = channels.get(ordinal);
+    if (!channel) {
+      let id = `edgelab-barcolor:${ordinal}`;
+      while (Object.prototype.hasOwnProperty.call(plots, id) || (title && Object.prototype.hasOwnProperty.call(plots, title + id))) id += ":";
+      channel = { id, flags }; channels.set(ordinal, channel);
+    } else if (Object.keys(flags).length !== Object.keys(channel.flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, channel!.flags[name]))) {
+      error("UNSUPPORTED_BARCOLOR_OPTION", "Bar options other than color must remain constant throughout the snapshot.");
+    }
+    const key = title ? (!plots[title] || plots[title]._callsiteId === channel.id ? title : title + channel.id) : channel.id;
+    if (!plots[key]) {
+      const channelsInUse = Object.values(plots).filter((plot) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(String(plot.options?.style))).length;
+      if (channelsInUse >= PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
+    }
+    // The pinned helper accepts named flags, but its positional parser drops Series arguments.
+    const result = Reflect.apply(original, this, [color, flags, { __callsiteId: channel.id }]);
+    const plot = plots[key];
+    if (plot?.options?.style !== "barcolor" || plot._callsiteId !== channel.id) error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the barcolor channel.");
+    plot.options.overlay = true;
+    plot._edgelabBarColorOrder = ordinal;
+    return result;
+  } });
+  return {
+    start() { count = 0; },
+    finish() {
+      if (context.isSecondaryContext) return;
+      if (expectedCount !== undefined && count !== expectedCount) error("UNSUPPORTED_BARCOLOR_OPTION", "Bar coloring must use the same global calls on every bar; local conditional calls are unsupported.");
+      expectedCount = count;
+    },
+  };
+}
+
 /** Pinned FillHelper drops optional gradient flags. Preserve them on this execution's own helper. */
 function bindGradientFillOptions(context: Context) {
   const namespace = context.pine.fill;
@@ -399,11 +489,13 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
   const original = prepared.fn;
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
+  const barcolors = new WeakMap<Context, ReturnType<typeof bindBarColorOptions>>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
       bindPlotOptions(context);
       bindGradientFillOptions(context);
       backgrounds.set(context, bindBackgroundOptions(context));
+      barcolors.set(context, bindBarColorOptions(context));
       const pine = context.pine as unknown as Record<string, unknown>;
       const alertCondition = Object.getOwnPropertyDescriptor(pine, "alertcondition");
       const alert = pine.alert as { any?: unknown };
@@ -447,8 +539,10 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       installed.add(context);
     }
     backgrounds.get(context)!.start();
+    barcolors.get(context)!.start();
     const checked = () => {
       backgrounds.get(context)!.finish();
+      barcolors.get(context)!.finish();
       const channels = (Object.values(context.plots) as { options?: { style?: string }; data?: unknown[] }[]).filter((plot) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(plot.options?.style ?? ""));
       if (channels.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
       if (channels.reduce((total, plot) => total + (plot.data?.length ?? 0), 0) > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 1,280,000 bar slots.");
