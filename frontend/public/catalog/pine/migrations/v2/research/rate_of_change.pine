@@ -1,0 +1,27 @@
+//@version=5
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// Rate of Change script may be freely distributed under the terms of GPL-3.0 license.
+// EdgeLab v2 compatibility migration (2026-10-08): Pine v3 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/research/rate_of_change.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("Rate of Change", shorttitle="ROC")
+
+// Legacy transp preserves colors that already contain transparency.
+_legacyTransparency(baseColor, amount) =>
+    na(baseColor) ? na : color.t(baseColor) > 0 ? baseColor : color.new(baseColor, amount)
+
+src = close
+length = 7
+
+roc = ta.roc(src, length)
+
+roc2 = ta.change(src, length)
+
+roc3 = ta.change(src, length) / src[length]
+
+roc4 = 100 * ta.change(src, length) / src[length]
+
+plot(roc, title="Built-in", color=#2196F3)
+plot(roc2, title="2", color=#4CAF50)
+plot(roc3, title="3", color=#FF5252)
+plot(roc4, title="4", color=#9C27B0)

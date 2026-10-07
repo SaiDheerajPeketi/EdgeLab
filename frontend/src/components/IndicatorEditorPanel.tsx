@@ -39,7 +39,7 @@ import {
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import type { PineExecutionResult, PinePrepareResult } from "../lib/pineProtocol";
-import { sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
+import { pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
 import { sourceSha256 } from "../lib/sourceSha256";
 import { PineCatalogBrowser } from "./PineCatalogBrowser";
 import { PineInputControl } from "./PineInputControl";
@@ -427,7 +427,7 @@ export function IndicatorEditorPanel({
               <p>Upstream revision <span className="font-mono" title={catalogOrigin.upstreamCommit}>{catalogOrigin.upstreamCommit.slice(0, 8)}</span></p>
               <p>Base source hash <span className="font-mono" title={catalogOrigin.sourceSha256}>{catalogOrigin.sourceSha256.slice(0, 12)}</span></p>
               {catalogOrigin.migration ? <p>Migration v{catalogOrigin.migration.version} · hash <span className="font-mono" title={catalogOrigin.migration.sourceSha256}>{catalogOrigin.migration.sourceSha256.slice(0, 12)}</span></p> : null}
-              <div className="mt-1 flex flex-wrap gap-x-3"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={catalogOrigin.originUrl} target="_blank" rel="noreferrer">Upstream source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={`/catalog/pine/everget/${catalogOrigin.upstreamCommit}/LICENSE.txt`} target="_blank" rel="noreferrer">GPL licence</a></div>
+              <div className="mt-1 flex flex-wrap gap-x-3"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={catalogOrigin.originUrl} target="_blank" rel="noreferrer">Upstream source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={pineCatalogProvenanceLicenseUrl(catalogOrigin)} target="_blank" rel="noreferrer">GPL licence</a></div>
             </section> : null}
             <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
             <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setCatalogOrigin(selectedScript.catalogOrigin); } }} value={historyRevision ?? ""}>

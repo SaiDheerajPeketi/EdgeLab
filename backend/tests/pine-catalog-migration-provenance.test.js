@@ -12,7 +12,7 @@ buildSync({ bundle: true, format: "esm", platform: "node", target: "node22", out
   stdin: { contents: 'export * from "./frontend/src/lib/pineCatalog.ts"; export * from "./frontend/src/lib/customIndicators.ts";', resolveDir: process.cwd(), loader: "ts" }, define: { "import.meta.env": "{}" }, logLevel: "silent" });
 const lib = await import(pathToFileURL(bundle).href);
 after(() => rmSync(directory, { force: true, recursive: true }));
-const catalog = lib.CURATED_PINE_CATALOG;
+const catalog = lib.validatePineCatalogManifest(JSON.parse(readFileSync("frontend/src/lib/pineCatalogManifest.json", "utf8")));
 const legacy = catalog.entries.filter((entry) => entry.pineVersion < 5);
 const base = (entry) => ({ catalogId: entry.id, repository: catalog.repository, path: entry.path,
   upstreamCommit: catalog.upstreamCommit, upstreamBlobSha1: entry.upstreamBlobSha1, sourceSha256: entry.sourceSha256,
@@ -71,12 +71,12 @@ test("invalid migration metadata loses its badge while independently verified or
 test("retained compiled migration pins survive a future bundled seed revision", async () => {
   const entry = legacy[0], pin = lib.pineCatalogMigration(catalog, entry.id);
   const origin = { ...base(entry), migration: { id: pin.id, version: 5, sourceSha256: pin.sourceSha256 } };
-  const next = structuredClone(catalog); next.upstreamCommit = "1".repeat(40);
+  const next = structuredClone(lib.CURATED_PINE_CATALOG); next.upstreamCommit = "1".repeat(40);
   for (const item of next.entries) item.originUrl = `https://github.com/${next.repository}/blob/${next.upstreamCommit}/${item.path}`;
   const output = (await build({ bundle: true, format: "esm", platform: "node", target: "node22", write: false,
     stdin: { contents: 'export * from "./frontend/src/lib/pineCatalog.ts";', resolveDir: process.cwd(), loader: "ts" },
     plugins: [{ name: "future-bundled-seed", setup(build) {
-      build.onLoad({ filter: /pineCatalogManifest\.json$/ }, () => ({ contents: JSON.stringify(next), loader: "json" }));
+      build.onLoad({ filter: /pineCatalogManifestV2\.json$/ }, () => ({ contents: JSON.stringify(next), loader: "json" }));
     } }], logLevel: "silent" })).outputFiles[0].text;
   const future = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
   assert.equal(future.CURATED_PINE_CATALOG.upstreamCommit, next.upstreamCommit);

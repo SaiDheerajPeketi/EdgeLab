@@ -1,0 +1,43 @@
+//@version=5
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// Ulcer Index script may be freely distributed under the terms of GPL-3.0 license.
+// EdgeLab v2 compatibility migration (2026-10-08): Pine v4 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/volatility/ulcer_index.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("Ulcer Index")
+
+// Legacy transp preserves colors that already contain transparency.
+_legacyTransparency(baseColor, amount) =>
+    na(baseColor) ? na : color.t(baseColor) > 0 ? baseColor : color.new(baseColor, amount)
+
+length = input.int(title="Length", defval=14)
+smoothLength = input.int(title="Smoothing Length", defval=14)
+breakout = input.float(title="Breakout Level", step=0.1, defval=1.5)
+signalType = input.string(title="Signal Smoothing Type", defval="SMA", options=["EMA", "SMA"])
+signalLength = input.int(title="Signal Smoothing Length", defval=52)
+src = input.source(title="Source", defval=close)
+showSignal = input.bool(title="Show Signal ?", defval=true)
+highlightCrossovers = input.bool(title="Highlight Signal Crossovers ?", defval=true)
+applyRibbonFilling = input.bool(title="Apply Ribbon Filling ?", defval=true)
+
+highest = ta.highest(src, length)
+drawdown = 100 * (src - highest) / highest
+ulcer = math.sqrt(ta.sma(math.pow(drawdown, 2), smoothLength))
+signal = signalType == "SMA" ? ta.sma(ulcer, signalLength) : ta.ema(ulcer, signalLength)
+
+trendColor = ulcer > signal ? #0ebb23 : #FF5252
+ulcerColor = applyRibbonFilling ? trendColor : (ulcer >= ulcer[1] ? #0ebb23 : #FF5252)
+signalColor = applyRibbonFilling ? trendColor : #1155cc
+
+ulcerPlot = plot(ulcer, title="Ulcer", linewidth=2, color=ulcerColor)
+signalPlot = plot(showSignal ? signal : na, title="Signal", color=signalColor)
+
+ribbonFillColor = applyRibbonFilling ? trendColor : na
+fill(ulcerPlot, signalPlot, title="Ribbon", color=_legacyTransparency(ribbonFillColor, 70))
+
+plotshape(ta.crossover(ulcer, signal) and highlightCrossovers ? signal : na, title="Crossover", location=location.absolute, style=shape.circle, size=size.tiny, color=#4CAF50)
+plotshape(ta.crossunder(ulcer, signal) and highlightCrossovers ? signal : na, title="Crossunder", location=location.absolute, style=shape.circle, size=size.tiny, color=#FF5252)
+
+hline(breakout, title="Breakout Level", linestyle=hline.style_dotted, linewidth=2)
+breakoutFillColor = ulcer > breakout ? #ff9800 : na
+bgcolor(_legacyTransparency(breakoutFillColor, 90))

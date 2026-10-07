@@ -7,7 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test, { after } from "node:test";
 import { buildSync } from "esbuild";
-import { refreshPineCatalog } from "../../scripts/refresh-pine-catalog.mjs";
+import { refreshPineCatalog as refreshCollection } from "../../scripts/refresh-pine-catalog.mjs";
 
 const directory = mkdtempSync(path.join(tmpdir(), "edgelab-pine-catalog-"));
 const bundle = path.join(directory, "catalog.mjs");
@@ -15,7 +15,8 @@ buildSync({ bundle: true, format: "esm", platform: "node", target: "node22", out
   stdin: { contents: 'export * from "./frontend/src/lib/pineCatalog.ts"; export * from "./frontend/src/lib/sourceSha256.ts"; export * from "./frontend/src/lib/customIndicators.ts";', resolveDir: process.cwd(), loader: "ts" }, define: { "import.meta.env": "{}" }, logLevel: "silent" });
 const lib = await import(pathToFileURL(bundle).href);
 after(() => rmSync(directory, { force: true, recursive: true }));
-const catalog = lib.CURATED_PINE_CATALOG;
+const catalog = lib.validatePineCatalogManifest(JSON.parse(readFileSync("frontend/src/lib/pineCatalogManifest.json", "utf8")));
+const refreshPineCatalog = (options) => refreshCollection({ ...options, collection: "legacy-v1" });
 const sourceRoot = path.resolve("frontend/public/catalog/pine/everget", catalog.upstreamCommit);
 const source = (entry) => readFileSync(path.join(sourceRoot, entry.path), "utf8");
 const hash = (value) => createHash("sha256").update(value).digest("hex");

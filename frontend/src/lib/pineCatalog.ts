@@ -1,10 +1,26 @@
-import seed from "./pineCatalogManifest.json";
+import legacySeed from "./pineCatalogManifest.json";
+import seed from "./pineCatalogManifestV2.json";
 import migrations from "./pineCatalogMigrations.json";
 import { sourceSha256 } from "./sourceSha256";
 
 export const PINE_CATALOG_REPOSITORY = "everget/tradingview-pinescript-indicators";
-const ROOT = "/catalog/pine/everget";
+const ROOT = "/catalog/pine/everget-v2";
+const LEGACY_ROOT = "/catalog/pine/everget";
 const allowedPaths = new Set(seed.entries.map((entry) => entry.path));
+const legacyPaths = new Set(legacySeed.entries.map((entry) => entry.path));
+
+// Collection membership is exact; partial, mixed and duplicate sets never select a root.
+function collectionSeed(entries: PineCatalogEntry[]) {
+  const paths = new Set(entries.map((entry) => entry?.path));
+  if (paths.size !== entries.length) throw new Error("Invalid Pine catalog collection.");
+  if (entries.length === seed.entries.length && [...paths].every((path) => allowedPaths.has(path))) return seed;
+  if (entries.length === legacySeed.entries.length && [...paths].every((path) => legacyPaths.has(path))) return legacySeed;
+  throw new Error("Invalid Pine catalog collection.");
+}
+
+function catalogRoot(catalog: PineCatalogManifest): string {
+  return collectionSeed(validatePineCatalogManifest(catalog).entries) === legacySeed ? LEGACY_ROOT : ROOT;
+}
 const sha = /^[a-f0-9]{40}$/;
 const digest = /^[a-f0-9]{64}$/;
 export type PineCatalogEntry = {
@@ -18,6 +34,7 @@ export type PineCatalogManifest = {
 };
 export type PineCatalogProvenance = {
   catalogId: string; repository: typeof PINE_CATALOG_REPOSITORY; path: string;
+  collection?: "expanded-v2";
   upstreamCommit: string; upstreamBlobSha1: string; sourceSha256: string;
   originalPineVersion: number; author: string; license: "GPL-3.0";
   originUrl: string; lastFetchedAt: string;
@@ -44,8 +61,9 @@ export function validatePineCatalogManifest(value: unknown): PineCatalogManifest
   if (!value || typeof value !== "object") throw new Error("Invalid Pine catalog.");
   const raw = value as PineCatalogManifest;
   if (raw.schemaVersion !== 1 || raw.repository !== PINE_CATALOG_REPOSITORY || !sha.test(raw.upstreamCommit)
-    || !digest.test(raw.licenseSha256) || !Number.isFinite(Date.parse(raw.lastFetchedAt)) || !Array.isArray(raw.entries) || raw.entries.length !== seed.entries.length) throw new Error("Invalid Pine catalog revision.");
-  if (raw.upstreamCommit === seed.upstreamCommit && raw.licenseSha256 !== seed.licenseSha256) throw new Error("Pinned seed catalog licence does not match the verified original.");
+    || !digest.test(raw.licenseSha256) || !Number.isFinite(Date.parse(raw.lastFetchedAt)) || !Array.isArray(raw.entries)) throw new Error("Invalid Pine catalog revision.");
+  const selectedSeed = collectionSeed(raw.entries);
+  if (raw.upstreamCommit === selectedSeed.upstreamCommit && raw.licenseSha256 !== selectedSeed.licenseSha256) throw new Error("Pinned seed catalog licence does not match the verified original.");
   const seen = new Set<string>();
   const entries = raw.entries.map((entry) => {
     if (!entry || !allowedPaths.has(entry.path) || seen.has(entry.path) || entry.id !== `community:everget:${entry.path}`
@@ -53,8 +71,8 @@ export function validatePineCatalogManifest(value: unknown): PineCatalogManifest
       || typeof entry.name !== "string" || !entry.name || entry.name.length > 160 || !Number.isSafeInteger(entry.pineVersion) || entry.pineVersion < 1 || entry.pineVersion > 6
       || !Number.isSafeInteger(entry.sourceBytes) || entry.sourceBytes < 1 || entry.sourceBytes > 20_000 || !digest.test(entry.sourceSha256) || !sha.test(entry.upstreamBlobSha1)
       || entry.originUrl !== `https://github.com/${PINE_CATALOG_REPOSITORY}/blob/${raw.upstreamCommit}/${entry.path}`) throw new Error("Invalid Pine catalog entry.");
-    if (raw.upstreamCommit === seed.upstreamCommit) {
-      const expected = seed.entries.find((item) => item.path === entry.path)!;
+    if (raw.upstreamCommit === selectedSeed.upstreamCommit) {
+      const expected = selectedSeed.entries.find((item) => item.path === entry.path)!;
       if (Object.entries(expected).some(([key, value]) => (entry as unknown as Record<string, unknown>)[key] !== value)) throw new Error("Pinned seed catalog entry does not match the verified original.");
     }
     seen.add(entry.path);
@@ -68,13 +86,15 @@ export const CURATED_PINE_CATALOG = validatePineCatalogManifest(seed);
 export function sanitizePineCatalogProvenance(value: unknown): PineCatalogProvenance | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as PineCatalogProvenance;
-  if (raw.repository !== PINE_CATALOG_REPOSITORY || !allowedPaths.has(raw.path) || raw.catalogId !== `community:everget:${raw.path}`
+  const selectedSeed = raw.collection === "expanded-v2" ? seed : legacySeed;
+  if (raw.collection !== undefined && raw.collection !== "expanded-v2") return undefined;
+  if (raw.repository !== PINE_CATALOG_REPOSITORY || !selectedSeed.entries.some((entry) => entry.path === raw.path) || raw.catalogId !== `community:everget:${raw.path}`
     || !sha.test(raw.upstreamCommit) || !sha.test(raw.upstreamBlobSha1) || !digest.test(raw.sourceSha256)
     || !Number.isSafeInteger(raw.originalPineVersion) || raw.originalPineVersion < 1 || raw.originalPineVersion > 6
     || raw.author !== "Alex Orekhov (everget)" || raw.license !== "GPL-3.0" || !Number.isFinite(Date.parse(raw.lastFetchedAt))
     || raw.originUrl !== `https://github.com/${PINE_CATALOG_REPOSITORY}/blob/${raw.upstreamCommit}/${raw.path}`) return undefined;
-  if (raw.upstreamCommit === CURATED_PINE_CATALOG.upstreamCommit) {
-    const entry = CURATED_PINE_CATALOG.entries.find((item) => item.path === raw.path)!;
+  if (raw.upstreamCommit === selectedSeed.upstreamCommit) {
+    const entry = selectedSeed.entries.find((item) => item.path === raw.path)!;
     if (entry.sourceSha256 !== raw.sourceSha256 || entry.upstreamBlobSha1 !== raw.upstreamBlobSha1 || entry.pineVersion !== raw.originalPineVersion) return undefined;
   }
   let migration: PineCatalogProvenance["migration"];
@@ -89,13 +109,19 @@ export function sanitizePineCatalogProvenance(value: unknown): PineCatalogProven
     }
   }
   return { catalogId: raw.catalogId, repository: PINE_CATALOG_REPOSITORY, path: raw.path, upstreamCommit: raw.upstreamCommit,
+    ...(raw.collection ? { collection: raw.collection } : {}),
     upstreamBlobSha1: raw.upstreamBlobSha1, sourceSha256: raw.sourceSha256, originalPineVersion: raw.originalPineVersion,
     author: raw.author, license: raw.license, originUrl: raw.originUrl, lastFetchedAt: raw.lastFetchedAt,
     ...(migration ? { migration } : {}) };
 }
 
 export function pineCatalogCanRun(entry: PineCatalogEntry): boolean { return entry.pineVersion === 5 || entry.pineVersion === 6; }
-export function pineCatalogLicenseUrl(catalog: PineCatalogManifest): string { return `${ROOT}/${catalog.upstreamCommit}/LICENSE.txt`; }
+export function pineCatalogLicenseUrl(catalog: PineCatalogManifest): string { return `${catalogRoot(catalog)}/${catalog.upstreamCommit}/LICENSE.txt`; }
+export function pineCatalogProvenanceLicenseUrl(value: PineCatalogProvenance): string {
+  const origin = sanitizePineCatalogProvenance(value);
+  if (!origin) throw new Error("Invalid Pine catalog provenance.");
+  return `${origin.collection === "expanded-v2" ? ROOT : LEGACY_ROOT}/${origin.upstreamCommit}/LICENSE.txt`;
+}
 
 async function readText(path: string, signal: AbortSignal | undefined, limit: number): Promise<string> {
   const response = await fetch(path, { signal, credentials: "omit", redirect: "error", cache: "no-cache" });
@@ -123,10 +149,10 @@ async function readText(path: string, signal: AbortSignal | undefined, limit: nu
 
 export async function loadPineCatalog(signal?: AbortSignal): Promise<PineCatalogManifest> {
   const index = JSON.parse(await readText(`${ROOT}/index.json`, signal, 32_000)) as { schemaVersion: number; repository: string; revisions: string[] };
-  if (index.schemaVersion !== 1 || index.repository !== PINE_CATALOG_REPOSITORY || !Array.isArray(index.revisions) || !index.revisions.length || index.revisions.length > 256 || index.revisions.some((revision) => !sha.test(revision))) throw new Error("Invalid Pine catalog index.");
+  if (index.schemaVersion !== 1 || index.repository !== PINE_CATALOG_REPOSITORY || !Array.isArray(index.revisions) || !index.revisions.length || index.revisions.length > 256 || index.revisions.some((revision) => typeof revision !== "string" || !sha.test(revision)) || new Set(index.revisions).size !== index.revisions.length) throw new Error("Invalid Pine catalog index.");
   const revision = index.revisions[index.revisions.length - 1];
   const catalog = validatePineCatalogManifest(JSON.parse(await readText(`${ROOT}/${revision}/manifest.json`, signal, 80_000)));
-  if (catalog.upstreamCommit !== revision) throw new Error("Pine catalog revision does not match its index.");
+  if (catalog.upstreamCommit !== revision || catalogRoot(catalog) !== ROOT) throw new Error("Pine catalog revision does not match its index.");
   return catalog;
 }
 
@@ -140,9 +166,10 @@ export async function loadPineCatalogSource(catalog: PineCatalogManifest, id: st
   const validated = validatePineCatalogManifest(catalog);
   const entry = validated.entries.find((item) => item.id === id);
   if (!entry) throw new Error("Unknown Pine catalog entry.");
-  const source = await readText(`${ROOT}/${validated.upstreamCommit}/${entry.path}`, signal, 20_000);
+  const source = await readText(`${catalogRoot(validated)}/${validated.upstreamCommit}/${entry.path}`, signal, 20_000);
   validatePineCatalogSource(source, entry);
   return { source, provenance: { catalogId: entry.id, repository: PINE_CATALOG_REPOSITORY, path: entry.path, upstreamCommit: validated.upstreamCommit,
+    ...(catalogRoot(validated) === ROOT ? { collection: "expanded-v2" as const } : {}),
     upstreamBlobSha1: entry.upstreamBlobSha1, sourceSha256: entry.sourceSha256, originalPineVersion: entry.pineVersion, author: entry.author,
     license: entry.license, originUrl: entry.originUrl, lastFetchedAt: validated.lastFetchedAt } };
 }

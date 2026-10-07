@@ -114,10 +114,10 @@ async function nativeRun(page: Page, source: string) {
 }
 
 
-const catalog = JSON.parse(fs.readFileSync(path.resolve("frontend/src/lib/pineCatalogManifest.json"), "utf8")) as PineCatalogManifest;
-const sourceRoot = path.resolve("frontend/public/catalog/pine/everget", catalog.upstreamCommit);
+const catalog = JSON.parse(fs.readFileSync(path.resolve("frontend/src/lib/pineCatalogManifestV2.json"), "utf8")) as PineCatalogManifest;
+const sourceRoot = path.resolve("frontend/public/catalog/pine/everget-v2", catalog.upstreamCommit);
 const original = (entry: typeof catalog.entries[number]) => fs.readFileSync(path.join(sourceRoot, entry.path), "utf8");
-const provenance = (entry: typeof catalog.entries[number]) => ({ catalogId: entry.id, repository: catalog.repository, path: entry.path,
+const provenance = (entry: typeof catalog.entries[number]) => ({ collection: "expanded-v2", catalogId: entry.id, repository: catalog.repository, path: entry.path,
   upstreamCommit: catalog.upstreamCommit, upstreamBlobSha1: entry.upstreamBlobSha1, sourceSha256: entry.sourceSha256,
   originalPineVersion: entry.pineVersion, author: entry.author, license: entry.license, originUrl: entry.originUrl, lastFetchedAt: catalog.lastFetchedAt });
 const scripts = (storage: Map<string, unknown>) => (storage.get("custom-indicator-scripts.v1") ?? []) as CustomIndicatorScript[];
@@ -148,13 +148,13 @@ async function view(browser: Locator, entry: typeof catalog.entries[number]) {
   await expect(browser.getByLabel(`${entry.name} original source`, { exact: true })).toHaveText(original(entry));
 }
 
-test("all 21 hash-verified originals download and 17 legacy scripts require migration", async ({ page }, info) => {
+test("all 29 hash-verified originals download and 25 legacy scripts require migration", async ({ page }, info) => {
   test.setTimeout(120_000);
   await fixture(page);
   let editor = await openEditor(page), browser = await catalogBrowser(editor);
-  expect(catalog.entries).toHaveLength(21);
-  await expect(browser.getByRole("combobox", { name: "Script", exact: true }).locator("option")).toHaveCount(21);
-  expect(catalog.entries.filter((entry) => entry.pineVersion < 5)).toHaveLength(17);
+  expect(catalog.entries).toHaveLength(29);
+  await expect(browser.getByRole("combobox", { name: "Script", exact: true }).locator("option")).toHaveCount(29);
+  expect(catalog.entries.filter((entry) => entry.pineVersion < 5)).toHaveLength(25);
   for (const [index, entry] of catalog.entries.entries()) {
     // Chrome suppresses repeated downloads from one document. Fresh documents
     // preserve real user downloads while still checking every packaged asset.
@@ -279,9 +279,9 @@ test("native import preserves exact source and provenance through save, edits, h
   const latestRevision = "1111111111111111111111111111111111111111";
   const latest = { ...catalog, upstreamCommit: latestRevision, lastFetchedAt: "2026-10-07T10:30:00Z", entries: catalog.entries.map((item) => ({ ...item, originUrl: `https://github.com/${catalog.repository}/blob/${latestRevision}/${item.path}` })) };
   let loadedManifest = false;
-  await page.route("**/catalog/pine/everget/index.json", (route) => route.fulfill({ json: { schemaVersion: 1, repository: catalog.repository, revisions: [catalog.upstreamCommit, latestRevision] } }));
-  await page.route(`**/catalog/pine/everget/${latestRevision}/manifest.json`, (route) => { loadedManifest = true; return route.fulfill({ json: latest }); });
-  await page.route(`**/catalog/pine/everget/${latestRevision}/${entry.path}`, (route) => route.fulfill({ body: original(entry), contentType: "text/plain" }));
+  await page.route("**/catalog/pine/everget-v2/index.json", (route) => route.fulfill({ json: { schemaVersion: 1, repository: catalog.repository, revisions: [catalog.upstreamCommit, latestRevision] } }));
+  await page.route(`**/catalog/pine/everget-v2/${latestRevision}/manifest.json`, (route) => { loadedManifest = true; return route.fulfill({ json: latest }); });
+  await page.route(`**/catalog/pine/everget-v2/${latestRevision}/${entry.path}`, (route) => route.fulfill({ body: original(entry), contentType: "text/plain" }));
   const savedBeforeReload = structuredClone(scripts(state.storage));
   const chartBeforeReload = structuredClone(state.storage.get("chart-layout.v1"));
   await browser.getByRole("button", { name: "Reload catalog", exact: true }).click();
@@ -382,7 +382,7 @@ for (const failure of ["hash mismatch", "oversized source", "oversized catalog i
   test(`${failure} blocks unsafe import and recovers without changing the draft`, async ({ page }, info) => {
     await fixture(page); const editor = await openEditor(page), browser = await catalogBrowser(editor);
     const before = await editor.getByLabel("EdgeLab indicator source", { exact: true }).inputValue(); const entry = catalog.entries[0];
-    const asset = failure === "oversized catalog index" ? "**/catalog/pine/everget/index.json" : `**/catalog/pine/everget/${catalog.upstreamCommit}/${entry.path}`;
+    const asset = failure === "oversized catalog index" ? "**/catalog/pine/everget-v2/index.json" : `**/catalog/pine/everget-v2/${catalog.upstreamCommit}/${entry.path}`;
     await page.route(asset, (route) => route.fulfill({ body: failure === "hash mismatch" ? original(entry) + "\n// changed asset" : "x".repeat(failure === "oversized catalog index" ? 32_001 : 20_001), contentType: "text/plain" }));
     await browser.getByRole("button", { name: failure === "oversized catalog index" ? "Reload catalog" : "View source", exact: true }).click();
     await expect(browser.getByRole("alert")).toContainText(failure === "hash mismatch" ? "pinned revision" : "oversized");

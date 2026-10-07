@@ -1,0 +1,28 @@
+//@version=5
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// Momentum script may be freely distributed under the terms of GPL-3.0 license.
+// EdgeLab v2 compatibility migration (2026-10-08): Pine v3 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/research/momentum.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("Momentum")
+
+// Legacy transp preserves colors that already contain transparency.
+_legacyTransparency(baseColor, amount) =>
+    na(baseColor) ? na : color.t(baseColor) > 0 ? baseColor : color.new(baseColor, amount)
+
+src = close
+length = 7
+
+mom = src - src[length]
+
+mom2 = ta.change(src, length)
+
+mom3 = ta.mom(src, length)
+
+sma = ta.sma(src, length)
+mom4 = (sma - sma[1]) * length
+
+plot(mom, title="Simple", color=#2196F3)
+plot(mom2, title="2", color=#4CAF50)
+plot(mom3, title="3", color=#FF5252)
+plot(mom4, title="4", color=#9C27B0)

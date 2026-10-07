@@ -1,0 +1,44 @@
+//@version=5
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// Chande Momentum Oscillator script may be freely distributed under the terms of GPL-3.0 license.
+// EdgeLab v2 compatibility migration (2026-10-08): Pine v3 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/oscillators/chande_momentum_oscillator.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("Chande Momentum Oscillator", shorttitle="CMO")
+
+// Legacy transp preserves colors that already contain transparency.
+_legacyTransparency(baseColor, amount) =>
+    na(baseColor) ? na : color.t(baseColor) > 0 ? baseColor : color.new(baseColor, amount)
+
+length = input.int(title="Length", defval=9)
+obLevel = input.int(title="Overbought Level", defval=50)
+osLevel = input.int(title="Oversold Level", defval=-50)
+highlightBreakouts = input.bool(title="Highlight Overbought/Oversold Breakouts ?", defval=true)
+src = input.source(title="Source", defval=close)
+
+mom = ta.change(src)
+
+upSum = math.sum(math.max(mom, 0), length)
+downSum = math.sum(-math.min(mom, 0), length)
+
+cmo = 100 * (upSum - downSum) / (upSum + downSum)
+
+cmoColor = cmo > obLevel ? #0ebb23 : cmo < osLevel ? #ff0000 : #f4b77d
+
+plot(cmo, title="CMO", linewidth=2, color=cmoColor)
+
+transparent = color.new(#FFFFFF, 100)
+
+maxBand = hline(100, title="Max Level", linestyle=hline.style_dotted, color=transparent)
+hline(0, title="Zero Level", linestyle=hline.style_dotted)
+minBand = hline(-100, title="Min Level", linestyle=hline.style_dotted, color=transparent)
+
+obBand = hline(obLevel, title="Overbought Level", linestyle=hline.style_dotted)
+osBand = hline(osLevel, title="Oversold Level", linestyle=hline.style_dotted)
+fill(obBand, osBand, color=_legacyTransparency(#9C27B0, 95))
+
+obFillColor = cmo > obLevel and highlightBreakouts ? #4CAF50 : transparent
+osFillColor = cmo < osLevel and highlightBreakouts ? #FF5252 : transparent
+
+fill(maxBand, obBand, color=_legacyTransparency(obFillColor, 80))
+fill(minBand, osBand, color=_legacyTransparency(osFillColor, 80))

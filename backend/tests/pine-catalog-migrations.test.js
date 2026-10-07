@@ -14,6 +14,8 @@ const pine = await import(`data:text/javascript;base64,${Buffer.from(bundle).toS
 const read = (path) => readFileSync(root + "/" + path, "utf8");
 const manifest = JSON.parse(read("frontend/src/lib/pineCatalogManifest.json"));
 const migrations = JSON.parse(read("frontend/src/lib/pineCatalogMigrations.json"));
+// Retain the original seventeen mathematical regressions unchanged.
+migrations.entries = migrations.entries.filter((entry) => entry.sourcePath.startsWith("/catalog/pine/migrations/v1/"));
 const bars = JSON.parse(read("e2e/pine-visuals.bars.json"));
 assert.equal(createHash("sha256").update(readFileSync(root + "/e2e/pine-visuals.bars.json")).digest("hex"), "fc9a28c87aed819daae602ea45422d0d40979bd42f86097607310b0300645ea1");
 const sourceOf = (entry) => read("frontend/public" + entry.sourcePath);

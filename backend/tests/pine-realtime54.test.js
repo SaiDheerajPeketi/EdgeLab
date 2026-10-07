@@ -551,6 +551,7 @@ test("all seventeen migrated community defaults retain exact pinned-engine numer
     ...bar, openTime: bar.time * 1000, closeTime: (bar.time + 60) * 1000,
   }));
   assert.equal(history.length, 256);
+  manifest.entries = manifest.entries.filter((entry) => entry.sourcePath.startsWith("/catalog/pine/migrations/v1/"));
   assert.equal(manifest.entries.length, 17);
   for (const entry of manifest.entries) {
     const source = fs.readFileSync(new URL("../../frontend/public" + entry.sourcePath, import.meta.url));

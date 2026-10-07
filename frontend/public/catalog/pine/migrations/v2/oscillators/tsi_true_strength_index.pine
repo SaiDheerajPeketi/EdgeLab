@@ -1,0 +1,67 @@
+//@version=5
+// Copyright (c) 2021-present, Alex Orekhov (everget)
+// True Strength Index (TSI) script may be freely distributed under the terms of GPL-3.0 license.
+// EdgeLab v2 compatibility migration (2026-10-08): Pine v4 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/oscillators/tsi_true_strength_index.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("True Strength Index", shorttitle="TSI")
+
+// Legacy transp preserves colors that already contain transparency.
+_legacyTransparency(baseColor, amount) =>
+    na(baseColor) ? na : color.t(baseColor) > 0 ? baseColor : color.new(baseColor, amount)
+
+longLength = input.int(title="Long Length", defval=25)
+shortLength = input.int(title="Short Length", defval=13)
+signalLength = input.int(title="Signal Length", defval=13, minval=1)
+src = input.source(title="Source", defval=close)
+
+obLevel = input.int(title="Overbought Level", defval=40)
+osLevel = input.int(title="Oversold Level", defval=-40)
+maxLevel = input.int(title="Max Level", defval=75)
+minLevel = input.int(title="Min Level", defval=-75)
+showHistogram = input.bool(title="Show Histogram ?", defval=false)
+highlightBreakouts = input.bool(title="Highlight Overbought/Oversold Breakouts ?", defval=true)
+highlightCrossovers = input.bool(title="Highlight TSI/Signal Crossovers ?", defval=true)
+highlightZeroCrossovers = input.bool(title="Highlight Zero Line Crossovers ?", defval=true)
+applyRibbonFilling = input.bool(title="Apply Ribbon Filling ?", defval=true)
+
+mom = ta.change(src)
+numerator = ta.ema(ta.ema(mom, longLength), shortLength)
+denominator = ta.ema(ta.ema(math.abs(mom), longLength), shortLength)
+tsi = 100 * numerator / denominator
+signal = ta.ema(tsi, signalLength)
+
+trendColor = tsi > signal ? #0ebb23 : #FF5252
+tsiColor = applyRibbonFilling ? trendColor : #ff3e7d
+signalColor = applyRibbonFilling ? trendColor : #3c78d8
+
+tsiPlot = plot(tsi, title="TSI", color=tsiColor)
+signalPlot = plot(signal, title="Signal", color=signalColor)
+
+hist = tsi - signal
+histColor = hist >= 0 ? hist[1] < hist ? #26A69A : #B2DFDB : hist[1] < hist ? #FFCDD2 : #EF5350
+plot(showHistogram ? hist : na, title="Histogram", style=plot.style_columns, color=histColor)
+
+var color noneColor = color.new(#FFFFFF, 100)
+
+maxLevelPlot = hline(maxLevel, title="Max Level", linestyle=hline.style_dotted, color=noneColor)
+obLevelPlot = hline(obLevel, title="Overbought Level", linestyle=hline.style_dotted, color=#00796b)
+hline(0, title="Zero Level", linestyle=hline.style_dotted, color=#989898)
+osLevelPlot = hline(osLevel, title="Oversold Level", linestyle=hline.style_dotted, color=#f57f17)
+minLevelPlot = hline(minLevel, title="Min Level", linestyle=hline.style_dotted, color=noneColor)
+fill(obLevelPlot, osLevelPlot, title="Middle Zone", color=_legacyTransparency(#9C27B0, 95))
+
+obFillColor = tsi > obLevel and highlightBreakouts ? #4CAF50 : noneColor
+osFillColor = tsi < osLevel and highlightBreakouts ? #FF5252 : noneColor
+
+fill(maxLevelPlot, obLevelPlot, title="Overbought Level Breakout", color=_legacyTransparency(obFillColor, 85))
+fill(minLevelPlot, osLevelPlot, title="Oversold Level Breakout", color=_legacyTransparency(osFillColor, 85))
+
+fillColor = applyRibbonFilling ? trendColor : noneColor
+fill(tsiPlot, signalPlot, title="Ribbon", color=_legacyTransparency(fillColor, 70))
+
+zeroCrossBgColor = highlightZeroCrossovers ? (tsi > 0 ? #4CAF50 : #FF5252) : noneColor
+bgcolor(_legacyTransparency(zeroCrossBgColor, 90), title="Zero Line Crossover Background")
+
+plotshape(highlightCrossovers and ta.crossover(tsi, signal) ? tsi : na, title="TSI/Signal Crossover", location=location.absolute, style=shape.circle, size=size.tiny, color=#4CAF50)
+plotshape(highlightCrossovers and ta.crossunder(tsi, signal) ? tsi : na, title="TSI/Signal Crossunder", location=location.absolute, style=shape.circle, size=size.tiny, color=#FF5252)

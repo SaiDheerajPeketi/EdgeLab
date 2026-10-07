@@ -4,8 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPOSITORY = "everget/tradingview-pinescript-indicators";
-const SEED_PATH = new URL("../frontend/src/lib/pineCatalogManifest.json", import.meta.url);
-const DEFAULT_OUTPUT = fileURLToPath(new URL("../frontend/public/catalog/pine/everget", import.meta.url));
+const COLLECTIONS = {
+  "legacy-v1": { seed: "pineCatalogManifest.json", root: "everget" },
+  "expanded-v2": { seed: "pineCatalogManifestV2.json", root: "everget-v2" },
+};
 const SHA = /^[a-f0-9]{40}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const refreshQueues = new Map();
@@ -75,18 +77,21 @@ async function withRefreshLock(outputDir, work) {
 }
 
 /** Updates catalog assets only. User scripts, versions and chart copies are never opened. */
-export async function refreshPineCatalog({ commit, outputDir = DEFAULT_OUTPUT, fetchImpl = fetch } = {}) {
+export async function refreshPineCatalog({ commit, collection = "expanded-v2", outputDir, fetchImpl = fetch } = {}) {
+  if (!Object.hasOwn(COLLECTIONS, collection)) throw new Error("Unknown Pine catalog collection.");
+  const selected = COLLECTIONS[collection];
+  const seed = JSON.parse(await readFile(new URL(`../frontend/src/lib/${selected.seed}`, import.meta.url), "utf8"));
+  outputDir ??= fileURLToPath(new URL(`../frontend/public/catalog/pine/${selected.root}`, import.meta.url));
   if (commit !== undefined && (typeof commit !== "string" || !SHA.test(commit))) throw new Error("Commit must be a full lowercase 40-character Git SHA.");
   const root = path.resolve(outputDir);
   const previous = refreshQueues.get(root) ?? Promise.resolve();
-  const pending = previous.catch(() => {}).then(() => withRefreshLock(root, () => refreshLocked({ commit, outputDir: root, fetchImpl })));
+  const pending = previous.catch(() => {}).then(() => withRefreshLock(root, () => refreshLocked({ commit, outputDir: root, fetchImpl, seed })));
   refreshQueues.set(root, pending);
   try { return await pending; }
   finally { if (refreshQueues.get(root) === pending) refreshQueues.delete(root); }
 }
 
-async function refreshLocked({ commit, outputDir, fetchImpl }) {
-  const seed = JSON.parse(await readFile(SEED_PATH, "utf8"));
+async function refreshLocked({ commit, outputDir, fetchImpl, seed }) {
   if (commit === undefined) {
     const ref = JSON.parse((await fetchBytes(`https://api.github.com/repos/${REPOSITORY}/git/ref/heads/master`, fetchImpl, 32_000)).toString("utf8"));
     commit = ref.object?.sha;
@@ -161,7 +166,13 @@ async function refreshLocked({ commit, outputDir, fetchImpl }) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.length && (args.length !== 2 || args[0] !== "--commit")) throw new Error("Usage: node scripts/refresh-pine-catalog.mjs [--commit FULL_GIT_SHA]");
-  const manifest = await refreshPineCatalog({ commit: args[1] });
+  const options = {};
+  while (args.length) {
+    const flag = args.shift(), value = args.shift();
+    const key = flag === "--commit" ? "commit" : flag === "--collection" ? "collection" : null;
+    if (!key || !value || options[key] !== undefined) throw new Error("Usage: node scripts/refresh-pine-catalog.mjs [--collection legacy-v1|expanded-v2] [--commit FULL_GIT_SHA]");
+    options[key] = value;
+  }
+  const manifest = await refreshPineCatalog(options);
   process.stdout.write(`Pine catalog revision ${manifest.upstreamCommit}: ${manifest.entries.length} originals preserved. User scripts and chart copies are unchanged.\n`);
 }
