@@ -256,8 +256,12 @@ test("native import preserves exact source and provenance through save, edits, h
   await page.screenshot({ path: path.join(artifacts, `psar-chart-context-${info.project.name}.png`) });
   await page.locator(".chart-stage canvas").first().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(artifacts, `psar-chart-${info.project.name}.png`) });
+  const revisionBeforePageReload = (state.storage.get("chart-layout.v1") as { revision: number }).revision;
   await page.reload();
   await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  // The mounted workspace autosaves its hydrated layout after 700ms. Observe
+  // that durable write before comparing storage around a catalog-only reload.
+  await expect.poll(() => (state.storage.get("chart-layout.v1") as { revision: number })?.revision).toBeGreaterThan(revisionBeforePageReload);
   editor = await openEditor(page);
   await editor.getByRole("combobox", { name: "Script library", exact: true }).selectOption(first.id);
   await expect(editor.getByRole("region", { name: "Catalog source attribution", exact: true })).toContainText("Unmodified original source");

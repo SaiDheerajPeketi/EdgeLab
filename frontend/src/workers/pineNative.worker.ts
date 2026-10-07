@@ -254,12 +254,27 @@ function bindGradientFillOptions(context: Context) {
 }
 
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
-function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean) {
+function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>) {
   const original = prepared.fn;
   const installed = new WeakSet<Context>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
       bindGradientFillOptions(context);
+      const pine = context.pine as unknown as Record<string, unknown>;
+      const alertCondition = Object.getOwnPropertyDescriptor(pine, "alertcondition");
+      const alert = pine.alert as { any?: unknown };
+      if (!alertCondition?.writable || typeof alertCondition.value !== "function" || typeof alert?.any !== "function") {
+        error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot disclose unavailable alert delivery.");
+      }
+      const condition = alertCondition.value;
+      Object.defineProperty(pine, "alertcondition", { ...alertCondition, value: function(this: unknown, ...args: unknown[]) {
+        encounteredAlerts.add("alertcondition"); return Reflect.apply(condition, this, args);
+      } });
+      // AlertHelper.any is inherited; shadow only this context's instance.
+      const send = alert.any;
+      Object.defineProperty(alert, "any", { configurable: true, writable: true, value: function(this: unknown, ...args: unknown[]) {
+        encounteredAlerts.add("alert"); return Reflect.apply(send, this, args);
+      } });
       Object.defineProperties(context.pine.barstate, {
         ishistory: { get: () => true },
         isrealtime: { get: () => false },
@@ -320,7 +335,8 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategy tick, fill and historical-tick recalculation are unavailable. Enabled calc_on_every_tick, calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
   ] };
   if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
-  bindClosedSnapshot(prepared, declaration === "strategy");
+  const encounteredAlerts = new Set<string>();
+  bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts);
   const local = chartProvider(request);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
   engine.setMaxLoops(PINE_LIMITS.loops);
@@ -333,6 +349,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   }
   if (local.unavailable()) throw local.unavailable();
   const diagnostics = [...descriptor.diagnostics, warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
+  if (encounteredAlerts.size) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert delivery and notifications are unavailable; no alert was sent.`));
   if (request.context!.mintick === undefined || request.context!.pointvalue === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Missing chart mintick or pointvalue uses 0.01 and 1 respectively; supply instrument metadata for tick-based orders and contract P&L."));
   for (const item of context.warnings ?? []) {
     if (diagnostics.length >= PINE_LIMITS.diagnostics) break;

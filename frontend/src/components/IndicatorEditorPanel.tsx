@@ -110,7 +110,9 @@ export function IndicatorEditorPanel({
     && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs)
     && JSON.stringify(selectedScript.catalogOrigin) === JSON.stringify(catalogOrigin));
   const originalCatalogSource = useMemo(() => Boolean(catalogOrigin && sourceSha256(source) === catalogOrigin.sourceSha256), [source, catalogOrigin?.sourceSha256]);
+  const unchangedMigration = useMemo(() => Boolean(catalogOrigin?.migration && sourceSha256(source) === catalogOrigin.migration.sourceSha256), [source, catalogOrigin?.migration?.sourceSha256]);
   const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
+  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, catalogOrigin, selectedId, request.nonce, bars, symbol, timeframe]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = prepared?.source === source ? prepared : null;
   const canSave = pine ? Boolean(currentPrepared) : Boolean(parsed.program);
@@ -419,11 +421,12 @@ export function IndicatorEditorPanel({
             <input className="input-control mt-2 h-9 w-full text-xs" id="edge-script-name" readOnly={pine} onChange={(event) => rename(event.target.value)} value={currentPrepared?.name ?? parsed.program?.name ?? ""} />
             {pine ? <p className="mt-1 text-[11px] leading-4 text-slate-300">Change the title in indicator() or strategy(), then check the script.</p> : null}
             {catalogOrigin ? <section aria-label="Catalog source attribution" className="mt-4 min-w-0 break-words text-xs leading-5 text-slate-300">
-              <p className="font-semibold text-white">{originalCatalogSource ? "Unmodified original source" : "Edited user copy"}</p>
+              <p className="font-semibold text-white">{originalCatalogSource ? "Unmodified original source" : unchangedMigration ? "Unchanged migrated draft" : catalogOrigin.migration ? "Edited from migrated base" : "Edited user copy"}</p>
               <p>{catalogOrigin.author} · {catalogOrigin.license}</p>
               <p>Original Pine v{catalogOrigin.originalPineVersion} · {pine ? draftPineVersion ? `Draft Pine v${draftPineVersion}` : "Draft version missing" : "EdgeLab DSL draft"}</p>
               <p>Upstream revision <span className="font-mono" title={catalogOrigin.upstreamCommit}>{catalogOrigin.upstreamCommit.slice(0, 8)}</span></p>
               <p>Base source hash <span className="font-mono" title={catalogOrigin.sourceSha256}>{catalogOrigin.sourceSha256.slice(0, 12)}</span></p>
+              {catalogOrigin.migration ? <p>Migration v{catalogOrigin.migration.version} · hash <span className="font-mono" title={catalogOrigin.migration.sourceSha256}>{catalogOrigin.migration.sourceSha256.slice(0, 12)}</span></p> : null}
               <div className="mt-1 flex flex-wrap gap-x-3"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={catalogOrigin.originUrl} target="_blank" rel="noreferrer">Upstream source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={`/catalog/pine/everget/${catalogOrigin.upstreamCommit}/LICENSE.txt`} target="_blank" rel="noreferrer">GPL licence</a></div>
             </section> : null}
             <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
@@ -431,8 +434,8 @@ export function IndicatorEditorPanel({
               <option value="">Current source</option>
               {[...history].reverse().map((version) => <option key={`${version.revision}-${version.createdAt}`} value={version.revision}>v{version.revision} · {new Date(version.createdAt).toLocaleDateString()}</option>)}
             </select>
-            <PineCatalogBrowser onImport={importCatalog} />
-            <p className="mt-3 text-[11px] leading-5 text-slate-300">Catalog execution is experimental. Current plot limits can reject scripts; fills and some shapes are omitted with chart warnings.</p>
+            <PineCatalogBrowser onImport={importCatalog} draftIdentity={catalogDraftIdentity} />
+            <p className="mt-3 text-[11px] leading-5 text-slate-300">Catalog execution is experimental. Supported fills and shapes render on the chart; unavailable drawing outputs and options produce visible warnings. Results may differ from TradingView.</p>
             <details className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3 text-xs leading-5 text-slate-400">
               <summary className="cursor-pointer font-semibold text-slate-200">Language reference</summary>
               {pine ? <div className="mt-3 space-y-2 text-slate-300"><p>Paste a native script with //@version=5 or 6. Check source to generate settings; run to calculate plots or the strategy’s own orders.</p><p>Only the loaded symbol and timeframe are available. Secondary data requests fail explicitly. Some drawing outputs are unavailable and produce warnings.</p><p>PineTS is experimental and independently developed. Results may differ from TradingView.</p><p><a className="text-cyan-200 underline underline-offset-4" href="/LICENSE.txt" target="_blank" rel="noreferrer">AGPL licence</a> · <a className="text-cyan-200 underline underline-offset-4" href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">Source and notices</a></p></div> : <pre className="mt-3 whitespace-pre-wrap font-mono text-[11px] leading-5">{EDGE_INDICATOR_DSL_REFERENCE}</pre>}

@@ -1,4 +1,5 @@
 import seed from "./pineCatalogManifest.json";
+import migrations from "./pineCatalogMigrations.json";
 import { sourceSha256 } from "./sourceSha256";
 
 export const PINE_CATALOG_REPOSITORY = "everget/tradingview-pinescript-indicators";
@@ -20,8 +21,24 @@ export type PineCatalogProvenance = {
   upstreamCommit: string; upstreamBlobSha1: string; sourceSha256: string;
   originalPineVersion: number; author: string; license: "GPL-3.0";
   originUrl: string; lastFetchedAt: string;
+  migration?: { id: string; version: 5; sourceSha256: string };
 };
 export type PineCatalogImport = { source: string; provenance: PineCatalogProvenance };
+export type PineCatalogMigration = {
+  id: string; catalogId: string; path: string; upstreamCommit: string; originalSourceSha256: string;
+  originalPineVersion: number; upstreamBlobSha1: string;
+  targetVersion: 5; sourcePath: string; sourceBytes: number; sourceSha256: string;
+};
+
+/** Derivatives are compiled pins, never selected from a remotely refreshed manifest. */
+export function pineCatalogMigration(catalog: PineCatalogManifest, id: string): PineCatalogMigration | undefined {
+  const entry = validatePineCatalogManifest(catalog).entries.find((item) => item.id === id);
+  if (!entry || pineCatalogCanRun(entry)) return undefined;
+  const migration = migrations.entries.find((item) => item.targetVersion === 5 && item.catalogId === id && item.path === entry.path
+    && item.upstreamCommit === catalog.upstreamCommit && item.originalSourceSha256 === entry.sourceSha256
+    && item.originalPineVersion === entry.pineVersion && item.upstreamBlobSha1 === entry.upstreamBlobSha1);
+  return migration ? { ...migration, targetVersion: 5 } : undefined;
+}
 
 export function validatePineCatalogManifest(value: unknown): PineCatalogManifest {
   if (!value || typeof value !== "object") throw new Error("Invalid Pine catalog.");
@@ -60,9 +77,21 @@ export function sanitizePineCatalogProvenance(value: unknown): PineCatalogProven
     const entry = CURATED_PINE_CATALOG.entries.find((item) => item.path === raw.path)!;
     if (entry.sourceSha256 !== raw.sourceSha256 || entry.upstreamBlobSha1 !== raw.upstreamBlobSha1 || entry.pineVersion !== raw.originalPineVersion) return undefined;
   }
+  let migration: PineCatalogProvenance["migration"];
+  if (raw.migration !== undefined) {
+    const pinned = migrations.entries.find((item) => item.targetVersion === 5 && item.catalogId === raw.catalogId && item.path === raw.path
+      && item.upstreamCommit === raw.upstreamCommit && item.originalSourceSha256 === raw.sourceSha256
+      && item.upstreamBlobSha1 === raw.upstreamBlobSha1 && item.originalPineVersion === raw.originalPineVersion
+      && raw.migration && raw.migration.id === item.id && raw.migration.version === 5
+      && raw.migration.sourceSha256 === item.sourceSha256);
+    if (pinned) {
+      migration = { id: pinned.id, version: 5, sourceSha256: pinned.sourceSha256 };
+    }
+  }
   return { catalogId: raw.catalogId, repository: PINE_CATALOG_REPOSITORY, path: raw.path, upstreamCommit: raw.upstreamCommit,
     upstreamBlobSha1: raw.upstreamBlobSha1, sourceSha256: raw.sourceSha256, originalPineVersion: raw.originalPineVersion,
-    author: raw.author, license: raw.license, originUrl: raw.originUrl, lastFetchedAt: raw.lastFetchedAt };
+    author: raw.author, license: raw.license, originUrl: raw.originUrl, lastFetchedAt: raw.lastFetchedAt,
+    ...(migration ? { migration } : {}) };
 }
 
 export function pineCatalogCanRun(entry: PineCatalogEntry): boolean { return entry.pineVersion === 5 || entry.pineVersion === 6; }
@@ -116,4 +145,17 @@ export async function loadPineCatalogSource(catalog: PineCatalogManifest, id: st
   return { source, provenance: { catalogId: entry.id, repository: PINE_CATALOG_REPOSITORY, path: entry.path, upstreamCommit: validated.upstreamCommit,
     upstreamBlobSha1: entry.upstreamBlobSha1, sourceSha256: entry.sourceSha256, originalPineVersion: entry.pineVersion, author: entry.author,
     license: entry.license, originUrl: entry.originUrl, lastFetchedAt: validated.lastFetchedAt } };
+}
+
+/** An explicit import verifies both the original and the separately pinned derivative. */
+export async function loadPineCatalogMigration(catalog: PineCatalogManifest, id: string, signal?: AbortSignal): Promise<PineCatalogImport> {
+  const migration = pineCatalogMigration(catalog, id);
+  if (!migration) throw new Error("No reviewed migration matches this original source revision.");
+  const original = await loadPineCatalogSource(catalog, id, signal);
+  const entry = catalog.entries.find((item) => item.id === id)!;
+  const source = await readText(migration.sourcePath, signal, 20_000);
+  validatePineCatalogSource(source, { ...entry, pineVersion: migration.targetVersion,
+    sourceBytes: migration.sourceBytes, sourceSha256: migration.sourceSha256 });
+  return { source, provenance: { ...original.provenance,
+    migration: { id: migration.id, version: migration.targetVersion, sourceSha256: migration.sourceSha256 } } };
 }

@@ -1,0 +1,30 @@
+//@version=5
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// T3 Moving Average script may be freely distributed under the terms of the GPL-3.0 license.
+// EdgeLab v1 compatibility migration (2026-10-07): Pine v4 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/movings/t3_moving_average.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("T3 Moving Average", shorttitle="T3", overlay=true)
+
+length = input.int(title="Length", defval=5)
+factor = input.float(title="Factor", minval=0, maxval=1, defval=0.7)
+src = input.source(title="Source", defval=close)
+highlight = input.bool(title="Highlight ?", defval=true)
+
+// PineTS 0.11.0 shares state across the original nested _gd callsites.
+// Inline each generalized-DEMA stage so all six EMA states remain distinct.
+// Keep stage-by-stage SMA seeding; a six-EMA polynomial has different startup behavior.
+ema1 = ta.ema(src, length)
+ema2 = ta.ema(ema1, length)
+gd1 = ema1 * (1 + factor) - ema2 * factor
+
+ema3 = ta.ema(gd1, length)
+ema4 = ta.ema(ema3, length)
+gd2 = ema3 * (1 + factor) - ema4 * factor
+
+ema5 = ta.ema(gd2, length)
+ema6 = ta.ema(ema5, length)
+t3 = ema5 * (1 + factor) - ema6 * factor
+
+t3Color = highlight ? t3 > t3[1] ? #4CAF50 : #FF5252 : #6d1e7f
+plot(t3, title="T3", linewidth=2, color=t3Color)

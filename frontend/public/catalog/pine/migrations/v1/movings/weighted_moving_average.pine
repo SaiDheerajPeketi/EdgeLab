@@ -1,0 +1,12 @@
+//@version=5
+// Copyright (c) 2018-present, Alex Orekhov (everget)
+// Weighted Moving Average script may be freely distributed under the terms of the GPL-3.0 license.
+// EdgeLab v1 compatibility migration (2026-10-07): Pine v3 to v5.
+// Derived from 0b164e1e4f2fb7b06524c6d0a26e6132228c9448/movings/weighted_moving_average.pine; original retained unchanged.
+// Changes and runtime limitations: ../README.md.
+indicator("Weighted Moving Average", shorttitle="WMA", overlay=true)
+
+length = input.int(title="Length", minval=1, defval=14)
+src = input.source(title="Source", defval=close)
+
+plot(ta.wma(src, length), title="WMA", linewidth=2, color=#6d1e7f)
