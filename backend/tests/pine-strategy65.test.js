@@ -491,14 +491,14 @@ test("replacing a take-profit with smaller quantity releases capacity for subseq
   assert.equal(result.strategy.pendingOrders[0].id, "TP");
 });
 
-for (const boundary of ["trailing exit", "intrabar liquidation"]) {
+for (const boundary of ["incomplete trailing exit", "intrabar liquidation"]) {
   test(`unsupported ${boundary} fails explicitly rather than returning a plausible partial test`, async () => {
-    const source = boundary === "trailing exit" ? `//@version=6
+    const source = boundary === "incomplete trailing exit" ? `//@version=6
 strategy("Trailing boundary",initial_capital=10000,calc_on_order_fills=true)
 if bar_index==0
     strategy.entry("Buy",strategy.long)
 if strategy.position_size>0
-    strategy.exit("Trail","Buy",trail_points=5,trail_offset=2)` : `//@version=6
+    strategy.exit("Trail","Buy",trail_points=5)` : `//@version=6
 strategy("Liquidation boundary",initial_capital=1100,margin_long=50,calc_on_order_fills=true)
 if bar_index==0
     strategy.entry("Buy",strategy.long,qty=20)`;

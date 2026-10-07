@@ -165,7 +165,7 @@ plot(strategy.position_size,"Position")`;
 if bar_index==0
     strategy.entry("Buy",strategy.long)
 if strategy.position_size>0
-    strategy.exit("Trail","Buy",trail_points=5,trail_offset=2)`);
+    strategy.exit("Trail","Buy",trail_points=5)`);
   expect(trailing).toMatchObject({ ok: false, error: { code: "UNSUPPORTED_ORDER_FILL_CONTEXT" } });
   const cycle = await run(`${header.replace("calc_on_order_fills=true", "calc_on_order_fills=true,process_orders_on_close=true")}
 if strategy.position_size==0

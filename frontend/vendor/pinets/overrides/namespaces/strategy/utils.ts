@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-08: chronological historical order-fill scheduler.
+// EdgeLab modification, 2026-10-08: chronological fills, per-lot trails and opening-gap order priority.
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 LuxAlgo
 
@@ -1555,10 +1555,10 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
         //   trail_points: armed when market moves N ticks in favor from entry
         // After arming, ride at trail_offset ticks behind the running peak.
         //
-        // Pine semantic: the trail cannot arm and trigger on the same
-        // bar. The arming bar establishes the running peak; the trigger
-        // check is suppressed for that bar only. SL and TP triggers are
-        // independent and still fire on the arming bar.
+        // A trail can arm and fill on the remaining retrace of the same
+        // bar. Its later activation must not make an earlier adverse
+        // extreme eligible; checkTrail separates those path segments.
+        // SL and TP triggers remain independent.
         // Trail arming + evaluation are intra-bar phenomena — they run in
         // the 'intrabar' phase only (arming twice per bar would corrupt
         // trailArmedThisBar, making the segment model treat the arming bar
@@ -1617,7 +1617,7 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
         // fill price is the OPEN, not the literal trigger price. This
         // mirrors real broker behavior — if you'd planned a stop at $100
         // and the bar opens at $95, you fill at $95.
-        type FillEvent = { qty: number; price: number; kind: 'profit' | 'loss' | 'trailing'; tradeId?: string };
+        type FillEvent = { qty: number; price: number; kind: 'profit' | 'loss' | 'trailing'; tradeId?: string; atOpen?: boolean };
         const tpEvents: FillEvent[] = [];
         const slEvents: FillEvent[] = [];
 
@@ -1675,14 +1675,14 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
                 // leg (if also reachable) still applies.
                 const buyStopSparesFreshEntry = !isLong && openPastSl && t.entry_bar_index === context.idx;
                 if (!buyStopSparesFreshEntry) {
-                    slEvents.push({ qty: tQty, price: openPastSl ? openPrice : (sl as number), kind: 'loss', tradeId: t.id });
+                    slEvents.push({ qty: tQty, price: openPastSl ? openPrice : (sl as number), kind: 'loss', tradeId: t.id, atOpen: openPastSl });
                 } else if (tpHit) {
                     kind = 'profit';
                 }
             }
             if (kind === 'profit') {
                 const openPastTp = isLong ? openPrice >= (tp as number) + limitSlack : openPrice <= (tp as number) - limitSlack;
-                tpEvents.push({ qty: tQty, price: openPastTp ? openPrice : (tp as number), kind: 'profit', tradeId: t.id });
+                tpEvents.push({ qty: tQty, price: openPastTp ? openPrice : (tp as number), kind: 'profit', tradeId: t.id, atOpen: openPastTp });
             }
         }
 
@@ -1718,9 +1718,8 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
         // armed yet). Only phase 2 (favorable-first) or phase 3
         // (adverse-first) can fire on the arming bar.
         //
-        // The fill is always the LITERAL trigger price — gap-fill at
-        // open is incorrect for trail (the bar's open precedes any
-        // peak update for this trade).
+        // An already armed stop crossed in the opening gap fills at the open,
+        // before any new favorable extreme can ratchet its prior trigger.
         let trailEvent: FillEvent | null = null;
         if (phase === 'intrabar' && !mcLocked && order.trail_armed && order.trail_offset !== undefined) {
             const updatePeak = () => {
@@ -1731,11 +1730,14 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
                 isLong
                     ? (order.trail_peak as number) - (order.trail_offset as number) * mintick
                     : (order.trail_peak as number) + (order.trail_offset as number) * mintick;
-            const emitTrail = (price: number) => {
-                trailEvent = { qty: Infinity, price, kind: 'trailing' };
+            const emitTrail = (price: number, atOpen = false) => {
+                trailEvent = { qty: Infinity, price, kind: 'trailing', atOpen };
             };
 
-            if (trailArmedThisBar) {
+            const priorTrigger = triggerFromPeak();
+            const armedGap = !trailArmedThisBar && (isLong ? openPrice <= priorTrigger : openPrice >= priorTrigger);
+            if (armedGap) emitTrail(openPrice, true);
+            else if (trailArmedThisBar) {
                 // Peak is already the bar's favorable extreme (set by the
                 // arming logic). Don't update again.
                 const trig = triggerFromPeak();
@@ -1772,9 +1774,14 @@ export function processExitOrders(context: any, phase: 'open' | 'intrabar' = 'in
         // Path-ordered event list (mirrors the old checkTp/checkSl/
         // checkTrail priority: TP leg first on favorable-first bars;
         // SL then trail then TP on adverse-first bars).
-        const events: FillEvent[] = favorableFirst
+        const pathEvents: FillEvent[] = favorableFirst
             ? [...tpEvents, ...slEvents, ...(trailEvent ? [trailEvent] : [])]
             : [...slEvents, ...(trailEvent ? [trailEvent] : []), ...tpEvents];
+        // Keep existing same-open tie order, but an opening trailing gap must
+        // precede brackets reached only later along the candle's price path.
+        const events = trailEvent?.atOpen
+            ? [...pathEvents.filter(event => event.atOpen), ...pathEvents.filter(event => !event.atOpen)]
+            : pathEvents;
 
         if (events.length > 0) {
             // qty / qty_percent caps apply to the TOTAL closed by this order.
@@ -2465,6 +2472,17 @@ export function restoreStrategyState(strategy: StrategyState | undefined, snapsh
 const historicalExitReservations = new WeakMap<object, Map<string, number>>();
 const historicalMarketExitRemaining = new WeakMap<object, number>();
 const historicalExitSeenTrades = new WeakMap<object, Set<string>>();
+type HistoricalTrailState = { armed: boolean; peak: number; armedBar: number; armedAt: number };
+const historicalTrailingStates = new WeakMap<object, Map<string, HistoricalTrailState>>();
+
+/** Pending replacement preserves each physical lot's broker trail, outside script rollback. */
+export function inheritHistoricalTrailingState(previous: object, replacement: object): void {
+    const order = replacement as Order;
+    if (order.trail_offset === undefined || (order.trail_price === undefined && order.trail_points === undefined)) return;
+    const states = historicalTrailingStates.get(previous);
+    if (states) historicalTrailingStates.set(replacement, new Map([...states].map(([id, state]) => [id, { ...state }])));
+}
+
 
 /** EdgeLab: process actual fills in chronological order, keeping the author's OHLC immutable. */
 export async function processHistoricalFillBar(context: any, calculate: () => Promise<any>, initial?: { result: any }): Promise<any> {
@@ -2482,6 +2500,15 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     const fail = (message: string, code = 'UNSUPPORTED_ORDER_FILL_CONTEXT') => { const error: any = new Error(message); error.code = code; throw error; };
     const mark = (price: number) => {
         markToMarket(context, price);
+        for (const order of strategy.pending_orders) {
+            if (order.status !== 'pending') continue;
+            const states = historicalTrailingStates.get(order);
+            if (!states) continue;
+            for (const trade of strategy.opentrades) {
+                const state = states.get(trade.id);
+                if (state?.armed) state.peak = trade.size > 0 ? Math.max(state.peak, price) : Math.min(state.peak, price);
+            }
+        }
         const pointValue = context.pine?.syminfo?.pointvalue ?? 1;
         for (const trade of strategy.opentrades) {
             const pnl = (price - trade.entry_price) * trade.size * pointValue;
@@ -2520,10 +2547,10 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         if (++executions > 512) fail('Order-fill recalculation exceeded 512 calculations in one bar.', 'STRATEGY_EXECUTION_LIMIT');
         result = await calculate(); lastCalculation = cursor; stamp();
     };
-    type Event = { at: number; price: number; order: any; kind: 'entry' | 'activate' | 'market-exit' | 'profit' | 'loss'; trade?: any };
+    type Event = { at: number; price: number; order: any; kind: 'entry' | 'activate' | 'trail-activate' | 'market-exit' | 'profit' | 'loss' | 'trailing'; trade?: any };
     const reserveExits = () => {
         const exits = strategy.pending_orders.filter(order => order.status === 'pending' && order.category === 'exit' &&
-            ['profit', 'loss', 'limit', 'stop'].some(key => order[key] !== undefined));
+            ['profit', 'loss', 'limit', 'stop', 'trail_price', 'trail_points'].some(key => order[key] !== undefined));
         const available = new Map(strategy.opentrades.map(trade => [trade.id, Math.abs(trade.size)]));
         // Existing generations keep their reservations. Removed/replaced orders
         // release their allocations; a new generation can use the freed quantity.
@@ -2602,12 +2629,24 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                 if (candidate) events.push({ ...candidate, order, kind });
                 continue;
             }
-            if (order.trail_price !== undefined || order.trail_points !== undefined || order.trail_offset !== undefined)
-                fail('Trailing exits are unavailable with order-fill recalculation.');
+            const mentionsTrail = order.trail_price !== undefined || order.trail_points !== undefined || order.trail_offset !== undefined;
+            const hasTrail = order.trail_offset !== undefined && (order.trail_price !== undefined || order.trail_points !== undefined);
+            const hasFixedExit = ['profit', 'loss', 'limit', 'stop'].some(key => order[key] !== undefined);
+            if (mentionsTrail) {
+                for (const key of ['trail_price', 'trail_points', 'trail_offset']) {
+                    if (order[key] !== undefined && (typeof order[key] !== 'number' || !Number.isFinite(order[key]) || (key !== 'trail_price' && order[key] < 0)))
+                        fail(`${key} must resolve to a finite ${key === 'trail_price' ? '' : 'nonnegative '}number for historical trailing exits.`);
+                }
+                if (!hasTrail && !hasFixedExit) fail('Historical trailing exits require trail_offset and trail_price or trail_points.');
+            }
             let matching = strategy.opentrades.filter(t => !order.from_entry || t.entry_id === order.from_entry);
             if (order._intended_trade_ids) matching = matching.filter(t => order._intended_trade_ids.includes(t.id));
-            const conditional = ['profit', 'loss', 'limit', 'stop'].some(key => order[key] !== undefined);
+            const conditional = hasFixedExit || hasTrail;
             if (!matching.length) continue; // A bracket may be waiting on an entry later on this path.
+            if (!conditional && order._historical_conditional_exit) {
+                order.status = 'cancelled'; // All-na price levels disable strategy.exit; this is not strategy.close.
+                continue;
+            }
             if (!conditional) {
                 const at = order.immediately || (strategy.config.process_orders_on_close === true && cursor === 3) ? cursor : born < cursor ? cursor : nextTick(born);
                 if (at <= 3) events.push({ at, price: priceAt(at), order, kind: 'market-exit' });
@@ -2631,6 +2670,26 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
                 }).sort((a, b) => a.at - b.at);
                 if (profitEvents[0]) events.push(profitEvents[0]);
                 if (lossEvents[0]) events.push(lossEvents[0]);
+                if (hasTrail) {
+                    let states = historicalTrailingStates.get(order);
+                    if (!states) historicalTrailingStates.set(order, states = new Map());
+                    let state = states.get(trade.id);
+                    if (!state) states.set(trade.id, state = { armed: false, peak: NaN, armedBar: -1, armedAt: -1 });
+                    if (!state.armed) {
+                        const relativeArm = order.trail_points === undefined ? undefined : entry + direction * order.trail_points * mintick;
+                        const levels = context.pineVersion >= 6 ? [order.trail_price, relativeArm] : [order.trail_price ?? relativeArm];
+                        const arms = levels.flatMap(level => {
+                            const event = trigger(level, direction > 0, born);
+                            return event ? [{ ...event, order, kind: 'trail-activate' as const, trade }] : [];
+                        }).sort((a, b) => a.at - b.at);
+                        if (arms[0]) events.push(arms[0]);
+                    } else {
+                        const stop = state.peak - direction * order.trail_offset * mintick;
+                        const activeSince = Math.max(born, state.armedBar === context.idx ? state.armedAt : -1);
+                        const event = trigger(stop, direction < 0, activeSince);
+                        if (event) events.push({ ...event, order, kind: 'trailing', trade });
+                    }
+                }
             }
         }
         // Stable queue order breaks exact-price ties; callbacks may cancel/replace the next candidate.
@@ -2650,6 +2709,11 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
     const fill = (event: Event) => {
         const { order, kind, trade } = event;
         if (kind === 'activate') { order._stopTriggered = true; return false; }
+        if (kind === 'trail-activate') {
+            const state = historicalTrailingStates.get(order)!.get(trade.id)!;
+            state.armed = true; state.peak = event.price; state.armedBar = context.idx; state.armedAt = cursor;
+            return false; // Activation is a broker transition, not an order fill.
+        }
         const beforeClosed = strategy.closedtrades.length, beforeSize = strategy.position_size;
         if (kind === 'entry') {
             fillEntryOrder(context, order, event.price, time, event.price);
@@ -2669,7 +2733,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
             if (qty <= 0 || !matching.length) { order.status = 'cancelled'; return false; }
             const direction = Math.sign(matching[0].size);
             const price = kind === 'profit' ? event.price : applySlippage(context, -direction, event.price);
-            const comment = kind === 'profit' ? order.comment_profit ?? order.comment : kind === 'loss' ? order.comment_loss ?? order.comment : order.comment;
+            const comment = kind === 'profit' ? order.comment_profit ?? order.comment : kind === 'loss' ? order.comment_loss ?? order.comment : kind === 'trailing' ? order.comment_trailing ?? order.comment : order.comment;
             closeMatching(context, order.from_entry, qty, price, time, { exitId: order.id, exitComment: comment, ...(kind === 'market-exit' ? {} : { triggerKind: kind }) }, trade?.id);
             if (trade) (trade._exits_filled ??= new Set()).add(order.id);
             const left = strategy.opentrades.filter(t => !order.from_entry || t.entry_id === order.from_entry).reduce((sum, t) => sum + Math.abs(t.size), 0);
@@ -2700,6 +2764,7 @@ export async function processHistoricalFillBar(context: any, calculate: () => Pr
         if (lastCalculation !== 3) { await execute(); continue; }
         break;
     }
+    strategy.pending_orders = strategy.pending_orders.filter(order => order.status === 'pending');
     finalizeStrategyBar(context);
     return result;
 }
