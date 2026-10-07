@@ -662,6 +662,15 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       const borderShade = pineVisualColor(option(source, sample, "bordercolor"), bodyShade);
       const wickLeft = body.center - Math.floor(body.wick / 2) / ratio, wickRight = wickLeft + body.wick / ratio;
       const highY = rounded(Math.min(high, low)), lowY = rounded(Math.max(high, low));
+      if (plot.visual!.style === "bar") {
+        // Conventional OHLC bars: open ticks left, close ticks right. Disjoint
+        // rectangles keep translucent intersections from receiving color twice.
+        const tickHeight = Math.max(1, Math.floor(verticalRatio)) / verticalRatio;
+        rect(bodyShade, wickLeft, highY, wickRight, lowY + 1 / verticalRatio);
+        rect(bodyShade, body.left, rounded(open), wickLeft, rounded(open) + tickHeight);
+        rect(bodyShade, wickRight, rounded(close), body.right, rounded(close) + tickHeight);
+        continue;
+      }
       rect(wickShade, wickLeft, highY, wickRight, top);
       rect(wickShade, wickLeft, bottom + 1 / verticalRatio, wickRight, lowY + 1 / verticalRatio);
       const border = Math.max(Math.floor(ratio), body.pixels <= 2 * Math.floor(ratio) ? Math.floor((body.pixels - 1) / 2) : Math.floor(ratio)) / ratio;

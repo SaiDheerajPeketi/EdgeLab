@@ -37,7 +37,7 @@ export async function run(input: any) {
       height: 220,
       layout: { background: { color: "#111827" }, textColor: "#cbd5e1" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      rightPriceScale: { borderVisible: false },
+      rightPriceScale: { borderVisible: false, invertScale: input.inverted === true },
       timeScale: { visible: false },
       crosshair: { vertLine: { visible: false }, horzLine: { visible: false } },
     });

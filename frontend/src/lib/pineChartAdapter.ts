@@ -63,7 +63,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       return [];
     }
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
-    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
+    const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", bar: "candles", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
     const packed = getPackedPinePlot(plot);
     const optionSets = pinePlotOptionSets(plot);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
@@ -147,7 +147,10 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     if (style === "circles" && (plot.options.join === true || optionSets.some((options) => options.join === true))) warn("Circle plot joins are not rendered; points remain separate.");
     const baseColor = color(plot.options.color);
     const visual = ["line", "markers", "area", "histogram", "candles"].includes(kind) ? { source: plot, bars, style, showFrom, ...(plotOffset ? { plotOffset } : {}), ...(style === "histogram" ? { histogramWidth: histogramWidth as number } : {}) } : undefined;
-    if (kind === "candles" && ["color", "wickcolor", "bordercolor"].some((key) => plot.options[key] === undefined)) warnings.push("Omitted native candle colors use local defaults and inheritance; TradingView default color calibration has not been verified.");
+    if (style === "bar") {
+      warnings.push("Native OHLC bar widths use local chart pixel cadence; TradingView pixel calibration has not been verified.");
+      if (plot.options.color === undefined) warnings.push("Omitted native OHLC bar colors use local defaults; TradingView default color calibration has not been verified.");
+    } else if (kind === "candles" && ["color", "wickcolor", "bordercolor"].some((key) => plot.options[key] === undefined)) warnings.push("Omitted native candle colors use local defaults and inheritance; TradingView default color calibration has not been verified.");
     if (kind === "markers") {
       const allowedShapes = ["circle", "square", "arrowup", "arrowdown", "triangleup", "triangledown", "labelup", "labeldown"];
       const supported = optionSets.every((options) => {

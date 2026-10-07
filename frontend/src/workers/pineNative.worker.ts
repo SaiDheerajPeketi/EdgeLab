@@ -112,7 +112,7 @@ export function normalizePinePlotValue(value: unknown): PinePlot["points"][numbe
       || value.some((item) => typeof item === "number" && !Number.isFinite(item) && !Number.isNaN(item))) {
       return error("UNSUPPORTED_RESULT", "Invalid OHLC plot output.");
     }
-    // Pine plotcandle hides a bar when any required OHLC series is na.
+    // Pine plotcandle and plotbar hide a bar when any required OHLC series is na.
     if (value.some((item) => item == null || Number.isNaN(item))) return null;
     return value as number[];
   }
@@ -137,23 +137,25 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     .sort(([, first], [, second]) => ((first as { _edgelabBackgroundOrder?: number })._edgelabBackgroundOrder ?? 0) - ((second as { _edgelabBackgroundOrder?: number })._edgelabBackgroundOrder ?? 0));
   const barcolors = entries.filter(([, value]) => (value as { options?: { style?: string } }).options?.style === "barcolor")
     .sort(([, first], [, second]) => ((first as { _edgelabBarColorOrder?: number })._edgelabBarColorOrder ?? 0) - ((second as { _edgelabBarColorOrder?: number })._edgelabBarColorOrder ?? 0));
-  let backgroundIndex = 0, barcolorIndex = 0;
+  const barplots = entries.filter(([, value]) => (value as { options?: { style?: string } }).options?.style === "bar")
+    .sort(([, first], [, second]) => ((first as { _edgelabBarPlotOrder?: number })._edgelabBarPlotOrder ?? 0) - ((second as { _edgelabBarPlotOrder?: number })._edgelabBarPlotOrder ?? 0));
+  let backgroundIndex = 0, barcolorIndex = 0, barplotIndex = 0;
   const ordered = entries.map((entry) => {
     const style = (entry[1] as { options?: { style?: string } }).options?.style;
-    return style === "background" ? backgrounds[backgroundIndex++] : style === "barcolor" ? barcolors[barcolorIndex++] : entry;
+    return style === "background" ? backgrounds[backgroundIndex++] : style === "barcolor" ? barcolors[barcolorIndex++] : style === "bar" ? barplots[barplotIndex++] : entry;
   });
   const plots = ordered.flatMap(([id, value]) => {
-    const plot = value as { title?: string; _edgelabBackgroundOrder?: number; _edgelabBarColorOrder?: number; options?: Record<string, unknown>; data?: { time: number; value: unknown; options?: Record<string, unknown> }[] };
+    const plot = value as { title?: string; _edgelabBackgroundOrder?: number; _edgelabBarColorOrder?: number; _edgelabBarPlotOrder?: number; options?: Record<string, unknown>; data?: { time: number; value: unknown; options?: Record<string, unknown> }[] };
     const style = typeof plot.options?.style === "string" ? plot.options.style : "line";
     if (!Array.isArray(plot.data)) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     // HlineHelper forwards omitted parameters as own undefined fields. Preserve absence
     // separately from explicit na (NaN), so a missing color does not hide a fixed level.
-    const plotFields = (value: object) => fields(["hline", "candle", "candles", "plotcandle"].includes(style) ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value);
+    const plotFields = (value: object) => fields(["hline", "bar", "candle", "candles", "plotcandle"].includes(style) ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value);
     const points = function* (): Generator<PinePlotPoint> {
       for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: plotFields(point.options ?? {}) };
     };
-    const name = plot.title ?? (style === "background" ? `Background ${(plot._edgelabBackgroundOrder ?? 0) + 1}` : style === "barcolor" ? `Bar color ${(plot._edgelabBarColorOrder ?? 0) + 1}` : id);
+    const name = plot.title ?? (style === "background" ? `Background ${(plot._edgelabBackgroundOrder ?? 0) + 1}` : style === "barcolor" ? `Bar color ${(plot._edgelabBarColorOrder ?? 0) + 1}` : style === "bar" ? `OHLC bars ${(plot._edgelabBarPlotOrder ?? 0) + 1}` : id);
     return [{ id, name, style, overlay: plot.options?.force_overlay === true || overlay || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : false), options: plotFields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
   });
   return packed ? encodePinePackedPlots(plots, bars) : { plots: plots as PinePlot[] };
@@ -233,6 +235,81 @@ function bindPlotOptions(context: Context) {
     result.options.overlay = overlay || options.force_overlay === true;
     return result;
   } });
+}
+
+/** Preserve the current twelve-argument plotbar signature around PineTS's
+ * positional optional-argument loss. Original OHLC Series stay intact. */
+function bindBarPlotOptions(context: Context) {
+  const pine = context.pine as unknown as Record<string, unknown>;
+  const descriptor = Object.getOwnPropertyDescriptor(pine, "plotbar");
+  if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot preserve OHLC bar options.");
+  const original = descriptor.value;
+  const signature = ["open", "high", "low", "close", "title", "color", "editable", "show_last", "display", "format", "precision", "force_overlay"];
+  const channels = new Map<number, { id: string; flags: Record<string, unknown> }>();
+  let count = 0, expectedCount: number | undefined;
+  Object.defineProperty(pine, "plotbar", { ...descriptor, value: function(this: unknown, ...args: unknown[]) {
+    if (context.isSecondaryContext) return Reflect.apply(original, this, args);
+    const last = args.at(-1) as { __callsiteId?: unknown } | undefined;
+    const sentinel = last && typeof last === "object" && typeof last.__callsiteId === "string" ? last : undefined;
+    const values = sentinel ? args.slice(0, -1) : args;
+    const fields: Record<string, unknown> = {};
+    values.forEach((argument, index) => {
+      if (argument && typeof argument === "object" && !Array.isArray(argument) && (Object.getPrototypeOf(argument) === Object.prototype || Object.getPrototypeOf(argument) === null)) {
+        if (index !== values.length - 1) error("UNSUPPORTED_BAR_OPTION", "Named OHLC bar options must follow positional arguments.");
+        Object.assign(fields, argument);
+      } else {
+        if (index >= signature.length) error("UNSUPPORTED_BAR_OPTION", "OHLC bars received unsupported extra arguments.");
+        fields[signature[index]] = argument;
+      }
+    });
+    if (signature.slice(0, 4).some(name => !Object.prototype.hasOwnProperty.call(fields, name)) || Object.keys(fields).some(name => !signature.includes(name))) error("UNSUPPORTED_BAR_OPTION", "OHLC bars require open, high, low and close and only support documented options.");
+    const options: Record<string, unknown> = {};
+    for (const name of signature.slice(4)) {
+      if (!Object.prototype.hasOwnProperty.call(fields, name)) continue;
+      let value = fields[name];
+      for (let depth = 0; depth < 4; depth++) {
+        const scalar = value && typeof value === "object" && "__value" in value ? (value as { __value: unknown }).__value : value;
+        const resolved = resolvedSetting(scalar);
+        if (resolved === value) break;
+        value = resolved;
+      }
+      if (["editable", "force_overlay"].includes(name) && typeof value !== "boolean") error("UNSUPPORTED_BAR_OPTION", `OHLC bar ${name} must resolve to a boolean.`);
+      if (["show_last", "precision"].includes(name) && (!Number.isSafeInteger(value) || (value as number) < 0 || (name === "precision" && (value as number) > 16))) error("UNSUPPORTED_BAR_OPTION", `OHLC bar ${name} must resolve to a valid nonnegative integer.`);
+      if (name === "title" && (typeof value !== "string" || value.length > 4_096)) error("UNSUPPORTED_BAR_OPTION", "OHLC bar title must resolve to a bounded string.");
+      if (name === "display" && value !== "all" && value !== "none") error("UNSUPPORTED_BAR_OPTION", "OHLC bar display must resolve to display.all or display.none.");
+      if (name === "format" && !["price", "percent", "volume"].includes(String(value))) error("UNSUPPORTED_BAR_OPTION", "OHLC bar format must resolve to price, percent or volume.");
+      if (name === "color" && value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value)) && typeof value !== "string") error("UNSUPPORTED_BAR_OPTION", "OHLC bar color must resolve to a color or na.");
+      options[name] = value;
+    }
+    const ordinal = count++, flags = Object.fromEntries(Object.entries(options).filter(([name]) => name !== "color"));
+    if (ordinal >= PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
+    const plots = context.plots as Record<string, { _callsiteId?: string; _edgelabBarPlotOrder?: number; options?: Record<string, unknown> }>;
+    const title = options.title as string | undefined;
+    let channel = channels.get(ordinal);
+    if (!channel) {
+      let id = `edgelab-ohlc-bar:${ordinal}`;
+      while (Object.prototype.hasOwnProperty.call(plots, id) || (title && Object.prototype.hasOwnProperty.call(plots, title + id))) id += ":";
+      channel = { id, flags }; channels.set(ordinal, channel);
+    } else if (Object.keys(channel.flags).length !== Object.keys(flags).length || Object.entries(flags).some(([name, value]) => !Object.is(value, channel!.flags[name]))) error("UNSUPPORTED_BAR_OPTION", "OHLC bar options other than color must remain constant throughout the snapshot.");
+    const key = title ? (!plots[title] || plots[title]._callsiteId === channel.id ? title : title + channel.id) : channel.id;
+    const forwarded = [fields.open, fields.high, fields.low, fields.close, options];
+    // This helper lacks transpiler callsite identities. Supply an own-context
+    // global-call identity so untitled and duplicate-title calls cannot merge.
+    forwarded.push({ __callsiteId: channel.id });
+    const result = Reflect.apply(original, this, forwarded);
+    const plot = plots[key];
+    if (plot?.options?.style !== "bar" || plot._callsiteId !== channel.id) error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine did not preserve the OHLC bar channel.");
+    plot._edgelabBarPlotOrder = ordinal;
+    return result;
+  } });
+  return {
+    start() { count = 0; },
+    finish() {
+      if (context.isSecondaryContext) return;
+      if (expectedCount !== undefined && count !== expectedCount) error("UNSUPPORTED_BAR_OPTION", "OHLC bars must use the same global calls on every bar; local conditional calls are unsupported.");
+      expectedCount = count;
+    },
+  };
 }
 
 /** Bgcolor is global-only in Pine. Invocation ordinals are host channels, not source locations. */
@@ -509,10 +586,12 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
   const barcolors = new WeakMap<Context, ReturnType<typeof bindBarColorOptions>>();
+  const barplots = new WeakMap<Context, ReturnType<typeof bindBarPlotOptions>>();
   const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
     if (!installed.has(context)) {
       bindDeclarationLayer(context, strategyDeclaration);
       bindPlotOptions(context);
+      barplots.set(context, bindBarPlotOptions(context));
       bindGradientFillOptions(context);
       backgrounds.set(context, bindBackgroundOptions(context));
       barcolors.set(context, bindBarColorOptions(context));
@@ -560,9 +639,11 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
     }
     backgrounds.get(context)!.start();
     barcolors.get(context)!.start();
+    barplots.get(context)!.start();
     const checked = () => {
       backgrounds.get(context)!.finish();
       barcolors.get(context)!.finish();
+      barplots.get(context)!.finish();
       const channels = (Object.values(context.plots) as { options?: { style?: string }; data?: unknown[] }[]).filter((plot) => !["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"].includes(plot.options?.style ?? ""));
       if (channels.length > PINE_LIMITS.plots) error("PLOT_LIMIT", "Native Pine output exceeds 64 channels; this host capacity is distinct from TradingView plot counts.");
       if (channels.reduce((total, plot) => total + (plot.data?.length ?? 0), 0) > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 1,280,000 bar slots.");
