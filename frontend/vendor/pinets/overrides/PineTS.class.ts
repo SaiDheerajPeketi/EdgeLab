@@ -1145,7 +1145,7 @@ export class PineTS {
      * @param context - The cached secondary context to update
      * @returns true if data was updated, false if no changes
      */
-    public async updateTail(context: Context, event?: { confirmed: boolean }): Promise<boolean> {
+    public async updateTail(context: Context, event?: { confirmed: boolean; received?: boolean }): Promise<boolean> {
         if (this._realtimeMode) {
             if (this._realtimeUpdating) throw new Error('A realtime update is already running.');
             this._realtimeUpdating = true;
@@ -1276,8 +1276,8 @@ export class PineTS {
         snapshot.graph.prune(); // Scope rollback has removed transient roots; release only dead births.
     }
 
-    private async _updateRealtimeTail(context: Context, event?: { confirmed: boolean }): Promise<boolean> {
-        if (context !== this._realtimeContext || !event || typeof event.confirmed !== 'boolean' || Object.keys(event).some(key => key !== 'confirmed'))
+    private async _updateRealtimeTail(context: Context, event?: { confirmed: boolean; received?: boolean }): Promise<boolean> {
+        if (context !== this._realtimeContext || !event || typeof event.confirmed !== 'boolean' || (event.received !== undefined && typeof event.received !== 'boolean') || Object.keys(event).some(key => key !== 'confirmed' && key !== 'received'))
             throw new Error('Realtime update requires the owning context and a boolean confirmed event.');
         if (Array.isArray(this.source)) throw new Error('Realtime updates require a provider.');
         const lifecycle = (context as any)._realtimeLifecycle;
@@ -1307,7 +1307,7 @@ export class PineTS {
                 throw new Error('A committed bar cannot receive another tick.');
             }
             if (!replacement) return false;
-            if (!event.confirmed && ['open','high','low','close','volume','closeTime'].every(key => replacement[key] === previous[key])) return false;
+            if (!event.confirmed && event.received !== true && ['open','high','low','close','volume','closeTime'].every(key => replacement[key] === previous[key])) return false;
             this._restoreRealtimeSnapshot(context, (context as any)._realtimeSnapshot);
             this._replaceCandle(lifecycle.index, replacement);
             lifecycle.confirmed = event.confirmed;

@@ -176,13 +176,15 @@ import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
-import { isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
+import { isPersistentPineIndicator, isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
 import { adaptPineChartResult, installPineChartPlots, latestPineChartPoint, projectPineBarColors, type PineChartPlot } from "../lib/pineChartAdapter";
 import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
 import type { PineExecutionResult } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
+import type { PineLiveFeed } from "../lib/pineLiveFeed";
+import { useLivePineRuntime } from "./chart/useLivePineRuntime";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
 import { paneSubscriptionKey } from "../lib/paneSubscriptions";
 
@@ -244,6 +246,7 @@ type Props = {
   executions: Execution[];
   indicatorInstances: ChartIndicatorInstance[];
   indicatorRuntimeMode?: "historical" | "live";
+  pineLiveFeed?: PineLiveFeed;
   keepDrawingAfterPlacement?: boolean;
   magnetMode: MagnetMode;
   neutralDrawingTool: Extract<DrawingTool, "cursor" | "crosshair">;
@@ -486,6 +489,7 @@ export function TradingChart({
   executions,
   indicatorInstances,
   indicatorRuntimeMode = "historical",
+  pineLiveFeed,
   keepDrawingAfterPlacement = false,
   magnetMode,
   neutralDrawingTool,
@@ -553,8 +557,8 @@ export function TradingChart({
     candleSnapshotStoreRef.current = createChartCandleSnapshotStore();
   }
   const candleSnapshotStore = candleSnapshotStoreRef.current;
-  const [customRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
-  const [customRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, Omit<PineChartNoticeStudy, "id" | "name">>>({});
+  const [snapshotRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
+  const [snapshotRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, Omit<PineChartNoticeStudy, "id" | "name">>>({});
   const [pineStrategyMarkers, setPineStrategyMarkers] = useState<Record<string, SeriesMarker<UTCTimestamp>[]>>({});
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -671,6 +675,31 @@ export function TradingChart({
     sessionTemplate,
   ]);
   const primarySeriesKind = primarySeriesKindForStyle(chartStyle);
+  const persistentPineFeed = indicatorRuntimeMode === "live" && chartSettings.tradingHoursMode === "extended"
+    && ["crypto-24x7", "always-open"].includes(sessionTemplate.id) ? pineLiveFeed : undefined;
+  const livePine = useLivePineRuntime({ feed: persistentPineFeed,
+    timeframe, symbol, indicators: indicatorInstances, userId: authSession?.user.id, token: authSession?.token,
+    onRuntimeState: onIndicatorRuntimeState });
+  const livePineAdapted = useMemo(() => livePine.flatMap(study => {
+    const indicator = indicatorInstances.find(item => item.id === study.sourceId && item.visible !== false);
+    if (!indicator) return [];
+    return [{ ...study, indicator, adapted: study.result ? adaptPineChartResult(study.result, study.bars) : null }];
+  }), [livePine, indicatorInstances]);
+  const customRuntimeStudies = useMemo(() => [...snapshotRuntimeStudies, ...livePineAdapted.flatMap(study => {
+    if (study.error) return [emptyCustomRuntimeStudy(study.indicator, study.error)];
+    if (!study.result || !study.adapted) return [];
+    return study.adapted.plots.map((plot): CustomRuntimeStudy => {
+      const latest = latestPineChartPoint(plot);
+      return { color: plot.color, data: latest ? [latest] : [], error: null,
+        id: `${study.sourceId}-${plot.id}`, label: `${study.result!.name} · ${plot.name}`,
+        overlay: plot.overlay, plotName: plot.name, sourceId: study.sourceId, pinePlot: plot,
+        ...(plot.kind === "barcolor" ? { barcolorOwner: { bars: displayBars, indicators: indicatorInstances,
+          mode: indicatorRuntimeMode, symbol, timeframe, token: authSession?.token } } : {}) };
+    });
+  })], [snapshotRuntimeStudies, livePineAdapted, displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession?.token]);
+  const customRuntimeWarnings = useMemo(() => ({ ...snapshotRuntimeWarnings,
+    ...Object.fromEntries(livePineAdapted.flatMap(study => study.result && study.adapted ? [[study.sourceId,
+      { diagnostics: study.result.diagnostics, adapterWarnings: study.adapted.adapterWarnings }]] : [])) }), [snapshotRuntimeWarnings, livePineAdapted]);
   const barcolorSupported = chartStyle === "candles" || chartStyle === "heikinAshi";
   const pineBarcolorPlots = useMemo(() => indicatorInstances.flatMap((indicator) => {
     if (indicator.visible === false || indicator.kind !== "custom") return [];
@@ -784,7 +813,8 @@ export function TradingChart({
 
   useEffect(() => {
     const customInstances = indicatorInstances.filter(
-      (indicator) => indicator.kind === "custom" && indicator.visible !== false,
+      (indicator) => indicator.kind === "custom" && indicator.visible !== false
+        && !(persistentPineFeed && isPersistentPineIndicator(indicator)),
     );
     if (customInstances.length === 0) {
       setCustomRuntimeStudies([]);
@@ -877,7 +907,7 @@ export function TradingChart({
       active = false;
       jobs.forEach((job) => job.cancel());
     };
-  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe]);
+  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, persistentPineFeed, symbol, timeframe]);
 
   useEffect(() => {
     if (!drawingControlsActive) {

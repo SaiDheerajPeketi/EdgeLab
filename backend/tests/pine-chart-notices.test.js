@@ -80,3 +80,26 @@ test("no notices renders no empty status; a single exact source uses singular pr
   const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("only", "One")] }));
   assert.ok(html.includes("3 assumptions · 1 script")); assert.ok(!html.includes("1 scripts"));
 });
+
+test("live informational details never label the running chart as a closed snapshot", () => {
+  const live = study("live", "Live study", [diagnostic("REALTIME_CONTEXT"), diagnostic("REALTIME_STATE_BOUNDS"), diagnostic("DEFAULT_SYMBOL_METADATA")]);
+  const grouped = groupPineChartNotices([live]);
+  assert.equal(grouped.assumptions.length, 3);
+  assert.deepEqual(grouped.warnings, []);
+  const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: [live] }));
+  assert.ok(html.includes("Live chart updates · 3 assumptions · 1 script"));
+  assert.ok(!html.includes("Closed historical snapshot"));
+  for (const item of live.diagnostics) assert.ok(html.slice(html.indexOf("<details")).includes(item.code));
+  const mixed = renderToStaticMarkup(createElement(PineChartNotices, { studies: [live, study("closed", "Strategy")] }));
+  assert.ok(mixed.includes("Pine execution details"));
+  const metadata = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("meta", "Metadata", [diagnostic("DEFAULT_SYMBOL_METADATA")])] }));
+  assert.ok(metadata.includes("Pine execution details"));
+});
+
+test("live execution failures and unsupported capabilities remain outside the disclosure", () => {
+  const html = renderToStaticMarkup(createElement(PineChartNotices, { studies: [study("live", "Live study", [diagnostic("REALTIME_CONTEXT"), diagnostic("REALTIME_STATE_LIMIT", "Session halted", { severity: "error" }), diagnostic("ALERT_DELIVERY_UNAVAILABLE", "Alerts unavailable")], ["Drawing unavailable"])] }));
+  const visible = html.slice(0, html.indexOf("<details"));
+  assert.ok(visible.includes("Session halted"));
+  assert.ok(visible.includes("Alerts unavailable"));
+  assert.ok(visible.includes("Drawing unavailable"));
+});

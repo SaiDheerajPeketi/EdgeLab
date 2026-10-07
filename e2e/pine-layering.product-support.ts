@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import { expect, type Page, type Locator } from "@playwright/test";
-import { AUTH_SESSION_KEY, betaSessionResponse, FROZEN_TIME, gotoStable } from "./support/app";
+import { AUTH_SESSION_KEY, betaSessionResponse, FROZEN_TIME, gotoStable, installDeterminism, seedApprovedSession, seedChartLayout } from "./support/app";
 import { prepare, fulfillReplayContext } from "./support/replay-context";
 
-export async function productSetup(page: Page) {
-  await prepare(page);
+export async function productSetup(page: Page, options: { target?: "/app/replay" | "/app/live"; keepBinanceWebSocket?: boolean; beforeNavigate?: () => Promise<void> } = {}) {
+  if (options.keepBinanceWebSocket) {
+    await installDeterminism(page, { keepBinanceWebSocket: true });
+    await seedApprovedSession(page);
+    await seedChartLayout(page, "single");
+  } else {
+    await prepare(page);
+  }
   await fulfillReplayContext(page);
   const accessExpiry = new Date(Date.parse(FROZEN_TIME) + 300_000).toISOString();
   const session = { ...betaSessionResponse, user: { ...betaSessionResponse.user, provider: "google", deployment_mode: "production", workspace_access: true, access_expires_at: accessExpiry, is_beta_user: false, plan: "pro" } };
@@ -57,7 +63,8 @@ export async function productSetup(page: Page) {
     }
     return route.fallback();
   });
-  await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+  await options.beforeNavigate?.();
+  await gotoStable(page, options.target ?? "/app/replay", { waitForNetworkIdle: false });
   await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
   return { storage, workerReceipts };
 }

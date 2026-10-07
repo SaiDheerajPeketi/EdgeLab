@@ -2,6 +2,9 @@
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
 import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, validatePineResponse } from "../lib/pineProtocol";
+import { PINE_LIVE_PROTOCOL, pineLiveRequestId, validatePineLiveRequest } from "../lib/pineLiveProtocol";
+import type { PineLiveRequest } from "../lib/pineLiveProtocol";
+import type { Candle } from "../lib/api";
 import { encodePinePackedPlots, toPineWireResponse } from "../lib/pinePacked";
 import type { PinePackedPlot, PinePlotPoint } from "../lib/pinePacked";
 import type { PineDiagnostic, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
@@ -64,7 +67,7 @@ function displayName(source: string, declaration: string): string {
   return `Pine ${declaration}`;
 }
 function normalizeSymbol(symbol: string): string { return symbol.toUpperCase(); }
-function chartProvider(request: PineRequest): { provider: IProvider; unavailable: () => PineProtocolError | undefined } {
+function chartProvider(request: PineRequest) {
   const context = request.context!;
   const timeframe = canonicalPineTimeframe(context.timeframe);
   let failure: PineProtocolError | undefined;
@@ -74,11 +77,12 @@ function chartProvider(request: PineRequest): { provider: IProvider; unavailable
   };
   const interval = /^(\d+)([SDWM]?)$/.exec(timeframe)!;
   const count = Number(interval[1]), unit = interval[2];
-  const candles: Kline[] = request.bars!.map((bar) => {
+  const candle = (bar: Candle): Kline => {
     const openTime = bar.time * 1000;
     const closeTime = unit === "M" ? computeNextPeriodStart(openTime, "month", count) : openTime + count * ({ S: 1_000, D: 86_400_000, W: 604_800_000 }[unit] ?? 60_000);
     return { openTime, closeTime, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, quoteAssetVolume: 0, numberOfTrades: 0, takerBuyBaseAssetVolume: 0, takerBuyQuoteAssetVolume: 0, ignore: 0 };
-  });
+  };
+  const candles: Kline[] = request.bars!.map(candle);
   const symbol = context.symbol, ticker = symbol.split(":").slice(-1)[0];
   const info: ISymbolInfo = {
     current_contract: "", description: symbol, isin: "", main_tickerid: symbol, prefix: symbol.includes(":") ? symbol.split(":")[0] : "", root: ticker, ticker, tickerid: symbol, type: "", basecurrency: "", country: "", currency: "USD", timezone: "UTC", session: "24x7", volumetype: "base", mincontract: 1,
@@ -88,7 +92,7 @@ function chartProvider(request: PineRequest): { provider: IProvider; unavailable
     target_price_average: 0, target_price_date: 0, target_price_estimates: 0, target_price_high: 0, target_price_low: 0, target_price_median: 0,
   };
   const provider: IProvider = {
-    configure() { /* The provider is a closed snapshot, with no credentials or network. */ },
+    configure() { /* Owned chart snapshots only, with no credentials or network. */ },
     async getMarketData(requestedSymbol, requestedTimeframe, limit, start, end) {
       if (++calls > 64) error("REQUEST_LIMIT", "Pine requested too many data snapshots.");
       let tf: string;
@@ -104,7 +108,15 @@ function chartProvider(request: PineRequest): { provider: IProvider; unavailable
     },
   };
   // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.
-  return { provider, unavailable: () => failure };
+  return {
+    provider,
+    unavailable: () => failure,
+    reset() { calls = 0; failure = undefined; },
+    update(bar: Candle, append: boolean) {
+      if (append) candles.push(candle(bar)); else candles[candles.length - 1] = candle(bar);
+    },
+    nextTime: () => candles[candles.length - 1].closeTime / 1000,
+  };
 }
 export function normalizePinePlotValue(value: unknown): PinePlot["points"][number]["value"] {
   if (Array.isArray(value)) {
@@ -581,7 +593,7 @@ function bindDeclarationLayer(context: Context, strategy: boolean) {
 }
 
 /** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
-function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>) {
+function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean, encounteredAlerts: Set<string>, realtime = false) {
   const original = prepared.fn;
   const installed = new WeakSet<Context>();
   const backgrounds = new WeakMap<Context, ReturnType<typeof bindBackgroundOptions>>();
@@ -610,7 +622,7 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
       Object.defineProperty(alert, "any", { configurable: true, writable: true, value: function(this: unknown, ...args: unknown[]) {
         encounteredAlerts.add("alert"); return Reflect.apply(send, this, args);
       } });
-      Object.defineProperties(context.pine.barstate, {
+      if (!realtime) Object.defineProperties(context.pine.barstate, {
         ishistory: { get: () => true },
         isrealtime: { get: () => false },
         isconfirmed: { get: () => true },
@@ -658,10 +670,7 @@ function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boole
   prepared.fn = wrapped;
 }
 
-/** Called only inside the isolated worker; exported for deterministic engine fixtures. */
-export async function executePineRequest(value: unknown): Promise<PineResult> {
-  const request = validatePineRequest(value);
-  const started = performance.now();
+function preparePineRequest(request: PineRequest, realtime = false) {
   const indicator = new Indicator(request.source, request.inputs ?? {});
   let prepared: PreparedScript;
   try { prepared = indicator.prepare({ debug: false, ln: false }); } catch (cause) {
@@ -678,9 +687,17 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   const pendingLayer = typeof parsedLayer !== "boolean";
   const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, behindChart: typeof parsedLayer === "boolean" ? parsedLayer : true, inputDefinitions, diagnostics: [
     ...(pendingLayer ? [warning("DECLARATION_LAYER_PENDING", "The declaration layer cannot be resolved during Check; the prepared default is a placeholder and execution will validate the actual constant boolean.")] : []),
-    warning("CLOSED_BAR_SNAPSHOT", "Supplied bars are treated as closed historical snapshots, including the final bar. Live mode reloads snapshots; intrabar updates, realtime rollback and varip tick persistence are unavailable."),
+    ...(!realtime ? [warning("CLOSED_BAR_SNAPSHOT", "Supplied bars are treated as closed historical snapshots, including the final bar. Live mode reloads snapshots; intrabar updates, realtime rollback and varip tick persistence are unavailable.")] : []),
     ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategy tick, fill and historical-tick recalculation are unavailable. Enabled calc_on_every_tick, calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
   ] };
+  return { indicator, prepared, descriptor, inputs, declaration };
+}
+
+/** Called only inside the isolated worker; exported for deterministic engine fixtures. */
+export async function executePineRequest(value: unknown): Promise<PineResult> {
+  const request = validatePineRequest(value);
+  const started = performance.now();
+  const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request);
   if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
   const encounteredAlerts = new Set<string>();
   bindClosedSnapshot(prepared, declaration === "strategy", encounteredAlerts);
@@ -695,7 +712,16 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
     error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
   }
   if (local.unavailable()) throw local.unavailable();
-  const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"), warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
+  return executionResult(request, descriptor, inputs, context, encounteredAlerts, started);
+}
+
+function executionResult(request: PineRequest, descriptor: PinePrepareResult, inputs: Record<string, PineInputValue>, context: Context, encounteredAlerts: Set<string>, started: number, realtime = false): PineExecutionResult {
+  const diagnostics = [...descriptor.diagnostics.filter((item) => item.code !== "DECLARATION_LAYER_PENDING"),
+    warning(realtime ? "REALTIME_CONTEXT" : "SNAPSHOT_CONTEXT", realtime
+      ? "Execution processes the received chart updates with UTC, a 24x7 session and USD currency. Unsupplied trades, exchange sessions, alert delivery and additional market data are unavailable."
+      : "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable."),
+    ...(realtime ? [warning("REALTIME_STATE_BOUNDS", "Realtime execution retains at most 20,000 bars and bounded rollback state: 16,384 payload nodes, 262,144 mutable cells and 1,280,000 scoped Series slots. Exceeding a limit halts the session; these are not whole-engine heap limits.")] : []),
+  ];
   if (encounteredAlerts.size) diagnostics.push(warning("ALERT_DELIVERY_UNAVAILABLE", `Encountered Pine ${[...encounteredAlerts].sort().join(" and ")} calls. Alert delivery and notifications are unavailable; no alert was sent.`));
   if (request.context!.mintick === undefined || request.context!.pointvalue === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Missing chart mintick or pointvalue uses 0.01 and 1 respectively; supply instrument metadata for tick-based orders and contract P&L."));
   for (const item of context.warnings ?? []) {
@@ -706,21 +732,131 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
   const overlay = properties?.overlay === true;
   const output = plotResults(context.plots, overlay, diagnostics, request.bars!);
   const result = { ...descriptor, kind: "run", name: properties?.title ?? descriptor.name, overlay, behindChart: properties?.behind_chart === undefined ? true : properties.behind_chart, diagnostics: diagnostics.slice(0, PINE_LIMITS.diagnostics), inputs, plots: output.plots, ...(context.strategy ? { strategy: strategyResult(context.strategy) } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: request.bars!.length, sourceBytes: new TextEncoder().encode(request.source).length, mode: request.mode ?? "historical", elapsedMs: performance.now() - started } };
-  return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request);
+  return validatePineResponse({ id: request.id, status: "completed", result, ...("buffers" in output ? { encoding: "pine-packed-v1", buffers: output.buffers } : {}) }, request) as PineExecutionResult;
+}
+
+
+type RealtimeEngine = PineTS & {
+  setRealtimeMode(enabled: boolean, options: { initialTail: "historical" }): void;
+  updateTail(context: Context, event: { confirmed: boolean; received: boolean }): Promise<boolean>;
+};
+type LiveState = {
+  sessionId: string; sequence: number; confirmed: boolean; request: PineRequest;
+  engine: RealtimeEngine; context?: Context; local: ReturnType<typeof chartProvider>;
+  descriptor: PinePrepareResult; inputs: Record<string, PineInputValue>; alerts: Set<string>;
+};
+// Each result owns fresh output buffers; only its validated bar index is retained for encoding.
+const liveResultBars = new WeakMap<PineExecutionResult, readonly Candle[]>();
+
+/** One isolated, immutable-source indicator session. Cancellation never publishes pending work. */
+export function createPineLiveExecutor(): { execute(value: unknown): Promise<PineExecutionResult>; dispose(): void } {
+  let state: LiveState | undefined;
+  let busy = false, halted = false;
+  const dispose = () => { halted = true; state = undefined; };
+  const active = (owner: LiveState) => {
+    if (halted || state !== owner) error("LIVE_SESSION_HALTED", "The live Pine session has stopped.");
+  };
+  return {
+    dispose,
+    async execute(value: unknown) {
+      if (halted) error("LIVE_SESSION_HALTED", "The live Pine session has stopped.");
+      if (busy) { dispose(); error("LIVE_CONCURRENT", "A live Pine command is already running; the session has stopped."); }
+      busy = true;
+      const started = performance.now();
+      try {
+        const command: PineLiveRequest = validatePineLiveRequest(value);
+        let owner: LiveState;
+        if (state && command.sessionId !== state.sessionId) error("LIVE_SESSION_MISMATCH", "The live Pine command belongs to another session.");
+        if (command.action === "start") {
+          if (state) error("LIVE_SEQUENCE", "A live Pine session can only be initialized once.");
+          const request = command.request;
+          const { indicator, prepared, descriptor, inputs, declaration } = preparePineRequest(request, true);
+          if (declaration !== "indicator") error("LIVE_STRATEGY_UNAVAILABLE", "Persistent realtime execution is available only for indicators; strategy tick scheduling is unavailable.");
+          const alerts = new Set<string>();
+          bindClosedSnapshot(prepared, false, alerts, true);
+          const local = chartProvider(request);
+          const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length) as RealtimeEngine;
+          engine.setMaxLoops(PINE_LIMITS.loops);
+          engine.setTimezone("UTC");
+          engine.setRealtimeMode(true, { initialTail: "historical" });
+          owner = { sessionId: command.sessionId, sequence: 0, confirmed: true, request, engine, local, descriptor, inputs, alerts };
+          state = owner;
+          const context = await engine.run(indicator);
+          active(owner);
+          owner.context = context;
+        } else {
+          if (!state) error("LIVE_SEQUENCE", "Initialize the live Pine session before updating it.");
+          owner = state;
+          if (command.sessionId !== owner.sessionId) error("LIVE_SESSION_MISMATCH", "The live Pine command belongs to another session.");
+          if (command.sequence !== owner.sequence + 1) error("LIVE_SEQUENCE", "Live Pine updates require the exact next sequence.");
+          const bars = owner.request.bars!;
+          const previous = bars[bars.length - 1];
+          const append = command.bar.time > previous.time;
+          if (command.bar.time < previous.time) error("INVALID_BARS", "Live Pine cannot revise the committed chart history.");
+          if (append) {
+            if (!owner.confirmed) error("INVALID_BARS", "Confirm the current Pine bar before appending another bar.");
+            if (command.bar.time !== owner.local.nextTime()) error("INVALID_BARS", "Live Pine accepts exactly the next UTC/calendar chart bucket; gaps require a new session.");
+            if (bars.length >= PINE_LIMITS.bars) error("BAR_LIMIT", "The live Pine session reached 20,000 bars; history eviction is unavailable.");
+          } else if (owner.confirmed) error("INVALID_BARS", "A committed Pine bar cannot receive another update or confirmation.");
+          owner.local.reset();
+          owner.local.update(command.bar, append);
+          owner.request = { ...owner.request, id: pineLiveRequestId(owner.sessionId, command.sequence), bars: append ? [...bars, command.bar] : [...bars.slice(0, -1), command.bar] };
+          const changed = await owner.engine.updateTail(owner.context!, { confirmed: command.confirmed, received: true });
+          active(owner);
+          if (!changed) error("LIVE_UPDATE_UNAVAILABLE", "The native engine did not execute this received update.");
+          owner.confirmed = command.confirmed;
+          owner.sequence = command.sequence;
+        }
+        active(owner);
+        if (owner.local.unavailable()) throw owner.local.unavailable();
+        const result = executionResult(owner.request, owner.descriptor, owner.inputs, owner.context!, owner.alerts, started, true);
+        active(owner);
+        liveResultBars.set(result, owner.request.bars!);
+        return result;
+      } catch (cause) {
+        const unavailable = state?.local.unavailable();
+        dispose();
+        if (unavailable) throw unavailable;
+        if (cause instanceof PineProtocolError) throw cause;
+        if ((cause as { code?: unknown } | null)?.code === "REALTIME_STATE_LIMIT") error("REALTIME_STATE_LIMIT", cause instanceof Error ? cause.message : "Realtime retained-state limit exceeded.");
+        error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native realtime Pine execution failed.");
+      } finally { busy = false; }
+    },
+  };
 }
 
 if (typeof self !== "undefined" && typeof document === "undefined") {
   const scope = self as unknown as DedicatedWorkerGlobalScope;
+  const live = createPineLiveExecutor();
+  let liveStarted = false, oneShotRunning = 0;
   scope.onmessage = async (event: MessageEvent<unknown>) => {
-    const raw = event.data as { id?: unknown } | null;
-    const id = typeof raw?.id === "string" ? raw.id.slice(0, 128) : "invalid-request";
+    const raw = event.data as { id?: unknown; protocol?: unknown; sessionId?: unknown; sequence?: unknown } | null;
+    const isLive = raw?.protocol === PINE_LIVE_PROTOCOL;
+    // Failed malformed requests never echo unknown objects or unbounded identity data.
+    const sessionId = typeof raw?.sessionId === "string" && /^[A-Za-z0-9_-]{16,96}$/.test(raw.sessionId) ? raw.sessionId : "invalid-session-id";
+    const sequence = Number.isSafeInteger(raw?.sequence) && (raw!.sequence as number) >= 0 && (raw!.sequence as number) <= 1_000_000_000 ? raw!.sequence as number : 0;
+    const id = isLive ? pineLiveRequestId(sessionId, sequence) : typeof raw?.id === "string" ? raw.id.slice(0, 128) : "invalid-request";
+    const envelope = (response: unknown) => isLive ? { protocol: PINE_LIVE_PROTOCOL, sessionId, sequence, response } : response;
     try {
-      const result = await executePineRequest(event.data);
-      const request = validatePineRequest(event.data);
-      const response = toPineWireResponse(id, result, request.bars);
-      scope.postMessage(response, "buffers" in response ? response.buffers : []);
+      if (isLive) {
+        liveStarted = true;
+        if (oneShotRunning) { live.dispose(); error("LIVE_CONCURRENT", "The worker already has an execution in progress."); }
+        const result = await live.execute(event.data);
+        const response = toPineWireResponse(id, result, liveResultBars.get(result));
+        scope.postMessage(envelope(response), "buffers" in response ? response.buffers : []);
+      } else {
+        if (liveStarted) { live.dispose(); error("LIVE_SESSION_MISMATCH", "A live Pine worker cannot accept one-shot requests."); }
+        oneShotRunning++;
+        try {
+          const result = await executePineRequest(event.data);
+          const request = validatePineRequest(event.data);
+          const response = toPineWireResponse(id, result, request.bars);
+          scope.postMessage(response, "buffers" in response ? response.buffers : []);
+        } finally { oneShotRunning--; }
+      }
     } catch (cause) {
-      scope.postMessage({ id, status: "failed", error: { code: cause instanceof PineProtocolError ? cause.code : "RUNTIME_ERROR", message: cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed." } });
+      if (isLive) live.dispose();
+      scope.postMessage(envelope({ id, status: "failed", error: { code: cause instanceof PineProtocolError ? cause.code : "RUNTIME_ERROR", message: cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed." } }));
     }
   };
 }

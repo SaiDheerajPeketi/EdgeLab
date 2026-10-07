@@ -7,7 +7,7 @@ export type PineChartNoticeStudy = {
   adapterWarnings: readonly string[];
 };
 type Source = Pick<PineChartNoticeStudy, "id" | "name">;
-const ASSUMPTIONS = new Set(["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA"]);
+const ASSUMPTIONS = new Set(["CLOSED_BAR_SNAPSHOT", "SNAPSHOT_CONTEXT", "DEFAULT_SYMBOL_METADATA", "REALTIME_CONTEXT", "REALTIME_STATE_BOUNDS"]);
 
 /** Only actual diagnostic objects can enter the shared assumption disclosure. */
 export function groupPineChartNotices(studies: readonly PineChartNoticeStudy[]) {

@@ -187,6 +187,13 @@ export function sanitizePinePrepared(value: unknown, source: string): PinePrepar
   } catch { return undefined; }
 }
 
+/** Only exact-source prepared indicators can enter the indicator-only live lifecycle. */
+export function isPersistentPineIndicator(indicator: ChartIndicatorInstance): boolean {
+  return indicator.kind === "custom" && !!indicator.customScriptSource
+    && isPineScriptSource(indicator.customScriptSource)
+    && sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource)?.declaration === "indicator";
+}
+
 /** Validate declared settings as data; mirrors the isolated engine's input contract. */
 function validatePineSavedInputs(prepared: PinePrepareResult, inputs: unknown): Record<string, EdgeIndicatorInputValue> {
   const request = validatePineRequest({ id: "pine-inputs", action: "prepare", source: prepared.source, inputs });

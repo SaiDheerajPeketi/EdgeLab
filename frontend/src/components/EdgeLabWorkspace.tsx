@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -147,6 +147,7 @@ import {
   subscribeOrderLineModificationConfirmation,
 } from "../lib/backtestSettings";
 import {
+  aggregateBars,
   canAggregateTimeframe,
   createIndicatorInstance,
   formatChartTimeframeLabel,
@@ -196,6 +197,11 @@ import {
 } from "../lib/currency";
 import { formatDateTime, formatMoney, formatPercent, formatPrice } from "../lib/format";
 import { getStoredAuthSession } from "../lib/authSession";
+import { createPineLiveFeed, type PineLiveFeed } from "../lib/pineLiveFeed";
+import { FIRST_PARTY_EDGE_INDICATORS, createCustomIndicatorInstance, hydrateCustomIndicators, loadCachedCustomIndicators,
+  persistCustomIndicators, sanitizePinePrepared, sanitizeQuantSemantics, subscribeCustomIndicators, type CustomIndicatorScript } from "../lib/customIndicators";
+import type { EdgeIndicatorInputValue } from "../lib/indicatorDsl";
+import { sanitizePineCatalogProvenance } from "../lib/pineCatalog";
 import { loadSettingsPreferences } from "../lib/settingsPreferences";
 import {
   DEFAULT_MISTAKE_TAGS,
@@ -288,6 +294,7 @@ import { ThemedDatePicker } from "./ThemedDatePicker";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
 import { TradingChart } from "./TradingChart";
+const LiveIndicatorEditor = lazy(() => import("./IndicatorEditorPanel").then(module => ({ default: module.IndicatorEditorPanel })));
 import { TradeLog } from "./TradeLog";
 import { SettingsCenter } from "./settings/SettingsCenter";
 import { RelationalJournalWorkspace } from "./journal/RelationalJournalWorkspace";
@@ -1178,6 +1185,9 @@ type BinanceKlinePayload = {
     l?: string;
     o?: string;
     t?: number;
+    T?: number;
+    s?: string;
+    x?: boolean;
     v?: string;
   };
   s?: string;
@@ -1375,6 +1385,8 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
     [angelOneSearch, catalog.angelone],
   );
   const selectedSourceLabel = liveSourceLabel(selectedFeed);
+  const pineLiveFeed = useMemo(() => selectedLiveSymbol?.feed === "binance" ? createPineLiveFeed(selectedLiveSymbol.symbol) : undefined,
+    [selectedLiveSymbol, symbols]);
   const angelOneReady = hasAngelOneCredentials(angelOneCredentials);
 
   const focusJournalTrade = useCallback((request: JournalChartFocusRequest) => {
@@ -1504,13 +1516,18 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       : fetchDukascopyHistoricalCandles(selectedLiveSymbol.symbol, "1MIN", controller.signal);
     void candleRequest
       .then((nextBars) => {
+        if (controller.signal.aborted) return;
+        pineLiveFeed?.seed(nextBars);
         setLiveBars((current) => {
+          if (controller.signal.aborted) return current;
           const preservedBars = mergeLiveCandles(
             cachedBarsBySymbolRef.current[symbolKey] ?? [],
             current,
             LIVE_HISTORY_CACHE_BARS,
           );
-          const mergedBars = mergeLiveCandles(preservedBars, nextBars, LIVE_HISTORY_CACHE_BARS);
+          const authoritative = pineLiveFeed?.getSnapshot().bars;
+          const mergedBars = authoritative?.length ? [...authoritative].slice(-LIVE_HISTORY_CACHE_BARS)
+            : mergeLiveCandles(preservedBars, nextBars, LIVE_HISTORY_CACHE_BARS);
           setCachedBarsBySymbol((cache) => ({
             ...cache,
             [symbolKey]: mergedBars,
@@ -1528,10 +1545,11 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       .catch((error) => {
         if (!controller.signal.aborted) {
           setFeedError(liveFeedErrorMessage(error, cachedBars.length > 0));
+          pineLiveFeed?.fail("Live indicator history could not be loaded. Retry the feed to restart.");
         }
       });
     return () => controller.abort();
-  }, [selectedLiveSymbol]);
+  }, [selectedLiveSymbol, pineLiveFeed]);
 
   useEffect(() => {
     const streamSymbols = uniqueLiveSymbols(symbols.filter((item) => item.feed === "binance").map((item) => item.symbol));
@@ -1545,23 +1563,29 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
     ].filter(Boolean);
     const socketUrl = `${BINANCE_WS_BASE}/stream?streams=${streams.join("/")}`;
     const socket = new WebSocket(socketUrl);
+    pineLiveFeed?.reset();
     trackDiagnosticWebSocket(socket, socketUrl);
     let closedByEffect = false;
     setConnectionStatus("connecting");
     socket.onopen = () => {
+      if (closedByEffect) return;
       setConnectionStatus("live");
       setFeedError(null);
     };
     socket.onerror = () => {
+      if (closedByEffect) return;
       setConnectionStatus("error");
       setFeedError("Live feed connection failed");
+      pineLiveFeed?.fail("Live candle updates disconnected. Retry the feed to restart indicators.");
     };
     socket.onclose = () => {
       if (!closedByEffect) {
         setConnectionStatus("error");
+        pineLiveFeed?.fail("Live candle updates disconnected. Retry the feed to restart indicators.");
       }
     };
     socket.onmessage = (event) => {
+      if (closedByEffect) return;
       const payload = parseBinanceCombinedPayload(event.data);
       if (!payload) {
         return;
@@ -1576,8 +1600,15 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       if (isBinanceKlinePayload(payload) && payload.s === selectedLiveSymbol?.symbol) {
         const candle = liveCandleFromBinance(payload);
         if (candle) {
+          if (payload.k?.i !== "1m" || payload.k.s !== payload.s || typeof payload.k.x !== "boolean"
+            || !Number.isSafeInteger(payload.E) || !Number.isSafeInteger(payload.k.T)) {
+            pineLiveFeed?.fail("The live provider returned an incomplete candle event.");
+            return;
+          }
+          pineLiveFeed?.receive(candle, payload.k.x, payload.E!, payload.k.T!);
           const symbolKey = liveSymbolStorageKey("binance", payload.s);
           setLiveBars((current) => {
+            if (closedByEffect) return current;
             const nextBars = upsertLiveCandle(current, candle);
             setCachedBarsBySymbol((cache) => ({
               ...cache,
@@ -1592,7 +1623,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
       closedByEffect = true;
       socket.close();
     };
-  }, [selectedLiveSymbol, symbols]);
+  }, [selectedLiveSymbol, symbols, pineLiveFeed]);
 
   useEffect(() => {
     const streamSymbols = symbols.filter(isAngelOneLiveSymbol).slice(0, LIVE_MAX_WATCHLIST_SYMBOLS);
@@ -2372,6 +2403,7 @@ function LiveMarketsPage({ journalChartFocus }: { journalChartFocus?: JournalCha
             </div>
             <LiveChartStudio
               bars={liveBars}
+              pineLiveFeed={pineLiveFeed}
               connectionStatus={connectionStatus}
               feedIssue={feedIssue}
               journalChartFocus={activeJournalFocus}
@@ -4049,6 +4081,7 @@ function useProgressiveChartEngines(paneIds: string[], activePaneId: string) {
 
 const LiveChartStudio = memo(function LiveChartStudio({
   bars,
+  pineLiveFeed,
   connectionStatus,
   feedIssue,
   journalChartFocus,
@@ -4058,6 +4091,7 @@ const LiveChartStudio = memo(function LiveChartStudio({
   tickerChangeLabel,
 }: {
   bars: Candle[];
+  pineLiveFeed?: PineLiveFeed;
   connectionStatus: LiveConnectionStatus;
   feedIssue: LiveFeedIssue;
   journalChartFocus: JournalChartFocusRequest | null;
@@ -4127,6 +4161,21 @@ const LiveChartStudio = memo(function LiveChartStudio({
     };
   }));
   const journalFocusRange = useMemo(() => journalChartFocus ? journalFocusVisibleRange(journalChartFocus, journalChartFocus.tradeId) : null, [journalChartFocus]);
+  const [customIndicatorScripts, setCustomIndicatorScripts] = useState(loadCachedCustomIndicators);
+  const [indicatorEditorRequest, setIndicatorEditorRequest] = useState<{ nonce: number; scriptId?: string; source?: string } | null>(null);
+  const allCustomIndicatorScripts = useMemo(() => [...FIRST_PARTY_EDGE_INDICATORS, ...customIndicatorScripts], [customIndicatorScripts]);
+  const editorSymbol = activeChartPane.symbol || symbolCode || symbol;
+  const editorBars = useMemo(() => aggregateBars(
+    !journalChartFocus && journalFocusMatchesSymbol(editorSymbol, symbolCode || symbol)
+      ? bars : paneMarketData[activeChartPane.id]?.bars ?? [], activeChartPane.timeframe,
+  ).slice(-20_000), [bars, editorSymbol, symbolCode, symbol, journalChartFocus, paneMarketData, activeChartPane.id, activeChartPane.timeframe]);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateCustomIndicators().then(scripts => { if (active) setCustomIndicatorScripts(scripts); }).catch(() => undefined);
+    const unsubscribe = subscribeCustomIndicators(scripts => { if (active) setCustomIndicatorScripts(scripts); });
+    return () => { active = false; unsubscribe(); };
+  }, []);
 
   useEffect(() => {
     crosshairSyncBus.setEnabled(chartSyncSettings.crosshair);
@@ -4180,8 +4229,12 @@ const LiveChartStudio = memo(function LiveChartStudio({
       (value) => {
         const layout = sanitizeLiveChartLayout(value);
         setChartPaneLayout(sanitizeChartPaneLayout(layout.paneLayout));
-        setChartPanes(sanitizeLiveChartPanes(layout));
-        setChartSyncSettings(sanitizeChartSyncSettings(layout.syncSettings));
+        const panes = sanitizeLiveChartPanes(layout);
+        const syncSettings = sanitizeChartSyncSettings(layout.syncSettings);
+        // Own saves notify this subscription too. Preserve equal state identities
+        // so autosave cannot restart itself and every snapshot indicator worker.
+        setChartPanes(current => JSON.stringify(current) === JSON.stringify(panes) ? current : panes);
+        setChartSyncSettings(current => JSON.stringify(current) === JSON.stringify(syncSettings) ? current : syncSettings);
         setActiveChartPaneId(layout.activePaneId ?? "live-chart-pane-1");
       },
     );
@@ -4367,6 +4420,23 @@ const LiveChartStudio = memo(function LiveChartStudio({
 
   function updateActiveChartPane(updater: (pane: LiveChartPaneState) => LiveChartPaneState) {
     updateChartPane(activeChartPane.id, updater);
+  }
+
+  function openIndicatorEditor(scriptId?: string) {
+    setIndicatorEditorRequest(current => ({ nonce: Math.max(Date.now(), (current?.nonce ?? 0) + 1), scriptId }));
+  }
+
+  async function changeCustomIndicatorScripts(scripts: CustomIndicatorScript[]) {
+    const token = getApiBearerToken(), owner = getStoredAuthSession()?.user.id ?? null;
+    await persistCustomIndicators(scripts);
+    if (token !== getApiBearerToken() || owner !== (getStoredAuthSession()?.user.id ?? null)) {
+      throw new Error("The account changed before the script could be saved.");
+    }
+    setCustomIndicatorScripts(scripts);
+  }
+
+  function addCustomIndicator(script: CustomIndicatorScript, inputs: Record<string, EdgeIndicatorInputValue> = script.inputs) {
+    updateActiveChartPane(pane => ({ ...pane, indicatorInstances: [...pane.indicatorInstances, createCustomIndicatorInstance(script, inputs)] }));
   }
 
   function chartPaneById(paneId: string) {
@@ -4675,6 +4745,9 @@ const LiveChartStudio = memo(function LiveChartStudio({
           </span>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {!chartToolsOpen && !chartSettingsPanelOpen && <button className="control-button h-9 px-3 text-xs" onClick={() => openIndicatorEditor()} type="button">
+            <FileText aria-hidden="true" size={14} />Editor
+          </button>}
           <button className={`control-button h-9 px-3 text-xs ${chartToolsOpen ? "workspace-tab-active" : ""}`} onClick={() => {
             setChartSettingsPanelOpen(false);
             setChartToolsOpen((value) => !value);
@@ -4714,6 +4787,10 @@ const LiveChartStudio = memo(function LiveChartStudio({
           layoutNames={availableLayouts}
           magnetMode={activeChartPane.magnetMode}
           onAddIndicator={addIndicator}
+          customIndicatorScripts={allCustomIndicatorScripts}
+          onAddCustomIndicator={addCustomIndicator}
+          onEditCustomIndicator={script => openIndicatorEditor(script.id)}
+          onOpenIndicatorEditor={() => openIndicatorEditor()}
           onChartSettingsChange={(settings) => updateActiveChartPane((pane) => ({ ...pane, chartSettings: sanitizeChartVisualSettings(settings) }))}
           onChartSettingsReset={() => updateActiveChartPane((pane) => ({ ...pane, chartSettings: DEFAULT_CHART_VISUAL_SETTINGS }))}
           onChartStyleChange={(chartStyle) => updateActiveChartPane((pane) => ({ ...pane, chartStyle }))}
@@ -4795,6 +4872,10 @@ const LiveChartStudio = memo(function LiveChartStudio({
                     executions={[]}
                     indicatorInstances={pane.indicatorInstances}
                     indicatorRuntimeMode="live"
+                    pineLiveFeed={paneUsesPrimaryFeed ? pineLiveFeed : undefined}
+                    onIndicatorRuntimeState={(id, error) => updateChartPane(pane.id, current => ({ ...current,
+                      indicatorInstances: current.indicatorInstances.map(indicator => indicator.id === id ? { ...indicator, runtimeError: error } : indicator),
+                    }))}
                     magnetMode={pane.magnetMode}
                     neutralDrawingTool={lastNeutralDrawingToolRef.current}
                     onAddDrawing={(drawing) => addDrawingToPane(pane.id, drawing)}
@@ -4869,6 +4950,11 @@ const LiveChartStudio = memo(function LiveChartStudio({
           />
         )}
       </div>
+      {indicatorEditorRequest && <Suspense fallback={<div role="status">Loading indicator editor…</div>}>
+        <LiveIndicatorEditor bars={editorBars} symbol={editorSymbol} timeframe={activeChartPane.timeframe}
+          onAddToChart={addCustomIndicator} onClose={() => setIndicatorEditorRequest(null)}
+          onScriptsChange={changeCustomIndicatorScripts} request={indicatorEditorRequest} scripts={allCustomIndicatorScripts} />
+      </Suspense>}
     </div>
   );
 });
@@ -5154,8 +5240,22 @@ function sanitizeLiveIndicatorInstance(value: unknown): ChartIndicatorInstance |
     return null;
   }
   const base = createIndicatorInstance(candidate.kind, candidate.settings);
+  const source = candidate.kind === "custom" && typeof candidate.customScriptSource === "string"
+    && new TextEncoder().encode(candidate.customScriptSource).byteLength <= 20_000 ? candidate.customScriptSource : undefined;
+  if (candidate.kind === "custom" && !source) return null;
   return {
     ...base,
+    ...(source ? {
+      customScriptSource: source,
+      customScriptId: typeof candidate.customScriptId === "string" ? candidate.customScriptId.slice(0, 96) : undefined,
+      customScriptName: typeof candidate.customScriptName === "string" ? candidate.customScriptName.slice(0, 80) : "Custom indicator",
+      customScriptVersion: typeof candidate.customScriptVersion === "number" && Number.isSafeInteger(candidate.customScriptVersion) && candidate.customScriptVersion > 0 ? candidate.customScriptVersion : 1,
+      customOverlay: candidate.customOverlay !== false,
+      customPinePrepared: sanitizePinePrepared(candidate.customPinePrepared, source),
+      customCatalogOrigin: sanitizePineCatalogProvenance(candidate.customCatalogOrigin),
+      customQuantSemantics: sanitizeQuantSemantics(candidate.customQuantSemantics),
+      runtimeError: typeof candidate.runtimeError === "string" ? candidate.runtimeError.slice(0, 500) : null,
+    } : {}),
     id:
       typeof candidate.id === "string" && candidate.id.trim().length > 0
         ? candidate.id.trim().slice(0, 96)

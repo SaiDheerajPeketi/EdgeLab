@@ -5,7 +5,7 @@ import path from "node:path";
 import { bars as productBars } from "./support/replay-context";
 import { productSetup, editor, checkedRun } from "./pine-layering.product-support";
 
-const artifacts = path.resolve(".artifacts/pine-history56/browser");
+const artifacts = path.resolve(process.env.EDGELAB_PINE_HISTORY_ARTIFACTS ?? ".artifacts/pine-history56/browser");
 const title = "Object history";
 const source = `//@version=6
 indicator("${title}",overlay=true,behind_chart=false)

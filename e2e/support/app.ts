@@ -10,6 +10,7 @@ type DeterminismOptions = {
   liveFeedState?: "connecting" | "delayed" | "live" | "offline" | "stale" | "unsupported";
   motionLock?: boolean;
   freezeTime?: boolean;
+  keepBinanceWebSocket?: boolean;
   seatsRemaining?: number;
   rollout?: "enabled" | "fallback" | "unavailable";
 };
@@ -37,10 +38,10 @@ export const betaSessionResponse = {
 
 export async function installDeterminism(
   page: Page,
-  { devAuth = false, liveFeedState = "live", motionLock = true, freezeTime = true, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
+  { devAuth = false, liveFeedState = "live", motionLock = true, freezeTime = true, keepBinanceWebSocket = false, seatsRemaining = 363, rollout = "enabled" }: DeterminismOptions = {},
 ) {
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await page.addInitScript(({ datasetCatalog, frozenEpoch, liveState, lockMotion, lockTime }) => {
+  await page.addInitScript(({ datasetCatalog, frozenEpoch, liveState, lockMotion, lockTime, preserveBinanceSocket }) => {
     if (lockTime) {
       const NativeDate = Date;
       class FrozenDate extends NativeDate {
@@ -86,7 +87,7 @@ export async function installDeterminism(
         const parsed = new URL(resolved, window.location.href);
         const isDatasetStream = parsed.pathname.endsWith("/api/datasets/stream");
         const isBinanceStream = parsed.hostname.endsWith("binance.com") || parsed.hostname.endsWith("binance.vision");
-        if (!isDatasetStream && !isBinanceStream) {
+        if ((!isDatasetStream && !isBinanceStream) || (isBinanceStream && preserveBinanceSocket)) {
           return new NativeWebSocket(resolved, protocols) as unknown as DeterministicFixtureWebSocket;
         }
         super();
@@ -205,7 +206,7 @@ export async function installDeterminism(
       if (document.head) installStyle();
       else document.addEventListener("DOMContentLoaded", installStyle, { once: true });
     }
-  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), liveState: liveFeedState, lockMotion: motionLock, lockTime: freezeTime });
+  }, { datasetCatalog: seedDatasets, frozenEpoch: Date.parse(FROZEN_TIME), liveState: liveFeedState, lockMotion: motionLock, lockTime: freezeTime, preserveBinanceSocket: keepBinanceWebSocket });
 
   const total = 500;
   const remaining = Math.max(0, seatsRemaining);

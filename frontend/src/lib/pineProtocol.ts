@@ -79,6 +79,12 @@ export function canonicalPineTimeframe(timeframe: string): string {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1440 || (match[2] === "S" && ![1, 5, 10, 15, 30, 45].includes(amount))) fail("Invalid Pine timeframe.", "INVALID_CONTEXT");
   return `${amount}${match[2] ?? ""}`;
 }
+export function validatePineBar(value: unknown): Candle {
+  const bar = record(value);
+  const time = finite(bar.time), open = finite(bar.open), high = finite(bar.high), low = finite(bar.low), close = finite(bar.close), volume = finite(bar.volume);
+  if (!Number.isSafeInteger(time) || time < 0 || time > 253_402_300_799 || low > Math.min(open, close) || high < Math.max(open, close) || low > high || volume < 0) fail("Bars need valid second timestamps and OHLCV values.", "INVALID_BARS");
+  return { time, open, high, low, close, volume, timestamp: new Date(time * 1000).toISOString(), ema_20: null, ema_50: null, rsi_14: null };
+}
 export function validatePineRequest(value: unknown): PineRequest {
   const raw = record(value);
   const id = string(raw.id, 128);
@@ -107,11 +113,10 @@ export function validatePineRequest(value: unknown): PineRequest {
   if (raw.bars !== undefined) {
     let previous = -Infinity;
     bars = array(raw.bars, PINE_LIMITS.bars).map((item) => {
-      const bar = record(item);
-      const time = finite(bar.time), open = finite(bar.open), high = finite(bar.high), low = finite(bar.low), close = finite(bar.close), volume = finite(bar.volume);
-      if (!Number.isSafeInteger(time) || time < 0 || time > 253_402_300_799 || time <= previous || low > Math.min(open, close) || high < Math.max(open, close) || low > high || volume < 0) fail("Bars need ordered unique second timestamps and valid OHLCV values.", "INVALID_BARS");
-      previous = time;
-      return { time, open, high, low, close, volume, timestamp: new Date(time * 1000).toISOString(), ema_20: null, ema_50: null, rsi_14: null };
+      const bar = validatePineBar(item);
+      if (bar.time <= previous) fail("Bars need ordered unique second timestamps and valid OHLCV values.", "INVALID_BARS");
+      previous = bar.time;
+      return bar;
     });
   }
   if (raw.action === "run" && (!context || !bars?.length)) fail("Pine execution needs chart bars, symbol and timeframe.", "INVALID_CONTEXT");

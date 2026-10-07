@@ -1,4 +1,5 @@
 export type SandboxJob<T> = { id: string; cancel(): void; promise: Promise<T> };
+export type SandboxSession<Request, Result> = SandboxJob<Result> & { send(request: Request): Promise<Result> };
 
 export class PineSandboxError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = "PineSandboxError"; }
@@ -9,6 +10,7 @@ export class PineSandboxError extends Error {
 const bridge = `(() => {
   const nonce = document.currentScript.dataset.job;
   const origin = document.currentScript.dataset.origin;
+  const persistent = document.currentScript.dataset.session === 'true';
   let worker = null, url = null, initialized = false;
   const send = (type, payload, transfer = []) => parent.postMessage({nonce, type, payload}, origin, transfer);
   // A fixed transport allowlist, never a recursive collector over worker objects.
@@ -88,15 +90,33 @@ const bridge = `(() => {
   addEventListener('message', event => {
     if (event.source !== parent || event.origin !== origin || event.data?.nonce !== nonce) return;
     if (event.data.type === 'stop') { stop(); send('stopped'); return; }
+    if (persistent && initialized && event.data.type === 'request') {
+      if (!worker) { send('failure'); return; }
+      worker.postMessage(event.data.request); return;
+    }
     if (initialized || event.data.type !== 'start') return;
     initialized = true;
     try {
       url = URL.createObjectURL(new Blob([event.data.workerSource], {type:'text/javascript'}));
       worker = new Worker(url);
       worker.onmessage = message => {
-        stop();
-        try { send('result', message.data, transferBuffers(message.data)); }
-        catch { send('result', {id:event.data.request.id,status:'failed',error:{code:'INVALID_MESSAGE',message:'The isolated worker returned invalid packed transport.'}}); }
+        if (!persistent) stop();
+        try {
+          if (persistent) {
+            const payload = message.data;
+            if (!payload || Object.getPrototypeOf(payload) !== Object.prototype || Reflect.ownKeys(payload).some(key => !['protocol','sessionId','sequence','response'].includes(key)) || payload.protocol !== 'pine-live-v1' || typeof payload.sessionId !== 'string' || !Number.isSafeInteger(payload.sequence)) throw new Error('Invalid live envelope');
+            const buffers = transferBuffers(payload.response);
+            const response = payload.response?.encoding === 'pine-packed-v1' ? {...payload.response,buffers:[]} : payload.response;
+            const metadata = boundedMetadata({...payload,response});
+            if (metadata + buffers.reduce((bytes,buffer) => bytes + buffer.byteLength,0) > 16000000) throw new Error('Live result too large');
+            send('result',payload,buffers);
+          } else send('result', message.data, transferBuffers(message.data));
+        }
+        catch {
+          stop();
+          if (persistent) send('failure');
+          else send('result', {id:event.data.request.id,status:'failed',error:{code:'INVALID_MESSAGE',message:'The isolated worker returned invalid packed transport.'}});
+        }
       };
       worker.onerror = () => { stop(); send('failure', 'The isolated Pine worker failed.'); };
       worker.onmessageerror = () => { stop(); send('failure', 'The isolated Pine worker returned unreadable data.'); };
@@ -196,4 +216,126 @@ export function createSandboxWorkerJob<T>(options: {
     }).catch(() => finish(undefined, new PineSandboxError("WORKER_ASSET", "The trusted Pine engine could not be loaded.")));
   });
   return { id: request.id, promise, cancel: () => cancel() };
+}
+
+/** One opaque worker, ordered bounded commands, and a deadline for each response. */
+export function createSandboxWorkerSession<Request, Result>(options: {
+  id: string;
+  request: Request;
+  loadWorker(signal: AbortSignal): Promise<string>;
+  validate(value: unknown, request: Request): Result;
+  timeoutMs: number;
+  maxQueued: number;
+  updateTimeoutMs?: number;
+}): SandboxSession<Request, Result> {
+  type Entry = { request: Request; resolve(value: Result): void; reject(error: unknown): void };
+  const queue: Entry[] = [];
+  const abort = new AbortController();
+  let frame: HTMLIFrameElement | undefined;
+  let pending: Entry | undefined;
+  let ready = false, loaded = false, started = false, stopped = false, settling = false;
+  let workerSource = "";
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let terminationTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopReason: unknown;
+  const nonce = typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function" ? randomId() : "";
+  const cleanup = () => {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(deadline);
+    clearTimeout(terminationTimer);
+    abort.abort();
+    window.removeEventListener("message", receive);
+    frame?.remove();
+    frame = undefined;
+    workerSource = "";
+  };
+  const stop = (reason: unknown, alreadyStopped = false) => {
+    if (settling || stopped) return;
+    settling = true;
+    stopReason = reason;
+    clearTimeout(deadline);
+    abort.abort();
+    pending?.reject(reason);
+    pending = undefined;
+    for (const entry of queue.splice(0)) entry.reject(reason);
+    if (!ready || alreadyStopped) { cleanup(); return; }
+    frame?.contentWindow?.postMessage({ nonce, type: "stop" }, "*");
+    terminationTimer = setTimeout(cleanup, 150);
+  };
+  const arm = (duration = options.timeoutMs) => {
+    clearTimeout(deadline);
+    deadline = setTimeout(() => stop(new PineSandboxError("TIME_LIMIT", `Pine execution exceeded its ${duration} ms time limit.`)), duration);
+  };
+  const dispatch = () => {
+    if (!frame || !ready || !loaded || pending || settling || stopped || !queue.length) return;
+    pending = queue.shift()!;
+    arm(started ? options.updateTimeoutMs ?? options.timeoutMs : options.timeoutMs);
+    if (!started) {
+      started = true;
+      frame.contentWindow?.postMessage({ nonce, type: "start", workerSource, request: pending.request }, "*");
+      workerSource = "";
+    } else frame.contentWindow?.postMessage({ nonce, type: "request", request: pending.request }, "*");
+  };
+  const receive = (event: MessageEvent) => {
+    if (stopped || event.source !== frame?.contentWindow || event.origin !== "null" || event.data?.nonce !== nonce) return;
+    if (event.data.type === "stopped") { if (settling) cleanup(); return; }
+    if (settling) return;
+    if (event.data.type === "ready") {
+      if (ready) { stop(new PineSandboxError("INVALID_MESSAGE", "Duplicate isolated-worker initialization.")); return; }
+      ready = true;
+      dispatch();
+    } else if (event.data.type === "result") {
+      if (!pending) { stop(new PineSandboxError("INVALID_MESSAGE", "Unexpected live Pine response.")); return; }
+      const entry = pending;
+      try {
+        const result = options.validate(event.data.payload, entry.request);
+        pending = undefined;
+        clearTimeout(deadline);
+        entry.resolve(result);
+        dispatch();
+      } catch (error) { stop(error); }
+    } else if (event.data.type === "failure") stop(new PineSandboxError("WORKER_ERROR", "The isolated live Pine worker failed."), true);
+  };
+  const send = (request: Request): Promise<Result> => {
+    if (settling || stopped) return Promise.reject(stopReason ?? new PineSandboxError("CANCELLED", "Live Pine execution was cancelled."));
+    if (queue.length >= options.maxQueued) {
+      const error = new PineSandboxError("QUEUE_LIMIT", "Live Pine updates exceeded the pending-update limit. Reapply the indicator to restart.");
+      stop(error);
+      return Promise.reject(error);
+    }
+    const promise = new Promise<Result>((resolve, reject) => { queue.push({ request, resolve, reject }); });
+    dispatch();
+    return promise;
+  };
+  const promise = send(options.request);
+  if (typeof document === "undefined" || typeof Worker === "undefined" || !nonce || typeof location === "undefined" || location.origin === "null") {
+    // No frame or browser listeners exist on this path.
+    settling = stopped = true;
+    stopReason = new PineSandboxError("ISOLATION_UNAVAILABLE", "This browser cannot start an isolated live Pine worker.");
+    for (const entry of queue.splice(0)) entry.reject(stopReason);
+  } else {
+    frame = document.createElement("iframe");
+    frame.hidden = true;
+    frame.setAttribute("aria-hidden", "true");
+    frame.setAttribute("sandbox", "allow-scripts");
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    const origin = location.origin.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    const csp = `default-src 'none'; script-src 'nonce-${nonce}' 'unsafe-eval'; worker-src blob:; connect-src 'none'; child-src 'none'; img-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`;
+    frame.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${csp}"><script nonce="${nonce}" data-job="${nonce}" data-origin="${origin}" data-session="true">${bridge}</script>`;
+    arm(); // Loading and initialization are bounded too.
+    window.addEventListener("message", receive);
+    try { document.body.appendChild(frame); }
+    catch { stop(new PineSandboxError("ISOLATION_UNAVAILABLE", "This browser cannot create an isolated live Pine frame.")); }
+    if (!settling) void options.loadWorker(abort.signal).then(source => {
+      if (settling || stopped) return;
+      if (typeof source !== "string" || !source.length || source.length > 8_000_000) {
+        stop(new PineSandboxError("WORKER_ASSET", "The trusted Pine engine asset is invalid.")); return;
+      }
+      workerSource = source;
+      loaded = true;
+      dispatch();
+    }).catch(() => stop(new PineSandboxError("WORKER_ASSET", "The trusted Pine engine could not be loaded.")));
+  }
+  return { id: options.id, promise, send, cancel: () => stop(new PineSandboxError("CANCELLED", "Live Pine execution was cancelled.")) };
 }
