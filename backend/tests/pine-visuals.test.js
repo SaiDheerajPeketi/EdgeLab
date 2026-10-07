@@ -28,13 +28,13 @@ async function raw(source, snapshot = bars) {
 
 // Record the renderer's public Canvas2D operations. Expected geometry is derived
 // separately from raw PineTS points and these independent coordinate transforms.
-function recordingTarget() {
+function recordingTarget(width = 2800, height = 1000) {
   const paths = [], text = [], states = [], gradients = [];
   let path = [], matrix = [1, 0, 0, 1, 0, 0];
   const xy = (x, y) => [matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]];
   const context = {
-    fillStyle: "black", strokeStyle: "black", lineWidth: 1, font: "12px sans-serif", globalAlpha: 1,
-    save() { states.push({ matrix: [...matrix], fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth, font: this.font, globalAlpha: this.globalAlpha }); },
+    fillStyle: "black", strokeStyle: "black", lineWidth: 1, font: "12px sans-serif", globalAlpha: 1, dash: [], lineCap: "butt", lineDashOffset: 0,
+    save() { states.push({ matrix: [...matrix], fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth, font: this.font, globalAlpha: this.globalAlpha, dash: [...this.dash], lineCap: this.lineCap, lineDashOffset: this.lineDashOffset }); },
     restore() { const state = states.pop(); if (state) { matrix = state.matrix; Object.assign(this, state); } },
     scale(x, y) { matrix[0] *= x; matrix[1] *= x; matrix[2] *= y; matrix[3] *= y; },
     translate(x, y) { matrix[4] += matrix[0] * x + matrix[2] * y; matrix[5] += matrix[1] * x + matrix[3] * y; },
@@ -43,15 +43,15 @@ function recordingTarget() {
     arc(x, y, radius) { path.push({ kind: "arc", xy: xy(x, y), radius: radius * matrix[0] }); },
     rect(x, y, w, h) { this.moveTo(x, y); this.lineTo(x + w, y); this.lineTo(x + w, y + h); this.lineTo(x, y + h); this.closePath(); },
     roundRect(x, y, w, h) { this.rect(x, y, w, h); }, closePath() { path.push({ kind: "close" }); },
-    stroke() { paths.push({ mode: "stroke", style: this.strokeStyle, width: this.lineWidth, commands: [...path], alpha: this.globalAlpha }); },
+    stroke() { paths.push({ mode: "stroke", style: this.strokeStyle, width: this.lineWidth, commands: [...path], alpha: this.globalAlpha, dash: [...this.dash], lineCap: this.lineCap, lineDashOffset: this.lineDashOffset }); },
     fill() { paths.push({ mode: "fill", style: this.fillStyle, commands: [...path], alpha: this.globalAlpha }); },
     fillRect(x, y, w, h) { const old = path; this.beginPath(); this.rect(x, y, w, h); this.fill(); path = old; },
     strokeRect(x, y, w, h) { const old = path; this.beginPath(); this.rect(x, y, w, h); this.stroke(); path = old; },
     fillText(value, x, y) { text.push({ value, xy: xy(x, y), color: this.fillStyle, font: this.font }); },
     measureText(value) { return { width: String(value).length * 7, actualBoundingBoxAscent: 9, actualBoundingBoxDescent: 3 }; },
-    createLinearGradient(x0, y0, x1, y1) { const gradient = { from: xy(x0, y0), to: xy(x1, y1), stops: [], addColorStop(offset, color) { this.stops.push({ offset, color }); } }; gradients.push(gradient); return gradient; }, clip() {}, setLineDash() {}, clearRect() {},
+    createLinearGradient(x0, y0, x1, y1) { const gradient = { from: xy(x0, y0), to: xy(x1, y1), stops: [], addColorStop(offset, color) { this.stops.push({ offset, color }); } }; gradients.push(gradient); return gradient; }, clip() {}, setLineDash(values) { this.dash = [...values]; }, getLineDash() { return [...this.dash]; }, clearRect() {},
   };
-  const scope = { context, mediaSize: { width: 2800, height: 1000 }, bitmapSize: { width: 2800, height: 1000 }, horizontalPixelRatio: 1, verticalPixelRatio: 1 };
+  const scope = { context, mediaSize: { width, height }, bitmapSize: { width, height }, horizontalPixelRatio: 1, verticalPixelRatio: 1 };
   return { paths, text, gradients, context, useMediaCoordinateSpace(callback) { callback(scope); }, useBitmapCoordinateSpace(callback) { callback(scope); } };
 }
 function harness(snapshot = bars, from = 0, to = snapshot.length - 1, globalBars = snapshot) {
@@ -75,8 +75,8 @@ function harness(snapshot = bars, from = 0, to = snapshot.length - 1, globalBars
   };
   return { chart, created, removed, attached, detached, listeners, coordinate, price, coordinateCalls: () => coordinateCalls, range(nextFrom, nextTo) { from = nextFrom; to = nextTo; for (const listener of listeners) listener(); } };
 }
-function draw(installation) {
-  const target = recordingTarget();
+function draw(installation, width = 2800, height = 1000) {
+  const target = recordingTarget(width, height);
   const primitive = installation.primitive;
   assert.ok(primitive, "Grouped scalar output must use the actual primitive");
   primitive.updateAllViews();
@@ -606,4 +606,127 @@ test("valid solid na positional six/eight argument overloads preserve solid opti
   const adapted = pine.adaptPineChartResult(dynamic, bars), chart = harness(), installed = pine.installPineChartPlots(chart.chart, adapted.plots);
   assert.equal(filled(draw(installed), "#F23645").length, 1, "Solid show_last exposes slots 253 red, 254 na, 255 red; only the interval with right endpoint 255 paints");
   installed.dispose();
+});
+
+test("fixed hline styles draw one full-pane path and autoscale before after and within history", async () => {
+  const body = 'hline(90,"Solid",#ff0000,hline.style_solid,1)\nhline(100,"Dashed",#00ff00,hline.style_dashed,2)\nhline(110,"Dotted",#0000ff,hline.style_dotted,3)';
+  const result = await native(program(body)), adapted = pine.adaptPineChartResult(result, bars), chart = harness(), installed = pine.installPineChartPlots(chart.chart, adapted.plots);
+  assert.equal(adapted.plots.length, 3); assert.equal(installed.series.length, 1);
+  for (const [from, to] of [[20, 50], [260, 290], [-30, -10], [250, 280]]) {
+    chart.range(from, to);
+    assert.deepEqual(installed.primitive.rangeForVisible().priceRange, { minValue: 90, maxValue: 110 });
+    for (const width of [2800, 720]) {
+      const strokes = draw(installed, width).paths.filter((path) => path.mode === "stroke");
+      assert.equal(strokes.length, 3, "A level must use one pane-wide path rather than historical segments");
+      for (const [index, shade] of ["#ff0000", "#00ff00", "#0000ff"].entries()) {
+        const path = strokes.find((entry) => entry.style === shade);
+        assert.ok(path);
+        assert.deepEqual(path.commands, [{ kind: "move", xy: [0, chart.price(90 + index * 10)] }, { kind: "line", xy: [width, chart.price(90 + index * 10)] }]);
+        assert.equal(path.width, index + 1);
+      }
+      const [solid, dashed, dotted] = ["#ff0000", "#00ff00", "#0000ff"].map((shade) => strokes.find((entry) => entry.style === shade).dash);
+      assert.deepEqual(solid, []);
+      assert.equal(dashed.length, 2); assert.equal(dotted.length, 2);
+      assert.ok(dashed.every((value) => Number.isFinite(value) && value > 0));
+      assert.ok(dotted.every(Number.isFinite) && dotted[0] >= 0 && dotted[1] > 0);
+      if (dotted[0] === 0) assert.equal(strokes.find((entry) => entry.style === "#0000ff").lineCap, "round", "Zero-length dotted dashes need round caps to paint visible dots");
+      assert.ok(dashed[0] / 2 > dotted[0] / 3, "Dashed on-segments are longer than dotted on-segments after width normalization");
+    }
+  }
+  installed.dispose(); installed.dispose();
+  assert.equal(chart.listeners.size, 0); assert.equal(chart.removed.length, 1);
+  assert.equal(draw(installed).paths.length, 0);
+});
+
+test("bare zero level defaults to width one while na transparent and display-none levels do not paint or scale", async () => {
+  const body = 'hline(0,"Bare")\nhline(5,"Visible",#00ff00,hline.style_solid,2)\nhline(1000000000,"Na color",color=na)\nhline(na,"Na price",color=#ff0000)\nhline(-1000000000,"Transparent",color=#ff000000)\nhline(2000000000,"Hidden",color=#ff0000,display=display.none)';
+  const result = await native(program(body)), adapted = pine.adaptPineChartResult(result, bars), chart = harness(), installed = pine.installPineChartPlots(chart.chart, adapted.plots);
+  assert.deepEqual(installed.primitive.rangeForVisible().priceRange, { minValue: 0, maxValue: 5 });
+  const strokes = draw(installed).paths.filter((path) => path.mode === "stroke");
+  assert.equal(strokes.length, 2);
+  const bare = strokes.find((path) => path.commands.some((command) => command.xy?.[1] === chart.price(0)));
+  assert.ok(bare); assert.equal(bare.width, 1);
+  assert.ok(adapted.warnings.some((warning) => /default|omitted/i.test(warning)), "Omitted hline style/color uses a disclosed local default");
+  installed.dispose();
+});
+
+test("raw accepted series-varying hline price or color and invalid styles are omitted with a reason", async () => {
+  for (const body of [
+    'hline(bar_index%2==0?5:6,"Changing price",color=#ff0000)',
+    'hline(5,"Changing color",color=bar_index%2==0?#ff0000:#0000ff)',
+    'hline(5,"Invalid style",color=#ff0000,linestyle="unsupported")',
+  ]) {
+    const result = await native(program(body)), adapted = pine.adaptPineChartResult(result, bars);
+    assert.equal(adapted.plots.length, 0, "A local selected constant or solid fallback cannot substitute for unsupported native semantics");
+    assert.ok(adapted.warnings.some((warning) => /hline|horizontal|level/i.test(warning) && /vary|chang|input|style|unsupported|not drawn/i.test(warning)));
+  }
+});
+
+test("hidden hline references remain available to solid and gradient current-history fills without drawn edges", async () => {
+  for (const call of ['fill(a,b,color=#ff0000)', 'fill(a,b,120,80,#ff0000,#0000ff)']) {
+    const { result, adapted, rendered, installed, chart } = await visual('a=hline(110,"Upper",display=display.none)\nb=hline(90,"Lower",display=display.none)\n' + call);
+    assert.equal(adapted.plots.length, 1);
+    assert.ok(result.plots.filter((plot) => plot.style === "hline").every((plot) => plot.options.display === "none"));
+    assert.ok(!rendered.paths.some((path) => path.mode === "stroke"));
+    if (call.includes("120,80")) expectGradientAt(rendered, 35, chart.price(100), [127.5, 0, 127.5, 1]);
+    else assert.ok(filled(rendered, "#ff0000").some((path) => polygonContains(path.commands, 35, chart.price(100))));
+    assert.deepEqual(installed.primitive.rangeForVisible().priceRange, { minValue: 90, maxValue: 110 });
+    installed.dispose();
+  }
+});
+
+test("packed 20k fixed levels preserve raw backing and draw bounded geometry in future whitespace", async () => {
+  const snapshot = Array.from({ length: 20_000 }, (_, index) => ({ ...bars[0], time: bars[0].time + index * 60 }));
+  const result = await native(program('hline(5,"Packed",#ff0000,hline.style_dashed,2)'), snapshot);
+  const adapted = pine.adaptPineChartResult(result, snapshot), chart = harness(snapshot, 15000, 15024), installed = pine.installPineChartPlots(chart.chart, adapted.plots);
+  assert.ok(pine.getPackedPinePlot(result.plots[0]));
+  assert.equal(adapted.plots[0].visual.source, result.plots[0]);
+  assert.deepEqual(adapted.plots[0].segments, []);
+  for (const range of [[15000, 15024], [20020, 20050], [-50, -20]]) {
+    chart.range(...range);
+    const strokes = draw(installed, 720).paths.filter((path) => path.mode === "stroke");
+    assert.equal(strokes.length, 1);
+    assert.deepEqual(strokes[0].commands.map((command) => command.xy), [[0, chart.price(5)], [720, chart.price(5)]]);
+    assert.deepEqual(installed.primitive.rangeForVisible().priceRange, { minValue: 5, maxValue: 5 });
+  }
+  assert.ok(installed.primitive.debugStats.decodedSamples < 10, "Drawing a fixed level cannot inflate 20k historical point objects");
+  installed.dispose();
+  assert.equal(installed.primitive.debugStats.cacheEntries, 0);
+  assert.equal(chart.listeners.size, 0);
+});
+
+test("hline dash state never leaks into ordinary plots and grouped disposal remains idempotent", async () => {
+  const { rendered, installed, chart } = await visual('hline(5,"Dotted",#ff0000,hline.style_dotted,2)\nplot(bar_index%2==0?6:7,"Ordinary",color=#00ff00)');
+  const dotted = rendered.paths.filter((path) => path.mode === "stroke" && path.style === "#ff0000");
+  const ordinary = rendered.paths.filter((path) => path.mode === "stroke" && path.style === "#00ff00");
+  assert.equal(dotted.length, 1); assert.ok(dotted[0].dash.length > 0);
+  assert.ok(ordinary.length > 16);
+  assert.ok(ordinary.every((path) => path.dash.length === 0));
+  installed.dispose(); installed.dispose();
+  assert.equal(chart.detached.length, 1); assert.equal(chart.removed.length, 1); assert.equal(chart.listeners.size, 0);
+  assert.equal(draw(installed).paths.length, 0);
+});
+
+test("newer real timeline scale anchor keeps an owned seed while its price never enters level autoscale", async () => {
+  const snapshot = bars.slice(0, 200), before = structuredClone(snapshot);
+  const source = program('hline(5,"Fixed",#ff0000,hline.style_solid,2)'), result = await native(source, snapshot), resultBefore = structuredClone(result);
+  const adapted = pine.adaptPineChartResult(result, snapshot), anchor = { time: bars[255].time, close: 1e9 };
+  const chart = harness(snapshot, 240, 255, bars), installed = pine.installPineChartPlots(chart.chart, adapted.plots, "right", { scaleAnchor: anchor });
+  const host = installed.series[0], endpoint = host.data.at(-1);
+  assert.equal(host.data.length, snapshot.length + 1);
+  assert.deepEqual(endpoint, { time: anchor.time, value: 1e9, color: "transparent" });
+  assert.notEqual(endpoint, anchor);
+  assert.deepEqual(host.options().autoscaleInfoProvider().priceRange, { minValue: 5, maxValue: 5 });
+  assert.deepEqual(snapshot, before); assert.deepEqual(result, resultBefore);
+  assert.equal(adapted.plots[0].visual.source, result.plots[0]);
+  assert.equal(adapted.plots[0].visual.bars, snapshot);
+  anchor.close = -1e9;
+  assert.equal(endpoint.value, 1e9, "Host owns its scalar seed rather than aliasing a caller-owned anchor");
+  installed.dispose();
+  for (const invalid of [{ time: snapshot.at(-1).time, close: 1e9 }, { time: bars[255].time, close: NaN }, { time: Infinity, close: 1e9 }]) {
+    const other = harness(snapshot, 240, 255, bars), owned = pine.installPineChartPlots(other.chart, adapted.plots, "right", { scaleAnchor: invalid });
+    assert.equal(owned.series[0].data.length, snapshot.length);
+    assert.deepEqual(owned.series[0].options().autoscaleInfoProvider().priceRange, { minValue: 5, maxValue: 5 });
+    owned.dispose(); assert.equal(other.listeners.size, 0);
+  }
 });

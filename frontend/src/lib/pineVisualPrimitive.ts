@@ -294,6 +294,11 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
     let bounds: Bounds | null = null;
     let margin = 0;
     this.plots.forEach((plot, p) => {
+      const level = plot.visual?.level;
+      if (level) {
+        if (level.price !== null && painted(level.color)) bounds = extend(bounds, level.price);
+        return;
+      }
       const [from, to] = ranges[p];
       if (to < from || plot.kind === "fill") return;
       const found = this.bounds(plot, from, to);
@@ -361,6 +366,17 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, mediaSize.width, mediaSize.height); ctx.clip();
       for (const plot of this.plots) {
         if (plot.kind === "area" ? layer === "shape" : (plot.kind === "fill" ? "fill" : plot.kind === "markers" ? "shape" : "line") !== layer) continue;
+        const level = plot.visual?.level;
+        if (level) {
+          if (level.price === null || !painted(level.color)) continue;
+          const y = this.series!.priceToCoordinate(level.price);
+          if (y === null || !Number.isFinite(y)) continue;
+          ctx.save(); ctx.strokeStyle = level.color; ctx.lineWidth = level.width;
+          ctx.lineCap = level.linestyle === "dotted" ? "round" : "butt";
+          ctx.setLineDash(level.linestyle === "dashed" ? [6 * level.width, 4 * level.width] : level.linestyle === "dotted" ? [0, 2 * level.width] : []);
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(mediaSize.width, y); ctx.stroke(); ctx.restore();
+          continue;
+        }
         let [from, to] = this.visible(plot, true);
         this.from = from; this.to = to;
         if (to < from) continue;

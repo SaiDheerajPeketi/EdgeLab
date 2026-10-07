@@ -137,10 +137,13 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     const style = typeof plot.options?.style === "string" ? plot.options.style : "line";
     if (!Array.isArray(plot.data)) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
     if (plot.data.some((point) => point.value && typeof point.value === "object" && !Array.isArray(point.value))) { diagnostics.push(warning("UNSUPPORTED_DRAWING", `The ${style} drawing output is not exposed by this chart adapter.`)); return []; }
+    // HlineHelper forwards omitted parameters as own undefined fields. Preserve absence
+    // separately from explicit na (NaN), so a missing color does not hide a fixed level.
+    const plotFields = (value: object) => fields(style === "hline" ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value);
     const points = function* (): Generator<PinePlotPoint> {
-      for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: fields(point.options ?? {}) };
+      for (const point of plot.data!) yield { time: point.time / 1000, value: normalizePinePlotValue(point.value), options: plotFields(point.options ?? {}) };
     };
-    return [{ id, name: plot.title ?? id, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: fields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
+    return [{ id, name: plot.title ?? id, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: plotFields(plot.options ?? {}), points: packed ? points() : Array.from(points()) }];
   });
   return packed ? encodePinePackedPlots(plots, bars) : { plots: plots as PinePlot[] };
 }

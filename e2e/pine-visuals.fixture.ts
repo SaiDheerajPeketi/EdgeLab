@@ -34,7 +34,8 @@ export async function run(source, bars, options = {}) {
     const fixed = () => ({ priceRange: { minValue: bounds[0], maxValue: bounds[1] } });
     const base = candles ? chart.addCandlestickSeries({ upColor: "#475569", downColor: "#475569", wickUpColor: "#475569", wickDownColor: "#475569", borderVisible: false, autoscaleInfoProvider: fixed })
       : chart.addLineSeries({ color: "transparent", lineVisible: false, lastValueVisible: false, priceLineVisible: false, autoscaleInfoProvider: fixed });
-    base.setData(candles ? bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })) : bars.map(b => ({ time: b.time, value: bounds[0] })));
+    const chartBars = candles ? options.chartBars ?? bars : bars;
+    base.setData(candles ? chartBars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })) : chartBars.map(b => ({ time: b.time, value: bounds[0] })));
     chart.timeScale().setVisibleLogicalRange({ from, to });
     return { chart, base, element, before: null, installed: null };
   }
@@ -46,7 +47,7 @@ export async function run(source, bars, options = {}) {
     p.before = image(p.chart, p.element);
     p.beforeCoordinate = p.base.priceToCoordinate(100);
   }
-  placements[0].installed = installPineChartPlots(placements[0].chart, adapted.plots.filter(p => p.overlay), "right", { allowFillOnlyScale: false });
+  placements[0].installed = installPineChartPlots(placements[0].chart, adapted.plots.filter(p => p.overlay), "right", { allowFillOnlyScale: false, scaleAnchor: (options.chartBars ?? bars).at(-1) });
   if (placements[1])
     placements[1].installed = installPineChartPlots(placements[1].chart, adapted.plots.filter(p => !p.overlay));
   state = { result, adapted, bars, placements };
@@ -103,3 +104,25 @@ export async function dispose() {
   return state.placements.map(p => ({ stats: p.installed.primitive?.debugStats }));
 }
 export function intervalProbe(leftTime, rightTime, price, options = {}) { const scale = state.placements[options.placement ?? 0].chart.timeScale(); return probe(rightTime, price, { ...options, dx: (scale.timeToCoordinate(leftTime) - scale.timeToCoordinate(rightTime)) * (1 - (options.fraction ?? .5)), radius: 1 }); }
+
+// Inspect the actual primitive canvas across the plot area, including whitespace beyond loaded bars.
+export function levelProbe(price, { placement = 0, channel = "red" } = {}) {
+  const p = state.placements[placement], after = image(p.chart, p.element);
+  const y = (p.disposed ? p.base : p.installed.series[0] ?? p.base).priceToCoordinate(price);
+  const width = Math.floor(p.chart.paneSize().width), cy = Math.round(y);
+  if (y === null || !Number.isFinite(y)) return { y, width, painted: 0, samples: width - 8, runs: 0 };
+  const lane = { red: 0, green: 1, blue: 2 }[channel];
+  let painted = 0, runs = 0, prior = false;
+  for (let x = 4; x < width - 4; x++) {
+    let hit = false;
+    for (let yy = Math.max(0, cy - 3); yy <= Math.min(after.height - 1, cy + 3); yy++) {
+      const offset = (yy * after.width + x) * 4;
+      const rgb = [...after.pixels.slice(offset, offset + 3)];
+      if (rgb[lane] > 120 && rgb[lane] > rgb[(lane + 1) % 3] * 1.5 && rgb[lane] > rgb[(lane + 2) % 3] * 1.5) hit = true;
+    }
+    if (hit) painted++;
+    if (hit && !prior) runs++;
+    prior = hit;
+  }
+  return { y, width, painted, samples: width - 8, runs };
+}

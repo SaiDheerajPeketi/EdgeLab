@@ -320,6 +320,53 @@ test("native gradient custom inputs survive save and reload and paint the actual
   await pane.screenshot({ path: path.join(captures, `gradient-pane-${info.project.name}.png`) });
 });
 
+test("native horizontal level inputs survive save reload and paint the actual pane", async ({ page }, info) => {
+  const state = await fixture(page);
+  let editor = await openEditor(page);
+  const source = '//@version=6\nindicator("Native editor levels",overlay=false)\nprice=input.float(100,"Level price")\nshade=input.color(#ff0000,"Level color")\nshow=input.bool(true,"Show level")\nhline(show?price:na,"Editable level",shade,hline.style_dashed,3,false,display.all)\nhline(0,"Zero",#0000ff,hline.style_solid,2)\nhline(120,"Upper",#00ff00,hline.style_dotted,2)';
+  await fillSource(editor, source); await check(editor);
+  await editor.getByLabel("Level price", { exact: true }).fill("80");
+  await editor.getByLabel("Level color", { exact: true }).fill("#ff0000");
+  await run(editor);
+  const result = await nativeRun(page, source);
+  expect(result.inputs).toMatchObject({ in_0: 80, in_1: "#ff0000", in_2: true });
+  const level = result.plots.find((plot) => plot.name === "Editable level")!;
+  expect(level.style).toBe("hline");
+  expect(level.options).toMatchObject({ linewidth: 3, editable: false, linestyle: "dashed" });
+  expect(level.points.at(-1)!.value).toBe(80);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(1);
+  const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>)[0];
+  expect(saved).toMatchObject({ source, inputs: result.inputs });
+  await page.reload(); await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  editor = await openEditor(page);
+  await editor.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(source);
+  await check(editor);
+  await expect(editor.getByLabel("Level price", { exact: true })).toHaveValue("80");
+  await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+  await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  const pane = page.getByRole("region", { name: "Native editor levels native Pine pane", exact: true });
+  await expect(pane).toBeVisible();
+  await expect.poll(() => pane.locator("canvas").evaluateAll((canvases) => {
+    let drawn = false;
+    for (const canvas of canvases) {
+      const element = canvas as HTMLCanvasElement, pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+      if (!pixels) continue;
+      const counts = [0, 0, 0];
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        const rgb = [...pixels.slice(offset, offset + 3)];
+        for (let lane = 0; lane < 3; lane++) if (rgb[lane] > 120 && rgb[lane] > rgb[(lane + 1) % 3] * 1.5 && rgb[lane] > rgb[(lane + 2) % 3] * 1.5) counts[lane]++;
+      }
+      if (counts.every((count) => count > element.width * .2)) drawn = true;
+    }
+    return drawn;
+  })).toBe(true);
+  await expect(page.getByText(/Native hline output is not rendered/)).toHaveCount(0);
+  const captures = path.resolve(".artifacts/pine-levels36/product"); fs.mkdirSync(captures, { recursive: true });
+  await pane.screenshot({ path: path.join(captures, `levels-pane-${info.project.name}.png`) });
+});
+
 test("plot names matching assumption codes keep unsupported-output warnings visible", async ({ page }) => {
   await fixture(page);
   const editor = await openEditor(page);

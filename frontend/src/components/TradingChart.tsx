@@ -616,6 +616,7 @@ export function TradingChart({
     () => aggregateBars(sessionBars, timeframe),
     [sessionBars, timeframe],
   );
+  const latestDisplayBarTime = displayBars.at(-1)?.time;
   const sessionFilteredBarCount = bars.length - sessionBars.length;
   const sourceOrderFlowBars = useMemo(
     () => readOrderFlowSeries(sessionBars),
@@ -1979,13 +1980,13 @@ export function TradingChart({
     const chart = chartRef.current;
     if (!chart) return;
     const plots = customRuntimeStudies.flatMap((study) => study.overlay && study.pinePlot ? [study.pinePlot] : []);
-    const installed = installPineChartPlots(chart, plots, primaryPriceScaleIdForPlacement(chartSettings.scalePlacement), { allowFillOnlyScale: false });
+    const installed = installPineChartPlots(chart, plots, primaryPriceScaleIdForPlacement(chartSettings.scalePlacement), { allowFillOnlyScale: false, scaleAnchor: barsRef.current.at(-1) });
     pineInstallationsRef.current.add(installed);
     return () => {
       pineInstallationsRef.current.delete(installed);
       installed.dispose();
     };
-  }, [customRuntimeStudies, chartSettings.scalePlacement, paneId]);
+  }, [customRuntimeStudies, chartSettings.scalePlacement, paneId, latestDisplayBarTime]);
 
   useEffect(() => {
     const series = primarySeriesRef.current;

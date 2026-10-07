@@ -9,7 +9,7 @@ export type PineChartPlot = {
   id: string; name: string; overlay: boolean; kind: "line" | "area" | "histogram" | "candles" | "markers" | "fill";
   color: string; width: 1 | 2 | 3 | 4; step: boolean; pointsOnly: boolean; base: number;
   segments: PineChartPoint[][]; markers: SeriesMarker<UTCTimestamp>[];
-  visual?: { source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
+  visual?: { level?: { price: number | null; color: string; width: 1 | 2 | 3 | 4; linestyle: "solid" | "dashed" | "dotted" }; source: PinePlot; bars: readonly Candle[]; style: string; showFrom: number; gradient?: boolean; refs?: { upper: PinePlot; lower: PinePlot } };
 };
 export type PineChartResult = { plots: PineChartPlot[]; warnings: string[]; strategyMarkers: SeriesMarker<UTCTimestamp>[] };
 const FALLBACK_COLOR = "#22d3ee";
@@ -26,6 +26,10 @@ function* shownPoints(plot: PinePlot, time: number) {
 /** Header values need one sample; chart geometry already owns the full rendered data. */
 export function latestPineChartPoint(plot: PineChartPlot): { time: UTCTimestamp; value: number } | null {
   if (plot.kind === "fill") return null;
+  if (plot.visual?.level) {
+    const price = plot.visual.level.price, time = plot.visual.bars.at(-1)?.time;
+    return price === null || time === undefined ? null : { time: time as UTCTimestamp, value: price };
+  }
   if (plot.visual) {
     for (let index = plot.visual.bars.length - 1; index >= plot.visual.showFrom; index--) {
       const value = pineVisualSample(plot, index)?.value;
@@ -64,6 +68,30 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
     const showFrom = Math.max(0, bars.length - showLast);
     const common = { id: plot.id, name: plot.name, overlay: plot.overlay, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
+    if (style === "hline") {
+      if (hasOffset(plot)) { warn("Horizontal level offsets are not supported."); return []; }
+      const defaults = { color: FALLBACK_COLOR, linestyle: "solid", linewidth: 1, display: "all", editable: true };
+      const fixed = (key: keyof typeof defaults, fields: Record<string, PineScalar>) => fields[key] !== undefined ? fields[key] : plot.options[key] !== undefined ? plot.options[key] : defaults[key];
+      if (!optionSets.every((fields) => (Object.keys(defaults) as (keyof typeof defaults)[]).every((key) => fixed(key, fields) === fixed(key, plot.options)))) {
+        warn("Horizontal levels require input-only price, color and style settings; changing per-bar settings are not rendered."); return [];
+      }
+      let price: number | null | undefined;
+      const check = (value: unknown) => {
+        if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) return false;
+        if (price === undefined) price = value as number | null;
+        return price === value;
+      };
+      const constant = packed ? packed.kinds.every((kind, index) => !kind || check(kind === 1 ? null : kind === 4 ? packed.values[index * packed.arity] : undefined)) : plot.points.every((point) => check(point.value));
+      if (!constant) { warn("Horizontal levels require input-only prices; changing per-bar prices are not rendered."); return []; }
+      const linestyle = String(fixed("linestyle", plot.options)).replace(/^hline[._]style_/, "");
+      if (!["solid", "dashed", "dotted"].includes(linestyle)) { warn("This horizontal level line style is not rendered."); return []; }
+      const declared = number(plot.options.linewidth, 1), width = Math.max(1, Math.min(4, Math.round(declared))) as PineChartPlot["width"];
+      if (declared < 1 || declared > 4 || !Number.isInteger(declared)) warn("Horizontal level line width is limited to integer values from 1 to 4 pixels.");
+      if (plot.options.color === undefined || plot.options.linestyle === undefined) warnings.push("Omitted horizontal level colors and styles use local defaults; TradingView default and pixel calibration has not been verified.");
+      if (linestyle !== "solid") warnings.push("Horizontal level dash and dot spacing uses local pixel metrics; TradingView pixel calibration has not been verified.");
+      const shade = color(plot.options.color);
+      return [{ ...common, kind: "line", width, color: shade, segments: [], markers: [], visual: { source: plot, bars, style, showFrom: 0, level: { price: price ?? null, color: shade, width, linestyle: linestyle as "solid" | "dashed" | "dotted" } } }];
+    }
     if (style === "fill") {
       const upper = sources.get(String(plot.options.plot1)), lower = sources.get(String(plot.options.plot2));
       if (!upper || !lower) { warn("Fill references are unavailable; this fill is not drawn."); return []; }
@@ -185,7 +213,7 @@ function installNativePineChartPlot(chart: IChartApi, plot: PineChartPlot, price
 
 
 /** A single owned host/primitive per placement keeps gaps and plot count independent of series count. */
-export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; dispose: () => void } {
+export function installPineChartPlots(chart: IChartApi, plots: readonly PineChartPlot[], priceScaleId = "right", options: { allowFillOnlyScale?: boolean; scaleAnchor?: Pick<Candle, "time" | "close"> } = {}): { series: ISeriesApi<SeriesType>[]; primitive?: PineVisualPrimitive; dispose: () => void } {
   const native = plots.filter((plot) => !plot.visual).flatMap((plot) => installNativePineChartPlot(chart, plot, priceScaleId));
   const visual = plots.filter((plot) => plot.visual);
   const primitive = visual.length ? new PineVisualPrimitive(visual, plots.filter((plot) => !plot.visual), options) : undefined;
@@ -198,7 +226,12 @@ export function installPineChartPlots(chart: IChartApi, plots: readonly PineChar
     // LWC skips primitive autoscale on empty data and needs a first numeric value for conversion.
     // Endpoint seeds keep NearestRight first-value lookup valid after panning.
     // The provider above entirely replaces their range; they never contribute to autoscale.
-    host.setData(bars.map((bar, index) => (index === 0 || index === bars.length - 1) ? { time: bar.time as UTCTimestamp, value: bar.close, color: "transparent" } : { time: bar.time as UTCTimestamp }));
+    const data = bars.map((bar, index) => (index === 0 || index === bars.length - 1) ? { time: bar.time as UTCTimestamp, value: bar.close, color: "transparent" } : { time: bar.time as UTCTimestamp });
+    // A newer real price-chart endpoint keeps conversion and primitive autoscale available
+    // when the chart's shared timeline extends beyond this Pine snapshot. It adds no invented time.
+    const anchor = options.scaleAnchor;
+    if (anchor && Number.isFinite(anchor.time) && Number.isFinite(anchor.close) && anchor.time > (bars.at(-1)?.time ?? -Infinity)) data.push({ time: anchor.time as UTCTimestamp, value: anchor.close, color: "transparent" });
+    host.setData(data);
     host.attachPrimitive(primitive);
     native.push(host);
   }

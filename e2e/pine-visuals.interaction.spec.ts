@@ -76,7 +76,7 @@ const test = base.extend<{
 });
 async function run(page: any, source: string, snapshot = bars, options: any = {}) { const result = await page.evaluate(async (input: any) => window.pineVisualFixture.run(input.source, input.snapshot, input.options), { source, snapshot, options }); expect(await page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0); return result; }
 async function probe(page: any, index: number, price: number, options: any = {}) { return page.evaluate((input: any) => window.pineVisualFixture.probe(input.time, input.price, input.options), { time: bars[index].time, price, options }); }
-async function capture(page: any, name: string, project: string) { const directory = path.join(root, ".artifacts/pine-numeric35"); fs.mkdirSync(directory, { recursive: true }); await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true }); }
+async function capture(page: any, name: string, project: string) { const directory = path.join(root, ".artifacts/pine-levels36"); fs.mkdirSync(directory, { recursive: true }); await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true }); }
 // Independent raw PineTS oracle samples, pinned by the original source/fixture hashes above.
 const ribbons: Record<string, {
   index: number;
@@ -321,6 +321,91 @@ for (const continuous of [false, true]) for (const overlay of [true, false])
     expect(disposed[placement].stats.cacheEntries).toBe(0);
     expectPixel(await gradientProbe(page, snapshot, 10010, 100, { placement }), background);
   });
+
+for (const overlay of [true, false]) test("fixed native levels span the pane with distinct styles through pan resize and disposal in " + (overlay ? "overlay" : "pane"), async ({ page, harness }, info) => {
+  const source = program('hline(90,"Dotted",#00ff00,hline.style_dotted,2)\nhline(100,"Dashed",#0000ff,hline.style_dashed,2)\nhline(110,"Solid",#ff0000,hline.style_solid,2)', overlay);
+  const placement = overlay ? 0 : 1;
+  const output = await run(page, source, bars, { from: 250, to: 290, bounds: [80, 120] });
+  expect(output.drawn).toEqual(["Dotted", "Dashed", "Solid"]);
+  expect(output.warnings.filter((warning: string) => /not rendered|not drawn|omitt/i.test(warning))).toEqual([]);
+  expect(output.placements[placement].range.priceRange).toEqual({ minValue: 90, maxValue: 110 });
+  async function rows() {
+    for (const [price, channel, solid] of [[90, "green", false], [100, "blue", false], [110, "red", true]] as const) {
+      const row = await page.evaluate((input) => window.pineVisualFixture.levelProbe(input.price, { placement: input.placement, channel: input.channel }), { price, placement, channel });
+      expect(Number.isFinite(row.y)).toBe(true);
+      expect(row.painted).toBeGreaterThan(row.samples * (solid ? .98 : .1));
+      if (!solid) { expect(row.painted).toBeLessThan(row.samples * .85); expect(row.runs).toBeGreaterThan(3); }
+      else expect(row.runs).toBe(1);
+    }
+  }
+  await rows();
+  const future = await page.evaluate(() => window.pineVisualFixture.pan(260, 290));
+  // LWC clamps its actual range to keep the final real bar on its own timeline.
+  expect(future.placements[placement].visible.from).toBeLessThan(256);
+  expect(future.placements[placement].visible.to).toBeGreaterThan(256);
+  await rows();
+  await page.evaluate(() => window.pineVisualFixture.pan(0, 30)); await rows();
+  await page.evaluate(() => window.pineVisualFixture.resize()); await rows();
+  await capture(page, overlay ? "levels-overlay" : "levels-pane", info.project.name);
+  const disposed = await page.evaluate(() => window.pineVisualFixture.dispose());
+  expect(disposed[placement].stats.cacheEntries).toBe(0);
+  const removed = await page.evaluate((placement) => window.pineVisualFixture.levelProbe(110, { placement, channel: "red" }), placement);
+  expect(removed.painted).toBe(0);
+  expect(harness.workerRequests).toHaveLength(1);
+});
+
+test("hidden null and transparent native levels neither paint nor expand the active scale", async ({ page, harness }, info) => {
+  const source = program('hline(100,"Shown",#ff0000,hline.style_solid,2)\nhline(1000000000,"Hidden",#0000ff,hline.style_solid,2,true,display.none)\nhline(-1000000000,"Transparent",#00ff0000,hline.style_solid,2)\nhline(na,"Absent",#0000ff,hline.style_solid,2)\nhline(120,"No color",na,hline.style_solid,2)');
+  const output = await run(page, source, bars, { from: 120, to: 140, bounds: [80, 120] });
+  expect(output.placements[0].range.priceRange).toEqual({ minValue: 100, maxValue: 100 });
+  expect(output.placements[0].primaryCoordinate).toBeCloseTo(output.placements[0].beforeCoordinate, 8);
+  const row = await page.evaluate(() => window.pineVisualFixture.levelProbe(100, { channel: "red" }));
+  expect(row.painted).toBeGreaterThan(row.samples * .98);
+  const absent = await page.evaluate(() => window.pineVisualFixture.levelProbe(120, { channel: "blue" }));
+  expect(absent.painted).toBe(0);
+  await capture(page, "levels-exclusions", info.project.name);
+});
+
+test("native fixed levels retain coordinates after the real chart timeline advances past their snapshot", async ({ page, harness }, info) => {
+  const source = program('hline(160,"Old snapshot level",#ff0000,hline.style_solid,2)');
+  const output = await run(page, source, bars.slice(0, 200), { chartBars: bars, from: 240, to: 255, bounds: [80, 120] });
+  expect(output.placements[0].range.priceRange).toEqual({ minValue: 160, maxValue: 160 });
+  expect(Math.abs(output.placements[0].primaryCoordinate - output.placements[0].beforeCoordinate)).toBeGreaterThan(10);
+  expect(output.placements[0].visible.from).toBeGreaterThan(199);
+  const initial = await page.evaluate(() => window.pineVisualFixture.levelProbe(160, { channel: "red" }));
+  expect(initial.painted).toBeGreaterThan(initial.samples * .98);
+  await page.evaluate(() => window.pineVisualFixture.resize());
+  const resized = await page.evaluate(() => window.pineVisualFixture.levelProbe(160, { channel: "red" }));
+  expect(resized.painted).toBeGreaterThan(resized.samples * .98);
+  await capture(page, "levels-advanced-timeline", info.project.name);
+  expect(harness.workerRequests).toHaveLength(1);
+});
+
+for (const overlay of [true, false]) test("packed 20k fixed levels retain full pane geometry with bounded samples in " + (overlay ? "overlay" : "pane"), async ({ page, harness }, info) => {
+  const snapshot = Array.from({ length: 20000 }, (_, index) => ({ ...bars[0], time: bars[0].time + index * 60 }));
+  const source = program('hline(90,"Lower",#0000ff,hline.style_dashed,2)\nhline(110,"Upper",#ff0000,hline.style_solid,2)', overlay), placement = overlay ? 0 : 1;
+  const output = await run(page, source, snapshot, { from: 19994, to: 20024, bounds: [80, 120] });
+  expect(output.packed).toEqual([true, true]);
+  expect(output.placements[placement].series).toBe(1);
+  expect(output.placements[placement].range.priceRange).toEqual({ minValue: 90, maxValue: 110 });
+  expect(output.placements[placement].stats.cacheEntries).toBeLessThan(10);
+  expect(output.placements[placement].stats.decodedSamples).toBeLessThan(10);
+  for (const [from, to] of [[19994, 20024], [10000, 10024]]) {
+    const panned = await page.evaluate(input => window.pineVisualFixture.pan(input.from, input.to), { from, to });
+    const row = await page.evaluate((placement) => window.pineVisualFixture.levelProbe(110, { placement, channel: "red" }), placement);
+    expect(row.painted).toBeGreaterThan(row.samples * .98);
+    expect(panned.placements[placement].stats.cacheEntries).toBeLessThan(10);
+  }
+  await page.evaluate(() => window.pineVisualFixture.resize());
+  const resized = await page.evaluate((placement) => window.pineVisualFixture.levelProbe(110, { placement, channel: "red" }), placement);
+  expect(resized.painted).toBeGreaterThan(resized.samples * .98);
+  await capture(page, overlay ? "levels-packed-overlay" : "levels-packed-pane", info.project.name);
+  const disposed = await page.evaluate(() => window.pineVisualFixture.dispose());
+  expect(disposed[placement].stats.cacheEntries).toBe(0);
+  const removed = await page.evaluate((placement) => window.pineVisualFixture.levelProbe(110, { placement, channel: "red" }), placement);
+  expect(removed.painted).toBe(0);
+  expect(harness.workerRequests).toHaveLength(1);
+});
 
 test("genuine worker keeps solid na six/eight positional overloads solid and unpainted", async ({ page, harness }, info) => {
   for (const variant of [
