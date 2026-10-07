@@ -94,6 +94,11 @@ export function startPackedForgery(id,mutation) {
     if(event.data.mutation==='option') new Uint16Array(wire.buffers[plot.packed.optionIndices])[0]=65535;
     if(event.data.mutation==='fill') {plot.style='fill';plot.options={plot1:'missing',plot2:wire.result.plots[1].id};}
     if(event.data.mutation==='metadata') plot.packed.optionTable=Array.from({length:64},()=>({text:'x'.repeat(4096),textcolor:'x'.repeat(4096),style:'x'.repeat(4096),location:'x'.repeat(4096)}));
+    const numeric=wire.result.plots.find(output=>output.packed.numericOptions?.length)?.packed;
+    if(event.data.mutation==='numeric-state') new Uint8Array(wire.buffers[numeric.kinds])[numeric.slots]=2;
+    if(event.data.mutation==='numeric-number') new Float64Array(wire.buffers[numeric.values])[numeric.slots*numeric.arity]=Infinity;
+    if(event.data.mutation==='numeric-key') numeric.numericOptions[0]='__proto__';
+    if(event.data.mutation==='numeric-length') wire.buffers[numeric.values]=wire.buffers[numeric.values].slice(0,-8);
     postMessage(wire,wire.buffers);
   }\`});
 }
@@ -102,7 +107,7 @@ export async function packedSummary(id) {
   const outcome = await result(id);
   if (!outcome.ok) return outcome;
   const value = outcome.value, wire = packedObservations.get(id);
-  return {ok:true,source:value.source,audit:value.audit,encoding:wire?.encoding,buffers:wire?.buffers?.length,bufferBytes:wire?.buffers?.reduce((sum,buffer)=>sum+buffer.byteLength,0),plots:value.plots.map(plot=>{
+  return {ok:true,source:value.source,audit:value.audit,encoding:wire?.encoding,buffers:wire?.buffers?.length,metadataBytes:wire ? new TextEncoder().encode(JSON.stringify({...wire,buffers:[]})).length : undefined,bufferBytes:wire?.buffers?.reduce((sum,buffer)=>sum+buffer.byteLength,0),plots:value.plots.map(plot=>{
     const packed = getPackedPinePlot(plot);
     return {id:plot.id,packed:Boolean(packed),slots:packed?.kinds.length,first:pointAtBar(plot,0),last:pointAtBar(plot,value.audit.bars-1),ownsReceivedBuffers:packed ? [packed.values.buffer,packed.kinds.buffer,packed.optionIndices.buffer].every(buffer=>wire.buffers.includes(buffer)) : false};
   })};
@@ -427,6 +432,29 @@ test("production opaque worker completes the 64-by-20,000 scalar boundary withou
   expect(harness.endpointRequests).toEqual([]);
 });
 
+
+test("production opaque bridge retains continuously changing 20k gradient anchors", async ({ page, harness }) => {
+  test.setTimeout(60_000);
+  const snapshot = Array.from({ length: 20_000 }, (_, index) => ({ ...bars[0], time: bars[0].time + index * 60 }));
+  const source = '//@version=6\nindicator("Continuous gradient")\na=plot(110,"Mask A",display=display.none)\nb=plot(90,"Mask B",display=display.none)\nfill(a,b,120+bar_index*.01,80-bar_index*.01,#ff0000,#0000ff)';
+  const id = await page.evaluate((input) => window.pineFixture.startObservedRuntime(input), { ...runtimeRequest(source), bars: snapshot });
+  const summary = await page.evaluate((job) => window.pineFixture.packedSummary(job), id);
+  expect(summary.ok, JSON.stringify(summary.error)).toBe(true);
+  expect(summary).toMatchObject({ source, encoding: "pine-packed-v1", audit: { bars: 20_000 } });
+  expect(summary.metadataBytes).toBeLessThan(10_000);
+  expect(summary.bufferBytes).toBeLessThan(1_100_000);
+  expect(summary.plots).toHaveLength(3);
+  for (const plot of summary.plots) expect(plot).toMatchObject({ packed: true, slots: 20_000, ownsReceivedBuffers: true });
+  expect(summary.plots[2]).toMatchObject({ first: { time: snapshot[0].time, value: null, options: { top_value: 120, bottom_value: 80 } }, last: { time: snapshot[19_999].time, value: null, options: { top_value: 120 + 19_999 * .01, bottom_value: 80 - 19_999 * .01 } } });
+  for (const mutation of ["numeric-state", "numeric-number", "numeric-key", "numeric-length"]) {
+    const forged = await page.evaluate((input) => window.pineFixture.startPackedForgery(input.id, input.mutation), { id, mutation });
+    const rejected = await page.evaluate((job) => window.pineFixture.result(job), forged);
+    expect(rejected, mutation).toMatchObject({ ok: false, error: { code: "INVALID_MESSAGE" } });
+    expect(rejected.value).toBeUndefined();
+  }
+  await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  expect(harness.endpointRequests).toEqual([]);
+});
 
 test("opaque bridge rejects forged packed cells, option indices, fill references and metadata overflow", async ({ page, harness }) => {
   const snapshot = Array.from({ length: 600 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));

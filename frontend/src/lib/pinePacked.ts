@@ -4,10 +4,10 @@ import type { PinePlot, PineResult, PineScalar } from "./pineProtocol";
 export type PinePlotPoint = { time: number; value: number | boolean | null | number[]; options: Record<string, PineScalar> };
 export type PinePackedPlot = Omit<PinePlot, "points"> & { packed: {
   count: number; slots: number; arity: 1 | 4; values: number; kinds: number; optionIndices: number;
-  optionTable: Record<string, PineScalar>[];
+  optionTable: Record<string, PineScalar>[]; numericOptions?: string[];
 } };
 export type PinePackedResponse = { id: string; status: "completed"; encoding: "pine-packed-v1"; result: Omit<Extract<PineResult, { kind: "run" }>, "plots"> & { plots: PinePackedPlot[] }; buffers: ArrayBuffer[] };
-export type PinePackedView = { values: Float64Array; kinds: Uint8Array; optionIndices: Uint16Array; optionTable: Record<string, PineScalar>[]; arity: 1 | 4; count: number; slots: number };
+export type PinePackedView = { values: Float64Array; kinds: Uint8Array; optionIndices: Uint16Array; optionTable: Record<string, PineScalar>[]; arity: 1 | 4; count: number; slots: number; numericOptions: string[]; numericValues: Float64Array; numericKinds: Uint8Array };
 const backing = new WeakMap<object, PinePackedView>();
 const times = new WeakMap<object, readonly { time: number }[]>();
 function fail(message: string, code = "INVALID_MESSAGE"): never { throw new PineProtocolError(code, message); }
@@ -46,13 +46,40 @@ export function validatePinePackedBuffers(value: unknown, channels: number): { b
   });
   return { buffers, bytes };
 }
+function optionsAt(view: PinePackedView, index: number): Record<string, PineScalar> {
+  const base = view.optionTable[view.optionIndices[index]];
+  if (!view.numericOptions.length) return base;
+  const options = { ...base };
+  view.numericOptions.forEach((key, lane) => {
+    const cell = lane * view.slots + index;
+    if (view.numericKinds[cell]) options[key] = view.numericValues[cell];
+  });
+  return options;
+}
+/** Stream option variants without projecting or retaining packed point objects. */
+export function pinePlotOptionSets(plot: PinePlot): Iterable<Record<string, PineScalar>> & {
+  some(predicate: (options: Record<string, PineScalar>) => boolean): boolean;
+  every(predicate: (options: Record<string, PineScalar>) => boolean): boolean;
+} {
+  const view = backing.get(plot.points);
+  function* entries() {
+    if (!view) { for (const point of plot.points) yield point.options; }
+    else if (!view.numericOptions.length) yield* view.optionTable;
+    else for (let index = 0; index < view.slots; index++) if (view.kinds[index]) yield optionsAt(view, index);
+  }
+  return {
+    [Symbol.iterator]: entries,
+    some(predicate) { for (const options of entries()) if (predicate(options)) return true; return false; },
+    every(predicate) { for (const options of entries()) if (!predicate(options)) return false; return true; },
+  };
+}
 function read(view: PinePackedView, bars: readonly { time: number }[], index: number): PinePlotPoint | undefined {
   if (!Number.isInteger(index) || index < 0 || index >= view.slots) return undefined;
   const kind = view.kinds[index];
   if (!kind) return undefined;
   const start = index * view.arity;
   const value = kind === 1 ? null : kind === 2 ? false : kind === 3 ? true : kind === 5 ? Array.from(view.values.subarray(start, start + 4)) : view.values[start];
-  return { time: bars[index].time, value, options: view.optionTable[view.optionIndices[index]] };
+  return { time: bars[index].time, value, options: optionsAt(view, index) };
 }
 export function getPackedPinePlot(plot: PinePlot): PinePackedView | undefined { return backing.get(plot.points); }
 export function pointAtBar(plot: PinePlot, barIndex: number): PinePlotPoint | undefined {
@@ -82,11 +109,14 @@ export function decodePinePackedPlots(metadata: unknown[], buffers: ArrayBuffer[
   const plots = metadata.map((item): PinePlot => {
     const plot = object(item); keys(plot, ["id", "name", "style", "overlay", "options", "packed"]);
     if (typeof plot.id !== "string" || !plot.id || plot.id.length > 128 || typeof plot.name !== "string" || plot.name.length > 4096 || typeof plot.style !== "string" || plot.style.length > 64 || typeof plot.overlay !== "boolean") fail("Invalid packed plot identity.");
-    const raw = object(plot.packed); keys(raw, ["count", "slots", "arity", "values", "kinds", "optionIndices", "optionTable"]);
+    const raw = object(plot.packed); keys(raw, ["count", "slots", "arity", "values", "kinds", "optionIndices", "optionTable", "numericOptions"]);
     if (raw.slots !== bars.length || !Number.isInteger(raw.count) || (raw.count as number) < 0 || (raw.count as number) > bars.length || ![1, 4].includes(raw.arity as number)) fail("Invalid packed plot dimensions.");
     slots += bars.length;
     if (slots > PINE_LIMITS.points) fail("Packed output exceeds 1,280,000 bar slots.", "RESULT_LIMIT");
     const arity = raw.arity as 1 | 4;
+    const numericOptions = raw.numericOptions === undefined ? [] : raw.numericOptions;
+    if (!Array.isArray(numericOptions) || numericOptions.length > 64 || new Set(numericOptions).size !== numericOptions.length || numericOptions.some((key) => typeof key !== "string" || !key.length || key.length > 128 || ["__proto__", "prototype", "constructor"].includes(key))) fail("Invalid packed numeric option names.");
+    const names = numericOptions as string[];
     function buffer(key: "values" | "kinds" | "optionIndices", bytes: number) {
       const index = raw[key];
       if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= buffers.length || used.has(index as number)) fail("Invalid or repeated packed buffer reference.");
@@ -95,11 +125,18 @@ export function decodePinePackedPlots(metadata: unknown[], buffers: ArrayBuffer[
       if (result.byteLength !== bytes) fail("Misaligned or incorrectly sized packed buffer.");
       return result;
     }
-    const values = new Float64Array(buffer("values", bars.length * arity * 8));
-    const kinds = new Uint8Array(buffer("kinds", bars.length));
+    const valueBuffer = buffer("values", bars.length * (arity + names.length) * 8);
+    const kindBuffer = buffer("kinds", bars.length * (1 + names.length));
+    const values = new Float64Array(valueBuffer, 0, bars.length * arity);
+    const kinds = new Uint8Array(kindBuffer, 0, bars.length);
+    const numericValues = new Float64Array(valueBuffer, values.byteLength);
+    const numericKinds = new Uint8Array(kindBuffer, kinds.byteLength);
     const optionIndices = new Uint16Array(buffer("optionIndices", bars.length * 2));
     if (!Array.isArray(raw.optionTable) || !raw.optionTable.length || raw.optionTable.length > 65_536) fail("Invalid packed option dictionary.");
     const optionTable = raw.optionTable.map((entry) => Object.freeze(validatePinePlotOptions(entry)));
+    for (const entry of optionTable) if (names.some((key) => typeof entry[key] === "number")) fail("Numeric option dictionary contradicts lane ownership.");
+    const optionSizes = optionTable.map((entry) => Object.keys(entry).length);
+    const usedNumeric = new Uint8Array(names.length);
     let count = 0;
     for (let index = 0; index < kinds.length; index++) {
       const kind = kinds[index];
@@ -109,9 +146,20 @@ export function decodePinePackedPlots(metadata: unknown[], buffers: ArrayBuffer[
         const val = values[index * arity + lane];
         if (!Number.isFinite(val) || ((kind < 4 || (kind === 4 && lane > 0)) && val !== 0)) fail("Invalid packed numeric cell.");
       }
+      let fields = optionSizes[optionIndices[index]];
+      for (let lane = 0; lane < names.length; lane++) {
+        const cell = lane * bars.length + index, present = numericKinds[cell], val = numericValues[cell];
+        if (present > 1 || !Number.isFinite(val) || (!present && val !== 0) || (!kind && present)) fail("Invalid packed numeric option cell.");
+        if (present) {
+          if (Object.prototype.hasOwnProperty.call(optionTable[optionIndices[index]], names[lane])) fail("Numeric option has contradictory dictionary ownership.");
+          usedNumeric[lane] = 1; fields++;
+        }
+      }
+      if (fields > 64) fail("Too many reconstructed plot option fields.", "RESULT_LIMIT");
     }
+    if (usedNumeric.some((used) => !used)) fail("Unused packed numeric option lane.");
     if (count !== raw.count) fail("Packed point count does not match kinds.");
-    const view: PinePackedView = { values, kinds, optionIndices, optionTable, arity, count, slots: bars.length };
+    const view: PinePackedView = { values, kinds, optionIndices, optionTable, arity, count, slots: bars.length, numericOptions: names, numericValues, numericKinds };
     return { id: plot.id, name: plot.name, style: plot.style, overlay: plot.overlay, options: validatePinePlotOptions(plot.options), points: pointView(view, bars) };
   });
   if (used.size !== buffers.length) fail("Unreferenced packed buffer.");
@@ -129,16 +177,19 @@ export function encodePinePackedPlots(plots: readonly PlotInput[], bars: readonl
     const retained = backing.get(plot.points);
     if (retained && times.get(plot.points)?.length === bars.length && times.get(plot.points)!.every((bar, index) => bar.time === bars[index].time)) {
       const offset = buffers.length; buffers.push(retained.values.buffer as ArrayBuffer, retained.kinds.buffer as ArrayBuffer, retained.optionIndices.buffer as ArrayBuffer);
-      bytes += retained.values.byteLength + retained.kinds.byteLength + retained.optionIndices.byteLength;
+      bytes += retained.values.buffer.byteLength + retained.kinds.buffer.byteLength + retained.optionIndices.buffer.byteLength;
       if (bytes > PINE_LIMITS.resultBytes) fail("Packed output exceeds 16 MB.", "RESULT_LIMIT");
-      return { id: plot.id, name: plot.name, style: plot.style, overlay: plot.overlay, options: plot.options, packed: { count: retained.count, slots: retained.slots, arity: retained.arity, values: offset, kinds: offset + 1, optionIndices: offset + 2, optionTable: retained.optionTable } };
+      return { id: plot.id, name: plot.name, style: plot.style, overlay: plot.overlay, options: plot.options, packed: { count: retained.count, slots: retained.slots, arity: retained.arity, values: offset, kinds: offset + 1, optionIndices: offset + 2, optionTable: retained.optionTable, ...(retained.numericOptions.length ? { numericOptions: retained.numericOptions } : {}) } };
     }
     // The style determines OHLC arity; arrays in scalar channels are rejected rather than lost.
     const arity = ["candle", "candles", "plotcandle", "bar", "plotbar"].includes(plot.style.replace(/^(?:plot\.)?style_/, "")) ? 4 : 1;
     bytes += bars.length * (arity * 8 + 3);
     if (bytes > PINE_LIMITS.resultBytes) fail("Native Pine output exceeds 16 MB.", "RESULT_LIMIT");
     const values = new Float64Array(bars.length * arity), kinds = new Uint8Array(bars.length), optionIndices = new Uint16Array(bars.length);
-    const optionTable: Record<string, PineScalar>[] = [{}], dictionary = new Map<string, number>([["{}", 0]]);
+    let optionTable: Record<string, PineScalar>[] = [{}];
+    const dictionary = new Map<string, number>([["{}", 0]]);
+    const numeric = new Map<string, { values: Float64Array; kinds: Uint8Array }>();
+    const firstNumeric = new Map<string, number>();
     let count = 0, previous = -1;
     for (const point of plot.points) {
       const index = barIndices.get(point.time);
@@ -152,6 +203,22 @@ export function encodePinePackedPlots(plots: readonly PlotInput[], bars: readonl
       else if (Array.isArray(val) && val.length === 4 && arity === 4 && val.every((lane) => typeof lane === "number" && Number.isFinite(lane))) { kinds[index] = 5; values.set(val, index * 4); }
       else fail("Unsupported packed plot value.");
       const options = validatePinePlotOptions(point.options);
+      for (const [key, value] of Object.entries(options)) if (typeof value === "number") {
+        let lane = numeric.get(key);
+        if (!firstNumeric.has(key)) firstNumeric.set(key, value);
+        if (!lane && value !== firstNumeric.get(key)) {
+          if (numeric.size >= 64) fail("Too many numeric plot option keys.", "RESULT_LIMIT");
+          if (bytes + (numeric.size + 1) * bars.length * 9 > PINE_LIMITS.resultBytes) fail("Numeric plot options exceed 16 MB.", "RESULT_LIMIT");
+          lane = { values: new Float64Array(bars.length), kinds: new Uint8Array(bars.length) };
+          // Promote only changing numbers. Earlier constant samples are recovered from the small dictionary.
+          for (let prior = 0; prior < index; prior++) if (kinds[prior]) {
+            const earlier = optionTable[optionIndices[prior]][key];
+            if (typeof earlier === "number") { lane.values[prior] = earlier; lane.kinds[prior] = 1; }
+          }
+          numeric.set(key, lane);
+        }
+        if (lane) { lane.values[index] = value; lane.kinds[index] = 1; delete options[key]; }
+      }
       const key = JSON.stringify(Object.fromEntries(Object.entries(options).sort(([a], [b]) => a.localeCompare(b))));
       let option = dictionary.get(key);
       if (option === undefined) {
@@ -161,8 +228,34 @@ export function encodePinePackedPlots(plots: readonly PlotInput[], bars: readonl
       }
       optionIndices[index] = option;
     }
-    const offset = buffers.length; buffers.push(values.buffer, kinds.buffer, optionIndices.buffer);
-    return { id: plot.id, name: plot.name, style: plot.style, overlay: plot.overlay, options: validatePinePlotOptions(plot.options), packed: { count, slots: bars.length, arity, values: offset, kinds: offset + 1, optionIndices: offset + 2, optionTable } };
+    // Strip historical promoted numbers once, keeping constant and nonnumeric fallbacks in metadata.
+    const varying = [...numeric];
+    if (varying.length) {
+      const folded: Record<string, PineScalar>[] = [{}], foldedKeys = new Map<string, number>([["{}", 0]]);
+      const remap = optionTable.map((entry) => {
+        const options = { ...entry };
+        for (const [key] of varying) if (typeof options[key] === "number") delete options[key];
+        const key = JSON.stringify(Object.fromEntries(Object.entries(options).sort(([a], [b]) => a.localeCompare(b))));
+        let mapped = foldedKeys.get(key);
+        if (mapped === undefined) { mapped = folded.length; foldedKeys.set(key, mapped); folded.push(options); }
+        return mapped;
+      });
+      for (let index = 0; index < bars.length; index++) optionIndices[index] = remap[optionIndices[index]];
+      optionTable = folded;
+    }
+    bytes += varying.length * bars.length * 9;
+    if (bytes > PINE_LIMITS.resultBytes) fail("Numeric plot options exceed 16 MB.", "RESULT_LIMIT");
+    const packedValues = varying.length ? new Float64Array(bars.length * (arity + varying.length)) : values;
+    const packedKinds = varying.length ? new Uint8Array(bars.length * (1 + varying.length)) : kinds;
+    if (varying.length) {
+      packedValues.set(values); packedKinds.set(kinds);
+      varying.forEach(([, lane], index) => {
+        packedValues.set(lane.values, bars.length * (arity + index));
+        packedKinds.set(lane.kinds, bars.length * (1 + index));
+      });
+    }
+    const offset = buffers.length; buffers.push(packedValues.buffer, packedKinds.buffer, optionIndices.buffer);
+    return { id: plot.id, name: plot.name, style: plot.style, overlay: plot.overlay, options: validatePinePlotOptions(plot.options), packed: { count, slots: bars.length, arity, values: offset, kinds: offset + 1, optionIndices: offset + 2, optionTable, ...(varying.length ? { numericOptions: varying.map(([key]) => key) } : {}) } };
   });
   return { plots: metadata, buffers };
 }

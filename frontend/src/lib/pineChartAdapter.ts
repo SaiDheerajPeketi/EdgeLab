@@ -1,6 +1,6 @@
 import type { Candle } from "./api";
 import type { PineExecutionResult, PinePlot, PineScalar } from "./pineProtocol";
-import { getPackedPinePlot } from "./pinePacked";
+import { getPackedPinePlot, pinePlotOptionSets } from "./pinePacked";
 import { PineVisualPrimitive, pineVisualSample, pineGradientColor } from "./pineVisualPrimitive";
 import type { IChartApi, ISeriesApi, SeriesType, SeriesMarker, UTCTimestamp } from "lightweight-charts";
 
@@ -47,7 +47,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
   const warnings = result.diagnostics.map((item) => `${item.code}: ${item.message}`);
   const barsByTime = new Map(bars.map((bar) => [bar.time, bar]));
   const sources = new Map(result.plots.map((plot) => [plot.id, plot]));
-  const hasOffset = (source: PinePlot) => number(source.options.offset, 0) !== 0 || (getPackedPinePlot(source)?.optionTable ?? source.points.map((point) => point.options)).some((options) => number(options.offset, 0) !== 0);
+  const hasOffset = (source: PinePlot) => number(source.options.offset, 0) !== 0 || pinePlotOptionSets(source).some((options) => number(options.offset, 0) !== 0);
   const smallProjection = result.plots.length * bars.length <= 4096;
   const plots = result.plots.flatMap((plot): PineChartPlot[] => {
     const plotWarnings = new Set<string>();
@@ -60,7 +60,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
     const style = plot.style.replace(/^(?:plot\.)?style_/, "");
     const kinds: Record<string, PineChartPlot["kind"]> = { line: "line", linebr: "line", stepline: "line", steplinebr: "line", area: "area", areabr: "area", histogram: "histogram", columns: "histogram", circles: "line", candle: "candles", candles: "candles", plotcandle: "candles", shape: "markers", plotshape: "markers" };
     const packed = getPackedPinePlot(plot);
-    const optionSets = packed?.optionTable ?? plot.points.map((point) => point.options);
+    const optionSets = pinePlotOptionSets(plot);
     const showLast = Math.max(0, Math.floor(number(plot.options.show_last, bars.length)));
     const showFrom = Math.max(0, bars.length - showLast);
     const common = { id: plot.id, name: plot.name, overlay: plot.overlay, color: color(plot.options.color), width: Math.max(1, Math.min(4, Math.round(number(plot.options.linewidth, 2)))) as PineChartPlot["width"], step: style.startsWith("stepline"), pointsOnly: style === "circles", base: number(plot.options.histbase, 0) };
@@ -69,7 +69,7 @@ export function adaptPineChartResult(result: PineExecutionResult, bars: Candle[]
       if (!upper || !lower) { warn("Fill references are unavailable; this fill is not drawn."); return []; }
       if (hasOffset(plot) || hasOffset(upper) || hasOffset(lower)) { warn("Fill references with plot offsets are not rendered by this chart adapter."); return []; }
       if (upper.overlay !== lower.overlay) { warn("Fill references cross chart placements; this fill is not drawn."); return []; }
-      const gradient = plot.options.gradient === true || [plot.options, ...optionSets].some((options) => ["top_value", "bottom_value", "top_color", "bottom_color"].some((key) => key in options));
+      const gradient = plot.options.gradient === true || ["top_value", "bottom_value", "top_color", "bottom_color"].some((key) => key in plot.options) || optionSets.some((options) => ["top_value", "bottom_value", "top_color", "bottom_color"].some((key) => key in options));
       if (gradient && optionSets.some((options) => {
         const top = options.top_value !== undefined ? options.top_value : plot.options.top_value;
         const bottom = options.bottom_value !== undefined ? options.bottom_value : plot.options.bottom_value;

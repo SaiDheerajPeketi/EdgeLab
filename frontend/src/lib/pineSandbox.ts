@@ -64,7 +64,9 @@ const bridge = `(() => {
     for (const plot of plots) {
       const data = plot?.packed;
       if (!data || !Number.isInteger(data.slots) || data.slots < 1 || data.slots > 20000 || ![1,4].includes(data.arity)) throw new Error('Invalid packed dimensions');
-      for (const [key, size] of [['values',data.slots * data.arity * 8],['kinds',data.slots],['optionIndices',data.slots * 2]]) {
+      const names = data.numericOptions === undefined ? [] : data.numericOptions;
+      if (!Array.isArray(names) || names.length > 64 || new Set(names).size !== names.length || names.some(key => typeof key !== 'string' || !key.length || key.length > 128 || ['__proto__','prototype','constructor'].includes(key))) throw new Error('Invalid numeric option names');
+      for (const [key, size] of [['values',data.slots * (data.arity + names.length) * 8],['kinds',data.slots * (1 + names.length)],['optionIndices',data.slots * 2]]) {
         const index = data[key];
         if (!Number.isInteger(index) || index < 0 || index >= buffers.length || used.has(index) || buffers[index].byteLength !== size) throw new Error('Invalid packed buffer reference');
         used.add(index);

@@ -2,7 +2,7 @@ import type { AutoscaleInfo, IChartApi, ISeriesApi, ISeriesPrimitive, ISeriesPri
 type CanvasRenderingTarget2D = Parameters<ISeriesPrimitivePaneRenderer["draw"]>[0];
 import type { PineChartPlot } from "./pineChartAdapter";
 import type { PinePlot, PineScalar } from "./pineProtocol";
-import { getPackedPinePlot, pointAtBar } from "./pinePacked";
+import { getPackedPinePlot, pinePlotOptionSets, pointAtBar } from "./pinePacked";
 
 const BLOCK = 128;
 const MAX_CACHED_SAMPLES = 8192;
@@ -307,7 +307,7 @@ export class PineVisualPrimitive implements ISeriesPrimitive {
         if (maxMargin === undefined) {
         maxMargin = 0;
         const source = plot.visual!.source;
-        const options = getPackedPinePlot(source)?.optionTable ?? source.points.map((point) => point.options);
+        const options = pinePlotOptionSets(source);
         for (const fields of options) {
           const size = SIZES[norm(fields.size ?? source.options.size, "size", "auto")] ?? 10;
           const lines = String(fields.text ?? source.options.text ?? "").split("\n").length;

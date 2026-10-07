@@ -15,6 +15,7 @@ declare global {
   interface Window {
     __nativeEditorResults: PineResponse[];
     __nativeEditorHoldRun: boolean;
+    __nativeEditorHoldPrepare: boolean;
     __nativeEditorHeldResult: MessageEvent | null;
   }
 }
@@ -60,12 +61,13 @@ async function fixture(page: Page) {
   await page.addInitScript(() => {
     window.__nativeEditorResults = [];
     window.__nativeEditorHoldRun = false;
+    window.__nativeEditorHoldPrepare = false;
     window.__nativeEditorHeldResult = null;
     addEventListener("message", (event) => {
       const actual = [...document.querySelectorAll<HTMLIFrameElement>('iframe[sandbox="allow-scripts"]')].find((frame) => frame.contentWindow === event.source && frame.srcdoc.includes(`data-job="${event.data?.nonce}"`));
       if (actual && event.origin === "null" && event.data?.type === "result") {
         window.__nativeEditorResults.push(event.data.payload);
-        if (window.__nativeEditorHoldRun && event.data.payload?.status === "completed" && event.data.payload.result?.kind === "run") {
+        if (event.data.payload?.status === "completed" && (window.__nativeEditorHoldRun && event.data.payload.result?.kind === "run" || window.__nativeEditorHoldPrepare && event.data.payload.result?.kind === "prepare")) {
           window.__nativeEditorHeldResult = event;
           event.stopImmediatePropagation();
         }
@@ -99,6 +101,24 @@ async function run(editor: Locator) {
   await editor.getByRole("button", { name: "Run", exact: true }).click();
   await expect(editor.getByRole("button", { name: "Cancel", exact: true })).toBeHidden();
   await expect(editor.locator("#edge-editor-diagnostics")).toContainText(/PineTS|Pine/);
+}
+
+async function releaseNativeResult(page: Page) {
+  const release = await page.evaluate(() => {
+    window.__nativeEditorHoldPrepare = false;
+    window.__nativeEditorHoldRun = false;
+    // A fresh envelope clears the stopped event's propagation flags; payload and frame identity stay exact.
+    const held = window.__nativeEditorHeldResult!;
+    const late = new MessageEvent("message", { data: held.data, source: held.source, origin: held.origin, ports: [...held.ports] });
+    let delivered = false;
+    const observe = (event: MessageEvent) => { if (event === late) delivered = true; };
+    window.addEventListener("message", observe);
+    window.dispatchEvent(late);
+    window.removeEventListener("message", observe);
+    window.__nativeEditorHeldResult = null;
+    return { delivered, samePayload: late.data === held.data, sameSource: late.source === held.source, sameOrigin: late.origin === held.origin };
+  });
+  expect(release).toEqual({ delivered: true, samePayload: true, sameSource: true, sameOrigin: true });
 }
 
 async function nativeRun(page: Page, source: string) {
@@ -405,16 +425,13 @@ test("Pine templates prepare natively and a stale source check cannot enable sav
     expect((await nativeRun(page, source)).declaration).toBe(template === "pine-strategy" ? "strategy" : "indicator");
   }
   await fillSource(editor, overlay);
-  let release!: () => void;
-  let requested!: () => void;
-  const hold = new Promise<void>((resolve) => { release = resolve; });
-  const started = new Promise<void>((resolve) => { requested = resolve; });
-  await page.route("**/assets/pine-native-worker*.js", async (route) => { requested(); await hold; await route.continue().catch(() => undefined); }, { times: 1 });
+  await page.evaluate(() => { window.__nativeEditorHoldPrepare = true; });
   await editor.getByRole("button", { name: "Check script", exact: true }).click();
-  await started;
+  await expect.poll(() => page.evaluate(() => Boolean(window.__nativeEditorHeldResult))).toBe(true);
+  expect(await page.evaluate(() => window.__nativeEditorHeldResult?.data.payload.result)).toMatchObject({ kind: "prepare", source: overlay, language: "pine", declaration: "indicator" });
   await fillSource(editor, paneSource);
-  release();
   await expect.poll(() => page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0);
+  await releaseNativeResult(page);
   await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await check(editor);
   await run(editor);
@@ -482,13 +499,8 @@ for (const change of ["source", "input", "cancel"] as const) {
     else await editor.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(editor.getByRole("button", { name: "Cancel", exact: true })).toBeHidden();
     await expect.poll(() => page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0);
-    await page.evaluate(() => {
-      window.__nativeEditorHoldRun = false;
-      // Deliver exactly the completed native event after its initiating job was invalidated.
-      window.dispatchEvent(window.__nativeEditorHeldResult!);
-      window.__nativeEditorHeldResult = null;
-      window.__nativeEditorResults = [];
-    });
+    await releaseNativeResult(page);
+    await page.evaluate(() => { window.__nativeEditorResults = []; });
     await expect(editor.locator("#edge-editor-diagnostics")).not.toContainText("PineTS");
     if (change === "source") await check(editor);
     await run(editor);
@@ -518,11 +530,7 @@ test("an account transition discards an already computed native editor result", 
   }, AUTH_SESSION_KEY);
   await expect(editor).toBeHidden();
   await expect.poll(() => page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0);
-  await page.evaluate(() => {
-    window.__nativeEditorHoldRun = false;
-    window.dispatchEvent(window.__nativeEditorHeldResult!);
-    window.__nativeEditorHeldResult = null;
-  });
+  await releaseNativeResult(page);
   await expect(page.getByRole("region", { name: "Pine strategy results" })).toHaveCount(0);
   expect(state.writes.filter((write) => write.key === "custom-indicator-scripts.v1").length).toBe(scriptsBefore);
 });

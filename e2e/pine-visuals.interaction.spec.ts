@@ -76,7 +76,7 @@ const test = base.extend<{
 });
 async function run(page: any, source: string, snapshot = bars, options: any = {}) { const result = await page.evaluate(async (input: any) => window.pineVisualFixture.run(input.source, input.snapshot, input.options), { source, snapshot, options }); expect(await page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0); return result; }
 async function probe(page: any, index: number, price: number, options: any = {}) { return page.evaluate((input: any) => window.pineVisualFixture.probe(input.time, input.price, input.options), { time: bars[index].time, price, options }); }
-async function capture(page: any, name: string, project: string) { const directory = path.join(root, ".artifacts/pine-gradients34"); fs.mkdirSync(directory, { recursive: true }); await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true }); }
+async function capture(page: any, name: string, project: string) { const directory = path.join(root, ".artifacts/pine-numeric35"); fs.mkdirSync(directory, { recursive: true }); await page.screenshot({ path: path.join(directory, project + "-" + name + ".png"), fullPage: true }); }
 // Independent raw PineTS oracle samples, pinned by the original source/fixture hashes above.
 const ribbons: Record<string, {
   index: number;
@@ -297,24 +297,26 @@ test("crossing gradient mask clips lobes without painting the zero-width interse
   expectPixel(await gradientProbe(page, bars, 130, 106), background);
   await capture(page, "gradient-crossing-mask", info.project.name);
 });
-for (const overlay of [true, false])
-  test("packed 20k actual gradient survives pan resize and disposal in " + (overlay ? "overlay" : "pane"), async ({ page, harness }, info) => {
+for (const continuous of [false, true]) for (const overlay of [true, false])
+  test("packed 20k " + (continuous ? "continuous" : "periodic") + " actual gradient survives pan resize and disposal in " + (overlay ? "overlay" : "pane"), async ({ page, harness }, info) => {
     const snapshot = Array.from({ length: 20000 }, (_, index) => ({ ...bars[0], time: bars[0].time + index * 60 }));
-    const source = gradientProgram("fill(a,b,120+bar_index%2*20,80-bar_index%2*20,bar_index%2==0?#ff0000:#00ff00,#0000ff)", "110", "90", false, overlay);
+    const top = continuous ? "120+bar_index*.01" : "120+bar_index%2*20", bottom = continuous ? "80-bar_index*.01" : "80-bar_index%2*20";
+    const anchors = (index: number) => continuous ? [120 + index * .01, 80 - index * .01] : [120 + index % 2 * 20, 80 - index % 2 * 20];
+    const source = gradientProgram("fill(a,b," + top + "," + bottom + ",bar_index%2==0?#ff0000:#00ff00,#0000ff)", "110", "90", false, overlay);
     const placement = overlay ? 0 : 1, output = await run(page, source, snapshot, { from: 19970, to: 19994 });
     expect(output.packed).toEqual([true, true, true]);
     expect(output.placements[placement].series).toBe(1);
     expect(output.placements[placement].stats.cacheEntries).toBeLessThan(100);
     const initial = await gradientProbe(page, snapshot, 19980, 100, { placement });
-    expectPixel(initial, expectedGradient(initial.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]));
+    expectPixel(initial, expectedGradient(initial.samplePrice, anchors(19980)[0], anchors(19980)[1], [255, 0, 0, 1], [0, 0, 255, 1]));
     await page.evaluate(() => window.pineVisualFixture.pan(10000, 10024));
     const panned = await gradientProbe(page, snapshot, 10011, 100, { placement });
-    expectPixel(panned, expectedGradient(panned.samplePrice, 140, 60, [0, 255, 0, 1], [0, 0, 255, 1]));
+    expectPixel(panned, expectedGradient(panned.samplePrice, anchors(10011)[0], anchors(10011)[1], [0, 255, 0, 1], [0, 0, 255, 1]));
     const resized = await page.evaluate(() => window.pineVisualFixture.resize());
     expect(resized.placements[placement].stats.cacheEntries).toBeLessThan(100);
     const changedSize = await gradientProbe(page, snapshot, 10010, 100, { placement });
-    expectPixel(changedSize, expectedGradient(changedSize.samplePrice, 120, 80, [255, 0, 0, 1], [0, 0, 255, 1]));
-    await capture(page, overlay ? "gradient-packed-overlay" : "gradient-packed-pane", info.project.name);
+    expectPixel(changedSize, expectedGradient(changedSize.samplePrice, anchors(10010)[0], anchors(10010)[1], [255, 0, 0, 1], [0, 0, 255, 1]));
+    await capture(page, "gradient-packed-" + (continuous ? "continuous-" : "periodic-") + (overlay ? "overlay" : "pane"), info.project.name);
     const disposed = await page.evaluate(() => window.pineVisualFixture.dispose());
     expect(disposed[placement].stats.cacheEntries).toBe(0);
     expectPixel(await gradientProbe(page, snapshot, 10010, 100, { placement }), background);
