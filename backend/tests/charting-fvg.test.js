@@ -39,7 +39,7 @@ async function loadChartingModule() {
   // Native metadata validation and runtime behavior have their own focused suite.
   fs.writeFileSync(
     path.join(sourceDir, "pineProtocol.ts"),
-    'export type PinePrepareResult = { kind: "prepare"; language: "pine"; source: string; overlay: boolean };\n',
+    'export type PinePrepareResult = { kind: "prepare"; language: "pine"; source: string; overlay: boolean };\nexport type PineStrategySettings = Record<string, string | number | boolean>;\n',
     "utf8",
   );
   fs.writeFileSync(

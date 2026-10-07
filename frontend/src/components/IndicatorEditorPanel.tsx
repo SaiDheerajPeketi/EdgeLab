@@ -38,11 +38,12 @@ import {
 } from "../lib/indicatorDsl";
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
-import type { PineExecutionResult, PinePrepareResult } from "../lib/pineProtocol";
+import { validatePineStrategySettings, type PineStrategySettings, type PineExecutionResult, type PinePrepareResult } from "../lib/pineProtocol";
 import { pineCatalogProvenanceLicenseUrl, sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
 import { sourceSha256 } from "../lib/sourceSha256";
 import { PineCatalogBrowser } from "./PineCatalogBrowser";
 import { PineInputControl } from "./PineInputControl";
+import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
 import { PineStrategyResults } from "./PineStrategyResults";
 import { Dialog, IconButton } from "./ui/Primitives";
 
@@ -85,6 +86,7 @@ export function IndicatorEditorPanel({
 }: Props) {
   const [selectedId, setSelectedId] = useState("");
   const [source, setSource] = useState(DEFAULT_EDGE_INDICATOR_SOURCE);
+  const [strategySettings, setStrategySettings] = useState<PineStrategySettings>({});
   const [inputs, setInputs] = useState<Record<string, EdgeIndicatorInputValue>>({});
   const [completionOpen, setCompletionOpen] = useState(false);
   const [completionIndex, setCompletionIndex] = useState(0);
@@ -107,15 +109,18 @@ export function IndicatorEditorPanel({
   const selectedScript = scripts.find((script) => script.id === selectedId) ?? null;
   const pine = isPineScriptSource(source);
   const matchesSelected = Boolean(selectedScript && selectedScript.source === source
+    && JSON.stringify(selectedScript.strategySettings ?? {}) === JSON.stringify(strategySettings)
     && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs)
     && JSON.stringify(selectedScript.catalogOrigin) === JSON.stringify(catalogOrigin));
   const originalCatalogSource = useMemo(() => Boolean(catalogOrigin && sourceSha256(source) === catalogOrigin.sourceSha256), [source, catalogOrigin?.sourceSha256]);
   const unchangedMigration = useMemo(() => Boolean(catalogOrigin?.migration && sourceSha256(source) === catalogOrigin.migration.sourceSha256), [source, catalogOrigin?.migration?.sourceSha256]);
   const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
-  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, catalogOrigin, selectedId, request.nonce, bars, symbol, timeframe]);
+  const catalogDraftIdentity = useMemo(() => ({}), [source, inputs, strategySettings, catalogOrigin, selectedId, request.nonce, bars, symbol, timeframe]);
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = prepared?.source === source ? prepared : null;
-  const canSave = pine ? Boolean(currentPrepared) : Boolean(parsed.program);
+  let strategySettingsError: string | null = null;
+  try { validatePineStrategySettings(strategySettings); } catch (cause) { strategySettingsError = cause instanceof Error ? cause.message : "Check your strategy test settings."; }
+  const canSave = !strategySettingsError && (pine ? Boolean(currentPrepared) : Boolean(parsed.program));
   const diagnostics = pine ? currentPrepared?.diagnostics ?? [] : parsed.diagnostics;
   const currentWord = source.slice(0, textareaRef.current?.selectionStart ?? source.length).match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0]?.toLowerCase() ?? "";
   const completions = (pine ? PINE_COMPLETIONS : COMPLETIONS).filter((item) => !currentWord || item.toLowerCase().startsWith(currentWord)).slice(0, 12);
@@ -144,6 +149,10 @@ export function IndicatorEditorPanel({
     setQuantSemanticsWarning(null);
   }
 
+  function changeStrategySettings(value: PineStrategySettings) {
+    invalidateExecution(); setStrategySettings(value);
+  }
+
   function changeInput(key: string, value: EdgeIndicatorInputValue) {
     invalidateExecution();
     setInputs((current) => ({ ...current, [key]: value }));
@@ -154,6 +163,7 @@ export function IndicatorEditorPanel({
     setSelectedId(requested?.id ?? "");
     changeSource(request.source ?? requested?.source ?? DEFAULT_EDGE_INDICATOR_SOURCE, requested?.pinePrepared ?? null);
     setInputs(requested?.inputs ?? {});
+    setStrategySettings(requested?.strategySettings ?? {});
     setCatalogOrigin(sanitizePineCatalogProvenance(request.catalogOrigin ?? requested?.catalogOrigin));
     setHistoryRevision(null);
     setRunState({ detail: "", status: "idle" });
@@ -181,6 +191,7 @@ export function IndicatorEditorPanel({
     setSelectedId(script.id);
     changeSource(script.source, script.pinePrepared ?? null);
     setInputs(script.inputs);
+    setStrategySettings(script.strategySettings ?? {});
     setCatalogOrigin(script.catalogOrigin);
     setHistoryRevision(null);
     setRunState({ detail: "", status: "idle" });
@@ -196,6 +207,7 @@ export function IndicatorEditorPanel({
       description: selectedScript?.description ?? (pine ? "Native Pine script." : "Custom EdgeLab DSL indicator."),
       id: selectedScript?.origin === "user" ? selectedScript.id : "",
       inputs,
+      strategySettings: pine ? strategySettings : undefined,
       name: currentPrepared?.name ?? parsed.program?.name ?? "Custom indicator",
       preview: selectedScript?.preview ?? ((currentPrepared?.overlay ?? parsed.program?.overlay) ? "trend" : "oscillator"),
       source,
@@ -239,6 +251,7 @@ export function IndicatorEditorPanel({
     setSelectedId(copy.id);
     changeSource(copy.source, copy.pinePrepared ?? null);
     setInputs(copy.inputs);
+    setStrategySettings(copy.strategySettings ?? {});
     setCatalogOrigin(copy.catalogOrigin);
     setHistoryRevision(null);
   }
@@ -253,6 +266,7 @@ export function IndicatorEditorPanel({
     if (attempt !== attemptRef.current || !currentOwner()) return;
     setSelectedId("");
     changeSource(DEFAULT_EDGE_INDICATOR_SOURCE);
+    setStrategySettings({});
     setInputs({});
     setCatalogOrigin(undefined);
     setHistoryRevision(null);
@@ -262,6 +276,7 @@ export function IndicatorEditorPanel({
     if (!currentOwner()) return;
     setSelectedId("");
     changeSource(script.source);
+    setStrategySettings({});
     setInputs({});
     setCatalogOrigin(sanitizePineCatalogProvenance(script.provenance));
     setHistoryRevision(null);
@@ -286,6 +301,7 @@ export function IndicatorEditorPanel({
       if (attempt !== attemptRef.current || !currentOwner() || !currentContext(context) || result.kind !== "prepare") return;
       runtimeCancelRef.current = null;
       setPrepared(result);
+      if (result.declaration !== "strategy") setStrategySettings({});
       setInputs((current) => Object.fromEntries(result.inputDefinitions.flatMap((input) => {
         const value = current[input.id] ?? input.defval;
         return value === null ? [] : [[input.id, value]];
@@ -300,6 +316,7 @@ export function IndicatorEditorPanel({
   }
 
   function run() {
+    if (strategySettingsError) { setRunState({ detail: strategySettingsError, status: "error" }); return; }
     if (!pine && !parsed.program) {
       setRunState({ detail: "Resolve compile diagnostics before running.", status: "error" });
       return;
@@ -309,7 +326,7 @@ export function IndicatorEditorPanel({
     const context = contextRef.current;
     let job: ReturnType<typeof createCustomScriptRuntimeJob>;
     try {
-      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs, mode: "historical", source, context: pine ? pineContextForChart(symbol, timeframe) : undefined });
+      job = createCustomScriptRuntimeJob({ bars: bars.slice(-20_000), inputs, mode: "historical", source, context: pine ? pineContextForChart(symbol, timeframe) : undefined, strategySettings: pine ? strategySettings : undefined });
     } catch (error) {
       setRunState({ detail: error instanceof Error ? error.message : "Script execution failed.", status: "error" }); return;
     }
@@ -324,6 +341,7 @@ export function IndicatorEditorPanel({
           pineVersion: result.pineVersion, declaration: result.declaration, name: result.name,
           overlay: result.overlay, behindChart: result.behindChart, inputDefinitions: result.inputDefinitions, diagnostics: result.diagnostics });
         setExecution(result);
+        if (result.declaration !== "strategy") setStrategySettings({});
         setInputs(result.inputs);
         setRunState({ detail: `${result.plots.length} plots · ${result.audit.bars.toLocaleString()} bars · PineTS ${result.audit.engineVersion}.`, status: "success" });
       } else {
@@ -381,7 +399,7 @@ export function IndicatorEditorPanel({
   }
 
   const history = selectedScript?.origin === "user"
-    ? [...selectedScript.versions, { createdAt: selectedScript.updatedAt, revision: selectedScript.revision, source: selectedScript.source, catalogOrigin: selectedScript.catalogOrigin }]
+    ? [...selectedScript.versions, { createdAt: selectedScript.updatedAt, revision: selectedScript.revision, source: selectedScript.source, catalogOrigin: selectedScript.catalogOrigin, strategySettings: selectedScript.strategySettings }]
     : [];
 
   return (
@@ -395,7 +413,7 @@ export function IndicatorEditorPanel({
             <label className="sr-only" htmlFor="edge-new-template">New script template</label>
             <select className="input-control h-8 max-w-40 text-xs" id="edge-new-template" value="" onChange={(event) => {
               const next = event.target.value === "pine-indicator" ? DEFAULT_PINE_INDICATOR_SOURCE : event.target.value === "pine-strategy" ? DEFAULT_PINE_STRATEGY_SOURCE : DEFAULT_EDGE_INDICATOR_SOURCE;
-              setSelectedId(""); changeSource(next); setInputs({}); setHistoryRevision(null); setCatalogOrigin(undefined);
+              setSelectedId(""); changeSource(next); setInputs({}); setStrategySettings({}); setHistoryRevision(null); setCatalogOrigin(undefined);
             }}><option value="" disabled>New script…</option><option value="edge">EdgeLab DSL</option><option value="pine-indicator">Pine indicator</option><option value="pine-strategy">Pine strategy</option></select>
             <button className="studio-tool-button" disabled={!canSave} onClick={duplicate} type="button"><Copy size={13} /> Duplicate</button>
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
@@ -430,7 +448,7 @@ export function IndicatorEditorPanel({
               <div className="mt-1 flex flex-wrap gap-x-3"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={catalogOrigin.originUrl} target="_blank" rel="noreferrer">Upstream source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={pineCatalogProvenanceLicenseUrl(catalogOrigin)} target="_blank" rel="noreferrer">GPL licence</a></div>
             </section> : null}
             <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
-            <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setCatalogOrigin(selectedScript.catalogOrigin); } }} value={historyRevision ?? ""}>
+            <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setStrategySettings(version.strategySettings ?? {}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setStrategySettings(selectedScript.strategySettings ?? {}); setCatalogOrigin(selectedScript.catalogOrigin); } }} value={historyRevision ?? ""}>
               <option value="">Current source</option>
               {[...history].reverse().map((version) => <option key={`${version.revision}-${version.createdAt}`} value={version.revision}>v{version.revision} · {new Date(version.createdAt).toLocaleDateString()}</option>)}
             </select>
@@ -464,7 +482,7 @@ export function IndicatorEditorPanel({
               <h3 className="text-sm font-semibold text-white">Diagnostics</h3>
               <div className="flex flex-wrap gap-1">
               {pine ? <button className="studio-tool-button" disabled={runState.status === "running"} onClick={() => void checkScript()} type="button">Check script</button> : null}
-              <button className="studio-tool-button" onClick={runState.status === "running" ? () => { invalidateExecution(); setRunState({ detail: "Execution cancelled.", status: "idle" }); } : run} type="button">
+              <button className="studio-tool-button" disabled={runState.status !== "running" && Boolean(strategySettingsError)} onClick={runState.status === "running" ? () => { invalidateExecution(); setRunState({ detail: "Execution cancelled.", status: "idle" }); } : run} type="button">
                 {runState.status === "running" ? <Square size={12} /> : <Play size={12} />}{runState.status === "running" ? "Cancel" : "Run"}
               </button>
               </div>
@@ -478,6 +496,7 @@ export function IndicatorEditorPanel({
             <div className="mt-2 grid gap-3">
               {pine ? currentPrepared?.inputDefinitions.map((input) => <PineInputControl definition={input} key={input.id} onChange={(value) => changeInput(input.id, value)} value={inputs[input.id]} />) ?? <p className="text-xs leading-5 text-slate-300">Declared Pine inputs appear after checking the script.</p> : parsed.program?.inputs.map((input) => <GeneratedInput definition={input} key={input.name} onChange={(value) => changeInput(input.name, value)} value={inputs[input.name] ?? input.defaultValue} />) ?? <p className="text-xs leading-5 text-slate-300">Valid input declarations appear here.</p>}
             </div>
+            {currentPrepared?.declaration === "strategy" ? <PineStrategySettingsControl value={strategySettings} onChange={changeStrategySettings} error={strategySettingsError} /> : null}
             {execution?.strategy ? <PineStrategyResults result={execution} /> : null}
             <p className="mt-5 text-[11px] leading-5 text-slate-300">Ctrl+Space opens completion. Tab moves between controls. Scripts execute without network, storage or page access.</p>
           </aside>

@@ -184,6 +184,7 @@ import { PineChartNotices } from "./PineChartNotices";
 import type { PineChartNoticeStudy } from "../lib/pineChartNotices";
 import type { PineExecutionResult } from "../lib/pineProtocol";
 import { PineInputControl } from "./PineInputControl";
+import { PineStrategySettingsControl } from "./PineStrategySettingsControl";
 import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import type { PineLiveFeed } from "../lib/pineLiveFeed";
 import { useLivePineRuntime } from "./chart/useLivePineRuntime";
@@ -882,6 +883,7 @@ export function TradingChart({
           bars: snapshot,
           context: nativePine ? pineContextForChart(symbol ?? "", timeframe) : undefined,
           inputs: indicator.settings.customInputs,
+          strategySettings: nativePine ? indicator.settings.pineStrategySettings : undefined,
           mode: indicatorRuntimeMode,
           source: indicator.customScriptSource,
         });
@@ -5738,6 +5740,7 @@ function FloatingIndicatorToolbar({
         {pineInputs.map((definition) => <PineInputControl key={definition.id} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onChange({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
         {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
       </div> : null}
+      {nativePine && indicator.customPinePrepared?.declaration === "strategy" ? <PineStrategySettingsControl scope="chart" value={settings.pineStrategySettings ?? {}} onChange={(pineStrategySettings) => onChange({ pineStrategySettings })} /> : null}
       {indicator.kind === "custom" && customInputs.length > 0 ? (
         <div className="indicator-floating-grid">
           {customInputs.map((input) => {

@@ -315,6 +315,9 @@ export function snapshotQuantChartContext(
         customInputs: indicator.settings.customInputs
           ? { ...indicator.settings.customInputs }
           : undefined,
+        pineStrategySettings: indicator.settings.pineStrategySettings
+          ? { ...indicator.settings.pineStrategySettings }
+          : undefined,
       },
     })),
     chartSettings: { ...context.chartSettings },

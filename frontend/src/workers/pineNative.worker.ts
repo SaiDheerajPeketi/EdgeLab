@@ -684,6 +684,9 @@ function preparePineRequest(request: PineRequest, realtime = false) {
   }
   const declaration = indicator.getDeclarationType();
   if (!declaration) error("DECLARATION_REQUIRED", "Native Pine requires an indicator() or strategy() declaration.");
+  const settings = request.strategySettings ?? {};
+  if (Object.keys(settings).length && declaration !== "strategy") error("INVALID_STRATEGY_SETTINGS", "Strategy test settings require a strategy() script.");
+  for (const [key, value] of Object.entries(settings)) indicator.prop[key] = value;
   const inputDefinitions = definitions(indicator);
   const inputs = runtimeInputs(request, inputDefinitions);
   const parsedLayer = indicator.prop.behind_chart;

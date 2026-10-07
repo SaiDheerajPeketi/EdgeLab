@@ -476,7 +476,7 @@ export function QuantPanel({
     try {
       if (isPineScriptSource(selectedScript.source)) {
         if (selectedScript.pinePrepared?.declaration !== "strategy") throw new Error("This Pine indicator has no order rules. Open a Pine strategy in the editor to test its own entries and exits.");
-        const native = createPineRuntimeJob({ action: "run", bars: bars.slice(-20_000), inputs: selectedScript.inputs,
+        const native = createPineRuntimeJob({ action: "run", bars: bars.slice(-20_000), inputs: selectedScript.inputs, strategySettings: selectedScript.strategySettings,
           mode: "historical", source: selectedScript.source, context: pineContextForChart(context.symbol, context.timeframe) });
         backtestCancelRef.current = native.cancel;
         const execution = await native.promise;

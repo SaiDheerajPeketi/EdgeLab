@@ -12,10 +12,15 @@ export type PineInputDefinition = {
   active?: boolean; confirm?: boolean; inline?: string; options?: PineScalar[];
   minval?: number; maxval?: number; step?: number;
 };
+export type PineStrategySettings = {
+  initial_capital?: number; default_qty_type?: "fixed" | "cash" | "percent_of_equity";
+  default_qty_value?: number; commission_type?: "percent" | "cash_per_contract" | "cash_per_order";
+  commission_value?: number; slippage?: number; pyramiding?: number; process_orders_on_close?: boolean;
+};
 export type PineContext = { symbol: string; timeframe: string; mintick?: number; pointvalue?: number };
 export type PineRequest = {
   id: string; action: "prepare" | "run"; source: string; bars?: Candle[];
-  inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext;
+  strategySettings?: PineStrategySettings; inputs?: Record<string, PineInputValue>; mode?: "historical" | "live"; context?: PineContext;
 };
 export type PinePrepareResult = {
   kind: "prepare"; source: string; language: "pine"; pineVersion: 5 | 6;
@@ -65,6 +70,39 @@ function scalarRecord(value: unknown, limit = 64): Record<string, PineScalar> {
   if (Object.keys(raw).length > limit) fail("Too many object fields.", "RESULT_LIMIT");
   return Object.fromEntries(Object.entries(raw).map(([key, val]) => [string(key, 128), scalar(val)]));
 }
+/** Explicit overrides only: an omitted key keeps the source declaration's value. */
+export function validatePineStrategySettings(value: unknown): PineStrategySettings {
+  if (value === undefined) return {};
+  const raw = record(value), result: Record<string, PineInputValue> = {};
+  const numeric: Record<string, [string, number, number, boolean]> = {
+    initial_capital: ["Starting capital", 0, 1e12, false],
+    default_qty_value: ["Order size", 0, 1e9, false],
+    commission_value: ["Commission", 0, 1e9, false],
+    slippage: ["Slippage", 0, 10_000, true],
+    pyramiding: ["Entries in same direction", 0, 1_000, true],
+  };
+  const enums: Record<string, readonly string[]> = {
+    default_qty_type: ["fixed", "cash", "percent_of_equity"],
+    commission_type: ["percent", "cash_per_contract", "cash_per_order"],
+  };
+  for (const key of Reflect.ownKeys(raw)) {
+    if (typeof key !== "string") fail("Strategy settings require named fields.", "INVALID_STRATEGY_SETTINGS");
+    const descriptor = Object.getOwnPropertyDescriptor(raw, key)!;
+    if (!("value" in descriptor) || !descriptor.enumerable) fail("Strategy settings require ordinary data fields.", "INVALID_STRATEGY_SETTINGS");
+    const val = descriptor.value;
+    if (Object.prototype.hasOwnProperty.call(numeric, key)) {
+      const [label, min, max, integer] = numeric[key];
+      const positive = key === "initial_capital" || key === "default_qty_value";
+      if (typeof val !== "number" || !Number.isFinite(val) || val < min || val > max || (positive && val === 0) || (integer && !Number.isSafeInteger(val))) fail(`${label} must be ${integer ? "a whole number" : "a number"} ${positive ? "greater than 0" : "at least 0"} and no more than ${max.toLocaleString("en-US")}.`, "INVALID_STRATEGY_SETTINGS");
+    } else if (Object.prototype.hasOwnProperty.call(enums, key)) {
+      if (typeof val !== "string" || !enums[key].includes(val)) fail("Choose a supported position-sizing or commission type.", "INVALID_STRATEGY_SETTINGS");
+    } else if (key === "process_orders_on_close") {
+      if (typeof val !== "boolean") fail("Choose a supported market-order timing.", "INVALID_STRATEGY_SETTINGS");
+    } else fail(`Unsupported strategy test setting: ${key}.`, "INVALID_STRATEGY_SETTINGS");
+    result[key] = val;
+  }
+  return result as PineStrategySettings;
+}
 export function pineSourceVersion(source: string): 5 | 6 {
   if (new TextEncoder().encode(source).length > PINE_LIMITS.sourceBytes) fail("Pine source exceeds 20,000 UTF-8 bytes.", "SOURCE_LIMIT");
   const headers = source.match(/^[ \t\uFEFF]*\/\/[ \t]*@version[^\r\n]*$/gim) ?? [];
@@ -93,6 +131,7 @@ export function validatePineRequest(value: unknown): PineRequest {
   pineSourceVersion(source);
   const inputs = raw.inputs === undefined ? {} : scalarRecord(raw.inputs, PINE_LIMITS.inputs);
   for (const [key, val] of Object.entries(inputs)) if (!/^in_\d+$/.test(key) || val === null) fail("Pine inputs must use native in_N IDs and primitive values.", "INVALID_INPUT");
+  const strategySettings = raw.strategySettings === undefined ? undefined : validatePineStrategySettings(raw.strategySettings);
   const mode = raw.mode ?? "historical";
   if (mode !== "historical" && mode !== "live") fail("Invalid execution mode.");
   let context: PineContext | undefined;
@@ -120,7 +159,7 @@ export function validatePineRequest(value: unknown): PineRequest {
     });
   }
   if (raw.action === "run" && (!context || !bars?.length)) fail("Pine execution needs chart bars, symbol and timeframe.", "INVALID_CONTEXT");
-  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(context ? { context } : {}), ...(bars ? { bars } : {}) };
+  return { id, action: raw.action as PineRequest["action"], source, inputs: inputs as Record<string, PineInputValue>, mode, ...(strategySettings ? { strategySettings } : {}), ...(context ? { context } : {}), ...(bars ? { bars } : {}) };
 }
 
 // Bound cumulative text before JSON allocation; binary is permitted only in the packed buffer list.
@@ -200,6 +239,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     return { code: string(entry.code, 96), message: string(entry.message), severity: entry.severity as PineDiagnostic["severity"], line, column };
   });
   const base: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: raw.pineVersion as 5 | 6, declaration: raw.declaration as PinePrepareResult["declaration"], name: string(raw.name), overlay: bool(raw.overlay), behindChart: raw.behindChart === undefined ? true : bool(raw.behindChart), inputDefinitions, diagnostics };
+  if (Object.keys(request.strategySettings ?? {}).length && base.declaration !== "strategy") fail("Strategy test settings require a strategy declaration.", "INVALID_STRATEGY_SETTINGS");
   if (request.action === "prepare") return base;
   const inputs = scalarRecord(raw.inputs, PINE_LIMITS.inputs);
   for (const [key, val] of Object.entries(inputs)) if (val === null || !inputDefinitions.some((item) => item.id === key)) fail("Invalid runtime input ID or value.");
@@ -246,6 +286,7 @@ export function validatePineResponse(value: unknown, request: PineRequest): Pine
     }
     for (const order of pendingOrders) if (order.status !== "pending" || typeof order.id !== "string" || !["market", "limit", "stop", "stop-limit"].includes(String(order.type))) fail("Invalid pending Pine order.");
     strategy = { config: scalarRecord(state.config), metrics: scalarRecord(state.metrics), closedTrades, openTrades, pendingOrders };
+    for (const [key, value] of Object.entries(request.strategySettings ?? {})) if (strategy.config[key] !== value) fail("Pine result changed a requested strategy setting.", "INVALID_STRATEGY_SETTINGS");
   } else if (base.declaration === "strategy") fail("Strategy execution is missing its engine ledger.");
   return { ...base, kind: "run", inputs: inputs as Record<string, PineInputValue>, plots, ...(strategy ? { strategy } : {}), audit: { engine: "PineTS", engineVersion: "0.11.0", bars: audit.bars as number, sourceBytes: audit.sourceBytes as number, mode: audit.mode as "historical" | "live", elapsedMs: audit.elapsedMs as number } };
 }

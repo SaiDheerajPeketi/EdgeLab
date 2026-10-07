@@ -3,7 +3,7 @@ import type { EdgeIndicatorExecutionResult, EdgeIndicatorInputValue } from "./in
 import { createIndicatorRuntimeJob } from "./indicatorRuntime";
 import { isPineScriptSource } from "./customIndicators";
 import { createPineRuntimeJob } from "./pineRuntime";
-import type { PineContext, PineExecutionResult } from "./pineProtocol";
+import type { PineContext, PineExecutionResult, PineStrategySettings } from "./pineProtocol";
 
 export function createCustomScriptRuntimeJob(options: {
   source: string;
@@ -11,6 +11,7 @@ export function createCustomScriptRuntimeJob(options: {
   inputs?: Record<string, EdgeIndicatorInputValue>;
   mode: "historical" | "live";
   context?: PineContext;
+  strategySettings?: PineStrategySettings;
 }): { id: string; cancel(): void; promise: Promise<EdgeIndicatorExecutionResult | PineExecutionResult> } {
   if (!isPineScriptSource(options.source)) return createIndicatorRuntimeJob(options);
   const job = createPineRuntimeJob({ ...options, action: "run" });

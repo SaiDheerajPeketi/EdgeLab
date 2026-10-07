@@ -12,6 +12,9 @@ export function PineStrategyResults({ result }: { result: PineExecutionResult })
     <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-white/10 py-3">
       {[["Net profit", strategy.metrics.netprofit], ["Equity", strategy.metrics.equity], ["Open profit", strategy.metrics.openprofit], ["Max drawdown", strategy.metrics.max_drawdown], ["Closed trades", strategy.closedTrades.length], ["Open positions", strategy.openTrades.length]].map(([name, value]) => <div key={String(name)}><dt className="text-slate-300">{name}</dt><dd className="mt-1 font-mono tabular-nums text-white">{formatScalar(value as PineScalar)}</dd></div>)}
     </dl>
+    <dl aria-label="Test assumptions" className="grid grid-cols-2 gap-x-4 gap-y-3 text-slate-300">
+      {[["Starting capital", strategy.config.initial_capital], ["Order size", `${formatScalar(strategy.config.default_qty_value)} ${strategy.config.default_qty_type === "percent_of_equity" ? "% of equity" : strategy.config.default_qty_type === "cash" ? "cash" : "units"}`], ["Commission", `${formatScalar(strategy.config.commission_value)} ${strategy.config.commission_type === "percent" ? "%" : strategy.config.commission_type === "cash_per_contract" ? "per unit" : "per order"}`], ["Slippage", `${formatScalar(strategy.config.slippage)} ticks`]].map(([name, value]) => <div key={String(name)}><dt>{name}</dt><dd className="mt-1 break-words font-mono tabular-nums text-white">{formatScalar(value as PineScalar)}</dd></div>)}
+    </dl>
     <Ledger label="Closed trades" rows={strategy.closedTrades} fields={["entry_id", "entry_time", "entry_price", "exit_time", "exit_price", "size", "profit", "commission"]} />
     <Ledger label="Open trades" rows={strategy.openTrades} fields={["entry_id", "entry_time", "entry_price", "size", "profit"]} />
     <Ledger label="Pending orders" rows={strategy.pendingOrders} fields={["id", "type", "direction", "qty", "limit", "stop", "time"]} />
@@ -19,7 +22,7 @@ export function PineStrategyResults({ result }: { result: PineExecutionResult })
       {Object.entries(strategy.config).map(([name, value]) => <div className="contents" key={`config-${name}`}><dt className="break-words">{name.replaceAll("_", " ")}</dt><dd className="break-words font-mono text-white">{formatScalar(value)}</dd></div>)}
       {Object.entries(strategy.metrics).map(([name, value]) => <div className="contents" key={`metric-${name}`}><dt className="break-words">{name.replaceAll("_", " ")}</dt><dd className="break-words font-mono text-white">{formatScalar(value)}</dd></div>)}
     </dl></details>
-    <p className="leading-5 text-slate-300">Open positions remain open. Pending orders have not filled. Results use the script’s own order rules, capital, commission and slippage settings.</p>
+    <p className="leading-5 text-slate-300">Open positions remain open. Pending orders have not filled. Results use the script’s order rules with the trading assumptions shown above. Explicit order quantities take precedence over default order size.</p>
   </section>;
 }
 

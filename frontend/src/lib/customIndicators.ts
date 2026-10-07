@@ -7,7 +7,7 @@ import {
 import { parseEdgeIndicator, type EdgeIndicatorInputValue } from "./indicatorDsl";
 import { normalizeChartTimeframe, type ChartIndicatorInstance } from "./charting";
 import { sanitizePineCatalogProvenance, type PineCatalogProvenance } from "./pineCatalog";
-import { canonicalPineTimeframe, PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineContext, type PinePrepareResult } from "./pineProtocol";
+import { canonicalPineTimeframe, validatePineStrategySettings, PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineContext, type PineStrategySettings, type PinePrepareResult } from "./pineProtocol";
 
 export const CUSTOM_INDICATORS_STORAGE_KEY = "custom-indicator-scripts.v1";
 export const CUSTOM_INDICATOR_AUDIT_STORAGE_KEY = "custom-indicator-audit.v1";
@@ -35,6 +35,7 @@ export type CustomIndicatorPreview =
   | "zones";
 
 export type CustomIndicatorVersion = {
+  strategySettings?: PineStrategySettings;
   catalogOrigin?: PineCatalogProvenance;
   createdAt: string;
   revision: number;
@@ -58,6 +59,7 @@ export type CustomIndicatorScript = {
   versions: CustomIndicatorVersion[];
   quantSemantics?: QuantIndicatorSemantics;
   pinePrepared?: PinePrepareResult;
+  strategySettings?: PineStrategySettings;
   catalogOrigin?: PineCatalogProvenance;
 };
 
@@ -240,13 +242,21 @@ export function persistCustomIndicators(scripts: CustomIndicatorScript[]) {
 
 export function saveCustomIndicator(
   scripts: CustomIndicatorScript[],
-  draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms"> & { quantSemantics?: QuantIndicatorSemantics; catalogOrigin?: PineCatalogProvenance },
+  draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms"> & { quantSemantics?: QuantIndicatorSemantics; catalogOrigin?: PineCatalogProvenance; strategySettings?: PineStrategySettings },
   options: { clearIncompatibleQuantSemantics?: boolean; pinePrepared?: PinePrepareResult } = {},
 ) {
   const native = isPineScriptSource(draft.source);
   const pinePrepared = native ? sanitizePinePrepared(options.pinePrepared, draft.source) : undefined;
   const parsed = native ? { program: null, diagnostics: pinePrepared?.diagnostics ?? [{ code: "PINE_PREPARE_REQUIRED", message: "Prepare native Pine successfully before saving this exact source.", severity: "error" as const, line: 1, column: 1 }] } : parseEdgeIndicator(draft.source);
   if (native ? !pinePrepared : !parsed.program) return { diagnostics: parsed.diagnostics, scripts };
+  let strategySettings: PineStrategySettings | undefined;
+  try {
+    const settings = validatePineStrategySettings(draft.strategySettings);
+    if (Object.keys(settings).length) {
+      if (pinePrepared?.declaration !== "strategy") throw new Error("Strategy test settings require a checked Pine strategy.");
+      strategySettings = settings;
+    }
+  } catch (cause) { return { scripts, diagnostics: [{ code: "INVALID_STRATEGY_SETTINGS", message: cause instanceof Error ? cause.message : "Invalid strategy settings.", severity: "error" as const, line: 1, column: 1 }] }; }
   let savedInputs = draft.inputs;
   if (pinePrepared) {
     try { savedInputs = validatePineSavedInputs(pinePrepared, draft.inputs); }
@@ -265,6 +275,7 @@ export function saveCustomIndicator(
   const next: CustomIndicatorScript = {
     ...draft,
     inputs: savedInputs,
+    strategySettings,
     catalogOrigin: sanitizePineCatalogProvenance(Object.prototype.hasOwnProperty.call(draft, "catalogOrigin") ? draft.catalogOrigin : existing?.catalogOrigin),
     category: draft.category ?? "custom",
     color: validColor(draft.color),
@@ -279,7 +290,7 @@ export function saveCustomIndicator(
     updatedAt: now,
     versions: [
       ...(existing?.versions ?? []),
-      ...(existing ? [{ createdAt: existing.updatedAt, revision: existing.revision, source: existing.source, catalogOrigin: existing.catalogOrigin }] : []),
+      ...(existing ? [{ createdAt: existing.updatedAt, revision: existing.revision, source: existing.source, catalogOrigin: existing.catalogOrigin, strategySettings: existing.strategySettings }] : []),
     ].slice(-MAX_SCRIPT_VERSIONS),
     quantSemantics: quantSemanticsWarning ? undefined : sanitizeQuantSemantics(requestedQuantSemantics),
     pinePrepared,
@@ -315,6 +326,7 @@ export function duplicateCustomIndicator(script: CustomIndicatorScript): CustomI
     name,
     origin: "user",
     revision: 1,
+    strategySettings: script.strategySettings ? { ...script.strategySettings } : undefined,
     source: isPineScriptSource(script.source) ? script.source : script.source.replace(/^indicator\s+"[^"]+"/m, `indicator "${name}"`),
     pinePrepared: isPineScriptSource(script.source) ? sanitizePinePrepared(script.pinePrepared, script.source) : undefined,
     updatedAt: now,
@@ -345,6 +357,7 @@ export function createCustomIndicatorInstance(
     settings: {
       color: script.color,
       customInputs: { ...inputs },
+      ...(prepared?.declaration === "strategy" && script.strategySettings ? { pineStrategySettings: validatePineStrategySettings(script.strategySettings) } : {}),
       period: typeof inputs.period === "number" ? inputs.period : 20,
     },
     visible: true,
@@ -367,6 +380,14 @@ export function sanitizeCustomIndicators(value: unknown): CustomIndicatorScript[
       try { inputs = validatePineSavedInputs(prepared, candidate.inputs ?? {}); }
       catch { return []; }
     }
+    let strategySettings: PineStrategySettings | undefined;
+    try {
+      const settings = validatePineStrategySettings(candidate.strategySettings);
+      if (Object.keys(settings).length) {
+        if (prepared?.declaration !== "strategy") return [];
+        strategySettings = settings;
+      }
+    } catch { return []; }
     const createdAt = validDate(candidate.createdAt);
     return [{
       category: validCategory(candidate.category),
@@ -375,6 +396,7 @@ export function sanitizeCustomIndicators(value: unknown): CustomIndicatorScript[
       description: typeof candidate.description === "string" ? candidate.description.slice(0, 240) : "Saved EdgeLab indicator.",
       id: candidate.id.trim().slice(0, 96),
       inputs,
+      strategySettings,
       name: prepared ? candidate.name.trim().slice(0, 80) || prepared.name : parsed.program!.name,
       origin: "user",
       preview: validPreview(candidate.preview),
@@ -424,9 +446,11 @@ function sanitizeVersions(value: unknown): CustomIndicatorVersion[] {
   return value.flatMap((item): CustomIndicatorVersion[] => {
     if (typeof item !== "object" || item == null || typeof (item as CustomIndicatorVersion).source !== "string") return [];
     const version = item as CustomIndicatorVersion;
+    let strategySettings: PineStrategySettings | undefined;
+    try { const settings = validatePineStrategySettings(version.strategySettings); if (Object.keys(settings).length) strategySettings = settings; } catch { return []; }
     const native = isPineScriptSource(version.source);
     if (native && new TextEncoder().encode(version.source).length > PINE_LIMITS.sourceBytes) return [];
-    return [{ catalogOrigin: sanitizePineCatalogProvenance(version.catalogOrigin), createdAt: validDate(version.createdAt), revision: positiveInteger(version.revision, 1), source: native ? version.source : version.source.slice(0, 20_000) }];
+    return [{ strategySettings, catalogOrigin: sanitizePineCatalogProvenance(version.catalogOrigin), createdAt: validDate(version.createdAt), revision: positiveInteger(version.revision, 1), source: native ? version.source : version.source.slice(0, 20_000) }];
   }).slice(-MAX_SCRIPT_VERSIONS);
 }
 
