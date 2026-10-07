@@ -200,6 +200,12 @@ export class Context {
                 Object.defineProperty(factory, '__pineRealtimeCapture', {
                     value: (object: any, resolved = false) => (this as any)._captureRealtimeObject?.(object, resolved),
                 });
+                // Share member/static copy semantics without changing Core globally.
+                factory.copy = (object: any) => {
+                    const instance = object instanceof Series ? object.get(0) : object;
+                    if (!(instance instanceof PineTypeObject)) throw new TypeError('UDT copy requires an object instance.');
+                    return PineTypeObject.prototype.copy.call(instance);
+                };
                 return factory;
             },
 

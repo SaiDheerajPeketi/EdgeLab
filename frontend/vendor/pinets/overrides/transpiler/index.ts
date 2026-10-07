@@ -159,7 +159,45 @@ export function transpile(source: string | Function, options: { debug: boolean; 
     // and user variables that hold UDT instances). Enables type-aware
     // rewrites at use sites — e.g. distinguishing Pine series-lookback
     // (`bar.field[N]` on a UDT instance) from JS array indexing.
+    // Expose the upstream declaration shape while it builds type/field registries.
+    // Only our canonical Pine-generated metadata form is normalized. Function/JS
+    // input and authored one-argument Type calls retain their original arity.
+    const metadataTypeCalls = new Map<any, any[]>();
+    const prepareTypeRegistry = (node: any) => {
+        if (!node || typeof node !== 'object') return;
+        if (pineVersion !== null && node.type === 'VariableDeclaration' && node.kind === 'const') {
+            for (const declaration of node.declarations) {
+                const call = declaration.init;
+                if (declaration.id?.type !== 'Identifier' || call?.type !== 'CallExpression' ||
+                    call.callee?.type !== 'Identifier' || call.callee.name !== 'Type' || call.arguments?.length !== 3 ||
+                    call.arguments[0]?.type !== 'ObjectExpression' || call.arguments[1]?.type !== 'Identifier' ||
+                    call.arguments[1].name !== 'undefined' || call.arguments[2]?.type !== 'Literal' ||
+                    typeof call.arguments[2].value !== 'string') continue;
+                let fields: any;
+                try { fields = JSON.parse(call.arguments[2].value); } catch { continue; }
+                const declared = call.arguments[0].properties.map((property: any) => property.key?.name);
+                if (!Array.isArray(fields) || JSON.stringify(fields) !== call.arguments[2].value ||
+                    !fields.every(field => typeof field === 'string' && declared.includes(field))) continue;
+                metadataTypeCalls.set(call, call.arguments);
+                call.arguments = [call.arguments[0]];
+            }
+        }
+        for (const [key, child] of Object.entries(node)) {
+            if (key === 'parent') continue;
+            if (Array.isArray(child)) child.forEach(prepareTypeRegistry);
+            else if (child && typeof child === 'object') prepareTypeRegistry(child);
+        }
+    };
+    prepareTypeRegistry(ast);
     preProcessUdtRegistry(ast, scopeManager);
+    for (const [call, argumentsBeforeRegistry] of metadataTypeCalls) {
+        const typeName = call._udtName;
+        call.arguments = [argumentsBeforeRegistry[0],
+            typeof typeName === 'string' ? { type: 'Literal', value: typeName, raw: JSON.stringify(typeName) } : argumentsBeforeRegistry[1],
+            argumentsBeforeRegistry[2]];
+        // Runtime name already occupies its proper slot; do not append it again.
+        delete call._udtName;
+    }
 
     // First pass: register all function declarations and their parameters
     // Returns the original parameter name of the root function if any

@@ -1,4 +1,4 @@
-// EdgeLab modification, 2026-10-07: capture all UDT construction paths for rollback.
+// EdgeLab modification, 2026-10-07: realtime construction capture and current-field shallow copies.
 // Original PineTS 0.11.0 source; licensed AGPL-3.0-only.
 export class PineTypeObject {
     public get __def__() {
@@ -27,7 +27,13 @@ export class PineTypeObject {
     }
 
     copy() {
-        return new PineTypeObject(this.__def__, this.context, this._udt);
+        // Each copy is a new object; collection/object fields retain their references.
+        // Preserve an absent field separately from an explicitly assigned undefined/na.
+        const current: Record<string, any> = Object.create(null);
+        for (const key of this._udt?._definitionKeys ?? Object.keys(this.__def__)) {
+            if (Object.prototype.hasOwnProperty.call(this, key)) current[key] = this[key];
+        }
+        return new PineTypeObject(current, this.context, this._udt);
     }
 
     toString() {

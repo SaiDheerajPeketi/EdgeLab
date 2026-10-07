@@ -1,6 +1,6 @@
 {
   "version": "0.11.0",
-  "patch": "edgelab-realtime-54",
+  "patch": "edgelab-realtime-55",
   "sourceMapSha256": "a59326d448fdc3e40af6b02a5af627abaa41da6c2598df682b5426c73a606bb9",
   "barrels": [
     {
@@ -26,7 +26,7 @@
       "source": "src/transpiler/index.ts",
       "file": "overrides/transpiler/index.ts",
       "upstreamSha256": "f17badec7f474d68cbcedfc8fc2f769a5af47f04c8e4240872873d287cd4f9d0",
-      "sha256": "efac1b3603e6ebd468e3360ea58db59e3311d44c8a01dabb43a5a133ce327035"
+      "sha256": "078acb91684c6babb1ee638143805211c7edda6491d2992c94a393d8eb086877"
     },
     {
       "source": "src/transpiler/transformers/StatementTransformer.ts",
@@ -38,7 +38,7 @@
       "source": "src/Context.class.ts",
       "file": "overrides/Context.class.ts",
       "upstreamSha256": "c539cacd319115f06118c9249b4886dcfe1615c8a8e47490bdf139ce7e8fe721",
-      "sha256": "f53cf65e38f2d44ec63b13b008fe5c319f351a1cfca59e4274c8d3ab52fdb98f"
+      "sha256": "0846ed2a0964d9fdf312f235885d8ce09fe034590b7bde38f89de738b205359d"
     },
     {
       "source": "src/PineTS.class.ts",
@@ -62,7 +62,7 @@
       "source": "src/namespaces/PineTypeObject.ts",
       "file": "overrides/namespaces/PineTypeObject.ts",
       "upstreamSha256": "54670cee7a7f62ad8977f3755b65dc161f5218a6662a4c91b2448c33c6d62b9f",
-      "sha256": "c9a5f6178f4d257a0157e053d3ea9bb1980b3a4a3884361bfced0531fef6664c"
+      "sha256": "ccaa0107c821aec508835f6f81b65056f2829ce7b995d0e9958a40d373e26fa3"
     }
   ]
 }
