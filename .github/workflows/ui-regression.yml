@@ -59,6 +59,9 @@ jobs:
       - name: Run deterministic UI gate
         run: npm run test:ui
 
+      - name: Run production pricing and checkout gate
+        run: npx playwright test --config=e2e/public-checkout48.config.ts
+
       - name: Publish low-power metrics summary
         if: always()
         shell: bash

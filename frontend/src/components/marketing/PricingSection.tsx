@@ -1,9 +1,10 @@
 import { ArrowRight, Check, ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { type DeploymentMode, isBetaMode } from "../../lib/deploymentMode";
+import { deploymentMode, type DeploymentMode, isBetaMode } from "../../lib/deploymentMode";
 import { buildMarketingCta } from "../../lib/marketingCta";
 import { useBetaProgramStatus } from "../../lib/useBetaProgram";
+import { ProPricing } from "./ProPricing";
 
 type PricingSectionProps = {
   mode: DeploymentMode;
@@ -23,14 +24,14 @@ const INCLUDED_BETA_WORKFLOW = [
 ] as const;
 
 const ACCESS_COMPARISON = [
-  { area: "Price", beta: "Free for approved beta users", production: "Not published" },
-  { area: "Billing frequency", beta: "No billing or credit card", production: "Monthly and annual options not confirmed" },
-  { area: "Replay and review", beta: "Current replay, Journal, reports, and playbooks", production: "Packaging and limits not confirmed" },
-  { area: "Market data", beta: "Imported datasets", production: "Provider entitlements not announced" },
-  { area: "Broker sync and AI", beta: "Configured providers, permissions, and consent required", production: "No launch commitment published" },
+  { area: "Price", beta: "Free workspace for approved beta users", production: "EdgeLab Pro, with current prices below" },
+  { area: "Billing frequency", beta: "No card required for beta workspace access", production: "Monthly or yearly subscription" },
+  { area: "Replay and review", beta: "Replay, Journal, reports, and playbooks", production: "The connected chart, replay, and review workspace" },
+  { area: "Market data", beta: "Imported datasets", production: "Imported datasets; provider licences remain separate" },
+  { area: "Data exports", beta: "Active paid subscription required", production: "JSON, CSV, and chart-image exports with an active paid subscription" },
 ] as const;
 
-export const pricingFaqItems: FaqItem[] = [
+const betaFaqItems: FaqItem[] = [
   {
     question: "What happens during beta?",
     answer:
@@ -44,7 +45,7 @@ export const pricingFaqItems: FaqItem[] = [
   {
     question: "Do I need a credit card?",
     answer:
-      "No. The private beta is free and does not collect a card. Production prices, trials, billing frequency, and renewal terms will be published before any paid plan is offered.",
+      "No card is required for the approved beta workspace. Optional Pro subscriptions use Stripe checkout; an active paid subscription is required for data exports, including during beta.",
   },
   {
     question: "Will beta accounts keep history after launch?",
@@ -62,6 +63,21 @@ export const pricingFaqItems: FaqItem[] = [
       "The interfaces are implemented. Quant depends on configured models and permissions; footprint and TPO require qualified trade-level data. Candle-only feeds do not unlock order flow.",
   },
 ];
+
+const publicFaqItems: FaqItem[] = [
+  { question: "What is included in Pro?", answer: "Pro connects charting, manual replay and simulated orders, journaling, reports, playbooks, and backtest trade imports. Native Pine execution is experimental. Live feeds, broker connections, AI models, footprint, and TPO depend on supported providers, credentials, permissions, and suitable data." },
+  { question: "How does billing work?", answer: "Choose a monthly or yearly Pro subscription. The current price and renewal cadence are shown before you continue to Stripe checkout. There is no free trial. Access starts after EdgeLab verifies an active paid subscription; a checkout return page alone does not activate a plan." },
+  { question: "Can I change or cancel my subscription?", answer: "Open Account and choose Manage billing to use Stripe’s customer portal. When cancellation is scheduled for the end of a billing period, access continues until that period ends. Signing out does not cancel a subscription." },
+  { question: "Can I bring my own CSV data?", answer: "Yes. Import market datasets with instrument and timeframe metadata, or import backtest trades with preview, column mapping, and skipped-row reporting. Market-data rights and provider licences remain your responsibility." },
+  { question: "Can I export my data?", answer: "An active paid subscription enables application-data JSON, trade CSV, and chart-image exports. Large market-data files are not included in the JSON bundle. Keep separate copies of important records; exports are unavailable after paid access ends." },
+  { question: "Does Pro include live data and AI?", answer: "Pro includes the software workspace. Supported live data, broker synchronisation, and AI integrations require their own configured providers, credentials, permissions, and any applicable fees. Footprint and TPO need qualified trade-level data; candle-only feeds do not unlock order flow." },
+];
+
+export function getPricingFaqItems(mode: DeploymentMode): FaqItem[] {
+  return isBetaMode(mode) ? betaFaqItems : publicFaqItems;
+}
+
+export const pricingFaqItems = getPricingFaqItems(deploymentMode);
 
 export function FaqAccordion({ items }: { items: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState(-1);
@@ -117,154 +133,110 @@ export function PricingSection({
   mode,
   showComparison = true,
 }: PricingSectionProps) {
+  return isBetaMode(mode) ? <BetaPricingSection showComparison={showComparison} /> : <ProPricing />;
+}
+
+function BetaPricingSection({ showComparison }: { showComparison: boolean }) {
   const location = useLocation();
   const { loading, program } = useBetaProgramStatus();
 
-  if (isBetaMode(mode)) {
-    const seatsTaken = program.seats_taken ?? 0;
-    const seatsRemaining = program.seats_remaining;
-    const waitlistCount = program.waitlist_count;
-    const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
-    const capacityKnown = !loading && seatsRemaining != null;
-    const betaCta = buildMarketingCta({
-      search: location.search,
-      seatsRemaining: capacityKnown ? seatsRemaining : null,
-    });
+  const seatsTaken = program.seats_taken ?? 0;
+  const seatsRemaining = program.seats_remaining;
+  const waitlistCount = program.waitlist_count;
+  const fillRatio = Math.min(1, seatsTaken / Math.max(program.seats_total, 1));
+  const capacityKnown = !loading && seatsRemaining != null;
+  const betaCta = buildMarketingCta({
+    mode: "beta",
+    search: location.search,
+    seatsRemaining: capacityKnown ? seatsRemaining : null,
+  });
 
-    return (
-      <div className="grid gap-10">
-        <div className="rounded-el-xl border border-white/10 bg-[#061018] p-6 shadow-card sm:p-7">
-          <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0">
-              <h3 className="max-w-2xl text-balance text-[clamp(1.75rem,4vw,2.6rem)] font-semibold leading-[1.08] tracking-[-0.04em] text-white">
-                Test the core workflow free.
-              </h3>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-                Approved users can use the verified beta workflow without billing. Future plans
-                are not inferred from roadmap features, and beta data remains temporary.
-              </p>
+  return (
+    <div className="grid gap-10">
+      <div className="rounded-el-xl border border-white/10 bg-[#061018] p-6 shadow-card sm:p-7">
+        <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0">
+            <h3 className="max-w-2xl text-balance text-[clamp(1.75rem,4vw,2.6rem)] font-semibold leading-[1.08] tracking-[-0.04em] text-white">
+              Test the core workflow free.
+            </h3>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
+              Approved users can use the verified beta workflow without billing. Future plans
+              are not inferred from roadmap features, and beta data remains temporary.
+            </p>
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {INCLUDED_BETA_WORKFLOW.map((feature) => (
-                  <div
-                    key={feature}
-                    className="flex min-w-0 items-start gap-2 border-t border-white/10 px-1 py-3 text-sm leading-6 text-slate-200"
-                  >
-                    <Check aria-hidden="true" className="mt-1 shrink-0 text-cyan-200" size={15} />
-                    {feature}
-                  </div>
-                ))}
-              </div>
-
-              <Link
-                className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 transition-colors hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
-                to={betaCta.href}
-              >
-                {betaCta.label}
-                <ArrowRight aria-hidden="true" size={16} />
-              </Link>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {INCLUDED_BETA_WORKFLOW.map((feature) => (
+                <div
+                  key={feature}
+                  className="flex min-w-0 items-start gap-2 border-t border-white/10 px-1 py-3 text-sm leading-6 text-slate-200"
+                >
+                  <Check aria-hidden="true" className="mt-1 shrink-0 text-cyan-200" size={15} />
+                  {feature}
+                </div>
+              ))}
             </div>
 
-            <div className="min-w-0 rounded-el-lg border border-white/10 bg-black/20 p-5">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Access
-              </div>
-              <div className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">
-                {loading || seatsRemaining == null ? "..." : seatsRemaining}
-              </div>
-              <div className="mt-1 text-sm text-slate-400">seats open</div>
+            <Link
+              className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 transition-colors hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
+              to={betaCta.href}
+            >
+              {betaCta.label}
+              <ArrowRight aria-hidden="true" size={16} />
+            </Link>
+          </div>
 
+          <div className="min-w-0 rounded-el-lg border border-white/10 bg-black/20 p-5">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Access
+            </div>
+            <div className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">
+              {loading || seatsRemaining == null ? "..." : seatsRemaining}
+            </div>
+            <div className="mt-1 text-sm text-slate-400">seats open</div>
+
+            <div
+              aria-label="Beta seat capacity"
+              aria-valuemax={program.seats_total}
+              aria-valuemin={0}
+              aria-valuenow={capacityKnown ? seatsTaken : undefined}
+              className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"
+              role="progressbar"
+            >
               <div
-                aria-label="Beta seat capacity"
-                aria-valuemax={program.seats_total}
-                aria-valuemin={0}
-                aria-valuenow={capacityKnown ? seatsTaken : undefined}
-                className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"
-                role="progressbar"
-              >
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-amber-300"
-                  style={{ width: `${capacityKnown ? fillRatio * 100 : 0}%` }}
-                />
-              </div>
+                className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-cyan-200 to-amber-300"
+                style={{ width: `${capacityKnown ? fillRatio * 100 : 0}%` }}
+              />
+            </div>
 
-              <div className="mt-3 text-sm text-slate-300">
-                {loading || program.seats_taken == null
-                  ? "Syncing seat usage"
-                  : `${program.seats_taken}/${program.seats_total} seats claimed`}
-              </div>
+            <div className="mt-3 text-sm text-slate-300">
+              {loading || program.seats_taken == null
+                ? "Syncing seat usage"
+                : `${program.seats_taken}/${program.seats_total} seats claimed`}
+            </div>
 
-              <div className="mt-5 grid gap-3">
-                <div className="rounded-el-lg border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    Waitlist
-                  </div>
-                  <div className="mt-2 text-lg font-semibold text-white">
-                    {waitlistCount == null ? "Syncing" : `${waitlistCount} queued`}
-                  </div>
+            <div className="mt-5 grid gap-3">
+              <div className="rounded-el-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  Waitlist
                 </div>
-                <div className="rounded-el-lg border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    Data
-                  </div>
-                  <div className="mt-2 text-lg font-semibold text-white">
-                    Temporary beta workspace
-                  </div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  {waitlistCount == null ? "Syncing" : `${waitlistCount} queued`}
+                </div>
+              </div>
+              <div className="rounded-el-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  Data
+                </div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  Temporary beta workspace
                 </div>
               </div>
             </div>
           </div>
         </div>
-        {showComparison ? <AccessComparison /> : null}
       </div>
-    );
-  }
-
-  const launchCta = buildMarketingCta({
-    forceWaitlist: true,
-    search: location.search,
-    seatsRemaining: null,
-  });
-
-  return (
-    <div className="grid gap-10">
-      <div className="grid border-y border-edgelab-border lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
-        <section className="py-8 lg:pr-12">
-          <h3 className="max-w-2xl text-3xl font-medium leading-tight tracking-[-0.03em] text-edgelab-text-primary sm:text-4xl">
-            Launch pricing is not published yet.
-          </h3>
-          <p className="mt-5 max-w-2xl text-sm leading-7 text-edgelab-text-secondary sm:text-base">
-            EdgeLab has not opened paid plans. Prices, trials, renewal terms, limits, and
-            provider entitlements will be published together before checkout exists.
-          </p>
-          <Link
-            className="mt-8 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-el-md bg-edgelab-accent px-5 py-3 text-sm font-semibold text-ink-950 transition-[background-color,transform] duration-200 ease-el-out hover:-translate-y-0.5 hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 motion-reduce:transform-none motion-reduce:transition-none sm:w-auto"
-            to={launchCta.href}
-          >
-            {launchCta.label}
-            <ArrowRight aria-hidden="true" size={16} />
-          </Link>
-        </section>
-        <aside className="border-t border-edgelab-border py-8 lg:border-l lg:border-t-0 lg:pl-10">
-          <h3 className="text-lg font-medium text-edgelab-text-primary">Billing boundary</h3>
-          <dl className="mt-5 border-y border-edgelab-border text-sm">
-            <div className="flex justify-between gap-6 border-b border-edgelab-border py-4">
-              <dt className="text-edgelab-text-secondary">Price</dt>
-              <dd className="text-right font-medium text-edgelab-text-primary">Not published</dd>
-            </div>
-            <div className="flex justify-between gap-6 border-b border-edgelab-border py-4">
-              <dt className="text-edgelab-text-secondary">Cadence</dt>
-              <dd className="text-right font-medium text-edgelab-text-primary">Not confirmed</dd>
-            </div>
-            <div className="flex justify-between gap-6 py-4">
-              <dt className="text-edgelab-text-secondary">Card required</dt>
-              <dd className="text-right font-medium text-edgelab-text-primary">No</dd>
-            </div>
-          </dl>
-        </aside>
-      </div>
-
       {showComparison ? <AccessComparison /> : null}
+      <ProPricing betaMode />
     </div>
   );
 }
@@ -276,7 +248,7 @@ function AccessComparison() {
         Access terms, side by side
       </h3>
       <p className="mt-3 max-w-2xl text-sm leading-7 text-edgelab-text-secondary">
-        Unknown launch details stay marked as unknown instead of becoming a sales promise.
+        The optional beta workspace stays free. Pro adds subscription access and paid exports.
       </p>
       <dl className="mt-7 divide-y divide-edgelab-border border-y border-edgelab-border sm:hidden" data-access-comparison-mobile>
         {ACCESS_COMPARISON.map((row) => (
@@ -293,7 +265,7 @@ function AccessComparison() {
         tabIndex={0}
       >
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-          <caption className="sr-only">Private beta and future production access comparison</caption>
+          <caption className="sr-only">Private beta and Pro subscription access comparison</caption>
           <thead>
             <tr className="border-y border-edgelab-border text-edgelab-text-secondary">
               <th className="w-1/4 px-4 py-4 font-medium" scope="col">Area</th>

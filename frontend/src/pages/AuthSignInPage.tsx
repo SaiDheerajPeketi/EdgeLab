@@ -17,6 +17,7 @@ export function AuthSignInPage() {
     () => authDestinationFromLocation(location),
     [location.search, location.state],
   );
+  const pricingDestination = typeof location.state === "object" && location.state !== null && "pricingDestination" in location.state && typeof location.state.pricingDestination === "string" ? location.state.pricingDestination : undefined;
   const issue = authJourneyIssue(searchParams);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,6 +57,7 @@ export function AuthSignInPage() {
         fromPath,
         config.google_client_id,
         config.google_redirect_uri,
+        pricingDestination,
       ),
     );
   };

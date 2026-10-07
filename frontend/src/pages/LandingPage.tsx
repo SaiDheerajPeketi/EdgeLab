@@ -226,6 +226,7 @@ function SectionHeading({
 
 export function LandingPage() {
   const location = useLocation();
+  const betaMode = isBetaMode(deploymentMode);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const reducedMotion = useReducedMotionPreference();
   const { loading, program } = useBetaProgramStatus();
@@ -363,17 +364,17 @@ export function LandingPage() {
                     <ArrowDown aria-hidden="true" size={16} />
                   </a>
                 </div>
-                <div className="mt-4 hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 sm:flex" role="status">
+                {betaMode ? <div className="mt-4 hidden flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 sm:flex" role="status">
                     <strong className="font-medium text-cyan-100">
                       {loading ? "Checking beta access…" : accessLabel}
                     </strong>
                     <span className="text-edgelab-text-secondary">
                       {waitlistCount == null ? "Queue syncing" : `${waitlistCount} in queue`}
                     </span>
-                </div>
-                <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
+                </div> : <p className="mt-4 text-sm leading-6 text-edgelab-text-secondary">Monthly or yearly Pro subscriptions. Your chart, replay, and journal stay connected.</p>}
+                {betaMode ? <p className="mt-2 hidden text-xs leading-5 text-edgelab-text-secondary sm:block">
                   Private beta · temporary test workspaces
-                </p>
+                </p> : null}
               </div>
 
               <div className="order-2 min-w-0 origin-top scroll-mt-28 lg:order-3 lg:col-span-2" data-landing-stage data-scroll-scene id="live-preview" tabIndex={-1}>
@@ -381,7 +382,7 @@ export function LandingPage() {
                   <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
                   <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
                     Interactive product preview using illustrative market data.
-                    <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span>
+                    {betaMode ? <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span> : null}
                   </p>
                 </div>
               </div>
@@ -459,9 +460,9 @@ export function LandingPage() {
                 description={
                   isBetaMode(deploymentMode)
                     ? "Approved users can test the current replay, Journal, analytics, and playbook workflow free during private beta. The queue opens automatically when seats fill."
-                    : "Choose a cadence that fits your review cycle, from solo validation to a growing desk."
+                    : "The chart, replay, and journal you need to build a repeatable review process. Choose monthly or yearly billing."
                 }
-                title={isBetaMode(deploymentMode) ? "Core workflow. Limited beta." : "Plans that scale with the process."}
+                title={betaMode ? "Core workflow. Limited beta." : "Your process, connected."}
               />
               <div className="border-t border-white/10 pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
                 <div className="text-xl font-medium text-white">
@@ -469,8 +470,8 @@ export function LandingPage() {
                 </div>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
                   {isBetaMode(deploymentMode)
-                    ? "Billing stays off during the private beta track."
-                    : "Annual billing discounts and plan gating are available below."}
+                    ? "The approved beta workspace is free. Pro subscriptions enable paid data exports."
+                    : "One Pro plan. Two billing choices. Provider data and model access remain separate."}
                 </p>
               </div>
             </div>
@@ -486,7 +487,7 @@ export function LandingPage() {
         <section className="px-3 py-24 sm:px-6 sm:py-32 lg:px-8" id="faq" tabIndex={-1} data-scroll-scene>
           <div className="landing-motion-content mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(0,0.76fr)_minmax(0,1.24fr)] lg:gap-20" data-scene-content>
             <SectionHeading
-              description="Straight answers on access, imports, billing timing, and the beta data lifecycle."
+              description={betaMode ? "Straight answers on beta access, imports, subscriptions, and data handling." : "Straight answers on subscriptions, imports, exports, and provider access."}
               title="Before you enter."
             />
             <div data-marketing-reveal="faq-list" data-reveal-delay="0.06">
@@ -504,7 +505,7 @@ export function LandingPage() {
                 Make every replay leave evidence.
               </h2>
               <p className="mt-5 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg">
-                Enter the current beta when a seat is open, or reserve a place in the queue when it is full.
+                {betaMode ? "Enter the beta when a seat is open, or reserve a place in the queue when it is full." : "Build a review process that keeps your decisions beside the market context. Explore Pro and choose your billing cadence."}
               </p>
             </div>
             <Link

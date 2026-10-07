@@ -1,11 +1,12 @@
 import type { BetaAuthConfig } from "./api";
-import { safeAuthDestination } from "./authJourney";
+import { isWorkspaceAuthDestination, safeAuthDestination } from "./authJourney";
 
 const GOOGLE_AUTH_STATE_KEY = "edgelab.google-auth.state.v1";
 const GOOGLE_AUTH_STATE_TTL_MS = 15 * 60 * 1000;
 
 type StoredGoogleAuthState = {
   fromPath: string;
+  pricingDestination?: string;
   issuedAt: number;
   redirectUri: string;
   state: string;
@@ -26,6 +27,7 @@ export function buildGoogleAuthorizeUrl(
   fromPath: string,
   clientId: string,
   configuredRedirectUri?: string | null,
+  pricingDestination?: string | null,
 ) {
   const redirectUri =
     configuredRedirectUri?.trim() || `${window.location.origin}/auth/callback/google`;
@@ -36,6 +38,10 @@ export function buildGoogleAuthorizeUrl(
     redirectUri,
     state,
   };
+  if (pricingDestination && pricingDestination.length <= 2048) {
+    const safe = safeAuthDestination(pricingDestination);
+    if (isWorkspaceAuthDestination(pricingDestination)) payload.pricingDestination = safe;
+  }
   storeGoogleAuthState(payload);
 
   const query = new URLSearchParams({
@@ -62,13 +68,17 @@ export function consumeGoogleAuthState(receivedState: string | null) {
       !isStoredGoogleAuthState(parsed) ||
       !receivedState ||
       parsed.state !== receivedState ||
-      Date.now() - parsed.issuedAt > GOOGLE_AUTH_STATE_TTL_MS
+      Date.now() - parsed.issuedAt > GOOGLE_AUTH_STATE_TTL_MS || parsed.issuedAt > Date.now()
     ) {
       clearGoogleAuthState();
       return null;
     }
     const sanitizedFromPath = safeAuthDestination(parsed.fromPath);
     if (sanitizedFromPath !== parsed.fromPath) {
+      clearGoogleAuthState();
+      return null;
+    }
+    if (parsed.pricingDestination !== undefined && !isWorkspaceAuthDestination(parsed.pricingDestination)) {
       clearGoogleAuthState();
       return null;
     }
@@ -82,7 +92,7 @@ export function consumeGoogleAuthState(receivedState: string | null) {
 
 function storeGoogleAuthState(payload: StoredGoogleAuthState) {
   const rawValue = JSON.stringify(payload);
-  const containsShareCapability = payload.fromPath.startsWith("/shared#");
+  const containsShareCapability = payload.fromPath.startsWith("/shared#") || payload.pricingDestination?.startsWith("/shared#");
   try {
     window.sessionStorage.setItem(GOOGLE_AUTH_STATE_KEY, rawValue);
   } catch {
@@ -136,6 +146,7 @@ function isStoredGoogleAuthState(value: StoredGoogleAuthState) {
   return (
     typeof value?.fromPath === "string" &&
     value.fromPath.startsWith("/") &&
+    (value.pricingDestination === undefined || (typeof value.pricingDestination === "string" && value.pricingDestination.length <= 2048)) &&
     typeof value.redirectUri === "string" &&
     value.redirectUri.length > 0 &&
     typeof value.state === "string" &&

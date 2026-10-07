@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BetaProgramStatus } from "./api";
 import { ApiError, getBetaProgramStatus } from "./api";
-import { getBetaSeatState } from "./deploymentMode";
+import { deploymentMode, getBetaSeatState } from "./deploymentMode";
 
 export type BetaProgramView = {
   mode: "beta" | "production";
@@ -14,7 +14,7 @@ export type BetaProgramView = {
 function fallbackProgramStatus(): BetaProgramView {
   const fallback = getBetaSeatState();
   return {
-    mode: "beta",
+    mode: deploymentMode,
     seats_total: fallback.total,
     seats_taken: null,
     seats_remaining: null,

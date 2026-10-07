@@ -115,9 +115,9 @@
   "routes": {
     "/": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png", "captureMode": "full-page" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png", "captureMode": "full-page" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "landing.png", "captureMode": "full-page" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "landing-production.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "landing-production.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "landing-production.png", "captureMode": "full-page" }
       },
       "availability-pending": {
         "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-cta-pending.png", "captureMode": "viewport" },
@@ -141,42 +141,52 @@
       },
       "mobile-menu": {
         "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "landing-mobile-menu.png", "captureMode": "viewport" }
+      },
+      "pricing-visible": {
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "landing-pricing-visible48.png", "captureMode": "viewport" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "landing-pricing-visible48.png", "captureMode": "viewport" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "landing-pricing-visible48.png", "captureMode": "viewport" }
       }
     },
     "/pricing": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png", "captureMode": "full-page" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png", "captureMode": "full-page" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "pricing.png", "captureMode": "full-page" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-default.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-default.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-default.png", "captureMode": "full-page" }
       },
       "annual": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png", "captureMode": "viewport" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-annual-unconfirmed.png", "captureMode": "viewport" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-annual.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-annual.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-annual.png", "captureMode": "full-page" }
       },
       "provider-limited": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "viewport" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "viewport" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-provider-limited.png", "captureMode": "full-page" }
       },
       "faq-open": {
-        "mobile": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png", "captureMode": "viewport" },
-        "tablet": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png", "captureMode": "viewport" },
-        "desktop": { "spec": "e2e/public-critical.states.visual.spec.ts", "snapshot": "pricing-faq-provider-expanded.png", "captureMode": "viewport" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-faq-open.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-faq-open.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "pricing-faq-open.png", "captureMode": "full-page" }
+      },
+      "beta": {
+        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "beta-pricing-pro-exports48.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "beta-pricing-pro-exports48.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "beta-pricing-pro-exports48.png", "captureMode": "full-page" }
       }
     },
     "/privacy": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png", "captureMode": "full-page" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png", "captureMode": "full-page" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "privacy.png", "captureMode": "full-page" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "public-privacy.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "public-privacy.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "public-privacy.png", "captureMode": "full-page" }
       }
     },
     "/terms": {
       "default": {
-        "mobile": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" },
-        "tablet": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" },
-        "desktop": { "spec": "e2e/public-auth.visual.spec.ts", "snapshot": "terms.png", "captureMode": "full-page" }
+        "mobile": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "public-terms.png", "captureMode": "full-page" },
+        "tablet": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "public-terms.png", "captureMode": "full-page" },
+        "desktop": { "spec": "e2e/public-checkout48.interaction.spec.ts", "snapshot": "public-terms.png", "captureMode": "full-page" }
       }
     },
     "/account": {

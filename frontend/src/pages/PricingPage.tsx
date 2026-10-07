@@ -23,7 +23,7 @@ export function PricingPage() {
   return (
     <MarketingShell
       navItems={pricingNavItems}
-      pageDescription="Current EdgeLab beta access, included workflow, known limits, and the launch pricing details that remain unpublished."
+      pageDescription={betaMode ? "EdgeLab beta access and optional Pro subscriptions, with clear billing and provider requirements." : "EdgeLab Pro monthly and yearly subscriptions for charting, replay, journaling, and trade review."}
       pageTitle="Pricing and access"
     >
       <section className="px-3 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:px-8 lg:pb-24">
@@ -31,24 +31,24 @@ export function PricingPage() {
           <div className="grid gap-8 border-b border-edgelab-border pb-12 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end lg:gap-16">
             <div className="min-w-0 max-w-4xl">
               <h1 className="text-balance text-[clamp(2.5rem,7vw,5.75rem)] font-medium leading-[0.96] tracking-[-0.04em] text-edgelab-text-primary">
-                Current access, without fine print.
+                {betaMode ? "Current access, without fine print." : "One workspace. Every decision."}
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-edgelab-text-secondary">
                 {betaMode
-                  ? "The private beta is free for approved users. This page separates what is included now from launch details EdgeLab has not announced."
-                  : "Paid checkout is not open. EdgeLab will publish price, billing cadence, limits, and provider entitlements together before asking for a card."}
+                  ? "The private beta workspace is free for approved users. Optional Pro subscriptions enable data exports; beta workspace access still requires approval."
+                  : "Chart, replay, journal, and review in one connected workspace. Choose monthly or yearly billing, with the current price and renewal terms visible before checkout."}
               </p>
             </div>
             <dl className="border-y border-edgelab-border text-sm">
               <div className="flex justify-between gap-6 border-b border-edgelab-border py-4">
-                <dt className="text-edgelab-text-secondary">Current price</dt>
+                <dt className="text-edgelab-text-secondary">Access</dt>
                 <dd className="font-medium text-edgelab-text-primary">
-                  {betaMode ? "Free beta" : "Not published"}
+                  {betaMode ? "Free beta workspace" : "EdgeLab Pro"}
                 </dd>
               </div>
               <div className="flex justify-between gap-6 py-4">
-                <dt className="text-edgelab-text-secondary">Credit card</dt>
-                <dd className="font-medium text-edgelab-text-primary">Not required</dd>
+                <dt className="text-edgelab-text-secondary">Billing</dt>
+                <dd className="font-medium text-edgelab-text-primary">{betaMode ? "Optional Pro" : "Monthly or yearly"}</dd>
               </div>
             </dl>
           </div>
@@ -70,7 +70,7 @@ export function PricingPage() {
               Details before access.
             </h2>
             <p className="mt-5 max-w-md text-sm leading-7 text-edgelab-text-secondary">
-              Beta capability, billing, retention, and provider boundaries in plain language.
+              {betaMode ? "Beta access, optional subscriptions, and data handling in plain language." : "What your plan includes, how billing works, and where provider access begins."}
             </p>
           </div>
           <FaqAccordion items={pricingFaqItems} />

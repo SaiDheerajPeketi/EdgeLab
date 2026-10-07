@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { buildMarketingNavItems, MarketingShell } from "../components/marketing/MarketingShell";
+import { isBetaMode } from "../lib/deploymentMode";
 
 function LegalSection({
   title,
@@ -63,7 +64,7 @@ function LegalPageFrame({
               <p className="mt-6 text-lg leading-8 text-edgelab-text-secondary">{description}</p>
             </div>
             <p className="text-sm leading-7 text-edgelab-text-secondary lg:border-l lg:border-edgelab-border lg:pl-6">
-              {eyebrow} · Current private-beta policy. Product access and data handling may change before launch.
+              {eyebrow} · {isBetaMode() ? "Private beta workspace and optional Pro subscriptions." : "EdgeLab software, account access, and recurring subscriptions."}
             </p>
           </div>
 
@@ -77,18 +78,22 @@ function LegalPageFrame({
 export function PrivacyPage() {
   return (
     <LegalPageFrame
-      description="Current beta privacy stance for sign-in, product telemetry, exports, and temporary workspace storage."
+      description="How EdgeLab handles account identity, workspace records, subscription information, and data exports."
       eyebrow="Legal"
       kind="privacy"
       title="Privacy Policy"
     >
       <LegalSection
         title="Sign-in and identity"
-        body="Google handles Google-account credentials. EdgeLab receives and stores the account basics needed for beta access, including name, email, provider, sign-in timestamps, and beta enrollment state. EdgeLab uses that information to authenticate users, manage beta seats, and contact cohort members about access."
+        body="Google handles Google-account credentials. EdgeLab stores the verified provider identity, name, email, and sign-in/session information needed to authenticate your account. Beta enrollment state is also stored when the optional beta program is enabled. Account identity and paid access are verified separately."
       />
       <LegalSection
         title="Workspace data"
-        body="Beta workspace data may include replay sessions, notes, trades, analytics context, playbooks, and app storage records. During beta this data is considered test material, not permanent archival storage."
+        body="Workspace records may include replay sessions, notes, trades, analytics context, playbooks, and application settings. Saved application records belong to the authenticated account. Beta records remain test material; EdgeLab should not be your only archive of important trading information."
+      />
+      <LegalSection
+        title="Subscription information"
+        body="Stripe processes hosted checkout and billing management. EdgeLab stores the provider customer and subscription identifiers, billing cadence, subscription status, and verification information needed to manage access. Workspace data imports and exports exclude these billing records. EdgeLab does not collect card details in its own checkout form."
       />
       <LegalSection
         title="Export and retention"
@@ -96,7 +101,7 @@ export function PrivacyPage() {
       />
       <LegalSection
         title="Access boundary"
-        body="Workspace requests require a valid EdgeLab session, and saved application records are scoped to the authenticated account. A signed-in session should be treated as access to that account's beta workspace and should not be shared."
+        body="A valid session verifies account identity. Production workspace access also requires an active paid subscription; the optional beta workspace requires approval. Data exports require a verified live active subscription in either mode. Sessions should not be shared."
       />
     </LegalPageFrame>
   );
@@ -105,14 +110,14 @@ export function PrivacyPage() {
 export function TermsPage() {
   return (
     <LegalPageFrame
-      description="Current beta participation terms while EdgeLab hardens auth, workflow, and deployment."
+      description="Terms for EdgeLab’s chart, replay, and review software, recurring subscriptions, and provider integrations."
       eyebrow="Legal"
       kind="terms"
       title="Terms of Use"
     >
       <LegalSection
-        title="Beta status"
-        body="EdgeLab beta is pre-production software. Features, access rules, and data handling may change without notice while product is being validated."
+        title="Software access"
+        body="EdgeLab Pro provides access to its chart, replay, journal, and review workspace after an active paid subscription is verified. The optional private beta is a separate, capped approval program. Native Pine execution remains experimental; compatible script behaviour must be checked before relying on its output."
       />
       <LegalSection
         title="No financial advice"
@@ -120,7 +125,11 @@ export function TermsPage() {
       />
       <LegalSection
         title="Account access"
-        body="Beta access may be limited by cohort size, waitlist state, or abuse controls. Access may be suspended if service integrity, security, or rollout stability requires it."
+        body="Production access requires verified Google identity and an active paid subscription. Beta workspace access may be limited by cohort size and waitlist state. Account billing management and sign-out remain available without paid workspace access. Access may be suspended to protect account security or service integrity."
+      />
+      <LegalSection
+        title="Billing and cancellation"
+        body="Pro subscriptions renew at the monthly or yearly cadence selected in checkout, with no free trial. The current price and currency are displayed before purchase; review the final amount in Stripe before confirming. Manage an existing subscription through Account and Stripe’s customer portal. A cancellation scheduled for the end of the billing period retains access until that period ends. Signing out does not cancel billing."
       />
       <LegalSection
         title="Data expectations"
@@ -128,7 +137,7 @@ export function TermsPage() {
       />
       <LegalSection
         title="Providers and planned features"
-        body="The current beta centers on imported datasets. Live broker synchronization, Quant/AI, footprint, TPO, production pricing, and related provider entitlements are not promised by these terms and remain unavailable or unannounced until EdgeLab publishes otherwise."
+        body="The subscription covers EdgeLab software. Imported datasets require appropriate usage rights. Live data, broker synchronization, and Quant/AI depend on supported adapters, configured credentials, permissions, and any provider charges. Footprint and TPO require qualified trade-level data. A roadmap entry does not promise an available feature or included provider entitlement."
       />
     </LegalPageFrame>
   );

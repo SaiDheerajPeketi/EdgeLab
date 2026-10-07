@@ -92,6 +92,31 @@ test("share return accepts only an exact token fragment", async () => {
   assert.equal(safeAuthDestination(`//evil.example/shared#${token}`), "/app");
 });
 
+test("billing destinations preserve the selected cadence and account recovery", async () => {
+  const { authDestinationFromLocation, buildAuthSignInHref, isBillingAuthDestination, safeAuthDestination } = await loadAuthJourney();
+  for (const destination of ["/pricing", "/pricing?cadence=annual", "/account"]) {
+    assert.equal(safeAuthDestination(destination), destination);
+    assert.equal(isBillingAuthDestination(destination), true);
+    const signin = new URL(buildAuthSignInHref({ fromPath: destination }), "https://edgelab.invalid");
+    assert.equal(authDestinationFromLocation({ search: signin.search, state: null }), destination);
+  }
+  for (const destination of ["/account/other", "/pricing/checkout", "//evil.example/pricing", "/%2fpricing", "/pricing\\escape"]) {
+    assert.equal(safeAuthDestination(destination), "/app");
+    assert.equal(isBillingAuthDestination(destination), false);
+  }
+});
+
+test("unpaid pricing handoff keeps share capabilities out of the URL", async () => {
+  const { authDestinationFromLocation, buildPricingHref } = await loadAuthJourney();
+  const destination = `/shared#${"C".repeat(43)}`;
+  const href = buildPricingHref(destination);
+  assert.equal(href, "/pricing");
+  assert.equal(href.includes("C".repeat(43)), false);
+  assert.equal(authDestinationFromLocation({ search: "", state: { fromPath: destination } }), destination);
+  const replay = "/app/replay?session=42#trade-7";
+  assert.equal(new URL(buildPricingHref(replay), "https://edgelab.invalid").searchParams.get("from"), replay);
+});
+
 test("OAuth handoff keeps share capabilities in session storage only", () => {
   const token = "S".repeat(43);
   const destination = `/shared#${token}`;
@@ -118,6 +143,33 @@ test("OAuth handoff keeps share capabilities in session storage only", () => {
     assert.match(sessionStorage.getItem("edgelab.google-auth.state.v1"), new RegExp(token));
     assert.equal(module.consumeGoogleAuthState(state).fromPath, destination);
     assert.equal(sessionStorage.getItem("edgelab.google-auth.state.v1"), null);
+  } finally {
+    cleanup();
+    globalThis.window = previousWindow;
+  }
+});
+
+test("annual checkout sign-in carries its shared destination only in the OAuth session", () => {
+  const destination = `/shared#${"P".repeat(43)}`;
+  const sessionStorage = memoryStorage();
+  const localStorage = memoryStorage();
+  const previousWindow = globalThis.window;
+  globalThis.window = { location: { origin: "https://edgelab.test" }, localStorage, sessionStorage };
+  const { module, cleanup } = loadGoogleAuth();
+  try {
+    const url = module.buildGoogleAuthorizeUrl("/pricing?cadence=annual", "google-client", "https://edgelab.test/auth/callback/google", destination);
+    assert.equal(url.includes("P".repeat(43)), false);
+    assert.equal(localStorage.getItem("edgelab.google-auth.state.v1"), null);
+    const state = module.consumeGoogleAuthState(new URL(url).searchParams.get("state"));
+    assert.equal(state.fromPath, "/pricing?cadence=annual");
+    assert.equal(state.pricingDestination, destination);
+    assert.equal(sessionStorage.getItem("edgelab.google-auth.state.v1"), null);
+
+    const second = module.buildGoogleAuthorizeUrl("/pricing", "google-client", null, "/app/replay");
+    const raw = JSON.parse(sessionStorage.getItem("edgelab.google-auth.state.v1"));
+    raw.pricingDestination = "//evil.example/app";
+    sessionStorage.setItem("edgelab.google-auth.state.v1", JSON.stringify(raw));
+    assert.equal(module.consumeGoogleAuthState(new URL(second).searchParams.get("state")), null);
   } finally {
     cleanup();
     globalThis.window = previousWindow;

@@ -16,6 +16,8 @@ import {
 import {
   authDestinationFromLocation,
   buildAuthSignInHref,
+  buildPricingHref,
+  isBillingAuthDestination,
 } from "../lib/authJourney";
 import { loadAppStorageItem, saveAppStorageItem } from "../lib/serverStorage";
 import {
@@ -269,7 +271,7 @@ function ProtectedWorkspace({ WorkspaceApp }: { WorkspaceApp: ComponentType }) {
   if (!hasWorkspaceAccess(session)) {
     const fromPath = `${location.pathname}${location.search}${location.hash}`;
     if (session.user.deploymentMode !== "beta") {
-      return <Navigate replace state={{ fromPath }} to={`/pricing?from=${encodeURIComponent(fromPath)}`} />;
+      return <Navigate replace state={{ fromPath }} to={buildPricingHref(fromPath)} />;
     }
     return (
       <Navigate
@@ -296,8 +298,10 @@ function AuthSignInRoute() {
   const session = useAuthSession();
   const location = useLocation();
 
-  if (hasWorkspaceAccess(session)) {
-    return <Navigate replace to={authRedirectTarget(location)} />;
+  const destination = authRedirectTarget(location);
+  const billingDestination = isBillingAuthDestination(destination);
+  if (session && (billingDestination ? session.user.provider === "google" : hasWorkspaceAccess(session))) {
+    return <Navigate replace state={location.state} to={destination} />;
   }
 
   return <AuthSignInPage />;

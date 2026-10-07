@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  certifyUiState,
   expectStableScreenshot,
   gotoStable,
   installDeterminism,
@@ -26,22 +27,6 @@ async function expectNoHorizontalOverflow(page: Page) {
     viewport: window.innerWidth,
   }));
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport + 1);
-}
-
-async function revealProductionAccessColumn(page: Page) {
-  const comparison = page.getByLabel("Scrollable access comparison");
-  if (!(await comparison.isVisible())) return;
-  await comparison.evaluate((element) => {
-    element.scrollLeft = element.scrollWidth;
-  });
-}
-
-async function positionPricingBoundary(page: Page, boundary: Locator) {
-  await boundary.evaluate((element) => {
-    const targetTop = element.getBoundingClientRect().top + window.scrollY - 180;
-    window.scrollTo(0, Math.max(0, targetTop));
-  });
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 test.describe("landing critical-state visual baselines", () => {
@@ -134,40 +119,52 @@ async function expectInteractiveGeometry(page: Page, control: Locator) {
   expect(box!.height).toBeGreaterThanOrEqual(44);
 }
 
-test.describe("pricing disclosure visual baselines", () => {
+test.describe("beta pricing disclosure contracts", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
+    await page.route("**/api/billing/catalog", (route) => route.fulfill({
+      json: {
+        provider: "stripe",
+        enabled: false,
+        mode: "live",
+        checkout_available: false,
+        reason: "Stripe is not configured",
+        plans: [{ id: "pro", name: "EdgeLab Pro", currency: "usd", monthly_amount: 2900, annual_amount: 29000 }],
+      },
+    }));
   });
 
-  test("annual billing remains explicitly unconfirmed", async ({ page }, testInfo) => {
+  test("monthly and yearly prices preserve free beta and paid export boundaries", async ({ page }) => {
     await gotoStable(page, "/pricing", { waitForNetworkIdle: false });
-    const annualBoundary = page.locator(testInfo.project.name === "mobile" ? "[data-access-comparison-mobile] dd" : "td:visible").filter({ hasText: /Monthly and annual options not confirmed/ });
-    await revealProductionAccessColumn(page);
-    await positionPricingBoundary(page, annualBoundary);
-    await expect(annualBoundary).toBeInViewport();
+    await expect(page.locator("dd:visible, td:visible").filter({ hasText: "Free workspace for approved beta users" }).first()).toBeVisible();
+    await expect(page.locator("dd:visible, td:visible").filter({ hasText: "Active paid subscription required" }).first()).toBeVisible();
+    const pro = page.getByTestId("pro-pricing");
+    await expect(pro.getByText("$29", { exact: true })).toBeVisible();
+    await pro.getByRole("radio", { name: "Yearly" }).click();
+    await expect(pro.getByRole("radio", { name: "Yearly" })).toBeChecked();
+    await expect(pro.getByText(/\$290 USD billed yearly/)).toBeVisible();
+    await expect(pro.getByText(/These are the announced plan prices/)).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    await expectStableScreenshot(page, "pricing-annual-unconfirmed", { fullPage: false });
+    await certifyUiState(page);
   });
 
-  test("provider-limited pricing boundary", async ({ page }, testInfo) => {
+  test("provider requirements remain separate from Pro subscriptions", async ({ page }) => {
     await gotoStable(page, "/pricing", { waitForNetworkIdle: false });
-    const providerBoundary = page.locator(testInfo.project.name === "mobile" ? "[data-access-comparison-mobile] dd" : "td:visible").filter({ hasText: /Provider entitlements not announced/ });
-    await revealProductionAccessColumn(page);
-    await positionPricingBoundary(page, providerBoundary);
-    await expect(providerBoundary).toBeInViewport();
+    await expect(page.locator("dd:visible, td:visible").filter({ hasText: "Imported datasets; provider licences remain separate" }).first()).toBeVisible();
+    await expect(page.getByTestId("pro-pricing").getByText(/no subscription can be purchased here/)).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    await expectStableScreenshot(page, "pricing-provider-limited", { fullPage: false });
+    await certifyUiState(page);
   });
 
-  test("expanded provider FAQ baseline", async ({ page }) => {
+  test("expanded beta provider FAQ retains credentials and permission requirements", async ({ page }) => {
     await gotoStable(page, "/pricing#faq", { waitForNetworkIdle: false });
     const question = page.getByRole("button", { name: "Does EdgeLab connect to my broker or data provider?" });
-    await question.scrollIntoViewIfNeeded();
     await question.click();
     await expect(question).toHaveAttribute("aria-expanded", "true");
     const answer = page.getByRole("region", { name: "Does EdgeLab connect to my broker or data provider?" });
     await expect(answer).toBeVisible();
+    await expect(answer).toContainText("configured credentials, and provider permissions");
     await expectNoHorizontalOverflow(page);
-    await expectStableScreenshot(page, "pricing-faq-provider-expanded", { fullPage: false });
+    await certifyUiState(page);
   });
 });

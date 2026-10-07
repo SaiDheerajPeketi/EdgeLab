@@ -5,7 +5,7 @@ import { getStoredAuthSession, hasWorkspaceAccess } from "../../lib/authSession"
 import { listCanonicalTrades } from "../../lib/journalApi";
 import { loadAppStorageItem } from "../../lib/serverStorage";
 import { hydrateSettingsPreferences, saveSettingsPreferences, type SettingsPreferences } from "../../lib/settingsPreferences";
-import { buildAuthSignInHref } from "../../lib/authJourney";
+import { buildAuthSignInHref, buildPricingHref } from "../../lib/authJourney";
 import { compatibilityDeepLink, UI_COMPATIBILITY_ROUTES, type UiRouteGroup } from "../../lib/uiRollout";
 const CompatibilityJournalAccounts = lazy(() => import("./CompatibilityJournal").then((module) => ({ default: module.CompatibilityJournalAccounts })));
 const CompatibilityJournalTrades = lazy(() => import("./CompatibilityJournal").then((module) => ({ default: module.CompatibilityJournalTrades })));
@@ -23,7 +23,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   const session = getStoredAuthSession();
   const deepLink = compatibilityDeepLink(location);
   if ((location.pathname.startsWith("/app") || location.pathname === "/shared") && !hasWorkspaceAccess(session)) {
-    if (session && session.user.deploymentMode !== "beta") return <Navigate replace state={{ fromPath: deepLink }} to={`/pricing?from=${encodeURIComponent(deepLink)}`} />;
+    if (session && session.user.deploymentMode !== "beta") return <Navigate replace state={{ fromPath: deepLink }} to={buildPricingHref(deepLink)} />;
     return <Navigate replace state={{ fromPath: deepLink }} to={buildAuthSignInHref({ fromPath: deepLink, waitlist: Boolean(session) })} />;
   }
   const content = location.pathname.replace(/\/$/, "") === "/app/settings/storage" ? <CompatibilityStorageSettings /> : ["/app/settings", "/app/settings/global", "/app/settings/account", "/app/settings/ai", "/app/settings/privacy-security"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilitySessionPrivacySettings /> : ["/app/settings/chart", "/app/settings/appearance"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityChartSettings /> : location.pathname.replace(/\/$/, "") === "/app/settings/backtest" ? <CompatibilityBacktestSettings /> : ["/app/journal/settings", "/app/settings/journal"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalSettings /> : group === "public" ? <PublicCompatibility />

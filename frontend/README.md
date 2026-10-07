@@ -1,6 +1,6 @@
 # EdgeLab frontend
 
-Stripe credentials and provider price IDs stay on the FastAPI server. The billing API reports catalog availability and creates hosted checkout/portal links for authenticated accounts; a checkout success URL is not evidence of paid access. The native-input iteration and the billing backend do not by themselves activate public signup, paid workspace access, or the public pricing controls.
+Stripe credentials and provider price IDs stay on the FastAPI server. Public pricing reads the validated server catalog and offers monthly/yearly hosted checkout for verified accounts. Unconfigured, test-mode and provider-error states remain explicit. Choosing a cadence or returning from checkout never grants access or starts another purchase automatically; paid status is checked on the server. The optional beta workspace remains separate, and data exports still require an active paid subscription.
 
 The native Pine foundation pins PineTS 0.11.0 and builds a separate classic worker asset with esbuild. The browser fetches that trusted asset from its own origin, then runs compilation and execution in a blob worker created inside an opaque `sandbox="allow-scripts"` frame. Its CSP denies network connections, imports and parent-origin storage; user source and results travel only as messages. The parent verifies frame identity, a cryptographic nonce and bounded result schemas, and the fixed bridge terminates/revokes its worker on completion, cancellation or timeout. These are isolation and availability controls, not a global memory/operation budget. Unsupported secondary-symbol/timeframe requests fail explicitly; data comes from the supplied local candle context.
 
@@ -141,11 +141,12 @@ From the repository root:
 npm run build
 npm run quality:ui
 npm run test:ui
+npx playwright test --config=e2e/public-checkout48.config.ts
 npx playwright test --config e2e/pine-runtime.config.ts
 npx playwright test --config e2e/pine-editor.config.ts
 ```
 
-`test:ui` is the full Playwright suite and is much slower than the build and contract checks. Update visual snapshots only after reviewing the changed images.
+`test:ui` runs the beta-mode Playwright suite and is much slower than the build and contract checks. The separate production pricing suite uses the already-built frontend and verifies monthly/yearly selection, Google sign-in return paths, account ownership, payment confirmation and public legal pages. Its API fixtures model billing boundaries; it does not charge a merchant account. CI runs both deployment modes. Update visual snapshots only after reviewing the changed images.
 
 The dedicated Pine suite uses the already-built production worker and a loopback fixture server. Run the build first. It checks native calculations and strategy fills, denied network/parent access, result validation, message spoofing and cancellation/timeout acknowledgments. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` for a specific local Chromium binary; installed Firefox/WebKit run when available.
 
@@ -161,4 +162,4 @@ Chart studies share one keyboard-accessible execution-assumption disclosure. Onl
 
 Indicator settings dismiss when the selected study is hidden or removed. Close and Escape return focus to the opening control, its refreshed native-study button after recalculation, or the chart when that study no longer has a visible control. A newer selection or intervening focus change cancels that return. Outside-pointer dismissal preserves the newly selected control's focus. The product chart check exercises unforced mouse/touch selection, real native-input recalculation, Close, Escape and removal; touch targets follow the shared coarse-pointer sizing rule.
 
-Public loading keeps the compatibility workspace and each of its private surfaces lazy. The landing's Three.js bridge exports only the scene's dependencies and shares the `market-3d` chunk; shared marketing components stay outside that deferred chunk. Motion has its own vendor chunk so private animation dependencies do not enlarge the public entry. Run `npm run check:ui-performance` after the production build to measure the actual static dependency graphs against the existing budgets. The verified build uses 143,709 gzip bytes for the public initial graph and 135,606 for the authenticated transition shell; the 3D chunk loads when the scene approaches the viewport.
+Public loading keeps the compatibility workspace and each of its private surfaces lazy. The landing's Three.js bridge exports only the scene's dependencies and shares the `market-3d` chunk; shared marketing components stay outside that deferred chunk. Motion has its own vendor chunk so private animation dependencies do not enlarge the public entry. Run `npm run check:ui-performance` after the production build to measure the actual static dependency graphs against the existing budgets. The verified build uses 147,721 gzip bytes for the public initial graph and 139,461 for the authenticated transition shell; the 3D chunk loads when the scene approaches the viewport.

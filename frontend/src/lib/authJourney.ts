@@ -55,6 +55,7 @@ export function safeAuthDestination(value: string | null | undefined) {
     const parsed = new URL(value, AUTH_DESTINATION_BASE);
     const isWorkspacePath =
       parsed.pathname === "/app" || parsed.pathname.startsWith("/app/");
+    const isBillingPath = parsed.pathname === "/pricing" || parsed.pathname === "/account";
     const shareToken = parsed.hash.slice(1);
     const isSharePath =
       parsed.pathname === "/shared" &&
@@ -62,7 +63,7 @@ export function safeAuthDestination(value: string | null | undefined) {
       WORKSPACE_SHARE_TOKEN_PATTERN.test(shareToken);
     if (
       parsed.origin !== AUTH_DESTINATION_BASE ||
-      (!isWorkspacePath && !isSharePath)
+      (!isWorkspacePath && !isSharePath && !isBillingPath)
     ) {
       return DEFAULT_AUTH_DESTINATION;
     }
@@ -70,6 +71,25 @@ export function safeAuthDestination(value: string | null | undefined) {
   } catch {
     return DEFAULT_AUTH_DESTINATION;
   }
+}
+
+export function isBillingAuthDestination(value: string) {
+  const pathname = safeAuthDestination(value).split(/[?#]/, 1)[0];
+  return pathname === "/pricing" || pathname === "/account";
+}
+
+export function isWorkspaceAuthDestination(value: string) {
+  const safe = safeAuthDestination(value);
+  const pathname = safe.split(/[?#]/, 1)[0];
+  return safe === value && (pathname === "/app" || pathname.startsWith("/app/") || safe.startsWith("/shared#"));
+}
+
+export function buildPricingHref(fromPath: string) {
+  const destination = safeAuthDestination(fromPath);
+  // Share capabilities travel in navigation state, never in a query or referrer.
+  return destination === DEFAULT_AUTH_DESTINATION || destination.startsWith("/shared#") || isBillingAuthDestination(destination)
+    ? "/pricing"
+    : `/pricing?${new URLSearchParams({ from: destination }).toString()}`;
 }
 
 export function authDestinationFromLocation(location: AuthLocationLike) {

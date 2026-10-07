@@ -30,7 +30,7 @@ assert.match(styles, /\[dir="rtl"\]/);
 assert.match(styles, /ui-route-enter/);
 assert.match(routes, /RouteTransitionBoundary/);
 assert.match(routes, /CompatibilityRouteRenderer/);
-assert.match(routes, /modernUiEnabled \? children : <CompatibilityRouteRenderer/);
+assert.match(routes, /modernUiEnabled \? children : <Suspense fallback=\{<AppRouteFallback \/>\}><CompatibilityRouteRenderer/);
 assert.match(compatibility, /data-compatibility-renderer/);
 for (const renderer of ["PublicCompatibility", "ShellCompatibility", "JournalCompatibility", "SettingsCompatibility", "ChartCompatibility"]) assert.match(compatibility, new RegExp(`function ${renderer}`));
 assert.match(foundation, /bodyTextContrast:\s*4\.5/);

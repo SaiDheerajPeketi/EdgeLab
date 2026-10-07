@@ -7,7 +7,7 @@ const VERIFIED_EVIDENCE = [
     title: "The core review loop is working product",
   },
   {
-    body: "Google OAuth is the beta sign-in path. EdgeLab validates its own session and preserves an approved visitor’s intended workspace route.",
+    body: "Google verifies your identity. EdgeLab checks your own session and subscription separately, and preserves your return destination without treating a sign-in or checkout return as paid access.",
     title: "Access is gated and the return path is explicit",
   },
   {
@@ -15,8 +15,8 @@ const VERIFIED_EVIDENCE = [
     title: "Provider and roadmap boundaries stay visible",
   },
   {
-    body: "Authenticated users can export EdgeLab app data as JSON. Large market-data files remain outside that application-data bundle.",
-    title: "Beta data has a documented export path",
+    body: "An active paid subscription enables application-data JSON, trade CSV, and chart-image exports. Large market-data files remain outside the application-data bundle; test subscriptions do not enable exports.",
+    title: "Your export requirements are explicit",
   },
 ] as const;
 
@@ -34,12 +34,12 @@ export function TrustEvidence({ id = "evidence" }: { id?: string }) {
               What the current build can prove.
             </h2>
             <p className="mt-6 max-w-2xl text-base leading-7 text-edgelab-text-secondary sm:text-lg sm:leading-8">
-              Trust starts with a clear boundary between shipped behavior, beta policy, and work
+              Trust starts with a clear boundary between shipped behavior, access requirements, and work
               that is still planned.
             </p>
           </div>
           <p className="text-sm leading-7 text-edgelab-text-secondary lg:border-l lg:border-edgelab-border lg:pl-8">
-            These statements are grounded in the current product and public beta policy. Read the{" "}
+            These statements describe the current product and its access requirements. Read the{" "}
             <Link
               className="inline-flex min-h-11 items-center align-middle font-medium text-cyan-100 underline decoration-cyan-300/40 underline-offset-4 hover:decoration-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
               to="/privacy"

@@ -49,7 +49,7 @@ const landing = fs.readFileSync(path.join(sourceRoot, "pages/LandingPage.tsx"), 
 assert.match(landing, /if \(!isActive \|\| reducedMotion\)/);
 assert.match(landing, /isActive && !reducedMotion/);
 const hero = fs.readFileSync(path.join(sourceRoot, "components/marketing/HeroDemo.tsx"), "utf8");
-assert.match(hero, /if \(reducedMotion\)\s*\{\s*return;/);
+assert.match(hero, /if \(reducedMotion(?: \|\| prefersReducedMotion\(\))?\)\s*\{\s*return;/);
 assert.match(hero, /stageTransitionRef\.current\?\.kill\(\)/);
 assert.match(hero, /IntersectionObserver/);
 const shell = fs.readFileSync(path.join(sourceRoot, "components/marketing/MarketingShell.tsx"), "utf8");

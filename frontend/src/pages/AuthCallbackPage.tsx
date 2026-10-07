@@ -5,6 +5,8 @@ import { ApiError, exchangeGoogleAuthCode } from "../lib/api";
 import { hasWorkspaceAccess, setStoredAuthSession, toStoredAuthSession } from "../lib/authSession";
 import {
   buildAuthSignInHref,
+  buildPricingHref,
+  isBillingAuthDestination,
   safeAuthDestination,
 } from "../lib/authJourney";
 import { consumeGoogleAuthState } from "../lib/googleAuth";
@@ -68,6 +70,7 @@ export function AuthCallbackPage() {
     const stateKey = searchParams.get("state");
     const authState = consumeGoogleAuthStateOnce(stateKey);
     const fromPath = safeAuthDestination(authState?.fromPath);
+    const pricingDestination = authState?.pricingDestination;
 
     let active = true;
     let handoffFrame = 0;
@@ -75,7 +78,7 @@ export function AuthCallbackPage() {
     if (providerError) {
       navigate(buildAuthSignInHref({ error: providerError, fromPath }), {
         replace: true,
-        state: { fromPath },
+        state: { fromPath, pricingDestination },
       });
       return () => {
         active = false;
@@ -85,7 +88,7 @@ export function AuthCallbackPage() {
     if (!code || !authState) {
       navigate(buildAuthSignInHref({ fromPath, reason: "oauth-state-expired" }), {
         replace: true,
-        state: { fromPath },
+        state: { fromPath, pricingDestination },
       });
       return () => {
         active = false;
@@ -101,21 +104,21 @@ export function AuthCallbackPage() {
         const session = toStoredAuthSession(response.session);
         setStoredAuthSession(session);
         setActiveStep(2);
-        if (hasWorkspaceAccess(session)) {
+        if (hasWorkspaceAccess(session) || isBillingAuthDestination(fromPath)) {
           handoffFrame = window.requestAnimationFrame(() => {
-            navigate(fromPath, { replace: true });
+            navigate(fromPath, { replace: true, state: isBillingAuthDestination(fromPath) && pricingDestination ? { fromPath: pricingDestination } : undefined });
           });
           return;
         }
 
         if (session.user.deploymentMode !== "beta") {
-          navigate(`/pricing?from=${encodeURIComponent(fromPath)}`, { replace: true, state: { fromPath } });
+          navigate(buildPricingHref(fromPath), { replace: true, state: { fromPath } });
           return;
         }
 
         navigate(buildAuthSignInHref({ fromPath, waitlist: true }), {
           replace: true,
-          state: { fromPath },
+          state: { fromPath, pricingDestination },
         });
       })
       .catch((error: unknown) => {
@@ -129,7 +132,7 @@ export function AuthCallbackPage() {
           reason: error instanceof ApiError && error.status === 403 ? "access-denied" : null,
         }), {
           replace: true,
-          state: { fromPath },
+          state: { fromPath, pricingDestination },
         });
       });
 

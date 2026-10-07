@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  certifyUiState,
   expectStableScreenshot,
   gotoStable,
   installDeterminism,
@@ -27,13 +28,44 @@ const authErrors = [
 test.describe("public and authentication visual baselines", () => {
   test.beforeEach(async ({ page }) => {
     await installDeterminism(page);
+    await page.route("**/api/billing/catalog", (route) => route.fulfill({
+      json: {
+        provider: "stripe",
+        enabled: false,
+        mode: "live",
+        checkout_available: false,
+        reason: "Stripe is not configured",
+        plans: [{ id: "pro", name: "EdgeLab Pro", currency: "usd", monthly_amount: 2900, annual_amount: 29000 }],
+      },
+    }));
   });
 
   for (const surface of publicSurfaces) {
     test(`${surface.name} surface`, async ({ page }) => {
       await gotoStable(page, surface.path);
       await expect(page.getByRole("heading", { level: surface.level, name: surface.heading })).toBeVisible();
-      await expectStableScreenshot(page, surface.name, { fullPage: surface.fullPage });
+      if (surface.name === "landing") {
+        await expect(page.getByRole("link", { name: "Join beta" }).first()).toBeVisible();
+        await page.locator("#pricing").scrollIntoViewIfNeeded();
+        await expect(page.getByRole("progressbar", { name: "Beta seat capacity" })).toBeVisible();
+        await expect(page.getByText("Test the core workflow free.", { exact: true })).toBeVisible();
+        await certifyUiState(page);
+      } else if (surface.name === "pricing") {
+        await expect(page.getByText("Test the core workflow free.", { exact: true })).toBeVisible();
+        await expect(page.locator("dd:visible, td:visible").filter({ hasText: "Free workspace for approved beta users" }).first()).toBeVisible();
+        await expect(page.locator("dd:visible, td:visible").filter({ hasText: "Active paid subscription required" }).first()).toBeVisible();
+        const pro = page.getByTestId("pro-pricing");
+        await expect(pro.getByText("$29", { exact: true })).toBeVisible();
+        await expect(pro.getByRole("radio", { name: "Monthly" })).toBeChecked();
+        await expect(pro.getByText(/Paid checkout is not available yet/)).toBeVisible();
+        await expectStableScreenshot(page, "beta-pricing-pro-exports48", { fullPage: true });
+      } else if (surface.name === "privacy" || surface.name === "terms") {
+        await expect(page.getByText(/Stripe/).first()).toBeVisible();
+        await expect(page.getByText(/active paid subscription/i).first()).toBeVisible();
+        await certifyUiState(page);
+      } else {
+        await expectStableScreenshot(page, surface.name, { fullPage: surface.fullPage });
+      }
     });
   }
 
