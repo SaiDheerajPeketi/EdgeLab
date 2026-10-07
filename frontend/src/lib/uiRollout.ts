@@ -10,11 +10,11 @@ export type CompatibilityRouteParity = {
   kind: CompatibilityParityKind;
   sessionSource: "auth-session" | "route-session";
   draftKey: string | null;
-  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "chart-settings" | "replay-layout" | "auth-session" | "regional-format" | "quant-models";
-  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "save-chart-settings" | "restore-replay-layout" | "end-session" | "save-diagnostic-preference";
+  savedDataRead: "public-route" | "workspace-storage" | "canonical-trades" | "journal-accounts" | "journal-daily-notes" | "settings-preferences" | "journal-settings" | "backtest-settings" | "chart-settings" | "replay-layout" | "auth-session" | "regional-format" | "quant-models" | "app-data";
+  primaryAction: "navigate" | "refresh-journal" | "save-trade-review" | "create-journal-account" | "save-daily-note" | "save-settings" | "save-journal-settings" | "save-backtest-settings" | "save-chart-settings" | "restore-replay-layout" | "end-session" | "save-diagnostic-preference" | "replace-account-data";
   actionExemption: string | null;
   requiredViewports: typeof UI_COMPATIBILITY_VIEWPORTS;
-  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-settings-save" | "chart-replay-layout" | "account-session-end" | "diagnostic-preference-save" | "settings-read-continuity";
+  testCaseId: "public-read-continuity" | "shell-session-continuity" | "journal-canonical-refresh" | "journal-trade-review" | "journal-account-create" | "journal-daily-note-save" | "journal-day-review" | "settings-draft-save" | "journal-settings-save" | "backtest-settings-save" | "chart-settings-save" | "chart-replay-layout" | "account-session-end" | "diagnostic-preference-save" | "settings-read-continuity" | "storage-transfer";
   canarySpec?: string;
   reasonSource: string;
 };
@@ -46,6 +46,10 @@ const GROUP_PARITY: Readonly<Record<UiRouteGroup, CompatibilityGroupParity>> = O
 });
 
 const ROUTE_PARITY: Readonly<Record<string, Partial<CompatibilityGroupParity>>> = {
+  "/app/settings/storage": {
+    kind: "writable", draftKey: "edgelab.data-transfer-draft.v1.{owner}.data-{generation}", savedDataRead: "app-data", primaryAction: "replace-account-data", testCaseId: "storage-transfer",
+    reasonSource: "frontend/src/components/settings/useDataTransfer.tsx", canarySpec: "e2e/compatibility-settings.interaction.spec.ts",
+  },
   ...Object.fromEntries(["/app/settings", "/app/settings/global", "/app/settings/ai"].map((path) => [path, {
     kind: "read-only" as const, draftKey: null, savedDataRead: path.endsWith("/ai") ? "quant-models" as const : "regional-format" as const,
     primaryAction: "navigate" as const, testCaseId: "settings-read-continuity" as const,
@@ -128,7 +132,7 @@ export const UI_COMPATIBILITY_ROUTES: Readonly<Record<UiRouteGroup, readonly Com
   public: [{ href: "/", label: "Home" }, { href: "/pricing", label: "Pricing" }, { href: "/auth/signin", label: "Sign in" }],
   shell: [{ href: "/app", label: "Workspace" }, { href: "/app/live", label: "Live" }, { href: "/app/journal/dashboard", label: "Journal" }, { href: "/app/settings/global", label: "Settings" }],
   journal: [{ href: "/app/journal/dashboard", label: "Overview" }, { href: "/app/journal/trades", label: "Trades" }, { href: "/app/journal/notes", label: "Notes" }, { href: "/app/journal/calendar", label: "Calendar" }, { href: "/app/journal/accounts", label: "Accounts" }, { href: "/app/reports", label: "Reports" }],
-  settings: [{ href: "/app/settings/global", label: "Global" }, { href: "/app/settings/chart", label: "Chart" }, { href: "/app/settings/data-providers#settings/data-providers/broker-connections", label: "Data & providers" }],
+  settings: [{ href: "/app/settings/global", label: "Global" }, { href: "/app/settings/storage", label: "Storage" }, { href: "/app/settings/chart", label: "Chart" }, { href: "/app/settings/data-providers#settings/data-providers/broker-connections", label: "Data & providers" }],
   chart: [{ href: "/app/live", label: "Live" }, { href: "/app/replay", label: "Replay" }, { href: "/app/order-flow", label: "Order flow" }],
 });
 

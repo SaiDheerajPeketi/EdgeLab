@@ -233,7 +233,7 @@ async function category(page: Page, value: string, label: string) {
   await expect(page).toHaveURL(new RegExp(`(?:/app/settings/${value}|#settings/${value})$`));
 }
 
-nativeTest("a recovery callback from an unmounted Storage panel cannot refill its draft or status", async ({ page }) => {
+nativeTest("the shared recovery controller retains current-account status after the Storage view remounts", async ({ page }) => {
   const state = await fixture(page);
   await chooseBundle(page);
   await seedInterruptedSave(page);
@@ -246,9 +246,8 @@ nativeTest("a recovery callback from an unmounted Storage panel cannot refill it
   gate.resolve();
   await category(page, "storage", "Storage");
   await expect(page.getByRole("button", { name: "Check interrupted saves", exact: true })).toBeEnabled();
-  await expect(portable(page).getByText("owned-data.json", { exact: true })).toHaveCount(0);
-  await expect(portable(page).getByRole("alert")).toHaveCount(0);
-  await expect(portable(page).getByRole("status")).toContainText(/save needs confirmation/i);
+  await expect(portable(page).getByText("owned-data.json", { exact: true })).toBeVisible();
+  await expect(portable(page).getByRole("alert")).toContainText("still running");
   expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).not.toBeNull();
 });
 

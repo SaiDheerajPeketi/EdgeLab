@@ -14,6 +14,7 @@ import { CompatibilityJournalDashboard } from "./CompatibilityJournalDashboard";
 import { CompatibilityJournalSettings } from "./CompatibilityJournalSettings";
 import { CompatibilityBacktestSettings } from "./CompatibilityBacktestSettings";
 import { CompatibilitySessionPrivacySettings } from "./CompatibilitySessionPrivacySettings";
+import { CompatibilityStorageSettings } from "./CompatibilityStorageSettings";
 import { CompatibilityChartSettings } from "./CompatibilityChartSettings";
 
 export function CompatibilityRouteRenderer({ group, revision }: { group: UiRouteGroup; revision: string }) {
@@ -23,7 +24,7 @@ export function CompatibilityRouteRenderer({ group, revision }: { group: UiRoute
   if ((location.pathname.startsWith("/app") || location.pathname === "/shared") && !session?.user.approved) {
     return <Navigate replace state={{ fromPath: deepLink }} to={buildAuthSignInHref({ fromPath: deepLink, waitlist: Boolean(session) })} />;
   }
-  const content = ["/app/settings", "/app/settings/global", "/app/settings/account", "/app/settings/ai", "/app/settings/privacy-security"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilitySessionPrivacySettings /> : ["/app/settings/chart", "/app/settings/appearance"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityChartSettings /> : location.pathname.replace(/\/$/, "") === "/app/settings/backtest" ? <CompatibilityBacktestSettings /> : ["/app/journal/settings", "/app/settings/journal"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalSettings /> : group === "public" ? <PublicCompatibility />
+  const content = location.pathname.replace(/\/$/, "") === "/app/settings/storage" ? <CompatibilityStorageSettings /> : ["/app/settings", "/app/settings/global", "/app/settings/account", "/app/settings/ai", "/app/settings/privacy-security"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilitySessionPrivacySettings /> : ["/app/settings/chart", "/app/settings/appearance"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityChartSettings /> : location.pathname.replace(/\/$/, "") === "/app/settings/backtest" ? <CompatibilityBacktestSettings /> : ["/app/journal/settings", "/app/settings/journal"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalSettings /> : group === "public" ? <PublicCompatibility />
     : group === "settings" ? <SettingsCompatibility />
       : group === "journal" ? location.pathname.replace(/\/$/, "") === "/app/journal/dashboard" ? <CompatibilityJournalDashboard /> : location.pathname.replace(/\/$/, "") === "/app/journal/accounts" ? <CompatibilityJournalAccounts /> : location.pathname.replace(/\/$/, "") === "/app/journal/trades" ? <CompatibilityJournalTrades /> : ["/app/journal/notes", "/app/journal/calendar"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalNotes calendarMode={location.pathname.replace(/\/$/, "") === "/app/journal/calendar"} /> : ["/app/journal/analytics", "/app/journal/reports"].includes(location.pathname.replace(/\/$/, "")) ? <CompatibilityJournalAnalytics /> : <JournalCompatibility />
         : group === "chart" ? <ChartCompatibility />

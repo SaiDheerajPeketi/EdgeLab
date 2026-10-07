@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } fro
 import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthTransitionScreen } from "../components/auth/AuthTransitionScreen";
+import { DataTransferProvider } from "../components/settings/useDataTransfer";
 import { CompatibilityRouteRenderer } from "../components/compatibility/CompatibilityRouteRenderer";
 import { AuthCallbackPage } from "../pages/AuthCallbackPage";
 import { getAuthSession, getUiRolloutConfig } from "../lib/api";
@@ -406,7 +407,7 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
   const modernUiEnabled = rollout.flags[group];
 
   return (
-    <div
+    <DataTransferProvider><div
       key={session?.user.id ?? "anonymous"}
       className={`ui-route-transition ${modernUiEnabled ? "" : "ui-route-fallback"}`}
       data-route-group={group}
@@ -416,6 +417,6 @@ export function RouteTransitionBoundary({ children }: { children: ReactNode }) {
       ref={boundaryRef}
     >
       {modernUiEnabled ? children : <CompatibilityRouteRenderer group={group} revision={rollout.revision} />}
-    </div>
+    </div></DataTransferProvider>
   );
 }
