@@ -2,7 +2,13 @@
 
 The native Pine foundation pins PineTS 0.11.0 and builds a separate classic worker asset with esbuild. The browser fetches that trusted asset from its own origin, then runs compilation and execution in a blob worker created inside an opaque `sandbox="allow-scripts"` frame. Its CSP denies network connections, imports and parent-origin storage; user source and results travel only as messages. The parent verifies frame identity, a cryptographic nonce and bounded result schemas, and the fixed bridge terminates/revokes its worker on completion, cancellation or timeout. These are isolation and availability controls, not a global memory/operation budget. Unsupported secondary-symbol/timeframe requests fail explicitly; data comes from the supplied local candle context.
 
-Native editor/chart integration is pending; the current editor still supports EdgeLab DSL only. PineTS is experimental and strategy results must not be presented as TradingView-identical. Pine-enabled builds use AGPL-3.0-only: distribute the complete matching application source and build scripts, and offer them to service users. `LICENSE.txt` and `THIRD_PARTY_NOTICES.txt` ship as static assets; see the root notices for upstream attribution.
+The chart editor supports EdgeLab DSL and native Pine v5/v6. Choose a Pine template or paste source with a version header, then **Check script** to generate declared settings and enable saving. **Run** calculates the loaded chart snapshot; **Add to chart** saves source, inputs and validated metadata together. Script history and chart workspaces preserve native source and inputs. Source, input, context and account changes invalidate pending results.
+
+Native Pine uses the active symbol’s session-filtered, aggregated chart bars, up to the latest 20,000 loaded bars. Live chart calculations exclude the forming timeframe bucket. Common line, step, area, histogram, candle and circle plots preserve placement, colors and null gaps; unsupported drawings/styles/options and more than sixteen disconnected segments per plot produce visible warnings. The runtime permits eight plots and 24 inputs. Secondary-symbol/timeframe data requests fail instead of fabricating candles.
+
+Pine strategies use their own entries, exits, capital and cost settings. The editor and Quant show the actual engine metrics, closed trades, open positions and pending orders; open positions are not forcibly closed and pending orders are not counted as fills. Quant’s DSL crossing rules do not apply to native scripts. PineTS is experimental and strategy results must not be presented as TradingView-identical. Snapshot execution uses UTC, a 24x7 session and USD, and missing tick/point metadata falls back to 0.01/1 with warnings. Compare assumptions before relying on results.
+
+Pine-enabled builds use AGPL-3.0-only: distribute the complete matching application source and build scripts, and offer them to service users. `LICENSE.txt` and `THIRD_PARTY_NOTICES.txt` ship as static assets and are linked from the native editor; these notices are not a substitute for matching application source. See the root notices for upstream attribution.
 
 Compatibility mode supports canonical Journal trade paging, account filtering, direct review links, review updates, and manual account creation. Review and account saves use the same server APIs as the current interface; failed saves keep the open form for retry.
 
@@ -83,7 +89,7 @@ Chart VWAP follows the pane's selected exchange session, including FX/CME overni
 
 Custom studies use a 350 ms worker limit on Live charts and a 1,200 ms limit on Replay charts. Cancellation and every completion/error path clear timers and terminate the worker; a browser worker-start failure is shown as an indicator error.
 
-ATR and SuperTrend follow the published [ATR smoothing](https://www.tradingview.com/support/solutions/43000501823-average-true-range-atr/) and [SuperTrend band recurrence](https://www.tradingview.com/support/solutions/43000634738-supertrend/) definitions. EdgeLab's indicator DSL is original and is not Pine Script compatible.
+ATR and SuperTrend follow the published [ATR smoothing](https://www.tradingview.com/support/solutions/43000501823-average-true-range-atr/) and [SuperTrend band recurrence](https://www.tradingview.com/support/solutions/43000634738-supertrend/) definitions. EdgeLab's original indicator DSL is separate from the native Pine execution path.
 
 ## Build-time configuration
 
@@ -108,8 +114,11 @@ npm run build
 npm run quality:ui
 npm run test:ui
 npx playwright test --config e2e/pine-runtime.config.ts
+npx playwright test --config e2e/pine-editor.config.ts
 ```
 
 `test:ui` is the full Playwright suite and is much slower than the build and contract checks. Update visual snapshots only after reviewing the changed images.
 
 The dedicated Pine suite uses the already-built production worker and a loopback fixture server. Run the build first. It checks native calculations and strategy fills, denied network/parent access, result validation, message spoofing and cancellation/timeout acknowledgments. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` for a specific local Chromium binary; installed Firefox/WebKit run when available.
+
+The Pine editor suite runs the real isolated engine against loaded replay bars on desktop and mobile. It checks generated inputs, source revisions and persistence, chart overlays and panes, actual closed/open/pending strategy records, Quant runs, cancellation and stale account/context results, readable code, keyboard focus, and scrolling inside mobile ledgers. Its API fixtures supply application data; they do not replace native execution results.

@@ -30,6 +30,13 @@ async function loadChartingModule() {
     path.join(REPO_ROOT, "frontend", "src", "lib", "chartSessions.ts"),
     path.join(sourceDir, "chartSessions.ts"),
   );
+  // Pine is a type-only dependency here; this fixture tests FVG behavior only.
+  // Native metadata validation and runtime behavior have their own focused suite.
+  fs.writeFileSync(
+    path.join(sourceDir, "pineProtocol.ts"),
+    'export type PinePrepareResult = { kind: "prepare"; language: "pine"; source: string; overlay: boolean };\n',
+    "utf8",
+  );
   fs.writeFileSync(
     path.join(sourceDir, "api.ts"),
     [

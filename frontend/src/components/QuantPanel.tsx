@@ -4,7 +4,6 @@ import {
   Camera,
   CheckCircle2,
   Code2,
-  GripHorizontal,
   Mic,
   PanelBottom,
   PanelRight,
@@ -23,7 +22,10 @@ import { FloatingWorkspacePanel } from "./ui/WorkspacePanelManager";
 import { IconButton } from "./ui/Primitives";
 import type { EdgeIndicatorInputValue } from "../lib/indicatorDsl";
 import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
-import type { CustomIndicatorScript } from "../lib/customIndicators";
+import { isPineScriptSource, pineContextForChart, type CustomIndicatorScript } from "../lib/customIndicators";
+import { createPineRuntimeJob } from "../lib/pineRuntime";
+import type { PineExecutionResult } from "../lib/pineProtocol";
+import { PineStrategyResults } from "./PineStrategyResults";
 import {
   DEFAULT_QUANT_BACKTEST_CONFIG,
   appendQuantAudit,
@@ -101,6 +103,7 @@ export function QuantPanel({
   const [selectedScriptId, setSelectedScriptId] = useState(scripts[0]?.id ?? "");
   const [backtestConfig, setBacktestConfig] = useState<QuantBacktestConfig>(DEFAULT_QUANT_BACKTEST_CONFIG);
   const [backtestResult, setBacktestResult] = useState<QuantBacktestResult | null>(null);
+  const [pineBacktestResult, setPineBacktestResult] = useState<PineExecutionResult | null>(null);
   const [backtestStatus, setBacktestStatus] = useState<"idle" | "running" | "error">("idle");
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [externalEgressConsent, setExternalEgressConsent] = useState(false);
@@ -114,18 +117,23 @@ export function QuantPanel({
   const recordingBytesRef = useRef(0);
   const mountedRef = useRef(false);
   const recordingLimitRef = useRef<number | null>(null);
+  const backtestAttemptRef = useRef(0);
+  const backtestCancelRef = useRef<(() => void) | null>(null);
 
   const conversations = workspace.conversations.filter((conversation) => conversation.kind === kind);
   const activeId = workspace.activeConversationByKind[kind];
   const activeConversation = conversations.find((conversation) => conversation.id === activeId) ?? conversations[0] ?? null;
   const selectedModel = provider.models.find((model) => model.id === modelId) ?? provider.models[0] ?? null;
   const selectedScript = scripts.find((script) => script.id === selectedScriptId) ?? scripts[0] ?? null;
+  const backtestContextRef = useRef({ bars, symbol: context.symbol, timeframe: context.timeframe, script: selectedScript, config: backtestConfig });
+  backtestContextRef.current = { bars, symbol: context.symbol, timeframe: context.timeframe, script: selectedScript, config: backtestConfig };
   const busy = job?.status === "queued" || job?.status === "running";
 
   useEffect(() => {
     mountedRef.current = true;
     let active = true;
     const onAuthChange = () => {
+      invalidateBacktest();
       const attempt = recordingAttemptRef.current;
       if (attempt) ensureCurrentRecording(attempt);
     };
@@ -146,12 +154,26 @@ export function QuantPanel({
       window.removeEventListener("edgelab:auth-session-change", onAuthChange);
       void jobCancelRef.current?.();
       invalidateRecording();
+      backtestAttemptRef.current += 1;
+      backtestCancelRef.current?.();
     };
   }, []);
 
   useEffect(() => {
     if (!selectedScriptId && scripts[0]) setSelectedScriptId(scripts[0].id);
   }, [scripts, selectedScriptId]);
+
+  function invalidateBacktest() {
+    backtestAttemptRef.current += 1;
+    backtestCancelRef.current?.();
+    backtestCancelRef.current = null;
+    setBacktestResult(null); setPineBacktestResult(null); setBacktestError(null); setBacktestStatus("idle");
+  }
+
+  useEffect(() => {
+    invalidateBacktest();
+    return () => { backtestAttemptRef.current += 1; backtestCancelRef.current?.(); };
+  }, [bars, context.symbol, context.timeframe, selectedScript, backtestConfig]);
 
   function updatePreferences(patch: Partial<QuantPreferences>) {
     setPreferences((current) => {
@@ -439,17 +461,42 @@ export function QuantPanel({
 
   async function runBacktest() {
     if (!selectedScript) return;
+    invalidateBacktest();
+    const attempt = backtestAttemptRef.current;
+    const token = getApiBearerToken();
+    const owner = getStoredAuthSession()?.user.id ?? null;
+    const snapshot = backtestContextRef.current;
+    const current = () => mountedRef.current && attempt === backtestAttemptRef.current
+      && token === getApiBearerToken() && owner === (getStoredAuthSession()?.user.id ?? null)
+      && snapshot.bars === backtestContextRef.current.bars && snapshot.symbol === backtestContextRef.current.symbol
+      && snapshot.timeframe === backtestContextRef.current.timeframe && snapshot.script === backtestContextRef.current.script
+      && snapshot.config === backtestContextRef.current.config;
     setBacktestStatus("running");
     setBacktestError(null);
-    const job = createIndicatorRuntimeJob({ bars: bars.slice(-20_000), inputs: selectedScript.inputs as Record<string, EdgeIndicatorInputValue>, mode: "historical", source: selectedScript.source });
     try {
+      if (isPineScriptSource(selectedScript.source)) {
+        if (selectedScript.pinePrepared?.declaration !== "strategy") throw new Error("This Pine indicator has no order rules. Open a Pine strategy in the editor to test its own entries and exits.");
+        const native = createPineRuntimeJob({ action: "run", bars: bars.slice(-20_000), inputs: selectedScript.inputs,
+          mode: "historical", source: selectedScript.source, context: pineContextForChart(context.symbol, context.timeframe) });
+        backtestCancelRef.current = native.cancel;
+        const execution = await native.promise;
+        if (!current()) return;
+        if (execution.kind !== "run" || !execution.strategy) throw new Error("Pine strategy execution did not return an order ledger.");
+        setPineBacktestResult(execution); setBacktestStatus("idle"); return;
+      }
+      const job = createIndicatorRuntimeJob({ bars: bars.slice(-20_000), inputs: selectedScript.inputs as Record<string, EdgeIndicatorInputValue>, mode: "historical", source: selectedScript.source });
+      backtestCancelRef.current = job.cancel;
       const execution = await job.promise;
+      if (!current()) return;
       const plot = execution.plots[0]?.points ?? [];
       setBacktestResult(runReproducibleIndicatorBacktest(bars, plot, backtestConfig, selectedScript.revision));
       setBacktestStatus("idle");
     } catch (failure) {
+      if (!current()) return;
       setBacktestStatus("error");
       setBacktestError(failure instanceof Error ? failure.message : "Backtest execution failed.");
+    } finally {
+      if (current()) backtestCancelRef.current = null;
     }
   }
 
@@ -483,7 +530,7 @@ export function QuantPanel({
             {error ? <div className="rounded-lg bg-rose-400/10 p-3 text-xs leading-5 text-rose-200" data-quant-state="error" role="alert"><p>{error}</p>{lastRequestRef.current ? <button className="studio-tool-button studio-tool-button-active mt-2" onClick={retryJob} type="button">Retry request</button> : null}</div> : null}
           </div>
 
-          {kind === "build" ? <BacktestControls config={backtestConfig} error={backtestError} onChange={setBacktestConfig} onRun={() => void runBacktest()} result={backtestResult} scripts={scripts} selectedScriptId={selectedScript?.id ?? ""} setSelectedScriptId={setSelectedScriptId} status={backtestStatus} /> : null}
+          {kind === "build" ? <BacktestControls config={backtestConfig} error={backtestError} onChange={(next) => { invalidateBacktest(); setBacktestConfig(next); }} onRun={() => void runBacktest()} onCancel={invalidateBacktest} result={backtestResult} pineResult={pineBacktestResult} scripts={scripts} selectedScriptId={selectedScript?.id ?? ""} setSelectedScriptId={(id) => { invalidateBacktest(); setSelectedScriptId(id); }} status={backtestStatus} /> : null}
         </div>
 
         <div className="border-t border-white/10 p-3">
@@ -541,8 +588,36 @@ function IndicatorSemantics({ artifact }: { artifact: QuantGeneratedIndicator })
   return <dl className="mt-3 grid gap-2 rounded-md border border-white/10 p-2 text-[11px]"><div><dt className="font-semibold text-slate-200">{artifact.scoreLabel ?? "Signal score"}</dt><dd className="text-slate-500">{artifact.scoreSemantics ?? "Indicator output; not model confidence."}</dd></div><div><dt className="font-semibold text-slate-200">{artifact.probabilityLabel ?? "Probability unavailable"}</dt><dd className="text-slate-500">{artifact.probabilitySemantics ?? "No calibrated outcome probability is available."}</dd></div></dl>;
 }
 
-function BacktestControls({ config, error, onChange, onRun, result, scripts, selectedScriptId, setSelectedScriptId, status }: { config: QuantBacktestConfig; error: string | null; onChange: (value: QuantBacktestConfig) => void; onRun: () => void; result: QuantBacktestResult | null; scripts: readonly CustomIndicatorScript[]; selectedScriptId: string; setSelectedScriptId: (id: string) => void; status: "idle" | "running" | "error" }) {
-  return <section className="border-t border-white/10 p-3"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold text-white">Reproducible study backtest</h3><button className="studio-tool-button" disabled={!selectedScriptId || status === "running"} onClick={onRun} type="button">{status === "running" ? <GripHorizontal className="animate-pulse" size={12} /> : <CheckCircle2 size={12} />}{status === "running" ? "Running…" : "Run"}</button></div><p className="mt-1 text-[11px] leading-4 text-slate-500">Default window is 60 calendar days. Source executes in the same isolated worker used by the chart.</p><div className="mt-3 grid grid-cols-2 gap-2"><label className="col-span-2 text-[11px] text-slate-400">Indicator<select className="input-control mt-1 h-8 w-full text-xs" onChange={(event) => setSelectedScriptId(event.target.value)} value={selectedScriptId}><option value="">Choose script</option>{scripts.map((script) => <option key={script.id} value={script.id}>{script.name} · v{script.revision}</option>)}</select></label><BacktestNumber label="Days" max={3650} min={1} onChange={(windowDays) => onChange({ ...config, windowDays })} value={config.windowDays} /><BacktestNumber label="Capital" min={1} onChange={(initialCapital) => onChange({ ...config, initialCapital })} value={config.initialCapital} /><BacktestNumber label="Commission bps" min={0} onChange={(commissionBps) => onChange({ ...config, commissionBps })} value={config.commissionBps} /><BacktestNumber label="Slippage bps" min={0} onChange={(slippageBps) => onChange({ ...config, slippageBps })} value={config.slippageBps} /><label className="col-span-2 text-[11px] text-slate-400">Rules<select className="input-control mt-1 h-8 w-full text-xs" onChange={(event) => onChange({ ...config, rule: event.target.value as QuantBacktestConfig["rule"] })} value={config.rule}><option value="price-crosses-plot">Price crosses plot</option><option value="plot-crosses-zero">Plot crosses zero</option></select></label></div>{error ? <p className="mt-3 rounded-md bg-rose-400/10 p-2 text-xs text-rose-200">{error}</p> : null}{result ? <div className="mt-3 text-xs"><div className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-white/10 py-3"><Metric label="Net return" value={`${result.netReturnPercent.toFixed(2)}%`} /><Metric label="Max drawdown" value={`${result.maxDrawdownPercent.toFixed(2)}%`} /><Metric label="Trades" value={String(result.trades)} /><Metric label="Win rate" value={`${result.winRatePercent.toFixed(1)}%`} /><Metric label="Ending capital" value={result.endingCapital.toFixed(2)} /><Metric label="Sample hash" value={result.sample.hash} /></div><details className="mt-2 text-slate-400"><summary className="cursor-pointer">Assumptions and warnings</summary><ul className="mt-2 list-disc space-y-1 pl-4">{[...result.assumptions, ...result.warnings].map((item) => <li key={item}>{item}</li>)}</ul></details></div> : null}</section>;
+function BacktestControls({ config, error, onChange, onRun, onCancel, result, pineResult, scripts, selectedScriptId, setSelectedScriptId, status }: {
+  config: QuantBacktestConfig; error: string | null; onChange: (value: QuantBacktestConfig) => void;
+  onRun: () => void; onCancel: () => void; result: QuantBacktestResult | null; pineResult: PineExecutionResult | null;
+  scripts: readonly CustomIndicatorScript[]; selectedScriptId: string; setSelectedScriptId: (id: string) => void;
+  status: "idle" | "running" | "error";
+}) {
+  const pine = isPineScriptSource(scripts.find((script) => script.id === selectedScriptId)?.source ?? "");
+  return <section className="border-t border-white/10 p-3">
+    <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">{pine ? "Pine strategy test" : "Reproducible study backtest"}</h3>
+      <button className="studio-tool-button" disabled={!selectedScriptId} onClick={status === "running" ? onCancel : onRun} type="button">
+        {status === "running" ? <Square size={12} /> : <CheckCircle2 size={12} />}{status === "running" ? "Cancel" : "Run"}
+      </button></div>
+    <p className="mt-1 text-[11px] leading-5 text-slate-300">{pine ? "Uses up to 20,000 loaded chart bars and the strategy’s own entries, exits and cost settings. Pine indicators have no order ledger." : "Default window is 60 calendar days. Source executes in the same isolated worker used by the chart."}</p>
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      <label className="col-span-2 text-[11px] text-slate-300">Indicator<select className="input-control mt-1 h-8 w-full text-xs" onChange={(event) => setSelectedScriptId(event.target.value)} value={selectedScriptId}><option value="">Choose script</option>{scripts.map((script) => <option key={script.id} value={script.id}>{script.name} · v{script.revision}</option>)}</select></label>
+      {!pine ? <>
+        <BacktestNumber label="Days" max={3650} min={1} onChange={(windowDays) => onChange({ ...config, windowDays })} value={config.windowDays} />
+        <BacktestNumber label="Capital" min={1} onChange={(initialCapital) => onChange({ ...config, initialCapital })} value={config.initialCapital} />
+        <BacktestNumber label="Commission bps" min={0} onChange={(commissionBps) => onChange({ ...config, commissionBps })} value={config.commissionBps} />
+        <BacktestNumber label="Slippage bps" min={0} onChange={(slippageBps) => onChange({ ...config, slippageBps })} value={config.slippageBps} />
+        <label className="col-span-2 text-[11px] text-slate-300">Rules<select className="input-control mt-1 h-8 w-full text-xs" onChange={(event) => onChange({ ...config, rule: event.target.value as QuantBacktestConfig["rule"] })} value={config.rule}><option value="price-crosses-plot">Price crosses plot</option><option value="plot-crosses-zero">Plot crosses zero</option></select></label>
+      </> : null}
+    </div>
+    {error ? <p className="mt-3 rounded-md bg-rose-400/10 p-2 text-xs text-rose-200" role="alert">{error}</p> : null}
+    {pineResult ? <>
+      {pineResult.diagnostics.length ? <ul className="mt-3 space-y-2 text-xs leading-5 text-amber-100">{pineResult.diagnostics.map((item, index) => <li key={index}>{item.message}</li>)}</ul> : null}
+      <PineStrategyResults result={pineResult} />
+    </> : null}
+    {result ? <div className="mt-3 text-xs"><div className="grid grid-cols-2 gap-x-4 gap-y-2 border-y border-white/10 py-3"><Metric label="Net return" value={`${result.netReturnPercent.toFixed(2)}%`} /><Metric label="Max drawdown" value={`${result.maxDrawdownPercent.toFixed(2)}%`} /><Metric label="Trades" value={String(result.trades)} /><Metric label="Win rate" value={`${result.winRatePercent.toFixed(1)}%`} /><Metric label="Ending capital" value={result.endingCapital.toFixed(2)} /><Metric label="Sample hash" value={result.sample.hash} /></div><details className="mt-2 text-slate-400"><summary className="cursor-pointer">Assumptions and warnings</summary><ul className="mt-2 list-disc space-y-1 pl-4">{[...result.assumptions, ...result.warnings].map((item) => <li key={item}>{item}</li>)}</ul></details></div> : null}
+  </section>;
 }
 
 function Permission({ checked, label, onChange }: { checked: boolean; label: string; onChange: (value: boolean) => void }) { return <label className="flex items-center justify-between gap-3"><span>{label}</span><input checked={checked} className="h-4 w-4 accent-cyan-300" onChange={(event) => onChange(event.target.checked)} type="checkbox" /></label>; }

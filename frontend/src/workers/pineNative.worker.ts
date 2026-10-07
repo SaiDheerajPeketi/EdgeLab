@@ -104,6 +104,21 @@ function chartProvider(request: PineRequest): { provider: IProvider; unavailable
   // Empty unavailable snapshots let upstream's ready promise settle; no result is published after failure.
   return { provider, unavailable: () => failure };
 }
+export function normalizePinePlotValue(value: unknown): PinePlot["points"][number]["value"] {
+  if (Array.isArray(value)) {
+    if (value.length !== 4 || value.some((item) => item != null && typeof item !== "number")
+      || value.some((item) => typeof item === "number" && !Number.isFinite(item) && !Number.isNaN(item))) {
+      return error("UNSUPPORTED_RESULT", "Invalid OHLC plot output.");
+    }
+    // Pine plotcandle hides a bar when any required OHLC series is na.
+    if (value.some((item) => item == null || Number.isNaN(item))) return null;
+    return value as number[];
+  }
+  const scalar = plainScalar(value);
+  if (typeof scalar === "string") return error("UNSUPPORTED_RESULT", "Unsupported native plot value.");
+  return scalar;
+}
+
 function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics: PineDiagnostic[]): PinePlot[] {
   const drawings = new Set(["label", "drawing_line", "drawing_box", "linefill", "drawing_polyline", "table"]);
   const entries = Object.entries(raw).filter(([, value]) => {
@@ -122,10 +137,7 @@ function plotResults(raw: Record<string, unknown>, overlay: boolean, diagnostics
     total += plot.data.length;
     if (total > PINE_LIMITS.points) error("POINT_LIMIT", "Native Pine output exceeds 160,000 points.");
     return [{ id, name: plot.title ?? id, style, overlay: plot.options?.force_overlay === true || (typeof plot.options?.overlay === "boolean" ? plot.options.overlay : overlay), options: fields(plot.options ?? {}), points: plot.data.map((point) => {
-      const val = point.value;
-      if (Array.isArray(val) && (val.length > 4 || val.some((item) => typeof item !== "number" || !Number.isFinite(item)))) error("UNSUPPORTED_RESULT", "Invalid OHLC plot output.");
-      const normalized = Array.isArray(val) ? val as number[] : plainScalar(val);
-      if (typeof normalized === "string") error("UNSUPPORTED_RESULT", "Unsupported native plot value.");
+      const normalized = normalizePinePlotValue(point.value);
       return { time: point.time / 1000, value: normalized, options: fields(point.options ?? {}) };
     }) }];
   });

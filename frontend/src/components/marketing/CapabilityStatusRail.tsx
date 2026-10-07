@@ -1,6 +1,6 @@
 import { Check, Clock3 } from "lucide-react";
 
-type CapabilityStatus = "available" | "data-required" | "provider-required" | "planned";
+type CapabilityStatus = "available" | "data-required" | "provider-required" | "experimental" | "planned";
 
 type Capability = {
   description: string;
@@ -41,8 +41,8 @@ const CAPABILITIES: Capability[] = [
   },
   {
     name: "Native Pine scripts",
-    description: "Run Pine indicators and strategy tests directly from the chart editor.",
-    status: "planned",
+    description: "Run native Pine v5/v6 indicators and strategy orders on loaded chart data. PineTS support is experimental and results may differ from TradingView.",
+    status: "experimental",
   },
 ];
 
@@ -50,6 +50,7 @@ const STATUS_COPY: Record<CapabilityStatus, string> = {
   available: "Available now",
   "data-required": "Qualified data required",
   "provider-required": "Provider dependent",
+  experimental: "Experimental",
   planned: "Planned",
 };
 

@@ -1,0 +1,419 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { AUTH_SESSION_KEY, betaSessionResponse, FROZEN_TIME, gotoStable } from "./support/app";
+import { bars, fulfillReplayContext, prepare } from "./support/replay-context";
+import type { PineExecutionResult, PineResponse } from "../frontend/src/lib/pineProtocol";
+
+const overlay = '//@version=5\nindicator("Native editor EMA", overlay=true)\nlength=input.int(3,"Length",minval=1,maxval=20)\nplot(ta.ema(close,length),"Native EMA",color=#ff00ff)';
+const paneSource = '//@version=6\nindicator("Native editor RSI", overlay=false)\nlength=input.int(3,"Length",minval=1,maxval=20)\nplot(ta.rsi(close,length),"Native RSI",color=#ff00ff)';
+const strategy = '//@version=6\nstrategy("Native editor ledger", initial_capital=1000000)\nif bar_index == 1\n    strategy.entry("Closed", strategy.long, qty=2)\nif bar_index == 3\n    strategy.close("Closed")\nif bar_index == 6\n    strategy.entry("Open", strategy.long, qty=1)\nif barstate.islast\n    strategy.entry("Pending", strategy.short, qty=1)';
+const artifacts = path.resolve(".artifacts/pine-editor27");
+type Receipt = { operation_id: string; method: string; path: string; status: "reserved" | "completed"; http_status: number | null; result: null; created_at: string; completed_at: string | null };
+
+declare global {
+  interface Window {
+    __nativeEditorResults: PineResponse[];
+    __nativeEditorHoldRun: boolean;
+    __nativeEditorHeldResult: MessageEvent | null;
+  }
+}
+
+async function fixture(page: Page) {
+  await prepare(page);
+  await fulfillReplayContext(page);
+  const storage = new Map<string, unknown>();
+  const receipts = new Map<string, Receipt>();
+  const writes: Array<{ key: string; value: unknown }> = [];
+  const identity = { token: betaSessionResponse.token, owner: 7001 };
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const endpoint = new URL(request.url()).pathname.replace(/^\/api/, "");
+    if (endpoint === "/auth/session") {
+      await route.fulfill({ json: { ...betaSessionResponse, token: identity.token, user: { ...betaSessionResponse.user, id: identity.owner } } });
+      return;
+    }
+    const metadata = endpoint.match(/^\/app-data\/operations\/([0-9a-f-]+)\/(reserve|recover)$/);
+    if (metadata) {
+      expect(request.headers().authorization).toBe(`Bearer ${identity.token}`);
+      const [, id, action] = metadata;
+      if (action === "reserve") receipts.set(id, { operation_id: id, ...request.postDataJSON(), status: "reserved", http_status: null, result: null, created_at: "2026-09-15T10:00:00Z", completed_at: null });
+      expect(receipts.has(id)).toBe(true);
+      await route.fulfill({ json: receipts.get(id) });
+      return;
+    }
+    const bound = request.headers()["x-edgelab-operation-id"];
+    if (bound) {
+      expect(receipts.get(bound)).toMatchObject({ method: request.method(), path: endpoint, status: "reserved" });
+      Object.assign(receipts.get(bound)!, { status: "completed", http_status: 200, completed_at: "2026-09-15T10:00:01Z" });
+    }
+    const key = endpoint.match(/^\/app-storage\/edgelab\/(.+)$/)?.[1];
+    if (key) {
+      const decoded = decodeURIComponent(key);
+      if (request.method() === "PUT") { storage.set(decoded, request.postDataJSON().value); writes.push({ key: decoded, value: structuredClone(storage.get(decoded)) }); }
+      await route.fulfill({ json: { namespace: "edgelab", key: decoded, value: storage.get(decoded) ?? null, updated_at: FROZEN_TIME } });
+      return;
+    }
+    await route.fallback();
+  });
+  // Observe genuine opaque-frame results. No worker, engine or result is replaced.
+  await page.addInitScript(() => {
+    window.__nativeEditorResults = [];
+    window.__nativeEditorHoldRun = false;
+    window.__nativeEditorHeldResult = null;
+    addEventListener("message", (event) => {
+      const actual = [...document.querySelectorAll<HTMLIFrameElement>('iframe[sandbox="allow-scripts"]')].find((frame) => frame.contentWindow === event.source && frame.srcdoc.includes(`data-job="${event.data?.nonce}"`));
+      if (actual && event.origin === "null" && event.data?.type === "result") {
+        window.__nativeEditorResults.push(event.data.payload);
+        if (window.__nativeEditorHoldRun && event.data.payload?.status === "completed" && event.data.payload.result?.kind === "run") {
+          window.__nativeEditorHeldResult = event;
+          event.stopImmediatePropagation();
+        }
+      }
+    }, true);
+  });
+  await gotoStable(page, "/app/replay", { waitForNetworkIdle: false });
+  await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  return { storage, writes, identity };
+}
+
+async function openEditor(page: Page) {
+  const trigger = page.getByRole("button", { name: "Editor", exact: true });
+  if (!await trigger.isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await trigger.click();
+  const editor = page.getByRole("dialog", { name: "EdgeLab indicator editor" });
+  await expect(editor).toBeVisible();
+  return editor;
+}
+
+async function fillSource(editor: Locator, source: string) {
+  await editor.getByLabel("EdgeLab indicator source", { exact: true }).fill(source);
+}
+
+async function check(editor: Locator) {
+  await editor.getByRole("button", { name: "Check script", exact: true }).click();
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+}
+
+async function run(editor: Locator) {
+  await editor.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(editor.getByRole("button", { name: "Cancel", exact: true })).toBeHidden();
+  await expect(editor.locator("#edge-editor-diagnostics")).toContainText(/PineTS|Pine/);
+}
+
+async function nativeRun(page: Page, source: string) {
+  await expect.poll(() => page.evaluate((expected) => window.__nativeEditorResults.filter((item) => item.status === "completed" && item.result.kind === "run" && item.result.source === expected).length, source)).toBeGreaterThan(0);
+  return page.evaluate((expected) => {
+    const found = [...window.__nativeEditorResults].reverse().find((item) => item.status === "completed" && item.result.kind === "run" && item.result.source === expected);
+    return found?.status === "completed" ? found.result as PineExecutionResult : null;
+  }, source).then((result) => { expect(result).not.toBeNull(); return result!; });
+}
+
+test("native Pine inputs persist through save, reload, revisions and duplication", async ({ page }, info) => {
+  const state = await fixture(page);
+  let editor = await openEditor(page);
+  await fillSource(editor, overlay);
+  const sourceBox = await editor.getByLabel("EdgeLab indicator source", { exact: true }).boundingBox();
+  const diagnosticsBox = await editor.getByRole("heading", { name: "Diagnostics", exact: true }).boundingBox();
+  expect(sourceBox!.width).toBeGreaterThanOrEqual(info.project.name === "desktop" ? 400 : 300);
+  expect(sourceBox!.height).toBeGreaterThanOrEqual(250);
+  if (info.project.name === "desktop") expect(sourceBox!.x + sourceBox!.width).toBeLessThanOrEqual(diagnosticsBox!.x);
+  const mirror = editor.locator("main pre[aria-hidden='true']");
+  await expect(mirror).toHaveText(overlay);
+  expect((await mirror.boundingBox())!.width).toBeGreaterThanOrEqual(info.project.name === "desktop" ? 400 : 300);
+  const codeImage = await editor.getByLabel("EdgeLab indicator source", { exact: true }).screenshot();
+  const paintedCode = await page.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let bright = 0;
+    const rows = new Set<number>();
+    for (let y = 8; y < canvas.height - 8; y++) for (let x = 8; x < canvas.width - 8; x++) {
+      const offset = (y * canvas.width + x) * 4;
+      if (pixels[offset] + pixels[offset + 1] + pixels[offset + 2] > 420 && pixels[offset + 3] > 200) { bright++; rows.add(y); }
+    }
+    return { bright, rows: rows.size };
+  }, codeImage.toString("base64"));
+  expect(paintedCode.bright).toBeGreaterThan(80);
+  expect(paintedCode.rows).toBeGreaterThan(6);
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await check(editor);
+  await editor.getByLabel("Length", { exact: true }).fill("5");
+  await run(editor);
+  const result = await nativeRun(page, overlay);
+  expect(result.inputs).toMatchObject({ in_0: 5 });
+  expect(result.audit).toMatchObject({ engine: "PineTS", engineVersion: "0.11.0", mode: "historical" });
+  const closes = bars.filter((bar) => bar.time <= result.plots[0].points.at(-1)!.time).map((bar) => bar.close);
+  const expected = closes.reduce((ema, close, index) => index === 0 ? close : close / 3 + ema * 2 / 3, 0);
+  expect(result.plots[0].points.at(-1)!.value).toBeCloseTo(expected, 8);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as Array<{ name: string }> | undefined)?.some((script) => script.name === "Native editor EMA")).toBe(true);
+  const saved = (state.storage.get("custom-indicator-scripts.v1") as Array<Record<string, unknown>>).find((script) => script.name === "Native editor EMA")!;
+  expect(saved).toMatchObject({ source: overlay, inputs: { in_0: 5 }, pinePrepared: { language: "pine", source: overlay }, revision: 1 });
+  await page.reload();
+  await expect(page.locator(".chart-stage canvas").first()).toBeVisible();
+  editor = await openEditor(page);
+  await editor.getByLabel("Script library", { exact: true }).selectOption(String(saved.id));
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(overlay);
+  await check(editor);
+  await expect(editor.getByLabel("Length", { exact: true })).toHaveValue("5");
+  const revised = overlay.replace("ta.ema(close,length)", "ta.ema(close,length) + 1");
+  await fillSource(editor, revised);
+  await check(editor);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByLabel("Script library", { exact: true }).locator("option:checked")).toContainText("v2");
+  await editor.getByLabel("Version history", { exact: true }).selectOption("1");
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(overlay);
+  await check(editor);
+  await editor.getByRole("button", { name: "Duplicate", exact: true }).click();
+  await expect(editor.getByLabel("EdgeLab indicator source", { exact: true })).toHaveValue(overlay);
+  await expect(editor.getByLabel("Script library", { exact: true }).locator("option:checked")).toContainText("Native editor EMA copy");
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[]).length).toBe(2);
+  await editor.getByLabel("EdgeLab indicator source", { exact: true }).focus();
+  await page.keyboard.press("Tab");
+  fs.mkdirSync(artifacts, { recursive: true });
+  await editor.screenshot({ path: path.join(artifacts, `editor-${info.project.name}.png`) });
+});
+
+test("native overlay and oscillator reach real chart canvases", async ({ page }, info) => {
+  await fixture(page);
+  for (const source of [overlay, paneSource]) {
+    const editor = await openEditor(page);
+    await fillSource(editor, source);
+    await check(editor);
+    await editor.getByRole("button", { name: "Add to chart", exact: true }).click();
+    await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+    const result = await nativeRun(page, source);
+    expect(result.plots[0].overlay).toBe(source === overlay);
+    expect(result.plots[0].points.filter((point) => typeof point.value === "number").length).toBeGreaterThan(50);
+  }
+  await expect(page.getByText("Native editor EMA", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Native editor RSI", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "Native editor RSI native Pine pane", exact: true })).toBeVisible();
+  await expect.poll(() => page.locator(".chart-stage canvas").evaluateAll((canvases) => {
+    const painted = { overlay: false, pane: false };
+    for (const canvas of canvases) {
+      const element = canvas as HTMLCanvasElement;
+      const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+      if (!pixels) continue;
+      let magenta = 0;
+      for (let offset = 0; offset < pixels.length; offset += 4) if (pixels[offset] > 220 && pixels[offset + 1] < 40 && pixels[offset + 2] > 220 && pixels[offset + 3] > 100) magenta++;
+      if (magenta > 20) painted[canvas.closest('[aria-label="Native editor RSI native Pine pane"]') ? "pane" : "overlay"] = true;
+    }
+    return painted;
+  })).toEqual({ overlay: true, pane: true });
+  fs.mkdirSync(artifacts, { recursive: true });
+  await page.screenshot({ path: path.join(artifacts, `chart-${info.project.name}.png`) });
+});
+
+test("native strategy presents actual closed, open and pending engine records", async ({ page }, info) => {
+  await fixture(page);
+  const editor = await openEditor(page);
+  await fillSource(editor, strategy);
+  await check(editor);
+  await run(editor);
+  const result = await nativeRun(page, strategy);
+  expect(result.strategy!.closedTrades).toHaveLength(1);
+  expect(result.strategy!.openTrades).toHaveLength(1);
+  expect(result.strategy!.pendingOrders).toHaveLength(1);
+  const trade = result.strategy!.closedTrades[0];
+  expect(trade).toMatchObject({ entry_bar_index: 2, exit_bar_index: 4, size: 2 });
+  expect(trade.profit).toBeCloseTo((bars[4].open - bars[2].open) * 2, 7);
+  const region = editor.getByRole("region", { name: "Pine strategy results" });
+  await expect(region).toBeVisible();
+  for (const name of ["Closed trades", "Open trades", "Pending orders"]) await expect(region.getByRole("table", { name }).getByRole("row")).toHaveCount(2);
+  expect(await editor.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  if (info.project.name === "mobile") {
+    for (const section of [editor.locator("#edge-editor-diagnostics"), region]) {
+      const bounds = await section.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(391);
+    }
+    const ledger = region.getByLabel("Closed trades ledger", { exact: true });
+    expect(await ledger.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await ledger.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+    expect(await ledger.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    await ledger.evaluate((element) => { element.scrollLeft = 0; });
+  }
+  await region.getByRole("heading", { name: "Pine strategy results", exact: true }).scrollIntoViewIfNeeded();
+  fs.mkdirSync(artifacts, { recursive: true });
+  await page.screenshot({ path: path.join(artifacts, `strategy-${info.project.name}.png`) });
+  if (info.project.name === "mobile") {
+    await region.getByRole("table", { name: "Pending orders" }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(artifacts, "strategy-mobile-pending.png") });
+  }
+});
+
+test("Pine templates prepare natively and a stale source check cannot enable saving", async ({ page }) => {
+  await fixture(page);
+  const editor = await openEditor(page);
+  for (const template of ["pine-indicator", "pine-strategy"]) {
+    await editor.getByLabel("New script template", { exact: true }).selectOption(template);
+    const source = await editor.getByLabel("EdgeLab indicator source", { exact: true }).inputValue();
+    expect(source).toMatch(/^\/\/@version=[56]/);
+    await check(editor);
+    await run(editor);
+    expect((await nativeRun(page, source)).declaration).toBe(template === "pine-strategy" ? "strategy" : "indicator");
+  }
+  await fillSource(editor, overlay);
+  let release!: () => void;
+  let requested!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { requested = resolve; });
+  await page.route("**/assets/pine-native-worker*.js", async (route) => { requested(); await hold; await route.continue().catch(() => undefined); }, { times: 1 });
+  await editor.getByRole("button", { name: "Check script", exact: true }).click();
+  await started;
+  await fillSource(editor, paneSource);
+  release();
+  await expect.poll(() => page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0);
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await check(editor);
+  await run(editor);
+  expect((await nativeRun(page, paneSource)).overlay).toBe(false);
+});
+
+test("Quant executes saved native order rules and refuses indicator crossing backtests", async ({ page }, info) => {
+  const state = await fixture(page);
+  for (const source of [strategy, overlay]) {
+    const editor = await openEditor(page);
+    await fillSource(editor, source);
+    await check(editor);
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
+    await editor.getByRole("button", { name: "Close indicator editor", exact: true }).click();
+  }
+  await expect.poll(() => (state.storage.get("custom-indicator-scripts.v1") as unknown[] | undefined)?.length).toBe(2);
+  const saved = state.storage.get("custom-indicator-scripts.v1") as Array<{ id: string; source: string }>;
+  const quantTrigger = page.getByRole("button", { name: "Quant", exact: true });
+  if (!await quantTrigger.isVisible()) await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await quantTrigger.click();
+  const panel = page.getByRole("complementary", { name: "Quant assistant" });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('[data-quant-state="provider-loading"]')).toHaveCount(0);
+  await panel.getByRole("tab", { name: "Build & backtest", exact: true }).click();
+  await panel.getByRole("combobox", { name: "Indicator", exact: true }).selectOption(saved.find((script) => script.source === strategy)!.id);
+  await expect(panel.getByRole("heading", { name: "Pine strategy test", exact: true })).toBeVisible();
+  for (const name of ["Capital", "Days", "Commission bps", "Slippage bps"]) await expect(panel.getByRole("spinbutton", { name, exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("combobox", { name: "Rules", exact: true })).toHaveCount(0);
+  await panel.getByRole("button", { name: "Run", exact: true }).click();
+  const result = await nativeRun(page, strategy);
+  expect(result.strategy!.closedTrades).toHaveLength(1);
+  expect(result.strategy!.closedTrades[0].profit).toBeCloseTo((bars[4].open - bars[2].open) * 2, 7);
+  const ledger = panel.getByRole("region", { name: "Pine strategy results" });
+  await expect(ledger.getByRole("table", { name: "Closed trades" }).getByRole("cell", { name: "Closed", exact: true })).toBeVisible();
+  await expect(ledger.getByRole("table", { name: "Open trades" }).getByRole("cell", { name: "Open", exact: true })).toBeVisible();
+  await expect(ledger.getByRole("table", { name: "Pending orders" }).getByRole("cell", { name: "Pending", exact: true })).toBeVisible();
+  await ledger.getByRole("heading", { name: "Pine strategy results", exact: true }).scrollIntoViewIfNeeded();
+  fs.mkdirSync(artifacts, { recursive: true });
+  await page.screenshot({ path: path.join(artifacts, `quant-strategy-${info.project.name}.png`) });
+  await panel.getByRole("combobox", { name: "Indicator", exact: true }).selectOption(saved.find((script) => script.source === overlay)!.id);
+  await page.evaluate(() => { window.__nativeEditorResults = []; });
+  await panel.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("no order rules");
+  await expect(panel.getByRole("region", { name: "Pine strategy results" })).toHaveCount(0);
+  await expect(panel.getByText("Sample hash", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__nativeEditorResults.filter((item) => item.status === "completed" && item.result.kind === "run").length)).toBe(0);
+});
+
+for (const change of ["source", "input", "cancel"] as const) {
+  test(`${change} invalidates a pending actual native run before publication`, async ({ page }) => {
+    await fixture(page);
+    const editor = await openEditor(page);
+    await fillSource(editor, overlay);
+    await check(editor);
+    await page.evaluate(() => { window.__nativeEditorHoldRun = true; });
+    await editor.getByRole("button", { name: "Run", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => Boolean(window.__nativeEditorHeldResult))).toBe(true);
+    const prior = await nativeRun(page, overlay);
+    expect(prior.audit.engine).toBe("PineTS");
+    expect(prior.plots[0].points.filter((point) => typeof point.value === "number").length).toBeGreaterThan(50);
+    await expect(editor.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    const current = change === "source" ? overlay.replace("Native editor EMA", "Current source") : overlay;
+    if (change === "source") await fillSource(editor, current);
+    else if (change === "input") await editor.getByLabel("Length", { exact: true }).fill("7");
+    else await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(editor.getByRole("button", { name: "Cancel", exact: true })).toBeHidden();
+    await expect.poll(() => page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0);
+    await page.evaluate(() => {
+      window.__nativeEditorHoldRun = false;
+      // Deliver exactly the completed native event after its initiating job was invalidated.
+      window.dispatchEvent(window.__nativeEditorHeldResult!);
+      window.__nativeEditorHeldResult = null;
+      window.__nativeEditorResults = [];
+    });
+    await expect(editor.locator("#edge-editor-diagnostics")).not.toContainText("PineTS");
+    if (change === "source") await check(editor);
+    await run(editor);
+    const result = await nativeRun(page, current);
+    if (change === "input") expect(result.inputs.in_0).toBe(7);
+  });
+}
+
+test("an account transition discards an already computed native editor result", async ({ page }) => {
+  const state = await fixture(page);
+  const editor = await openEditor(page);
+  await fillSource(editor, overlay);
+  await check(editor);
+  await page.evaluate(() => { window.__nativeEditorHoldRun = true; });
+  await editor.getByRole("button", { name: "Run", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__nativeEditorHeldResult))).toBe(true);
+  expect((await nativeRun(page, overlay)).audit.engine).toBe("PineTS");
+  const scriptsBefore = state.writes.filter((write) => write.key === "custom-indicator-scripts.v1").length;
+  state.identity.owner = 7002;
+  state.identity.token = "another-owner-token";
+  await page.evaluate((key) => {
+    const session = JSON.parse(localStorage.getItem(key)!);
+    session.user.id = 7002;
+    session.token = "another-owner-token";
+    localStorage.setItem(key, JSON.stringify(session));
+    window.dispatchEvent(new Event("edgelab:auth-session-change"));
+  }, AUTH_SESSION_KEY);
+  await expect(editor).toBeHidden();
+  await expect.poll(() => page.locator('iframe[sandbox="allow-scripts"]').count()).toBe(0);
+  await page.evaluate(() => {
+    window.__nativeEditorHoldRun = false;
+    window.dispatchEvent(window.__nativeEditorHeldResult!);
+    window.__nativeEditorHeldResult = null;
+  });
+  await expect(page.getByRole("region", { name: "Pine strategy results" })).toHaveCount(0);
+  expect(state.writes.filter((write) => write.key === "custom-indicator-scripts.v1").length).toBe(scriptsBefore);
+});
+
+test("source errors recover and keyboard controls remain reachable without mobile overflow", async ({ page }, info) => {
+  await fixture(page);
+  const editor = await openEditor(page);
+  await fillSource(editor, '//@version=6\nindicator("Broken"\nplot(close)');
+  await editor.getByRole("button", { name: "Check script", exact: true }).click();
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(editor.locator("#edge-editor-diagnostics")).toContainText(/failed|error|unexpected|expected|parse/i);
+  await fillSource(editor, '//@version=6\nindicator("Runtime error")\nplot(not_a_real_function(close))');
+  await check(editor);
+  await editor.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(editor.locator("#edge-editor-diagnostics")).toContainText(/not_a_real_function|not defined|not a function/i);
+  await fillSource(editor, paneSource);
+  await check(editor);
+  const source = editor.getByLabel("EdgeLab indicator source", { exact: true });
+  await source.focus();
+  await source.press("Tab");
+  await expect(source).not.toBeFocused();
+  await expect(editor.locator(":focus")).toHaveCount(1);
+  await editor.getByRole("button", { name: "Run", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await nativeRun(page, paneSource);
+  expect(await editor.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  if (info.project.name === "mobile") {
+    for (const control of [source, editor.getByLabel("Length", { exact: true }), editor.getByRole("button", { name: "Save", exact: true })]) {
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport();
+      const box = await control.boundingBox();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(391);
+    }
+  }
+  await page.keyboard.press("Escape");
+  await expect(editor).toBeHidden();
+});

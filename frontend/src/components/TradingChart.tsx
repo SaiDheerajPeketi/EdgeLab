@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import {
   CrosshairMode,
+  ColorType,
   createChart,
   TickMarkType,
 } from "lightweight-charts";
@@ -42,6 +43,7 @@ import type {
   IChartApi,
   IPriceLine,
   ISeriesApi,
+  SeriesMarker,
   Logical,
   LineData,
   MouseEventParams,
@@ -171,8 +173,13 @@ import {
 import { formatMarketSymbol, symbolBadge } from "../lib/symbols";
 import { ThemedColorPicker } from "./ThemedColorPicker";
 import { ThemedSelect } from "./ThemedSelect";
-import { createIndicatorRuntimeJob } from "../lib/indicatorRuntime";
+import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { parseEdgeIndicator, type EdgeIndicatorExecutionResult } from "../lib/indicatorDsl";
+import { isPineScriptSource, pineContextForChart, sanitizePinePrepared } from "../lib/customIndicators";
+import { adaptPineChartResult, installPineChartPlot, type PineChartPlot } from "../lib/pineChartAdapter";
+import type { PineExecutionResult } from "../lib/pineProtocol";
+import { PineInputControl } from "./PineInputControl";
+import { getStoredAuthSession, subscribeAuthSession } from "../lib/authSession";
 import { observeSharedChartSize } from "../lib/sharedChartResize";
 import { paneSubscriptionKey } from "../lib/paneSubscriptions";
 
@@ -286,6 +293,7 @@ type CustomRuntimeStudy = {
   overlay: boolean;
   plotName: string;
   sourceId: string;
+  pinePlot?: PineChartPlot;
 };
 
 type DraftDrawing = {
@@ -513,6 +521,7 @@ export function TradingChart({
   timeframe,
   undoShortcutLabel,
 }: Props) {
+  const authSession = useSyncExternalStore(subscribeAuthSession, getStoredAuthSession, () => null);
   const stageRef = useRef<HTMLElement | null>(null);
   const chartFrameRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
@@ -537,6 +546,8 @@ export function TradingChart({
   }
   const candleSnapshotStore = candleSnapshotStoreRef.current;
   const [customRuntimeStudies, setCustomRuntimeStudies] = useState<CustomRuntimeStudy[]>([]);
+  const [customRuntimeWarnings, setCustomRuntimeWarnings] = useState<Record<string, string[]>>({});
+  const [pineStrategyMarkers, setPineStrategyMarkers] = useState<Record<string, SeriesMarker<UTCTimestamp>[]>>({});
   const [draftDrawing, setDraftDrawing] = useState<DraftDrawing | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [orderLineDrag, setOrderLineDrag] = useState<OrderLineDragState | null>(null);
@@ -705,10 +716,12 @@ export function TradingChart({
     }),
     [displayBars, indicatorInstances, sessionBars, sessionTemplate, timeframe],
   );
+  const runtimeContextRef = useRef({ displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession });
+  runtimeContextRef.current = { displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe, authSession };
   const indicatorDefinitions = useMemo<IndicatorDefinition[]>(
     () => [
       ...nativeIndicatorDefinitions,
-      ...customRuntimeStudies.filter((study) => study.overlay && !study.error).map((study) => ({
+      ...customRuntimeStudies.filter((study) => study.overlay && !study.error && !study.pinePlot).map((study) => ({
         color: study.color,
         data: study.data,
         id: study.id,
@@ -719,6 +732,13 @@ export function TradingChart({
     ],
     [customRuntimeStudies, nativeIndicatorDefinitions],
   );
+  const pinePaneGroups = useMemo(() => {
+    const groups = new Map<string, PineChartPlot[]>();
+    customRuntimeStudies.forEach((study) => {
+      if (!study.overlay && study.pinePlot) groups.set(study.sourceId, [...groups.get(study.sourceId) ?? [], study.pinePlot]);
+    });
+    return groups;
+  }, [customRuntimeStudies]);
   const fvgZoneDefinitions = useMemo(
     () => buildFvgZoneDefinitions(displayBars, indicatorInstances),
     [displayBars, indicatorInstances],
@@ -730,35 +750,73 @@ export function TradingChart({
     );
     if (customInstances.length === 0) {
       setCustomRuntimeStudies([]);
+      setCustomRuntimeWarnings({});
+      setPineStrategyMarkers({});
       return;
     }
     let active = true;
-    const jobs: ReturnType<typeof createIndicatorRuntimeJob>[] = [];
+    const capturedContext = runtimeContextRef.current;
+    const ownsResult = () => {
+      const current = runtimeContextRef.current;
+      return active && current.displayBars === capturedContext.displayBars
+        && current.indicatorInstances === capturedContext.indicatorInstances
+        && current.indicatorRuntimeMode === capturedContext.indicatorRuntimeMode
+        && current.symbol === capturedContext.symbol && current.timeframe === capturedContext.timeframe
+        && current.authSession?.token === capturedContext.authSession?.token
+        && getStoredAuthSession()?.token === capturedContext.authSession?.token;
+    };
+    const jobs: ReturnType<typeof createCustomScriptRuntimeJob>[] = [];
     setCustomRuntimeStudies([]);
+    setCustomRuntimeWarnings({});
+    setPineStrategyMarkers({});
     customInstances.forEach((indicator) => {
       if (!indicator.customScriptSource) {
-        const error = "This custom indicator has no saved EdgeLab DSL source.";
+        const error = "This custom indicator has no saved script source.";
         setCustomRuntimeStudies((current) => [...current, emptyCustomRuntimeStudy(indicator, error)]);
         if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
         return;
       }
-      const job = createIndicatorRuntimeJob({
-        bars: displayBars.slice(-20_000),
-        inputs: indicator.settings.customInputs,
-        mode: indicatorRuntimeMode,
-        source: indicator.customScriptSource,
-      });
+      const nativePine = isPineScriptSource(indicator.customScriptSource);
+      const snapshot = nativePine && indicatorRuntimeMode === "live"
+        ? displayBars.filter((bar) => bar.time < bucketTime(Math.floor(Date.now() / 1000), timeframe)).slice(-20_000)
+        : displayBars.slice(-20_000);
+      let job: ReturnType<typeof createCustomScriptRuntimeJob>;
+      try {
+        job = createCustomScriptRuntimeJob({
+          bars: snapshot,
+          context: nativePine ? pineContextForChart(symbol ?? "", timeframe) : undefined,
+          inputs: indicator.settings.customInputs,
+          mode: indicatorRuntimeMode,
+          source: indicator.customScriptSource,
+        });
+      } catch (failure) {
+        const error = failure instanceof Error ? failure.message : "Invalid chart script context.";
+        setCustomRuntimeStudies((current) => [...current, emptyCustomRuntimeStudy(indicator, error)]);
+        if (indicator.runtimeError !== error) onIndicatorRuntimeState?.(indicator.id, error);
+        return;
+      }
       jobs.push(job);
       void job.promise.then((result) => {
-        if (!active) return;
-        const studies = customStudiesFromResult(indicator, result);
+        if (!ownsResult()) return;
+        const nativeResult = "language" in result && result.language === "pine" ? result as PineExecutionResult : null;
+        const adapted = nativeResult ? adaptPineChartResult(nativeResult, snapshot) : null;
+        const studies = adapted ? adapted.plots.map((plot): CustomRuntimeStudy => ({
+          color: plot.color,
+          data: plot.segments.flat().flatMap((point) => point.value === undefined ? [] : [{ time: point.time, value: point.value }]),
+          error: null, id: `${indicator.id}-${plot.id}`, label: `${nativeResult!.name} · ${plot.name}`,
+          overlay: plot.overlay, plotName: plot.name, sourceId: indicator.id, pinePlot: plot,
+        })) : customStudiesFromResult(indicator, result as EdgeIndicatorExecutionResult);
         setCustomRuntimeStudies((current) => [
           ...current.filter((study) => study.sourceId !== indicator.id),
           ...studies,
         ]);
+        if (adapted) {
+          setCustomRuntimeWarnings((current) => ({ ...current, [indicator.id]: adapted.warnings }));
+          setPineStrategyMarkers((current) => ({ ...current, [indicator.id]: adapted.strategyMarkers }));
+        }
         if (indicator.runtimeError) onIndicatorRuntimeState?.(indicator.id, null);
       }).catch((failure) => {
-        if (!active || (failure instanceof Error && failure.message === "Indicator execution was cancelled.")) return;
+        if (!ownsResult() || (failure instanceof Error && "code" in failure && failure.code === "CANCELLED")) return;
         const error = failure instanceof Error ? failure.message : "Indicator execution failed.";
         setCustomRuntimeStudies((current) => [
           ...current.filter((study) => study.sourceId !== indicator.id),
@@ -771,7 +829,7 @@ export function TradingChart({
       active = false;
       jobs.forEach((job) => job.cancel());
     };
-  }, [displayBars, indicatorInstances, indicatorRuntimeMode]);
+  }, [authSession, displayBars, indicatorInstances, indicatorRuntimeMode, symbol, timeframe]);
 
   useEffect(() => {
     if (!drawingControlsActive) {
@@ -1902,6 +1960,18 @@ export function TradingChart({
   ]);
 
   useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const series = customRuntimeStudies.flatMap((study) => study.overlay && study.pinePlot
+      ? installPineChartPlot(chart, study.pinePlot, primaryPriceScaleIdForPlacement(chartSettings.scalePlacement))
+      : []);
+    return () => {
+      if (chartRef.current !== chart) return;
+      series.forEach((item) => chart.removeSeries(item));
+    };
+  }, [customRuntimeStudies, chartSettings.scalePlacement, paneId]);
+
+  useEffect(() => {
     const series = primarySeriesRef.current;
     if (!series) {
       return;
@@ -1958,7 +2028,7 @@ export function TradingChart({
 
   useEffect(() => {
     primarySeriesRef.current?.setMarkers(
-      showOrderOverlays
+      [...(showOrderOverlays
         ? [
             ...executions.map((execution) => ({
               time: bucketTime(toUnixTime(execution.timestamp), timeframe) as UTCTimestamp,
@@ -1978,10 +2048,10 @@ export function TradingChart({
                   },
                 ]
               : []),
-          ].sort((left, right) => Number(left.time) - Number(right.time))
-        : [],
+          ]
+        : []), ...Object.values(pineStrategyMarkers).flat()].sort((left, right) => Number(left.time) - Number(right.time)),
     );
-  }, [executions, paneId, primarySeriesKind, replayFocusTrade, showOrderOverlays, timeframe]);
+  }, [executions, paneId, pineStrategyMarkers, primarySeriesKind, replayFocusTrade, showOrderOverlays, timeframe]);
 
   useEffect(() => {
     const series = primarySeriesRef.current;
@@ -3146,6 +3216,12 @@ export function TradingChart({
         </div>
       </div>
 
+      {Object.entries(customRuntimeWarnings).filter(([, warnings]) => warnings.length).map(([id, warnings]) => (
+        <div className="border-t border-amber-300/15 bg-amber-300/5 px-4 py-2 text-xs leading-5 text-amber-100" key={id} role="status">
+          <strong>{indicatorInstances.find((indicator) => indicator.id === id)?.customScriptName ?? "Pine script"}:</strong>{" "}
+          {warnings.join(" · ")}
+        </div>
+      ))}
       <div
         className={`chart-canvas-grid ${
           chartSettings.scalePlacement === "left" ? "chart-canvas-grid-rail-right" : ""
@@ -3577,7 +3653,7 @@ export function TradingChart({
               zeroLine
             />
           ))}
-          {customRuntimeStudies.filter((study) => !study.overlay || study.error).map((study) => (
+          {customRuntimeStudies.filter((study) => (!study.overlay || study.error) && !study.pinePlot).map((study) => (
             <StudyLinePanel
               color={study.color}
               data={study.data}
@@ -3592,6 +3668,10 @@ export function TradingChart({
               zeroLine={!study.overlay}
             />
           ))}
+          {[...pinePaneGroups].map(([sourceId, plots]) => {
+            const indicator = indicatorInstances.find((item) => item.id === sourceId && item.visible !== false);
+            return indicator ? <NativePineStudyPanel key={indicator.id} label={indicator.customScriptName ?? "Pine script"} plots={plots} priceChart={chartRef.current} onOpenSettings={(event) => openIndicatorToolbar(indicator.id, event)} selected={renderedSelectedIndicatorId === indicator.id} /> : null;
+          })}
         </div>
       </div>
 
@@ -5324,6 +5404,45 @@ function StudyLinePanel({
   );
 }
 
+function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, selected }: {
+  label: string; plots: PineChartPlot[]; priceChart: IChartApi | null;
+  onOpenSettings: (event: MouseEvent<HTMLElement>) => void; selected: boolean;
+}) {
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!container.current) return;
+    const chart = createChart(container.current, {
+      autoSize: false, width: Math.max(1, container.current.clientWidth), height: Math.max(1, container.current.clientHeight),
+      layout: { background: { type: ColorType.Solid, color: "#060a0f" }, textColor: "#94a3b8", fontFamily: "Instrument Sans Variable" },
+      grid: { vertLines: { visible: false }, horzLines: { color: "rgba(148,163,184,0.12)" } },
+      timeScale: { visible: false }, rightPriceScale: { borderVisible: false },
+      handleScroll: false, handleScale: false,
+    });
+    plots.forEach((plot) => installPineChartPlot(chart, plot));
+    const stopObservingSize = observeSharedChartSize(container.current, ({ width, height }) => chart.resize(width, height));
+    const syncRange = () => {
+      const range = priceChart?.timeScale().getVisibleRange();
+      if (range) chart.timeScale().setVisibleRange(range);
+      else chart.timeScale().fitContent();
+    };
+    syncRange();
+    priceChart?.timeScale().subscribeVisibleTimeRangeChange(syncRange);
+    return () => {
+      priceChart?.timeScale().unsubscribeVisibleTimeRangeChange(syncRange);
+      stopObservingSize();
+      chart.remove();
+    };
+  }, [plots, priceChart]);
+  return <section className="border-t border-white/10 bg-ink-950 px-4 py-3" aria-label={`${label} native Pine pane`}>
+    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <button className={`indicator-pane-title ${selected ? "indicator-pane-title-active" : ""}`} onClick={onOpenSettings} type="button">{label}</button>
+      <span className="text-slate-400">Native Pine · {plots.map((plot) => plot.name).join(" · ")}</span>
+    </div>
+    <div ref={container} className="h-32 w-full" />
+    <p className="sr-only">{plots.map((plot) => `${plot.name}: ${plot.segments.flat().filter((point) => point.value !== undefined).at(-1)?.value ?? "No numeric value"}`).join(". ")}</p>
+  </section>;
+}
+
 function FloatingIndicatorToolbar({
   indicator,
   onChange,
@@ -5345,7 +5464,9 @@ function FloatingIndicatorToolbar({
   const isMacd = indicator.kind === "macd";
   const isVwap = indicator.kind === "vwap";
   const isGapStudy = indicator.kind === "fvg" || indicator.kind === "ifvg";
-  const customInputs = indicator.kind === "custom" && indicator.customScriptSource
+  const nativePine = indicator.kind === "custom" && !!indicator.customScriptSource && isPineScriptSource(indicator.customScriptSource);
+  const pineInputs = nativePine ? sanitizePinePrepared(indicator.customPinePrepared, indicator.customScriptSource!)?.inputDefinitions ?? [] : [];
+  const customInputs = indicator.kind === "custom" && indicator.customScriptSource && !nativePine
     ? parseEdgeIndicator(indicator.customScriptSource).program?.inputs ?? []
     : [];
   const hasDeviation =
@@ -5424,7 +5545,7 @@ function FloatingIndicatorToolbar({
             />
           </div>
         </>
-      ) : (
+      ) : !nativePine ? (
         <ThemedColorPicker
           ariaLabel="Indicator color"
           className="chart-object-floating-picker"
@@ -5432,7 +5553,7 @@ function FloatingIndicatorToolbar({
           onChange={(color) => onChange({ color })}
           value={settings.color}
         />
-      )}
+      ) : null}
 
       {isMacd ? (
         <div className="indicator-floating-grid">
@@ -5474,6 +5595,10 @@ function FloatingIndicatorToolbar({
         />
       ) : null}
 
+      {nativePine ? <div className="flex max-w-lg flex-wrap gap-3">
+        {pineInputs.map((definition) => <PineInputControl key={definition.id} definition={definition} value={settings.customInputs?.[definition.id]} onChange={(value) => onChange({ customInputs: { ...settings.customInputs, [definition.id]: value } })} />)}
+        {!pineInputs.length ? <span className="text-xs text-slate-400">{indicator.customPinePrepared ? "No configurable Pine inputs." : "Prepare and save this Pine script in the editor to configure its inputs."}</span> : null}
+      </div> : null}
       {indicator.kind === "custom" && customInputs.length > 0 ? (
         <div className="indicator-floating-grid">
           {customInputs.map((input) => {
@@ -5540,7 +5665,7 @@ function FloatingIndicatorToolbar({
         </label>
       )}
 
-      {!isGapStudy && (
+      {!isGapStudy && !nativePine && (
         <>
           <div className="chart-object-floating-style" role="group">
             {lineStyles.map((style) => (

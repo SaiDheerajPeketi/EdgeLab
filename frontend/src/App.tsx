@@ -48,6 +48,7 @@ import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { EdgePulseLoader } from "./components/EdgePulseLoader";
 import { ChartWorkspaceFrame } from "./components/chart/ChartWorkspaceFrame";
 import { usePaneMarketData } from "./components/chart/usePaneMarketData";
+import { getStoredAuthSession } from "./lib/authSession";
 import type { JournalChartFocusRequest } from "./components/journal/JournalReviewDrawer";
 import {
   getApiBearerToken,
@@ -69,6 +70,7 @@ import type {
   MagnetMode,
 } from "./lib/charting";
 import {
+  aggregateBars,
   canAggregateTimeframe,
   createIndicatorInstance,
   createLegacyIndicatorInstance,
@@ -82,6 +84,7 @@ import {
   isDrawingTool,
   TIMEFRAMES,
 } from "./lib/charting";
+import { filterBarsForTradingSession, resolveChartSessionTemplate } from "./lib/chartSessions";
 import {
   DEFAULT_CHART_SYNC_SETTINGS,
   buildChartSymbolUniverse,
@@ -119,6 +122,9 @@ import {
   appendIndicatorAudit,
   createCustomIndicatorInstance,
   hydrateCustomIndicators,
+  isPineScriptSource,
+  sanitizePinePrepared,
+  sanitizeQuantSemantics,
   loadCachedCustomIndicators,
   persistCustomIndicators,
   saveCustomIndicator,
@@ -755,6 +761,13 @@ export function WorkspaceApp() {
     setDrawingTool(lastNeutralDrawingToolRef.current);
   }
   const effectiveTimeframe = coerceTimeframeToSource(timeframe, sourceTimeframe);
+  const customScriptBars = useMemo(() => {
+    const sourceBars = chartSymbolsEqual(activeChartPane.symbol, state?.session.symbol)
+      ? visibleBars : replayPaneMarketData[activeChartPane.id]?.bars ?? [];
+    return aggregateBars(filterBarsForTradingSession(sourceBars, chartSettings.tradingHoursMode,
+      resolveChartSessionTemplate(activeChartPane.symbol, chartSettings.sessionTemplate)), effectiveTimeframe);
+  }, [activeChartPane.id, activeChartPane.symbol, state?.session.symbol, visibleBars, replayPaneMarketData,
+    chartSettings.tradingHoursMode, chartSettings.sessionTemplate, effectiveTimeframe]);
 
   useEffect(() => {
     void loadInitial();
@@ -1695,9 +1708,14 @@ export function WorkspaceApp() {
     });
   }
 
-  function changeCustomIndicatorScripts(scripts: CustomIndicatorScript[]) {
+  async function changeCustomIndicatorScripts(scripts: CustomIndicatorScript[]) {
+    const token = getApiBearerToken();
+    const owner = getStoredAuthSession()?.user.id ?? null;
+    await persistCustomIndicators(scripts);
+    if (token !== getApiBearerToken() || owner !== (getStoredAuthSession()?.user.id ?? null)) {
+      throw new Error("The account changed before the script could be saved.");
+    }
     setCustomIndicatorScripts(scripts);
-    void persistCustomIndicators(scripts);
   }
 
   function addCustomIndicator(
@@ -1717,10 +1735,12 @@ export function WorkspaceApp() {
   }
 
   function openIndicatorEditor(scriptId?: string, source?: string) {
-    setIndicatorEditorRequest({ nonce: Date.now(), scriptId, source });
+    setIndicatorEditorRequest((current) => ({ nonce: Math.max(Date.now(), (current?.nonce ?? 0) + 1), scriptId, source }));
   }
 
-  function saveGeneratedIndicator(artifact: QuantGeneratedIndicator, addToChart: boolean) {
+  async function saveGeneratedIndicator(artifact: QuantGeneratedIndicator, addToChart: boolean) {
+    const owner = getStoredAuthSession()?.user.id ?? null;
+    const token = getApiBearerToken();
     const saved = saveCustomIndicator(customIndicatorScripts, {
       category: "custom",
       color: "#32d3ee",
@@ -1748,7 +1768,13 @@ export function WorkspaceApp() {
       openIndicatorEditor(undefined, artifact.source);
       return;
     }
-    changeCustomIndicatorScripts(saved.scripts);
+    try { await changeCustomIndicatorScripts(saved.scripts); }
+    catch (failure) {
+      if (owner === (getStoredAuthSession()?.user.id ?? null) && token === getApiBearerToken()) {
+        useBacktestStore.setState({ error: failure instanceof Error ? failure.message : "The generated script could not be saved." });
+      }
+      return;
+    }
     if (addToChart) addCustomIndicator(saved.script);
   }
 
@@ -3570,7 +3596,9 @@ export function WorkspaceApp() {
       {indicatorEditorRequest ? (
         <Suspense fallback={<LazyPanelFallback className="fixed inset-4 z-[90] rounded-xl bg-[#071018]" />}>
           <IndicatorEditorPanel
-            bars={visibleBars}
+            bars={customScriptBars}
+            symbol={activeChartPane.symbol}
+            timeframe={effectiveTimeframe}
             onAddToChart={addCustomIndicator}
             onClose={() => setIndicatorEditorRequest(null)}
             onScriptsChange={changeCustomIndicatorScripts}
@@ -3584,7 +3612,7 @@ export function WorkspaceApp() {
         <Suspense fallback={<LazyPanelFallback className="fixed bottom-3 right-3 z-[80] h-72 w-96 rounded-xl bg-[#071018]" />}>
           <QuantPanel
             attachment={quantAttachment}
-            bars={visibleBars}
+            bars={customScriptBars}
             context={quantContext}
             onAddGeneratedIndicator={(artifact) => saveGeneratedIndicator(artifact, true)}
             onCaptureChart={() => captureChartForQuant()}
@@ -4384,15 +4412,20 @@ function sanitizeIndicatorInstance(value: unknown): ChartIndicatorInstance | nul
   ) {
     return null;
   }
+  const native = isPineScriptSource(candidate.customScriptSource);
+  const prepared = native ? sanitizePinePrepared(candidate.customPinePrepared, candidate.customScriptSource) : undefined;
+  if (native && !prepared) return null;
   return {
     ...common,
-    customOverlay: candidate.customOverlay === true,
+    customPinePrepared: prepared,
+    customQuantSemantics: native ? undefined : sanitizeQuantSemantics(candidate.customQuantSemantics),
+    customOverlay: prepared?.overlay ?? candidate.customOverlay === true,
     customScriptId: candidate.customScriptId.trim().slice(0, 96),
     customScriptName:
       typeof candidate.customScriptName === "string"
         ? candidate.customScriptName.trim().slice(0, 80)
         : "EdgeLab Script",
-    customScriptSource: candidate.customScriptSource.slice(0, 20_000),
+    customScriptSource: native ? candidate.customScriptSource : candidate.customScriptSource.slice(0, 20_000),
     customScriptVersion:
       typeof candidate.customScriptVersion === "number" &&
       Number.isFinite(candidate.customScriptVersion)
