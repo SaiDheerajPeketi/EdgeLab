@@ -277,17 +277,90 @@ test("six migrated moving studies and Stochastic keep one attributable keyboard 
   await summary.focus(); await page.keyboard.press("Enter"); await body.scrollIntoViewIfNeeded();
   await captureClarity(page, "shared-assumptions-open", info.project.name);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-  // Visibility/removal filters must update provenance, including cached native results.
+  // Use real pointer/touch actions: a hidden study's controls must not block the next study.
+  // Defer the size gate until the flow completes so an intercepted second tap is reproducible.
+  const touch = !!(info.project.use.hasTouch || info.project.use.isMobile);
+  const targets: Array<{ name: string; width: number; height: number }> = [];
+  const touchArtifacts = path.resolve(".artifacts/pine-study-touch40/browser");
+  fs.mkdirSync(touchArtifacts, { recursive: true });
+  const captureTouch = (name: string) => page.screenshot({ path: path.join(touchArtifacts, name + "-" + info.project.name + ".png") });
+  const activate = async (control: Locator, name: string) => {
+    await control.scrollIntoViewIfNeeded();
+    const bounds = await control.boundingBox();
+    expect(bounds, name + " has real screen bounds").not.toBeNull();
+    const viewport = page.viewportSize()!;
+    expect(bounds!.x, name + " left edge").toBeGreaterThanOrEqual(0);
+    expect(bounds!.y, name + " top edge").toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width, name + " right edge").toBeLessThanOrEqual(viewport.width + 1);
+    expect(bounds!.y + bounds!.height, name + " bottom edge").toBeLessThanOrEqual(viewport.height + 1);
+    targets.push({ name, width: bounds!.width, height: bounds!.height });
+    if (touch) await control.tap(); else await control.click();
+  };
   await summary.focus(); await page.keyboard.press("Enter");
-  await page.locator(".chart-study-pill").filter({ hasText: names[0] }).first().focus();
-  await page.keyboard.press("Enter");
-  await page.getByTitle("Hide indicator", { exact: true }).click();
+  await activate(page.locator(".chart-study-pill").filter({ hasText: names[0] }).first(), "Hull study");
+  const settings = page.getByRole("group", { name: "Indicator settings", exact: true });
+  await expect(settings).toContainText(names[0]);
+  await activate(settings.getByTitle("Hide indicator", { exact: true }), "Hide Hull");
   await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 6 scripts");
+  await captureTouch("after-hide");
+  const hideGeometry = await page.locator(".chart-stage").first().evaluate((stage) => {
+    const bounds = (node: Element) => {
+      const box = node.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
+    };
+    const ancestors = [];
+    for (let node: HTMLElement | null = stage as HTMLElement; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      ancestors.push({ tag: node.tagName, className: node.className, bounds: bounds(node), scrollLeft: node.scrollLeft,
+        clientWidth: node.clientWidth, scrollWidth: node.scrollWidth, overflowX: style.overflowX, overflowY: style.overflowY });
+    }
+    const header = stage.querySelector(".chart-stage-header");
+    return { viewportWidth: innerWidth, stage: bounds(stage), header: header ? bounds(header) : null, ancestors };
+  });
+  fs.writeFileSync(path.join(touchArtifacts, "after-hide-geometry-" + info.project.name + ".json"), JSON.stringify(hideGeometry, null, 2));
+  if (info.project.use.isMobile) {
+    expect(hideGeometry.stage.left, "Chart stays inside the mobile viewport after Hide").toBeGreaterThanOrEqual(0);
+    expect(hideGeometry.stage.right, "Chart right edge after Hide").toBeLessThanOrEqual(hideGeometry.viewportWidth + 1);
+    for (const ancestor of hideGeometry.ancestors) expect(ancestor.scrollLeft, ancestor.tag + "." + ancestor.className + " after Hide scrollLeft").toBe(0);
+  }
+  await expect(settings).toBeHidden();
   await summary.focus(); await page.keyboard.press("Enter"); await expect(body).not.toContainText(names[0]); await page.keyboard.press("Enter");
-  await page.locator(".chart-study-pill").filter({ hasText: names[5] }).first().focus();
-  await page.keyboard.press("Enter");
-  await page.getByTitle("Remove indicator", { exact: true }).click();
+  await activate(page.locator(".chart-study-pill").filter({ hasText: names[5] }).first(), "T3 study after hiding Hull");
+  await expect(settings).toContainText(names[5]);
+  await expect(settings).not.toContainText(names[0]);
+  const length = settings.getByRole("spinbutton", { name: "Length", exact: true });
+  await expect(length).toHaveValue("5");
+  await activate(length, "T3 Length");
+  await length.fill("8");
+  await expect(length).toHaveValue("8");
+  const t3Source = migrated(catalog.entries.find((entry) => entry.path.endsWith("/t3_moving_average.pine"))!);
+  await expect.poll(() => page.evaluate((source) => window.__nativeEditorResults.some((item) =>
+    item.status === "completed" && item.result.kind === "run" && item.result.source === source
+      && item.result.inputs.in_0 === 8 && item.result.audit.engineVersion === "0.11.0"), t3Source)).toBe(true);
+  await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 6 scripts");
+  await captureTouch("edited-t3");
+  const t3Trigger = page.locator(".chart-study-pill").filter({ hasText: names[5] }).first();
+  await activate(settings.getByRole("button", { name: "Close indicator settings", exact: true }), "Close T3 settings");
+  await expect(settings).toBeHidden();
+  await expect(t3Trigger).toBeFocused();
+  await activate(t3Trigger, "Reopen T3 after Close");
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole("spinbutton", { name: "Length", exact: true })).toHaveValue("8");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await expect(t3Trigger).toBeFocused();
+  await activate(t3Trigger, "Reopen T3 after Escape");
+  await expect(settings).toBeVisible();
+  await activate(settings.getByTitle("Remove indicator", { exact: true }), "Remove T3");
+  await expect(settings).toBeHidden();
+  await expect(page.locator(".chart-study-pill").filter({ hasText: names[5] })).toHaveCount(0);
   await expect(summary).toHaveText("Closed historical snapshot · 3 assumptions · 5 scripts");
+  await captureTouch("after-remove");
+  if (touch) for (const target of targets) {
+    expect(target.width, target.name + " touch width").toBeGreaterThanOrEqual(44);
+    expect(target.height, target.name + " touch height").toBeGreaterThanOrEqual(44);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   await summary.focus(); await page.keyboard.press("Enter"); await expect(body).not.toContainText(names[5]);
 });
 async function oracleRun(page: Page, source: string, snapshot = oracleBars) {

@@ -30,6 +30,7 @@ import {
   Trash2,
   Undo2,
   UnlockKeyhole,
+  X,
 } from "lucide-react";
 import {
   CrosshairMode,
@@ -565,6 +566,10 @@ export function TradingChart({
   const [plotVersion, setPlotVersion] = useState(0);
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
   const indicatorToolbarReturnFocusRef = useRef<HTMLElement | null>(null);
+  const indicatorToolbarFocusFrameRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (indicatorToolbarFocusFrameRef.current !== null) window.cancelAnimationFrame(indicatorToolbarFocusFrameRef.current);
+  }, []);
   const renderedSelectedIndicatorId = captureMode ? null : selectedIndicatorId;
   const [drawingToolbarOpen, setDrawingToolbarOpen] = useState(false);
   const drawingToolbarReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -2804,10 +2809,30 @@ export function TradingChart({
   }
 
   function openIndicatorToolbarAtStagePoint(indicatorId: string, x: number, y: number) {
+    if (indicatorToolbarFocusFrameRef.current !== null) window.cancelAnimationFrame(indicatorToolbarFocusFrameRef.current);
+    indicatorToolbarFocusFrameRef.current = null;
     setSelectedIndicatorId(indicatorId);
     setIndicatorToolbarPosition(clampIndicatorToolbarPosition({ x, y }));
     onSelectDrawing(null);
     setDrawingToolbarOpen(false);
+  }
+
+  function closeIndicatorToolbar() {
+    const closingIndicatorId = selectedIndicatorId;
+    const closingToolbar = stageRef.current?.querySelector<HTMLElement>(".indicator-floating-toolbar");
+    setSelectedIndicatorId(null);
+    setIndicatorToolbarPosition(null);
+    if (indicatorToolbarFocusFrameRef.current !== null) window.cancelAnimationFrame(indicatorToolbarFocusFrameRef.current);
+    indicatorToolbarFocusFrameRef.current = window.requestAnimationFrame(() => {
+      indicatorToolbarFocusFrameRef.current = null;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement && active.isConnected && !closingToolbar?.contains(active)) return;
+      const trigger = indicatorToolbarReturnFocusRef.current;
+      const refreshedTrigger = Array.from(stageRef.current?.querySelectorAll<HTMLElement>(".chart-study-pill[data-indicator-id]") ?? [])
+        .find((element) => element.dataset.indicatorId === closingIndicatorId && element.getClientRects().length);
+      const target = trigger?.isConnected && trigger.getClientRects().length ? trigger : refreshedTrigger ?? stageRef.current;
+      target?.focus({ preventScroll: true });
+    });
   }
 
   function openIndicatorToolbarAtFramePoint(
@@ -2819,6 +2844,7 @@ export function TradingChart({
     if (!stage || !frame) {
       return;
     }
+    indicatorToolbarReturnFocusRef.current = null;
     const stageRect = stage.getBoundingClientRect();
     const frameRect = frame.getBoundingClientRect();
     openIndicatorToolbarAtStagePoint(
@@ -2936,9 +2962,7 @@ export function TradingChart({
     function closeIndicatorToolbarOnEscape(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setSelectedIndicatorId(null);
-      setIndicatorToolbarPosition(null);
-      indicatorToolbarReturnFocusRef.current?.focus({ preventScroll: true });
+      closeIndicatorToolbar();
     }
 
     function closeIndicatorToolbarOnOutsideClick(event: globalThis.PointerEvent) {
@@ -3216,6 +3240,7 @@ export function TradingChart({
                     const detail = isScore ? semantics.scoreSemantics : isProbability ? semantics.probabilitySemantics : study.label;
                     return <button
                       className={`chart-study-pill ${renderedSelectedIndicatorId === study.sourceId ? "chart-study-pill-active" : ""}`}
+                      data-indicator-id={study.sourceId}
                       key={`header-${study.id}`}
                       onClick={(event) => openIndicatorToolbar(study.sourceId, event)}
                       title={`${study.error ?? detail}${semantics ? ` · ${semantics.modelProvenance}` : ""}`}
@@ -3230,7 +3255,7 @@ export function TradingChart({
                   const sourceId = studies[0].sourceId;
                   const name = indicatorInstances.find((indicator) => indicator.id === sourceId)?.customScriptName ?? "Pine script";
                   return <div className="flex min-w-0 basis-full flex-wrap items-start gap-2" key={`outputs-${sourceId}`}>
-                    <button aria-label={name} className={`chart-study-pill max-md:min-h-11 ${renderedSelectedIndicatorId === sourceId ? "chart-study-pill-active" : ""}`} onClick={(event) => openIndicatorToolbar(sourceId, event)} title={`Edit ${name}`} type="button">{chartSettings.indicatorTitles ? name : <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />}</button>
+                    <button aria-label={name} data-indicator-id={sourceId} className={`chart-study-pill max-md:min-h-11 ${renderedSelectedIndicatorId === sourceId ? "chart-study-pill-active" : ""}`} onClick={(event) => openIndicatorToolbar(sourceId, event)} title={`Edit ${name}`} type="button">{chartSettings.indicatorTitles ? name : <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />}</button>
                     <details className="min-w-0 max-w-full text-slate-400">
                       <summary className="min-h-6 cursor-pointer rounded px-1.5 py-1 text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 max-md:min-h-11">{studies.length} outputs</summary>
                       <div className="flex max-h-36 min-w-0 max-w-full flex-wrap gap-2 overflow-y-auto py-2 [&>button]:max-md:min-h-11">{buttons}</div>
@@ -3708,15 +3733,18 @@ export function TradingChart({
         <FloatingIndicatorToolbar
           indicator={selectedIndicator}
           onChange={(settings) => onUpdateIndicatorSettings(selectedIndicator.id, settings)}
+          onClose={closeIndicatorToolbar}
           onRemove={() => {
             onRemoveIndicator(selectedIndicator.id);
-            setSelectedIndicatorId(null);
-            setIndicatorToolbarPosition(null);
+            closeIndicatorToolbar();
           }}
           onPositionChange={(position) =>
             setIndicatorToolbarPosition(clampIndicatorToolbarPosition(position))
           }
-          onToggleVisibility={() => onToggleIndicatorVisibility(selectedIndicator.id)}
+          onToggleVisibility={() => {
+            onToggleIndicatorVisibility(selectedIndicator.id);
+            if (selectedIndicator.visible !== false) closeIndicatorToolbar();
+          }}
           position={indicatorToolbarPosition}
         />
       )}
@@ -5479,6 +5507,7 @@ function NativePineStudyPanel({ label, plots, priceChart, onOpenSettings, select
 function FloatingIndicatorToolbar({
   indicator,
   onChange,
+  onClose,
   onRemove,
   onPositionChange,
   onToggleVisibility,
@@ -5486,6 +5515,7 @@ function FloatingIndicatorToolbar({
 }: {
   indicator: ChartIndicatorInstance;
   onChange: (settings: Partial<IndicatorSettings>) => void;
+  onClose: () => void;
   onRemove: () => void;
   onPositionChange: (position: { x: number; y: number }) => void;
   onToggleVisibility: () => void;
@@ -5791,6 +5821,15 @@ function FloatingIndicatorToolbar({
           </button>
         </>
       )}
+      <button
+        aria-label="Close indicator settings"
+        className="chart-object-floating-button"
+        onClick={onClose}
+        title="Close indicator settings"
+        type="button"
+      >
+        <X aria-hidden="true" size={14} />
+      </button>
     </div>
   );
 }
