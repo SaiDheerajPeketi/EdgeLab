@@ -39,6 +39,10 @@ Public pages lead with the working product. The landing page places a full-width
 
 Landing chapters move into and out of view with scoped, reversible scroll timelines. Animate children of stable triggers, refresh after deferred content changes, keep horizontal movement within reserved space, and use vertical movement on narrow screens. Focused controls and reduced-motion content remain fully visible. Pricing links focus their local destinations; provider-dependent tools disclose their requirements separately from planned work.
 
+The EdgeLab mark is a forward-cut cyan E beside a grounded white L. Use the same 64-unit geometry in the interface, transparent SVG export, monochrome export and favicon. Keep the wordmark in Instrument Sans and retain the established cyan/white roles. The verified Black and Blue monogram accompanies the public footer's studio link; it remains distinct from EdgeLab's identity.
+
+The public hero's dimensional study uses 96 fixed synthetic OHLC candles, with Price, Decisions and Review views over the same data. Perspective changes the view, never the prices. The desktop sculpture shares the introduction; on mobile it follows the working chart in both reading and visual order. Three.js loads near the scene, renders on demand, pauses offscreen and releases its resources on exit. Its keyboard controls, synthetic-data summary and readable fallback remain available without autoplay. Working workflow examples expose replay transport, trade selection and review; pause intent survives scrolling away and back, and reduced motion preserves manual stepping.
+
 ## Non-goals
 
 No LuxAlgo visual clone, decorative glass everywhere, novelty motion in repeated workflows, invented proof, or replacement of expert tools with simplified substitutes.

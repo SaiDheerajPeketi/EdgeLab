@@ -14,6 +14,7 @@ import { useReducedMotionPreference } from "../lib/motionPreferences";
 import { useBetaProgramStatus } from "../lib/useBetaProgram";
 
 const HeroDemo = lazy(() => import("../components/marketing/HeroDemo").then((module) => ({ default: module.HeroDemo })));
+const MarketSculpture = lazy(() => import("../components/marketing/MarketSculpture").then((module) => ({ default: module.MarketSculpture })));
 const PricingSection = lazy(() => import("../components/marketing/PricingSection").then((module) => ({ default: module.PricingSection })));
 const PricingFaq = lazy(() => import("../components/marketing/PricingSection").then((module) => ({
   default: () => <module.FaqAccordion items={module.pricingFaqItems} />,
@@ -42,6 +43,8 @@ type WorkflowStep = {
   phase: string;
   step: string;
   title: string;
+  scenario?: "replay" | "review" | "results";
+  action?: string;
 };
 
 type MarketPulse = {
@@ -57,18 +60,24 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
     phase: "Replay",
     title: "Replay the decision, not just the candle.",
     body: "Walk price forward while entries, exits, sizing, and tempo remain visible in the same market context.",
+    scenario: "replay",
+    action: "Try it: step through the candles and inspect where the entry meets the price path.",
   },
   {
     step: "02",
     phase: "Journal",
     title: "Capture what you saw while it is still useful.",
     body: "Journal notes, mistake tags, and playbooks stay attached to the exact session behavior that produced them.",
+    scenario: "review",
+    action: "Try it: select a trade to read its decision notes and execution details together.",
   },
   {
     step: "03",
     phase: "Review",
     title: "Read the outcome beside the original context.",
     body: "Trades, notes, mistake tags, and session metrics keep the review grounded in what actually happened.",
+    scenario: "results",
+    action: "Explore the example breakdown, then return to the trade that produced it.",
   },
   {
     step: "04",
@@ -313,10 +322,10 @@ export function LandingPage() {
           tabIndex={-1}
         >
           <div className="relative mx-auto max-w-7xl">
-            <div className="grid gap-5 sm:gap-7 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)] lg:items-end lg:gap-16">
-              <div>
+            <div className="grid gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:items-center lg:gap-x-12 lg:gap-y-8">
+              <div className="order-1 min-w-0">
                 <h1
-                  className="max-w-4xl text-balance text-[clamp(2.65rem,6.4vw,5.2rem)] font-medium leading-[0.96] tracking-[-0.04em] text-white"
+                  className="max-w-4xl text-balance text-[clamp(2.65rem,5.5vw,4.7rem)] font-medium leading-[0.96] tracking-[-0.04em] text-white"
                   data-marketing-reveal="title"
                   data-motion="reveal"
                   data-reveal-delay="0.03"
@@ -333,10 +342,8 @@ export function LandingPage() {
                   Replay the market, capture your decisions, and review every trade in one
                   connected workspace.
                 </p>
-              </div>
-              <div>
                 <div
-                  className="flex flex-wrap items-center gap-3 lg:justify-start"
+                  className="mt-5 flex flex-wrap items-center gap-3 lg:justify-start"
                   data-marketing-reveal="hero-actions"
                   data-motion="reveal"
                   data-reveal-delay="0.12"
@@ -368,15 +375,18 @@ export function LandingPage() {
                   Private beta · temporary test workspaces
                 </p>
               </div>
-            </div>
 
-            <div className="mt-6 origin-top scroll-mt-28 sm:mt-8 lg:mt-10" data-landing-stage data-scroll-scene id="live-preview" tabIndex={-1}>
-              <div className="landing-motion-content" data-scene-content>
-                <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
-                <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
-                  Interactive product preview using illustrative market data.
-                  <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span>
-                </p>
+              <div className="order-2 min-w-0 origin-top scroll-mt-28 lg:order-3 lg:col-span-2" data-landing-stage data-scroll-scene id="live-preview" tabIndex={-1}>
+                <div className="landing-motion-content" data-scene-content>
+                  <Suspense fallback={<div aria-hidden="true" className="min-h-[32rem] rounded-el-lg bg-edgelab-surface" />}><HeroDemo /></Suspense>
+                  <p className="mt-3 text-xs leading-5 text-edgelab-text-secondary">
+                    Interactive product preview using illustrative market data.
+                    <span className="sm:hidden"> Private beta workspaces contain temporary test data.</span>
+                  </p>
+                </div>
+              </div>
+              <div className="order-3 min-w-0 lg:order-2">
+                <Suspense fallback={<div className="flex min-h-80 items-center border-y border-cyan-300/15 px-6 text-sm text-slate-300">A market. A decision. A trace. Preparing the 3D example…</div>}><MarketSculpture /></Suspense>
               </div>
             </div>
 
@@ -392,33 +402,37 @@ export function LandingPage() {
           data-scroll-scene
           tabIndex={-1}
         >
-          <div className="landing-motion-content mx-auto grid max-w-7xl gap-14 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1.38fr)] lg:gap-20" data-scene-content>
-            <div className="lg:sticky lg:top-32 lg:self-start">
+          <div className="mx-auto max-w-7xl">
+            <div className="landing-motion-content max-w-4xl" data-scene-content>
               <SectionHeading
                 description="Price action, decisions, and review move as one system instead of three disconnected tools."
                 title="One continuous loop."
               />
             </div>
 
-            <div className="border-t border-edgelab-border">
+            <div className="mt-14 border-t border-edgelab-border">
               {WORKFLOW_STEPS.map((step) => (
                 <article
-                  className="grid gap-5 border-b border-edgelab-border py-10 sm:grid-cols-[92px_minmax(0,1fr)] sm:gap-8 sm:py-14"
+                  className="border-b border-edgelab-border py-10 sm:py-16"
                   data-flow-row
                   key={step.step}
                 >
-                  <div className="flex items-center gap-3 self-start font-data text-xs text-edgelab-text-secondary">
-                    <span className="text-cyan-200">{step.step}</span>
-                    <span>{step.phase}</span>
-                  </div>
-                  <div className="landing-motion-content md:pr-16" data-flow-content>
-                    <h3 className="max-w-2xl text-2xl font-medium leading-tight tracking-[-0.025em] text-white sm:text-3xl">
+                  <div className="landing-motion-content grid gap-6 md:pr-16 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-16" data-flow-content>
+                    <h3 className="max-w-2xl text-3xl font-medium leading-tight tracking-[-0.025em] text-white sm:text-4xl">
                       {step.title}
                     </h3>
-                    <p className="mt-4 max-w-xl text-sm leading-7 text-edgelab-text-secondary sm:text-base sm:leading-8">
+                    <p className="max-w-xl self-end text-sm leading-7 text-edgelab-text-secondary sm:text-base sm:leading-8">
                       {step.body}
                     </p>
                   </div>
+                  {step.scenario ? <div className="mt-8 min-w-0" data-workflow-demo={step.scenario}>
+                    <DeferredMount fallback={<div className="min-h-96 border-y border-white/10 bg-[#050a10]" role="status" aria-label={`${step.phase} interactive example loading`} />}>
+                      <Suspense fallback={<div className="min-h-96 bg-[#050a10]" role="status" aria-label={`${step.phase} interactive example loading`} />}>
+                        <HeroDemo initialScenarioId={step.scenario} initialAutoplayActive={false} />
+                      </Suspense>
+                    </DeferredMount>
+                    <p className="mt-4 max-w-2xl text-sm leading-6 text-cyan-100">{step.action}</p>
+                  </div> : <a className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-cyan-100 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" href="#live-preview">Return to the working example <ArrowRight size={15} aria-hidden="true" /></a>}
                 </article>
               ))}
             </div>

@@ -1219,10 +1219,19 @@ function ReviewMetric({
   );
 }
 
-export function HeroDemo() {
-  const [selectedScenarioId, setSelectedScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
-  const [visibleScenarioId, setVisibleScenarioId] = useState(SCENARIOS[0]?.id ?? "replay");
-  const [autoplayActive, setAutoplayActive] = useState(true);
+export type HeroDemoProps = {
+  initialScenarioId?: string;
+  initialAutoplayActive?: boolean;
+};
+
+export function HeroDemo({
+  initialScenarioId,
+  initialAutoplayActive,
+}: HeroDemoProps = {}) {
+  const [selectedScenarioId, setSelectedScenarioId] = useState(initialScenarioId ?? SCENARIOS[0]?.id ?? "replay");
+  const [visibleScenarioId, setVisibleScenarioId] = useState(initialScenarioId ?? SCENARIOS[0]?.id ?? "replay");
+  const [autoplayActive, setAutoplayActive] = useState(initialAutoplayActive ?? true);
+  const [demoVisible, setDemoVisible] = useState(true);
   const reducedMotion = useReducedMotionPreference();
   const [selectedReviewTradeId, setSelectedReviewTradeId] = useState<number | null>(
     SCENARIOS.find((item) => item.id === "review")?.featuredTradeId ??
@@ -1238,7 +1247,6 @@ export function HeroDemo() {
   const flipPluginRef = useRef<GsapPlugins["Flip"] | null>(null);
   const pendingFlipStateRef = useRef<unknown>(null);
   const selectedScenarioIdRef = useRef(selectedScenarioId);
-
   const scenario = useMemo(
     () => SCENARIOS.find((item) => item.id === visibleScenarioId) ?? SCENARIOS[0],
     [visibleScenarioId],
@@ -1273,17 +1281,13 @@ export function HeroDemo() {
   }, []);
 
   useEffect(() => {
-    if (!scenario || !autoplayActive) {
-      return;
-    }
-
     const nextInitialCursor = Math.max(0, Math.min(112, scenario.bars.length - 1));
-
     setCurrentBarIndex(nextInitialCursor);
+  }, [scenario]);
 
-    if (reducedMotion) {
-      return;
-    }
+  useEffect(() => {
+    if (scenario.id !== "replay" || !autoplayActive || !demoVisible || reducedMotion) return;
+    const nextInitialCursor = Math.max(0, Math.min(112, scenario.bars.length - 1));
 
     const timer = window.setInterval(() => {
       setCurrentBarIndex((current) => {
@@ -1295,7 +1299,7 @@ export function HeroDemo() {
     }, 280);
 
     return () => window.clearInterval(timer);
-  }, [autoplayActive, reducedMotion, scenario]);
+  }, [autoplayActive, demoVisible, reducedMotion, scenario]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -1307,6 +1311,10 @@ export function HeroDemo() {
     let cancelled = false;
     let intersectionObserver: IntersectionObserver | null = null;
     let observer: { kill(): void } | null = null;
+    let intersecting = true;
+    const updateVisibility = () => setDemoVisible(intersecting && !document.hidden);
+    document.addEventListener("visibilitychange", updateVisibility);
+    updateVisibility();
 
     const stepScenario = (direction: 1 | -1) => {
       const currentIndex = SCENARIOS.findIndex(
@@ -1320,7 +1328,7 @@ export function HeroDemo() {
 
     if ("IntersectionObserver" in window) {
       intersectionObserver = new IntersectionObserver(
-        ([entry]) => setAutoplayActive(entry?.isIntersecting ?? true),
+        ([entry]) => { intersecting = entry?.isIntersecting ?? true; updateVisibility(); },
         { rootMargin: "160px 0px" },
       );
       intersectionObserver.observe(root);
@@ -1350,6 +1358,7 @@ export function HeroDemo() {
     return () => {
       cancelled = true;
       intersectionObserver?.disconnect();
+      document.removeEventListener("visibilitychange", updateVisibility);
       observer?.kill();
     };
   }, [reducedMotion]);
@@ -1460,6 +1469,7 @@ export function HeroDemo() {
   return (
     <div
       className="group/demo w-full max-w-full min-w-0 overflow-hidden rounded-xl bg-[#050a10] shadow-[0_32px_80px_rgba(0,0,0,0.35)]"
+      data-replay-cursor={currentBarIndex}
       ref={rootRef}
     >
       <div className="border-b border-white/10 px-4 py-3 sm:px-5">
@@ -1504,6 +1514,15 @@ export function HeroDemo() {
         {scenario.id === "replay" ? (
           <div>
             <MarketingCandleSurface currentBarIndex={currentBarIndex} scenario={scenario} />
+            <div className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center" aria-label="Replay controls" role="group">
+              <div className="flex flex-wrap gap-2">
+                <button aria-label={autoplayActive ? "Pause replay" : "Play replay"} className="min-h-11 rounded-md border border-white/15 px-3 text-xs font-medium text-cyan-100 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-400" disabled={reducedMotion} onClick={() => setAutoplayActive((active) => !active)} type="button">{reducedMotion ? "Autoplay off" : autoplayActive ? "Pause" : "Play"}</button>
+                <button aria-label="Previous candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" disabled={currentBarIndex <= 0} onClick={() => { setAutoplayActive(false); setCurrentBarIndex((index) => Math.max(0, index - 1)); }} type="button">Previous</button>
+                <button aria-label="Next candle" className="min-h-11 rounded-md border border-white/15 px-3 text-xs text-slate-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:text-slate-500" disabled={currentBarIndex >= scenario.bars.length - 1} onClick={() => { setAutoplayActive(false); setCurrentBarIndex((index) => Math.min(scenario.bars.length - 1, index + 1)); }} type="button">Next</button>
+              </div>
+              <label className="flex min-h-11 min-w-0 items-center"><span className="sr-only">Replay position</span><input className="h-11 w-full accent-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200" max={scenario.bars.length - 1} min={0} onChange={(event) => { setAutoplayActive(false); setCurrentBarIndex(Number(event.target.value)); }} step={1} type="range" value={currentBarIndex} /></label>
+              <span className="font-data text-xs tabular-nums text-slate-300">Candle {currentBarIndex + 1} / {scenario.bars.length}</span>
+            </div>
           </div>
         ) : null}
 

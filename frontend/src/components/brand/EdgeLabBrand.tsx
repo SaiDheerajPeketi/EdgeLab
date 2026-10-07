@@ -1,5 +1,3 @@
-import { useId } from "react";
-
 type EdgeLabMarkProps = {
   className?: string;
 };
@@ -33,52 +31,11 @@ const WORDMARK_SIZE_STYLES = {
 } as const;
 
 export function EdgeLabMark({ className = "" }: EdgeLabMarkProps) {
-  const eGradientId = useId();
-  const labGradientId = useId();
-  const lineGradientId = useId();
-
   return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      viewBox="0 0 160 160"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <defs>
-        <linearGradient id={eGradientId} x1="30" x2="116" y1="30" y2="118" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#67e8f9" />
-          <stop offset="1" stopColor="#22d3ee" />
-        </linearGradient>
-        <linearGradient id={labGradientId} x1="82" x2="152" y1="118" y2="46" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#0ea5e9" />
-          <stop offset="1" stopColor="#2563eb" />
-        </linearGradient>
-        <linearGradient id={lineGradientId} x1="82" x2="130" y1="102" y2="60" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#cffafe" />
-          <stop offset="1" stopColor="#38bdf8" />
-        </linearGradient>
-      </defs>
-
-      <path
-        d="M47 27H121L105 47H60C53 47 49 51 48 58L45 70H100L84 89H40L37 102C35 111 40 117 49 117H88L72 136H39C20 136 10 122 15 103L27 52C31 36 37 27 47 27Z"
-        fill={`url(#${eGradientId})`}
-      />
-      <path d="M49 64H96L81 82H45L49 64Z" fill="#061018" opacity="0.92" />
-      <path d="M53 97H96L80 117H49L53 97Z" fill="#061018" opacity="0.92" />
-      <path d="M83 136L124 82L139 60L126 116H151L136 136H83Z" fill={`url(#${labGradientId})`} />
-      <path d="M92 136L102 112H119L113 136H92Z" fill="#bae6fd" opacity="0.95" />
-      <path d="M120 136L132 88L143 74L136 136H120Z" fill="#7dd3fc" opacity="0.88" />
-      <path
-        d="M82 106L100 99L115 82L130 67"
-        fill="none"
-        stroke={`url(#${lineGradientId})`}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="5"
-      />
-      <circle cx="82" cy="106" fill="#e0f7ff" r="6" />
-      <circle cx="100" cy="99" fill="#bff4ff" r="5.5" />
-      <circle cx="115" cy="82" fill="#8eeaff" r="5.5" />
+    <svg aria-hidden="true" className={className} viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      {/* EdgeLab's forward-cut E and grounded L. Keep these paths in sync with public brand exports. */}
+      <path d="M7 10h34l-7 8H17v10h18l-7 8H17v10h24l-7 8H7Z" fill="#67e8f9" />
+      <path d="M43 26h10v20h9l-7 8H43Z" fill="#f4f7fa" />
     </svg>
   );
 }

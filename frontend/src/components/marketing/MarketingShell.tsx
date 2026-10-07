@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { EdgeLabWordmark as EdgeLabBrandWordmark } from "../brand/EdgeLabBrand";
+import { StudioAttribution } from "../brand/StudioAttribution";
 import { isBetaMode } from "../../lib/deploymentMode";
 import { loadGsap, prefersReducedMotion, type GsapPlugins } from "../../lib/gsap";
 import { buildMarketingCta } from "../../lib/marketingCta";
@@ -634,6 +635,7 @@ export function MarketingShell({
               <p className="mt-5 text-xs text-edgelab-text-secondary">
                 Research software only. EdgeLab does not provide financial advice.
               </p>
+              <StudioAttribution />
             </div>
 
             <nav aria-label="Footer navigation" className="grid gap-3 text-sm text-edgelab-text-secondary sm:text-right">

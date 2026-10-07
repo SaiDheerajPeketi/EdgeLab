@@ -19,6 +19,9 @@ export default defineConfig({
           if (!normalizedId.includes("/node_modules/")) {
             return undefined;
           }
+          if (normalizedId.includes("/node_modules/three/")) {
+            return "market-3d";
+          }
           if (normalizedId.includes("/node_modules/lucide-react/")) {
             return "icon-vendor";
           }
