@@ -238,3 +238,64 @@ test("timeouts and cancellation terminate infinite workers while the parent stay
   expect((await run(page)).ok).toBe(true);
   expect(harness.endpointRequests).toEqual([]);
 });
+
+
+test("production worker treats past and future snapshots as closed historical bars in both modes", async ({ page, harness }) => {
+  test.setTimeout(60_000);
+  const states = ["ishistory", "isrealtime", "isconfirmed", "isnew", "isfirst", "islast", "islastconfirmedhistory"];
+  for (const version of [5, 6]) for (const mode of ["historical", "live"]) for (const count of [1, 4]) for (const start of [946_684_800, 4_102_444_800]) {
+    const snapshot = bars.slice(0, count).map((bar, index) => ({ ...bar, time: start + index * 60 }));
+    const source = `//@version=${version}\nindicator("Closed states")\n` + states.map((state) => `plot(barstate.${state} ? 1 : 0,"${state}")`).join("\n");
+    const output = await run(page, { ...runtimeRequest(source), bars: snapshot, mode });
+    expect(output.ok, `${version} ${mode} ${count} ${start}: ${JSON.stringify(output.error)}`).toBe(true);
+    expect(output.value.source).toBe(source);
+    expect(output.value).toMatchObject({ pineVersion: version, audit: { bars: count, mode, engine: "PineTS", engineVersion: "0.11.0" } });
+    const ones = Array(count).fill(1), zeros = Array(count).fill(0);
+    expect(Object.fromEntries(output.value.plots.map((plot: any) => [plot.name, plot.points.map((point: any) => point.value)]))).toEqual({
+      ishistory: ones, isrealtime: zeros, isconfirmed: ones, isnew: ones,
+      isfirst: ones.map((_, index) => index === 0 ? 1 : 0), islast: ones.map((_, index) => index === count - 1 ? 1 : 0),
+      islastconfirmedhistory: ones.map((_, index) => index === count - 1 ? 1 : 0),
+    });
+    for (const plot of output.value.plots) expect(plot.points.map((point: any) => point.time)).toEqual(snapshot.map((bar) => bar.time));
+    expect(output.value.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: "CLOSED_BAR_SNAPSHOT", severity: "warning" })]));
+    await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  }
+  expect(harness.endpointRequests).toEqual([]);
+});
+
+test("production worker guards resolved strategy flags before orders and keeps false-alias next-open fills", async ({ page, harness }) => {
+  test.setTimeout(60_000);
+  const flags = ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"];
+  const snapshot = Array.from({ length: 6 }, (_, index) => ({ time: 1_700_000_040 + index * 60, open: index + 1, high: index + 2, low: index, close: index + 1, volume: 10 }));
+  const aliases = [
+    { prefix: "const bool enabled = true", inputs: {} },
+    { prefix: 'enabled = input.bool(false,"Recalculate")', inputs: { in_0: true } },
+  ];
+  for (const version of [5, 6]) for (const flag of flags) for (const alias of aliases) {
+    const source = `//@version=${version}\n${alias.prefix}\nstrategy("Resolved flag",${flag}=enabled)\nstrategy.entry("L",strategy.long)\nplot(not_a_real_function(close))`;
+    const output = await run(page, { ...runtimeRequest(source), bars: snapshot, inputs: alias.inputs });
+    expect(output).toMatchObject({ ok: false, error: { code: "UNSUPPORTED_EXECUTION_SETTING" } });
+    expect(output.error!.message).toContain(flag);
+    expect(output.value).toBeUndefined();
+    await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  }
+  for (const version of [5, 6]) for (const alias of [
+    { prefix: "const bool disabled = false", inputs: {} },
+    { prefix: 'disabled = input.bool(true,"Recalculate")', inputs: { in_0: false } },
+  ]) {
+    const source = `//@version=${version}\n${alias.prefix}\nstrategy("False alias ledger",initial_capital=1000,${flags.map((flag) => `${flag}=disabled`).join(",")})\nif barstate.ishistory and barstate.isconfirmed and bar_index == 1\n    strategy.entry("L",strategy.long,qty=2)\nif bar_index == 3\n    strategy.close("L")`;
+    const output = await run(page, { ...runtimeRequest(source), bars: snapshot, inputs: alias.inputs });
+    expect(output.ok, JSON.stringify(output.error)).toBe(true);
+    expect(output.value.source).toBe(source);
+    for (const flag of flags) expect(output.value.strategy.config[flag]).toBe(false);
+    expect(output.value.strategy.closedTrades).toHaveLength(1);
+    expect(output.value.strategy.closedTrades[0]).toMatchObject({ entry_bar_index: 2, exit_bar_index: 4, entry_time: snapshot[2].time, exit_time: snapshot[4].time, entry_price: 3, exit_price: 5, profit: 4 });
+    expect(output.value.strategy.metrics.netprofit).toBe(4);
+    expect(output.value.strategy.openTrades).toEqual([]);
+    expect(output.value.strategy.pendingOrders).toEqual([]);
+    await expect(page.locator('iframe[sandbox="allow-scripts"]')).toHaveCount(0);
+  }
+  expect(harness.endpointRequests).toEqual([]);
+  await expect(page.locator("#parent-secret")).toHaveText("Parent workspace secret");
+  expect(await page.evaluate(() => localStorage.getItem("workspace-secret"))).toBe("private-value");
+});

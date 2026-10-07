@@ -133,3 +133,72 @@ test("plot count allows eight real plots and refuses a ninth", async () => {
   assert.equal((await pine.executePineRequest(request({ source: many(8) }))).plots.length, 8);
   await assert.rejects(pine.executePineRequest(request({ source: many(9) })), fails("PLOT_LIMIT"));
 });
+
+
+const values = (result) => Object.fromEntries(result.plots.map((plot) => [plot.name, plot.points.map((point) => point.value)]));
+
+test("closed historical and live snapshots expose exact bar states independent of timestamp", async () => {
+  for (const version of [5, 6]) for (const mode of ["historical", "live"]) for (const count of [1, 4]) for (const start of [946_684_800, 4_102_444_800]) {
+    const snapshot = bars.slice(0, count).map((bar, index) => ({ ...bar, time: start + index * 60 }));
+    const native = `//@version=${version}\nindicator("States")\n` + ["ishistory", "isrealtime", "isconfirmed", "isnew", "isfirst", "islast", "islastconfirmedhistory"].map((state) => `plot(barstate.${state} ? 1 : 0,"${state}")`).join("\n");
+    const result = await pine.executePineRequest(request({ source: native, bars: snapshot, mode }));
+    const ones = Array(count).fill(1), zeros = Array(count).fill(0);
+    assert.deepEqual(values(result), { ishistory: ones, isrealtime: zeros, isconfirmed: ones, isnew: ones,
+      isfirst: ones.map((_, index) => index === 0 ? 1 : 0), islast: ones.map((_, index) => index === count - 1 ? 1 : 0), islastconfirmedhistory: ones.map((_, index) => index === count - 1 ? 1 : 0) }, `${version} ${mode} ${count} ${start}`);
+    assert.equal(result.source, native);
+    assert.equal(result.audit.mode, mode);
+    assert.deepEqual(result.plots[0].points.map((point) => point.time), snapshot.map((bar) => bar.time));
+  }
+});
+
+test("historical persistent variables and committed history retain native v5/v6 semantics", async () => {
+  for (const version of [5, 6]) for (const mode of ["historical", "live"]) {
+    const native = `//@version=${version}\nindicator("History")\nint regular = 0\nregular += 10\nvar int persistent = 0\nvarip int intrabar = 0\nif barstate.isnew and barstate.isconfirmed\n    persistent += 10\n    intrabar += 10\nplot(regular,"regular")\nplot(persistent,"var")\nplot(intrabar,"varip")\nplot(persistent[1],"var history")\nplot(close[1],"close history")\nplot(5 / 2,"division")`;
+    const result = await pine.executePineRequest(request({ source: native, mode }));
+    assert.deepEqual(values(result), { regular: [10, 10, 10, 10, 10, 10], var: [10, 20, 30, 40, 50, 60], varip: [10, 20, 30, 40, 50, 60],
+      "var history": [null, 10, 20, 30, 40, 50], "close history": [null, 1, 2, 3, 4, 5], division: Array(6).fill(version === 5 ? 2 : 2.5) });
+    assert.equal(result.source, native);
+  }
+});
+
+test("strategy recalculation settings reject true literals, constants and resolved inputs before the body runs", async () => {
+  for (const version of [5, 6]) for (const setting of ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"]) {
+    for (const [prefix, expression, inputs] of [["", "true", {}], ["const bool enabled = true\n", "enabled", {}], ['enabled = input.bool(false,"Recalculate")\n', "enabled", { in_0: true }]]) {
+      const native = `//@version=${version}\n${prefix}strategy("Recalculate",${setting}=${expression})\nstrategy.entry("L",strategy.long)\nplot(not_a_real_function(close))`;
+      await assert.rejects(pine.executePineRequest(request({ source: native, inputs })), (error) => {
+        assert.equal(error.code, "UNSUPPORTED_EXECUTION_SETTING"); assert.match(error.message, new RegExp(setting)); return true;
+      });
+    }
+  }
+});
+
+test("false strategy aliases normalize to booleans and retain the actual next-bar ledger", async () => {
+  for (const version of [5, 6]) for (const prefix of ["const bool disabled = false", 'disabled = input.bool(true,"Recalculate")']) {
+    const native = `//@version=${version}\n${prefix}\nstrategy("False aliases",initial_capital=1000,calc_on_every_tick=disabled,calc_on_order_fills=disabled,calc_on_every_history_tick=disabled)\nif barstate.ishistory and barstate.isconfirmed and bar_index == 1\n    strategy.entry("L",strategy.long,qty=2)\nif bar_index == 3\n    strategy.close("L")`;
+    const result = await pine.executePineRequest(request({ source: native, inputs: prefix.startsWith("const") ? {} : { in_0: false } }));
+    for (const setting of ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"]) assert.equal(result.strategy.config[setting], false);
+    assert.equal(result.strategy.closedTrades.length, 1);
+    assert.deepEqual([result.strategy.closedTrades[0].entry_bar_index, result.strategy.closedTrades[0].exit_bar_index, result.strategy.closedTrades[0].profit], [2, 4, 4]);
+    assert.equal(result.strategy.metrics.netprofit, 4);
+    assert.equal(result.source, native);
+  }
+});
+
+test("preparation and execution disclose closed snapshots and unsupported strategy scheduling", async () => {
+  for (const declaration of ['indicator("Notice")', 'strategy("Notice",calc_on_order_fills=true)']) {
+    const native = `//@version=6\n${declaration}\nplot(close)`;
+    const prepared = await pine.executePineRequest(request({ action: "prepare", source: native }));
+    assert.equal(prepared.source, native);
+    const snapshotNotice = prepared.diagnostics.find((item) => item.code === "CLOSED_BAR_SNAPSHOT");
+    assert.equal(snapshotNotice.severity, "warning");
+    assert.match(snapshotNotice.message, /closed historical snapshots/); assert.match(snapshotNotice.message, /rollback/); assert.match(snapshotNotice.message, /varip/);
+    if (prepared.declaration === "strategy") {
+      const schedulingNotice = prepared.diagnostics.find((item) => item.code === "UNSUPPORTED_EXECUTION_SETTINGS");
+      assert.equal(schedulingNotice.severity, "warning"); assert.match(schedulingNotice.message, /calc_on_order_fills/);
+      await assert.rejects(pine.executePineRequest(request({ source: native })), fails("UNSUPPORTED_EXECUTION_SETTING"));
+    } else {
+      const result = await pine.executePineRequest(request({ source: native }));
+      assert.ok(result.diagnostics.some((item) => item.code === "CLOSED_BAR_SNAPSHOT"));
+    }
+  }
+});

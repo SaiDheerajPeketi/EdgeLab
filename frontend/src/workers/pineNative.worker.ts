@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { Indicator, PineTS, computeNextPeriodStart } from "pinets";
-import type { IProvider, ISymbolInfo, Kline } from "pinets";
+import type { Context, IProvider, ISymbolInfo, Kline, PreparedScript } from "pinets";
 import { PINE_LIMITS, PineProtocolError, canonicalPineTimeframe, pineSourceVersion, validatePineRequest, validatePineResponse } from "../lib/pineProtocol";
 import type { PineDiagnostic, PineExecutionResult, PineInputDefinition, PineInputValue, PinePlot, PinePrepareResult, PineRequest, PineResult, PineScalar, PineStrategyResult } from "../lib/pineProtocol";
 
@@ -155,20 +155,72 @@ function strategyResult(state: { config: object; closedtrades: object[]; opentra
   return { config: fields(state.config), metrics: fields(state, METRIC_FIELDS), closedTrades: trades(state.closedtrades), openTrades: trades(state.opentrades), pendingOrders: state.pending_orders.map((item) => { const order = fields(item, ORDER_FIELDS); if (typeof order.time === "number") order.time /= 1000; return order; }) };
 }
 
+const RECALCULATION_SETTINGS = ["calc_on_every_tick", "calc_on_order_fills", "calc_on_every_history_tick"] as const;
+function resolvedSetting(value: unknown): unknown {
+  if (value && typeof value === "object" && typeof (value as { get?: unknown }).get === "function") return (value as { get(index: number): unknown }).get(0);
+  return value;
+}
+
+/** Own-instance compatibility for PineTS 0.11.0; never rewrite Pine or patch engine prototypes. */
+function bindClosedSnapshot(prepared: PreparedScript, strategyDeclaration: boolean) {
+  const original = prepared.fn;
+  const installed = new WeakSet<Context>();
+  const wrapped = function(this: unknown, context: Context, ...args: unknown[]) {
+    if (!installed.has(context)) {
+      Object.defineProperties(context.pine.barstate, {
+        ishistory: { get: () => true },
+        isrealtime: { get: () => false },
+        isconfirmed: { get: () => true },
+        isnew: { get: () => true },
+        isfirst: { get: () => context.idx === 0 },
+        islast: { get: () => context.idx === context.length - 1 },
+        islastconfirmedhistory: { get: () => context.idx === context.length - 1 },
+      });
+      if (strategyDeclaration) {
+        const namespace = context.pine.strategy;
+        const descriptor = Object.getOwnPropertyDescriptor(namespace, "any");
+        if (!descriptor?.writable || typeof descriptor.value !== "function") error("UNSUPPORTED_EXECUTION_CONTEXT", "The native engine cannot enforce closed-snapshot strategy settings.");
+        const declare = descriptor.value;
+        Object.defineProperty(namespace, "any", { ...descriptor, value: function(this: unknown, ...settings: unknown[]) {
+          const config = Reflect.apply(declare, this, settings) as Record<string, unknown>;
+          for (const key of RECALCULATION_SETTINGS) {
+            const resolved = resolvedSetting(config[key]);
+            if (resolved === true) error("UNSUPPORTED_EXECUTION_SETTING", `${key}=true requires tick or fill recalculation, which closed-snapshot execution does not support.`);
+            if (resolved !== false && resolved !== undefined) error("UNSUPPORTED_EXECUTION_SETTING", `${key} must resolve to false for closed-snapshot execution.`);
+            if (resolved === false) config[key] = false;
+          }
+          return config;
+        } });
+      }
+      installed.add(context);
+    }
+    return Reflect.apply(original, this, [context, ...args]);
+  };
+  // The engine reads this tag to select v5/v6 semantics before the first execution.
+  const version = Object.getOwnPropertyDescriptor(original, "_pineVersion");
+  if (version) Object.defineProperty(wrapped, "_pineVersion", version);
+  prepared.fn = wrapped;
+}
+
 /** Called only inside the isolated worker; exported for deterministic engine fixtures. */
 export async function executePineRequest(value: unknown): Promise<PineResult> {
   const request = validatePineRequest(value);
   const started = performance.now();
   const indicator = new Indicator(request.source, request.inputs ?? {});
-  try { indicator.prepare({ debug: false, ln: false }); } catch (cause) {
+  let prepared: PreparedScript;
+  try { prepared = indicator.prepare({ debug: false, ln: false }); } catch (cause) {
     error("COMPILE_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine compilation failed.");
   }
   const declaration = indicator.getDeclarationType();
   if (!declaration) error("DECLARATION_REQUIRED", "Native Pine requires an indicator() or strategy() declaration.");
   const inputDefinitions = definitions(indicator);
   const inputs = runtimeInputs(request, inputDefinitions);
-  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, inputDefinitions, diagnostics: [] };
+  const descriptor: PinePrepareResult = { kind: "prepare", source: request.source, language: "pine", pineVersion: pineSourceVersion(request.source), declaration, name: displayName(request.source, declaration), overlay: indicator.prop.overlay === true, inputDefinitions, diagnostics: [
+    warning("CLOSED_BAR_SNAPSHOT", "Supplied bars are treated as closed historical snapshots, including the final bar. Live mode reloads snapshots; intrabar updates, realtime rollback and varip tick persistence are unavailable."),
+    ...(declaration === "strategy" ? [warning("UNSUPPORTED_EXECUTION_SETTINGS", "Strategy tick, fill and historical-tick recalculation are unavailable. Enabled calc_on_every_tick, calc_on_order_fills or calc_on_every_history_tick settings fail execution.")] : []),
+  ] };
   if (request.action === "prepare") return validatePineResponse({ id: request.id, status: "completed", result: descriptor }, request);
+  bindClosedSnapshot(prepared, declaration === "strategy");
   const local = chartProvider(request);
   const engine = new PineTS(local.provider, request.context!.symbol, request.context!.timeframe, request.bars!.length);
   engine.setMaxLoops(PINE_LIMITS.loops);
@@ -180,7 +232,7 @@ export async function executePineRequest(value: unknown): Promise<PineResult> {
     error("RUNTIME_ERROR", cause instanceof Error ? cause.message.slice(0, 4_096) : "Native Pine execution failed.");
   }
   if (local.unavailable()) throw local.unavailable();
-  const diagnostics = [warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
+  const diagnostics = [...descriptor.diagnostics, warning("SNAPSHOT_CONTEXT", "Execution uses the supplied OHLCV snapshot with UTC, a 24x7 session and USD currency; exchange sessions, tick history and additional market data are unavailable.")];
   if (request.context!.mintick === undefined || request.context!.pointvalue === undefined) diagnostics.push(warning("DEFAULT_SYMBOL_METADATA", "Missing chart mintick or pointvalue uses 0.01 and 1 respectively; supply instrument metadata for tick-based orders and contract P&L."));
   for (const item of context.warnings ?? []) {
     if (diagnostics.length >= PINE_LIMITS.diagnostics) break;
