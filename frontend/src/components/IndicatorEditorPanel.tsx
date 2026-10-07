@@ -39,6 +39,9 @@ import {
 import { createCustomScriptRuntimeJob } from "../lib/customScriptRuntime";
 import { createPineRuntimeJob } from "../lib/pineRuntime";
 import type { PineExecutionResult, PinePrepareResult } from "../lib/pineProtocol";
+import { sanitizePineCatalogProvenance, type PineCatalogImport, type PineCatalogProvenance } from "../lib/pineCatalog";
+import { sourceSha256 } from "../lib/sourceSha256";
+import { PineCatalogBrowser } from "./PineCatalogBrowser";
 import { PineInputControl } from "./PineInputControl";
 import { PineStrategyResults } from "./PineStrategyResults";
 import { Dialog, IconButton } from "./ui/Primitives";
@@ -47,6 +50,7 @@ type EditorRequest = {
   nonce: number;
   scriptId?: string;
   source?: string;
+  catalogOrigin?: PineCatalogProvenance;
 };
 
 type Props = {
@@ -85,7 +89,8 @@ export function IndicatorEditorPanel({
   const [completionOpen, setCompletionOpen] = useState(false);
   const [completionIndex, setCompletionIndex] = useState(0);
   const [runState, setRunState] = useState<{ detail: string; status: "idle" | "running" | "success" | "error" }>({ detail: "", status: "idle" });
-  const [revisionSource, setRevisionSource] = useState("");
+  const [historyRevision, setHistoryRevision] = useState<number | null>(null);
+  const [catalogOrigin, setCatalogOrigin] = useState<PineCatalogProvenance | undefined>();
   const [quantSemanticsWarning, setQuantSemanticsWarning] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PinePrepareResult | null>(null);
   const [execution, setExecution] = useState<PineExecutionResult | null>(null);
@@ -101,6 +106,11 @@ export function IndicatorEditorPanel({
   const userScripts = scripts.filter((script) => script.origin === "user");
   const selectedScript = scripts.find((script) => script.id === selectedId) ?? null;
   const pine = isPineScriptSource(source);
+  const matchesSelected = Boolean(selectedScript && selectedScript.source === source
+    && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs)
+    && JSON.stringify(selectedScript.catalogOrigin) === JSON.stringify(catalogOrigin));
+  const originalCatalogSource = useMemo(() => Boolean(catalogOrigin && sourceSha256(source) === catalogOrigin.sourceSha256), [source, catalogOrigin?.sourceSha256]);
+  const draftPineVersion = source.match(/^[ \t\uFEFF]*\/\/@version=(\d+)/m)?.[1];
   const parsed = useMemo(() => parseEdgeIndicator(pine ? "" : source), [pine, source]);
   const currentPrepared = prepared?.source === source ? prepared : null;
   const canSave = pine ? Boolean(currentPrepared) : Boolean(parsed.program);
@@ -142,6 +152,8 @@ export function IndicatorEditorPanel({
     setSelectedId(requested?.id ?? "");
     changeSource(request.source ?? requested?.source ?? DEFAULT_EDGE_INDICATOR_SOURCE, requested?.pinePrepared ?? null);
     setInputs(requested?.inputs ?? {});
+    setCatalogOrigin(sanitizePineCatalogProvenance(request.catalogOrigin ?? requested?.catalogOrigin));
+    setHistoryRevision(null);
     setRunState({ detail: "", status: "idle" });
     setQuantSemanticsWarning(null);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
@@ -167,7 +179,8 @@ export function IndicatorEditorPanel({
     setSelectedId(script.id);
     changeSource(script.source, script.pinePrepared ?? null);
     setInputs(script.inputs);
-    setRevisionSource("");
+    setCatalogOrigin(script.catalogOrigin);
+    setHistoryRevision(null);
     setRunState({ detail: "", status: "idle" });
     setQuantSemanticsWarning(null);
   }
@@ -186,6 +199,7 @@ export function IndicatorEditorPanel({
       source,
       synonyms: selectedScript?.synonyms ?? [],
       quantSemantics: selectedScript?.quantSemantics,
+      catalogOrigin,
     }, { clearIncompatibleQuantSemantics, pinePrepared: currentPrepared ?? undefined });
     if (result.quantSemanticsWarning) {
       setQuantSemanticsWarning(result.quantSemanticsWarning);
@@ -203,6 +217,8 @@ export function IndicatorEditorPanel({
     }
     if (attempt !== attemptRef.current || !currentOwner()) return null;
     setSelectedId(result.script.id);
+    setCatalogOrigin(result.script.catalogOrigin);
+    setHistoryRevision(null);
     setQuantSemanticsWarning(null);
     setRunState({ detail: `Saved revision ${result.script.revision} locally; server sync is queued.`, status: "success" });
     return result.script;
@@ -211,7 +227,7 @@ export function IndicatorEditorPanel({
   async function duplicate() {
     if (!currentOwner()) return;
     const attempt = attemptRef.current;
-    const base = selectedScript?.source === source && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs) ? selectedScript : await save();
+    const base = matchesSelected ? selectedScript : await save();
     if (!base) return;
     const copy = duplicateCustomIndicator(base);
     const baseScripts = base.origin === "user" ? [base, ...userScripts.filter((script) => script.id !== base.id)] : userScripts;
@@ -221,6 +237,8 @@ export function IndicatorEditorPanel({
     setSelectedId(copy.id);
     changeSource(copy.source, copy.pinePrepared ?? null);
     setInputs(copy.inputs);
+    setCatalogOrigin(copy.catalogOrigin);
+    setHistoryRevision(null);
   }
 
   async function remove() {
@@ -234,6 +252,19 @@ export function IndicatorEditorPanel({
     setSelectedId("");
     changeSource(DEFAULT_EDGE_INDICATOR_SOURCE);
     setInputs({});
+    setCatalogOrigin(undefined);
+    setHistoryRevision(null);
+  }
+
+  function importCatalog(script: PineCatalogImport) {
+    if (!currentOwner()) return;
+    setSelectedId("");
+    changeSource(script.source);
+    setInputs({});
+    setCatalogOrigin(sanitizePineCatalogProvenance(script.provenance));
+    setHistoryRevision(null);
+    setCompletionOpen(false);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function rename(value: string) {
@@ -302,7 +333,7 @@ export function IndicatorEditorPanel({
 
   async function addToChart() {
     if (!currentOwner()) return;
-    const saved = selectedScript?.origin === "user" && selectedScript.source === source && JSON.stringify(selectedScript.inputs) === JSON.stringify(inputs) ? selectedScript : await save();
+    const saved = selectedScript?.origin === "user" && matchesSelected ? selectedScript : await save();
     if (!saved || !canSave) return;
     onAddToChart({ ...saved, inputs }, inputs);
   }
@@ -345,7 +376,7 @@ export function IndicatorEditorPanel({
   }
 
   const history = selectedScript?.origin === "user"
-    ? [...selectedScript.versions, { createdAt: selectedScript.updatedAt, revision: selectedScript.revision, source: selectedScript.source }]
+    ? [...selectedScript.versions, { createdAt: selectedScript.updatedAt, revision: selectedScript.revision, source: selectedScript.source, catalogOrigin: selectedScript.catalogOrigin }]
     : [];
 
   return (
@@ -359,7 +390,7 @@ export function IndicatorEditorPanel({
             <label className="sr-only" htmlFor="edge-new-template">New script template</label>
             <select className="input-control h-8 max-w-40 text-xs" id="edge-new-template" value="" onChange={(event) => {
               const next = event.target.value === "pine-indicator" ? DEFAULT_PINE_INDICATOR_SOURCE : event.target.value === "pine-strategy" ? DEFAULT_PINE_STRATEGY_SOURCE : DEFAULT_EDGE_INDICATOR_SOURCE;
-              setSelectedId(""); changeSource(next); setInputs({}); setRevisionSource("");
+              setSelectedId(""); changeSource(next); setInputs({}); setHistoryRevision(null); setCatalogOrigin(undefined);
             }}><option value="" disabled>New script…</option><option value="edge">EdgeLab DSL</option><option value="pine-indicator">Pine indicator</option><option value="pine-strategy">Pine strategy</option></select>
             <button className="studio-tool-button" disabled={!canSave} onClick={duplicate} type="button"><Copy size={13} /> Duplicate</button>
             <button className="studio-tool-button" disabled={!selectedScript || selectedScript.origin !== "user"} onClick={remove} type="button"><Trash2 size={13} /> Delete</button>
@@ -369,7 +400,7 @@ export function IndicatorEditorPanel({
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-y-auto lg:grid-cols-[210px_minmax(0,1fr)_320px] lg:overflow-hidden">
+        <div className="grid min-h-0 flex-1 auto-rows-max content-start grid-cols-[minmax(0,1fr)] overflow-y-auto lg:auto-rows-auto lg:content-stretch lg:grid-cols-[210px_minmax(0,1fr)_320px] lg:overflow-hidden">
           <aside className="min-h-0 min-w-0 border-b border-white/10 p-3 lg:overflow-y-auto lg:border-b-0 lg:border-r">
             <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300" htmlFor="edge-script-library">Script library</label>
             <select className="input-control mt-2 h-9 w-full text-xs" id="edge-script-library" onChange={(event) => selectScript(event.target.value)} value={selectedId}>
@@ -384,14 +415,25 @@ export function IndicatorEditorPanel({
             <label className="mt-4 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300" htmlFor="edge-script-name">Name</label>
             <input className="input-control mt-2 h-9 w-full text-xs" id="edge-script-name" readOnly={pine} onChange={(event) => rename(event.target.value)} value={currentPrepared?.name ?? parsed.program?.name ?? ""} />
             {pine ? <p className="mt-1 text-[11px] leading-4 text-slate-300">Change the title in indicator() or strategy(), then check the script.</p> : null}
+            {catalogOrigin ? <section aria-label="Catalog source attribution" className="mt-4 min-w-0 break-words text-xs leading-5 text-slate-300">
+              <p className="font-semibold text-white">{originalCatalogSource ? "Unmodified original source" : "Edited user copy"}</p>
+              <p>{catalogOrigin.author} · {catalogOrigin.license}</p>
+              <p>Original Pine v{catalogOrigin.originalPineVersion} · {pine ? draftPineVersion ? `Draft Pine v${draftPineVersion}` : "Draft version missing" : "EdgeLab DSL draft"}</p>
+              <p>Upstream revision <span className="font-mono" title={catalogOrigin.upstreamCommit}>{catalogOrigin.upstreamCommit.slice(0, 8)}</span></p>
+              <p>Base source hash <span className="font-mono" title={catalogOrigin.sourceSha256}>{catalogOrigin.sourceSha256.slice(0, 12)}</span></p>
+              <div className="mt-1 flex flex-wrap gap-x-3"><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={catalogOrigin.originUrl} target="_blank" rel="noreferrer">Upstream source</a><a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href={`/catalog/pine/everget/${catalogOrigin.upstreamCommit}/LICENSE.txt`} target="_blank" rel="noreferrer">GPL licence</a></div>
+            </section> : null}
             <div className="mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300"><History size={13} /> Version history</div>
-            <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setRevisionSource(version.source); changeSource(version.source); setInputs({}); } else if (selectedScript) { setRevisionSource(""); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); } }} value={revisionSource ? history.find((item) => item.source === revisionSource)?.revision ?? "" : ""}>
+            <select aria-label="Version history" className="input-control mt-2 h-9 w-full text-xs" disabled={history.length === 0} onChange={(event) => { const version = history.find((item) => item.revision === Number(event.target.value)); if (version) { setHistoryRevision(version.revision); changeSource(version.source); setInputs({}); setCatalogOrigin(version.catalogOrigin); } else if (selectedScript) { setHistoryRevision(null); changeSource(selectedScript.source, selectedScript.pinePrepared ?? null); setInputs(selectedScript.inputs); setCatalogOrigin(selectedScript.catalogOrigin); } }} value={historyRevision ?? ""}>
               <option value="">Current source</option>
               {[...history].reverse().map((version) => <option key={`${version.revision}-${version.createdAt}`} value={version.revision}>v{version.revision} · {new Date(version.createdAt).toLocaleDateString()}</option>)}
             </select>
+            <PineCatalogBrowser onImport={importCatalog} />
+            <p className="mt-3 text-[11px] leading-5 text-slate-300">Catalog execution is experimental. Current plot limits can reject scripts; fills and some shapes are omitted with chart warnings.</p>
             <details className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3 text-xs leading-5 text-slate-400">
               <summary className="cursor-pointer font-semibold text-slate-200">Language reference</summary>
               {pine ? <div className="mt-3 space-y-2 text-slate-300"><p>Paste a native script with //@version=5 or 6. Check source to generate settings; run to calculate plots or the strategy’s own orders.</p><p>Only the loaded symbol and timeframe are available. Secondary data requests fail explicitly. Some drawing outputs are unavailable and produce warnings.</p><p>PineTS is experimental and independently developed. Results may differ from TradingView.</p><p><a className="text-cyan-200 underline underline-offset-4" href="/LICENSE.txt" target="_blank" rel="noreferrer">AGPL licence</a> · <a className="text-cyan-200 underline underline-offset-4" href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">Source and notices</a></p></div> : <pre className="mt-3 whitespace-pre-wrap font-mono text-[11px] leading-5">{EDGE_INDICATOR_DSL_REFERENCE}</pre>}
+              <p className="mt-3 text-slate-300">For TradingView built-ins, use Pine Editor → Open → Built-in script. <a className="inline-flex min-h-11 items-center text-cyan-200 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" href="https://www.tradingview.com/support/solutions/43000481659-i-want-to-see-the-source-code-of-a-built-in-script/" target="_blank" rel="noreferrer">TradingView source access guide</a>. Official source and redistribution rights are not verified for this catalog; official originals are not packaged here.</p>
             </details>
           </aside>
 

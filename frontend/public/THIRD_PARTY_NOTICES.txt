@@ -13,6 +13,15 @@ PineTS incorporates Acorn and Acorn Walk under the MIT licence and Astring under
 the MIT licence. Their copyright and permission notices follow below.
 Other EdgeLab dependencies retain their original licences and notices.
 
+The community Pine catalog includes 21 unmodified source files from
+everget/tradingview-pinescript-indicators, authored and copyright Alex Orekhov
+(everget), under GPL-3.0 as stated in each original source header. The pinned
+revision is 0b164e1e4f2fb7b06524c6d0a26e6132228c9448. Original sources,
+per-file copyright notices, source hashes and the full upstream GPL licence are
+distributed in /catalog/pine/everget/0b164e1e4f2fb7b06524c6d0a26e6132228c9448/.
+Upstream: https://github.com/everget/tradingview-pinescript-indicators
+These are community implementations, not TradingView-owned source code.
+
 EdgeLab's original code is available under AGPL-3.0-only. When distributing a
 Pine-enabled build or serving it to users, provide its complete corresponding
 source under that licence, including local changes and scripts needed to build

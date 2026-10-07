@@ -28,3 +28,11 @@ npm run test:ui-certification:runtime
 ```
 
 The JSON and Markdown records under `docs/` are inputs to these checks. Update them only alongside the corresponding UI behavior and tests.
+
+## Pine community catalog
+
+`node scripts/refresh-pine-catalog.mjs` fetches the latest `master` commit from `everget/tradingview-pinescript-indicators` and preserves the selected 21 original scripts, their full GPL-3.0 licence and immutable provenance under `frontend/public/catalog/pine/everget/`. To pin a revision, use `node scripts/refresh-pine-catalog.mjs --commit FULL_GIT_SHA` with a complete lowercase 40-character commit hash.
+
+The command validates original author/licence headers, UTF-8 bytes, Pine versions, SHA-256 and Git blob identities. It appends a new revision and index entry atomically; existing revisions are verified without overwriting them. A concurrent process receives a busy error. If a process crashes, inspect its `.refresh.lock` and confirm that it has stopped before removing the lock and retrying.
+
+Review refreshed sources and licence changes, run the repository checks, and rebuild the frontend before distribution. The editor's **Reload catalog** reads the latest packaged revision; it does not fetch directly from GitHub or update a saved script. Importing opens an unsaved copy with pinned provenance. Source edits, saved history and chart instances retain their own source and upstream base until the user explicitly chooses another revision. These are community implementations, not TradingView-owned built-in sources. Seventeen originals use older Pine versions and require a separate migration; four v6 originals have experimental execution, with unsupported output reported by the runtime.

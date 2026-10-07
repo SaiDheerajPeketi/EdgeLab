@@ -196,6 +196,7 @@ export type ChartIndicatorInstance = {
   customScriptVersion?: number;
   customQuantSemantics?: import("./customIndicators").QuantIndicatorSemantics;
   customPinePrepared?: import("./pineProtocol").PinePrepareResult;
+  customCatalogOrigin?: import("./pineCatalog").PineCatalogProvenance;
   runtimeError?: string | null;
   visible?: boolean;
   createdAt?: string;

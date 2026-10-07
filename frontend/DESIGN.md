@@ -43,6 +43,8 @@ The EdgeLab mark is a forward-cut cyan E beside a grounded white L. Use the same
 
 The public hero's dimensional study uses 96 fixed synthetic OHLC candles, with Price, Decisions and Review views over the same data. Perspective changes the view, never the prices. The desktop sculpture shares the introduction; on mobile it follows the working chart in both reading and visual order. Three.js loads near the scene, renders on demand, pauses offscreen and releases its resources on exit. Its keyboard controls, synthetic-data summary and readable fallback remain available without autoplay. Working workflow examples expose replay transport, trade selection and review; pause intent survives scrolling away and back, and reduced motion preserves manual stepping.
 
+The indicator editor's community catalog extends the existing operating layout as a collapsible source browser. Original author, licence, Pine version, revision and source identity stay readable beside the draft; edited copies retain their upstream base. Preview before importing, distinguish experimental native execution from legacy migration, and keep catalog reload separate from replacing a saved script. Catalog controls and source links have 44px targets, visible focus, contained mobile widths and readable loading/error recovery. Downloads use the verified original bytes.
+
 ## Non-goals
 
 No LuxAlgo visual clone, decorative glass everywhere, novelty motion in repeated workflows, invented proof, or replacement of expert tools with simplified substitutes.

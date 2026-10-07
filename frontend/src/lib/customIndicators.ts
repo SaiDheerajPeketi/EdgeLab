@@ -6,6 +6,7 @@ import {
 } from "./serverStorage";
 import { parseEdgeIndicator, type EdgeIndicatorInputValue } from "./indicatorDsl";
 import { normalizeChartTimeframe, type ChartIndicatorInstance } from "./charting";
+import { sanitizePineCatalogProvenance, type PineCatalogProvenance } from "./pineCatalog";
 import { canonicalPineTimeframe, PINE_LIMITS, PineProtocolError, validatePineRequest, validatePineResponse, type PineContext, type PinePrepareResult } from "./pineProtocol";
 
 export const CUSTOM_INDICATORS_STORAGE_KEY = "custom-indicator-scripts.v1";
@@ -34,6 +35,7 @@ export type CustomIndicatorPreview =
   | "zones";
 
 export type CustomIndicatorVersion = {
+  catalogOrigin?: PineCatalogProvenance;
   createdAt: string;
   revision: number;
   source: string;
@@ -56,6 +58,7 @@ export type CustomIndicatorScript = {
   versions: CustomIndicatorVersion[];
   quantSemantics?: QuantIndicatorSemantics;
   pinePrepared?: PinePrepareResult;
+  catalogOrigin?: PineCatalogProvenance;
 };
 
 export type QuantIndicatorSemantics = {
@@ -230,7 +233,7 @@ export function persistCustomIndicators(scripts: CustomIndicatorScript[]) {
 
 export function saveCustomIndicator(
   scripts: CustomIndicatorScript[],
-  draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms"> & { quantSemantics?: QuantIndicatorSemantics },
+  draft: Pick<CustomIndicatorScript, "category" | "color" | "description" | "id" | "inputs" | "name" | "preview" | "source" | "synonyms"> & { quantSemantics?: QuantIndicatorSemantics; catalogOrigin?: PineCatalogProvenance },
   options: { clearIncompatibleQuantSemantics?: boolean; pinePrepared?: PinePrepareResult } = {},
 ) {
   const native = isPineScriptSource(draft.source);
@@ -255,6 +258,7 @@ export function saveCustomIndicator(
   const next: CustomIndicatorScript = {
     ...draft,
     inputs: savedInputs,
+    catalogOrigin: sanitizePineCatalogProvenance(Object.prototype.hasOwnProperty.call(draft, "catalogOrigin") ? draft.catalogOrigin : existing?.catalogOrigin),
     category: draft.category ?? "custom",
     color: validColor(draft.color),
     createdAt: existing?.createdAt ?? now,
@@ -268,7 +272,7 @@ export function saveCustomIndicator(
     updatedAt: now,
     versions: [
       ...(existing?.versions ?? []),
-      ...(existing ? [{ createdAt: existing.updatedAt, revision: existing.revision, source: existing.source }] : []),
+      ...(existing ? [{ createdAt: existing.updatedAt, revision: existing.revision, source: existing.source, catalogOrigin: existing.catalogOrigin }] : []),
     ].slice(-MAX_SCRIPT_VERSIONS),
     quantSemantics: quantSemanticsWarning ? undefined : sanitizeQuantSemantics(requestedQuantSemantics),
     pinePrepared,
@@ -322,6 +326,7 @@ export function createCustomIndicatorInstance(
     createdAt: new Date().toISOString(),
     customOverlay: prepared?.overlay ?? parsed.program?.overlay ?? true,
     customPinePrepared: prepared,
+    customCatalogOrigin: sanitizePineCatalogProvenance(script.catalogOrigin),
     customScriptId: script.id,
     customScriptName: script.name,
     customScriptSource: script.source,
@@ -373,6 +378,7 @@ export function sanitizeCustomIndicators(value: unknown): CustomIndicatorScript[
       versions: sanitizeVersions(candidate.versions),
       quantSemantics: native ? undefined : sanitizeQuantSemantics(candidate.quantSemantics),
       pinePrepared: prepared,
+      catalogOrigin: sanitizePineCatalogProvenance(candidate.catalogOrigin),
     }];
   }).slice(0, MAX_CUSTOM_INDICATORS);
 }
@@ -413,7 +419,7 @@ function sanitizeVersions(value: unknown): CustomIndicatorVersion[] {
     const version = item as CustomIndicatorVersion;
     const native = isPineScriptSource(version.source);
     if (native && new TextEncoder().encode(version.source).length > PINE_LIMITS.sourceBytes) return [];
-    return [{ createdAt: validDate(version.createdAt), revision: positiveInteger(version.revision, 1), source: native ? version.source : version.source.slice(0, 20_000) }];
+    return [{ catalogOrigin: sanitizePineCatalogProvenance(version.catalogOrigin), createdAt: validDate(version.createdAt), revision: positiveInteger(version.revision, 1), source: native ? version.source : version.source.slice(0, 20_000) }];
   }).slice(-MAX_SCRIPT_VERSIONS);
 }
 

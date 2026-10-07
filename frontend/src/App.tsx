@@ -132,6 +132,7 @@ import {
   type CustomIndicatorScript,
 } from "./lib/customIndicators";
 import type { EdgeIndicatorInputValue } from "./lib/indicatorDsl";
+import { sanitizePineCatalogProvenance } from "./lib/pineCatalog";
 import {
   appendQuantAudit,
   snapshotQuantChartContext,
@@ -4418,6 +4419,7 @@ function sanitizeIndicatorInstance(value: unknown): ChartIndicatorInstance | nul
   return {
     ...common,
     customPinePrepared: prepared,
+    customCatalogOrigin: sanitizePineCatalogProvenance(candidate.customCatalogOrigin),
     customQuantSemantics: native ? undefined : sanitizeQuantSemantics(candidate.customQuantSemantics),
     customOverlay: prepared?.overlay ?? candidate.customOverlay === true,
     customScriptId: candidate.customScriptId.trim().slice(0, 96),

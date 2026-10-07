@@ -4,6 +4,8 @@ EdgeLab is a local-first trading workspace for market replay, charting, trade jo
 
 The native Pine editor uses PineTS 0.11.0 under AGPL-3.0-only; EdgeLab's original code uses the same licence. See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md). Distribution or service deployments of Pine-enabled builds must offer complete matching application source, including changes and build scripts. The chart editor supports original EdgeLab DSL and experimental native Pine v5/v6 indicators and strategy tests; PineTS results are not guaranteed to match TradingView.
 
+The editor's community catalog preserves 21 original GPL-3.0 studies by Alex Orekhov (everget), with commit, source hash and licence records. Four originals use Pine v6; the other 17 remain available to inspect and download while migration is pending. Catalog refreshes append revisions and leave saved scripts and chart copies unchanged. See [catalog maintenance](scripts/README.md#pine-community-catalog).
+
 ## What is here
 
 - Live and historical charts, multi-pane layouts, indicators, drawings, and order-flow views.
